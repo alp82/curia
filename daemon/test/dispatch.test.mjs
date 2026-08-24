@@ -6785,6 +6785,7 @@ describe('a re-authentication session is invisible to every sweep (#642)', () =>
     assert.equal(held.consumer, undefined)
     assert.deepEqual(held.frozen, ['curia-600'])
     assert.equal(held.operation, 'anthropic account usage probe')
+    assert.equal(held.trigger, undefined, 'the schedule found this one, and there is nothing to name (#678)')
     const rows = d.credentialsStatus().consumers
     assert.ok(rows.filter((row) => row.provider === 'anthropic').every((row) => row.held?.why))
     assert.equal(rows.find((row) => row.provider === 'openai').held, undefined)
@@ -6819,8 +6820,64 @@ describe('a re-authentication session is invisible to every sweep (#642)', () =>
       anthropicHealth: { check: async () => { calls += 1; return { terminal: false, status: 200 } } },
     })
 
-    assert.deepEqual(await d.checkAnthropicCredential(), { terminal: false, status: 200 })
+    // The answer is the LANE'S HOLD and not the probe's own verdict (#678): the
+    // caller is composing a line for an operator, and what belongs on that line
+    // is whether the lane is held — which this check may have just armed, or
+    // which may have stood since long before it.
+    assert.equal(await d.checkAnthropicCredential(), null, 'a free lane answers null')
     assert.equal(calls, 1)
+  })
+
+  // #678. The overseer's failed turn is a TRIGGER, not evidence: it runs the
+  // detector that already exists and the detector's typed verdict decides.
+  test('a triggered check names itself, and the name reaches the journal line', async () => {
+    let d
+    const asked = []
+    d = makeDispatcher({}, {
+      anthropicHealth: {
+        check: async (opts) => {
+          asked.push(opts ?? null)
+          await d.holdCredentialLane({
+            provider: 'anthropic', consumers: ['claude', 'overseer'],
+            operation: 'anthropic model metadata probe', by: 'provider',
+            status: 401, code: 'authentication_error',
+            why: 'Anthropic rejected the static credential with HTTP 401 authentication_error',
+            trigger: opts?.trigger ?? null,
+          })
+          return null
+        },
+      },
+    })
+    d.announce = async () => true
+    d.startReauth = async () => 'sign-in running'
+
+    const held = await d.checkAnthropicCredential({ trigger: 'overseer_turn' })
+
+    assert.deepEqual(asked, [{ trigger: 'overseer_turn' }], 'the trigger reaches the detector by name')
+    assert.equal(held?.provider, 'anthropic', 'and the caller is answered with the hold it just armed')
+    assert.match(held.why, /401 authentication_error/)
+    const line = events.find((event) => event.type === 'credential_hold')
+    assert.equal(line.trigger, 'overseer_turn')
+    // `by` is the classification route and `operation` is the reader. Neither is
+    // free to mean "a failed overseer turn is why curia looked".
+    assert.equal(line.by, 'provider')
+    assert.equal(line.operation, 'anthropic model metadata probe')
+  })
+
+  test('a hold that stood before the check is still the answer', async () => {
+    const d = makeDispatcher({}, {
+      anthropicHealth: { check: async () => null },
+    })
+    d.cooling.holdProvider('anthropic', 'held a while ago')
+
+    const held = await d.checkAnthropicCredential({ trigger: 'overseer_turn' })
+
+    assert.equal(held?.why, 'held a while ago', 'the lane is held, whoever armed it and whenever')
+  })
+
+  test('a daemon brokering no anthropic credential answers null rather than throwing', async () => {
+    const d = makeDispatcher({}, { anthropicHealth: null })
+    assert.equal(await d.checkAnthropicCredential({ trigger: 'overseer_turn' }), null)
   })
 
   // ONCE PER TRANSITION. The broker latches itself off the wire so a second

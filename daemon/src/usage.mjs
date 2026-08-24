@@ -562,22 +562,36 @@ class CredentialRefusals {
     this.retryAt = 0
   }
 
-  async refused(credId, verdict) {
+  // `trigger` names what asked for this check, and it is carried rather than
+  // acted on: the sequence below is identical whether a clock or a failed turn
+  // brought the response in. See `#terminal` for why it lands on the outcome.
+  async refused(credId, verdict, trigger = null) {
     this.#prepare(credId)
-    if (verdict.terminal) return this.#terminal(credId, verdict, 'provider')
+    if (verdict.terminal) return this.#terminal(credId, verdict, 'provider', trigger)
     this.failures += 1
     if (this.failures >= TRANSIENT_RETRY_BOUND) {
       return this.#terminal(credId, {
         ...verdict,
         why: `${TRANSIENT_RETRY_BOUND} ${this.operation} responses in a row were unrecognized credential refusals. The last was ${verdict.why}`,
-      }, 'bound')
+      }, 'bound', trigger)
     }
     this.retryAt = this.now() + CREDENTIAL_RETRY_MS
     this.log(`${this.operation}: ${verdict.why}. Attempt ${this.failures} of ${TRANSIENT_RETRY_BOUND}, retrying on the next credential tick`)
     return { terminal: false, attempt: this.failures, of: TRANSIENT_RETRY_BOUND, ...verdict }
   }
 
-  async #terminal(credId, verdict, by) {
+  // A NEW FIELD, NOT A REUSE (#678). Three words on this outcome could each be
+  // mistaken for "why we looked", and none of them means it: `by` is the
+  // classification route the verdict took (`provider` or `bound`), `operation`
+  // is which reader saw the response, and `consumers` is who the hold lands on.
+  // "A failed overseer turn is what made curia ask" is a fourth fact, and it is
+  // the whole value of the trigger — an operator reconstructing an incident
+  // needs to know whether the schedule found this or an operator's own message
+  // did, and no existing field is free to say so.
+  //
+  // ABSENT rather than null when the schedule found it: a key that is there
+  // says something happened, and a scheduled check has nothing to name.
+  async #terminal(credId, verdict, by, trigger = null) {
     this.terminalFor = credId
     this.failures = 0
     this.retryAt = 0
@@ -585,6 +599,7 @@ class CredentialRefusals {
       provider: 'anthropic', consumers: ANTHROPIC_CONSUMERS, operation: this.operation,
       by, ...verdict,
       ...(by === 'bound' ? { attempts: TRANSIENT_RETRY_BOUND } : {}),
+      ...(trigger ? { trigger } : {}),
     }
     await this.onTerminal(outcome)
     return outcome
@@ -611,23 +626,40 @@ export class AnthropicCredentialHealth {
     })
   }
 
-  async check() {
+  // `trigger` names an EVENT that asked for this check, and it does exactly two
+  // things: it skips the schedule's interval, and it rides onto the terminal
+  // outcome (#678).
+  //
+  // ONE PARAMETER FOR BOTH, because they are one fact. The interval exists to
+  // stop a CLOCK from polling faster than it needs to; a consumer reporting a
+  // model call that just failed is not a clock, and it has new information the
+  // clock does not. A separate `force` flag would let a caller claim the bypass
+  // without saying who it is, and the journal line would then have to guess.
+  //
+  // THE INTERVAL IS THE ONLY THING IT SKIPS. The terminal latch, the retry
+  // clock and the in-flight collapse below are facts about the CREDENTIAL — it
+  // is already given up on, it is already being retried on a clock, it is
+  // already being asked about right now — and a caller reporting a failed turn
+  // knows none of those. Skipping them would turn a chatty failure into a
+  // request per turn against an endpoint that has already answered.
+  async check({ trigger = null } = {}) {
     if (!this.fetchImpl || !SAFE_MODEL_ID.test(this.probeModel)) return null
     const cred = anthropicCredential(this.credentials?.read())
     if (!cred) return null
     const credId = fingerprint(cred.secret)
     if (this.refusals.blocked(credId)) return null
     const retrying = this.refusals.retrying(credId)
+    const throttled = this.lastAttemptAt !== null && this.now() - this.lastAttemptAt < USAGE_ATTEMPT_MS
     if (retrying
       ? !this.refusals.retryDue(credId)
-      : this.lastAttemptAt !== null && this.now() - this.lastAttemptAt < USAGE_ATTEMPT_MS) return null
+      : !trigger && throttled) return null
     if (this.pending) return this.pending
     this.lastAttemptAt = this.now()
-    this.pending = this.#check(cred, credId).finally(() => { this.pending = null })
+    this.pending = this.#check(cred, credId, trigger).finally(() => { this.pending = null })
     return this.pending
   }
 
-  async #check(cred, credId) {
+  async #check(cred, credId, trigger = null) {
     let res
     try {
       res = await this.fetchImpl(`${MODELS_URL}/${this.probeModel}`, {
@@ -642,7 +674,7 @@ export class AnthropicCredentialHealth {
       return null
     }
     const refusal = await classifyAnthropicCredentialRefusal(res)
-    if (refusal) return this.refusals.refused(credId, refusal)
+    if (refusal) return this.refusals.refused(credId, refusal, trigger)
     this.refusals.accepted(credId)
     if (!res.ok) this.log(`anthropic model metadata probe failed: HTTP ${res.status}`)
     return { terminal: false, status: res.status }

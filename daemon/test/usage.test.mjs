@@ -565,6 +565,121 @@ describe('the anthropic credential health probe (#666)', () => {
 
     assert.deepEqual(terminal, [])
   })
+
+  // #678: the schedule is ten minutes wide, and a consumer whose model call
+  // just failed is the earliest thing on the box that can know something is
+  // wrong. It asks for a check by name, and the name rides into the outcome.
+  test('a triggered check skips the schedule interval and names itself on the outcome', async () => {
+    let now = NOW
+    let calls = 0
+    const terminal = []
+    const probe = new AnthropicCredentialHealth({
+      credentials: store(),
+      now: () => now,
+      fetchImpl: async () => { calls += 1; return response(401, 'authentication_error') },
+      onTerminal: async (outcome) => terminal.push(outcome),
+    })
+
+    // The schedule's own call, one second ago. A second scheduled call inside
+    // the interval is refused, and the triggered one is not.
+    await probe.check()
+    now += 1000
+    assert.equal(await probe.check(), null, 'the interval still holds the schedule off')
+    assert.equal(calls, 1)
+
+    // The latch is what stops the second request here, not the interval — so a
+    // fresh credential is needed to prove the bypass reaches the wire at all.
+    const owned = store()
+    const triggered = new AnthropicCredentialHealth({
+      credentials: owned,
+      now: () => now,
+      fetchImpl: async () => { calls += 1; return response(200) },
+      onTerminal: async (outcome) => terminal.push(outcome),
+    })
+    await triggered.check()
+    const before = calls
+    now += 1000
+    assert.equal(await triggered.check(), null, 'a scheduled call one second later is still refused')
+    assert.equal(calls, before)
+    await triggered.check({ trigger: 'overseer_turn' })
+    assert.equal(calls, before + 1, 'the triggered call goes to the wire inside the interval')
+
+    assert.equal(terminal.length, 1, 'the 401 above armed one hold')
+    assert.equal(terminal[0].trigger, undefined, 'a scheduled check names no trigger')
+  })
+
+  test('a triggered check rides its name onto the terminal outcome', async () => {
+    let now = NOW
+    const terminal = []
+    const probe = new AnthropicCredentialHealth({
+      credentials: store(),
+      now: () => now,
+      fetchImpl: async () => response(401, 'authentication_error'),
+      onTerminal: async (outcome) => terminal.push(outcome),
+    })
+
+    await probe.check({ trigger: 'overseer_turn' })
+
+    assert.equal(terminal.length, 1)
+    assert.equal(terminal[0].trigger, 'overseer_turn')
+    assert.equal(terminal[0].by, 'provider', 'the trigger says why curia looked, `by` still says what it found')
+    assert.equal(terminal[0].operation, 'anthropic model metadata probe')
+  })
+
+  // The interval is the only thing a trigger may skip. The latch, the retry
+  // clock and the in-flight collapse are facts about the CREDENTIAL, and a
+  // caller reporting a failure knows nothing about those.
+  test('a trigger skips the interval and nothing else', async () => {
+    let now = NOW
+    let calls = 0
+    const probe = new AnthropicCredentialHealth({
+      credentials: store(),
+      now: () => now,
+      fetchImpl: async () => { calls += 1; return response(401, 'authentication_error') },
+      onTerminal: async () => {},
+    })
+
+    await probe.check()
+    assert.equal(calls, 1)
+    assert.equal(await probe.check({ trigger: 'overseer_turn' }), null, 'the terminal latch outranks the trigger')
+    assert.equal(calls, 1)
+
+    // The retry clock, on a credential the probe has not given up on.
+    let bare = 0
+    const retrying = new AnthropicCredentialHealth({
+      credentials: store(),
+      now: () => now,
+      fetchImpl: async () => { bare += 1; return response(401) },
+      onTerminal: async () => {},
+    })
+    await retrying.check()
+    assert.equal(bare, 1)
+    assert.equal(await retrying.check({ trigger: 'overseer_turn' }), null, 'the retry clock outranks the trigger')
+    assert.equal(bare, 1)
+    now += CREDENTIAL_RETRY_MS
+    await retrying.check()
+    assert.equal(bare, 2, 'and the clock still runs out on its own')
+  })
+
+  test('a triggered check joins the request already in flight', async () => {
+    let now = NOW
+    let calls = 0
+    let release
+    const held = new Promise((r) => { release = r })
+    const probe = new AnthropicCredentialHealth({
+      credentials: store(),
+      now: () => now,
+      fetchImpl: async () => { calls += 1; await held; return response(200) },
+      onTerminal: async () => {},
+    })
+
+    const first = probe.check()
+    const second = probe.check({ trigger: 'overseer_turn' })
+    release()
+    await Promise.all([first, second])
+
+    assert.equal(calls, 1, 'two callers, one request')
+  })
 })
 
 describe('agentMeters', () => {

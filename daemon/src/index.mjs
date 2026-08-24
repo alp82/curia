@@ -1433,6 +1433,16 @@ const overseerContainer = new OverseerClient({
   daemonPort: PORT,
   daemonHost: GUEST_DAEMON_HOST,
   turns: overseerTurns,
+  // #678: the overseer is a model-credential consumer, and it takes a turn
+  // whenever the operator speaks. That makes a failed turn the earliest thing
+  // on this box that can know the anthropic credential died — the detector's
+  // own schedule is ten minutes wide.
+  //
+  // The wire is deliberately thin: a failed turn reports THAT it failed, and
+  // the detector decides WHETHER anything is wrong. There is no second caller.
+  // The codex lane's signal is its own failing refresh, and a claude agent's
+  // failed turn arrives as a pane, which is the pane classifier's.
+  onModelCallFailed: () => dispatcher.checkAnthropicCredential({ trigger: 'overseer_turn' }),
   log,
 })
 
