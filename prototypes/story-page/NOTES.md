@@ -95,6 +95,462 @@ languages over that palette: 1 duotone (glow orbs over grain), 2 poster (numeral
 picked duotone, confirmed the per-medium palette as the identity rule, and confirmed the hero
 exception. The losing languages and the switcher left the file with this round.
 
+## The opening arc ([#625](https://github.com/alp82/curia/issues/625))
+
+Scenes 1 to 3 — the hero, the mess and the maps-bring-order beat.
+
+**Round 1.** The three scenes became ONE pinned stage, which is what the operator's round 2 note
+asked for: the animation holds its place, the hero words dock at the bottom and leave, the camera
+climbs into the mess above, then falls back through curia onto the maps. One scroll value drives
+the camera, the cards and the words.
+
+The rule of the arc: above the curia line a ticket is gray and askew, and below it the same ticket
+is colored and square. That line is what curia does, and it is what makes the effect visible.
+
+What the round 2 notes changed, one by one:
+
+- **curia is large.** The node is a tenth of the shorter viewport edge, never under 58 px across,
+  with its name set at 42 per cent of its radius.
+- **The maps are large and close.** Three cards, 252 px wide, 20 px apart, centered. One card on a
+  phone. They stand from the first frame, so the first screen shows ordered work coming out.
+- **Tickets look like tickets.** A state edge, a GitHub issue icon that goes dashed when the ticket
+  is blocked, the number in mono, a label chip in the state color, and the title. 216 px wide.
+- **The effect is loud.** Every card crosses the line gray and leaves it colored, with a pop and a
+  ring thrown from the node.
+- **Agents pick tickets up.** In the last beat an amber orb flies to the takeable row of each map,
+  the row runs, merges, fades out, the map bar advances, and the ticket it blocked lights up.
+- **The mess is the same place, closer.** It is no longer a separate screen. The camera rises into
+  it and the background drains toward gray.
+- **The order beat explains itself.** The maps are three real maps of this repo with their real
+  tickets. Blocked rows carry a dashed ring and hang off the row they wait on, and a legend names
+  blocked, takeable and an agent on it.
+
+Five stagings ride `?id=1..5`, five hero titles ride `?t=1..5`, and a switcher carries both:
+
+| id | staging | the mess | what curia is |
+|----|---------|----------|---------------|
+| 1 | funnel | free scatter, drifting | a ring with a turning collar |
+| 2 | scanner | a neat grid | a full-width scan bar with a lens |
+| 3 | collapse | an overlapping, tilted pile | a disc throwing shockwaves |
+| 4 | lanes | one unsorted column | a sorting bracket, one map close up, every row tagged |
+| 5 | orbit | a cloud turning around the node | a solid disc |
+
+The five hero titles, offered because #551 round 3 confirmed the Matt Pocock wrapper claim
+overrides the headline locked at [#587](https://github.com/alp82/curia/issues/587):
+
+1. The locked line, kept as the control: "Coding agents controlled from your phone".
+2. The wrapper claim on its own line above the locked line.
+3. "Matt Pocock's skills, dispatched to coding agents from your phone".
+4. "Run Matt Pocock's wayfinder from your phone".
+5. The kicker carries it: "curia — a self-hosted wrapper for Matt Pocock's skills".
+
+Title 4 uses "wayfinder", which positioning.md bans as internal vocabulary, so it needs an
+operator ruling before it can ship.
+
+The page still reads with no script and with reduced motion: the track collapses to one screen and
+the three panels stack as ordinary sections.
+
+**The operator's answers.** The hero title is **4**, "Run Matt Pocock's wayfinder from your phone".
+The wayfinder ban is **removed**, because the page should encourage the word rather than avoid it.
+Both changes are recorded in [positioning.md](../../docs/landing-page/positioning.md) by this
+ticket. The scroll length is left for a later round.
+
+No staging won. The notes, grouped:
+
+- **The scroll.** Every staging hijacked it. Visuals may react to the scroll, but some content must
+  scroll normally, and the big titles and their subtext must never wait.
+- **The mess.** The orbiting cloud of staging 5 is the winner. The scatter of 1 and 3 drew a
+  diagonal that looks bad, and the rows of 2 and 4 look sorted already.
+- **The design.** Best at 5 and 1. Tickets coming in and going out is the part that works.
+- **The maps.** They feel static, and tickets stay in them.
+- **curia.** It is big, but its purpose is unclear.
+- **The order beat.** The same in all five, and it works.
+- **Staging 4** carries an extra fault: only one map.
+
+**Round 2.** The arc was rebuilt on those notes, and the hero now carries title 4.
+
+The pin is gone. The canvas sticks for one screen and the words scroll over it in normal flow, so
+the reader keeps the scroll and no title ever waits. The camera reads the words rather than a
+scroll fraction: the mess claim pulls it up into the cloud, and the order claim brings it down onto
+the maps.
+
+The mess orbits in every staging now, at several radii, in two counter-turning shells. The maps run
+on their own clocks from the first frame: an agent flies in for the takeable row, works it, the row
+merges, the agent carries it off, the queue steps up a place, and new work drops in at the bottom.
+The stream never stops, so work is always entering curia and always leaving it. The scroll into the
+order beat pushes the whole stream forward, which is what the scroll buys.
+
+Every staging tells curia's purpose a different way. That was the open fault, so it became the
+axis the five vary on:
+
+| id | staging | how curia's job reads |
+|----|---------|-----------------------|
+| 1 | routes | three lit routes run from curia to three named maps, before a ticket moves |
+| 2 | ports | one port per map on curia's rim, and a ticket leaves by its own port |
+| 3 | stamp | curia stamps the map badge onto each card as it crosses, with a harder flash |
+| 4 | queue | tickets line up at the rim and curia pulls them in one at a time |
+| 5 | pulse | curia beats, and each beat pulls a batch in and fires it out |
+
+All five keep the orbiting cloud, the live maps, the solid disc with its turning collar, and the
+order beat. The disc carries one line under its name that says what it does.
+
+**The operator's answer.** Two faults, and no pick:
+
+> strange, all 5 look the same to me. also the scrolling content is blocking the animations. they
+> should never get in each others way. instead they need to dance together in a flowing motion
+
+Both were fair. The five differed only in ornament: a port dot, a badge chip, a flash. The
+composition was the same in all five, so on a phone they read as one page. And the words scrolled
+over a canvas that knew nothing about them, so the art sat under the text.
+
+**Round 3.** Two changes, and a lesson worth keeping.
+
+**The lesson.** Round 2 varied the fix for a fault instead of varying the design. curia's unclear
+purpose was a fault to repair everywhere, not an axis to spread across five. So all five now carry
+the whole repair: the disc says "reads every repo" under its name, its rim holds one port per map,
+and lit routes run from it to each map before a ticket moves. The variations went to the design.
+
+**The words and the art share the screen.** They never overlap. Every frame the canvas measures
+each block of words on screen, takes the largest space they have left, and eases into it. On a wide
+screen each claim docks to its own side and the art takes the other, which is the alternation #624
+already asked for. On a phone they trade the top and the bottom.
+
+The blocks are measured apart rather than merged. One rectangle around all of them swallows the
+whole screen whenever two claims are on it at once, one leaving the top and the next arriving,
+which is most of the scroll.
+
+The eased box is where the art wants to be, and it lags the scroll on purpose, because easing is
+what makes the motion flow. The words move at scroll speed, so the promise is kept against their
+live rectangle every frame, after the fact. A card that would land on a word is pushed off it by
+the shortest distance.
+
+**The five differ by axis.** Not by ornament:
+
+| id | composition | where the work goes |
+|----|-------------|---------------------|
+| 1 | stack | the pile above, curia, the maps below. Work falls |
+| 2 | rise | the pile below, curia, the maps above. Work climbs |
+| 3 | conveyor | the pile at one end, curia in the middle, the maps stacked at the far end |
+| 4 | diagonal | the pile in one corner, the maps stepping down to the far one |
+| 5 | hub | curia holds the middle, large, and the work turns around it on every side |
+
+**The operator's answer.** No single pick. They took parts of two compositions, named the story the
+arc should tell, and changed what the mess is made of:
+
+> rise is nice because it can scroll the maps up out of sight naturally and focus on the mess
+>
+> at the hero level 1 does a better job to show the floating mess coming into curia
+>
+> scrolling 2 should move the maps away and translate the tickets in the orbiting variations from
+> earlier
+>
+> scrolling further should then bring the order by giving them the labels
+>
+> mess -> grayscale notes
+> organized -> labeled tickets
+
+**Round 5.** The composition is settled, and it borrows from both:
+
+1. **The hero** is stack, because it shows loose work floating down into curia with the maps
+   standing under it.
+2. **Scrolling** rides the maps up out of sight, the way rise made natural, while the work gathers
+   into the orbiting cloud.
+3. **Further** brings the labels, and that is what order means.
+
+The mess is no longer gray tickets. **A note carries no number, no kind and no state, only marks
+nobody can act on. A ticket carries all three.** One card is drawn for both, and every part of it
+crosses over on a single number, so a note becomes a ticket rather than fading into one. That makes
+curia's whole effect one move a reader can name: it gives work its labels.
+
+The five variations are the MOMENT the labels land, because that moment is the point of the scene:
+
+| id | moment | what the reader sees |
+|----|--------|----------------------|
+| 1 | sweep | a line walks down the cloud, and everything it has passed is labeled where it lies |
+| 2 | through | nothing is labeled until it has been through curia and out of a port |
+| 3 | snap | curia takes one beat and the whole pile turns at once, on a shockwave |
+| 4 | stamp | labels fly out of curia and land on the notes one at a time |
+| 5 | unfold | each note opens into a ticket where it floats, with a pop |
+
+**The operator's answer.** Three faults, and the last one is the one that matters:
+
+> all 5 look the same to me. also you didn't use RISE as the baseline. and you didn't use ORBIT for
+> the mess chapter at all.
+>
+> FOLLOW MY PREFERENCES WHEN BUILDING PROTOTYPES
+
+All three were right, and two were plain instructions from the round before that this build did not
+carry out. The round 3 answer said rise is the baseline. The build put the maps at the BOTTOM and
+the pile at the top, which is stack. The same answer said the tickets translate into the orbiting
+variation for the mess chapter. The build faded curia out during the mess, so there was nothing left
+to orbit.
+
+**Round 5.** The preferences first, then the variations.
+
+**Rise is the baseline.** The maps stand ABOVE, curia holds the middle, and the loose work lies
+BELOW it. Work climbs. That is what lets the maps ride up out of sight on the scroll and hand the
+screen to the mess, which is the reason the operator gave for choosing it.
+
+**The mess chapter is the orbit.** curia keeps its place and stays lit, and the work turns around
+it on every side. The hero keeps the quality of stack that the operator singled out: notes float
+into curia and come out as tickets for the maps, and that stream runs the whole time the hero words
+are on screen.
+
+**The five are the orbit**, because the orbit is the chapter the operator asked about:
+
+| id | orbit | what turns around curia |
+|----|-------|-------------------------|
+| 1 | ring | one necklace, every piece at the same radius, evenly spaced |
+| 2 | sphere | a globe, with real depth: work behind curia passes behind it |
+| 3 | spiral | one arm winding out of curia over three and a half turns |
+| 4 | lobes | a dumbbell, wide to each side, with sky above and below curia |
+| 5 | orrery | three rings at three radii, each on its own tilt and speed |
+
+A build check now asserts the preferences rather than trusting the build: the maps above curia and
+the work below it at the hero, the maps gone and curia still lit at the mess, work on all four sides
+of curia there, and the maps back for the order beat. It runs for every variation at two viewport
+sizes. Two rounds were lost to not checking this, and the check found a third fault on the way: the
+orbit was drawn wider than the space it had, so every card was clamped onto the boundary and all
+five shapes collapsed into the same rectangle of work.
+
+**The operator's answer.** The orbit is settled, and the order beat gets a new shape:
+
+> 1 at hero, 2 when scrolling
+>
+> scrolling immediately starts moving the scene into the second one
+>
+> the organization animation at 3 is too fast. lets bring the maps in position as empty ones and
+> tranform them into wayfinder tickets and put them into the maps in smaller pace to see what
+> happens
+
+**Round 6.** The orbit is the ring at rest and the globe on the scroll, and the two are blended by
+the arc's own scroll rather than by a chapter, so the necklace starts opening from the first turn of
+the wheel. The band also rounds out as it opens, bounded by the room it has.
+
+The order beat is rebuilt in the three steps the operator named:
+
+1. **The maps come back empty.** They travel into place on their own progress, ahead of everything
+   else, and they carry no rows at all.
+2. **Then the notes take their labels.** A card's chip now reads the label a ticket really wears on
+   this repo, `wayfinder:prototype`, cut back to the bare kind when the card is too narrow.
+3. **Then the tickets climb into the maps, one at a time.** A map fills from the top, and once it
+   holds three the oldest steps out to make room.
+
+**It is slower.** The tail room after the order claim went from 55svh to 110svh, and the beat's own
+window widened with it. The landing now runs over about eleven scroll steps in forty, against five
+before. That number is what "too fast" came down to, and it is the one thing this round changes
+about the pace itself.
+
+The five variations are the RHYTHM of that landing, which is what there is to watch:
+
+| id | rhythm | what the reader sees |
+|----|--------|----------------------|
+| 1 | one at a time | nothing overlaps: label, climb, land, then the next one |
+| 2 | labels first | the whole pile takes its labels, then the tickets go up in turn |
+| 3 | steady stream | labeling and climbing overlap, a few in the air at once |
+| 4 | map by map | one map fills, a pause, then the next |
+| 5 | state by state | the merged ones first, then the takeable, then the blocked |
+
+**The operator's answer.** Still too fast, and the maps arrive from the wrong side:
+
+> scene 2 should scroll the maps into place from the bottom to feel more natural with the journey
+>
+> the tickets move too fast even with a single scroll tick, it's just a super fast movement from the
+> mess into the map, i can see the actual ticket just for a split second
+>
+> i actually want to see how they move into curia, transform into the beautiful labeled self and the
+> move into the maps
+
+**Round 7.** The journey is three plain moves with a HOLD in the middle, so there is something to
+watch at each one:
+
+1. **Into curia.** The note climbs out of the orbit, straightening as it goes.
+2. **The change.** It STOPS at curia and becomes a labeled ticket, in place.
+3. **Into the map.** The ticket carries on up to the map it belongs to.
+
+The three moves get equal scroll. Six pieces of work make the journey and the rest stay in the
+orbit, because the backlog does not empty.
+
+**The maps rise from the bottom.** They ride up and out of sight for the mess as before, and the
+empty ones come back up from the foot of the screen, which is the way the reader is travelling. The
+two sets never cross, because the swap happens while both are off the screen. The maps are drawn
+last now, so one rising past the orbit passes in front of the work it is coming to collect.
+
+**What was capping the pace.** The beat used to be driven by the order claim crossing the screen,
+and a claim only takes about a screen to cross. It is driven by how far the reader has scrolled PAST
+the claim now, so the beat can be given as much scroll as it needs.
+
+**The five are a ladder of pace**, since pace is the open question. Everything else is identical in
+all five. Each rung sets its own tail room, so a quick pace leaves no dead scroll behind it.
+Measured on a 390 by 760 phone:
+
+| id | pace | scroll per move | whole journey | the arc |
+|----|------|-----------------|---------------|---------|
+| 1 | slowest | 192 px | 575 px | 9.9 screens |
+| 2 | slow | 150 px | 451 px | 8.4 screens |
+| 3 | middle | 115 px | 345 px | 7.1 screens |
+| 4 | quick | 88 px | 263 px | 6.1 screens |
+| 5 | quickest | 66 px | 197 px | 5.3 screens |
+
+For comparison, the whole journey was about 44 px of scroll in round 6, which is the split second
+the operator saw. The arc's total height is the price of watching six journeys, and it is what the
+ladder trades against.
+
+The preference check caught a silent failure this round: an edit meant to introduce the ladder did
+not apply, so the page kept one fixed pace while the notes claimed five. The five all measured
+identical, which is how it surfaced.
+
+**The operator's answer.** Three faults:
+
+> problems with scene 2:
+> * the maps should stay at the bottom, no need to move them above again
+> * the tickets make huge steps. i want a smooth movement and transition path
+> * first ticket can be done deliberately, and then it quickly grows exponentially to do the rest
+
+**Round 8.**
+
+**The maps stay at the bottom.** They still ride up and out of sight for the mess, and the empty
+ones rise from the foot of the screen, but they stop at the foot of the box now instead of climbing
+over curia again. curia sends work out of whichever rim faces its maps, so the ports and the routes
+turned to face down, and the orbit keeps clear of the map cards as well as of the edges.
+
+A map on its way up travels through space the words hold. Shoving it aside would spoil the arrival,
+so it fades across them instead. Nothing is ever drawn on top of a word either way.
+
+**The huge steps were one bad line, not a pace.** The journey's last move started at curia's PORT
+while the two before it ended at the HOLD above curia's middle, so the card vanished from one and
+reappeared at the other. The three moves share their end points now, and the last one is a curve
+bent through the port rather than a jump to it. The card also travels linearly with the scroll, so
+the movement tracks the reader's finger.
+
+**The first journey is deliberate, and the rest accelerate.** Each journey's window is the one
+before it times a ratio, so the first is long enough to follow and the last is a flash. The five
+variations are how steep that ramp is. Scroll for each of the six journeys, on a 390 by 760 phone:
+
+| id | ramp | #1 | #2 | #3 | #4 | #5 | #6 |
+|----|------|----|----|----|----|----|----|
+| 1 | gentle | 588 | 471 | 377 | 301 | 241 | 193 |
+| 2 | easy | 738 | 517 | 362 | 253 | 177 | 124 |
+| 3 | middle | 874 | 542 | 336 | 208 | 129 | 80 |
+| 4 | steep | 1063 | 553 | 287 | 149 | 78 | 40 |
+| 5 | steepest | 1266 | 532 | 223 | 94 | 39 | 17 |
+
+The arc is 7.1 screens for all five, because only the ramp changes.
+
+**A check for the path.** It follows one ticket by its number through its whole journey, with the
+clock held still so nothing but the traveller moves, and reports the largest hop for a small scroll
+step. The path now hops at most 19 px for an 8 px step. The check was wrong the first time: it
+matched cards to their nearest neighbour, and a neighbouring card stood in for the one that had
+jumped, so it reported smooth. Restoring the old bad line proved the fixed version catches it, at
+85 px.
+
+**The operator's answer.** The order beat becomes a pipeline, and the rhythm is named exactly:
+
+> at roughly this point, the curia node should be a bit further below, the maps should already
+> scroll in (faster than the content) and the sphereing ticket mess should resolve more above the
+> node so that we have a pipeline from (center/top) right to bottom
+>
+> the first ticket should then be processed with full visibility
+> then the second and third in very quick succession
+> and then the rest very quickly to clean up everything until nothing of the mess remains
+>
+> 5 variations, but always make them distinct, not only slightly different
+
+**Round 9.** The order beat is a pipeline read top to bottom: the mess resolves ABOVE curia, curia
+sits lower in the middle than it did, and the maps hold the foot of the box.
+
+**The maps arrive early and fast.** Their cue is the order claim approaching rather than the beat
+itself, so they are already rising while the claim is below the fold, and they cross the screen
+inside about two thirds of it. That is faster than the reader is scrolling.
+
+**Every piece of work now clears.** All fourteen make the journey, against six before, and the
+check asserts that nothing is left adrift at the end.
+
+**The rhythm**, measured on a 390 by 760 phone over a beat of 2171 px:
+
+| journey | scroll | share of the beat |
+|---------|--------|-------------------|
+| #1 | 1329 px | 0% to 61%, alone |
+| #2 | 372 px | 61% to 78% |
+| #3 | 319 px | 77% to 91% |
+| #4 to #14 | 230 px down to 9 px | the last 17%, three in the air at once |
+
+**The five pipelines** differ in the shape work takes on the way down, since the pipeline itself is
+settled. They are wholly different figures, not variants of one:
+
+| id | pipeline | the shape above curia |
+|----|----------|-----------------------|
+| 1 | column | one narrow stack, straight above curia |
+| 2 | funnel | a V, wide at the top and closing to a throat |
+| 3 | chute | one slant corner to corner, cutting across |
+| 4 | tiers | three shelves with clear sky between them |
+| 5 | vortex | a whirl standing over curia, winding inward |
+
+A check compares where every pipeline puts its work, pair by pair. The weakest pair now differs on
+45 per cent of cards, from 7 per cent when the shapes were first written: the early ones all lay
+along one another's edges. The arc is 7.1 screens for all five.
+
+**Two faults the checks caught.** `drawMapCard` took five arguments and was being called with six,
+so the alpha that fades an arriving map had been ignored since round 6 and the maps never faded at
+all. And a splice that inserted the pipelines deleted the curve helper the journey path depends on,
+which would have thrown on the first ticket to leave curia.
+
+**The operator's answer.** Curia went down while this question was open, and four calls failed
+before the answer came back on a later one. Nobody answered in the meantime and nothing was decided
+without them.
+
+> vortex works and is good enough. lets lock this in
+
+## The verdict of the opening arc ([#625](https://github.com/alp82/curia/issues/625))
+
+**Locked over nine operator rounds.** The other four pipelines, the switcher and the `?id` parameter
+left the file with the round that settled them, the way the identity switcher did at #624.
+
+**The hero title** is "Run Matt Pocock's wayfinder from your phone", picked at round 1 from five
+candidates. It overrides the headline locked at [#587](https://github.com/alp82/curia/issues/587),
+and it lifts the wayfinder ban. Both changes are recorded in
+[positioning.md](../../docs/landing-page/positioning.md) by this ticket.
+
+**Scenes 1 to 3 are one arc over a sticky canvas**, 7.1 screens tall:
+
+1. **The hero.** Rise is the baseline: the maps stand above, curia holds the middle, and loose work
+   lies below in a flat ring. Work climbs. Notes float up into curia and come out as tickets for the
+   maps, and that stream runs the whole time the hero words are on screen.
+2. **The mess.** The ring opens into a globe with real depth from the first turn of the wheel. The
+   maps ride up out of sight, and the work turns around a curia that keeps its place.
+3. **The order.** A pipeline top to bottom. The globe resolves into a vortex above curia, curia
+   sits lower, and the maps rise from the foot of the screen and stay there, arriving empty. Each
+   piece of work climbs out of the whirl, STOPS at curia to take its labels, then carries on into
+   its map. All fourteen clear, and nothing of the mess is left.
+
+**The rules the build keeps:**
+
+- **A note is not a ticket.** A note carries no number, no kind and no state, only marks nobody can
+  act on. A ticket carries all three, and its chip reads `wayfinder:prototype`. One card is drawn
+  for both, and every part crosses over on one number, so a note BECOMES a ticket.
+- **The words and the art never overlap.** The canvas measures each block of words on screen, takes
+  the largest space they leave, and eases into it. The blocks are measured apart, never merged. The
+  eased box lags on purpose, so the promise is kept against the live rectangle every frame.
+- **The scroll is never taken.** The words scroll in normal flow over a canvas that only reacts.
+- **The path never breaks.** The three moves of a journey share their end points, and the card
+  travels linearly with the scroll.
+- **The first journey is deliberate**, at 61 per cent of the beat, and the rest accelerate.
+- **The page reads with no script and with reduced motion.** The track collapses and the three
+  panels stack as ordinary sections.
+
+**Four build checks** run against the file, since no agent on this ticket can look at it:
+
+| check | what it asserts |
+|-------|-----------------|
+| preferences | the fifteen things the operator asked for, at two viewport sizes |
+| words | no canvas text lands on the words, at any scroll position |
+| path | one ticket followed by number never leaps, with the clock held still |
+| distinctness | five variations differ in fact, not only in the notes |
+
+Each one caught a real fault, and three of them were wrong themselves before they were right. The
+lesson worth keeping: a green check that has never been shown a known failure proves nothing. Every
+check here was validated by breaking the code on purpose first.
+
 ## The verdict
 
 **The identity is duotone, locked at [#624](https://github.com/alp82/curia/issues/624) over
