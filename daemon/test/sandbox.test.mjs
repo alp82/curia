@@ -20,11 +20,12 @@ import { spawn, spawnSync } from 'node:child_process'
 
 import {
   GUEST_CFG, GUEST_WT, GUEST_DAEMON_HOST, GUEST_GUARD_ENV, PORTS_PER_AGENT, PROBE_MARK, PROBE_PATH,
-  allocatePorts, containerPorts, dockerGateway, dockerRunCmd, modelCredential,
+  allocatePorts, containerPorts, dockerGateway, dockerRunCmd,
   probeSideChannel, seedKillGuard, sourceAddressFor, stopContainer, writeEnvFile,
 } from '../src/sandbox.mjs'
 import { installSkills, seedConfigDir, agentEnv, writePrompt as realWritePrompt } from '../src/workspace.mjs'
 import { journalDouble } from './fixtures/journal.mjs'
+import { workingAnthropicStore, TEST_ANTHROPIC_TOKEN } from './fixtures/credentials.mjs'
 
 const PINS = {
   image: 'curia-agent',
@@ -354,28 +355,11 @@ describe('the container env file (#156)', () => {
   })
 })
 
-describe('the model credential a container gets (#148)', () => {
-  test('an API key outranks the OAuth token, the same order the usage probe uses (#162)', () => {
-    assert.deepEqual(
-      modelCredential('claude', { env: { ANTHROPIC_API_KEY: 'sk-1', CLAUDE_CODE_OAUTH_TOKEN: 'oat-1' } }),
-      { ANTHROPIC_API_KEY: 'sk-1' },
-    )
-    assert.deepEqual(
-      modelCredential('claude', { env: { CLAUDE_CODE_OAUTH_TOKEN: 'oat-1' } }),
-      { CLAUDE_CODE_OAUTH_TOKEN: 'oat-1' },
-    )
-  })
-
-  test('the stored credential is the last resort', () => {
-    fs.mkdirSync(path.join(tmp, '.claude'), { recursive: true })
-    fs.writeFileSync(path.join(tmp, '.claude', '.credentials.json'), JSON.stringify({ claudeAiOauth: { accessToken: 'stored-1' } }))
-    assert.deepEqual(modelCredential('claude', { env: {}, home: tmp }), { CLAUDE_CODE_OAUTH_TOKEN: 'stored-1' })
-  })
-
-  test('no credential anywhere refuses the spawn instead of starting an agent that cannot think', () => {
-    assert.throws(() => modelCredential('claude', { env: {}, home: tmp }), /no anthropic credential/)
-  })
-})
+// The model credential left this module with #648 — the container gets a FILE in
+// its config dir now, not a value in its env file. `credentials.test.mjs` owns
+// the shape of that file and `writeClaudeCredentials`; what stays here is the
+// dispatch-level claim that no credential reaches the environment at all, in
+// 'the env file holds no model credential' below.
 
 // ---- teardown ----------------------------------------------------------------------
 
@@ -547,7 +531,7 @@ const SANDBOXED_ROUTING = {
 
 const ISSUE = { number: 42, title: 'a ticket', body: 'body text', state: 'open', assignees: [], labels: [] }
 
-function makeDispatcher(deps = {}, { routing = SANDBOXED_ROUTING, sandbox = PINS, log = [] } = {}) {
+function makeDispatcher(deps = {}, { routing = SANDBOXED_ROUTING, sandbox = PINS, log = [], anthropic = workingAnthropicStore() } = {}) {
   const root = path.join(tmp, 'work')
   const spawns = []
   const notifies = []
@@ -621,6 +605,9 @@ function makeDispatcher(deps = {}, { routing = SANDBOXED_ROUTING, sandbox = PINS
       tokenFor: async () => 'ghs_test',
       botIdentity: async () => ({ name: 'curia-sh[bot]', email: '1+curia-sh[bot]@users.noreply.github.com' }),
     },
+    // #648: every claude spawn writes a credential file or refuses. The refusal
+    // has its own test, and passes null.
+    anthropic,
     deps: { ...base, ...deps },
   })
   d.identityProxy = { listening: true }
@@ -725,17 +712,42 @@ describe('a sandboxed dispatch (#156)', () => {
     assert.match(settings.hooks.Stop[0].hooks[0].command, new RegExp(GUEST_DAEMON_HOST))
   })
 
-  test('the env file holds the model credential and the pane holds none', async () => {
+  // #648. The env file used to carry the model credential, frozen for the
+  // agent's whole life; it carries none now, and the credential is a file in the
+  // config dir the container already mounts. `ANTHROPIC_API_KEY` is set in the
+  // environment throughout this describe on purpose — the map settled
+  // subscription-only, and the assertion is that it reaches NOTHING.
+  test('the env file holds no model credential, and the config dir holds the file instead', async () => {
     const { d, spawns } = makeDispatcher()
     await d.start('42', { repo: 'o/r' })
-    const env = fs.readFileSync(path.join(tmp, 'work', 'cfg', 'curia-42', 'container.env'), 'utf8')
-    assert.match(env, /ANTHROPIC_API_KEY=sk-test/)
+    const cfg = path.join(tmp, 'work', 'cfg', 'curia-42')
+    const env = fs.readFileSync(path.join(cfg, 'container.env'), 'utf8')
+    assert.doesNotMatch(env, /ANTHROPIC_API_KEY/)
+    assert.doesNotMatch(env, /CLAUDE_CODE_OAUTH_TOKEN/)
     assert.match(env, /CLAUDE_CONFIG_DIR=\/cfg/)
     assert.match(env, /HOME=\/home\/agent/)
     // The GitHub credential is a PATH here and a file over there (#389, #466).
+    // The model credential is now the same shape, and has no PATH at all: the
+    // CLI finds it under `CLAUDE_CONFIG_DIR` by itself (#659).
     assert.match(env, /GH_CONFIG_DIR=\/cfg\/gh/)
     assert.doesNotMatch(env, /GH_TOKEN=/)
-    assert.ok(!spawns[0].shellCmd.includes('sk-test'), 'the credential reached the command line')
+    const stored = JSON.parse(fs.readFileSync(path.join(cfg, '.credentials.json'), 'utf8'))
+    assert.equal(stored.claudeAiOauth.accessToken, TEST_ANTHROPIC_TOKEN)
+    assert.ok(stored.claudeAiOauth.expiresAt > Date.now(), 'the CLI refuses a file whose expiresAt is past')
+    assert.deepEqual(stored.claudeAiOauth.scopes, ['user:inference'])
+    assert.ok(!spawns[0].shellCmd.includes(TEST_ANTHROPIC_TOKEN), 'the credential reached the command line')
+    assert.ok(!spawns[0].shellCmd.includes('sk-test'), 'the API key reached the command line')
+  })
+
+  // The other half of the same decision: with no owned credential the dispatch
+  // refuses, rather than seeding an agent that dies at its first turn with the
+  // claim already taken. The same trade the GitHub mint makes one line earlier.
+  test('no owned anthropic credential refuses the dispatch', async () => {
+    const unclaimed = []
+    const { d } = makeDispatcher({ unclaim: async (repo, n) => { unclaimed.push(`${repo}#${n}`) } }, { anthropic: null })
+    const out = await d.start('42', { repo: 'o/r' })
+    assert.match(out, /owns no anthropic credential/)
+    assert.deepEqual(unclaimed, ['o/r#42'])
   })
 
   test('the dispatch seeds the kill guard and points BASH_ENV at it (#385)', async () => {

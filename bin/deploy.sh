@@ -18,7 +18,9 @@ git pull --ff-only
 # (alp82/curia#474), plus the curia HOME (alp82/curia#473). The path comes from
 # the committed config, so the two stay one fact.
 WORK=$(awk "/^ *workspace_root:/ {print \$2; exit}" config/curia.yaml)
-mkdir -p "$WORK/cfg/curia-overseer" "$WORK/overseer/repos" "$WORK/home"
+# credentials/ is the model-credential store the daemon owns (alp82/curia#648),
+# mounted read-only into the overseer, so it is the same first-up problem.
+mkdir -p "$WORK/cfg/curia-overseer" "$WORK/overseer/repos" "$WORK/credentials" "$WORK/home"
 # --force-recreate: code runs from the repo mount, so a code-only deploy
 # changes no image layer, and without the flag compose leaves the old
 # daemon running (#270).

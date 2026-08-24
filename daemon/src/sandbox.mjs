@@ -290,36 +290,29 @@ function inSubnet(address, cidr) {
 
 // ---- the container's environment ------------------------------------------------
 
-// The claude harness's credential, as the container gets it (#148: the model
-// credential is the sole remaining host secret that enters). The container
-// cannot share the host store the way a bare pane does (#53) — the store is in
-// the host HOME, which is exactly what the boundary denies — so the token is
-// COPIED into the container env, and it is frozen for the agent's life.
+// THE MODEL CREDENTIAL NO LONGER RIDES THIS FILE (#648).
 //
-// Same precedence as the usage probe (#162), and for the same reason: a box
-// carrying an API key authenticates with it everywhere else, so an agent
-// authenticating differently would be a second lineage to reason about. The
-// stored access token comes last, because it is the one that expires soonest —
-// an agent outliving it dies mid-ticket, which is the frozen-credential failure
-// #53 fixed for the bare path and #148 accepted back for the container.
-export function modelCredential(harness, { env = process.env, home = null } = {}) {
-  if (harness !== 'claude') return {}
-  if (env.ANTHROPIC_API_KEY) return { ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY }
-  if (env.CLAUDE_CODE_OAUTH_TOKEN) return { CLAUDE_CODE_OAUTH_TOKEN: env.CLAUDE_CODE_OAUTH_TOKEN }
-  const stored = readStoredOauth(home)
-  if (stored) return { CLAUDE_CODE_OAUTH_TOKEN: stored }
-  throw new Error('no anthropic credential for the container: set CLAUDE_CODE_OAUTH_TOKEN (or ANTHROPIC_API_KEY) in daemon/.env.daemon, or run `claude /login` on this box — a sandboxed claude agent cannot reach the host credential store')
-}
-
-function readStoredOauth(home) {
-  const file = path.join(home ?? process.env.HOME ?? '', '.claude', '.credentials.json')
-  try {
-    return JSON.parse(fs.readFileSync(file, 'utf8'))?.claudeAiOauth?.accessToken ?? null
-  } catch {
-    return null
-  }
-}
-
+// It used to: `modelCredential(harness)` sat here and copied the host's
+// anthropic token into the container's environment, which #148 accepted as the
+// sandbox's one remaining host-secret exposure and #53 had already named as the
+// frozen-credential failure. Three things it could not do — be replaced under a
+// running agent, state an expiry, or be owned by anything — are the three this
+// map exists for.
+//
+// What replaced it is a FILE the daemon writes into the config dir the container
+// already mounts: `<cfgDir>/.credentials.json`, written by
+// `writeClaudeCredentials` in credentials.mjs and rewritten by the dispatch
+// tick's fan-out. #659 measured on the box that the CLI reads it in the
+// sandboxed shape, that a good file rescues a dead environment variable, and
+// that writing one into a running agent heals it with no restart.
+//
+// THE PRECEDENCE LADDER WENT WITH IT, all three rungs. `ANTHROPIC_API_KEY` is
+// metered billing and the map settled subscription-only — a branch left in is an
+// escape hatch left in. `CLAUDE_CODE_OAUTH_TOKEN` out of `process.env` is the
+// value compose froze into the daemon at container create, which is the freeze
+// itself. And the host `~/.claude` store is the operator's own file, which a
+// container must not reach and a daemon must not hand out (#53).
+//
 // docker reads an env file as plain `KEY=VALUE` lines and takes the value
 // literally to the end of the line — no quoting, no escapes. So a value
 // carrying a newline would silently become a second variable, and one carrying

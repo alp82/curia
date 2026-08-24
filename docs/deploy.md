@@ -128,19 +128,29 @@ Two things stop being shared, both on purpose:
 
 The Discord bot token, the model credential and the GitHub App key are unaffected: they are env files under the checkout, and no home holds them.
 
-## The overseer container's three host trees
+## The overseer container's four host trees
 
-Docker creates a missing bind-mount source as **root**, and every curia container runs as uid 1000. So make all three trees before the first `up`. Without them the container cannot write its checkouts, and the daemon cannot write the tokens:
+Docker creates a missing bind-mount source as **root**, and every curia container runs as uid 1000. So make all four trees before the first `up`. Without them the container cannot write its checkouts, and the daemon cannot write the tokens or the model credential:
 
 ```
-ssh alp@coinmatica.net 'mkdir -p ~/curia-work/overseer/repos ~/curia-work/overseer/tokens ~/curia-work/cfg/curia-overseer'
+ssh alp@coinmatica.net 'mkdir -p ~/curia-work/overseer/repos ~/curia-work/overseer/tokens ~/curia-work/credentials ~/curia-work/cfg/curia-overseer'
 ```
 
 `bin/deploy.sh` and the self-deploy sibling make these on every deploy, along with `curia-work/home`, so this is the first-`up` step rather than a repeated one.
 
-All three mount at their identical paths inside. One mount line covers every watched repo, because the watch list changes and the compose file is static — the set of clones inside the tree moves with the config ([#312](https://github.com/alp82/curia/issues/312)).
+All four mount at their identical paths inside. One mount line covers every watched repo, because the watch list changes and the compose file is static — the set of clones inside the tree moves with the config ([#312](https://github.com/alp82/curia/issues/312)).
 
 `overseer/tokens` mounts **read-only** and holds one file per resource owner, and nothing else ([#392](https://github.com/alp82/curia/issues/392)). The daemon writes it on the dispatch tick, so the value turns over about every fifty minutes. A `permission denied` for that path in the daemon log means docker made the directory first. Fix it with `sudo chown -R 1000:1000 ~/curia-work/overseer/tokens`.
+
+`credentials/` mounts **read-only** too, and holds one file per model provider ([#648](https://github.com/alp82/curia/issues/648)). The overseer re-reads it on every turn, so replacing the model credential no longer means recreating that service. Same `permission denied` fix: `sudo chown -R 1000:1000 ~/curia-work/credentials`.
+
+### The model credential moves to the store
+
+`CLAUDE_CODE_OAUTH_TOKEN` in `daemon/.env.daemon` (or `daemon/.env.overseer`) is now a **first-boot seed**. The daemon reads it exactly once, into an empty `credentials/anthropic.json`, and the store wins from then on. Every boot after that names the leftover key in the log and asks you to delete it.
+
+Keep the `env_file:` lines whatever the files hold — compose refuses a missing one.
+
+`ANTHROPIC_API_KEY` is read nowhere. The map settled subscription-only, and #648 removed the branch from both readers that preferred it, so a key still in an env file is a box paying metered rates for nothing. The boot names that one too.
 
 **One daemon at a time.** The Discord bot token must live in exactly one running daemon. Before you start the local daemon for development, stop the service: `ssh alp@coinmatica.net docker compose -f curia/deploy/compose.yaml stop daemon`.
 

@@ -22,6 +22,7 @@ import { writeReviewPrompt } from '../src/workspace.mjs'
 import { parseCommand, CommandRouter } from '../src/commands.mjs'
 import { TEST_PINS, containerDeps, seedConfigDirStub, withTestCredential } from './fixtures/sandbox.mjs'
 import { journalDouble } from './fixtures/journal.mjs'
+import { workingAnthropicStore } from './fixtures/credentials.mjs'
 
 // Two providers, two harnesses, and the shipped pairing — the shape
 // config/routing.yaml carries.
@@ -82,7 +83,7 @@ const workingMinter = () => ({
   botIdentity: async () => ({ name: 'curia-sh[bot]', email: '1+curia-sh[bot]@users.noreply.github.com' }),
 })
 
-function makeDispatcher(deps = {}, { routing = ROUTING, minter = workingMinter() } = {}) {
+function makeDispatcher(deps = {}, { routing = ROUTING, minter = workingMinter(), anthropic = workingAnthropicStore() } = {}) {
   const root = path.join(tmp, 'work')
   const config = {
     watch: [{ repo: 'o/r', mode: 'auto' }],
@@ -181,6 +182,8 @@ function makeDispatcher(deps = {}, { routing = ROUTING, minter = workingMinter()
     dataDir,
     daemonPort: 4271,
     minter,
+    // #648: every claude spawn writes a credential file or refuses.
+    anthropic,
     deps: { ...base, ...deps },
   })
   dispatchers.push(d)

@@ -58,9 +58,14 @@ export function seedConfigDirStub() {
   return (cfgDir) => { fs.mkdirSync(cfgDir, { recursive: true }) }
 }
 
-// The claude harness needs a model credential for the container env file, and a
-// box with none refuses the dispatch (`modelCredential`). Tests must not depend
-// on whoever runs them being logged in, so they set one and take it away again.
+// #648 MOVED THE MODEL CREDENTIAL OFF THE ENVIRONMENT, so this no longer arms a
+// dispatch: a claude spawn needs the anthropic STORE, which the dispatcher takes
+// as an injected dependency (`workingAnthropicStore` in fixtures/credentials.mjs).
+//
+// What it is still worth doing is the opposite of what it was for. `sk-test` is
+// set here so the suite proves an `ANTHROPIC_API_KEY` on the developer's box
+// reaches NOTHING — the map settled subscription-only, and a test that silently
+// passed because a real key was lying around would be no test at all.
 export function withTestCredential() {
   const had = Object.hasOwn(process.env, 'ANTHROPIC_API_KEY')
   const old = process.env.ANTHROPIC_API_KEY

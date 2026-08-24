@@ -378,7 +378,15 @@ export class CodexCredentialBroker {
   state() {
     return {
       consumer: 'codex',
+      // The provider, beside the consumer, since the store became provider-keyed
+      // (#648). One consumer on this lane today, and the row still names the
+      // provider because that is what `Cooling` and the routing table are keyed
+      // by — the translation lives here rather than at every reader.
+      provider: CODEX_PROVIDER,
       file: this.authFile,
+      store: this.authFile,
+      delivery: CONSUMER_CREDENTIALS.codex.deliver.how,
+      heal: CONSUMER_CREDENTIALS.codex.heal,
       ...credentialState(this.read(), this.now()),
       last_refresh_at: this.lastRefreshAt,
       last_error: this.lastError,
@@ -863,5 +871,375 @@ export class ReauthFlow {
   // this once it has said whatever the outcome needed saying.
   clear() {
     if (this.flow && this.flow.state !== 'waiting') this.flow = null
+  }
+}
+
+// ---- the anthropic store (#648) --------------------------------------------
+//
+// The second store, and the one three consumers share. The claude agent
+// containers and the overseer run on the SAME value from the SAME account, so
+// the store is keyed by PROVIDER and not by consumer: two stores, three rows.
+// A store per consumer would mean two copies of one token, two expiry answers
+// free to disagree, and a re-authentication that healed one row and left the
+// other stale.
+//
+// IT IS NOT `~/.claude/.credentials.json`. Writing curia's own record into the
+// CLI's own path would leave a host `claude` session reading a file it did not
+// write in a shape it did not expect, and #53 already paid for one version of
+// that confusion. Codex's store stays where it is for the opposite reason: that
+// one IS the CLI's store, and the CLI must read it.
+//
+// THE TOKEN IS A `setup-token` CREDENTIAL AND IT DOES NOT ROTATE. A `claude
+// /login` credential has a real refresh lineage — measured on the workstation on
+// 2026-08-23, an `expiresAt` 8.0 hours out and a `refreshTokenExpiresAt` 17.7
+// days out — and it is refused anyway: it hands every agent container the
+// operator's full account scope, where a `setup-token` credential can only make
+// model requests (`scope=user:inference` alone, visible in the authorize URL
+// #659 read). So the anthropic provider declares `refresh: null`, and `null` is
+// a statement rather than a gap.
+
+export const ANTHROPIC_PROVIDER = 'anthropic'
+
+// Beside `overseer/tokens/`, under the same workspace root, so curia's own
+// credential state is one tree. The overseer mounts it READ-ONLY the way #392's
+// token tree is mounted; nothing in that container has a reason to write a
+// credential, and the shell in there is the reason to say so.
+export const anthropicStoreDir = (workspaceRoot) => path.join(workspaceRoot, 'credentials')
+export const anthropicStoreFile = (workspaceRoot) => path.join(anthropicStoreDir(workspaceRoot), 'anthropic.json')
+
+// `sk-ant-oat01-…` is the subscription credential the map keeps. Asserted rather
+// than escaped, because the value lands in a JSON string the CLI parses and in
+// an env file docker reads line by line — a newline in either makes a reader
+// read something other than what curia meant to write.
+export const ANTHROPIC_TOKEN_RE = /^sk-ant-[A-Za-z0-9_-]{20,}$/
+
+// What Anthropic documents for a `setup-token` credential. It is an ESTIMATE and
+// every surface says so: the token itself states no dates, so this number is
+// applied to the instant curia adopted the login and never read off the
+// credential. `MEASURED_LIFETIME_MS` above is the opposite kind of number — that
+// one is three samples of a token that states its own clock.
+export const ANTHROPIC_DOCUMENTED_LIFETIME_MS = 365 * 24 * 60 * 60 * 1000
+
+// How long before the estimated end the row starts reading `expiring`.
+//
+// NOT `REFRESH_AT_FRACTION`. That fraction is a REFRESH MARGIN — the codex lane
+// starts exchanging inside it, so it has to be long enough for the exchange and
+// short enough not to spend one early. Nothing exchanges on this lane, so the
+// only question the word answers is "should the operator plan a login", and a
+// quarter of a year would answer yes for three months at a stretch.
+//
+// A month, because the estimate underneath it is soft: the token states no dates
+// and the lifetime comes from the docs, so a window measured in weeks is honest
+// where one measured in hours would pretend to a precision nothing here has.
+export const ANTHROPIC_EXPIRING_WINDOW_MS = 30 * 24 * 60 * 60 * 1000
+
+// ---- what the CLI actually needs on disk ------------------------------------
+//
+// MEASURED ON THE BOX, 2026-08-24, agent image `curia-agent:2.1.220-…`, throwaway
+// containers against scratch config dirs. #659 settled that the CLI reads
+// `<CLAUDE_CONFIG_DIR>/.credentials.json` in the sandboxed shape; this is the
+// shape that file has to have, and the obvious guess is wrong:
+//
+//   accessToken alone                          → `Not logged in · Please run /login`
+//   accessToken + future expiresAt             → `Not logged in`
+//   accessToken + future expiresAt + scopes    → PONG, exit 0
+//   accessToken + PAST expiresAt + scopes      → `Not logged in`
+//   accessToken + expiresAt + subscriptionType → `Not logged in`
+//
+// So THREE fields are load-bearing — `accessToken`, an `expiresAt` in the
+// future, and a non-empty `scopes` — and `subscriptionType` is not one of them.
+// A file missing any of the three reads as no credential at all, which on this
+// lane would be a fleet that cannot spawn.
+//
+// An `expiresAt` ten minutes out still authenticated, so the CLI applies no
+// pre-expiry refusal window to a credential it cannot refresh. What it refuses
+// is a date already past.
+export const CLAUDE_CREDENTIAL_FILE = '.credentials.json'
+
+// The scope a `setup-token` credential actually carries, read out of the
+// authorize URL #659 captured (`scope=user:inference`). Written truthfully
+// rather than padded: this file is curia's statement about what the token can
+// do, and the bound #180 bought is the reason the map refused the `/login`
+// shape.
+export const SETUP_TOKEN_SCOPES = Object.freeze(['user:inference'])
+
+// The instant the DELIVERED FILE claims, which is not the instant the ROW
+// claims, and the difference is deliberate.
+//
+// The row's expiry comes from `obtained_at` and reads `unknown` without one,
+// because curia must not invent an age for a credential it inherited from an env
+// file. The FILE has no such freedom: the CLI refuses a past date and refuses a
+// missing one, so a seeded credential still needs a future instant written into
+// it. `seeded_at` — the moment the daemon read the seed, which is a real fact
+// about curia and not a claim about the token — carries that case.
+//
+// STABLE ACROSS TICKS, which is why it is not simply `now + a year`: the fan-out
+// compares file contents and rewrites nothing that already matches, and a
+// rolling instant would rewrite every live agent's credential once a minute.
+export function deliveryExpiry(record) {
+  const at = Date.parse(record?.obtained_at ?? record?.seeded_at ?? '')
+  return Number.isFinite(at) ? at + ANTHROPIC_DOCUMENTED_LIFETIME_MS : null
+}
+
+// The bytes the claude CLI reads. `claudeAiOauth` is the CLI's own key, which is
+// why `usage.mjs` and `sandbox.mjs` have both read it since #100.
+export function claudeCredentialsJson(record) {
+  const token = record?.token
+  if (!ANTHROPIC_TOKEN_RE.test(String(token ?? ''))) {
+    throw new Error('refusing to write a claude credential: the anthropic store holds no `sk-ant-…` token')
+  }
+  const expiresAt = deliveryExpiry(record)
+  if (!Number.isFinite(expiresAt)) {
+    throw new Error('refusing to write a claude credential: the anthropic store states neither an adoption nor a seed instant, and the CLI refuses a file with no `expiresAt`')
+  }
+  return `${JSON.stringify({
+    claudeAiOauth: { accessToken: token, expiresAt, scopes: [...SETUP_TOKEN_SCOPES] },
+  }, null, 2)}\n`
+}
+
+// One agent's copy, written the way every other daemon-owned credential is:
+// temp file plus rename, in the directory it lands in.
+//
+// 0600 AND NOT 0400. The codex copy is read-only because the AGENT must not be
+// the thing that rotates it — codex refreshes over the network and writes the
+// result back. A `setup-token` credential has nothing to rotate, and #659
+// measured the file's md5 unchanged across four authenticated runs, so there is
+// no write to defend against and no reason to make the agent's own credential
+// unwritable to it.
+export function writeClaudeCredentials(cfgDir, record) {
+  return writeCredentialFile(path.join(cfgDir, CLAUDE_CREDENTIAL_FILE), claudeCredentialsJson(record), { mode: HOST_CREDENTIAL_MODE })
+}
+
+// ---- the two contract tables ------------------------------------------------
+//
+// ADR-0027 left this open in as many words: the table "may no longer be keyed by
+// harness alone". It is two tables now, and neither is keyed by harness.
+//
+// WHAT VARIES BY PROVIDER — how a credential expires, whether it rotates, how you
+// sign back in — and WHAT VARIES BY CONSUMER — how the credential reaches it,
+// what happens to a live one when it changes — are different axes. One table
+// keyed on either forces the anthropic answer to be written twice, which is how
+// the claude row and the overseer row drift apart.
+
+export const PROVIDER_CREDENTIALS = Object.freeze({
+  openai: Object.freeze({
+    // The token states its own clock: `exp` is a claim in the JWT.
+    credentialExpiry: (record) => codexAccessTokenExpiry(record?.text ?? record),
+    // A real rotation, on the wire, in the broker above.
+    refresh: exchangeRefreshToken,
+    // `codex login --device-auth`: a link and a one-time code, nothing pasted
+    // back. Shipped by #642 and measured end to end on the box.
+    reauth: 'device-login',
+  }),
+  anthropic: Object.freeze({
+    // NOT from the token. `setup-token` states no dates, so the estimate is the
+    // documented lifetime applied to the instant curia adopted the login — and
+    // `null` where curia never saw that instant.
+    credentialExpiry: (record) => {
+      const at = Date.parse(record?.obtained_at ?? '')
+      return Number.isFinite(at) ? at + ANTHROPIC_DOCUMENTED_LIFETIME_MS : null
+    },
+    // EXPLICITLY NULL, and the map says why: `null` is a statement, not a gap.
+    // The `/login` shape that would have made this a function is refused, so
+    // what detects a dead credential here is the account-usage probe's 401
+    // rather than a refresh that fails.
+    refresh: null,
+    // `claude setup-token`. The flow itself is #660's: the CLI puts its whole
+    // TUI on stdout and writes no credential file, so ADR-0027's completion rule
+    // has nothing to detect on this lane (#659 §3).
+    reauth: 'setup-token',
+  }),
+})
+
+// How the credential reaches one consumer, and what happens to a live one when
+// it changes. `heal` is measured on both lanes rather than reasoned about:
+// #644 §1 for codex, #659 §2 for claude.
+export const CONSUMER_CREDENTIALS = Object.freeze({
+  codex: Object.freeze({
+    provider: 'openai',
+    deliver: Object.freeze({ how: 'config-dir', file: 'auth.json' }),
+    heal: 'in-place',
+  }),
+  claude: Object.freeze({
+    provider: ANTHROPIC_PROVIDER,
+    deliver: Object.freeze({ how: 'config-dir', file: CLAUDE_CREDENTIAL_FILE }),
+    heal: 'in-place',
+  }),
+  overseer: Object.freeze({
+    provider: ANTHROPIC_PROVIDER,
+    // THE STORE ITSELF, behind a read-only mount — the #392 precedent, the same
+    // shape in the same container for the same reason. The daemon writes one
+    // file and compose mounts it; there is no per-consumer copy to keep in step.
+    // `runOneTurn` re-reads it per turn, beside the checkout pass and the
+    // credential pass it already runs per turn.
+    deliver: Object.freeze({ how: 'mount', file: 'anthropic.json' }),
+    heal: 'next-turn',
+  }),
+})
+
+export const CONSUMER_NAMES = Object.freeze(Object.keys(CONSUMER_CREDENTIALS))
+
+// The delivery shapes this daemon knows how to perform. A consumer naming
+// anything else is a consumer nothing delivers to, and `config.mjs` refuses it
+// at boot rather than letting a dispatch discover it.
+export const DELIVERY_SHAPES = Object.freeze(new Set(['config-dir', 'mount']))
+
+// Why a HARNESS's provider is unusable, or null when it is fine. A harness whose
+// provider has no contract row would spawn agents curia cannot give a credential
+// to, cannot state an expiry for and cannot sign back in — the gap ADR-0027 left
+// open. `config.mjs` refuses the boot on it; this is the reader both it and the
+// suite ask, so a future harness's failure is a sentence rather than a crash.
+export function providerContractFault(harness, provider) {
+  if (PROVIDER_CREDENTIALS[provider]) return null
+  return `harnesses.${harness} runs on provider "${provider}", which has no row in PROVIDER_CREDENTIALS in credentials.mjs — an agent under it would get no model credential. Known providers: ${Object.keys(PROVIDER_CREDENTIALS).join(', ')}`
+}
+
+// Why a consumer row is unusable, or null when it is fine. One reader, so the
+// boot refusal and the suite ask the same question.
+export function consumerContractFault(consumer) {
+  const row = CONSUMER_CREDENTIALS[consumer]
+  if (!row) return `"${consumer}" has no row in CONSUMER_CREDENTIALS — known consumers: ${CONSUMER_NAMES.join(', ')}`
+  if (!PROVIDER_CREDENTIALS[row.provider]) {
+    return `"${consumer}" names provider "${row.provider}", which has no row in PROVIDER_CREDENTIALS — known providers: ${Object.keys(PROVIDER_CREDENTIALS).join(', ')}`
+  }
+  if (!row.deliver || !DELIVERY_SHAPES.has(row.deliver.how)) {
+    return `"${consumer}" declares no delivery curia can perform (got ${JSON.stringify(row.deliver?.how ?? null)}) — known shapes: ${[...DELIVERY_SHAPES].join(', ')}`
+  }
+  return null
+}
+
+// ---- the store ---------------------------------------------------------------
+
+// One per daemon, beside the codex broker, and deliberately NOT a broker: there
+// is nothing to refresh here. What it owns is the record, the seed rule, and the
+// fan-out to live claude agents.
+export class AnthropicCredentialStore {
+  constructor({ workspaceRoot, now = Date.now, log = () => {}, journal = () => {} } = {}) {
+    this.file = anthropicStoreFile(workspaceRoot)
+    this.now = now
+    this.log = log
+    this.journal = journal
+  }
+
+  // The record, or null when this box has none. Never throws: a box that has
+  // never signed in is a legal box, and every caller treats it as a re-auth case.
+  read() {
+    try {
+      const record = JSON.parse(fs.readFileSync(this.file, 'utf8'))
+      return ANTHROPIC_TOKEN_RE.test(String(record?.token ?? '')) ? record : null
+    } catch {
+      return null
+    }
+  }
+
+  #write(record) {
+    fs.mkdirSync(path.dirname(this.file), { recursive: true, mode: 0o700 })
+    writeCredentialFile(this.file, `${JSON.stringify(record, null, 2)}\n`, { mode: HOST_CREDENTIAL_MODE })
+    return record
+  }
+
+  // A login curia watched complete. THE ONLY PLACE `obtained_at` IS STAMPED, and
+  // the reason the row can state a date at all.
+  adopt(token) {
+    if (!ANTHROPIC_TOKEN_RE.test(String(token ?? ''))) {
+      throw new Error('refusing to adopt an anthropic credential: a subscription token is `sk-ant-…`')
+    }
+    const record = { token, obtained_at: new Date(this.now()).toISOString(), seeded_at: null }
+    this.#write(record)
+    this.journal('credential_adopted', { provider: ANTHROPIC_PROVIDER, obtained_at: record.obtained_at })
+    return record
+  }
+
+  // THE ENV IS READ EXACTLY ONCE, and only when the store has no file.
+  //
+  // A seeded value carries NO `obtained_at`, because curia did not watch that
+  // login happen and an invented age is worse than an absent one: the row reads
+  // `unknown`, which is also the nudge to sign in once and get a real date.
+  // `seeded_at` is not that age — it is the instant curia read the seed, which
+  // is a fact about curia — and only the delivered file's `expiresAt` uses it.
+  //
+  // A seed that keeps being read is not a seed, it is a second source of truth.
+  seedOnce(token, { from = 'the environment' } = {}) {
+    if (this.read()) return { seeded: false, why: 'the anthropic store already holds a credential, and the store wins' }
+    if (!ANTHROPIC_TOKEN_RE.test(String(token ?? ''))) {
+      return { seeded: false, why: 'there is no `sk-ant-…` value to seed from' }
+    }
+    const record = { token, obtained_at: null, seeded_at: new Date(this.now()).toISOString() }
+    this.#write(record)
+    this.journal('credential_seeded', { provider: ANTHROPIC_PROVIDER, from })
+    this.log(`seeded the anthropic credential store from ${from} — it carries no adoption instant, so its expiry reads unknown until someone signs in`)
+    return { seeded: true, why: `read once from ${from}` }
+  }
+
+  // What the surfaces say, for ONE consumer. Two of the three rows land here and
+  // both name the store they share, so the page can say so rather than leaving
+  // the operator to infer it from two identical dates.
+  state(consumer) {
+    const record = this.read()
+    const row = { consumer, provider: ANTHROPIC_PROVIDER, store: this.file, refresh: null }
+    if (!record) {
+      return { ...row, state: 'absent', expires_at: null, why: 'no anthropic credential on this box' }
+    }
+    const exp = PROVIDER_CREDENTIALS[ANTHROPIC_PROVIDER].credentialExpiry(record)
+    if (!Number.isFinite(exp)) {
+      return {
+        ...row,
+        state: 'unknown',
+        expires_at: null,
+        why: 'this credential was seeded from an env file rather than adopted from a login, so curia knows no date for it — sign in once to get one',
+      }
+    }
+    const now = this.now()
+    const expires_at = new Date(exp).toISOString()
+    const why = `the documented one-year lifetime, counted from the ${record.obtained_at} adoption — an estimate from Anthropic's docs, not a date the token states`
+    if (exp <= now) return { ...row, state: 'expired', expires_at, why }
+    return {
+      ...row,
+      state: exp - now <= ANTHROPIC_EXPIRING_WINDOW_MS ? 'expiring' : 'valid',
+      expires_at,
+      why,
+    }
+  }
+
+  // Push the record into the config dirs of LIVE claude agents.
+  //
+  // IT CREATES THE FILE WHERE THERE IS NONE, which is the one place this differs
+  // from the codex fan-out. That one skips a config dir with no `auth.json`,
+  // because the file's presence is the evidence that an agent is a codex agent.
+  // Here the absence is the ordinary case: every agent spawned before this slice
+  // got its credential as an environment variable and has no file at all, and
+  // #659 measured that writing one into such an agent heals it with no restart
+  // — its expired variable still in its environment. So the harness is the
+  // evidence instead, and the agents that predate this slice are not killed.
+  //
+  // Byte-identical files are not rewritten, so a steady box does no disk writes
+  // and the returned list means "these agents just changed".
+  fanOut(targets = []) {
+    const record = this.read()
+    if (!record) return { healed: [], errors: [] }
+    let text
+    try {
+      text = claudeCredentialsJson(record)
+    } catch (e) {
+      return { healed: [], errors: [{ session: null, why: e.message }] }
+    }
+    const healed = []
+    const errors = []
+    for (const { session, cfgDir, harness } of targets) {
+      if (!cfgDir || harness !== 'claude') continue
+      const dest = path.join(cfgDir, CLAUDE_CREDENTIAL_FILE)
+      let current = null
+      try {
+        current = fs.readFileSync(dest, 'utf8')
+      } catch { /* absent is the ordinary case here, not a skip */ }
+      if (current === text) continue
+      try {
+        writeCredentialFile(dest, text, { mode: HOST_CREDENTIAL_MODE })
+        healed.push(session)
+      } catch (e) {
+        errors.push({ session, why: e.message })
+      }
+    }
+    return { healed, errors }
   }
 }

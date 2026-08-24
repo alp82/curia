@@ -117,6 +117,11 @@ describe('CSRF gate on the loopback surface (index.mjs, real boot)', () => {
         CURIA_DATA_DIR: dataDir,
         PATH: `${shim}:${process.env.PATH}`,
         DISCORD_BOT_TOKEN: '', // REST-only: the gate must never depend on the bridge
+        // #648: the first-boot seed of the anthropic credential. Set explicitly
+        // rather than inherited, so this boot reads the same value whoever runs
+        // it — and so the seed path actually RUNS here, which is what pins the
+        // order it journals in.
+        CLAUDE_CODE_OAUTH_TOKEN: 'sk-ant-oat01-realboot-0000000000000000',
       },
       stdio: ['ignore', 'pipe', 'pipe'],
     })
@@ -132,6 +137,18 @@ describe('CSRF gate on the loopback surface (index.mjs, real boot)', () => {
   after(() => {
     if (child && child.exitCode === null) child.kill('SIGKILL')
     fs.rmSync(tmp, { recursive: true, force: true })
+  })
+
+  // #648. The seed journals, and the journal lives on `reduction` — so a store
+  // constructed above it boots the daemon into a ReferenceError on the ONE boot
+  // that matters, the first one on a box that has never signed in. Nothing else
+  // in the suite reaches this path: every other boot either inherits no token or
+  // finds a store already written.
+  test('the first boot seeds the anthropic store from the env, and states no adoption instant', () => {
+    const record = JSON.parse(fs.readFileSync(path.join(tmp, 'work', 'credentials', 'anthropic.json'), 'utf8'))
+    assert.equal(record.token, 'sk-ant-oat01-realboot-0000000000000000')
+    assert.equal(record.obtained_at, null, 'curia did not watch that login, so it invents no age for it')
+    assert.ok(record.seeded_at, 'and it records when it read the seed, which is a fact about curia')
   })
 
   test('a cross-origin POST carrying Origin is refused with 403 and never executed', async () => {

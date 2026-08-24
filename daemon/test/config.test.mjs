@@ -17,6 +17,8 @@ import { DEFAULT_SKILLS, defaultSkillsRoot } from '../src/workspace.mjs'
 import { DEFAULT_TIMELINE_INDEX } from '../src/timeline.mjs'
 import { seedSkillsRoot, skillsYaml, withSeededHome } from './fixtures/skills.mjs'
 import { sandboxYaml } from './fixtures/sandbox.mjs'
+import { providerContractFault, consumerContractFault, CONSUMER_NAMES } from '../src/credentials.mjs'
+import { harnessProvider } from '../src/workspace.mjs'
 
 const DIRNAME = path.dirname(fileURLToPath(import.meta.url))
 
@@ -389,6 +391,28 @@ describe('routing config with a second harness (#39)', () => {
       '  codex: { template: \'codex --model {model} "$(cat {prompt_file})"\', resume_template: \'resume --model {model}\', ready: \'x\', tool_channel_grace_s: 15 }',
     ]
     assert.throws(() => load(lines), /harnesses\.cursor has no entry in the HARNESS table/)
+  })
+
+  // The credential half of the same question (#648). This one CANNOT be provoked
+  // from config — the provider comes off the HARNESS table in code — so what a
+  // boot can assert is that every shipped harness passes it. The refusal's own
+  // message is read in credentials.test.mjs, against a harness nobody has added.
+  test('every configured harness runs on a provider that has a credential contract', () => {
+    const cfg = load(BASE)
+    for (const name of Object.keys(cfg.harnesses)) {
+      assert.equal(providerContractFault(name, harnessProvider(name)), null, name)
+    }
+  })
+
+  // The consumer table is code and not config, so nothing an operator writes can
+  // break it — which is why the boot asserts it rather than trusting it. A
+  // consumer that declares no delivery reaches no agent, and a dispatch would
+  // otherwise discover that with a claim already taken.
+  test('every model-credential consumer declares a delivery curia can perform', () => {
+    load(BASE) // the same boot the refusal would have thrown from
+    for (const consumer of CONSUMER_NAMES) {
+      assert.equal(consumerContractFault(consumer), null, consumer)
+    }
   })
 
   // A provider with no usage-limit vocabulary spawns agents whose cap hits are

@@ -1136,10 +1136,13 @@ function reauthCard(r) {
 
 /* A consumer whose credential the operator has to act on. `valid` and
    `expiring` are silent: the daemon refreshes inside the last quarter of the
-   token's life and says nothing about work it is already doing. `unowned` is
-   silent too — the claude lane and the overseer are named on the wire so the
-   page cannot claim curia owns all three, and there is nothing to press until
-   #648. */
+   token's life and says nothing about work it is already doing.
+
+   `unowned` is silent because there is nothing to press: this daemon was handed
+   no store for that provider. `unknown` is silent for a different reason (#648)
+   — a credential seeded from an env file states no date, so curia says so on the
+   Credentials screen rather than putting a permanent nudge on the list an
+   operator reads to find what is actually wrong. */
 function credentialCard(c) {
   if (!["expired", "unreadable", "absent"].includes(c.state) && !c.last_error) return [];
   /* A HELD credential (#646) is the one case where the state word would lie.

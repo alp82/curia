@@ -379,8 +379,11 @@ describe('ModelWindows', () => {
   const ok = (body) => ({ ok: true, status: 200, json: async () => body })
   const status = (code) => ({ ok: false, status: code, json: async () => ({}) })
 
+  // #648: the credential is the store curia OWNS, injected, and no longer read
+  // out of the environment or out of the operator's `~/.claude`.
+  const store = (token) => ({ read: () => (token ? { token, obtained_at: '2026-08-01T00:00:00.000Z' } : null) })
   const make = (fetchImpl, over = {}) => new ModelWindows({
-    home: dir, fetchImpl, now: () => NOW, env: { CLAUDE_CODE_OAUTH_TOKEN: 'tok' }, ...over,
+    home: dir, fetchImpl, now: () => NOW, credentials: store('tok'), ...over,
   })
 
   test('the window is `max_input_tokens` — there is no `context_window` field', () => {
@@ -760,12 +763,16 @@ describe('AccountUsage', () => {
     return dir
   }
   const cache = (obj) => fs.writeFileSync(path.join(dir, '.claude', 'cache', 'oauth-usage.json'), JSON.stringify(obj))
-  const creds = (token) => fs.writeFileSync(path.join(dir, '.claude', '.credentials.json'), JSON.stringify({ claudeAiOauth: { accessToken: token } }))
   const never = () => { throw new Error('the network must not be reached') }
   const at = (offset = 0) => () => NOW + offset
-  // The real process env must never decide a test: a developer box carrying
-  // ANTHROPIC_API_KEY would otherwise silently change which credential wins.
-  const env = (over = {}) => over
+  // #648: the credential is the daemon's own anthropic store, injected. The real
+  // process env decides nothing here any more, which is the point rather than a
+  // test convenience — a developer box carrying `ANTHROPIC_API_KEY` used to
+  // silently change which credential won, on the box as much as in this suite.
+  const store = (token = 'setup-tok') => {
+    const box = { token }
+    return { read: () => (box.token ? { token: box.token, obtained_at: '2026-08-01T00:00:00.000Z' } : null), set: (t) => { box.token = t } }
+  }
   // One accepted completion, answering with the headers the live API answers
   // with. `five`/`seven` are percentages here and become fractions on the wire.
   const headers = (map) => ({ get: (name) => map[name.toLowerCase()] ?? null })
@@ -831,13 +838,12 @@ describe('AccountUsage', () => {
     // anyone asked for a replacement (#187). The shared attempt stamp still
     // bounds the probe rate — that lock is about spending quota, and it stands.
     home()
-    creds('tok-1')
     cache(payload(18, 57, { fiveIn: -5 }))
     let calls = 0
     const u = new AccountUsage({
       home: dir,
       now: at(),
-      env: env(),
+      credentials: store(),
       fetchImpl: async () => { calls += 1; return { ok: true, status: 200, headers: limitHeaders(4, 58) } },
     })
     assert.deepEqual(u.windows().map((w) => w.pct), [0, 57], 'the fresh window serves while the probe runs')
@@ -867,7 +873,6 @@ describe('AccountUsage', () => {
 
   test('a stale reading is reprobed, and the result lands in the shared cache file', async () => {
     home()
-    creds('tok-1')
     cache(payload(18, 57))
     const old = (NOW - USAGE_STALE_MS - 1000) / 1000
     fs.utimesSync(path.join(dir, '.claude', 'cache', 'oauth-usage.json'), old, old)
@@ -875,7 +880,7 @@ describe('AccountUsage', () => {
     const u = new AccountUsage({
       home: dir,
       now: at(),
-      env: env(),
+      credentials: store(),
       probeModel: 'model-x',
       fetchImpl: async (url, opts) => {
         seen = { url, opts, body: JSON.parse(opts.body) }
@@ -886,7 +891,7 @@ describe('AccountUsage', () => {
     await u.pending
     assert.equal(seen.url, 'https://api.anthropic.com/v1/messages')
     assert.equal(seen.opts.method, 'POST')
-    assert.equal(seen.opts.headers.authorization, 'Bearer tok-1')
+    assert.equal(seen.opts.headers.authorization, 'Bearer setup-tok')
     assert.equal(seen.opts.headers['anthropic-beta'], 'oauth-2025-04-20')
     assert.equal(seen.body.model, 'model-x')
     assert.equal(seen.body.max_tokens, 1, 'the probe buys one token and no more')
@@ -901,17 +906,20 @@ describe('AccountUsage', () => {
     )
   })
 
-  test('the box credential is the env var, and an API key outranks it', async () => {
-    // #162: a headless box writes no credential file. #100's precedence trap
-    // says a box carrying both an API key and an OAuth token is already using
-    // the key, so the probe must use it too.
+  test('the probe authenticates with the credential curia owns, and with nothing else (#648)', async () => {
+    // #162 read this off the environment and #100 put an API key ahead of the
+    // OAuth token, because the CLI did. Both rungs are gone: the map settled
+    // subscription-only, so an `ANTHROPIC_API_KEY` on the box now reaches
+    // neither reader — and half a removal would have left the metered-billing
+    // path alive in the one reader nobody would think to check.
     home()
     let auth = null
-    const probe = async (over) => {
+    const probe = async (credentials) => {
+      auth = null
       const u = new AccountUsage({
         home: dir,
         now: at(),
-        env: env(over),
+        credentials,
         fetchImpl: async (url, opts) => { auth = opts.headers; return { ok: true, status: 200, headers: limitHeaders(31, 60) } },
       })
       u.windows()
@@ -920,13 +928,19 @@ describe('AccountUsage', () => {
       fs.rmSync(path.join(dir, '.claude', 'cache', 'oauth-usage.json'), { force: true })
     }
 
-    await probe({ CLAUDE_CODE_OAUTH_TOKEN: 'setup-tok' })
+    await probe(store('setup-tok'))
     assert.equal(auth.authorization, 'Bearer setup-tok')
-    assert.equal(auth['x-api-key'], undefined)
+    assert.equal(auth['x-api-key'], undefined, 'one credential on the wire, and never an API key')
 
-    await probe({ CLAUDE_CODE_OAUTH_TOKEN: 'setup-tok', ANTHROPIC_API_KEY: 'sk-key' })
-    assert.equal(auth['x-api-key'], 'sk-key')
-    assert.equal(auth.authorization, undefined, 'one credential on the wire, never two')
+    // An API key in the environment changes nothing, and an empty store means
+    // no probe at all rather than a fallback to one.
+    process.env.ANTHROPIC_API_KEY = 'sk-key'
+    try {
+      await probe(store(null))
+      assert.equal(auth, null, 'no owned credential, no call — and no cooperative lock taken for one')
+    } finally {
+      delete process.env.ANTHROPIC_API_KEY
+    }
   })
 
   test('a spent window still states itself on the rejection that proves it', async () => {
@@ -936,7 +950,7 @@ describe('AccountUsage', () => {
     const u = new AccountUsage({
       home: dir,
       now: at(),
-      env: env({ CLAUDE_CODE_OAUTH_TOKEN: 'setup-tok' }),
+      credentials: store(),
       fetchImpl: answers(100, 92, 429),
     })
     u.windows()
@@ -946,11 +960,10 @@ describe('AccountUsage', () => {
 
   test('the attempt stamp is a shared lock: a recent attempt by anyone blocks the probe', () => {
     home()
-    creds('tok-1')
     // No cache at all — the most stale state there is — but statusline.sh
     // touched the stamp a minute ago, so this fetcher stands down.
     fs.writeFileSync(path.join(dir, '.claude', 'cache', 'oauth-usage.attempt'), '')
-    const u = new AccountUsage({ home: dir, fetchImpl: never, now: at(USAGE_ATTEMPT_MS - 60_000), env: env() })
+    const u = new AccountUsage({ home: dir, fetchImpl: never, now: at(USAGE_ATTEMPT_MS - 60_000), credentials: store() })
     assert.equal(u.windows(), null)
   })
 
@@ -959,20 +972,20 @@ describe('AccountUsage', () => {
     // fetcher a window was spent when it was not.
     home()
     const stampFile = path.join(dir, '.claude', 'cache', 'oauth-usage.attempt')
-    const u = new AccountUsage({ home: dir, fetchImpl: never, now: at(), env: env() })
+    const u = new AccountUsage({ home: dir, fetchImpl: never, now: at(), credentials: store(null) })
     assert.equal(u.windows(), null)
     assert.equal(fs.existsSync(stampFile), false, 'no credential, no attempt, no stamp')
   })
 
   test('a refused credential is never refreshed — probing stops until the credential changes', async () => {
     home()
-    creds('expired')
+    const owned = store('expired')
     let calls = 0
     const u = new AccountUsage({
       home: dir,
       log: () => {},
       now: at(),
-      env: env(),
+      credentials: owned,
       fetchImpl: async () => { calls += 1; return { ok: false, status: 401, headers: headers({}) } },
     })
     u.windows()
@@ -986,14 +999,11 @@ describe('AccountUsage', () => {
     u.windows()
     await u.pending
     assert.equal(calls, 1, 'the daemon does not retry, and it does not refresh')
-    assert.equal(fs.readFileSync(path.join(dir, '.claude', '.credentials.json'), 'utf8'),
-      JSON.stringify({ claudeAiOauth: { accessToken: 'expired' } }),
-      'the credential file is never written')
 
-    // The CLI wrote a new token, so the daemon tries again. The refusal is
-    // keyed on the credential itself, which is the one thing an env-var
-    // credential also has — a file mtime would not have caught this.
-    creds('tok-2')
+    // A fresh credential reached the store, so the daemon tries again. The
+    // refusal is keyed on the credential ITSELF rather than on the store's
+    // mtime, which is what makes it survive a rewrite that changed nothing.
+    owned.set('tok-2')
     fs.rmSync(path.join(dir, '.claude', 'cache', 'oauth-usage.attempt'), { force: true })
     u.windows()
     await u.pending
@@ -1002,11 +1012,10 @@ describe('AccountUsage', () => {
 
   test('account_bars off keeps reading the cached copy and spends nothing', () => {
     home()
-    creds('tok-1')
     cache(payload(18, 57))
     const old = (NOW - USAGE_STALE_MS - 1000) / 1000
     fs.utimesSync(path.join(dir, '.claude', 'cache', 'oauth-usage.json'), old, old)
-    const u = new AccountUsage({ home: dir, enabled: false, fetchImpl: never, now: at(), env: env() })
+    const u = new AccountUsage({ home: dir, enabled: false, fetchImpl: never, now: at(), credentials: store() })
     assert.deepEqual(u.windows().map((w) => w.pct), [18, 57])
   })
 })

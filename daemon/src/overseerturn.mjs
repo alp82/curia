@@ -44,6 +44,7 @@ import { buildSystemPrompt, toolsFor, checkoutReport } from './overseerprompt.mj
 import { syncCheckouts, checkoutsRootFor } from './checkouts.mjs'
 import { installCredentialConfig, unroutedOwners, unroutedNote } from './overseercreds.mjs'
 import { overseerTokensRootFor } from './overseertoken.mjs'
+import { AnthropicCredentialStore, anthropicStoreFile } from './credentials.mjs'
 import { SIGNALS } from './messaging.mjs'
 
 // The route the daemon POSTs a turn to, on the container.
@@ -162,6 +163,42 @@ export async function credentialPass(repos, dir, {
   return unrouted(repos, dir).map((o) => `${SIGNALS.warn} ${unroutedNote(o)}`)
 }
 
+// The model credential, re-read PER TURN (#648).
+//
+// IT USED TO ARRIVE FROM `daemon/.env.overseer`, which compose hands a container
+// at CREATE — the same trap #392 took the GitHub tokens out of, and the one
+// #361 logged as a pain: a value this container could not re-read, so replacing
+// it meant recreating the service. The overseer dying on a stale credential is a
+// worse outage than an agent dying, because the overseer is how the operator
+// finds out anything is wrong at all.
+//
+// So it is a FILE the daemon writes and this container mounts READ-ONLY, and
+// this function reads it beside the checkout pass and the credential pass the
+// turn already runs per turn. A turn in flight when the credential changes
+// fails; the next one is correct.
+//
+// NOT OVER THE LOOPBACK TURN BODY. A secret riding the request would put it in
+// one more place — the daemon's memory, the wire, and whatever logs either side.
+//
+// THE ENV IS THE FALLBACK AND ONLY WHEN THE STORE IS EMPTY, which is the same
+// seed rule the daemon applies on its own side: the store wins, always. What
+// this covers is the window on a box mid-deploy where the daemon has not written
+// the store yet — a chat that refuses to answer is no way to hear about it.
+export function modelCredentialEnv(root, { env = process.env } = {}) {
+  const record = new AnthropicCredentialStore({ workspaceRoot: root }).read()
+  if (record) return { env: { CLAUDE_CODE_OAUTH_TOKEN: record.token }, note: null }
+  if (env.CLAUDE_CODE_OAUTH_TOKEN) {
+    return {
+      env: { CLAUDE_CODE_OAUTH_TOKEN: env.CLAUDE_CODE_OAUTH_TOKEN },
+      note: `${SIGNALS.warn} curia owns no anthropic credential yet (${anthropicStoreFile(root)} is empty), so this turn runs on the seed from daemon/.env.overseer — a value this container cannot re-read`,
+    }
+  }
+  return {
+    env: {},
+    note: `${SIGNALS.warn} there is no anthropic credential for this turn: ${anthropicStoreFile(root)} holds none and no seed is in the environment`,
+  }
+}
+
 // THE TURN, inside the container.
 //
 // `cfg` is the loaded curia.yaml: the workspace root is where the checkouts and
@@ -208,6 +245,15 @@ function runOneTurn({
       const checkouts = await sync(root, repos, { now })
       emit(TURN_EVENTS.note, { text: checkoutNote(checkouts) })
 
+      // The model credential, from the store the daemon writes (#648). Read here
+      // rather than at the `query` call so its note reaches the operator in the
+      // same stream as the checkout verdict.
+      const credential = modelCredentialEnv(root)
+      if (credential.note) {
+        log(credential.note)
+        emit(TURN_EVENTS.note, { text: credential.note })
+      }
+
       // The standing orders and the tool list are ONE call each (#328), and the
       // verdict text is composed beside them (#314).
       const systemPrompt = [
@@ -221,9 +267,10 @@ function runOneTurn({
         options: {
           cwd: home,
           // `sandboxed: true` drops CLAUDE_SECURESTORAGE_CONFIG_DIR: the host
-          // credential store is the first thing this boundary denies, and the
-          // model credential arrives as an environment variable from
-          // `daemon/.env.overseer` instead (ADR-0014, #313).
+          // credential store is the first thing this boundary denies. The model
+          // credential comes from the daemon's own store instead, read above and
+          // applied below (#648); it used to come from `daemon/.env.overseer`,
+          // which compose froze at container create (ADR-0014, #313).
           //
           // ENABLE_TOOL_SEARCH=0, or the model holds no verb at all. SDK
           // 0.3.220 defers every MCP tool schema behind its ToolSearch tool by
@@ -233,7 +280,14 @@ function runOneTurn({
           // Measured live on 2026-08-16: with this flag the init message
           // states the server `connected` and lists the verbs; without it the
           // server stays `pending` and the tool list is empty.
-          env: { ...process.env, ENABLE_TOOL_SEARCH: '0', ...agentEnv(configDir, 'claude', { sandboxed: true }) },
+          // The credential goes LAST, so it beats whatever `.env.overseer` left
+          // in `process.env` at container create. The store wins, always (#648).
+          env: {
+            ...process.env,
+            ENABLE_TOOL_SEARCH: '0',
+            ...agentEnv(configDir, 'claude', { sandboxed: true }),
+            ...credential.env,
+          },
           model: body.model || OVERSEER_CONTAINER_MODEL,
           resume: body.resume || undefined,
           systemPrompt,

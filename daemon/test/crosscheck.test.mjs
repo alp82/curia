@@ -24,6 +24,7 @@ import { DiscordBridge } from '../src/bridge.mjs'
 import { StatusLine } from '../src/statusline.mjs'
 import { TEST_PINS, containerDeps, seedConfigDirStub, withTestCredential } from './fixtures/sandbox.mjs'
 import { journalDouble } from './fixtures/journal.mjs'
+import { workingAnthropicStore } from './fixtures/credentials.mjs'
 
 const ROUTING = {
   defaults: { untyped: 'opus' },
@@ -172,6 +173,8 @@ function makeDispatcher(deps = {}, { askReview } = {}) {
       tokenFor: async () => 'ghs_test',
       botIdentity: async () => ({ name: 'curia-sh[bot]', email: '1+curia-sh[bot]@users.noreply.github.com' }),
     },
+    // #648: every claude spawn writes a credential file or refuses.
+    anthropic: workingAnthropicStore(),
     deps: { ...base, ...deps },
   })
   dispatchers.push(d)

@@ -20,7 +20,9 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import {
   TURN_PATH, TURN_EVENTS, OVERSEER_MCP_PATH, OVERSEER_CONTAINER_MODEL, CONTAINER_MAX_TURNS,
   turnRoute, refuseTurn, checkoutNote, credentialPass, overseerConfigDirFor, overseerHomeFor,
+  modelCredentialEnv,
 } from '../src/overseerturn.mjs'
+import { AnthropicCredentialStore, anthropicStoreFile } from '../src/credentials.mjs'
 import { unroutedNote } from '../src/overseercreds.mjs'
 import { overseerTokensRootFor, writeOverseerToken } from '../src/overseertoken.mjs'
 import { OverseerClient, OverseerTurns, buildVerbMcpServer, serveVerbMcp } from '../src/overseerclient.mjs'
@@ -347,6 +349,67 @@ describe('the container half: POST /turn (#314)', () => {
 
 // The git routing, re-read per turn (#361). The real `install` writes the
 // runner's own global git config, so every case below injects its own.
+// The model credential, re-read per turn (#648). It used to arrive from
+// `.env.overseer`, which compose hands a container at CREATE — so replacing it
+// meant recreating the service, and the overseer dying on a stale credential is
+// a worse outage than an agent dying, because the overseer is how the operator
+// finds out anything is wrong at all.
+describe('the model credential is a file the daemon rewrites (#648)', () => {
+  const OAT = 'sk-ant-oat01-aaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+  const OAT2 = 'sk-ant-oat01-bbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+
+  test('the store beats whatever the env file froze into this container at create', () => {
+    const root = tmpRoot('turn-cred')
+    new AnthropicCredentialStore({ workspaceRoot: root }).adopt(OAT)
+    const { env, note } = modelCredentialEnv(root, { env: { CLAUDE_CODE_OAUTH_TOKEN: 'the-frozen-seed' } })
+    assert.equal(env.CLAUDE_CODE_OAUTH_TOKEN, OAT)
+    assert.equal(note, null)
+  })
+
+  test('an empty store falls back to the seed, and says which one this turn ran on', () => {
+    const root = tmpRoot('turn-cred-seed')
+    const { env, note } = modelCredentialEnv(root, { env: { CLAUDE_CODE_OAUTH_TOKEN: 'the-frozen-seed' } })
+    assert.equal(env.CLAUDE_CODE_OAUTH_TOKEN, 'the-frozen-seed')
+    assert.match(note, /cannot re-read/)
+  })
+
+  test('no credential at all is a note on the turn, never a turn that refuses to answer', () => {
+    const root = tmpRoot('turn-cred-none')
+    const { env, note } = modelCredentialEnv(root, { env: {} })
+    assert.deepEqual(env, {})
+    assert.match(note, /no anthropic credential/)
+  })
+
+  test('A REWRITTEN FILE REACHES THE NEXT TURN WITH NOTHING RESTARTED', async () => {
+    // The whole point of the relocation, and the one thing the env file could
+    // never do. Two turns against one running container, and the daemon
+    // replaces the credential between them.
+    const root = tmpRoot('turn-cred-reread')
+    const store = new AnthropicCredentialStore({ workspaceRoot: root })
+    store.adopt(OAT)
+    const seen = []
+    const c = await startContainer({
+      cfg: cfgFor(root, []),
+      queryFn: sayingModel('ok', { onOptions: (o) => seen.push(o.env.CLAUDE_CODE_OAUTH_TOKEN) }),
+      sync: okSync([]),
+    })
+    const turn = async () => {
+      const res = await fetch(`http://127.0.0.1:${c.port}${TURN_PATH}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ key: 'k', prompt: 'hi', mcp: { url: 'http://x/mcp' } }),
+      })
+      await res.text()
+    }
+    await turn()
+    store.adopt(OAT2)
+    await turn()
+    assert.deepEqual(seen, [OAT, OAT2], 'the second turn read the file the daemon had just rewritten')
+    assert.ok(fs.existsSync(anthropicStoreFile(root)))
+    await c.stop()
+  })
+})
+
 describe('the git routing follows the watch list (#361)', () => {
   // The tokens tree the daemon writes and the container mounts read-only (#392).
   const tokens = (() => {

@@ -46,14 +46,17 @@ import {
 import { ownersOf } from './overseercreds.mjs'
 import { ensureAgentImage } from './image.mjs'
 // the daemon-owned model credential (#642, ADR-0027)
-import { CodexCredentialBroker, ReauthFlow, isAuthSession, CODEX_PROVIDER } from './credentials.mjs'
+import {
+  CodexCredentialBroker, ReauthFlow, isAuthSession, CODEX_PROVIDER,
+  ANTHROPIC_PROVIDER, writeClaudeCredentials, CONSUMER_CREDENTIALS,
+} from './credentials.mjs'
 import { readDiffDigest, readFileHunks, digestLine, sliceFromPatch, capText } from './diffdigest.mjs'
 import { transcriptReset, holdVerdict, hottestPct, WARM_PCT } from './usage.mjs'
 import { transcriptActivity } from './transcript.mjs'
 import { mintAgentToken, forgetAgentToken, sweepAgentTokens } from './agenttoken.mjs'
 import {
   GUEST_WT, GUEST_CFG, GUEST_DAEMON_HOST, GUEST_GUARD_ENV, ENV_FILE, PORTS_PER_AGENT,
-  allocatePorts, containerPorts, dockerRunCmd, listContainers, modelCredential, seedKillGuard, stopContainer,
+  allocatePorts, containerPorts, dockerRunCmd, listContainers, seedKillGuard, stopContainer,
   writeEnvFile,
 } from './sandbox.mjs'
 import {
@@ -384,7 +387,7 @@ export class Dispatcher {
   // escalation and returns its record; lapseEscalation closes one as lapsed
   // (journal + message edit); confirmNote posts a line next to a record's
   // buttons; overseerNote journals a synthetic line for a thread's session.
-  constructor({ config, routing, reduction, notify, announce, openConfirm, lapseEscalation, confirmNote, overseerNote, askReview, cancelEscalation, threads, log = console.log, cooling, readings, dataDir, daemonPort, previews, attachLinks, attachSessionLink, channelName, minter, credentials, deps }) {
+  constructor({ config, routing, reduction, notify, announce, openConfirm, lapseEscalation, confirmNote, overseerNote, askReview, cancelEscalation, threads, log = console.log, cooling, readings, dataDir, daemonPort, previews, attachLinks, attachSessionLink, channelName, minter, credentials, anthropic, deps }) {
     this.config = config
     this.routing = routing
     this.reduction = reduction
@@ -517,6 +520,14 @@ export class Dispatcher {
     // handed a broker brokers nothing, and says so on the wire rather than
     // pretending it owns a credential it has never read.
     this.credentials = credentials ?? null
+    // The anthropic store (#648), the same posture and for the same reason. It
+    // is the SECOND store and it serves the THIRD consumer: the claude agent
+    // containers and the overseer run on one value from one account, so it is
+    // keyed by provider and both rows point at it.
+    //
+    // Null is legal here too, and a null one owns nothing rather than reading
+    // the operator's own `~/.claude`.
+    this.anthropic = anthropic ?? null
     // The re-authentication flow (#642). It takes the RAW tmux calls above, for
     // the reason the refusal states, and its image is filled in by
     // `startReauth` — an image ref is a per-dispatch build, not a constant.
@@ -1704,10 +1715,7 @@ export class Dispatcher {
     // host store is unchanged, so every live agent already holds a byte-identical
     // copy. That is what freeze looks like from here — no writes, no kills.
     if (outcome.terminal) await this.#holdCredentialLane(outcome)
-    const targets = [...this.agents.values()]
-      .filter((a) => a.cfgDir || a.session)
-      .map((a) => ({ session: a.session, cfgDir: a.cfgDir ?? cfgDirFor(this.root, a.session) }))
-    const { healed, errors } = this.credentials.fanOut(targets)
+    const { healed, errors } = this.credentials.fanOut(this.#credentialTargets())
     for (const { session, why } of errors) {
       this.log(`could not hand ${session} the refreshed codex credential (${why}) — the file it already holds stands until the next tick`)
     }
@@ -1716,6 +1724,61 @@ export class Dispatcher {
       this.log(`handed the current codex credential to ${healed.length} live agent(s): ${healed.join(', ')}`)
     }
     return { refreshed: Boolean(outcome.refreshed), healed }
+  }
+
+  // Every live agent, as a fan-out target. The HARNESS travels with it since
+  // #648: the codex fan-out reads a config dir's `auth.json` as its evidence,
+  // and the claude one cannot — every agent spawned before that slice has no
+  // credential file at all, and creating one is precisely how it heals.
+  #credentialTargets() {
+    return [...this.agents.values()]
+      .filter((a) => a.cfgDir || a.session)
+      .map((a) => ({
+        session: a.session,
+        cfgDir: a.cfgDir ?? cfgDirFor(this.root, a.session),
+        harness: a.harness ?? null,
+      }))
+  }
+
+  // The anthropic half of the same tick (#648).
+  //
+  // NOTHING REFRESHES HERE, and that is the provider contract rather than an
+  // omission: a `setup-token` credential has no refresh lineage, so
+  // `PROVIDER_CREDENTIALS.anthropic.refresh` is explicitly `null`. What this pass
+  // does is the fan-out alone — which is not idle work, because it is what heals
+  // an agent spawned before this slice, an agent spawned while the store was
+  // empty, and every live agent the moment the operator replaces the credential.
+  //
+  // It never throws, for the reason the codex pass does not: a failure leaves
+  // the file already on disk standing, and the next tick is 60 s away.
+  syncAnthropicCredentials() {
+    if (!this.anthropic) return { healed: [] }
+    const { healed, errors } = this.anthropic.fanOut(this.#credentialTargets())
+    for (const { session, why } of errors) {
+      this.log(`could not hand ${session ?? 'the claude agents'} the anthropic credential (${why}) — whatever it already holds stands until the next tick`)
+    }
+    if (healed.length) {
+      this.reduction.journal('credential_fanned_out', { consumer: 'claude', provider: ANTHROPIC_PROVIDER, agents: healed })
+      this.log(`handed the current anthropic credential to ${healed.length} live claude agent(s): ${healed.join(', ')}`)
+    }
+    return { healed }
+  }
+
+  // The agent's own copy, written at spawn (#648). See the call site in
+  // `#prepareContainer` for why a missing credential refuses the dispatch.
+  //
+  // The CODEX lane is not here: `seedConfigDir` writes that copy, because it is
+  // the same act as seeding `CODEX_HOME` and it carries the #351 expired-at-seed
+  // refusal with it. One consumer, one delivery, and the contract says which.
+  #writeModelCredential(harness, cfgDir, ticket) {
+    if (CONSUMER_CREDENTIALS[harness]?.provider !== ANTHROPIC_PROVIDER) return null
+    const record = this.anthropic?.read()
+    if (!record) {
+      throw new Error(`refusing to start a claude agent for #${ticket}: curia owns no anthropic credential. ${this.anthropic
+        ? 'Seed one into daemon/.env.daemon and restart the daemon, or sign in once'
+        : 'This daemon brokers no model credential'} — an agent handed no credential dies at its first turn with a claim already taken`)
+    }
+    return writeClaudeCredentials(cfgDir, record)
   }
 
   // The lane is dead (#646): hold it, freeze what is on it, and put a login in
@@ -1782,7 +1845,12 @@ export class Dispatcher {
   // one flow, so there is one thing to test and one session to attach to.
   async startReauth({ consumer = 'openai', by = null } = {}) {
     if (consumer !== 'openai') {
-      return `❌ curia can re-authenticate \`openai\` today. The claude lane and the overseer read their credential at container create, so they need the relocation in #648 first.`
+      // #648 relocated the anthropic credential and gave it a store, so what is
+      // left missing here is the FLOW and not the plumbing: `claude setup-token`
+      // puts its whole TUI on stdout and writes no credential file, so ADR-0027's
+      // completion rule has nothing to detect and picking a capture is its own
+      // decision (#659 §3).
+      return `❌ curia can re-authenticate \`openai\` today. The anthropic credential has a store and a contract since #648; what it still needs is a login flow, which is #660.`
     }
     if (!this.credentials) return '❌ this daemon brokers no model credential, so it has nothing to sign back in'
     if (!this.config.sandbox) return '❌ this daemon runs no containers, so it has nothing to run `codex login` in'
@@ -1860,27 +1928,34 @@ export class Dispatcher {
     return outcome
   }
 
-  // What `GET /overview` says about the model credentials (#642). One row per
-  // consumer, plus the live re-authentication card when there is one.
+  // What `GET /overview` says about the model credentials (#642, #648). One row
+  // per consumer, plus the live re-authentication card when there is one.
   //
-  // The claude lane and the overseer are NAMED here and reported as unowned,
-  // rather than left out. Leaving them out would let the page say curia owns
-  // every model credential on the day it owns one of three — which is the claim
-  // #648 exists to make true, and #641 refuses to make early.
+  // THREE ROWS, TWO STORES, and the rows say so. The claude containers and the
+  // overseer run on the same value from the same account, so they read one
+  // provider-keyed store — and each row names it, rather than leaving an
+  // operator to infer the sharing from two identical dates. A store per consumer
+  // would be two copies of one token, two expiry answers free to disagree, and a
+  // re-authentication that healed one row and left the other stale.
+  //
+  // `unowned` is what a row says when this daemon was handed no store for it.
+  // Until #648 the claude and overseer rows said it always, because the
+  // credential arrived as an environment variable and curia owned nothing.
   credentialsStatus() {
+    const unowned = (consumer, provider) => ({
+      consumer, provider, state: 'unowned', expires_at: null,
+      why: 'this daemon brokers no model credential for that provider',
+    })
     return {
       consumers: [
-        this.credentials
-          ? this.credentials.state()
-          : { consumer: 'codex', state: 'unowned', expires_at: null, why: 'this daemon brokers no model credential' },
-        // The asymmetry is STATED rather than implemented (#646). A credential
-        // that arrives as an environment variable cannot be replaced under a
-        // running process, so freeze-in-place is unreachable on these two lanes
-        // and the recovery there is a kill. Nothing here builds that kill: with
-        // no refresh to fail there is no caller for it, and it ships with #648
-        // in the slice that makes it callable.
-        { consumer: 'claude', state: 'unowned', expires_at: null, why: 'the container reads it from its environment at create, so it cannot be refreshed or healed in place (#648)' },
-        { consumer: 'overseer', state: 'unowned', expires_at: null, why: 'the container reads it from .env.overseer at create, so it cannot be refreshed or healed in place (#648)' },
+        this.credentials ? this.credentials.state() : unowned('codex', CODEX_PROVIDER),
+        ...['claude', 'overseer'].map((consumer) => (this.anthropic
+          ? {
+            ...this.anthropic.state(consumer),
+            delivery: CONSUMER_CREDENTIALS[consumer].deliver.how,
+            heal: CONSUMER_CREDENTIALS[consumer].heal,
+          }
+          : unowned(consumer, ANTHROPIC_PROVIDER))),
       ],
       reauth: this.reauth?.state() ?? null,
     }
@@ -2018,13 +2093,29 @@ export class Dispatcher {
     // agent aims at its own harness process tree is refused inside the
     // container, whatever verb resolved the pid.
     seedKillGuard(cfgDir)
+    // The agent's model credential (#648), and it is a FILE for exactly the
+    // reason the GitHub token above is one. It used to ride the env file, frozen
+    // for the agent's whole life at the value compose froze into the daemon at
+    // container create — so a refreshed credential could never reach a live
+    // agent, and an agent that outlived the token died mid-ticket.
+    //
+    // #659 measured the channel on the box: the CLI reads
+    // `<CLAUDE_CONFIG_DIR>/.credentials.json` in the sandboxed shape, and writing
+    // one under a running agent heals it with no restart.
+    //
+    // NO OWNED CREDENTIAL REFUSES THE DISPATCH, the same trade the codex seed
+    // already makes for its expired-at-seed case (workspace.mjs) and the GitHub
+    // mint makes just above: a loud failure before any claim work is lost, in
+    // place of a silent death somewhere in the middle of a ticket. It also
+    // refuses rather than falling back to `~/.claude` or to an API key — both
+    // rungs left this ladder with the map's subscription-only decision.
+    this.#writeModelCredential(harness, cfgDir, ticket)
     const envFile = writeEnvFile(path.join(cfgDir, ENV_FILE), {
       ...agentEnv(GUEST_CFG, harness, { sandboxed: true }),
       // The PATH to the credential above, and no credential in it (#389). It is
       // set here rather than inside `agentEnv`, because this is where the file
       // it names gets written.
       GH_CONFIG_DIR: ghConfigDirFor(GUEST_CFG),
-      ...modelCredential(harness),
       // The container's own HOME. `--user <uid>` bypasses the image's USER, and
       // git and both CLIs write there; an unset HOME lands them in `/`, which
       // the agent cannot write.
@@ -6609,6 +6700,7 @@ export class Dispatcher {
     // replaced by hand while nothing was watching. Boot reconcile is the first
     // pass that can heal it, and the first tick is 60 s further away.
     await this.syncModelCredentials().catch((e) => this.log(`reconcile: the model credential sync failed (${e.message})`))
+    try { this.syncAnthropicCredentials() } catch (e) { this.log(`reconcile: the anthropic credential sync failed (${e.message})`) }
 
     // Ticket-label sweep (#93, narrowed by #140): the label comes off only on
     // a TICKET-terminal state — the issue is positively closed (or positively
@@ -7450,6 +7542,11 @@ export class Dispatcher {
     // classifier pass in stallSweep follows this repair and intercepts provider
     // faults before the ladder spends that rung (#647).
     await this.syncModelCredentials().catch((e) => this.log('the model credential sync failed:', e.message))
+    // The anthropic lane's half (#648). It runs on every tick for the reason the
+    // codex fan-out does: it costs a content comparison per live claude agent,
+    // and the tick it finally writes something is the tick the fleet would
+    // otherwise have gone silent on.
+    try { this.syncAnthropicCredentials() } catch (e) { this.log('the anthropic credential sync failed:', e.message) }
     await this.pollReauth().catch((e) => this.log('the re-authentication poll failed:', e.message))
     await this.stallSweep().catch((e) => this.log('stall sweep failed:', e.message))
     // #384: the hold rides this tick for the reason the sweep does — it is not a
