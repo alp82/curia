@@ -1140,6 +1140,23 @@ headed, the home carrying the #519 ring and agents and one bar per open map, the
 snapshot, every class styled and every hook present, the page reading with no script and with
 reduced motion, the build rules, and balanced markup.
 
+**Five wrong records in scene 3, found by reading this scene's data against the tracker.** The
+opening arc names real tickets, and #601 rules that every scene shows real records, so a twelfth
+check now compares every one of them against `gh`. Five disagreed, and the operator ruled all five
+fixed:
+
+| ticket | the page said | the tracker says |
+|--------|---------------|------------------|
+| #627 | the atlas scene | the phone preview scene, and #628 is the atlas |
+| #601 | research | grilling |
+| #644 | task | research |
+| #587 | grilling | prototype |
+| #578 | grilling | task |
+
+The operator was asked about #627 alone, at every round from the first. Their ruling was the
+reason, not the instance: it is a correction to a real record, and #601 rules that every scene
+shows real records. The other four are the same error, so they went with it.
+
 **Two of the checks were wrong before they were right**, which is the lesson this file keeps
 relearning. A distinctness check compared whole CSS rules, so two compositions with different
 selectors always looked different even when their declarations were identical. And a break meant to
