@@ -849,6 +849,29 @@ The five compositions on `?id=1..5`:
 5. **stage** — one hard light, one phone, and the workstation lying flat behind it. The screen is
    the only color in the scene, and its own key color spills onto the dark.
 
+**Round 4.** The operator picked **desk**, with two corrections: "give it a bit of the perspective
+of stage (only a little bit) and dont overlap the two too much, only a bit". The other four
+compositions left the file with round 3. Every variation is a desk now. The workstation lies back
+a little, the phone stands in front of it and crosses only a corner, and a little of stage's light
+falls on both. The color half of that light is the key color of whichever design is showing, so
+the desk changes color as the round turns.
+
+What varies across the five is the camera, the light and where the claim docks:
+
+1. **low** — a low camera, both devices standing on a lit surface, the phone crossing the near
+   corner of the workstation.
+2. **light** — one spotlight out of the top-left corner, the workstation barely tipped, and the
+   phone standing at the right where the light falls off.
+3. **flat** — the workstation nearly lying down and seen from above, which is the most of stage's
+   angle any of these takes. The phone stands upright out of it.
+4. **turn** — the workstation faces the other way, and the claim docks right, which is the side
+   this scene owns in the identity (#624 rule 2).
+5. **plane** — both devices share one tilt, so they read as two things lying on the same desk.
+
+The claim comes before the evidence on a phone in all five (#624 rule 1). On a wide screen two of
+them put the evidence in the left column and dock the claim right, which is the alternation the
+identity asks of an `sR` scene.
+
 **Six build checks** ran against the file, since no agent on this ticket has eyes on it: every
 design appears once with its own palette and its own art, every composition places all five
 elements of the scene, states a grid of its own and is written for a wide screen as well as a

@@ -967,213 +967,212 @@
   }
 
   /* ================================================================
-     Round 3 — the operator rejected all five layouts of round 2:
-     "they all look bad. title is always in the middle. screens are
-     always left aligned which is a weird combo. make the 5 next
-     variations vastly distinct and get more creative in display,
-     style and layout." Their screenshot showed the fault: at desktop
-     width the claim floated in a centred column while both devices
-     sat against the left edge, with a screen of dead space beside
-     them.
+     Round 4 — the operator picked desk, with two corrections: "give
+     it a bit of the perspective of stage (only a little bit) and
+     dont overlap the two too much, only a bit". So every variation
+     here is a desk. The workstation lies back a little, the phone
+     stands in front of it and crosses only a corner of it, and a
+     little of the stage light falls on both.
 
-     So a variation is now a whole composition, and the title is part
-     of it, the way the opening arc plays with its claims (#625).
-     Each one is written twice: for a phone, and for a wide screen.
+     The other four compositions of round 3 left the file with that
+     round, the way the identity switcher left it at #624.
 
-       1 bleed   the phone runs off the edge, the claim holds the rest
-       2 desk    the workstation lies back in perspective
-       3 field   a bright field that repaints as the round turns
-       4 strip   the whole round as five devices on a filmstrip
-       5 stage   one spotlight, one phone, the workstation lying flat
+     What still varies, and it is what the five are:
+       1 low     a low camera, both devices standing on a lit surface
+       2 light   one spotlight from the corner, the phone on the right
+       3 flat    the workstation nearly lying down, seen from above
+       4 turn    the workstation faces the other way, the claim docks
+                 right, where this scene's side is
+       5 plane   both devices share one tilt, as two things on a desk
+     Each is written for a phone first and for a wide screen after.
      ================================================================ */
 
-  /* ---- 1 bleed. Scale is the whole idea: the phone is enormous and
-     the edge of the page cuts it, so the screen reads as a thing in
-     the room rather than a picture of one. ---- */
+  /* The desk itself, shared by all five. */
+  #preview .pv { perspective: 1500px; }
+  #preview .pv-desk {
+    transform-origin: 62% 100%;
+    box-shadow: 0 2.4rem 3.4rem -1.5rem rgba(0, 0, 0, 0.82);
+  }
+  #preview .pv-dev { transform-origin: 50% 100%; }
+  /* The light. Every variation gets one, and every variation puts it
+     somewhere else. The colour half of it is the key colour of
+     whichever design is showing, which the script sets as --pvglow. */
+  #preview .pv::before {
+    content: ''; position: absolute; z-index: 0; grid-area: dev;
+    inset: -14% -18% -22% -18%; pointer-events: none;
+    background:
+      radial-gradient(46% 42% at var(--lx, 50%) var(--ly, 8%), rgba(255, 255, 255, 0.075), transparent 70%),
+      radial-gradient(52% 44% at var(--gx, 50%) var(--gy, 74%), var(--pvglow, transparent), transparent 74%);
+    transition: background 0.5s var(--ease);
+  }
+  /* The words never sit in the light (#624 rule 5). */
+  #preview .claim, #preview .pv-rail, #preview .fact { position: relative; z-index: 4; }
+  #preview .pv-dev { z-index: 3; }
+  #preview .pv-desk { z-index: 2; }
+
+  /* ---- 1 low. The camera is low, both devices stand on a surface
+     that catches their light, and the phone crosses the near corner
+     of the workstation. ---- */
   #preview[data-v="1"] .pv {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: "claim" "rail" "dev" "fact";
-    padding-right: 0;
+    grid-template-areas: "claim" "dev" "rail" "fact";
+    --lx: 38%; --ly: 4%; --gx: 46%; --gy: 88%;
   }
-  #preview[data-v="1"] .claim { grid-area: claim; text-align: left; max-width: 20ch; }
+  #preview[data-v="1"] .claim { grid-area: claim; text-align: left; }
   #preview[data-v="1"] .pv-rail { grid-area: rail; justify-self: start; }
-  #preview[data-v="1"] .fact { grid-area: fact; text-align: left; padding-right: clamp(1.1rem, 5vw, 4.5rem); }
-  #preview[data-v="1"] .pv-dev {
-    grid-area: dev; --pvw: min(86vw, 21rem); justify-self: end; margin-right: -14vw;
-  }
+  #preview[data-v="1"] .fact { grid-area: fact; text-align: left; }
   #preview[data-v="1"] .pv-desk {
-    grid-area: dev; width: 62%; align-self: end; justify-self: start;
-    margin: 0 0 6% clamp(1.1rem, 5vw, 4.5rem); z-index: 3;
+    grid-area: dev; width: 74%; justify-self: end; align-self: start;
+    transform: rotateX(21deg) rotateY(-9deg) rotate(0.8deg);
+  }
+  #preview[data-v="1"] .pv-dev {
+    grid-area: dev; --pvw: min(32vw, 8.5rem); justify-self: start; align-self: end;
+  }
+  /* the surface both devices stand on */
+  #preview[data-v="1"] .pv::after {
+    content: ''; position: absolute; z-index: 1; grid-area: dev;
+    left: -20%; right: -20%; bottom: -2%; height: 26%;
+    background: linear-gradient(180deg, rgba(255, 255, 255, 0.055), transparent 62%);
+    border-top: 1px solid rgba(255, 255, 255, 0.09);
+    transform: perspective(900px) rotateX(62deg); transform-origin: 50% 0;
+    pointer-events: none;
   }
   @media (min-width: 60rem) {
     #preview[data-v="1"] .pv {
-      grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+      grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.3fr);
       grid-template-areas: "claim dev" "rail dev" "fact dev";
-      align-content: center; column-gap: 3vw; row-gap: 1.4rem;
+      align-content: center; column-gap: 3vw;
     }
-    #preview[data-v="1"] .claim { align-self: end; max-width: 16ch; }
-    /* The cap in svh keeps the device inside the screen it is shown
-       on: at 9 by 19.5, a width of 36svh is 78svh tall. */
-    #preview[data-v="1"] .pv-dev { --pvw: min(30vw, 22rem, 36svh); align-self: center; margin-right: -9vw; }
-    #preview[data-v="1"] .pv-desk { width: 52%; margin-bottom: 10%; margin-left: 0; }
+    #preview[data-v="1"] .claim { align-self: end; max-width: 15ch; }
+    #preview[data-v="1"] .pv-desk { width: 80%; }
+    #preview[data-v="1"] .pv-dev { --pvw: min(13vw, 11rem); }
   }
 
-  /* ---- 2 desk. The workstation lies back on the desk in
-     perspective and the phone stands in front of it, which is what
-     the two of them look like when you are working. ---- */
+  /* ---- 2 light. One spotlight out of the top-left corner, the
+     workstation barely tipped, and the phone standing at the right
+     where the light falls off. ---- */
   #preview[data-v="2"] .pv {
     grid-template-columns: minmax(0, 1fr);
     grid-template-areas: "claim" "dev" "rail" "fact";
-    perspective: 1400px;
+    --lx: 14%; --ly: -6%; --gx: 72%; --gy: 70%;
   }
   #preview[data-v="2"] .claim { grid-area: claim; text-align: left; }
   #preview[data-v="2"] .pv-rail { grid-area: rail; justify-self: end; }
   #preview[data-v="2"] .fact { grid-area: fact; text-align: right; }
   #preview[data-v="2"] .pv-desk {
-    grid-area: dev; width: 100%; align-self: center;
-    transform: rotateX(17deg) rotateY(-11deg) rotate(1.2deg);
-    transform-origin: 60% 100%;
-    box-shadow: 0 3rem 4rem -1.5rem rgba(0, 0, 0, 0.8);
+    grid-area: dev; width: 76%; justify-self: start; align-self: start;
+    transform: rotateX(13deg) rotateY(-15deg) rotate(-0.6deg);
   }
   #preview[data-v="2"] .pv-dev {
-    grid-area: dev; --pvw: min(40vw, 11rem); justify-self: start; align-self: end;
-    margin: 0 0 -6% 4%; z-index: 3; transform: rotate(-2.5deg);
+    grid-area: dev; --pvw: min(32vw, 8.5rem); justify-self: end; align-self: end;
   }
   @media (min-width: 60rem) {
     #preview[data-v="2"] .pv {
-      grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.4fr);
+      grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.35fr);
       grid-template-areas: "claim dev" "rail dev" "fact dev";
-      align-content: center; column-gap: 3vw;
+      align-content: center; column-gap: 3vw; --lx: 30%;
     }
-    #preview[data-v="2"] .claim { align-self: end; max-width: 15ch; }
+    #preview[data-v="2"] .claim { align-self: end; max-width: 14ch; }
     #preview[data-v="2"] .pv-rail { justify-self: start; }
     #preview[data-v="2"] .fact { text-align: left; }
-    #preview[data-v="2"] .pv-dev { --pvw: min(15vw, 13rem); margin-bottom: -4%; }
+    #preview[data-v="2"] .pv-desk { width: 82%; }
+    #preview[data-v="2"] .pv-dev { --pvw: min(13vw, 11rem); }
   }
 
-  /* ---- 3 field. The section keeps a bright field of its own, and
-     that field takes the colour of whichever design is showing. The
-     round repaints the page every three seconds, which is the point
-     the scene is making. ---- */
+  /* ---- 3 flat. The workstation is nearly lying down and seen from
+     above, which is the most of stage's angle any of these takes.
+     The phone stands upright out of it. ---- */
   #preview[data-v="3"] .pv {
     grid-template-columns: minmax(0, 1fr);
     grid-template-areas: "claim" "dev" "rail" "fact";
-    row-gap: 1.3rem;
-  }
-  #preview[data-v="3"] .pv::before {
-    content: ''; position: absolute; z-index: 0; grid-area: dev;
-    top: 0; bottom: 0; left: 50%; width: 100vw; transform: translateX(-50%);
-    background: var(--pvbg, #fff); transition: background 0.45s var(--ease);
-  }
-  /* The words keep their own ground over any field or glow: the
-     identity never dims them (#624 rule 5). */
-  #preview[data-v="3"] .claim, #preview[data-v="3"] .pv-rail, #preview[data-v="3"] .fact,
-  #preview[data-v="5"] .claim, #preview[data-v="5"] .pv-rail, #preview[data-v="5"] .fact {
-    position: relative; z-index: 4;
+    --lx: 52%; --ly: -2%; --gx: 40%; --gy: 62%;
   }
   #preview[data-v="3"] .claim { grid-area: claim; text-align: left; }
-  #preview[data-v="3"] .pv-dev {
-    grid-area: dev; --pvw: min(56vw, 14rem); justify-self: center; z-index: 2;
-    margin: 2.2rem 0;
-  }
+  #preview[data-v="3"] .pv-rail { grid-area: rail; justify-self: start; }
+  #preview[data-v="3"] .fact { grid-area: fact; text-align: left; }
   #preview[data-v="3"] .pv-desk {
-    grid-area: dev; width: 46%; justify-self: end; align-self: center; z-index: 1;
-    margin-right: -18%;
+    grid-area: dev; width: 88%; justify-self: center; align-self: center;
+    transform: rotateX(32deg) rotateY(-4deg) scale(0.98);
+    transform-origin: 50% 100%;
   }
-  #preview[data-v="3"] .pv-rail { grid-area: rail; justify-self: center; }
-  #preview[data-v="3"] .fact { grid-area: fact; text-align: center; }
+  #preview[data-v="3"] .pv-dev {
+    grid-area: dev; --pvw: min(30vw, 8rem); justify-self: end; align-self: end;
+    margin-right: 6%;
+  }
   @media (min-width: 60rem) {
     #preview[data-v="3"] .pv {
-      grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+      grid-template-columns: minmax(0, 1.3fr) minmax(0, 0.8fr);
+      grid-template-areas: "dev claim" "dev rail" "dev fact";
+      align-content: center; column-gap: 3vw;
+    }
+    #preview[data-v="3"] .claim { align-self: end; max-width: 15ch; }
+    #preview[data-v="3"] .pv-desk { width: 92%; }
+    #preview[data-v="3"] .pv-dev { --pvw: min(12vw, 10rem); }
+  }
+
+  /* ---- 4 turn. The workstation faces the other way, and the claim
+     docks on the right, which is the side this scene owns in the
+     identity (#624 rule 2). ---- */
+  #preview[data-v="4"] .pv {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "claim" "dev" "rail" "fact";
+    --lx: 76%; --ly: 2%; --gx: 30%; --gy: 76%;
+  }
+  #preview[data-v="4"] .claim { grid-area: claim; text-align: right; }
+  #preview[data-v="4"] .pv-rail { grid-area: rail; justify-self: end; }
+  #preview[data-v="4"] .fact { grid-area: fact; text-align: right; }
+  #preview[data-v="4"] .pv-desk {
+    grid-area: dev; width: 76%; justify-self: end; align-self: start;
+    transform: rotateX(18deg) rotateY(13deg) rotate(-1deg);
+    transform-origin: 38% 100%;
+  }
+  #preview[data-v="4"] .pv-dev {
+    grid-area: dev; --pvw: min(32vw, 8.5rem); justify-self: start; align-self: end;
+    transform: rotate(1.5deg);
+  }
+  @media (min-width: 60rem) {
+    #preview[data-v="4"] .pv {
+      grid-template-columns: minmax(0, 1.3fr) minmax(0, 0.85fr);
+      grid-template-areas: "dev claim" "dev rail" "dev fact";
+      align-content: center; column-gap: 3vw;
+    }
+    #preview[data-v="4"] .claim { align-self: end; max-width: 15ch; }
+    #preview[data-v="4"] .pv-desk { width: 82%; justify-self: start; }
+    #preview[data-v="4"] .pv-dev { --pvw: min(13vw, 11rem); }
+  }
+
+  /* ---- 5 plane. Both devices share one tilt, so they read as two
+     things lying on the same desk rather than a screen and a photo
+     of a phone. ---- */
+  #preview[data-v="5"] .pv {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "claim" "dev" "meta";
+    --lx: 46%; --ly: 0%; --gx: 58%; --gy: 80%;
+    row-gap: 1.2rem;
+  }
+  #preview[data-v="5"] .claim { grid-area: claim; text-align: left; }
+  #preview[data-v="5"] .pv-rail { grid-area: meta; justify-self: start; align-self: center; }
+  #preview[data-v="5"] .fact { grid-area: meta; justify-self: end; align-self: center; text-align: right; }
+  #preview[data-v="5"] .pv-desk {
+    grid-area: dev; width: 78%; justify-self: end; align-self: start;
+    transform: rotateX(19deg) rotateY(-11deg);
+  }
+  #preview[data-v="5"] .pv-dev {
+    grid-area: dev; --pvw: min(31vw, 8.5rem); justify-self: start; align-self: end;
+    transform: rotateX(19deg) rotateY(-11deg) rotate(1deg);
+    transform-origin: 62% 100%;
+  }
+  @media (min-width: 60rem) {
+    #preview[data-v="5"] .pv {
+      grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.3fr);
       grid-template-areas: "claim dev" "rail dev" "fact dev";
       align-content: center; column-gap: 3vw;
     }
-    #preview[data-v="3"] .pv::before {
-      left: 0; right: -50vw; width: auto; transform: none; top: -2.5rem; bottom: -2.5rem;
-    }
-    #preview[data-v="3"] .claim { align-self: end; max-width: 15ch; }
-    #preview[data-v="3"] .pv-rail { justify-self: start; }
-    #preview[data-v="3"] .fact { text-align: left; }
-    #preview[data-v="3"] .pv-dev { --pvw: min(20vw, 16rem); margin: 3rem 0; }
-    #preview[data-v="3"] .pv-desk { width: 40%; margin-right: -12%; }
-  }
-
-  /* ---- 4 strip. A round is five screens, so the scene shows five
-     screens. The script clones the device once per design and the
-     strip slides, which makes the switcher the thing you watch. ---- */
-  #preview[data-v="4"] .pv {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: "claim" "strip" "rail" "fact";
-    padding-left: 0; padding-right: 0;
-  }
-  #preview[data-v="4"] .claim,
-  #preview[data-v="4"] .pv-rail,
-  #preview[data-v="4"] .fact { padding: 0 clamp(1.1rem, 5vw, 4.5rem); }
-  #preview[data-v="4"] .claim { grid-area: claim; text-align: left; }
-  #preview[data-v="4"] .pv-rail { grid-area: rail; justify-self: start; }
-  #preview[data-v="4"] .fact { grid-area: fact; text-align: left; }
-  /* Without the script there is no strip, so the one device in the
-     markup stands in the strip's place rather than falling out of the
-     composition. */
-  #preview[data-v="4"] .pv-dev { grid-area: strip; justify-self: center; }
-  #preview[data-v="4"] .pv-strip {
-    grid-area: strip; position: relative; z-index: 2; display: flex; align-items: center;
-    gap: 6vw; width: max-content; margin-top: 1rem;
-    transform: translateX(var(--slide, 0px));
-    transition: transform 0.6s var(--ease);
-  }
-  #preview[data-v="4"] .pv-strip .pv-dev {
-    --pvw: min(46vw, 13rem); flex: none; opacity: 0.34;
-    transform: scale(0.82); transform-origin: 50% 50%;
-    transition: opacity 0.5s var(--ease), transform 0.5s var(--ease);
-  }
-  #preview[data-v="4"] .pv-strip .pv-dev.lead { opacity: 1; transform: none; }
-  #preview[data-v="4"] .pv-desk {
-    grid-area: strip; width: 76%; justify-self: center; align-self: center;
-    --deskop: 0.22; z-index: 1; filter: saturate(0.5);
-  }
-  @media (min-width: 60rem) {
-    #preview[data-v="4"] .pv { row-gap: 1.4rem; }
-    /* Without the script there is no strip, so the one device in the
-     markup stands in the strip's place rather than falling out of the
-     composition. */
-  #preview[data-v="4"] .pv-dev { grid-area: strip; justify-self: center; }
-  #preview[data-v="4"] .pv-strip { gap: 3vw; }
-    #preview[data-v="4"] .pv-strip .pv-dev { --pvw: min(15vw, 14rem); }
-    #preview[data-v="4"] .pv-desk { width: 44%; }
-  }
-
-  /* ---- 5 stage. One hard light, one phone, and the workstation
-     lying flat behind it. The screen is the only colour in the
-     scene, and its own key colour spills onto the dark. ---- */
-  #preview[data-v="5"] .pv {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: "claim" "dev" "rail" "fact";
-    justify-items: center; row-gap: 1.2rem;
-  }
-  #preview[data-v="5"] .pv::before {
-    content: ''; position: absolute; z-index: 0; inset: -6% -25% -12% -25%;
-    background:
-      radial-gradient(38% 46% at 50% 34%, rgba(255, 255, 255, 0.09), transparent 70%),
-      radial-gradient(46% 40% at 50% 62%, var(--pvglow, transparent), transparent 72%);
-    transition: background 0.5s var(--ease); pointer-events: none;
-  }
-  #preview[data-v="5"] .claim { grid-area: claim; text-align: center; }
-  #preview[data-v="5"] .pv-rail { grid-area: rail; }
-  #preview[data-v="5"] .fact { grid-area: fact; text-align: center; }
-  #preview[data-v="5"] .pv-dev {
-    grid-area: dev; --pvw: min(64vw, 16rem); z-index: 3; margin: 1.5rem 0 0;
-    transform: rotate(-1.5deg);
-  }
-  #preview[data-v="5"] .pv-desk {
-    grid-area: dev; width: 88%; align-self: end; z-index: 1;
-    transform: perspective(900px) rotateX(56deg) scale(0.96);
-    transform-origin: 50% 100%; --deskop: 0.55; margin-bottom: -6%;
-  }
-  @media (min-width: 60rem) {
-    #preview[data-v="5"] .pv { row-gap: 1.5rem; }
-    #preview[data-v="5"] .pv-dev { --pvw: min(21vw, 18rem); }
-    #preview[data-v="5"] .pv-desk { width: 46%; }
+    #preview[data-v="5"] .claim { align-self: end; max-width: 15ch; }
+    #preview[data-v="5"] .pv-rail { grid-area: rail; align-self: center; }
+    #preview[data-v="5"] .fact { grid-area: fact; justify-self: start; text-align: left; }
+    #preview[data-v="5"] .pv-desk { width: 84%; }
+    #preview[data-v="5"] .pv-dev { --pvw: min(13vw, 11rem); }
   }
 
   .pv-desk { width: 84%; }
@@ -2100,12 +2099,12 @@ if (prefersStill || !window.IntersectionObserver) {
    turns on its own while the scene is on screen. A tap takes it
    over, and the cycle comes back eight seconds later.
 
-   Round 3's five compositions ride ?id=1..5: 1 bleed, 2 desk,
-   3 field, 4 strip, 5 stage. Each places the claim, both devices,
-   the switcher and the fact line for itself, at both widths.
-   Without this script the phone still shows the first design,
-   whole, and the workstation window stands empty rather than
-   wrong.
+   Round 4's five desks ride ?id=1..5: 1 low, 2 light, 3 flat,
+   4 turn, 5 plane. Each places the claim, both devices, the
+   switcher and the fact line for itself, at both widths, and each
+   puts the light somewhere else. Without this script the phone
+   still shows the first design, whole, and the workstation window
+   stands empty rather than wrong.
    ================================================================ */
 
 (function () {
@@ -2113,7 +2112,7 @@ if (prefersStill || !window.IntersectionObserver) {
   var pv = document.getElementById('pv');
   if (!scene || !pv) return;
 
-  var NAME = { '1': 'bleed', '2': 'desk', '3': 'field', '4': 'strip', '5': 'stage' };
+  var NAME = { '1': 'low', '2': 'light', '3': 'flat', '4': 'turn', '5': 'plane' };
   var pick = (/[?&]id=([1-5])/.exec(location.search) || [])[1] || '1';
   scene.setAttribute('data-v', pick);
 
@@ -2168,15 +2167,15 @@ if (prefersStill || !window.IntersectionObserver) {
        showing. The plates behind the stack take its key color the
        same way. */
     var cs = getComputedStyle(pool[at]);
-    ['--pvfg', '--pvkey', '--pvbg'].forEach(function (k) {
+    ['--pvfg', '--pvkey'].forEach(function (k) {
       var v = cs.getPropertyValue(k);
       if (v) pv.style.setProperty(k, v.trim());
     });
-    /* 5 stage lights the dark with the design's own key colour. The
-       page ships no colour function that would do this in CSS alone,
-       so the rgba is built here. */
+    /* Every desk is lit by the design that is showing: the colour
+       half of the light is its key colour. The page ships no colour
+       function that would do this in CSS alone, so the rgba is built
+       here. */
     pv.style.setProperty('--pvglow', glow(cs.getPropertyValue('--pvkey').trim()));
-    if (strip) walkStrip();
     /* Restart the dwell bar. Clearing the animation and forcing a
        reflow is the only way to replay a CSS animation on demand. */
     if (prog) { prog.style.animation = 'none'; void prog.offsetWidth; prog.style.animation = ''; }
@@ -2192,7 +2191,7 @@ if (prefersStill || !window.IntersectionObserver) {
       if (w > 0) el.style.setProperty('--k', (w / REF).toFixed(4));
     });
   }
-  window.addEventListener('resize', function () { fitPhone(); walkStrip(); }, { passive: true });
+  window.addEventListener('resize', fitPhone, { passive: true });
 
   function glow(hex) {
     var m = /^#?([0-9a-f]{6})$/i.exec(hex || '');
@@ -2201,42 +2200,8 @@ if (prefersStill || !window.IntersectionObserver) {
     return 'rgba(' + ((n >> 16) & 255) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',0.34)';
   }
 
-  /* 4 strip: a round is five screens, so the scene shows five. The
-     device is cloned once per design, each clone pinned to its own,
-     and the strip slides the active one to the middle. The original
-     device stays in the document, hidden: the designs inside it are
-     what every other variation reads its colours from. */
-  var strip = null, clones = [];
-  if (pick === '4') {
-    var dev = pv.querySelector('.pv-dev');
-    strip = document.createElement('div');
-    strip.className = 'pv-strip';
-    pv.insertBefore(strip, dev);
-    pool.forEach(function (design, i) {
-      var c = dev.cloneNode(true);
-      var sw = c.querySelector('.pv-sw');
-      if (sw) sw.parentNode.removeChild(sw);
-      [].slice.call(c.querySelectorAll('.pv-v')).forEach(function (el, j) {
-        if (j === i) { el.classList.add('on'); el.classList.remove('out'); }
-        else el.parentNode.removeChild(el);
-      });
-      c.style.setProperty('--pvfg', getComputedStyle(design).getPropertyValue('--pvfg').trim());
-      strip.appendChild(c);
-      clones.push(c);
-    });
-    dev.style.display = 'none';
-  }
-  /* The clones are in the document now, so the screens can be
-     measured and the strip put where the first design is. */
   fitPhone();
   render(0);
-  function walkStrip() {
-    if (!strip || !clones[at]) return;
-    clones.forEach(function (c, i) { c.classList.toggle('lead', i === at); });
-    var lead = clones[at];
-    var mid = pv.clientWidth / 2;
-    strip.style.setProperty('--slide', (mid - (lead.offsetLeft + lead.offsetWidth / 2)).toFixed(1) + 'px');
-  }
 
   var timer = null, hold = null;
   function start() {
