@@ -658,6 +658,56 @@ Five cuts ride `?d=1..5`, all of them keeping the padding, the hold and the stre
 4. **lean** — the card cut to the bone. No visual, no spoiler, no small print.
 5. **reply** — the operator answers in the thread in their own words.
 
+**The operator picked full, and sent a screenshot of their own Discord session:**
+
+> full looks best. we could use a little bit more padding and breathing room though. here is a
+> screenshot from this discord session which shows even more that you can do to make the discord
+> window more realistic. we can make things like the right sidebar responsive to not clutter mobile
+> too much
+>
+> 5 more variations that do the changes above and mainly differ in the story they are telling
+> (ticket, messages, etc.)
+
+**Round 4.** The chrome is now read off that screenshot rather than guessed, and the five
+variations are five real escalations of this repo.
+
+What the screenshot corrected, item by item:
+
+| what the mock had | what the client actually does |
+|-------------------|-------------------------------|
+| author `curia` | **`CuriaBot`**, with a plain `APP` badge |
+| the classic dark palette | a darker one: near-black rail, then the channel list, then the chat |
+| no window chrome | a title bar: back and forward, the server name, and the window buttons |
+| threads as flat channels | threads **nested under their channel** on a tree line |
+| header shows the thread | header shows **`# curia › ⏳ 377 · curia · grilling`** |
+| no member list | a member list on the right, roles grouped, the bot under Online |
+| one composer icon | gift, GIF, sticker and emoji |
+| no edited mark | the receipt is an edit, so the message wears **(edited)** |
+
+The member list is the first thing to go on a narrow screen, which is what the operator asked for.
+Padding went up across the message, the header, the composer and the code block.
+
+**The five stories.** Every line of every card is recorded on this tracker or in this repo. Where
+curia's own recommendation was never written down, the card carries **no** `Recommendation` line.
+`card.mjs:69` prints one only when an option is marked, so a card without it is still a card curia
+sends. Nothing is invented to fill a slot.
+
+| # | ticket | shape | answer |
+|---|--------|-------|--------|
+| 1 | [#377](https://github.com/alp82/curia/issues/377) cooling dies with the daemon | 3 options, a visual, a recommendation | A, the journal |
+| 2 | [#601](https://github.com/alp82/curia/issues/601) the medium of every proof moment | 2 options, no recommendation, the operator's own reply | built HTML, every scene |
+| 3 | [#624](https://github.com/alp82/curia/issues/624) the visual identity of this page | 5 options, so a **select menu** instead of buttons | duotone |
+| 4 | [#635](https://github.com/alp82/curia/issues/635) where the five-variation rule lives | 3 options, a recommendation | config and a settings row |
+| 5 | [#671](https://github.com/alp82/curia/issues/671) a login a restart cut in half | 4 options, the button ceiling | session for the login, journal for the clock |
+
+The shapes are not decoration. `bridge.mjs:52` caps buttons at four options, so the five-option
+identity card really does come through as a select menu with `Pick from the menu below.`, and its
+receipt reads `via select menu` rather than `via button` (`bridge.mjs:1742`).
+
+**Story 1 stays static markup.** The other four are rendered over it by the script. That keeps the
+rule this file has held since #551: the page reads a whole real escalation with no script at all.
+When a story is picked, it becomes the static one.
+
 ## The verdict of the opening arc ([#625](https://github.com/alp82/curia/issues/625))
 
 **Locked over nine operator rounds.** The other four pipelines, the switcher and the `?id` parameter
