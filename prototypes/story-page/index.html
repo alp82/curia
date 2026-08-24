@@ -694,43 +694,380 @@
 
 
   /* ================================================================
-     Scene 5 — the preview. A phone, and inside it the agent's work,
-     running: this very page, served over the tailnet.
+     Scene 5 — the preview (#627). The phone is drawn, not shot
+     (#601): a device you would believe, and inside it the thing the
+     agent actually built. That is a bright prototype, served from the
+     box over the tailnet, carrying the round switcher curia ships
+     with every prototype. The switcher turns on its own, so a reader
+     watches a whole round of five without touching anything.
+
+     Round 1 offered five presentations of the device. The operator
+     picked pair: the claim says phone OR workstation, so the scene
+     shows both, playing one preview. The four that lost left the
+     file with that round, the way the identity switcher left it at
+     #624.
+
+     Round 2 rides ?id=1..5, and each one places the three elements
+     of the pair differently. The layouts are at the foot of this
+     stylesheet.
      ================================================================ */
-  .phone {
-    width: min(72vw, 15rem); aspect-ratio: 9 / 19; margin: 0 auto;
-    background: #0e1013; border-radius: 2rem; padding: 0.55rem;
-    box-shadow: inset 0 0 0 2px #2a2f38, 0 12px 48px rgba(0, 0, 0, 0.55);
-    display: flex; flex-direction: column;
+  /* The scene is ONE composition canvas, not a stack of centred
+     blocks. Round 2 kept the claim in a centred .wrap while the
+     devices leaned left inside a .shot, and at desktop width that
+     put the title in the middle with the screens jammed against the
+     left edge. The claim, both devices, the switcher and the fact
+     line are grid items of this canvas now, and every variation
+     places all five of them, at both widths. */
+  .pv {
+    --pvw: min(74vw, 15.5rem);
+    --dwell: 3s;
+    position: relative; width: 100%; max-width: 96rem; margin: 0 auto;
+    padding: 0 clamp(1.1rem, 5vw, 4.5rem);
+    display: grid; row-gap: 1.1rem; align-content: start;
   }
-  .ph-screen {
-    flex: 1; border-radius: 1.5rem; overflow: hidden; background: #08090c;
-    display: flex; flex-direction: column; min-height: 0;
+  .pv > .claim { margin: 0; }
+  .pv > .fact { margin: 0; }
+  /* The identity saturates the evidence with the scroll value. The
+     .shot that used to carry that filter is gone from this scene, so
+     the devices carry it themselves. */
+  #preview .pv-dev, #preview .pv-desk { filter: saturate(calc(0.6 + 0.4 * var(--p, 1))); }
+  /* The devices come in with opacity alone. A reveal transform would
+     fight the transform a composition puts on them. */
+  #preview .pv-dev, #preview .pv-desk { opacity: 0; transition: opacity 0.5s var(--ease); }
+  #preview.seen .pv-dev { opacity: 1; }
+  /* A composition that wants the workstation held back says so with
+     --deskop rather than with an opacity the reveal would fight. */
+  #preview.seen .pv-desk { opacity: var(--deskop, 1); }
+  .js #preview .kick, .js #preview .bold { text-wrap: balance; }
+
+  /* ---- the device. A titanium rail, a black bezel, the island, the
+     status bar, the home indicator and one specular pass. Nothing
+     here is an image. ---- */
+  .pv-dev { position: relative; width: var(--pvw); flex: none; }
+  .pv-phone {
+    position: relative; width: 100%; aspect-ratio: 9 / 19.5;
+    border-radius: 2.6rem; padding: 0.3rem;
+    background: linear-gradient(118deg, #464c56 0%, #b3bac5 11%, #363b44 27%, #7f8894 49%, #2c313a 66%, #9aa3af 84%, #414751 100%);
+    box-shadow:
+      0 1.7rem 3.2rem -0.9rem rgba(0, 0, 0, 0.78),
+      0 0.35rem 1rem rgba(0, 0, 0, 0.45),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.28);
   }
-  .ph-url {
-    margin: 0.55rem 0.55rem 0.4rem; padding: 0.3rem 0.6rem; border-radius: 999px;
-    background: #14171c; color: #969ba5; font: 0.58rem var(--mono);
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: none;
+  .pv-bezel {
+    position: relative; height: 100%; border-radius: 2.35rem; padding: 0.13rem;
+    background: #04060a; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07);
   }
-  .ph-url b { color: var(--accent); font-weight: 600; }
-  .ph-page { flex: 1; padding: 0.7rem 0.75rem; min-height: 0; overflow: hidden; }
-  .ph-kicker { font: 600 0.5rem var(--mono); color: var(--dim); }
-  .ph-kicker b { color: var(--accent); }
-  .ph-h { font-size: 0.95rem; line-height: 1.1; letter-spacing: -0.02em; font-weight: 650; margin: 0.35rem 0; }
-  .ph-line { height: 0.32rem; border-radius: 2px; background: #ffffff14; margin: 0.3rem 0; }
-  .ph-line.w1 { width: 92%; } .ph-line.w2 { width: 78%; } .ph-line.w3 { width: 55%; }
-  .ph-chip {
-    display: inline-block; margin-top: 0.45rem; padding: 0.25rem 0.55rem; border-radius: 6px;
-    background: var(--accent); color: #06231a; font: 600 0.55rem var(--sans);
+  .pv-screen {
+    position: relative; height: 100%; border-radius: 2.24rem; overflow: hidden;
+    background: #fff; isolation: isolate;
   }
-  .ph-tickets { margin-top: 0.8rem; display: flex; flex-direction: column; gap: 0.3rem; }
-  .ph-tk {
-    display: flex; align-items: center; gap: 0.35rem;
-    border: 1px solid #ffffff22; border-radius: 5px; padding: 0.22rem 0.4rem;
-    font: 600 0.5rem var(--mono); color: #c1c8d3;
+  /* Everything on the screen is drawn against a 15.5rem device and
+     then zoomed to whatever width the variation gives it, so a
+     smaller phone is a smaller phone rather than a zoomed-in page.
+     The script measures the screen and sets --k. Where zoom is not
+     honored the mock still stands, at the size it was drawn. */
+  .pv-inner { position: absolute; inset: 0; zoom: var(--k, 1); }
+  .pv-btn {
+    position: absolute; width: 0.13rem; border-radius: 1px;
+    background: linear-gradient(90deg, #2b3038, #99a1ad);
   }
-  .ph-tk i { width: 0.35rem; height: 0.35rem; border-radius: 999px; background: var(--st-agent); flex: none; }
-  .ph-tk.done i { background: var(--st-merged); }
+  .pv-btn.b1 { left: -0.11rem; top: 15%; height: 3.4%; }
+  .pv-btn.b2 { left: -0.11rem; top: 22%; height: 6.6%; }
+  .pv-btn.b3 { left: -0.11rem; top: 30.5%; height: 6.6%; }
+  .pv-btn.b4 { right: -0.11rem; top: 25%; height: 10.5%; }
+
+  .pv-island {
+    position: absolute; z-index: 6; top: 0.5rem; left: 50%; transform: translateX(-50%);
+    width: 31%; height: 1.05rem; border-radius: 999px; background: #04060a;
+    display: flex; align-items: center; justify-content: flex-end; padding-right: 0.26rem;
+  }
+  .pv-island i {
+    width: 0.32rem; height: 0.32rem; border-radius: 999px;
+    background: radial-gradient(circle at 34% 30%, #35496a, #060910 72%);
+    box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.18);
+  }
+  .pv-status {
+    position: absolute; z-index: 5; inset: 0 0 auto; height: 1.85rem;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 1rem 0 1.1rem; color: var(--pvfg, #16181d);
+    font: 700 0.5rem/1 var(--sans); letter-spacing: 0.01em;
+  }
+  .pv-status .rt { display: flex; align-items: center; gap: 0.26rem; }
+  /* The icons are drawn out of empty elements, so they carry no
+     strike of their own. */
+  .pv-status s, .pv-wt s { text-decoration: none; }
+  .pv-sig { display: flex; align-items: flex-end; gap: 1px; height: 0.42rem; }
+  .pv-sig s { display: block; width: 2px; border-radius: 1px; background: currentColor; }
+  .pv-sig s:nth-child(1) { height: 40%; }
+  .pv-sig s:nth-child(2) { height: 60%; }
+  .pv-sig s:nth-child(3) { height: 80%; }
+  .pv-sig s:nth-child(4) { height: 100%; }
+  .pv-wifi { position: relative; width: 0.62rem; height: 0.46rem; }
+  .pv-wifi s {
+    position: absolute; left: 50%; bottom: 0; transform: translateX(-50%);
+    border: 1.2px solid transparent; border-top-color: currentColor; border-radius: 50%;
+  }
+  .pv-wifi s:nth-child(1) { width: 0.62rem; height: 0.62rem; }
+  .pv-wifi s:nth-child(2) { width: 0.36rem; height: 0.36rem; }
+  .pv-wifi s:nth-child(3) { width: 0.13rem; height: 0.13rem; border: none; background: currentColor; }
+  .pv-batt {
+    position: relative; width: 0.92rem; height: 0.45rem; border-radius: 1.5px;
+    box-shadow: inset 0 0 0 1px currentColor; padding: 1px; opacity: 0.92;
+  }
+  .pv-batt s { display: block; height: 100%; width: 68%; border-radius: 0.5px; background: currentColor; }
+  .pv-batt::after {
+    content: ''; position: absolute; right: -2.4px; top: 32%; width: 1.3px; height: 36%;
+    border-radius: 0 1px 1px 0; background: currentColor; opacity: 0.55;
+  }
+  .pv-home {
+    position: absolute; z-index: 6; bottom: 0.4rem; left: 50%; transform: translateX(-50%);
+    width: 33%; height: 0.17rem; border-radius: 999px; background: var(--pvfg, #16181d); opacity: 0.5;
+  }
+  .pv-glare {
+    position: absolute; z-index: 7; inset: 0; pointer-events: none; border-radius: 2.24rem;
+    background: linear-gradient(122deg,
+      rgba(255, 255, 255, 0.22) 0 12%, rgba(255, 255, 255, 0) 30% 66%,
+      rgba(255, 255, 255, 0.1) 80%, rgba(255, 255, 255, 0) 100%);
+    opacity: var(--glare, 0.5);
+  }
+
+  /* ---- Safari's floating address bar, where the tailnet host is the
+     evidence: the preview is on the operator's own network. ---- */
+  .pv-bar {
+    position: absolute; z-index: 5; left: 0.5rem; right: 0.5rem; bottom: 0.9rem; height: 1.5rem;
+    border-radius: 999px; padding: 0 0.5rem; display: flex; align-items: center; gap: 0.3rem;
+    background: rgba(250, 250, 252, 0.86); backdrop-filter: blur(10px);
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.14), inset 0 0 0 0.5px rgba(0, 0, 0, 0.09);
+    font: 500 0.5rem/1 var(--sans); color: #4a505a;
+  }
+  .pv-bar .aa { font-weight: 600; letter-spacing: -0.03em; opacity: 0.75; flex: none; }
+  .pv-bar .u { flex: 1; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pv-bar .u b { color: #14161a; font-weight: 600; }
+  .pv-bar .lk { flex: none; opacity: 0.75; filter: grayscale(1); }
+  .pv-bar .rl { flex: none; opacity: 0.6; font-size: 0.6rem; }
+
+  /* ---- the round switcher, as curia ships it in a prototype: five
+     variations, one tap each, and it cycles by itself. ---- */
+  .pv-sw {
+    position: absolute; z-index: 5; left: 50%; transform: translateX(-50%); bottom: 2.75rem;
+    display: flex; align-items: center; gap: 0.16rem; padding: 0.2rem 0.24rem 0.28rem;
+    border-radius: 999px; background: rgba(14, 16, 22, 0.8); backdrop-filter: blur(8px);
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
+  }
+  .pv-sw button {
+    width: 1.02rem; height: 1.02rem; padding: 0; border: none; border-radius: 999px;
+    background: none; color: #cfd5df; font: 700 0.46rem/1 var(--mono); cursor: pointer;
+  }
+  .pv-sw button.on { background: #fff; color: #10121a; }
+  .pv-sw .prog {
+    position: absolute; left: 0.3rem; right: 0.3rem; bottom: 0.13rem; height: 1.5px;
+    border-radius: 2px; background: rgba(255, 255, 255, 0.2); overflow: hidden;
+  }
+  .pv-sw .prog s { display: block; height: 100%; background: #fff; transform: scaleX(0); transform-origin: left; }
+  .pv.run .pv-sw .prog s { animation: pvprog var(--dwell) linear forwards; }
+  @keyframes pvprog { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+
+  /* ---- the rail: the same round, told outside the devices. It is
+     the third element the layouts place. ---- */
+  .pv-rail { display: flex; align-items: center; gap: 0.35rem; }
+  .pv-rail button {
+    border: 1px solid var(--line); background: none; color: var(--dim); cursor: pointer;
+    font: 700 0.62rem/1 var(--mono); padding: 0.34rem 0.42rem; border-radius: 6px;
+  }
+  .pv-rail button.on { border-color: var(--st-agent); color: #08090c; background: var(--st-agent); }
+
+  /* ---- the prototype inside. Five bright art directions over one
+     page of content, drawn with gradients and shapes only. ---- */
+  .pv-site { position: absolute; inset: 0; z-index: 2; }
+  .pv-v {
+    position: absolute; inset: 0; overflow: hidden; z-index: 1;
+    background: var(--pvbg); color: var(--pvfg);
+    padding: 2.15rem 0.95rem 3.4rem;
+    display: flex; flex-direction: column; align-items: flex-start;
+    opacity: 0; visibility: hidden;
+    transition: opacity 0.42s var(--ease), transform 0.55s var(--ease);
+  }
+  .pv-v.on { opacity: 1; visibility: visible; z-index: 3; transform: none; }
+  .pv-v.out { visibility: visible; z-index: 2; }
+  .pv-top, .pv-h, .pv-p, .pv-cta { position: relative; z-index: 1; }
+  .pv-top { display: flex; align-items: baseline; justify-content: space-between; width: 100%; gap: 0.5rem; }
+  .pv-mark { font: 800 0.66rem/1 var(--sans); letter-spacing: 0.15em; }
+  .pv-nav { font: 600 0.42rem/1 var(--sans); letter-spacing: 0.11em; opacity: 0.62; white-space: nowrap; }
+  .pv-h { margin: 0.85rem 0 0; font-size: 1.5rem; line-height: 1.03; letter-spacing: -0.03em; font-weight: 750; }
+  .pv-p { margin: 0.5rem 0 0; font-size: 0.52rem; line-height: 1.55; opacity: 0.72; max-width: 15em; }
+  .pv-cta {
+    margin-top: 0.8rem; font: 700 0.5rem/1 var(--sans); padding: 0.42rem 0.72rem;
+    border-radius: 999px; background: var(--pvfg); color: var(--pvbg);
+  }
+  .pv-art { position: absolute; z-index: 0; }
+
+  /* 1 sun — cream, one tangerine sun, editorial serif. */
+  .v-sun { --pvbg: #fbf3e3; --pvfg: #221f1a; --pvkey: #ef5f2b; }
+  .v-sun .pv-h { font-family: Georgia, "Iowan Old Style", "Times New Roman", serif; font-weight: 400; font-size: 1.75rem; letter-spacing: -0.02em; }
+  .v-sun .pv-cta { background: #ef5f2b; color: #fff5ea; }
+  .v-sun .pv-art {
+    top: 2.9rem; right: -2.4rem; width: 8.6rem; height: 8.6rem; border-radius: 999px;
+    background: radial-gradient(circle at 34% 28%, #ff9455, #ef5f2b 68%);
+  }
+  .v-sun .pv-art::after {
+    content: ''; position: absolute; left: -4.8rem; top: 6.2rem; width: 12rem; height: 1px;
+    background: #221f1a; opacity: 0.22;
+  }
+
+  /* 2 acid — white, black grotesk, one lime block with a hard shadow. */
+  .v-acid { --pvbg: #ffffff; --pvfg: #101014; --pvkey: #c8ff2e; }
+  .v-acid .pv-h { text-transform: uppercase; font-weight: 900; font-size: 1.34rem; line-height: 0.94; letter-spacing: -0.04em; }
+  .v-acid .pv-nav { opacity: 1; border: 1.5px solid #101014; padding: 0.14rem 0.3rem; }
+  .v-acid .pv-cta { border-radius: 0; background: #101014; color: #fff; box-shadow: 0.2rem 0.2rem 0 #c8ff2e; }
+  .v-acid .pv-art {
+    left: 0.95rem; right: 0.95rem; bottom: 4.3rem; height: 4.6rem;
+    background: repeating-linear-gradient(56deg, #c8ff2e 0 0.55rem, #b6ee1c 0.55rem 1.1rem);
+    border: 2px solid #101014; box-shadow: 0.4rem 0.4rem 0 #ff3d9e;
+  }
+
+  /* 3 bloom — pastel mesh, soft cards, friendly weight. */
+  .v-bloom { --pvbg: linear-gradient(163deg, #fff0f6, #eef1ff 62%, #e6fbff); --pvfg: #2b2456; --pvkey: #ff9fc4; }
+  .v-bloom .pv-h { font-weight: 780; font-size: 1.42rem; letter-spacing: -0.038em; }
+  .v-bloom .pv-cta { background: #2b2456; color: #fff; }
+  .v-bloom .pv-art {
+    left: -2.5rem; right: -2.5rem; top: 1.5rem; height: 11rem; filter: blur(15px); opacity: 0.85;
+    background:
+      radial-gradient(4.5rem 4.5rem at 26% 34%, #ffadd0, transparent 70%),
+      radial-gradient(4.2rem 4.2rem at 74% 58%, #a8c6ff, transparent 70%),
+      radial-gradient(3.4rem 3.4rem at 52% 82%, #b8f2e6, transparent 72%);
+  }
+
+  /* 4 riso — pale mint, halftone dots, two inks overprinted. */
+  .v-riso { --pvbg: #e9f4ec; --pvfg: #14301f; --pvkey: #2b4cf0; }
+  .v-riso .pv-h { text-transform: uppercase; font-weight: 800; font-size: 1.26rem; letter-spacing: 0.005em; font-stretch: condensed; }
+  .v-riso .pv-nav { font-family: var(--mono); letter-spacing: 0.02em; }
+  .v-riso .pv-cta { background: #ff4438; color: #fff; border-radius: 3px; }
+  .v-riso .pv-art {
+    right: -1.6rem; top: 3.4rem; width: 8rem; height: 8rem; border-radius: 999px 999px 0 0;
+    background-image: radial-gradient(#2b4cf0 27%, transparent 28%);
+    background-size: 4px 4px;
+  }
+  .v-riso .pv-art::after {
+    content: ''; position: absolute; left: -2.6rem; top: 2.6rem; width: 5.4rem; height: 5.4rem;
+    border-radius: 999px; background: #ff4438; opacity: 0.72; mix-blend-mode: multiply;
+  }
+
+  /* 5 dusk — a sunset poster, white type, one arch. */
+  .v-dusk { --pvbg: linear-gradient(152deg, #ff8a3d, #ff3d77 46%, #7c46e0); --pvfg: #ffffff; --pvkey: #ff6a3d; }
+  .v-dusk .pv-h { margin-top: auto; font-size: 1.58rem; font-weight: 800; }
+  .v-dusk .pv-p { opacity: 0.85; }
+  .v-dusk .pv-cta { background: #fff; color: #d63b5e; }
+  .v-dusk .pv-art {
+    left: 50%; transform: translateX(-50%); top: 3.4rem; width: 9.4rem; height: 9.4rem;
+    border-radius: 999px 999px 0 0; box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.85);
+  }
+  .v-dusk .pv-art::after {
+    content: ''; position: absolute; left: 1.6rem; right: 1.6rem; top: 1.6rem; bottom: 0;
+    border-radius: 999px 999px 0 0; box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.55);
+  }
+
+  /* ================================================================
+     Round 5 — the operator picked the light desk: "light is great!".
+     The other four desks left the file with round 4, the way the
+     identity switcher left it at #624. Two corrections came with the
+     pick: the title was breaking into seven lines, and the copy of
+     the previewed website read as weird.
+
+     So the composition is settled and ?id=1..5 now picks what the
+     agent built. Five subjects ride it, and each one fills all five
+     art directions. The words are in the script, beside the table
+     that names them.
+
+     The desk: one spotlight out of the top-left corner, the
+     workstation barely tipped, and the phone standing at the right
+     where the light falls off. The colour half of the light is the
+     key colour of whichever design is showing, so the desk changes
+     colour as the round turns.
+     ================================================================ */
+  .pv {
+    perspective: 1500px;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "claim" "dev" "rail" "fact";
+    --lx: 14%; --ly: -6%; --gx: 72%; --gy: 70%;
+  }
+  .pv > .claim { grid-area: claim; text-align: left; }
+  .pv > .pv-rail { grid-area: rail; justify-self: end; }
+  .pv > .fact { grid-area: fact; text-align: right; }
+  .pv-desk {
+    grid-area: dev; width: 76%; justify-self: start; align-self: start; z-index: 2;
+    transform: rotateX(13deg) rotateY(-15deg) rotate(-0.6deg);
+    transform-origin: 62% 100%;
+    box-shadow: 0 2.4rem 3.4rem -1.5rem rgba(0, 0, 0, 0.82);
+  }
+  .pv-dev {
+    grid-area: dev; --pvw: min(32vw, 8.5rem); justify-self: end; align-self: end;
+    transform-origin: 50% 100%; z-index: 3;
+  }
+  /* The light. Its white half comes out of the corner, and its
+     coloured half is whatever the screen is showing. */
+  .pv::before {
+    content: ''; position: absolute; z-index: 0; grid-area: dev;
+    inset: -14% -18% -22% -18%; pointer-events: none;
+    background:
+      radial-gradient(46% 42% at var(--lx) var(--ly), rgba(255, 255, 255, 0.075), transparent 70%),
+      radial-gradient(52% 44% at var(--gx) var(--gy), var(--pvglow, transparent), transparent 74%);
+    transition: background 0.5s var(--ease);
+  }
+  /* The words never sit in the light (#624 rule 5). */
+  #preview .claim, #preview .pv-rail, #preview .fact { position: relative; z-index: 4; }
+
+  @media (min-width: 60rem) {
+    .pv {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
+      grid-template-areas: "claim dev" "rail dev" "fact dev";
+      align-content: center; column-gap: 3vw; --lx: 30%;
+    }
+    /* The claim takes the width its column gives it. Round 4 capped
+       it in ch, which is relative to the header's own 1rem and not to
+       the 3rem line it holds, so the title broke over seven lines. */
+    .pv > .claim { align-self: end; }
+    .pv > .pv-rail { justify-self: start; }
+    .pv > .fact { text-align: left; }
+    .pv-desk { width: 82%; }
+    .pv-dev { --pvw: min(13vw, 11rem); }
+  }
+
+  .pv-win {
+    border-radius: 9px; overflow: hidden; background: #f5f6f8;
+    box-shadow: 0 1.4rem 3rem -0.8rem rgba(0, 0, 0, 0.7), inset 0 0 0 1px rgba(255, 255, 255, 0.14);
+  }
+  .pv-wt {
+    display: flex; align-items: center; gap: 0.4rem; padding: 0.4rem 0.55rem;
+    background: #e7e8ec; border-bottom: 1px solid #d3d5db;
+  }
+  .pv-wt s { width: 0.42rem; height: 0.42rem; border-radius: 999px; background: #d6d8de; }
+  .pv-wt s:nth-child(1) { background: #ff5f57; }
+  .pv-wt s:nth-child(2) { background: #febc2e; }
+  .pv-wt s:nth-child(3) { background: #28c840; }
+  .pv-wt .wu {
+    flex: 1; margin-left: 0.4rem; padding: 0.16rem 0.5rem; border-radius: 5px; background: #f7f8fa;
+    font: 500 0.5rem/1.4 var(--sans); color: #5a616c; text-align: center;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .pv-wt .wu b { color: #14161a; font-weight: 600; }
+  .pv-wb { position: relative; overflow: hidden; }
+  .pv-wb .pv-site { position: absolute; inset: 0; transform-origin: 0 0; }
+  .pv-wb .pv-v { padding: 1.6rem 1.8rem; }
+  .pv-wb .pv-h { font-size: 2.6rem; max-width: 9em; }
+  .pv-wb .pv-p { font-size: 0.82rem; max-width: 24em; }
+  .pv-wb .pv-mark { font-size: 1rem; }
+  .pv-wb .pv-nav { font-size: 0.68rem; }
+  .pv-wb .pv-cta { font-size: 0.78rem; padding: 0.6rem 1.1rem; }
+  .pv-wb .v-sun .pv-art { width: 15rem; height: 15rem; top: 3rem; right: -3rem; }
+  .pv-wb .v-acid .pv-art { left: auto; right: 1.8rem; top: 4.5rem; bottom: auto; width: 13rem; height: 8rem; }
+  .pv-wb .v-bloom .pv-art { height: 20rem; }
+  .pv-wb .v-riso .pv-art { width: 14rem; height: 14rem; top: 4rem; right: -1rem; }
+  .pv-wb .v-dusk .pv-art { width: 17rem; height: 17rem; top: 2.5rem; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .pv-v { transition: none; }
+    .pv.run .pv-sw .prog s { animation: none; transform: scaleX(1); }
+  }
 
   /* ================================================================
      Scene 6 — the atlas. The maps screen in its own design language
@@ -1186,36 +1523,118 @@
     </div>
   </section>
 
-  <!-- Scene 5 · the preview. Inside the phone: this page itself,
-       served from the box over the tailnet — which is how the
-       operator judged every round of it. -->
-  <section class="scene sR" data-stage="agent" data-n="04" data-name="the preview" style="--g1:#0f2024;--g2:#091316">
-    <div class="wrap">
+  <!-- Scene 5 · the preview (#627). The device is drawn, not shot
+       (#601). Inside it is what the agent built — a prototype served
+       from the box over the tailnet, with the round switcher curia
+       ships in every prototype, cycling on its own. The site is
+       GRAVITY, a type foundry, locked at round 5. -->
+  <section class="scene sR" id="preview" data-stage="agent" data-n="04" data-name="the preview" style="--g1:#0c2226;--g2:#081316">
+    <div class="pv" id="pv">
       <header class="claim rv">
         <p class="kick"><span class="kn">04</span><span class="kname">the preview</span></p>
         <h2 class="bold">Live previews from your phone or workstation</h2>
       </header>
-    </div>
-    <div class="shot rv">
-      <div class="phone" id="phone">
-        <div class="ph-screen">
-          <div class="ph-url">https://<b>box.tailnet.ts.net</b>:9000/</div>
-          <div class="ph-page">
-            <div class="ph-kicker"><b>curia</b> — self-hosted agent dispatcher</div>
-            <div class="ph-h">Coding agents controlled from your phone</div>
-            <div class="ph-line w1 tw"></div>
-            <div class="ph-line w2 tw"></div>
-            <div class="ph-line w3 tw"></div>
-            <span class="ph-chip tw">Set it up</span>
-            <div class="ph-tickets">
-              <div class="ph-tk tw"><i></i>#551 · the story page · agent</div>
-              <div class="ph-tk done tw"><i></i>#587 · the words · merged</div>
+      <div class="pv-dev">
+        <div class="pv-phone">
+          <span class="pv-btn b1"></span>
+          <span class="pv-btn b2"></span>
+          <span class="pv-btn b3"></span>
+          <span class="pv-btn b4"></span>
+          <div class="pv-bezel">
+            <div class="pv-screen">
+             <div class="pv-inner">
+
+              <!-- The prototype: one page of content, five art
+                   directions, which is the round curia sends. -->
+              <div class="pv-site" id="pv-pool">
+                <article class="pv-v v-sun on">
+                  <span class="pv-art"></span>
+                  <div class="pv-top"><span class="pv-mark">GRAVITY</span><span class="pv-nav">fonts · trials · licences</span></div>
+                  <h3 class="pv-h">A typeface with weight.</h3>
+                  <p class="pv-p">Nine weights, two widths, and one axis for the space between.</p>
+                  <span class="pv-cta">Try it free</span>
+                </article>
+                <article class="pv-v v-acid">
+                  <span class="pv-art"></span>
+                  <div class="pv-top"><span class="pv-mark">GRAVITY</span><span class="pv-nav">fonts · trials · licences</span></div>
+                  <h3 class="pv-h">A typeface with weight.</h3>
+                  <p class="pv-p">Nine weights, two widths, and one axis for the space between.</p>
+                  <span class="pv-cta">Try it free</span>
+                </article>
+                <article class="pv-v v-bloom">
+                  <span class="pv-art"></span>
+                  <div class="pv-top"><span class="pv-mark">GRAVITY</span><span class="pv-nav">fonts · trials · licences</span></div>
+                  <h3 class="pv-h">A typeface with weight.</h3>
+                  <p class="pv-p">Nine weights, two widths, and one axis for the space between.</p>
+                  <span class="pv-cta">Try it free</span>
+                </article>
+                <article class="pv-v v-riso">
+                  <span class="pv-art"></span>
+                  <div class="pv-top"><span class="pv-mark">GRAVITY</span><span class="pv-nav">fonts · trials · licences</span></div>
+                  <h3 class="pv-h">A typeface with weight.</h3>
+                  <p class="pv-p">Nine weights, two widths, and one axis for the space between.</p>
+                  <span class="pv-cta">Try it free</span>
+                </article>
+                <article class="pv-v v-dusk">
+                  <span class="pv-art"></span>
+                  <div class="pv-top"><span class="pv-mark">GRAVITY</span><span class="pv-nav">fonts · trials · licences</span></div>
+                  <h3 class="pv-h">A typeface with weight.</h3>
+                  <p class="pv-p">Nine weights, two widths, and one axis for the space between.</p>
+                  <span class="pv-cta">Try it free</span>
+                </article>
+              </div>
+
+              <div class="pv-status">
+                <span>9:41</span>
+                <span class="rt">
+                  <span class="pv-sig"><s></s><s></s><s></s><s></s></span>
+                  <span class="pv-wifi"><s></s><s></s><s></s></span>
+                  <span class="pv-batt"><s></s></span>
+                </span>
+              </div>
+
+              <div class="pv-sw" id="pv-sw">
+                <button type="button" data-pvi="0" class="on">1</button>
+                <button type="button" data-pvi="1">2</button>
+                <button type="button" data-pvi="2">3</button>
+                <button type="button" data-pvi="3">4</button>
+                <button type="button" data-pvi="4">5</button>
+                <span class="prog"><s></s></span>
+              </div>
+
+              <div class="pv-bar">
+                <span class="aa">aA</span>
+                <span class="u"><span class="lk">🔒</span> <b>box.tailnet.ts.net</b>:9000</span>
+                <span class="rl">⟳</span>
+              </div>
+
+              <span class="pv-home"></span>
+              <span class="pv-glare"></span>
+              <span class="pv-island"><i></i></span>
+             </div>
             </div>
           </div>
         </div>
       </div>
-    </div>
-    <div class="wrap">
+
+      <!-- The workstation half of the claim. The script fills this
+           window from the pool above, so both devices show one
+           preview rather than two copies of it. -->
+      <div class="pv-desk" id="pv-desk" aria-hidden="true">
+        <div class="pv-win">
+          <div class="pv-wt"><s></s><s></s><s></s>
+            <span class="wu"><b>box.tailnet.ts.net</b>:9000</span>
+          </div>
+          <div class="pv-wb" id="pv-wb"></div>
+        </div>
+      </div>
+      <nav class="pv-rail" id="pv-rail" aria-label="the round">
+        <button type="button" data-pvi="0" class="on">1</button>
+        <button type="button" data-pvi="1">2</button>
+        <button type="button" data-pvi="2">3</button>
+        <button type="button" data-pvi="3">4</button>
+        <button type="button" data-pvi="4">5</button>
+      </nav>
       <p class="fact rv">A secure link on your tailnet</p>
     </div>
   </section>
@@ -1510,7 +1929,7 @@ if (prefersStill || !window.IntersectionObserver) {
   [].slice.call(document.querySelectorAll('.rv')).forEach(function (n) { obs.observe(n); });
   /* Containers whose children come in one after another: the thread
      writes itself, the pane types, the run walks stage by stage. */
-  ['phone', 'run-track'].forEach(function (id) {
+  ['run-track'].forEach(function (id) {
     var el = document.getElementById(id);
     if (el) { el.classList.add('stagger'); obs.observe(el); }
   });
@@ -1518,6 +1937,146 @@ if (prefersStill || !window.IntersectionObserver) {
     el.classList.add('stagger'); obs.observe(el);
   });
 }
+
+/* ================================================================
+   Scene 5 (#627) — the preview. The prototype inside the phone
+   carries the round switcher curia ships with it, and the round
+   turns on its own while the scene is on screen. A tap takes it
+   over, and the cycle comes back eight seconds later.
+
+   LOCKED over five operator rounds. Every variation that lost, and
+   the switcher that carried them, left the file with the round that
+   settled it, the way the identity switcher left it at #624.
+
+   Without this script the phone still shows the first design,
+   whole, and the workstation window stands empty rather than
+   wrong.
+   ================================================================ */
+
+(function () {
+  var scene = document.getElementById('preview');
+  var pv = document.getElementById('pv');
+  if (!scene || !pv) return;
+
+  var pool = [].slice.call(document.querySelectorAll('#pv-pool > .pv-v'));
+  var chips = [].slice.call(scene.querySelectorAll('[data-pvi]'));
+  var prog = scene.querySelector('.pv-sw .prog s');
+  var wide = [];
+  var DWELL = 3000;
+  var at = 0;
+
+  /* The workstation shows the SAME preview, so the window is filled
+     from the same pool instead of a second copy of the markup. The
+     page is drawn at a fixed width and scaled into the window, which
+     is what makes a miniature read as a desktop rather than as a
+     narrow column. */
+  var DESKW = 720, DESKH = 450, wb = document.getElementById('pv-wb');
+  if (wb) {
+    var site = document.getElementById('pv-pool').cloneNode(true);
+    site.removeAttribute('id');
+    site.style.width = DESKW + 'px';
+    site.style.height = DESKH + 'px';
+    wb.appendChild(site);
+    wide = [].slice.call(site.children);
+    fitDesk();
+    window.addEventListener('resize', fitDesk, { passive: true });
+  }
+  function fitDesk() {
+    if (!wb || !wb.firstChild) return;
+    var k = wb.clientWidth / DESKW;
+    wb.firstChild.style.transform = 'scale(' + k.toFixed(4) + ')';
+    wb.style.height = Math.round(DESKH * k) + 'px';
+  }
+
+  function render(n) {
+    at = ((n % pool.length) + pool.length) % pool.length;
+    [pool, wide].forEach(function (set) {
+      set.forEach(function (el, i) {
+        el.classList.remove('out');
+        if (i === at) {
+          el.classList.add('on');
+        } else if (el.classList.contains('on')) {
+          el.classList.remove('on');
+          el.classList.add('out');
+        }
+      });
+    });
+    chips.forEach(function (b) {
+      b.classList.toggle('on', Number(b.getAttribute('data-pvi')) === at);
+    });
+    /* The status bar and the home indicator belong to the phone, not
+       to the design, so they take their ink from whichever design is
+       showing. */
+    var cs = getComputedStyle(pool[at]);
+    ['--pvfg', '--pvkey'].forEach(function (k) {
+      var v = cs.getPropertyValue(k);
+      if (v) pv.style.setProperty(k, v.trim());
+    });
+    /* Every desk is lit by the design that is showing: the colour
+       half of the light is its key colour. The page ships no colour
+       function that would do this in CSS alone, so the rgba is built
+       here. */
+    pv.style.setProperty('--pvglow', glow(cs.getPropertyValue('--pvkey').trim()));
+    /* Restart the dwell bar. Clearing the animation and forcing a
+       reflow is the only way to replay a CSS animation on demand. */
+    if (prog) { prog.style.animation = 'none'; void prog.offsetWidth; prog.style.animation = ''; }
+  }
+
+  /* The screen is drawn against a 15.5rem device, and the
+     composition gives it about half of that, so the whole mock is
+     zoomed to what it actually got: a smaller phone, not a zoomed-in
+     page. The window on the desk is scaled the same way. */
+  var REF = 15.5 * (parseFloat(getComputedStyle(document.documentElement).fontSize) || 16);
+  function fitPhone() {
+    [].slice.call(pv.querySelectorAll('.pv-screen')).forEach(function (el) {
+      var w = el.clientWidth;
+      if (w > 0) el.style.setProperty('--k', (w / REF).toFixed(4));
+    });
+  }
+  window.addEventListener('resize', fitPhone, { passive: true });
+
+  function glow(hex) {
+    var m = /^#?([0-9a-f]{6})$/i.exec(hex || '');
+    if (!m) return 'transparent';
+    var n = parseInt(m[1], 16);
+    return 'rgba(' + ((n >> 16) & 255) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',0.34)';
+  }
+
+  fitPhone();
+  render(0);
+
+  var timer = null, hold = null;
+  function start() {
+    if (prefersStill || timer) return;
+    pv.classList.add('run');
+    timer = setInterval(function () { render(at + 1); }, DWELL);
+  }
+  function stop() {
+    pv.classList.remove('run');
+    if (timer) { clearInterval(timer); timer = null; }
+  }
+
+  chips.forEach(function (b) {
+    b.addEventListener('click', function () {
+      render(Number(b.getAttribute('data-pvi')));
+      stop();
+      clearTimeout(hold);
+      hold = setTimeout(start, 8000);
+    });
+  });
+
+  if (window.IntersectionObserver) {
+    new IntersectionObserver(function (es) {
+      es.forEach(function (e) {
+        if (e.isIntersecting) { scene.classList.add('seen'); start(); } else stop();
+      });
+    }, { threshold: 0.2 }).observe(pv);
+  } else {
+    scene.classList.add('seen');
+    start();
+  }
+
+})();
 
 /* ---- the harness toggle ---- */
 

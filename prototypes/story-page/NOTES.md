@@ -757,6 +757,202 @@ Five presses ride `?d=1..5`:
 window up to 16.5px, which is about what the client itself uses. The floor of 7px on the smallest
 screens is unchanged.
 
+## The preview scene ([#627](https://github.com/alp82/curia/issues/627))
+
+Scene 5, the preview. The operator's note at #551 round 2: the phone preview looks really bad, it
+needs a much better and more realistic display and actual content inside, a really nice bright
+artsy website design, and a prototype switcher that cycles automatically.
+
+**Round 1.** The old phone was a rounded rectangle with three gray bars in it. It is gone. The
+device is now drawn part by part: a titanium rail, a black bezel, the dynamic island with its
+lens, the status bar with signal, wifi and battery, the four side buttons, the home indicator and
+one specular pass over the glass. Safari's floating address bar carries the tailnet host, which is
+the evidence the claim asks for.
+
+**What plays inside is a round, not a page.** Curia sends five variations per prototype round
+([#635](https://github.com/alp82/curia/issues/635)), so the phone shows five art directions of one
+bright landing page, and the switcher inside the phone is the one curia ships with a prototype. It
+cycles every three seconds, a tap takes it over, and the cycle comes back eight seconds later. The
+five directions are sun (cream, one tangerine sun, editorial serif), acid (white, black grotesk,
+a lime block with a hard magenta shadow), bloom (a pastel mesh with soft cards), riso (mint,
+halftone dots, two inks overprinted) and dusk (a sunset poster with a white arch).
+
+The screen is drawn against a 15.5rem device and zoomed to whatever width a variation gives it, so
+a smaller phone is a smaller phone rather than a zoomed-in page.
+
+Round 1 offered five presentations of the device on `?id=1..5`:
+
+1. **deck** — front on and as large as the column allows, standing in the scene's stage light. The
+   round cross-fades in place, and the switcher stays inside the phone.
+2. **tilt** — the device in perspective under a stronger specular, with the round on a rail beside
+   it. The screens slide like a carousel.
+3. **stage** — the phone is pinned against the viewport and the reader's own scroll turns the
+   round. Nothing cycles by itself, and the bar under the chips is the scroll's position.
+4. **stack** — the rest of the round waits behind the front design as tilted plates in its key
+   color, and cycling pushes the front one back.
+5. **pair** — the other half of the claim. The same preview fills a workstation window, and the
+   phone hangs off its bottom-left corner. The window is drawn at 720px and scaled into place,
+   which is what makes a miniature read as a desktop rather than as a narrow column.
+
+**One deviation to record.** The prototype inside the phone is an invented one, a bakery called
+SUNROOM. Every other proof scene on this page shows real curia records ([#601](https://github.com/alp82/curia/issues/601)).
+A real curia prototype is dark, and a dark page inside a dark page proves nothing at phone size,
+so the ask for a bright artsy design and the ask for true content pull apart here. Round 1 asks
+the operator which one wins.
+
+**Round 2.** The operator picked **pair**, and asked for five distinct layouts: "you can place all
+3 elements differently." The four other presentations left the file with round 1, the way the
+identity switcher left it at #624. The three elements are the phone, the workstation window, and
+the round switcher, and the five layouts on `?id=1..5` place all three differently:
+
+1. **corner** — the window fills the right, and the phone hangs off its bottom-left corner. The
+   switcher sits under the window.
+2. **desk** — both devices stand on one baseline, the way they stand on a desk, and the switcher
+   runs centered under the pair of them.
+3. **overlap** — the phone stands in front of a window turned a little off square, and the
+   switcher is a column on the left.
+4. **split** — the window runs off the left edge of the page, so the workstation reads as the
+   bigger surface, and the switcher is the spine between the two devices.
+5. **stack** — a column for a reader holding a phone: the switcher on top, then the window, then
+   the phone leaning up into it.
+
+**A fault of round 1, worth writing down.** The markup order is phone, then workstation, then
+switcher. The pair layout stated no position for any of them, so it took that order by accident:
+the phone rendered above the window and its negative margin pulled it up into the claim. Every
+layout now says where each of the three elements sits, and a build check refuses a layout that
+leaves one of them to the markup order.
+
+**Round 3.** The operator rejected all five layouts: "they all look bad. title is always in the
+middle (we can play with that like we did for the first scenes). screens are always left aligned
+which is a weird combo. make the 5 next variations vastly distinct and get more creative in
+display, style and layout! this is for grabbing attention and really conveying how great curia
+is!" Their screenshot showed the fault plainly. At desktop width the claim sat in a centered
+`.wrap` while both devices leaned left inside a `.shot`, so the title floated in the middle with
+the screens jammed against the left edge and a screen of dead space beside them.
+
+**The scene is one composition canvas now.** The `.wrap` and the `.shot` are gone from it. The
+claim, both devices, the switcher and the fact line are grid items of `.pv`, and every variation
+places all five of them. Each variation is written twice, once for a phone and once past 60rem, so
+the five stay distinct on the screen the operator judges from as well as on a desktop.
+
+The five compositions on `?id=1..5`:
+
+1. **bleed** — scale is the whole idea. The phone is enormous and the edge of the page cuts it, so
+   the screen reads as a thing in the room rather than a picture of one. The claim holds the rest.
+2. **desk** — the workstation lies back in perspective, the way a monitor sits on a desk, and the
+   phone stands in front of it.
+3. **field** — the section keeps a bright field of its own, and that field takes the color of
+   whichever design is showing. The round repaints the page every three seconds, which is the
+   point the scene is making.
+4. **strip** — a round is five screens, so the scene shows five. The script clones the device once
+   per design, each clone pinned to its own, and the strip slides the active one to the middle.
+5. **stage** — one hard light, one phone, and the workstation lying flat behind it. The screen is
+   the only color in the scene, and its own key color spills onto the dark.
+
+**Round 4.** The operator picked **desk**, with two corrections: "give it a bit of the perspective
+of stage (only a little bit) and dont overlap the two too much, only a bit". The other four
+compositions left the file with round 3. Every variation is a desk now. The workstation lies back
+a little, the phone stands in front of it and crosses only a corner, and a little of stage's light
+falls on both. The color half of that light is the key color of whichever design is showing, so
+the desk changes color as the round turns.
+
+What varies across the five is the camera, the light and where the claim docks:
+
+1. **low** — a low camera, both devices standing on a lit surface, the phone crossing the near
+   corner of the workstation.
+2. **light** — one spotlight out of the top-left corner, the workstation barely tipped, and the
+   phone standing at the right where the light falls off.
+3. **flat** — the workstation nearly lying down and seen from above, which is the most of stage's
+   angle any of these takes. The phone stands upright out of it.
+4. **turn** — the workstation faces the other way, and the claim docks right, which is the side
+   this scene owns in the identity (#624 rule 2).
+5. **plane** — both devices share one tilt, so they read as two things lying on the same desk.
+
+The claim comes before the evidence on a phone in all five (#624 rule 1). On a wide screen two of
+them put the evidence in the left column and dock the claim right, which is the alternation the
+identity asks of an `sR` scene.
+
+**Round 5.** The operator picked the light desk: "light is great!". Two corrections came with it.
+The title was breaking into seven lines, and the copy of the previewed website read as weird. The
+other four desks left the file with round 4.
+
+**The title fault.** The claim was capped at `14ch`. A `ch` is relative to the element's own font
+size, and the cap sat on the `header`, which inherits 1rem, not on the 3rem line it holds. So the
+cap was about 112px and the title broke seven times. The claim takes the width of its grid column
+now, and no cap.
+
+**The copy.** The ask for cooler copy is also the answer to the question that rode rounds 1 to 4:
+the page inside the phone stays an invented site rather than a real curia prototype. Deviation
+from [#601](https://github.com/alp82/curia/issues/601) recorded here.
+
+The composition is settled, so `?id=1..5` now picks what the agent built. One subject fills all
+five art directions, which is what a prototype round looks like:
+
+1. **conf** — OFFLINE FIRST, a one-day conference. "Software that works on a train."
+2. **type** — GRAVITY, a type foundry. "A typeface with weight."
+3. **synth** — PULSE 01, a pocket synth. "A synth that fits in a pocket."
+4. **club** — NOCTURNE, a record club. "Records pressed at night."
+5. **park** — DARK SKY, a night reserve. "Dark enough to see the galaxy."
+
+Subject 1 is in the markup, so the page still reads whole with no script. The other four are in
+the script, beside the table that names them.
+
+**Six build checks** ran against the file, since no agent on this ticket has eyes on it: every
+design appears once with its own palette and its own art, the composition places all five elements
+of the scene and is written for a wide screen as well as a phone, every subject is whole and keeps
+a headline the screen can hold, no two subjects share a headline, the markup carries a subject of
+its own so the page reads with no script, every class the markup uses is styled and every hook the
+script reaches for is in the markup, and the build rules hold (no image, no remote asset, no
+webfont). Each check was validated by breaking the
+file on purpose first, one break at a time, and every break produced exactly one failure.
+
+## The verdict of the preview scene ([#627](https://github.com/alp82/curia/issues/627))
+
+**Locked over five operator rounds.** Round 5 settled the last of it: "type is great, lets lock it
+in". Every variation that lost, and the switchers that carried them, left the file with the round
+that settled it, the way the identity switcher left it at #624.
+
+**What the scene is, finally:**
+
+1. **The device is drawn, not shot** ([#601](https://github.com/alp82/curia/issues/601)). A
+   titanium rail, a black bezel, the dynamic island with its lens, a status bar with signal, wifi
+   and battery, four side buttons, the home indicator, one specular pass, and Safari's floating
+   address bar carrying the tailnet host, which is the evidence the claim asks for.
+2. **What plays inside is a round, not a page.** Curia sends five variations per prototype round
+   ([#635](https://github.com/alp82/curia/issues/635)), so the phone shows five art directions of
+   one bright site and carries the switcher curia ships with a prototype. It cycles every three
+   seconds, a tap takes it over, and the cycle comes back eight seconds later.
+3. **Both devices show one preview.** The workstation window is filled from the same pool of
+   screens as the phone, drawn at 720px and scaled into place, which is what makes a miniature
+   read as a desktop rather than as a narrow column.
+4. **The composition is the light desk.** One spotlight out of the top-left corner, the
+   workstation barely tipped, and the phone standing at the right where the light falls off. The
+   color half of the light is the key color of whichever design is showing, so the desk changes
+   color as the round turns.
+5. **The scene is one canvas.** The claim, both devices, the switcher and the fact line are grid
+   items of it, placed for a phone and placed again past 60rem.
+6. **The site is GRAVITY**, a type foundry, in five art directions: sun (cream, editorial serif),
+   acid (white, black grotesk, a lime block), bloom (a pastel mesh), riso (mint, halftone dots,
+   two inks) and dusk (a sunset poster).
+
+**One deliberate deviation from #601**, taken on the operator's round 5 note asking for cooler
+copy rather than for real records: the site inside the phone is invented. Every other proof scene
+on this page shows real curia records. A real curia prototype is dark, and a dark page inside a
+dark page proves nothing at phone size.
+
+**What no round ruled on:** the five art directions themselves. The operator picked the device,
+the composition and the subject, and the review gate carried the art directions with the rest.
+
+**Two faults worth keeping.** Both were invisible to everyone but the operator's eyes, which is
+the point of the preview rounds.
+
+- **The markup order decided a layout.** Round 2's pair layout stated no position for any of its
+  three elements, so it took the DOM order by accident: the phone rendered above the window and
+  its negative margin pulled it into the claim. A build check refuses that now.
+- **A cap in `ch` broke the title over seven lines.** A `ch` is relative to the element's own font
+  size. The cap sat on the `header`, which inherits 1rem, not on the 3rem line it holds, so 14ch
+  was about 112px. The claim takes the width of its grid column now, with no cap.
+
 ## The verdict of the Discord scene ([#626](https://github.com/alp82/curia/issues/626))
 
 **Locked over six operator rounds.** Every variation that lost, and the switcher that carried them,
