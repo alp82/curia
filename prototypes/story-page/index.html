@@ -1070,43 +1070,203 @@
   }
 
   /* ================================================================
-     Scene 6 — the atlas. The maps screen in its own design language
-     (the V6 dashboard tokens), with this repo's real maps.
+     Scene 6 — the atlas (#628). ONE map with its tickets below, which
+     is what the operator asked for at #551 round 2. The shapes are
+     the ones prototypes/maps-screen/ decided: the head with its
+     fraction, the progress band, and the ticket rows under it, in the
+     V6 dashboard tokens.
+
+     The map is alp82/curia#600, the map that is building this page,
+     and every count is what the tracker held when this file was
+     written (#601: real records).
+
+     ROUND 1 rides ?id=1..5 — 1 panel, 2 spine, 3 board, 4 live,
+     5 chain. They differ in composition, not in ornament. With no
+     script the first one shows whole and the round bar never appears.
      ================================================================ */
   .atlas {
     background: #0b0c10; border: 1px solid #20242c; border-radius: 14px;
-    padding: 1rem 1rem 1.1rem; color: #e6e9ef;
+    padding: 0.95rem 0.95rem 1.05rem; color: #e6e9ef;
     box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
     font-size: 0.85rem;
   }
+  .scene .shot > .atlas { max-width: 27rem; }
+  .at-v { display: none; }
+  .at-v:first-of-type { display: block; }
   .at-ht {
     display: flex; justify-content: space-between; gap: 0.5rem;
     font: 600 0.6rem var(--mono); letter-spacing: 0.2em; text-transform: uppercase;
-    color: #8a93a3; margin-bottom: 0.9rem;
+    color: #8a93a3; margin-bottom: 0.85rem;
   }
-  .at-ht .needs { color: #ffb454; letter-spacing: 0.08em; }
-  .at-map { margin-top: 1rem; }
+  .at-ht .live { color: #41d98d; letter-spacing: 0.08em; }
+
+  /* the map head — the fraction, the name, the repo line */
   .at-head { display: flex; align-items: baseline; gap: 0.6rem; }
-  .at-frac { font: 700 1.15rem var(--mono); font-variant-numeric: tabular-nums; }
+  .at-frac { flex: none; font: 700 1.15rem var(--mono); font-variant-numeric: tabular-nums; }
   .at-frac span { color: #8a93a3; font-size: 0.8rem; font-weight: 600; }
+  .at-frac .fg { color: #8a93a3; font-size: 0.7rem; font-weight: 400; }
   .at-nm { font-weight: 700; font-size: 0.82rem; min-width: 0; }
-  .at-meta { font: 0.62rem var(--mono); color: #8a93a3; }
-  .band { display: flex; gap: 3px; height: 1.5rem; margin-top: 0.45rem; }
-  .bseg { border-radius: 5px; min-width: 1.1rem; display: grid; place-items: center; font: 700 0.62rem var(--mono); }
+  .at-meta { font: 0.62rem var(--mono); color: #8a93a3; margin-top: 0.2rem; }
+  .at-meta a { color: #5ec8e5; text-decoration: none; }
+
+  /* the progress band */
+  .band { display: flex; gap: 3px; height: 1.5rem; margin-top: 0.55rem; }
+  .bseg {
+    border-radius: 5px; min-width: 1.1rem; padding: 0 0.3rem; overflow: hidden;
+    display: flex; align-items: center; justify-content: center; gap: 0.35rem;
+    white-space: nowrap; font: 700 0.62rem var(--mono);
+  }
+  .bseg .wd { font-weight: 400; font-size: 0.55rem; letter-spacing: 0.08em; }
   .b-walk { background: #5ec8e5; color: #0b0c10; }
   .b-need { background: #ffb454; color: #231a00; box-shadow: 0 0 14px rgba(255, 180, 84, 0.35); }
   .b-take { border: 2px solid #5ec8e5; color: #5ec8e5; }
   .b-run { background: #41d98d; color: #0b0c10; }
   .b-wait { background: repeating-linear-gradient(45deg, #20242c 0 4px, transparent 4px 8px); color: #8a93a3; }
   .b-fog { border: 2px dotted #8a93a3; color: #8a93a3; }
-  .at-run {
-    margin-top: 1.1rem; padding-top: 0.8rem; border-top: 1px solid #20242c;
-    display: flex; align-items: center; gap: 0.5rem;
-    font: 600 0.68rem var(--mono); color: #8a93a3;
+  .band.micro { height: 0.7rem; gap: 2px; margin-top: 0.5rem; }
+  .band.micro .bseg { min-width: 0.6rem; padding: 0; border-radius: 3px; font-size: 0; }
+  .band.micro .b-take, .band.micro .b-fog { border-width: 1.5px; }
+
+  /* the ticket rows, in the shape the maps screen gives them */
+  .at-panel { margin-top: 0.9rem; border-left: 2px solid #20242c; padding-left: 0.8rem; }
+  .at-sub {
+    font: 600 0.56rem var(--mono); letter-spacing: 0.18em; text-transform: uppercase;
+    color: #8a93a3; margin: 0.8rem 0 0.1rem;
   }
-  .at-run i { width: 0.5rem; height: 0.5rem; border-radius: 999px; background: #41d98d; flex: none; }
-  .at-run b { color: #e6e9ef; }
-  .at-legend { margin-top: 0.7rem; font: 0.6rem var(--mono); color: #8a93a3; }
+  .at-panel > .at-sub:first-child { margin-top: 0; }
+  .prow { display: flex; align-items: baseline; gap: 0.5rem; padding: 0.3rem 0; font-size: 0.76rem; line-height: 1.35; }
+  .prow .ttl { flex: 1; min-width: 0; font-weight: 600; }
+  .prow.dim { color: #8a93a3; }
+  .prow.dim .ttl { font-weight: 400; }
+  .prow .num { flex: none; font: 0.62rem var(--mono); color: #8a93a3; }
+  .prow .go { flex: none; font: 0.62rem var(--mono); color: #5ec8e5; text-decoration: none; }
+  .prow .word { flex: none; font: 0.58rem var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: #8a93a3; }
+  .prow .word.run { color: #41d98d; }
+  .g-run {
+    flex: none; align-self: center; width: 0.5rem; height: 0.5rem; border-radius: 999px;
+    background: #41d98d; box-shadow: 0 0 0 3px rgba(65, 217, 141, 0.16);
+  }
+  .g-wait { flex: none; align-self: center; width: 0.25rem; height: 0.7rem; background: #8a93a3; opacity: 0.5; }
+  .g-mark { flex: none; font: 0.7rem var(--mono); color: #5ec8e5; }
+  .g-fog { flex: none; font: 0.7rem var(--mono); color: #8a93a3; }
+
+  /* 2 counters — the band gives way to the four counts of the maps
+     screen's verdict strip, and the groups give way to one flat list
+     ordered by state. */
+  .at-nmrow { font-weight: 700; font-size: 0.9rem; line-height: 1.3; }
+  .at-nmrow span { display: block; margin-top: 0.2rem; font: 400 0.62rem var(--mono); color: #8a93a3; }
+  .at-verd { display: flex; flex-wrap: wrap; gap: 0.8rem 1.5rem; margin-top: 0.9rem; }
+  .at-verd .v { font: 700 1.5rem var(--mono); line-height: 1; font-variant-numeric: tabular-nums; }
+  .at-verd .v.run { color: #41d98d; text-shadow: 0 0 14px rgba(65, 217, 141, 0.35); }
+  .at-verd .v.walk { color: #5ec8e5; }
+  .at-verd .v.fog { color: #8a93a3; }
+  .at-verd .k {
+    display: block; margin-top: 0.3rem; color: #8a93a3;
+    font: 0.55rem var(--mono); letter-spacing: 0.18em; text-transform: uppercase;
+  }
+  .at-flat { margin-top: 1rem; }
+  .frow {
+    display: flex; align-items: center; gap: 0.55rem; padding: 0.42rem 0;
+    border-top: 1px solid #16191f; font-size: 0.76rem; color: #8a93a3; line-height: 1.3;
+  }
+  .frow .num { flex: none; margin-left: auto; font: 0.6rem var(--mono); }
+  .frow.run { color: #e6e9ef; font-weight: 600; }
+
+  /* 3 board — every ticket is its own card, edged in its state. */
+  .at-cards { margin-top: 0.85rem; display: grid; gap: 0.4rem; }
+  .at-card {
+    border: 1px solid #20242c; border-left: 3px solid #8a93a3; border-radius: 8px;
+    background: #0e1015; padding: 0.45rem 0.55rem 0.5rem;
+  }
+  .at-card .top { display: flex; align-items: center; gap: 0.4rem; font: 0.6rem var(--mono); color: #8a93a3; }
+  .at-card .top .n { margin-left: auto; }
+  .at-card .t { font-weight: 600; font-size: 0.78rem; line-height: 1.3; margin-top: 0.2rem; }
+  .at-card.run { border-left-color: #41d98d; background: rgba(65, 217, 141, 0.05); }
+  .at-card.wait { border-left-style: dashed; color: #8a93a3; }
+  .at-card.wait .t { font-weight: 400; }
+  .at-card.walk { border-left-color: #5ec8e5; }
+  .at-card.fog { border-left-style: dotted; color: #8a93a3; }
+  .at-card.fog .t { font-weight: 400; }
+  .at-chip {
+    border: 1px solid #2a303a; border-radius: 4px; padding: 0.05rem 0.32rem;
+    font: 600 0.55rem var(--mono); letter-spacing: 0.06em; color: #8a93a3;
+  }
+  .at-card.run .at-chip { border-color: #2f6b52; color: #41d98d; }
+  .at-card .rt { font: 0.58rem var(--mono); color: #8a93a3; margin-top: 0.25rem; }
+  .at-card .rt b { color: #5ec8e5; font-weight: 600; }
+
+  /* 4 live — what is running leads, and the rest of the map is the
+     queue behind it. The claim asks which agents run, so the scene
+     answers that first. */
+  .at-live {
+    margin-top: 0.9rem; border: 1px solid #234034; border-radius: 10px;
+    background: rgba(65, 217, 141, 0.06); padding: 0.7rem 0.75rem 0.75rem;
+  }
+  .at-live .hd {
+    display: flex; align-items: center; gap: 0.45rem; color: #41d98d;
+    font: 600 0.58rem var(--mono); letter-spacing: 0.16em; text-transform: uppercase;
+  }
+  .at-live .dot { width: 0.45rem; height: 0.45rem; border-radius: 999px; background: #41d98d; flex: none; }
+  body.motion .at-live .dot { animation: atpulse 2.4s var(--ease) infinite; }
+  @keyframes atpulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(65, 217, 141, 0.5); }
+    60% { box-shadow: 0 0 0 0.5rem rgba(65, 217, 141, 0); }
+  }
+  .at-live .t { font-weight: 700; font-size: 0.92rem; line-height: 1.25; margin-top: 0.35rem; }
+  .at-live .sub { font: 0.62rem var(--mono); color: #8a93a3; margin-top: 0.35rem; }
+  .at-live .sub b { color: #5ec8e5; font-weight: 600; }
+  .at-queue { margin-top: 0.9rem; }
+  .at-queue .qh {
+    font: 600 0.56rem var(--mono); letter-spacing: 0.18em; text-transform: uppercase;
+    color: #8a93a3; margin-bottom: 0.15rem;
+  }
+  .qrow {
+    display: flex; align-items: baseline; gap: 0.5rem; padding: 0.3rem 0;
+    border-top: 1px solid #16191f; font-size: 0.75rem; color: #8a93a3;
+  }
+  .qrow .qn { flex: none; font: 0.6rem var(--mono); }
+  .qrow .qt { flex: 1; min-width: 0; }
+  .at-foot {
+    margin-top: 0.85rem; padding-top: 0.6rem; border-top: 1px solid #20242c;
+    font: 0.62rem var(--mono); color: #8a93a3;
+  }
+
+  /* 5 chain — this map really is a chain, one ticket at a time, so
+     the tickets read as links and the band is the summary at the
+     foot. */
+  .at-chain { margin-top: 0.95rem; padding-left: 1.05rem; position: relative; }
+  .at-chain::before {
+    content: ''; position: absolute; left: 0.28rem; top: 1.6rem; bottom: 0.7rem; width: 1px;
+    background: linear-gradient(#41d98d 0 0.9rem, #20242c 0.9rem 100%);
+  }
+  .at-stub { font: 0.62rem var(--mono); color: #8a93a3; padding: 0.1rem 0 0.35rem; }
+  .lnk { position: relative; display: flex; align-items: baseline; gap: 0.5rem; padding: 0.34rem 0; font-size: 0.76rem; color: #8a93a3; }
+  .lnk::before {
+    content: ''; position: absolute; left: -0.95rem; top: 0.6rem; width: 0.45rem; height: 0.45rem;
+    border-radius: 999px; background: #0b0c10; border: 1.5px solid #2a303a;
+  }
+  .lnk.run { color: #e6e9ef; font-weight: 700; }
+  .lnk.run::before { background: #41d98d; border-color: #41d98d; box-shadow: 0 0 0 3px rgba(65, 217, 141, 0.18); }
+  .lnk .lt { flex: 1; min-width: 0; }
+  .lnk .n { flex: none; font: 0.6rem var(--mono); color: #8a93a3; }
+  .lnk .rt { font: 0.58rem var(--mono); color: #8a93a3; font-weight: 400; }
+
+  /* ROUND CHROME (#628 round 1) — the variation bar. It leaves the
+     file when the operator settles the round, the way the identity
+     switcher left it at #624. */
+  .at-sw {
+    position: fixed; left: 50%; bottom: 0.9rem; transform: translateX(-50%); z-index: 60;
+    display: flex; align-items: center; gap: 0.25rem; padding: 0.3rem 0.45rem;
+    background: rgba(14, 16, 19, 0.92); border: 1px solid #2c313b; border-radius: 999px;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.55);
+    font: 600 0.68rem var(--mono); color: #cdd5e0;
+  }
+  .at-sw .lbl { padding: 0 0.35rem; color: #8a93a3; letter-spacing: 0.05em; }
+  .at-sw button {
+    min-width: 2.1rem; min-height: 2.1rem; padding: 0 0.4rem; border: 0; border-radius: 999px;
+    background: transparent; color: #cdd5e0; font: inherit; cursor: pointer;
+  }
+  .at-sw button.on { background: #273043; color: #fff; }
 
   /* ================================================================
      Scene 7 — the harness, live. The embedded terminal in its own
@@ -1639,9 +1799,17 @@
     </div>
   </section>
 
-  <!-- Scene 6 · the atlas. Real maps of this repo, real counts on the
-       day this file was written. -->
-  <section class="scene sL" data-stage="agent" data-n="05" data-name="the atlas" style="--g1:#0e1c26;--g2:#081018">
+  <!-- Scene 6 · the atlas (#628). ONE map with its tickets below, in
+       the shapes prototypes/maps-screen/ decided. The map is #600 —
+       the map that is building this page — and every count is what the
+       tracker held when this file was written (#601: real records):
+       ten walked, this ticket in flight, five blocked behind it in one
+       chain, and two patches still in the fog.
+
+       Round 1 offers five compositions on ?id=1..5. They all carry the
+       same head, the same band and the same rows, and they differ in
+       how the map and its tickets are put together. -->
+  <section class="scene sL" id="atlas" data-stage="agent" data-n="05" data-name="the atlas" style="--g1:#0e1c26;--g2:#081018">
     <div class="wrap">
       <header class="claim rv">
         <p class="kick"><span class="kn">05</span><span class="kname">the atlas</span></p>
@@ -1650,34 +1818,180 @@
       </header>
     </div>
     <div class="shot rv">
-      <div class="atlas">
-        <div class="at-ht"><span>curia · atlas · maps</span><span class="needs">1 needs you</span></div>
-        <div class="at-map tw">
-          <div class="at-head"><span class="at-frac">2<span>/6 +2</span></span>
-            <span class="at-nm">Ship the story landing page</span></div>
-          <div class="at-meta">alp82/curia · #600</div>
-          <div class="band">
-            <span class="bseg b-walk" style="flex-grow:2">2</span>
-            <span class="bseg b-need" style="flex-grow:1">1</span>
+      <div class="atlas" id="atlas-panel">
+        <div class="at-ht"><span>curia · atlas · maps</span><span class="live">1 in flight</span></div>
+
+        <!-- 1 panel — the maps screen, transplanted: the head, the
+             worded band, then every group of tickets under its own
+             label in the detail panel. -->
+        <div class="at-v" data-atv="1">
+          <div class="at-head tw">
+            <span class="at-frac">10<span>/16</span><span class="fg">+2</span></span>
+            <span class="at-nm">Ship the story landing page</span>
+          </div>
+          <div class="at-meta tw">alp82/curia · #600 →</div>
+          <div class="band tw">
+            <span class="bseg b-walk" style="flex-grow:10">10<span class="wd">walked</span></span>
             <span class="bseg b-run" style="flex-grow:1">1</span>
-            <span class="bseg b-wait" style="flex-grow:2">2</span>
+            <span class="bseg b-wait" style="flex-grow:5">5<span class="wd">blocked</span></span>
             <span class="bseg b-fog" style="flex-grow:2">+2</span>
           </div>
+          <div class="at-panel">
+            <p class="at-sub tw">in flight</p>
+            <div class="prow tw"><i class="g-run"></i><span class="ttl">The atlas scene of the story page</span><span class="go">#628 →</span></div>
+            <div class="prow dim tw"><span class="word run">runs</span><span class="ttl">prototype · → claude-opus-5</span></div>
+            <p class="at-sub tw">blocked</p>
+            <div class="prow dim tw"><i class="g-wait"></i><span class="ttl">The terminal scene of the story page</span><span class="num">#629 · behind #628</span></div>
+            <div class="prow dim tw"><i class="g-wait"></i><span class="ttl">The ticket run scene of the story page</span><span class="num">#630 · behind #629</span></div>
+            <div class="prow dim tw"><i class="g-wait"></i><span class="ttl">The VPS scene of the story page</span><span class="num">#631 · behind #630</span></div>
+            <div class="prow dim tw"><i class="g-wait"></i><span class="ttl">Cut over to the story page</span><span class="num">#604 · behind #631</span></div>
+            <div class="prow dim tw"><i class="g-wait"></i><span class="ttl">Announce and distribute the page</span><span class="num">#145 · behind #604</span></div>
+            <p class="at-sub tw">walked</p>
+            <div class="prow dim tw"><span class="g-mark">✓</span><span class="ttl">The phone preview scene of the story page</span><span class="num">#627</span></div>
+            <div class="prow dim tw"><span class="g-mark">✓</span><span class="ttl">The Discord scene of the story page</span><span class="num">#626</span></div>
+            <div class="prow dim tw"><span class="g-mark">✓</span><span class="ttl">The opening arc of the story page</span><span class="num">#625</span></div>
+            <div class="prow dim tw"><span class="num">… 7 more on GitHub</span></div>
+            <p class="at-sub tw">the fog</p>
+            <div class="prow dim tw"><span class="g-fog">╌</span><span class="ttl">the README beyond the scene 11 link exchange</span></div>
+            <div class="prow dim tw"><span class="g-fog">╌</span><span class="ttl">what becomes of the two prototype directories</span></div>
+          </div>
         </div>
-        <div class="at-map tw">
-          <div class="at-head"><span class="at-frac">22<span>/22</span></span>
-            <span class="at-nm">Curia in production</span></div>
-          <div class="at-meta">alp82/curia · #99</div>
-          <div class="band"><span class="bseg b-walk" style="flex-grow:1">walked</span></div>
+
+        <!-- 2 counters — no band and no group labels. The four counts
+             lead as the maps screen's verdict strip, and every ticket
+             of the map falls into ONE flat list ordered by state. -->
+        <div class="at-v" data-atv="2">
+          <div class="at-nmrow tw">Ship the story landing page
+            <span>alp82/curia · #600 →</span></div>
+          <div class="at-verd">
+            <div class="tw"><span class="v run">1</span><span class="k">running</span></div>
+            <div class="tw"><span class="v">5</span><span class="k">blocked</span></div>
+            <div class="tw"><span class="v walk">10</span><span class="k">walked</span></div>
+            <div class="tw"><span class="v fog">2</span><span class="k">in the fog</span></div>
+          </div>
+          <div class="at-flat">
+            <div class="frow run tw"><i class="g-run"></i>The atlas scene of the story page<span class="num">#628</span></div>
+            <div class="frow tw"><i class="g-wait"></i>The terminal scene of the story page<span class="num">#629</span></div>
+            <div class="frow tw"><i class="g-wait"></i>The ticket run scene of the story page<span class="num">#630</span></div>
+            <div class="frow tw"><i class="g-wait"></i>The VPS scene of the story page<span class="num">#631</span></div>
+            <div class="frow tw"><i class="g-wait"></i>Cut over to the story page<span class="num">#604</span></div>
+            <div class="frow tw"><i class="g-wait"></i>Announce and distribute the page<span class="num">#145</span></div>
+            <div class="frow tw"><span class="g-mark">✓</span>The phone preview scene of the story page<span class="num">#627</span></div>
+            <div class="frow tw"><span class="g-mark">✓</span>The Discord scene of the story page<span class="num">#626</span></div>
+            <div class="frow tw"><span class="g-mark">✓</span>… 8 more walked</div>
+            <div class="frow tw"><span class="g-fog">╌</span>the README beyond the scene 11 link exchange</div>
+            <div class="frow tw"><span class="g-fog">╌</span>what becomes of the two prototype directories</div>
+          </div>
         </div>
-        <div class="at-map tw">
-          <div class="at-head"><span class="at-frac">17<span>/17</span></span>
-            <span class="at-nm">The curia landing page</span></div>
-          <div class="at-meta">alp82/curia · #109</div>
-          <div class="band"><span class="bseg b-walk" style="flex-grow:1">walked</span></div>
+
+        <!-- 3 board — every ticket is its own card, edged in its
+             state, with the type and the routed model on it. The band
+             shrinks to a micro bar under the head. -->
+        <div class="at-v" data-atv="3">
+          <div class="at-head tw">
+            <span class="at-frac">10<span>/16</span><span class="fg">+2</span></span>
+            <span class="at-nm">Ship the story landing page</span>
+          </div>
+          <div class="at-meta tw">alp82/curia · #600 →</div>
+          <div class="band micro tw">
+            <span class="bseg b-walk" style="flex-grow:10"></span>
+            <span class="bseg b-run" style="flex-grow:1"></span>
+            <span class="bseg b-wait" style="flex-grow:5"></span>
+            <span class="bseg b-fog" style="flex-grow:2"></span>
+          </div>
+          <div class="at-cards">
+            <div class="at-card run tw">
+              <div class="top"><span class="at-chip">prototype</span><span>runs</span><span class="n">#628</span></div>
+              <div class="t">The atlas scene of the story page</div>
+              <div class="rt">→ <b>claude-opus-5</b></div>
+            </div>
+            <div class="at-card wait tw">
+              <div class="top"><span class="at-chip">prototype</span><span>behind #628</span><span class="n">#629</span></div>
+              <div class="t">The terminal scene of the story page</div>
+            </div>
+            <div class="at-card wait tw">
+              <div class="top"><span class="at-chip">prototype</span><span>behind #629</span><span class="n">#630</span></div>
+              <div class="t">The ticket run scene of the story page</div>
+            </div>
+            <div class="at-card wait tw">
+              <div class="top"><span class="at-chip">prototype</span><span>behind #630</span><span class="n">#631</span></div>
+              <div class="t">The VPS scene of the story page</div>
+            </div>
+            <div class="at-card wait tw">
+              <div class="top"><span class="at-chip">task</span><span>behind #631</span><span class="n">#604</span></div>
+              <div class="t">Cut over to the story page</div>
+            </div>
+            <div class="at-card wait tw">
+              <div class="top"><span class="at-chip">task</span><span>behind #604</span><span class="n">#145</span></div>
+              <div class="t">Announce and distribute the page</div>
+            </div>
+            <div class="at-card walk tw">
+              <div class="top"><span class="at-chip">walked</span><span class="n">10</span></div>
+              <div class="t">#627 the phone preview · #626 the Discord scene · #625 the opening arc · 7 more</div>
+            </div>
+            <div class="at-card fog tw">
+              <div class="top"><span class="at-chip">not yet specified</span><span class="n">2</span></div>
+              <div class="t">the README link exchange · what becomes of the two prototype directories</div>
+            </div>
+          </div>
         </div>
-        <div class="at-run tw"><i></i><span><b>curia-551</b> · #551 the story page · runs</span></div>
-        <div class="at-legend">walked · needs you · in flight · blocked · fog</div>
+
+        <!-- 4 live — the claim asks which agents are running, so the
+             running ticket leads at full size and the rest of the map
+             is the queue waiting behind it. -->
+        <div class="at-v" data-atv="4">
+          <div class="at-head tw">
+            <span class="at-frac">10<span>/16</span><span class="fg">+2</span></span>
+            <span class="at-nm">Ship the story landing page</span>
+          </div>
+          <div class="at-meta tw">alp82/curia · #600 →</div>
+          <div class="band tw">
+            <span class="bseg b-walk" style="flex-grow:10">10<span class="wd">walked</span></span>
+            <span class="bseg b-run" style="flex-grow:1">1</span>
+            <span class="bseg b-wait" style="flex-grow:5">5<span class="wd">blocked</span></span>
+            <span class="bseg b-fog" style="flex-grow:2">+2</span>
+          </div>
+          <div class="at-live tw">
+            <div class="hd"><i class="dot"></i><span>an agent is on it</span></div>
+            <div class="t">The atlas scene of the story page</div>
+            <div class="sub">#628 · prototype · → <b>claude-opus-5</b></div>
+          </div>
+          <div class="at-queue">
+            <p class="qh tw">waiting on it</p>
+            <div class="qrow tw"><span class="qn">#629</span><span class="qt">The terminal scene of the story page</span></div>
+            <div class="qrow tw"><span class="qn">#630</span><span class="qt">The ticket run scene of the story page</span></div>
+            <div class="qrow tw"><span class="qn">#631</span><span class="qt">The VPS scene of the story page</span></div>
+            <div class="qrow tw"><span class="qn">#604</span><span class="qt">Cut over to the story page</span></div>
+            <div class="qrow tw"><span class="qn">#145</span><span class="qt">Announce and distribute the page</span></div>
+          </div>
+          <div class="at-foot tw">10 walked · 2 still in the fog</div>
+        </div>
+
+        <!-- 5 chain — this map really is a chain, one ticket at a
+             time, so the tickets read as links off one rail and the
+             band drops to the foot as the summary. -->
+        <div class="at-v" data-atv="5">
+          <div class="at-head tw">
+            <span class="at-frac">10<span>/16</span><span class="fg">+2</span></span>
+            <span class="at-nm">Ship the story landing page</span>
+          </div>
+          <div class="at-meta tw">alp82/curia · #600 →</div>
+          <div class="at-chain">
+            <p class="at-stub tw">✓ 10 walked · the words, the identity, the opening arc, the Discord scene, the preview</p>
+            <div class="lnk run tw"><span class="lt">The atlas scene of the story page<span class="rt"> · prototype · → claude-opus-5 · runs</span></span><span class="n">#628</span></div>
+            <div class="lnk tw"><span class="lt">The terminal scene of the story page</span><span class="n">#629</span></div>
+            <div class="lnk tw"><span class="lt">The ticket run scene of the story page</span><span class="n">#630</span></div>
+            <div class="lnk tw"><span class="lt">The VPS scene of the story page</span><span class="n">#631</span></div>
+            <div class="lnk tw"><span class="lt">Cut over to the story page</span><span class="n">#604</span></div>
+            <div class="lnk tw"><span class="lt">Announce and distribute the page</span><span class="n">#145</span></div>
+          </div>
+          <div class="band tw">
+            <span class="bseg b-walk" style="flex-grow:10">10<span class="wd">walked</span></span>
+            <span class="bseg b-run" style="flex-grow:1">1</span>
+            <span class="bseg b-wait" style="flex-grow:5">5<span class="wd">blocked</span></span>
+            <span class="bseg b-fog" style="flex-grow:2">+2<span class="wd">fog</span></span>
+          </div>
+        </div>
       </div>
     </div>
   </section>
@@ -1876,6 +2190,19 @@
 
 </main>
 
+<!-- ROUND CHROME (#628 round 1) — the variation bar for scene 6. It
+     leaves the file when the operator settles the round, the way the
+     identity switcher left it at #624. Hidden until the script runs,
+     so the page without a script simply shows composition 1. -->
+<nav class="at-sw" id="at-sw" aria-label="atlas round" hidden>
+  <span class="lbl">atlas</span>
+  <button type="button" data-atv="1">1</button>
+  <button type="button" data-atv="2">2</button>
+  <button type="button" data-atv="3">3</button>
+  <button type="button" data-atv="4">4</button>
+  <button type="button" data-atv="5">5</button>
+</nav>
+
 <script>
 (function () {
 'use strict';
@@ -1933,7 +2260,10 @@ if (prefersStill || !window.IntersectionObserver) {
     var el = document.getElementById(id);
     if (el) { el.classList.add('stagger'); obs.observe(el); }
   });
-  [].slice.call(document.querySelectorAll('.atlas, .box')).forEach(function (el) {
+  /* Scene 6 staggers each composition on its own, not the whole
+     panel: a hidden composition never intersects, so it reveals the
+     first time the round bar brings it on screen. */
+  [].slice.call(document.querySelectorAll('.at-v, .box')).forEach(function (el) {
     el.classList.add('stagger'); obs.observe(el);
   });
 }
@@ -2090,6 +2420,40 @@ if (prefersStill || !window.IntersectionObserver) {
     document.getElementById('pane-codex').hidden = pick !== 'codex';
   });
 });
+
+/* ================================================================
+   Scene 6 (#628) round 1 — the round bar. ROUND CHROME: it leaves
+   the file when the operator settles the round, the way the identity
+   switcher left it at #624.
+
+   ?id=1..5 deep-links a composition, and a tap swaps it in place, so
+   the operator compares the five without leaving the scene. Without
+   this script the bar stays hidden and composition 1 shows whole.
+   ================================================================ */
+(function () {
+  var panel = document.getElementById('atlas-panel');
+  var bar = document.getElementById('at-sw');
+  if (!panel || !bar) return;
+  var views = [].slice.call(panel.querySelectorAll('.at-v'));
+  var btns = [].slice.call(bar.querySelectorAll('[data-atv]'));
+  if (!views.length || views.length !== btns.length) return;
+
+  function show(i) {
+    views.forEach(function (v, k) { v.style.display = k === i ? 'block' : 'none'; });
+    btns.forEach(function (b, k) { b.classList.toggle('on', k === i); });
+    var p = new URLSearchParams(location.search);
+    p.set('id', String(i + 1));
+    history.replaceState(null, '', location.pathname + '?' + p.toString() + location.hash);
+  }
+
+  var want = parseInt(new URLSearchParams(location.search).get('id'), 10);
+  if (!(want >= 1 && want <= views.length)) want = 1;
+  btns.forEach(function (b, k) {
+    b.addEventListener('click', function () { show(k); });
+  });
+  bar.hidden = false;
+  show(want - 1);
+})();
 
 /* ---- #624: each scene owns its color field, so a color change
    never repaints an earlier scene. --p says how active a scene is:

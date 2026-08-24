@@ -906,6 +906,62 @@ script reaches for is in the markup, and the build rules hold (no image, no remo
 webfont). Each check was validated by breaking the
 file on purpose first, one break at a time, and every break produced exactly one failure.
 
+## The atlas scene ([#628](https://github.com/alp82/curia/issues/628))
+
+Scene 6, the atlas. The operator's note at #551 round 2, verbatim: "the dashboard should show just
+the first map but with the tickets below as in the prototypes defined".
+
+**Round 1.** The old scene showed three maps as three bands and no tickets at all. It is gone. The
+scene now shows ONE map with its work under it, in the shapes
+[prototypes/maps-screen/](../maps-screen/) decided at
+[#522](https://github.com/alp82/curia/issues/522): the head with its fraction, the progress band,
+and the ticket rows below.
+
+**The map is this map.** Scene 6 shows [#600](https://github.com/alp82/curia/issues/600), the map
+that is building this page, and every count is what the tracker held while this round was worked
+(#601: real records):
+
+| state | count | what it is |
+|-------|-------|------------|
+| walked | 10 | closed children, #627 the most recent |
+| in flight | 1 | #628, this ticket, claimed and running on `claude-opus-5` |
+| blocked | 5 | #629, #630, #631, #604, #145, one behind the other |
+| the fog | 2 | the two patches under Not yet specified |
+
+Nothing is takeable, because the one unblocked ticket is the one being worked. The map really is a
+single chain, which is why several compositions can read it as one.
+
+**The five differ by composition**, not by ornament. All five carry the same head, the same counts
+and the same rows:
+
+| id | composition | what it does with the map and its tickets |
+|----|-------------|-------------------------------------------|
+| 1 | panel | the maps screen transplanted: worded band, then every group under its own label |
+| 2 | counters | no band and no group labels. Four big counts, then ONE flat list by state |
+| 3 | board | every ticket is a card edged in its state, with its type and routed model |
+| 4 | live | the running ticket leads at full size, and the rest of the map queues behind it |
+| 5 | chain | the tickets are links off one rail, and the band drops to the foot as the summary |
+
+The round bar rides `?id=1..5` and swaps a composition in place, so the operator compares the five
+without leaving the scene. It is round chrome, and it leaves the file with the round that settles
+this scene, the way the identity switcher left it at #624.
+
+**Eight build checks** ran against the file, since no agent on this ticket has eyes on it: five
+compositions numbered in order with a bar button each, the same real ticket numbers in every one of
+them, the same counts however a composition states them and a sum that matches the map's sixteen
+tickets, no two compositions sharing more than half their skeleton, every class styled and every
+hook in the markup, composition 1 showing with no script and the bar hidden until the script runs,
+the build rules of [build.md](../../docs/landing-page/build.md), and balanced markup. Each check was
+validated by breaking the file on purpose first, one break at a time, and every break produced
+exactly one failure.
+
+**Two faults the checks caught before the operator saw them.** The first cut of composition 2 was a
+vertical band with the ticket rows hanging off it. The distinctness check measured 66 per cent of
+its skeleton shared with composition 1, which was fair: both were a head, a band and labeled groups
+of the same row. It became the counters instead. The count check then failed on composition 2,
+because it assumed every composition draws a band. A composition that states the counts another way
+is not a fault, so the check now reads the counts from whichever shape carries them.
+
 ## The verdict of the preview scene ([#627](https://github.com/alp82/curia/issues/627))
 
 **Locked over five operator rounds.** Round 5 settled the last of it: "type is great, lets lock it
