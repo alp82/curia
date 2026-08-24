@@ -501,6 +501,342 @@ without them.
 
 > vortex works and is good enough. lets lock this in
 
+## The Discord scene ([#626](https://github.com/alp82/curia/issues/626))
+
+Scene 4, the grilling. The operator's note at #551 round 2: the chat comes after the couch title,
+it assembles while the page scrolls, the typing row stands alone at the bottom, the message
+streams in, the whole of it is shown at two thirds of the viewport, and the chrome must read as a
+real Discord chat.
+
+**Round 1.** The scene became a pinned track. A lead holds the frame at the fold while the claim
+is read, then the frame rises and the card writes itself into it. The scroll POSITION drives the
+assembly, never a clock: `q` is 0 at the fold and 1 when the top of the frame stands two thirds of
+the viewport up. The typing row goes at `q` 1. The press of button A and the receipt ride the pin
+travel after that, so the answer lands last and the thread glyph turns from ⏳ to ✅.
+
+Every line in the frame is a shape curia ships, read out of the daemon rather than invented:
+
+| part | source |
+|------|--------|
+| the head line, esc id and agent name | `daemon/src/bridge.mjs:1251` |
+| headline, options, the ↳ consequence and the › example | `daemon/src/card.mjs:53,67,42,43` |
+| the recommendation line | `daemon/src/card.mjs:70` |
+| the details spoiler and the timeline small print | `daemon/src/card.mjs:82,83` |
+| one Primary button per option, carrying the full label | `daemon/src/bridge.mjs:1183` |
+| the preview, timeline and terminal link row | `daemon/src/bridge.mjs:1491` |
+| the answered receipt, edited onto the same message | `daemon/src/bridge.mjs:1521` |
+| the thread name and its ⏳ and ✅ glyphs | `daemon/src/bridge.mjs:644,96` |
+| the parent channel, `#curia` | `daemon/src/bridge.mjs:482` |
+
+The question and the three options are the real escalation of curia#377, in card 4 of
+[#415](https://github.com/alp82/curia/issues/415) — the shape the operator picked, word for word
+from [`prototypes/escalation-card/variants.mjs`](../escalation-card/variants.mjs). The real answer
+was A, the journal.
+
+Five chromes ride `?d=1..5`, and each assembles its own way:
+
+1. **phone** — the mobile app: status bar, back chevron, header, composer. Streamed character by
+   character.
+2. **desktop** — the guild rail, the channel list with the other ticket threads, the chat pane.
+   Block by block, and the typing row sits under the composer the way the desktop client puts it.
+3. **thread** — the thread panel with its breadcrumb. Typed, with a caret.
+4. **bare** — no app chrome at all, the message alone on the stage. Each block rises from the
+   typing row.
+5. **channel** — the phone app with the channel behind it: the start line and the claim message
+   above the card, which scroll out of the top as the card grows.
+
+**The type.** The page ships no webfont ([build.md](../../docs/landing-page/build.md)), so the
+frame uses Discord's own fallback stack, `"gg sans", "Noto Sans", "Helvetica Neue", Helvetica,
+Arial`. gg sans is licensed and never loads. On an Apple device that lands on Helvetica, which is
+what Discord itself falls back to. It is narrower and more closed than gg sans, so the names and
+the bold lines run slightly short.
+
+**The card is long.** The whole of it at once means small type: the frame measures the card
+against the log and shrinks the root size until it fits, with a floor of 9px. The alternative is
+life-size type with the top of the message clipped, the way a real chat clips. That is a round 1
+question.
+
+**The operator picked the desktop chrome** and rewrote the mechanic:
+
+> lets continue further iterations with desktop
+>
+> then answer from the couch title should very soon after start with scrolling the discord window
+> into screen. it should be minimum height and just show "writing ..." note that the bot has
+> something to say. the bottom of the discord window stays fixed at the viewport bottom edge and
+> it grows veritcally as more and more messages appear while scrolling the "answer from the couch"
+> approaches the top
+
+The three other questions of round 1 came back unanswered, so they ride into round 2.
+
+**Round 2.** The window no longer travels. It comes in at its minimum height, catches the bottom
+edge of the viewport, and GROWS upward as the card arrives. The claim leads, rides to the top of
+the screen and sticks there, and the gap it leaves is the room the window may take.
+
+The mechanics, in one place:
+
+- **`position: sticky; bottom: 0`** on the stage is the whole trick. The window scrolls in from
+  below, its bottom edge catches the viewport bottom, and every block that lands grows it upward.
+- **Minimum height means minimum.** At `q` 0 the whole message is gone, name row and all, so the
+  window is a header, a text box and the typing row. The guild rail and the channel list are
+  absolutely placed inside boxes that measure zero, or the window could never come in short. The
+  growing window then reveals more of the channel list, the way a resize does.
+- **The clock is the track.** `q` is 0 the moment the window catches the bottom edge, which the
+  script computes from the window's own minimum height, and 1 when the claim reaches a tenth of
+  the way down the screen. One number drives the whole scene.
+- **The cap keeps the words off the evidence.** The script measures where the claim comes to rest
+  and gives the window everything below it, then shrinks the type until the whole card fits that
+  room. On a wide screen the type lands near life size. On a phone a desktop window is a
+  miniature, and no font size changes that.
+- **The typing row sits under the text box**, which is where the desktop client puts it, and which
+  is also what the operator asked for: nothing but that row at the bottom when the window arrives.
+
+Five growths ride `?d=1..5`, all in the desktop chrome:
+
+1. **grow** — the plain reading. Blocks land, the window grows.
+2. **window** — the app in its own frame on a desk, with a title bar and full rounding.
+3. **stream** — the characters type themselves into the block that is landing, with a caret.
+4. **fill** — corner to corner. The app owns the bottom edge of the screen, square.
+5. **history** — the start line and the claim message sit above the card and are pushed out of the
+   top as it grows. The fit ignores them on purpose, so they really do ride out.
+
+Three bugs in the first cut of this, caught by reading rather than by looking: a `flex: 1` on the
+log gave it a basis of zero, so a window that sizes itself to its content had nothing to grow on.
+A narrow-screen rule for the rail sat above the rule it meant to override, so it never applied.
+The message name row survived at `q` 0, so the window came in showing a header with nothing under
+it instead of the typing row alone.
+
+**The operator picked the stream, and sent a screenshot of the scene on their own screen:**
+
+> stream, but do not overflow the bottom. it should always have some padding and show the thinking
+> state a bit longer
+>
+> also the thread names should be nicer, the prose much much easier to scan and understand
+>
+> the window should look even more like a real discord window. we can make it a bit wider too as
+> long as it works both on desktop and mobile
+
+The screenshot showed the composer cut off by the bottom edge of the screen while the card was
+already streaming. Round 2's anchoring caused it, and the cause is worth recording.
+
+**Why the window overflowed.** `position: sticky` with `bottom: 0` only pushes an element down
+when its natural bottom would sit ABOVE the bottom of the viewport. The window's natural bottom is
+its top plus its height, and the height was growing. So the growth raced the scroll: for every
+pixel the track rose, the card added about a pixel, the natural bottom stayed put, and the sticky
+rule had nothing to correct. The window simply hung past the edge.
+
+**Round 3.** The anchoring is rebuilt so overflow is not a thing that can happen.
+
+- **The stage IS the viewport.** It is a screen tall and sticks at the top, and the window is
+  absolutely placed against its bottom with `bottom: 2.6svh`. The window's distance from the
+  bottom of the screen is then a constant, at every scroll position and every height.
+- **The track is pulled up under the claim**, 115svh of negative margin, so the stage is already
+  stuck by the time the claim arrives. A stage that sticks late anchors the window late, which is
+  the round 2 fault by another road.
+- **The entry is an unfold, not a climb.** The window is clipped from the bottom up, so the typing
+  row is the first thing on screen and nothing is ever placed past the edge.
+- **The thinking state holds.** The first 17 per cent of the growth is the typing row alone.
+- **Everything streams**, character by character with a caret, which is the cut the operator
+  picked at round 2.
+- **The words came down.** Every option is a bold label and one `↳` consequence. The `›` examples
+  are gone, and #415 left them to the agent's judgment, so the card is still card 4. The headline
+  went from "Re-arm it at boot, and from what?" to "Where does it re-arm from?", and the timeline
+  lost its filler.
+- **The thread names carry the type.** `⏳ 377 · curia · grilling`, `🔎 371 · curia · prototype`,
+  `🎫 218 · dotfiles · research`, `✅ 364 · curia · task`. That is the real shape from
+  `bridge.mjs:644`, and a second repo in the list is what makes it scan. The glyph turns green in
+  the header AND in the channel list when the answer lands.
+- **More of the real client.** The account panel pinned to the foot of the channel list, the
+  add-server button on the rail, category arrows, the threads, notifications, members, search and
+  help row in the channel header, and the gift, GIF, sticker and emoji row in the composer.
+- **Wider**: 52rem, and 64rem on the `wide` cut.
+
+Five cuts ride `?d=1..5`, all of them keeping the padding, the hold and the stream:
+
+1. **full** — the whole client.
+2. **wide** — the window across the whole page.
+3. **chat** — no rail and no channel list, so every pixel of width is the card.
+4. **lean** — the card cut to the bone. No visual, no spoiler, no small print.
+5. **reply** — the operator answers in the thread in their own words.
+
+**The operator picked full, and sent a screenshot of their own Discord session:**
+
+> full looks best. we could use a little bit more padding and breathing room though. here is a
+> screenshot from this discord session which shows even more that you can do to make the discord
+> window more realistic. we can make things like the right sidebar responsive to not clutter mobile
+> too much
+>
+> 5 more variations that do the changes above and mainly differ in the story they are telling
+> (ticket, messages, etc.)
+
+**Round 4.** The chrome is now read off that screenshot rather than guessed, and the five
+variations are five real escalations of this repo.
+
+What the screenshot corrected, item by item:
+
+| what the mock had | what the client actually does |
+|-------------------|-------------------------------|
+| author `curia` | **`CuriaBot`**, with a plain `APP` badge |
+| the classic dark palette | a darker one: near-black rail, then the channel list, then the chat |
+| no window chrome | a title bar: back and forward, the server name, and the window buttons |
+| threads as flat channels | threads **nested under their channel** on a tree line |
+| header shows the thread | header shows **`# curia › ⏳ 377 · curia · grilling`** |
+| no member list | a member list on the right, roles grouped, the bot under Online |
+| one composer icon | gift, GIF, sticker and emoji |
+| no edited mark | the receipt is an edit, so the message wears **(edited)** |
+
+The member list is the first thing to go on a narrow screen, which is what the operator asked for.
+Padding went up across the message, the header, the composer and the code block.
+
+**The five stories.** Every line of every card is recorded on this tracker or in this repo. Where
+curia's own recommendation was never written down, the card carries **no** `Recommendation` line.
+`card.mjs:69` prints one only when an option is marked, so a card without it is still a card curia
+sends. Nothing is invented to fill a slot.
+
+| # | ticket | shape | answer |
+|---|--------|-------|--------|
+| 1 | [#377](https://github.com/alp82/curia/issues/377) cooling dies with the daemon | 3 options, a visual, a recommendation | A, the journal |
+| 2 | [#601](https://github.com/alp82/curia/issues/601) the medium of every proof moment | 2 options, no recommendation, the operator's own reply | built HTML, every scene |
+| 3 | [#624](https://github.com/alp82/curia/issues/624) the visual identity of this page | 5 options, so a **select menu** instead of buttons | duotone |
+| 4 | [#635](https://github.com/alp82/curia/issues/635) where the five-variation rule lives | 3 options, a recommendation | config and a settings row |
+| 5 | [#671](https://github.com/alp82/curia/issues/671) a login a restart cut in half | 4 options, the button ceiling | session for the login, journal for the clock |
+
+The shapes are not decoration. `bridge.mjs:52` caps buttons at four options, so the five-option
+identity card really does come through as a select menu with `Pick from the menu below.`, and its
+receipt reads `via select menu` rather than `via button` (`bridge.mjs:1742`).
+
+**Story 1 stays static markup.** The other four are rendered over it by the script. That keeps the
+rule this file has held since #551: the page reads a whole real escalation with no script at all.
+When a story is picked, it becomes the static one.
+
+**The operator picked the medium, and settled four more things:**
+
+> 1. medium
+> 2. discords default colors
+> 3. let's make this, thread names, etc. more accessible for the sake of the landing page. easy and
+>    short, nothing cryptic
+> 4. keep it. pressing the button can be visualized with some kind of mini animation and pulse or
+>    even cursor movement that appears and disappears
+>
+> window title should be Discord instead of AI Stack. alp82 should be Alper. selected thread should
+> be correct in the sidebar. the window can be bigger in both dimensions if there is the space, we
+> can also scale the font once we reach a certain viewport width like you do for smallest screens
+
+**Round 5.** The scene tells [#601](https://github.com/alp82/curia/issues/601), the medium of every
+proof moment, and its answer is what built every scene of this page.
+
+**The card is now the redressed shape of
+[ADR-0025](../../docs/adr/0025-the-cards-under-the-one-voice.md).** That answers the head-line
+question three rounds carried, and it answers it the accessible way, because the two answers agree:
+
+- The card head is dead ([ADR-0021](../../docs/adr/0021-the-thread-formatting-and-the-one-voice.md)).
+  No `[esc-1]`, no `curia-601`, no `(choice)`. The `❓` carries the signal on the headline.
+- The button carries a letter and a short handle, `A · HTML`, because the body already holds the
+  full words. It is a press target, not the option said twice.
+- The answered mark is small print.
+
+**The names came down to plain words.** A thread reads `⏳ 601 · the proof medium`, not
+`⏳ 601 · curia · grilling`. That is a DEVIATION from `bridge.mjs:644`, taken on the operator's
+ruling that this page reads to a stranger first. The open thread is the selected one, which it was
+not before. The window is titled Discord, the operator is Alper, and the server is curia.
+
+**The press is shown, not merely recorded.** The scroll fires the beat, a short animation runs, and
+the answer lands on its heel. Then the true thing happens: curia edits the card and clears its
+components, so the button rows really do collapse away, the mark comes up in small print, the
+message wears `(edited)`, and the thread turns green in the header and the channel list at once.
+
+Five presses ride `?d=1..5`:
+
+1. **cursor** — a pointer flies in from off the window, lands on the button, clicks, and leaves.
+2. **pulse** — the button rings twice before it takes the answer.
+3. **tap** — a thumb lands in the middle of it.
+4. **ripple** — the press washes across it.
+5. **lift** — the button rises to meet the press.
+
+**Bigger where there is room.** The window goes to 66rem past 64rem of viewport and 76rem past
+96rem, the height cap takes 88 per cent of what the claim leaves, and the type scales with the
+window up to 16.5px, which is about what the client itself uses. The floor of 7px on the smallest
+screens is unchanged.
+
+## The verdict of the Discord scene ([#626](https://github.com/alp82/curia/issues/626))
+
+**Locked over six operator rounds.** Every variation that lost, and the switcher that carried them,
+left the file with the round that settled it, the way the identity switcher left it at #624.
+
+**Round 6** was the last, and it was corrections. The operator picked **lift**, with the swell
+centred rather than rising, the pulse ring on top of it, and both bigger. They ruled the thread
+names down again to `[ICON] 2 · grilling` with a wider channel list. And they caught a layout fault
+in the button rows.
+
+**The fault, and why it is worth writing down.** The rows were thrown apart and wrapped at two
+buttons a line. The cause was the streaming: `chars()` splits every text node into one span per
+character, and the whitespace BETWEEN two buttons in the markup is a text node. In a flex row each
+of those spans is a flex ITEM, and each one takes the row's `gap`. Twenty spaces of indentation
+became twenty flex items and about 250px of dead air. The fix is one line: a whitespace-only text
+node is skipped unless it sits inside a code block, where the spaces are the content.
+
+The lesson is the round-1 one again, sharpened. Round 1's `chars()` skipped whitespace with
+`!txt.trim()`. Round 3 changed it to `!n.nodeValue` so the ASCII timeline kept its columns, and that
+change carried this fault into three rounds of previews. **A guard that is loosened for one caller
+has to be re-checked against every other caller,** and the operator's eyes were the only check
+this file had.
+
+**What the scene is, finally:**
+
+1. **The claim leads and holds.** "Answer from the couch." rides to the top of the screen and
+   sticks. What it leaves is the room the window may take.
+2. **The window is placed against a stage that is the viewport**, so its distance from the bottom
+   edge is a constant at every scroll position and every height. It cannot be cut off.
+3. **It unfolds from the bottom row up**, so the typing row is the first thing on screen, holds
+   there while curia thinks, then grows upward as the card streams in character by character.
+4. **The chrome is the desktop client**, read off the operator's own screenshot rather than
+   guessed: the title bar, the rail, threads nested under their channel, the breadcrumb header, the
+   member list that drops on a narrow screen, the account panel, and the composer's tool row.
+5. **The card is curia#601** in the ADR-0025 shape, and its answer is what built every proof scene
+   on this page.
+6. **The press is shown**, and then curia does the true thing: it edits the card and clears its
+   components, so the rows collapse, the mark comes up in small print, the message wears
+   `(edited)`, and the thread turns green in the header and the channel list at once.
+
+**Two deliberate deviations from what curia really posts**, both taken on the operator's ruling
+that this page reads to a stranger first, and both recorded here rather than buried:
+
+- **Thread names.** The page says `⏳ 2 · grilling`. `bridge.mjs:644` writes
+  `🎫 601 · curia · grilling`. The number is short and the repo is gone.
+- **The card shape.** The page shows ADR-0025, which is accepted but not yet in `bridge.mjs`. The
+  operator ruled that the page must not go live ahead of it, so this becomes a build-day check on
+  the cutover ticket ([#604](https://github.com/alp82/curia/issues/604)), beside the one scene 7
+  already carries for the harness names.
+
+**The gate rejected round 6 on mobile:** "Looks good. On mobile the appear logic is a bit broken
+though." The screenshot came as an attachment under `daemon/data/`, which a ticket container does
+not mount, so this was worked from the words and from what is mobile-specific in the code. Three
+faults were there, and all three are phone-only:
+
+1. **A resize reset the scene under the reader.** A phone fires a resize every time its URL bar
+   slides away on the scroll. `measure()` ran on every one of them, and it re-fitted the card and
+   called `apply(0)`, which collapses the message to nothing. Now `apply(0)` is gone from
+   `measure()`, and a resize whose width is unchanged and whose height moved less than a quarter is
+   ignored.
+2. **The script and the stylesheet disagreed about a viewport.** The stage is one viewport tall in
+   CSS. The script read `window.innerHeight`, which on a phone moves by about a tenth of itself as
+   the bar hides, so every threshold slid mid-scroll. The script now measures the stage itself, so
+   the two agree by construction.
+3. **The stage was still travelling when the window unfolded.** The track is pulled up under the
+   claim so the stage is stuck before the window appears, and that pull was sized for a claim two
+   lines tall. A phone wraps the claim to three, which pushed the track down far enough that the
+   stage had not stuck yet, so the window appeared in mid-air and jumped into place. The pull went
+   from 115svh to 160svh, which is past the worst claim rather than past the average one.
+
+The bottom edge also moves on a phone, and `svh` is the height with the URL bar showing. The stage
+is `100dvh` now, so the window's bottom follows the live edge instead of floating above it, and the
+window's own gap is a `rem` rather than a viewport unit.
+
+**Where the font still falls short.** The page ships no webfont, so the window runs Discord's own
+fallback stack. gg sans is licensed and never loads. On an Apple device that lands on Helvetica,
+which is what Discord itself falls back to, and it is narrower and more closed than gg sans. The
+names and the bold lines run slightly short of the real thing. Nothing in the system stack is
+closer.
+
 ## The verdict of the opening arc ([#625](https://github.com/alp82/curia/issues/625))
 
 **Locked over nine operator rounds.** The other four pipelines, the switcher and the `?id` parameter

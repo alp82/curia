@@ -253,41 +253,8 @@
   .shot { margin: 0 0 2.2rem; display: flex; justify-content: center; }
   .shot > * { width: 100%; max-width: 24rem; }
 
-  /* ================================================================
-     Scene 4 — the grilling. A real escalation (curia#377, the card
-     shape the operator picked at #415), in Discord's own chrome.
-     ================================================================ */
-  .discord {
-    background: #313338; border-radius: 12px; overflow: hidden;
-    color: #dbdee1; font-size: 0.85rem; line-height: 1.45;
-    font-family: "gg sans", "Noto Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
-  }
-  .d-top {
-    padding: 0.55rem 0.9rem; border-bottom: 1px solid #26282c;
-    font-weight: 600; font-size: 0.82rem; color: #f2f3f5;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  }
-  .d-msg { display: flex; gap: 0.65rem; padding: 0.6rem 0.9rem 0.4rem; }
-  .d-msg:last-child { padding-bottom: 0.8rem; }
-  .d-av {
-    width: 2.1rem; height: 2.1rem; border-radius: 50%; flex: none;
-    display: grid; place-items: center; color: #fff; font: 700 0.9rem var(--sans);
-    background: #23508d;
-  }
-  .d-av.op { background: #7a5c2e; }
-  .d-body { min-width: 0; flex: 1; }
-  .d-who { font-weight: 600; font-size: 0.82rem; color: #f2f3f5; }
-  .d-who .app {
-    font-style: normal; font-size: 0.6rem; font-weight: 700; color: #fff;
-    background: #5865f2; border-radius: 4px; padding: 0.05rem 0.28rem;
-    vertical-align: 2px; margin-left: 0.3rem;
-  }
-  .d-who .ts { font-weight: 400; font-size: 0.68rem; color: #949ba4; margin-left: 0.4rem; }
-  .d-sm { color: #949ba4; font-size: 0.74rem; }
-  .d-txt b { color: #f2f3f5; }
-  .d-opt { margin: 0.35rem 0 0; }
-  .d-opt .oc { color: #949ba4; font-size: 0.78rem; display: block; }
+  /* The gate card of scene 8 borrows Discord's button and receipt
+     shapes. They live here, outside the scene-4 chrome below. */
   .d-btns { display: flex; gap: 0.45rem; flex-wrap: wrap; margin: 0.55rem 0 0.15rem; }
   .d-btn {
     border: none; border-radius: 6px; padding: 0.4rem 0.85rem;
@@ -297,6 +264,434 @@
   .d-btn.ok { background: #248046; }
   .d-btn.pressed { box-shadow: inset 0 0 0 1.5px #fff; }
   .d-receipt { color: #949ba4; font-size: 0.74rem; margin-top: 0.4rem; }
+
+  /* ================================================================
+     Scene 4 — the grilling (#626). A real escalation, curia#377, in
+     the card shape the operator picked at #415, inside Discord's own
+     chrome.
+
+     The chrome is Discord's desktop client, and the window keeps its
+     BOTTOM a fixed distance above the bottom edge of the viewport. It
+     unfolds there at its minimum height, showing nothing but the
+     typing row, holds while curia thinks, then GROWS upward as the
+     card streams in, while the claim rides to the top and sticks.
+
+     LOCKED over six operator rounds. The chrome is read off the
+     operator's own client. The card is the real escalation of
+     curia#601 in the redressed shape of ADR-0025. The press swells the
+     button in place and rings, and then curia clears the components
+     the way it really does. Every variation that lost, and the
+     switcher that carried them, left the file with its round.
+
+     The page ships no webfont (build.md), so the type is Discord's
+     own fallback stack. gg sans is licensed, and it never loads here.
+     ================================================================ */
+  .grillpin { padding-bottom: 0; }
+  /* The claim leads, then rides to the top and holds there while the
+     window grows under it. The cap the script sets on the window keeps
+     the two apart, so the words never sit on the evidence. */
+  .grill-head { position: sticky; top: 3svh; z-index: 3; }
+
+  /* The track is pulled up under the claim ON PURPOSE. The stage is a
+     screen tall and sticks at the top, so it must be stuck ALREADY by
+     the time the claim arrives. A stage that sticks late anchors the
+     window late, and the window is then still climbing while the card
+     lands in it. That is what cut the composer off the bottom edge in
+     round 2.
+
+     The pull is sized for the WORST claim, not the average one. A phone
+     wraps the claim to three lines, and a claim that tall pushed the
+     track down far enough that the stage was still travelling when the
+     window unfolded, so it appeared in mid-air and jumped. At 160svh
+     the stage is stuck before the section is anywhere near the fold,
+     whatever the claim measures. */
+  .grill-track { position: relative; margin-top: -160svh; height: 295svh; }
+  .grill-stage {
+    position: sticky; top: 0; pointer-events: none;
+    height: 100svh;
+    /* A phone's bottom edge MOVES as the URL bar slides away, and svh
+       is the height with that bar showing. The window is anchored to
+       the bottom of this stage, so the stage has to follow the live
+       edge or the window floats away from it. */
+    height: 100dvh;
+  }
+  .grill-stage::before {
+    content: ''; position: absolute; inset: 22svh -25vw -6svh -25vw; opacity: var(--in, 0);
+    background: radial-gradient(48vmax 42vmax at 32% 80%,
+      rgba(var(--scb), calc(0.09 + 0.13 * var(--p, 1))), transparent 64%);
+  }
+
+  /* Discord's own default dark theme, picked by the operator at round
+     4 over the darker one their client runs: the page is read by
+     strangers, and this is the Discord they would recognise. */
+  .dc {
+    --dc-chat: #313338;
+    --dc-side: #2b2d31;
+    --dc-rail: #1e1f22;
+    --dc-bar: #1e1f22;
+    --dc-ink: #dbdee1;
+    --dc-name: #f2f3f5;
+    --dc-mute: #949ba4;
+    --dc-int: #b5bac1;
+    --dc-link: #00a8fc;
+    --dc-blurple: #5865f2;
+    --dc-code: #2b2d31;
+    --dc-input: #383a40;
+    --dc-edge: #26282c;
+    --gg: "gg sans", "Noto Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    --dc-mono: ui-monospace, "Consolas", "Andale Mono WT", "Andale Mono", "Lucida Console", monospace;
+    font-family: var(--gg);
+    font-size: var(--fs, 0.8rem);
+    line-height: 1.375;
+    color: var(--dc-ink);
+    /* The window hangs off the BOTTOM of a stage that IS the viewport.
+       Its bottom edge keeps the same padding from the bottom of the
+       screen at every scroll position, so it can only grow upward and
+       it can never be cut off. */
+    position: absolute; left: 0; right: 0; bottom: 1.15rem; margin: 0 auto;
+    width: calc(100% - 1.1rem); max-width: 52rem;
+    /* Round 5: bigger in both dimensions wherever there is room. */
+    height: auto; max-height: var(--cap, 62svh);
+    display: flex; flex-direction: column; overflow: hidden;
+    background: var(--dc-chat);
+    border-radius: 8px;
+    box-shadow:
+      0 -10px 70px rgba(var(--scb), calc(0.06 + 0.08 * var(--p, 1))),
+      0 18px 50px rgba(0, 0, 0, 0.6),
+      0 0 0 1px rgba(255, 255, 255, 0.07);
+    filter: saturate(calc(0.7 + 0.3 * var(--p, 1)));
+  }
+  @media (min-width: 64rem) { .dc { max-width: 66rem; } }
+  @media (min-width: 96rem) { .dc { max-width: 76rem; } }
+
+  /* The entry: the window unfolds from just above the bottom edge,
+     bottom row first, so the typing row is the first thing on screen.
+     It never hangs past the edge, because it is never placed there. */
+  .dc.folding { clip-path: inset(calc((1 - var(--in, 1)) * 100%) 0 0 0 round 8px); }
+  /* The window is a title bar over one row: rail, channels, chat pane,
+     and on a wide screen the member list. */
+  .dc-pane { display: flex; flex: 1 1 auto; min-height: 0; overflow: hidden; }
+  .dc-bar {
+    flex: none; display: flex; align-items: center; gap: 0.7em;
+    padding: 0.5em 0.8em; background: var(--dc-bar); color: var(--dc-mute);
+    font-size: 0.88em; font-weight: 600;
+  }
+  .dc-bar .nav, .dc-bar .win { display: flex; gap: 0.7em; flex: none; color: var(--dc-int); }
+  .dc-bar .wn {
+    flex: 1; text-align: center; color: var(--dc-name);
+    display: flex; align-items: center; justify-content: center; gap: 0.4em;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .dc-bar .wn i { width: 0.62em; height: 0.62em; background: #23a55a; border-radius: 2px; flex: none; }
+  .dc-bar .win b { font-weight: 400; }
+  .dc * { min-width: 0; }
+  .dc b, .dc strong { font-weight: 700; color: var(--dc-name); }
+  .dc code {
+    background: var(--dc-code); border-radius: 4px; padding: 0.05em 0.25em;
+    font: 0.85em/1.2 var(--dc-mono); color: var(--dc-ink);
+  }
+  .dc-app { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+  /* The rail and the channel list must add NO height of their own, or
+     the window could never come in short. Their contents hang from the
+     top of a box that measures zero, so the growing window reveals more
+     of the channel list from the bottom, the way a resize does. */
+  .dc-rail, .dc-side { position: relative; overflow: hidden; }
+  .dc-rail .fill, .dc-side .fill { position: absolute; top: 0; left: 0; right: 0; }
+  .dc-rail .fill {
+    display: flex; flex-direction: column; align-items: center; gap: 0.5em; padding: 0.6em 0;
+  }
+
+  /* ---- the guild rail and the channel sidebar ---- */
+  .dc-rail { flex: 0 0 3.4em; background: var(--dc-rail); }
+  .dc-rail i {
+    position: relative;
+    width: 2.3em; height: 2.3em; border-radius: 35%; display: grid; place-items: center;
+    background: #313338; color: var(--dc-name); font: 700 0.8em/1 var(--gg);
+    font-style: normal;
+  }
+  .dc-rail i.on { border-radius: 30%; background: var(--dc-blurple); }
+  .dc-rail i.on::before {
+    content: ''; position: absolute; left: -0.62em; width: 0.28em; height: 1.6em;
+    background: #fff; border-radius: 0 0.28em 0.28em 0;
+  }
+  .dc-rail i.add { background: #313338; color: #23a55a; font-size: 1.1em; font-weight: 400; }
+  .dc-rail hr { width: 1.6em; border: none; border-top: 1px solid #3f4147; margin: 0.15em 0; }
+  .dc-side { flex: 0 0 11.5em; background: var(--dc-side); }
+  .dc-side .gname {
+    padding: 0.85em 0.8em; font-weight: 700; color: var(--dc-name);
+    border-bottom: 1px solid var(--dc-edge); font-size: 0.95em;
+    display: flex; justify-content: space-between; align-items: center;
+    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.2);
+  }
+  .dc-side .cat {
+    display: flex; align-items: center; gap: 0.3em;
+    padding: 1em 0.7em 0.25em; font: 700 0.68em/1 var(--gg);
+    letter-spacing: 0.02em; text-transform: uppercase; color: var(--dc-mute);
+  }
+  .dc-side .cat::before { content: '⌄'; font-size: 1.1em; line-height: 0.6; }
+  .dc-side .ch {
+    display: flex; align-items: center; gap: 0.35em; margin: 0.05em 0.5em;
+    padding: 0.35em 0.5em; border-radius: 4px; color: var(--dc-mute);
+    font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .dc-side .ch s { text-decoration: none; color: #6d6f78; flex: none; }
+  .dc-side .ch.on { background: #404249; color: var(--dc-name); }
+  /* A ticket thread hangs under its channel on the client's own tree
+     line, which is how the operator's own list reads. */
+  .dc-side .th {
+    position: relative; display: flex; align-items: center; gap: 0.4em;
+    margin: 0.02em 0.5em 0.02em 1.6em; padding: 0.28em 0.5em;
+    border-radius: 4px; color: var(--dc-mute); font-weight: 500;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .dc-side .th::before {
+    content: ''; position: absolute; left: -0.55em; top: -0.55em; height: 1.1em;
+    width: 0.5em; border-left: 1px solid #3f4147; border-bottom: 1px solid #3f4147;
+  }
+  .dc-side .th s { text-decoration: none; flex: none; }
+  .dc-side .th.on { background: #404249; color: var(--dc-name); }
+  .dc-side .th.un { color: var(--dc-name); font-weight: 600; }
+  /* The account panel is pinned to the foot of the channel list, which
+     is where the client keeps it however tall the window is. */
+  .dc-side .me {
+    position: absolute; left: 0; right: 0; bottom: 0; z-index: 1;
+    display: flex; align-items: center; gap: 0.45em;
+    padding: 0.4em 0.5em; background: #232428;
+  }
+  .dc-side .me .mav {
+    flex: none; width: 1.7em; height: 1.7em; border-radius: 50%; background: #7a5c2e;
+    display: grid; place-items: center; color: #fff; font: 700 0.75em/1 var(--gg);
+  }
+  .dc-side .me .mn { flex: 1; min-width: 0; color: var(--dc-name); font-weight: 600; font-size: 0.82em; }
+  .dc-side .me .mn s { display: block; text-decoration: none; color: var(--dc-mute); font-weight: 400; font-size: 0.85em; }
+  .dc-side .me .mi { display: flex; gap: 0.3em; color: var(--dc-int); flex: none; }
+  .dc-side .me .mav { position: relative; }
+  .dc-side .me .mav::after {
+    content: ''; position: absolute; right: -0.1em; bottom: -0.1em;
+    width: 0.62em; height: 0.62em; border-radius: 50%;
+    background: #23a55a; box-shadow: 0 0 0 0.16em #232428;
+  }
+
+  /* ---- the member list. It is the first thing to go on a narrow
+     screen, so a phone is not cluttered by it. ---- */
+  .dc-mem { display: none; flex: 0 0 11.5em; background: var(--dc-side); }
+  @media (min-width: 54rem) { .dc-mem { display: block; } }
+  .dc-mem .fill { padding: 0.4em 0.4em; }
+  .dc-mem .grp {
+    padding: 0.75em 0.6em 0.35em; font: 700 0.72em/1 var(--gg);
+    letter-spacing: 0.02em; color: var(--dc-mute);
+  }
+  .dc-mem .m {
+    display: flex; align-items: center; gap: 0.6em; padding: 0.35em 0.6em;
+    border-radius: 5px; white-space: nowrap; overflow: hidden;
+  }
+  .dc-mem .m.role { background: linear-gradient(96deg, #3b2a63, #2a2140); }
+  .dc-mem .m .av {
+    position: relative; flex: none; width: 1.8em; height: 1.8em; border-radius: 50%;
+    display: grid; place-items: center; color: #fff; font: 700 0.8em/1 var(--gg);
+    background: #7a5c2e; overflow: visible;
+  }
+  .dc-mem .m .av.bot { background: #12161f; overflow: hidden; }
+  .dc-mem .m .av svg { display: block; width: 100%; height: 100%; }
+  .dc-mem .m .av::after {
+    content: ''; position: absolute; right: -0.1em; bottom: -0.1em;
+    width: 0.6em; height: 0.6em; border-radius: 50%; background: #23a55a;
+    box-shadow: 0 0 0 0.16em var(--dc-side);
+  }
+  .dc-mem .m .nm { color: var(--dc-name); font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+  .dc-mem .m.role .nm { color: #f0a35e; }
+  .dc-mem .m .badge {
+    background: var(--dc-blurple); color: #fff; border-radius: 3px;
+    font: 700 0.6em/1.4 var(--gg); padding: 0.05em 0.28em; flex: none;
+  }
+  /* A desktop window on a phone is a miniature. Narrowing the rail and
+     the channel list buys the chat pane back what it can. */
+  @media (max-width: 40rem) {
+    .dc-rail { flex-basis: 3em; }
+    .dc-side { flex-basis: 9.4em; }
+  }
+
+  /* ---- the channel header. It carries the breadcrumb the client
+     shows over a thread: the parent channel, then the thread. ---- */
+  .dc-head {
+    display: flex; align-items: center; gap: 0.42em; flex: none;
+    padding: 0.85em 0.9em; color: var(--dc-name); font-weight: 600;
+    box-shadow: 0 1px 0 var(--dc-edge), 0 1.5px 0 rgba(0, 0, 0, 0.05);
+  }
+  .dc-head .hash { color: var(--dc-mute); font-weight: 400; font-size: 1.15em; flex: none; }
+  .dc-head .par { color: var(--dc-name); flex: none; }
+  .dc-head .sep { color: var(--dc-mute); font-weight: 400; flex: none; }
+  .dc-head .thr { color: var(--dc-mute); font-weight: 400; font-size: 1.05em; flex: none; }
+  .dc-head .tt {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1;
+  }
+  @media (max-width: 34rem) {
+    .dc-head .par, .dc-head .sep, .dc-head .hash { display: none; }
+  }
+  .dc-head .sub { color: var(--dc-mute); font-weight: 400; }
+  .dc-head .icons { display: flex; gap: 0.6em; color: var(--dc-int); flex: none; align-items: center; }
+  .dc-head .find {
+    display: none; flex: none; width: 8.5em; background: #1e1f22; border-radius: 4px;
+    padding: 0.25em 0.5em; color: #6d6f78; font-weight: 400; font-size: 0.85em;
+  }
+  @media (min-width: 46rem) { .dc-head .find { display: block; } }
+
+  /* ---- the message log ---- */
+  /* flex-basis MUST stay auto. With a basis of 0 the log contributes no
+     height to a window that sizes itself to its content, and nothing
+     would grow. It shrinks instead, once the window meets its cap, and
+     then it clips from the top the way a chat does. */
+  .dc-log {
+    flex: 1 1 auto; min-height: 0; overflow: hidden; display: flex; flex-direction: column;
+    justify-content: flex-end; padding: 0 0 0.7em;
+  }
+  .dc-msg { display: flex; gap: 0.85em; padding: 0.85em 1.15em 0.3em; }
+  .dc-av {
+    flex: none; width: 2.5em; height: 2.5em; border-radius: 50%; overflow: hidden;
+    background: #101318; display: block;
+  }
+  .dc-av svg { display: block; width: 100%; height: 100%; }
+  .dc-av.op { background: #7a5c2e; display: grid; place-items: center; color: #fff; font: 700 0.95em/1 var(--gg); }
+  .dc-b.lead { margin-top: 0.3em; }
+  .dc-who {
+    display: flex; align-items: baseline; gap: 0.35em; flex-wrap: wrap;
+    margin-bottom: 0.08em;
+  }
+  .dc-who .nm { color: var(--dc-name); font-weight: 500; }
+  .dc-who .badge {
+    background: var(--dc-blurple); color: #fff; border-radius: 3px;
+    font: 700 0.62em/1.35 var(--gg); padding: 0.06em 0.28em; letter-spacing: 0.02em;
+    align-self: center;
+  }
+  .dc-who .badge .ck { font-size: 0.85em; margin-right: 0.15em; }
+  .dc-who .ts { color: var(--dc-mute); font-size: 0.75em; font-weight: 500; }
+  .dc-who .ed { color: var(--dc-mute); font-size: 0.68em; display: none; }
+  .dc-who .ed.up { display: inline; }
+  .dc-body { flex: 1; }
+  .dc-b { margin: 0; }
+  .dc-b + .dc-b { margin-top: 0.5em; }
+  .dc-b.tight + .dc-b.tight { margin-top: 0.15em; }
+  .dc-sm { font-size: 0.8em; color: var(--dc-mute); }
+  .dc-sm b { color: var(--dc-mute); font-weight: 700; }
+  .dc-opt .oc, .dc-opt .ox { display: block; color: var(--dc-ink); margin-top: 0.1em; }
+  .dc-opt .oc::before, .dc-opt .ox::before { color: var(--dc-mute); }
+  .dc pre {
+    background: var(--dc-code); border: 1px solid var(--dc-edge); border-radius: 4px;
+    margin: 0.15em 0; padding: 0.6em 0.7em; overflow: hidden;
+    font: 0.8em/1.32 var(--dc-mono); color: var(--dc-ink); white-space: pre;
+  }
+  .dc .spoil {
+    background: #232428; border-radius: 3px; color: transparent; padding: 0 0.2em;
+    -webkit-user-select: none; user-select: none;
+  }
+  .dc .men {
+    background: rgba(88, 101, 242, 0.3); color: #c9cdfb; border-radius: 3px;
+    padding: 0 0.12em; font-weight: 500;
+  }
+  .dc a { color: var(--dc-link); text-decoration: none; }
+
+  /* ---- the message components ---- */
+  .dc-row {
+    display: flex; flex-wrap: wrap; justify-content: flex-start; align-items: flex-start;
+    gap: 0.5em; margin-top: 0.65em;
+  }
+  .dc-btn {
+    flex: 0 0 auto;
+    border: none; border-radius: 8px; padding: 0.55em 1em; text-align: left;
+    font: 500 0.95em/1.2 var(--gg); color: #fff; background: var(--dc-blurple);
+    max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .dc-btn.sec { background: #4e5058; }
+  .dc-btn.link::after { content: ' ↗'; opacity: 0.65; font-size: 0.85em; }
+  /* ---- the press (#626 round 5). curia edits the card and clears its
+     components when an answer lands, so the button rows really do go,
+     and the receipt really is small print under them. ---- */
+  .dc-card > .dc-row {
+    max-height: 14em;
+    transition: max-height 0.38s var(--ease), opacity 0.26s var(--ease),
+      margin-top 0.38s var(--ease);
+  }
+  .dc.pressed .dc-card > .dc-row {
+    max-height: 0; opacity: 0; margin-top: 0; overflow: hidden;
+  }
+  .dc-btn { position: relative; }
+
+  /* The press, locked at round 5: the button swells IN PLACE and rings
+     while it does. It grows from its own centre and never travels, so
+     nothing under it moves. The ring is the pulse the operator asked to
+     have on top of the swell, and both are sized to be seen at the type
+     a phone gets. */
+  .dc.pressing #dc-a { animation: dcpress 700ms var(--ease); }
+  @keyframes dcpress {
+    0% { transform: scale(1); filter: none; box-shadow: 0 0 0 0 rgba(88, 101, 242, 0.75); }
+    38% {
+      transform: scale(1.14); filter: brightness(1.5);
+      box-shadow: 0 0 0 0.55em rgba(88, 101, 242, 0.4);
+    }
+    72% {
+      transform: scale(0.98); filter: brightness(1.15);
+      box-shadow: 0 0 0 1.5em rgba(88, 101, 242, 0);
+    }
+    100% { transform: scale(1); filter: none; box-shadow: 0 0 0 0 rgba(88, 101, 242, 0); }
+  }
+  .dc-mark { color: var(--dc-mute); font-size: 0.8em; }
+  .dc-mark b { color: var(--dc-mute); }
+
+  /* ---- the typing row and the composer ---- */
+  /* The desktop client puts the typing row UNDER the text box, and the
+     operator wants nothing but that row at the bottom when the window
+     comes in. Both hold with the composer ordered above it. */
+  .dc-typing {
+    order: 2; flex: none; display: flex; align-items: center; gap: 0.45em;
+    padding: 0.15em 1.15em 0.65em; font-size: 0.8em; color: var(--dc-ink);
+    min-height: 1.6em;
+  }
+  .dc-typing b { color: var(--dc-name); font-weight: 700; }
+  .dc-dots { display: inline-flex; gap: 0.2em; align-items: center; }
+  .dc-dots i {
+    width: 0.42em; height: 0.42em; border-radius: 50%; background: var(--dc-mute);
+    animation: dcbob 1.4s infinite ease-in-out;
+  }
+  .dc-dots i:nth-child(2) { animation-delay: 0.18s; }
+  .dc-dots i:nth-child(3) { animation-delay: 0.36s; }
+  @keyframes dcbob {
+    0%, 60%, 100% { transform: translateY(0); opacity: 0.55; }
+    30% { transform: translateY(-0.25em); opacity: 1; }
+  }
+  .dc-composer {
+    order: 1; flex: none; display: flex; align-items: center; gap: 0.6em;
+    margin: 0.35em 0.9em 0.2em; padding: 0.75em 0.85em;
+    background: var(--dc-input); border-radius: 8px; color: #6d6f78;
+  }
+  .dc-composer .plus {
+    flex: none; width: 1.5em; height: 1.5em; border-radius: 50%; background: var(--dc-int);
+    color: var(--dc-input); display: grid; place-items: center; font: 700 1em/1 var(--gg);
+  }
+  .dc-composer .ph { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dc-composer .tools { display: flex; gap: 0.45em; color: var(--dc-int); flex: none; }
+
+  /* The operator's own words come back in the thread after the press.
+     They are the verbatim answer recorded on curia#601. */
+  .dc-reply { display: none; }
+  .dc-reply.up { display: flex; }
+
+  /* Assembly. Without the script, or with reduced motion, every block
+     of the card stands and the typing row is gone. */
+  .js .dc.on .dc-card > .dc-b,
+  .js .dc.on .dc-card > .dc-row,
+  .js .dc.on .dc-card > .dc-mark { display: none; }
+  .js .dc.on .dc-card > .up { display: block; }
+  .js .dc.on .dc-card > .dc-row.up { display: flex; }
+  .js .dc.on .ch-off { opacity: 0; }
+  .js .dc .cursor {
+    display: inline-block; width: 0.48em; height: 0.95em; vertical-align: -0.12em;
+    background: var(--dc-mute); margin-left: 0.06em; animation: dcblink 1s steps(1) infinite;
+  }
+  @keyframes dcblink { 0%, 50% { opacity: 1; } 50.01%, 100% { opacity: 0; } }
+  .dc-typing { transition: opacity 0.25s var(--ease); }
+  .dc-typing.gone { opacity: 0; }
+  .dc-card > .up { transition: opacity 0.22s var(--ease), transform 0.22s var(--ease); }
+
 
   /* ================================================================
      Scene 5 — the preview. A phone, and inside it the agent's work,
@@ -525,6 +920,21 @@
   .scene .rv.in { transition-duration: 0.38s; }
   .scene .tw.in { transition-duration: 0.3s; }
 
+  /* With reduced motion the grilling scene is an ordinary section: no
+     track, no sticky, no growth, and the whole card standing. */
+  @media (prefers-reduced-motion: reduce) {
+    .grill-head, .grill-stage { position: static; }
+    .grill-stage { height: auto; padding: 0 0.6rem; }
+    .grill-track { height: auto; margin-top: 1.5rem; }
+    .grill-stage::before { display: none; }
+    .dc {
+      position: static; max-height: none; margin: 0 auto; width: 100%;
+      clip-path: none;
+    }
+    .dc-typing { display: none; }
+    .dc-card > .dc-row { transition: none; }
+  }
+
   @media (prefers-reduced-motion: reduce) {
     html { scroll-behavior: auto; }
     .js .rv, .js .tw { opacity: 1 !important; transform: none !important; clip-path: none !important; }
@@ -602,44 +1012,175 @@
     </div>
   </div>
 
-  <!-- Scene 4 · the grilling. The question is a real escalation on this
-       repo (curia#377), in the card shape the operator picked at #415.
-       The real answer was A: the journal. -->
-  <section class="scene sL" data-stage="agent" data-n="03" data-name="the grilling" style="--g1:#171930;--g2:#0d0e1c">
-    <div class="wrap">
+  <!-- Scene 4 · the grilling (#626). The question is a real escalation
+       on this repo (curia#601), in the card shape the operator picked
+       at #415, in the redressed shape ADR-0025 decided. The operator
+       picked this escalation at round 4, and its answer is what built
+       every proof scene on this page. Their reply is their own words,
+       from the resolution of that ticket.
+
+       The window unfolds above the bottom edge at its minimum height,
+       holds while curia thinks, then grows upward as the card streams
+       in, while the claim rides to the top of the screen. Then the
+       press, and the edit that clears the components. -->
+  <section class="scene sL grillpin" id="grill-pin" data-stage="agent" data-n="03" data-name="the grilling" style="--g1:#171930;--g2:#0d0e1c">
+    <div class="wrap grill-head" id="grill-head">
       <header class="claim rv">
         <p class="kick"><span class="kn">03</span><span class="kname">the grilling</span></p>
         <h2 class="bold">Answer from the couch.</h2>
       </header>
       <p class="story rv">An agent hits a real decision and asks you in Discord.</p>
     </div>
-    <div class="shot rv">
-      <div class="discord" id="grill">
-        <div class="d-top">🎫 377 · Cooling dies with the daemon</div>
-        <div class="d-msg tw">
-          <div class="d-av" aria-hidden="true">c</div>
-          <div class="d-body">
-            <div class="d-who">CuriaBot <span class="app">APP</span><span class="ts">13:02</span></div>
-            <div class="d-sm">[esc-1] curia-377 asks (choice):</div>
-            <div class="d-txt"><b>A restart forgets every rate-limit cooling. Re-arm it at boot,
-              and from what?</b></div>
-            <div class="d-opt tw"><b>A. From the journal.</b> Re-read the caps curia already landed.
-              <span class="oc">↳ curia waits at the next start and spends no container.</span></div>
-            <div class="d-opt tw"><b>B. From a fresh account reading.</b> Ask the provider at boot.
-              <span class="oc">↳ It answers “am I near the cap”, not “did I hit one”.</span></div>
-            <div class="d-opt tw"><b>C. Leave it in memory.</b> A restart clears cooling.
-              <span class="oc">↳ Every deploy inside a window costs one container.</span></div>
-            <div class="d-txt tw" style="margin-top:0.35rem">Recommendation: <b>A</b>.</div>
-            <div class="d-btns tw">
-              <button class="d-btn" type="button" id="btn-a">A</button>
-              <button class="d-btn" type="button">B</button>
-              <button class="d-btn" type="button">C</button>
+
+    <div class="grill-track">
+      <div class="grill-stage">
+        <div class="dc" id="grill">
+
+          <div class="dc-bar" aria-hidden="true">
+            <span class="nav">
+              <svg width="1em" height="1em" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 4 6 10l6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <svg width="1em" height="1em" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7" opacity=".45"><path d="m8 4 6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </span>
+            <span class="wn"><i></i>Discord</span>
+            <span class="win"><b>—</b><b>▢</b><b>✕</b></span>
+          </div>
+
+          <div class="dc-pane">
+
+          <!-- The guild rail and the channel list. Neither adds height:
+               the window has to be able to come in short. Threads hang
+               under their channel the way the client nests them.
+
+               The thread names are SHORTER than the ones curia posts
+               (bridge.mjs:644 writes `377 · curia · grilling`). The
+               operator ruled at round 4 that this page reads to a
+               stranger first: a number and a plain topic, nothing
+               cryptic. The open one is the selected one. -->
+          <div class="dc-rail" aria-hidden="true">
+            <div class="fill">
+              <i class="on">c</i>
+              <i>ai</i>
+              <i>fs</i>
+              <hr>
+              <i class="add">+</i>
             </div>
-            <div class="d-receipt tw" id="grill-receipt">✅ answered by @alp82 via button: A</div>
+          </div>
+          <div class="dc-side" aria-hidden="true">
+            <div class="fill">
+              <div class="gname">curia <span>⌄</span></div>
+              <div class="cat">Text channels</div>
+              <div class="ch"><s>#</s> welcome</div>
+              <div class="ch"><s>#</s> curia</div>
+              <div class="th on" id="dc-side-thread"><s>⏳</s> 2 · grilling</div>
+              <div class="th"><s>🔎</s> 3 · prototype</div>
+              <div class="th"><s>🎫</s> 4 · task</div>
+              <div class="th"><s>✅</s> 1 · research</div>
+              <div class="th"><s>✅</s> 5 · task</div>
+              <div class="ch"><s>#</s> overseer</div>
+            </div>
+            <div class="me">
+              <span class="mav">A</span>
+              <span class="mn">Alper<s>Online</s></span>
+              <span class="mi">
+                <svg width="0.95em" height="0.95em" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="7" y="2.5" width="6" height="9" rx="3"/><path d="M4.5 9.5a5.5 5.5 0 0 0 11 0M10 15v2.5" stroke-linecap="round"/></svg>
+                <svg width="0.95em" height="0.95em" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="10" cy="10" r="2.6"/><path d="M10 2.2v2M10 15.8v2M2.2 10h2M15.8 10h2M4.5 4.5l1.4 1.4M14.1 14.1l1.4 1.4M15.5 4.5l-1.4 1.4M5.9 14.1l-1.4 1.4" stroke-linecap="round"/></svg>
+              </span>
+            </div>
+          </div>
+
+          <div class="dc-app">
+            <div class="dc-head">
+              <span class="hash" aria-hidden="true">#</span>
+              <span class="par" aria-hidden="true">curia</span>
+              <span class="sep" aria-hidden="true">›</span>
+              <span class="tt" id="dc-title">⏳ 2 · grilling</span>
+              <span class="icons" aria-hidden="true">
+                <svg width="1em" height="1em" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 3h12M4 17h12M6.5 3v3.5L10 10l-3.5 3.5V17M13.5 3v3.5L10 10l3.5 3.5V17" stroke-linecap="round"/></svg>
+                <svg width="1em" height="1em" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M10 2.6a4.6 4.6 0 0 0-4.6 4.6c0 4-1.6 5.2-1.6 5.2h12.4s-1.6-1.2-1.6-5.2A4.6 4.6 0 0 0 10 2.6ZM8.4 15.4a1.9 1.9 0 0 0 3.2 0" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <svg width="1em" height="1em" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="7.5" cy="6.5" r="3"/><path d="M2 16c0-3 2.5-4.5 5.5-4.5S13 13 13 16" stroke-linecap="round"/><circle cx="14.5" cy="7" r="2.3"/></svg>
+                <span class="find">Search</span>
+                <svg width="1em" height="1em" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="10" cy="10" r="7.3"/><path d="M8 7.6a2.1 2.1 0 1 1 2.9 2c-.6.3-.9.8-.9 1.5v.3" stroke-linecap="round"/><circle cx="10" cy="14.2" r=".9" fill="currentColor" stroke="none"/></svg>
+              </span>
+            </div>
+
+            <div class="dc-log" id="dc-log">
+              <div class="dc-msg" id="dc-msg">
+                <span class="dc-av">
+                  <svg viewBox="0 0 40 40" aria-hidden="true"><rect width="40" height="40" fill="#12161f"/><circle cx="20" cy="20" r="12.5" fill="none" stroke="#7dd3a0" stroke-width="2.4"/><circle cx="20" cy="20" r="4.6" fill="#7dd3a0"/><circle cx="20" cy="6.5" r="2.6" fill="#e0ae4c"/></svg>
+                </span>
+                <div class="dc-body dc-card">
+                  <div class="dc-who"><span class="nm">CuriaBot</span><span class="badge">APP</span><span class="ts">Today at 10:41</span><span class="ed" id="dc-edited">(edited)</span></div>
+
+                  <div class="dc-b lead">❓ <b>Screenshot or built HTML for the six scenes that show curia working?</b></div>
+                  <div class="dc-b dc-opt"><b>A. Built HTML, every scene</b>
+                    <span class="oc">↳ Moves with the scroll, sharp on every screen, and costs you no time.</span></div>
+                  <div class="dc-b dc-opt"><b>B. A real screenshot</b>
+                    <span class="oc">↳ It is evidence. Fixed size, needs your phone, and carries a date.</span></div>
+                  <div class="dc-b tight dc-sm">The reasoning is on the timeline. The button is below.</div>
+
+                  <div class="dc-row">
+                    <button class="dc-btn" type="button" id="dc-a">A · HTML</button>
+                    <button class="dc-btn" type="button">B · screenshot</button>
+                  </div>
+                  <div class="dc-row">
+                    <button class="dc-btn sec link" type="button">🔗 preview</button>
+                    <button class="dc-btn sec link" type="button">timeline</button>
+                    <button class="dc-btn sec link" type="button">terminal</button>
+                  </div>
+                  <div class="dc-mark" id="dc-receipt">✅ <b>answered</b> by <span class="men">@Alper</span> via button: <code>A. Built HTML, every scene</code></div>
+                </div>
+              </div>
+
+              <!-- The operator's own words, from the resolution of #601. -->
+              <div class="dc-msg dc-reply" id="dc-reply">
+                <span class="dc-av op" aria-hidden="true">A</span>
+                <div class="dc-body">
+                  <div class="dc-who"><span class="nm">Alper</span><span class="ts">Today at 10:43</span></div>
+                  <div class="dc-b">we can build the whole thing in html. as realistic as possible. that makes it easier to animate it</div>
+                </div>
+              </div>
+            </div>
+
+            <div class="dc-typing" id="dc-typing">
+              <span class="dc-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+              <span><b>CuriaBot</b> is typing...</span>
+            </div>
+
+            <div class="dc-composer" aria-hidden="true">
+              <span class="plus">+</span>
+              <span class="ph">Message #2 · grilling</span>
+              <span class="tools">
+                <svg width="1.05em" height="1.05em" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.8" y="7.5" width="14.4" height="9.7" rx="1.3"/><path d="M2 5.4h16v2.1H2zM10 5.4v11.8" stroke-linejoin="round"/><path d="M10 5.4C10 3.6 8.9 2.6 7.6 2.6S5.4 3.6 5.4 4.5 6.6 5.4 10 5.4Zm0 0c0-1.8 1.1-2.8 2.4-2.8s2.2 1 2.2 1.9-1.2.9-4.6.9Z" stroke-linejoin="round"/></svg>
+                <svg width="1.05em" height="1.05em" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="2.4" y="4.4" width="15.2" height="11.2" rx="1.6"/><path d="M8.6 8.2H6.4v3.6h2.2v-1.4M11.4 8.2v3.6M13.6 11.8V8.2h2.1" stroke-linecap="round"/></svg>
+                <svg width="1.05em" height="1.05em" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 4.6A1.6 1.6 0 0 1 4.6 3h10.8A1.6 1.6 0 0 1 17 4.6v6.2L10.8 17H4.6A1.6 1.6 0 0 1 3 15.4Z" stroke-linejoin="round"/><path d="M17 10.8h-4.6a1.6 1.6 0 0 0-1.6 1.6V17" stroke-linejoin="round"/></svg>
+                <svg width="1.05em" height="1.05em" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="10" cy="10" r="7.2"/><path d="M7 12c.9 1 1.9 1.5 3 1.5s2.1-.5 3-1.5" stroke-linecap="round"/><circle cx="7.5" cy="8" r=".9" fill="currentColor" stroke="none"/><circle cx="12.5" cy="8" r=".9" fill="currentColor" stroke="none"/></svg>
+              </span>
+            </div>
+          </div>
+
+          <!-- the member list. It goes first on a narrow screen. -->
+          <div class="dc-mem" aria-hidden="true">
+            <div class="fill">
+              <div class="grp">Admin — 1</div>
+              <div class="m role">
+                <span class="av">A</span>
+                <span class="nm">Alper</span>
+              </div>
+              <div class="grp">Online — 1</div>
+              <div class="m">
+                <span class="av bot">
+                  <svg viewBox="0 0 40 40"><rect width="40" height="40" fill="#12161f"/><circle cx="20" cy="20" r="12.5" fill="none" stroke="#7dd3a0" stroke-width="2.4"/><circle cx="20" cy="20" r="4.6" fill="#7dd3a0"/><circle cx="20" cy="6.5" r="2.6" fill="#e0ae4c"/></svg>
+                </span>
+                <span class="nm">CuriaBot</span>
+                <span class="badge">APP</span>
+              </div>
+            </div>
+          </div>
           </div>
         </div>
       </div>
     </div>
+
     <div class="wrap">
       <p class="fact rv">one thread per ticket · parallel chats</p>
     </div>
@@ -969,7 +1510,7 @@ if (prefersStill || !window.IntersectionObserver) {
   [].slice.call(document.querySelectorAll('.rv')).forEach(function (n) { obs.observe(n); });
   /* Containers whose children come in one after another: the thread
      writes itself, the pane types, the run walks stage by stage. */
-  ['grill', 'phone', 'run-track'].forEach(function (id) {
+  ['phone', 'run-track'].forEach(function (id) {
     var el = document.getElementById(id);
     if (el) { el.classList.add('stagger'); obs.observe(el); }
   });
@@ -1033,6 +1574,300 @@ if (!prefersStill) {
   })();
 }
 function clampNum(v, a, b) { return v < a ? a : v > b ? b : v; }
+
+/* ================================================================
+   Scene 4 (#626) — the Discord chat assembles as it rises.
+
+   Every line in the frame is a shape curia ships: the head line and
+   the buttons come from daemon/src/bridge.mjs, the headline, the
+   options, the recommendation, the spoiler and the small print from
+   daemon/src/card.mjs, and the receipt from the edit the bridge makes
+   when the operator presses. The question is the real escalation of
+   curia#377, in the card shape picked at #415.
+
+   The assembly is scroll POSITION, never a clock. The window hangs off
+   the bottom of a stage that IS the viewport, so it never travels and
+   it can never be cut off at the edge. It unfolds there, holds while
+   curia thinks, then grows upward as the card streams in, and it is
+   whole by the time the claim has ridden to the top of the screen. The
+   press and the receipt land after that.
+
+   The card is the real escalation of curia#601, picked by the operator
+   at round 4, in the redressed shape of ADR-0025: no card head, the
+   signal on the headline, and a button that carries a letter and a
+   short handle rather than the whole option again.
+
+   The press itself is shown, not merely recorded. The button swells in
+   place and rings, and then curia does the true thing: it edits the
+   card and clears its components, so the rows collapse away and the
+   mark comes up in small print.
+   ================================================================ */
+(function () {
+  var dc = document.getElementById('grill');
+  var pin = document.getElementById('grill-pin');
+  var log = document.getElementById('dc-log');
+  var typing = document.getElementById('dc-typing');
+  var title = document.getElementById('dc-title');
+  var receipt = document.getElementById('dc-receipt');
+  var btnA = document.getElementById('dc-a');
+  if (!dc || !pin || !log) return;
+
+  var card = dc.querySelector('.dc-card');
+  var blocks = [].slice.call(card.children).filter(function (n) {
+    return n !== receipt &&
+      (n.classList.contains('dc-b') || n.classList.contains('dc-row'));
+  });
+
+  var stage = dc.parentNode;
+  var head = document.getElementById('grill-head');
+  var reply = document.getElementById('dc-reply');
+  var sideThread = document.getElementById('dc-side-thread');
+  var edited = document.getElementById('dc-edited');
+  var THREAD = ' 2 · grilling';
+
+  /* ---- how tall the window may grow, and how big its type is.
+
+     The cap is whatever the claim leaves: the claim sticks near the
+     top of the screen and the window grows up from the bottom edge,
+     so the gap between them is the room the card has. The type is
+     then shrunk until the WHOLE card fits that room, because the
+     operator asked for the whole of it to be shown.
+
+     A desktop window on a phone is a miniature, and no font size
+     changes that. On a wide screen it lands near life size. ---- */
+  function cap() {
+    var vh = stage.getBoundingClientRect().height || window.innerHeight;
+    /* Where the claim rests once it sticks: 3svh, plus its own height.
+       Read from the layout, never from the live rect, which moves.
+       What is left under it, minus the window's own bottom padding and
+       a gap, is all the room the card gets. */
+    var below = vh * 0.03 + (head ? head.offsetHeight : 0);
+    return clampNum(vh - below - vh * 0.05, vh * 0.4, vh * 0.88);
+  }
+  /* The type scales with the window, the way it is pulled DOWN on the
+     smallest screens: a wide viewport gets a wide window and type near
+     the 16px the client itself uses. */
+  function base() {
+    var w = dc.clientWidth || 320;
+    return clampNum(w / 40, 7, 16.5);
+  }
+  function fit() {
+    var on = dc.classList.contains('on');
+    dc.classList.remove('on');
+    dc.style.maxHeight = 'none';
+    /* A reply lands after the card, so it has to be measured with it.
+       A fit that ignores it clips the card's own top when it arrives. */
+    if (reply) reply.classList.add('up');
+    var room = cap();
+    dc.style.setProperty('--cap', room.toFixed(0) + 'px');
+    var b = base();
+    for (var pass = 0; pass < 4; pass++) {
+      dc.style.setProperty('--fs', b.toFixed(2) + 'px');
+      var need = dc.offsetHeight;
+      if (need <= room) break;
+      b = Math.max(b * (room / need), 7);
+    }
+    if (reply && !dc._ans) reply.classList.remove('up');
+    dc.style.maxHeight = '';
+    if (on) dc.classList.add('on');
+  }
+
+  /* ---- the stream. A block takes no space until it starts, so the
+     card grows upward from the typing row the way a chat does. Inside
+     the block that is arriving, the characters come in one by one. ---- */
+  function chars(el) {
+    if (el._ch) return el._ch;
+    var out = [];
+    var inPre = !!el.querySelector('pre');
+    (function walk(node) {
+      [].slice.call(node.childNodes).forEach(function (n) {
+        if (n.nodeType === 3) {
+          if (!n.nodeValue) return;
+          /* Whitespace between two buttons is a text node, and one span
+             per character of it turns into one FLEX ITEM per character.
+             That is what threw the button rows apart and wrapped them
+             at two per line. Only a code block needs its spaces kept. */
+          if (!/\S/.test(n.nodeValue) && !inPre) return;
+          var frag = document.createDocumentFragment();
+          for (var i = 0; i < n.nodeValue.length; i++) {
+            var s = document.createElement('span');
+            s.textContent = n.nodeValue.charAt(i);
+            frag.appendChild(s);
+            out.push(s);
+          }
+          node.replaceChild(frag, n);
+        } else if (n.nodeType === 1 && !n.classList.contains('cursor')) {
+          walk(n);
+        }
+      });
+    })(el);
+    el._ch = out;
+    return out;
+  }
+  var caret = document.createElement('span');
+  caret.className = 'cursor';
+
+  function writeChars(el, f, wantCaret) {
+    var list = chars(el);
+    var k = Math.round(f * list.length);
+    if (el._k !== k) {
+      for (var j = 0; j < list.length; j++) {
+        var want = j >= k;
+        if (list[j]._off !== want) {
+          list[j].className = want ? 'ch-off' : '';
+          list[j]._off = want;
+        }
+      }
+      el._k = k;
+    }
+    if (wantCaret && k > 0 && k < list.length) {
+      var at = list[k - 1];
+      if (caret.previousSibling !== at) at.parentNode.insertBefore(caret, at.nextSibling);
+    }
+  }
+
+  /* The thinking state holds for the first slice of the growth, so the
+     window stands there saying curia has something to say before a word
+     of it lands. */
+  var HOLD = 0.17;
+  var msg = document.getElementById('dc-msg');
+  function apply(q) {
+    var n = blocks.length;
+    var t = q <= HOLD ? 0 : (q - HOLD) / (1 - HOLD) * n;
+    /* Nothing of the message exists before its first block, not even
+       the name row. The window has to come in showing the typing row
+       and nothing else. */
+    if (dc.classList.contains('on')) msg.style.display = t > 0 ? '' : 'none';
+    else msg.style.display = '';
+    for (var i = 0; i < n; i++) {
+      var b = blocks[i];
+      var f = t - i;
+      if (f <= 0) {
+        b.classList.remove('up');
+        continue;
+      }
+      b.classList.add('up');
+      writeChars(b, f > 1 ? 1 : f, f < 1);
+    }
+    if ((t <= 0 || t >= n) && caret.parentNode) caret.parentNode.removeChild(caret);
+  }
+
+  /* ---- the answer beat, after the card stands.
+
+     The press is SHOWN. The scroll fires it, then a short animation
+     runs and the answer lands on its heel: curia edits the card, so
+     the button rows go, the mark comes up in small print, the message
+     wears (edited), and the thread turns green in the header and in
+     the channel list at once. ---- */
+  var PDUR = 700;
+  var landed = 0;
+  function land(on) {
+    if (receipt) receipt.classList.toggle('up', on);
+    if (reply) reply.classList.toggle('up', on);
+    if (edited) edited.classList.toggle('up', on);
+    dc.classList.toggle('pressed', on);
+    if (title) title.textContent = (on ? '✅' : '⏳') + THREAD;
+    if (sideThread) sideThread.innerHTML = '<s>' + (on ? '✅' : '⏳') + '</s>' + THREAD;
+  }
+
+  function answer(on) {
+    if (dc._ans === on) return;
+    dc._ans = on;
+    clearTimeout(landed);
+    if (!on) {
+      dc.classList.remove('pressing');
+      land(false);
+      return;
+    }
+    dc.classList.remove('pressing');
+    void dc.offsetWidth;
+    dc.classList.add('pressing');
+    landed = setTimeout(function () {
+      dc.classList.remove('pressing');
+      land(true);
+    }, PDUR);
+  }
+
+  function still() {
+    dc.classList.remove('on', 'folding', 'pressing');
+    stage.style.setProperty('--in', '1');
+    typing.classList.add('gone');
+    apply(1);
+    clearTimeout(landed);
+    dc._ans = true;
+    land(true);
+  }
+
+  if (prefersStill || !window.requestAnimationFrame) { still(); return; }
+  window.addEventListener('error', still);
+
+  /* One number drives the scene, and it is the claim's own rise. The
+     window never travels: it is hung off the bottom of a stage that IS
+     the viewport, so it only unfolds and grows.
+
+       FOLD   the window unfolds from the bottom edge, typing row first
+       HOLD   it stands there thinking
+       GROW   the card streams in, block by block, and it grows
+       q = 1  the card is whole and the claim has reached the top
+       BEAT   the press, the receipt, and the thread turns green
+
+     EVERY height here comes off the stage, never off window.innerHeight.
+     The stage is one viewport tall by its own CSS, so measuring it is
+     the only way the script and the stylesheet can agree. A phone hides
+     its URL bar on the scroll, which moves innerHeight by a tenth of
+     itself mid-scene and drags every threshold with it. */
+  var FOLD = 0.78, GROW = 0.60, END = 0.07, BEAT = 0.16;
+  var track = stage.parentNode;
+  var lead = 0;
+
+  function vh() { return stage.getBoundingClientRect().height || window.innerHeight; }
+
+  function measure() {
+    dc.classList.add('on');
+    dc.classList.add('folding');
+    stage.style.setProperty('--in', '0');
+    fit();
+    lead = track.offsetTop - head.offsetTop;
+  }
+  measure();
+
+  /* A phone fires a resize every time its URL bar slides away, with the
+     width unchanged. Re-measuring on one of those re-fits the card and
+     resets the fold UNDER the reader, which is what broke the appear on
+     mobile. Only a real change of the viewport counts. */
+  var lastW = window.innerWidth, lastH = window.innerHeight;
+  window.addEventListener('resize', function () {
+    var w = window.innerWidth, h = window.innerHeight;
+    if (w === lastW && Math.abs(h - lastH) < lastH * 0.25) return;
+    lastW = w;
+    lastH = h;
+    measure();
+  }, { passive: true });
+
+  var raf = 0;
+  (function tick() {
+    raf = requestAnimationFrame(tick);
+    if (document.hidden) return;
+    var v = vh();
+    var pr = pin.getBoundingClientRect();
+    if (pr.bottom < 0 || pr.top > v) return;
+    var ht = head.getBoundingClientRect().top;
+
+    /* --in rides the STAGE, so the stage light can read it too. A
+       custom property only ever travels downward. */
+    var inn = clampNum((v * FOLD - ht) / (v * (FOLD - GROW)), 0, 1);
+    stage.style.setProperty('--in', inn.toFixed(3));
+    dc.classList.toggle('folding', inn < 1);
+
+    var q = clampNum((v * GROW - ht) / (v * (GROW - END)), 0, 1);
+    apply(q);
+    typing.classList.toggle('gone', q >= 1);
+
+    /* The claim sticks at the top, so its rect stops moving and cannot
+       time the beat. The track never sticks, so it can. */
+    answer(q >= 1 && track.getBoundingClientRect().top < v * (END - BEAT) + lead);
+  })();
+})();
 
 /* ================================================================
    The opening arc (#625) — scenes 1, 2 and 3 over one sticky canvas.
