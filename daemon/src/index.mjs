@@ -82,7 +82,10 @@ import {
 import { LintGate, flaggedResultText, flaggedNotifyText } from './lintgate.mjs'
 import { StatusLine } from './statusline.mjs'
 import { remainingRenderRetries } from './renderretry.mjs'
-import { AccountUsage, ModelWindows, agentMeters, ctxOnWire, consoleConversationsOnWire } from './usage.mjs'
+import {
+  AccountUsage, AnthropicCredentialHealth, ModelWindows,
+  agentMeters, ctxOnWire, consoleConversationsOnWire,
+} from './usage.mjs'
 
 const DIR = path.dirname(fileURLToPath(import.meta.url))
 const ROOT = path.join(DIR, '..')
@@ -420,6 +423,16 @@ const accountUsage = new AccountUsage({
   // credential has no refresh that can fail, so a 401 here is the honest
   // evidence that it died.
   credentials: anthropic,
+  onTerminal: (outcome) => dispatcher.holdCredentialLane(outcome),
+  log,
+})
+// The account probe above spends quota and remains optional. This metadata
+// request does not, so credential detection survives that display switch and an
+// idle fleet. Both probes report into the same provider-keyed hold.
+const anthropicHealth = new AnthropicCredentialHealth({
+  credentials: anthropic,
+  probeModel: curiaConfig.usage.probe_model,
+  onTerminal: (outcome) => dispatcher.holdCredentialLane(outcome),
   log,
 })
 // The context %'s denominator, looked up live per model id (#178). Not gated by
@@ -1169,6 +1182,7 @@ const dispatcher = new Dispatcher({
   }),
   // The anthropic store (#648), constructed above beside the seed that fills it.
   anthropic,
+  anthropicHealth,
   deps: {
     // #188: the container-facing listener is this file's, so the check that a
     // sandboxed dispatch can rely on it is this file's too. It binds lazily,

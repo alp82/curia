@@ -33,6 +33,7 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { TRANSIENT_RETRY_BOUND } from './credentialpolicy.mjs'
 // The anthropic request this module makes is ONE question — "does this token
 // work" (#660) — and it asks it with the headers `usage.mjs` already owns. The
 // import runs one way: nothing in the usage reader knows about this module.
@@ -284,7 +285,7 @@ export function classifyRefreshFailure(err) {
 //
 // It counts CONSECUTIVE failures and a success resets it, so a provider that
 // flaps for an hour never reaches the bound.
-export const TRANSIENT_RETRY_BOUND = 5
+export { TRANSIENT_RETRY_BOUND }
 
 // ---- writing it down -------------------------------------------------------
 
