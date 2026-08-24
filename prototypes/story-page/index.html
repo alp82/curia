@@ -139,7 +139,7 @@
   body.arcon .a-hero { min-height: 100svh; }
   body.arcon .room { height: 70svh; }
   body.arcon .room.lead { height: 55svh; }
-  body.arcon .room.short { height: 55svh; }
+  body.arcon .room.short { height: 110svh; }
 
   /* Round 3 of #625: the words and the canvas must never sit on top of
      each other. On a wide screen each claim docks to its own side and
@@ -1091,7 +1091,7 @@ function param(key, max) {
   return v >= 1 && v <= max ? v : 1;
 }
 var ARC_ID = param('id', 5);
-var NAMES = ['', 'ring', 'sphere', 'spiral', 'lobes', 'orrery'];
+var NAMES = ['', 'one', 'labels first', 'stream', 'by map', 'by state'];
 
 (function switcher() {
   var d = document.createElement('div');
@@ -1698,9 +1698,16 @@ function runArc() {
         ctx.restore();
         rightEdge -= bw + 6 * s;
       }
+      /* the label a curia ticket really wears on this repo, cut back
+         to the bare kind when the card is too narrow to hold it */
       ctx.font = '600 ' + (9.5 * s).toFixed(1) + 'px ' + MONOF;
-      var lw = ctx.measureText(t.type).width + 13 * s;
       var lx = x + 31 * s + nw + 9 * s;
+      var chip = 'wayfinder:' + t.type;
+      var lw = ctx.measureText(chip).width + 13 * s;
+      if (lx + lw >= rightEdge) {
+        chip = t.type;
+        lw = ctx.measureText(chip).width + 13 * s;
+      }
       if (lx + lw < rightEdge) {
         roundRect(lx, iy - 8.5 * s, lw, 17 * s, 8.5 * s);
         ctx.fillStyle = rgba(sc, 0.15);
@@ -1708,7 +1715,7 @@ function runArc() {
         ctx.strokeStyle = rgba(sc, 0.5);
         ctx.stroke();
         ctx.fillStyle = rgba(sc, 0.95);
-        ctx.fillText(t.type, lx + 6.5 * s, iy);
+        ctx.fillText(chip, lx + 6.5 * s, iy);
       }
       ctx.font = '600 ' + (13.5 * s).toFixed(1) + 'px ' + SANSF;
       ctx.fillStyle = rgba(C.text, 0.86);
@@ -1738,7 +1745,7 @@ function runArc() {
     var cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2;
     return {
       hero: {
-        cloudY: b.y1 - bh * 0.17, cloudRX: bw * 0.44, cloudRY: bh * 0.14,
+        cloudY: b.y1 - bh * 0.22, cloudRX: bw * 0.44, cloudRY: bh * 0.16,
         nodeY: b.y0 + bh * 0.52, nodeR: clamp(Math.min(bh * 0.15, bw * 0.24), 46, 116),
         mapsY: b.y0 + mapsH / 2, mapsA: 1, orbit: 0
       },
@@ -1749,7 +1756,7 @@ function runArc() {
         mapsY: b.y0 - mapsH * 1.5, mapsA: 0, orbit: 1
       },
       order: {
-        cloudY: b.y1 - bh * 0.16, cloudRX: bw * 0.44, cloudRY: bh * 0.15,
+        cloudY: b.y1 - bh * 0.21, cloudRX: bw * 0.44, cloudRY: bh * 0.16,
         nodeY: b.y0 + bh * 0.58, nodeR: clamp(Math.min(bh * 0.14, bw * 0.22), 46, 110),
         mapsY: b.y0 + mapsH / 2, mapsA: 1, orbit: 0
       },
@@ -1762,75 +1769,51 @@ function runArc() {
     return out;
   }
 
-  /* ---- the five orbits ----
-     The mess chapter IS the orbit, so the orbit is what the five
-     variations differ in. Each one turns the work around curia a
-     different way, and each keeps its character in the hero and order
-     chapters, where the same figure lies flat as a drift below curia.
+  /* ---- the orbit ----
+     The operator picked ring for the hero and sphere for the scroll,
+     and asked that scrolling start moving the scene into the second
+     one at once. So the two are blended by the arc's own scroll rather
+     than by a chapter: the necklace opens into a globe as soon as the
+     reader touches the wheel.
 
-     z is depth, -1 behind curia and 1 in front of it. The frame draws
-     the far half, then curia, then the near half. */
-  var ORBITS = ['', 'ring', 'sphere', 'spiral', 'lobes', 'orrery'];
+     z is depth, -1 behind curia and 1 in front. The frame draws the far
+     half, then curia, then the near half. */
+
+  function ringPos(i, n, clock, S) {
+    var ang = (i / n) * TAU + clock * 0.09;
+    return {
+      x: S.cx + Math.cos(ang) * S.cloudRX,
+      y: S.cloudY + Math.sin(ang) * S.cloudRY,
+      z: Math.sin(ang),
+      tilt: Math.cos(ang) * 0.14,
+      scale: 1
+    };
+  }
+
+  function spherePos(i, n, clock, S) {
+    var t0 = (i + 0.5) / n;
+    var phi = Math.acos(clamp(1 - 2 * t0, -1, 1));
+    var th = TAU * i * 0.618034 + clock * 0.22;
+    var sp = Math.sin(phi);
+    var z = sp * Math.sin(th);
+    return {
+      x: S.cx + sp * Math.cos(th) * S.cloudRX,
+      y: S.cloudY + Math.cos(phi) * S.cloudRY,
+      z: z,
+      tilt: sp * Math.cos(th) * 0.08,
+      scale: lerp(0.5, 1.3, (z + 1) / 2)
+    };
+  }
 
   function cloudPos(i, n, clock, S) {
-    var cx = S.cx, cy = S.cloudY, rx = S.cloudRX, ry = S.cloudRY;
-    var x, y, z = 0, tilt = 0, k = i / n, scale = 1;
-    if (ARC_ID === 2) {
-      /* sphere — a globe of work standing all around curia. Depth is
-         real: a note behind it passes behind it, smaller and dimmer. */
-      var t0 = (i + 0.5) / n;
-      var phi = Math.acos(clamp(1 - 2 * t0, -1, 1));
-      var th = TAU * i * 0.618034 + clock * 0.22;
-      var sp = Math.sin(phi);
-      x = cx + sp * Math.cos(th) * rx;
-      y = cy + Math.cos(phi) * ry;
-      z = sp * Math.sin(th);
-      tilt = sp * Math.cos(th) * 0.08;
-      scale = lerp(0.5, 1.3, (z + 1) / 2);
-    } else if (ARC_ID === 3) {
-      /* spiral — ONE arm winding out of curia, so the radius climbs
-         with the angle and the work reads as a line, not a field */
-      var ang3 = k * TAU * 3.5 + clock * 0.28;
-      var rr3 = 0.08 + 0.98 * k;
-      x = cx + Math.cos(ang3) * rx * rr3;
-      y = cy + Math.sin(ang3) * ry * rr3;
-      z = Math.sin(ang3) * 0.9;
-      tilt = Math.cos(ang3) * 0.2;
-      scale = lerp(0.66, 1.18, k);
-    } else if (ARC_ID === 4) {
-      /* lobes — a dumbbell orbit, wide out to each side and pinched
-         above and below, so curia sits in the waist of it */
-      var ang4 = k * TAU + clock * 0.15;
-      var rr4 = 0.2 + 0.9 * Math.abs(Math.cos(ang4));
-      x = cx + Math.cos(ang4) * rx * rr4;
-      y = cy + Math.sin(ang4) * ry * rr4 * 0.46;
-      z = Math.sin(ang4);
-      tilt = Math.sin(ang4) * 0.24;
-    } else if (ARC_ID === 5) {
-      /* orrery — three rings at three radii, each on its own tilt and
-         its own speed, with clear sky between them */
-      var ring = i % 3;
-      var rr5 = [0.26, 0.66, 1.08][ring];
-      var sp5 = [0.42, -0.26, 0.16][ring];
-      var tl5 = [0, 0.4, -0.32][ring];
-      var per = Math.ceil(n / 3);
-      var ang5 = (Math.floor(i / 3) / per) * TAU + clock * sp5;
-      var px = Math.cos(ang5) * rx * rr5, py = Math.sin(ang5) * ry * rr5;
-      x = cx + px * Math.cos(tl5) - py * Math.sin(tl5);
-      y = cy + px * Math.sin(tl5) + py * Math.cos(tl5);
-      z = Math.sin(ang5);
-      tilt = tl5 * 0.5;
-      scale = [0.86, 0.96, 1.06][ring];
-    } else {
-      /* ring — one necklace. Every piece of work at the same radius,
-         evenly spaced, turning as one. */
-      var ang1 = k * TAU + clock * 0.09;
-      x = cx + Math.cos(ang1) * rx;
-      y = cy + Math.sin(ang1) * ry;
-      z = Math.sin(ang1);
-      tilt = Math.cos(ang1) * 0.14;
-    }
-    return { x: x, y: y, z: z, tilt: tilt, scale: scale * lerp(0.94, 1.06, (z + 1) / 2) };
+    var t = S.orbitMix;
+    if (t <= 0.001) return ringPos(i, n, clock, S);
+    if (t >= 0.999) return spherePos(i, n, clock, S);
+    var a = ringPos(i, n, clock, S), b = spherePos(i, n, clock, S);
+    return {
+      x: lerp(a.x, b.x, t), y: lerp(a.y, b.y, t), z: lerp(a.z, b.z, t),
+      tilt: lerp(a.tilt, b.tilt, t), scale: lerp(a.scale, b.scale, t)
+    };
   }
 
   /* Work leaves curia through the top of its rim, because the maps are
@@ -1918,13 +1901,73 @@ function runArc() {
     ctx.restore();
   }
 
-  /* How far work i has come from note to ticket, and how far it has
-     climbed to its map. Nothing is labeled until it has been through
-     curia, which is the move the whole scene is about. */
-  function progressOf(i, n, fall) {
-    var lead = i / n;
-    var t = smooth(0.10 + lead * 0.44, 0.64 + lead * 0.44, fall);
-    return { m: smooth(0.46, 0.56, t), t: t, lead: lead };
+  /* ================================================================
+     The order beat, at the pace the operator asked to watch.
+
+     The maps come back EMPTY and settle into place first. Only then do
+     the notes take their labels, and only then do the tickets climb
+     into the maps, one at a time. A map fills from the top, and once
+     it holds three the oldest steps out to make room.
+
+     The five variations are the RHYTHM of that, which is the thing
+     there is to see: how fast, in what order, and whether labeling and
+     landing overlap.
+     ================================================================ */
+
+  var PACES = ['', 'one at a time', 'label all first', 'steady stream', 'map by map', 'state by state'];
+
+  /* Which map each piece of work belongs to, and what it turns out to
+     be. The two are deliberately uncorrelated, so every map ends up
+     holding one merged, one takeable and one blocked ticket. */
+  var MAPOF = [], STOF = [];
+  (function () {
+    var i;
+    for (i = 0; i < MESS.length; i++) {
+      MAPOF[i] = i % 3;
+      STOF[i] = [3, 1, 0][Math.floor(i / 3) % 3];
+    }
+  })();
+
+  /* The order the work goes in, and the group it goes with. */
+  var ORDER = [], POS = [], GROUP = [], WITHIN = [], GSIZE = [0, 0, 0];
+  (function () {
+    var i, idx = [];
+    for (i = 0; i < MESS.length; i++) idx.push(i);
+    if (ARC_ID === 4) idx.sort(function (a, b) { return MAPOF[a] - MAPOF[b] || a - b; });
+    else if (ARC_ID === 5) idx.sort(function (a, b) { return STOF[b] - STOF[a] || a - b; });
+    ORDER = idx;
+    for (i = 0; i < idx.length; i++) POS[idx[i]] = i;
+    for (i = 0; i < MESS.length; i++) {
+      GROUP[i] = ARC_ID === 5 ? [3, 1, 0].indexOf(STOF[i]) : MAPOF[i];
+      WITHIN[i] = GSIZE[GROUP[i]];
+      GSIZE[GROUP[i]]++;
+    }
+  })();
+
+  /* When work i takes its label, and when it climbs, in the units of
+     the order beat's own progress. */
+  function scheduleOf(i, n) {
+    var k = POS[i], w;
+    if (ARC_ID === 2) {
+      /* label all first, then send them up one after another */
+      var s2 = (k / n) * 0.24;
+      return { la: s2, lb: s2 + 0.10, fa: 0.34 + (k / n) * 0.60, fb: 0.34 + (k / n) * 0.60 + 0.08 };
+    }
+    if (ARC_ID === 3) {
+      /* a steady stream: labeling and climbing overlap, a few at once */
+      var s3 = (k / n) * 0.76;
+      return { la: s3, lb: s3 + 0.11, fa: s3 + 0.08, fb: s3 + 0.28 };
+    }
+    if (ARC_ID === 4 || ARC_ID === 5) {
+      /* one group at a time, in bursts, with sky between them */
+      var g = GROUP[i], gs = Math.max(1, GSIZE[g]);
+      var base = (g / 3) * 0.94;
+      var s4 = base + (WITHIN[i] / gs) * 0.18;
+      return { la: s4, lb: s4 + 0.07, fa: s4 + 0.05, fb: s4 + 0.24 };
+    }
+    /* one at a time, nothing overlapping anything */
+    w = 1 / n;
+    return { la: k * w, lb: k * w + 0.42 * w, fa: k * w + 0.46 * w, fb: (k + 1) * w };
   }
 
   var raf = 0, last = 0, clock = 0;
@@ -1942,8 +1985,14 @@ function runArc() {
     if (arcBox.bottom < -40 || arcBox.top > H + 40) return;
 
     var wide = W >= 620;
+    var travel = arcEl.offsetHeight - window.innerHeight;
+    var arcP = travel > 0 ? clamp(-arcBox.top / travel, 0, 1) : 0;
     var rise = smooth(0.04, 0.50, panelProgress(messPanel));
-    var fall = smooth(0.10, 0.56, panelProgress(orderPanel));
+    /* The order beat gets a screen and a bit of scroll to itself,
+       against the half screen it had. Round 5 was called too fast, and
+       this is where that is fixed: the tail room after the claim is what
+       gives the landing its room. */
+    var fall = smooth(0.05, 0.92, panelProgress(orderPanel));
     stageEl.style.setProperty('--warm', (1 - 0.86 * rise * (1 - fall)).toFixed(3));
     stageEl.style.setProperty('--ord', fall.toFixed(3));
 
@@ -1958,19 +2007,109 @@ function runArc() {
     var K = keyframes(b, mapsH);
     var S = mixkf(mixkf(K.hero, K.mess, rise), K.order, fall);
     S.cx = K.cx;
-    /* curia never leaves. The mess chapter turns around it. */
+    /* the necklace opens into the globe from the first turn of the wheel */
+    S.orbitMix = smooth(0.01, 0.30, arcP);
+
+    /* The maps come back BEFORE anything is labeled, and they come back
+       empty. Their own progress runs ahead of the order beat. */
+    var mapsIn = smooth(0.02, 0.26, fall);
+    S.mapsY = lerp(lerp(K.hero.mapsY, K.mess.mapsY, rise), K.order.mapsY, mapsIn);
+    var mapsA = clamp(lerp(lerp(K.hero.mapsA, K.mess.mapsA, rise), K.order.mapsA, mapsIn), 0, 1);
+
     var np = place(L, S.cx, S.nodeY, S.nodeR + 8, S.nodeR + 8);
     S.cx = np.x; S.nodeY = np.y;
 
     var nMaps = maps.length;
-    var mapsA = clamp(S.mapsA, 0, 1);
     var mi;
     for (mi = 0; mi < nMaps; mi++) maps[mi].y = S.mapsY;
 
-    /* the maps stand above, and ride up out of sight for the mess */
+    var n = MESS.length;
+    var cw = clamp((b.x1 - b.x0) * 0.38, 92, CARD_W);
+    var chw = cw / 2 + 6, chh = CARD_H * (cw / CARD_W) / 2 + 6;
+    /* the necklace lies nearly flat below curia and rounds out into the
+       globe as the reader scrolls, bounded by the room it has */
+    S.cloudRY *= lerp(1, 2.8, S.orbitMix);
+    /* Bounded by the room around WHERE THE CLOUD IS, not by half the
+       box: the hero cloud sits low, so a centred bound let its lower
+       cards run past the edge and get clamped, which broke the ring. */
+    var roomX = Math.min(S.cx - b.x0, b.x1 - S.cx) - chw;
+    var roomY = Math.min(S.cloudY - b.y0, b.y1 - S.cloudY) - chh;
+    S.cloudRX = Math.max(20, Math.min(S.cloudRX, roomX));
+    S.cloudRY = Math.max(16, Math.min(S.cloudRY, roomY));
+
+    /* where every piece of work stands, before any of it is drawn */
+    var sp = smooth(0.28, 1, fall);
+    var heat = [0, 0, 0];
+    var back = [], front = [];
+    var arrivals = [[], [], []];
+    var i;
+    for (i = 0; i < n; i++) {
+      var home = cloudPos(i, n, clock, S);
+      var sc = scheduleOf(i, n);
+      var m = smooth(sc.la, sc.lb, sp);
+      var t = smooth(sc.fa, sc.fb, sp);
+      var slot = MAPOF[i] % Math.max(1, nMaps);
+      arrivals[MAPOF[i]].push({ i: i, t: t, st: STOF[i] });
+      if (t >= 0.999) continue;                 /* it lives in the map now */
+      var mm = maps[slot];
+      var it = { i: i, z: home.z, m: m, tilt: home.tilt * (1 - m),
+                 pop: home.scale, a: 0.95, slot: slot, st: m > 0.5 ? STOF[i] : 0 };
+      if (t <= 0.001) {
+        it.x = home.x; it.y = home.y;
+      } else if (t < 0.5) {
+        var t1 = ease(t / 0.5);
+        it.x = lerp(home.x, S.cx, t1);
+        it.y = lerp(home.y, S.nodeY, t1);
+        it.tilt = home.tilt * (1 - t1) * (1 - m);
+        it.z = lerp(home.z, 0.9, t1);
+      } else {
+        var t2 = ease((t - 0.5) / 0.5);
+        var p0 = portPoint(slot, nMaps, S);
+        it.x = lerp(p0.x, mm.x, t2);
+        it.y = lerp(p0.y, mm.y, t2);
+        it.tilt = 0;
+        it.z = 1;
+        it.pop = home.scale * (1 + 0.2 * Math.sin(Math.min(1, t2 * 4) * Math.PI));
+        it.a = (1 - smooth(0.78, 1, t2)) * 0.96;
+        it.badge = mm.m.label;
+        it.badgeIn = smooth(0.02, 0.3, t2);
+        heat[slot] = Math.max(heat[slot], 1 - t2);
+      }
+      (it.z < 0 ? back : front).push(it);
+    }
+
+    /* A map's rows are what has landed in it. It starts empty, fills
+       from the top, and once it holds three the oldest steps out. */
+    function landedRows(mapIndex) {
+      var list = arrivals[mapIndex] || [];
+      var landed = 0, arriving = 0, k;
+      for (k = 0; k < list.length; k++) {
+        if (list[k].t >= 0.999) landed++;
+        else if (list[k].t > 0.5) arriving = Math.max(arriving, (list[k].t - 0.5) / 0.5);
+      }
+      var start = Math.max(0, landed - ROWS_SHOWN);
+      var win = list.slice(start, landed + 1);
+      var slots = [], j;
+      for (j = 0; j < win.length; j++) {
+        var isLast = (start + j) === landed;
+        slots.push({
+          t: MESS[win[j].i], st: win[j].st,
+          a: isLast ? clamp(arriving, 0, 1) : 1
+        });
+      }
+      return {
+        slots: slots,
+        adv: landed >= ROWS_SHOWN ? clamp(arriving, 0, 1) : 0,
+        prog: list.length ? landed / list.length : 0
+      };
+    }
+
+    /* the maps: alive on their own clock at the hero, and filled by
+       what arrives once the order beat starts */
+    var ordering = fall > 0.015;
     var cycles = [], si;
     for (si = 0; si < nMaps; si++) {
-      cycles[si] = mapCycle(maps[si].m, clock);
+      cycles[si] = ordering ? landedRows(si) : mapCycle(maps[si].m, clock);
       if (mapsA > 0.02) {
         var at = place(L, maps[si].x, maps[si].y, maps[si].w / 2 + 3, mapsH / 2 + 3);
         maps[si].x = at.x; maps[si].y = at.y;
@@ -1982,60 +2121,13 @@ function runArc() {
       drawLegend(lg.x, lg.y, smooth(0.15, 0.5, fall) * mapsA, true);
     }
 
-    /* every piece of work, placed before any of it is drawn, so the
-       far half can go behind curia and the near half in front */
-    var n = MESS.length;
-    /* The card size comes from the box, and the orbit is then sized to
-       hold whole cards inside it. Without this the orbit runs past the
-       edges, every card gets clamped onto the boundary, and all five
-       shapes collapse into the same rectangle of work. */
-    var cw = clamp((b.x1 - b.x0) * 0.38, 92, CARD_W);
-    var chw = cw / 2 + 6, chh = CARD_H * (cw / CARD_W) / 2 + 6;
-    S.cloudRX = Math.max(24, Math.min(S.cloudRX, (b.x1 - b.x0) / 2 - chw));
-    S.cloudRY = Math.max(24, Math.min(S.cloudRY, (b.y1 - b.y0) / 2 - chh));
-    var heat = [0, 0, 0];
-    var back = [], front = [];
-    var i;
-    for (i = 0; i < n; i++) {
-      var home = cloudPos(i, n, clock, S);
-      var pr = progressOf(i, n, fall);
-      if (pr.t >= 0.999) continue;              /* it lives in the map now */
-      var slot = i % Math.max(1, nMaps);
-      var mm = maps[slot];
-      var it = { i: i, z: home.z, m: pr.m, tilt: home.tilt * (1 - pr.m),
-                 pop: home.scale, a: 0.95, slot: slot };
-      if (pr.t <= 0.001) {
-        it.x = home.x; it.y = home.y;
-      } else if (pr.t < 0.5) {
-        var t1 = ease(pr.t / 0.5);
-        it.x = lerp(home.x, S.cx, t1);
-        it.y = lerp(home.y, S.nodeY, t1);
-        it.tilt = home.tilt * (1 - t1);
-        it.z = lerp(home.z, 0.9, t1);
-      } else {
-        var t2 = ease((pr.t - 0.5) / 0.5);
-        var p0 = portPoint(slot, nMaps, S);
-        it.x = lerp(p0.x, mm.x, t2);
-        it.y = lerp(p0.y, mm.y, t2);
-        it.tilt = 0;
-        it.z = 1;
-        it.pop = home.scale * (1 + 0.22 * Math.sin(Math.min(1, t2 * 4) * Math.PI));
-        it.a = (1 - smooth(0.72, 1, t2)) * 0.96;
-        it.badge = mm.m.label;
-        it.badgeIn = smooth(0.02, 0.3, t2);
-        heat[slot] = Math.max(heat[slot], 1 - t2);
-      }
-      (it.z < 0 ? back : front).push(it);
-    }
-
     function paint(list) {
       var k;
       for (k = 0; k < list.length; k++) {
         var it = list[k];
         var at2 = fitTicket(L, it.x, it.y, cw);
         drawWork(at2.x, at2.y, cw, MESS[it.i], {
-          m: it.m, tilt: it.tilt, pop: it.pop, a: it.a,
-          st: it.m > 0.5 ? (it.slot % 3 === 1 ? 1 : 3) : 0,
+          m: it.m, tilt: it.tilt, pop: it.pop, a: it.a, st: it.st,
           badge: it.badge, badgeIn: it.badgeIn
         });
       }
@@ -2078,7 +2170,7 @@ function runArc() {
     }
 
     /* the agents, on the maps they are working */
-    for (si = 0; si < nMaps && mapsA > 0.4; si++) {
+    for (si = 0; si < nMaps && mapsA > 0.4 && !ordering; si++) {
       var cy2 = cycles[si], sl = maps[si];
       if (!cy2.agent) continue;
       var s2 = sl.w / MAP_W;

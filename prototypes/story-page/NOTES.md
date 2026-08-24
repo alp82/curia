@@ -313,6 +313,44 @@ sizes. Two rounds were lost to not checking this, and the check found a third fa
 orbit was drawn wider than the space it had, so every card was clamped onto the boundary and all
 five shapes collapsed into the same rectangle of work.
 
+**The operator's answer.** The orbit is settled, and the order beat gets a new shape:
+
+> 1 at hero, 2 when scrolling
+>
+> scrolling immediately starts moving the scene into the second one
+>
+> the organization animation at 3 is too fast. lets bring the maps in position as empty ones and
+> tranform them into wayfinder tickets and put them into the maps in smaller pace to see what
+> happens
+
+**Round 6.** The orbit is the ring at rest and the globe on the scroll, and the two are blended by
+the arc's own scroll rather than by a chapter, so the necklace starts opening from the first turn of
+the wheel. The band also rounds out as it opens, bounded by the room it has.
+
+The order beat is rebuilt in the three steps the operator named:
+
+1. **The maps come back empty.** They travel into place on their own progress, ahead of everything
+   else, and they carry no rows at all.
+2. **Then the notes take their labels.** A card's chip now reads the label a ticket really wears on
+   this repo, `wayfinder:prototype`, cut back to the bare kind when the card is too narrow.
+3. **Then the tickets climb into the maps, one at a time.** A map fills from the top, and once it
+   holds three the oldest steps out to make room.
+
+**It is slower.** The tail room after the order claim went from 55svh to 110svh, and the beat's own
+window widened with it. The landing now runs over about eleven scroll steps in forty, against five
+before. That number is what "too fast" came down to, and it is the one thing this round changes
+about the pace itself.
+
+The five variations are the RHYTHM of that landing, which is what there is to watch:
+
+| id | rhythm | what the reader sees |
+|----|--------|----------------------|
+| 1 | one at a time | nothing overlaps: label, climb, land, then the next one |
+| 2 | labels first | the whole pile takes its labels, then the tickets go up in turn |
+| 3 | steady stream | labeling and climbing overlap, a few in the air at once |
+| 4 | map by map | one map fills, a pause, then the next |
+| 5 | state by state | the merged ones first, then the takeable, then the blocked |
+
 ## The verdict
 
 **The identity is duotone, locked at [#624](https://github.com/alp82/curia/issues/624) over
