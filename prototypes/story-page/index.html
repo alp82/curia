@@ -1091,7 +1091,7 @@ function param(key, max) {
   return v >= 1 && v <= max ? v : 1;
 }
 var ARC_ID = param('id', 5);
-var NAMES = ['', 'stack', 'rise', 'conveyor', 'diagonal', 'hub'];
+var NAMES = ['', 'sweep', 'through', 'snap', 'stamp', 'unfold'];
 
 (function switcher() {
   var d = document.createElement('div');
@@ -1138,11 +1138,6 @@ function runArc() {
   function smooth(a, b, v) { return ease(clamp((v - a) / (b - a), 0, 1)); }
   function rgb(c) { return 'rgb(' + (c[0] | 0) + ',' + (c[1] | 0) + ',' + (c[2] | 0) + ')'; }
   function rgba(c, a) { return 'rgba(' + (c[0] | 0) + ',' + (c[1] | 0) + ',' + (c[2] | 0) + ',' + clamp(a, 0, 1) + ')'; }
-  function gray(c, g) {
-    if (!g) return c;
-    var l = 0.32 * c[0] + 0.55 * c[1] + 0.13 * c[2];
-    return [lerp(c[0], l, g), lerp(c[1], l, g), lerp(c[2], l, g)];
-  }
 
   var dpr = Math.min(window.devicePixelRatio || 1, 2);
   var W = 0, H = 0;
@@ -1168,87 +1163,8 @@ function runArc() {
     ctx.closePath();
   }
 
-  /* A ticket, drawn the way a GitHub issue card reads. */
+  /* The card every piece of work is drawn on. */
   var CARD_W = 216, CARD_H = 68;
-  function drawTicket(cx, cy, w, t, o) {
-    o = o || {};
-    var a = o.a == null ? 1 : o.a;
-    if (a <= 0.015 || w < 40) return;
-    var g = o.gray || 0;
-    var s = w / CARD_W;
-    var h = CARD_H * s;
-    var st = o.st == null ? 0 : o.st;
-    var sc = gray(ST[st], g);
-    ctx.save();
-    ctx.globalAlpha = clamp(a, 0, 1);
-    ctx.translate(cx, cy);
-    if (o.tilt) ctx.rotate(o.tilt);
-    if (o.pop && o.pop !== 1) ctx.scale(o.pop, o.pop);
-    var x = -w / 2, y = -h / 2;
-    roundRect(x, y, w, h, 11 * s);
-    ctx.fillStyle = rgba(gray(C.panel, g * 0.7), 0.96);
-    ctx.fill();
-    ctx.strokeStyle = rgba(C.edge, 0.14 + 0.12 * (1 - g));
-    ctx.lineWidth = 1;
-    ctx.stroke();
-    ctx.save();
-    ctx.clip();
-    ctx.fillStyle = rgba(sc, 0.9);
-    ctx.fillRect(x, y, 3.5 * s, h);
-    ctx.restore();
-    var ix = x + 19 * s, iy = y + 21 * s;
-    ctx.beginPath();
-    ctx.arc(ix, iy, 5.6 * s, 0, TAU);
-    if (st === 0) ctx.setLineDash([2.2 * s, 2.2 * s]);
-    ctx.strokeStyle = rgb(sc);
-    ctx.lineWidth = 1.6 * s;
-    ctx.stroke();
-    ctx.setLineDash([]);
-    ctx.lineWidth = 1;
-    if (st > 0) {
-      ctx.beginPath();
-      ctx.arc(ix, iy, 2 * s, 0, TAU);
-      ctx.fillStyle = rgb(sc);
-      ctx.fill();
-    }
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'middle';
-    ctx.font = '700 ' + (12.5 * s).toFixed(1) + 'px ' + MONOF;
-    ctx.fillStyle = rgba(gray(C.text, g), 0.95);
-    ctx.fillText('#' + t.id, x + 31 * s, iy);
-    var nw = ctx.measureText('#' + t.id).width;
-    var rightEdge = x + w - 10 * s;
-    /* the map curia routed it to, stamped on as it leaves */
-    if (o.badge) {
-      ctx.font = '700 ' + (9.5 * s).toFixed(1) + 'px ' + MONOF;
-      var bw = ctx.measureText(o.badge).width + 13 * s;
-      ctx.save();
-      ctx.globalAlpha = clamp(a * (o.badgeIn == null ? 1 : o.badgeIn), 0, 1);
-      roundRect(rightEdge - bw, iy - 8.5 * s, bw, 17 * s, 4 * s);
-      ctx.fillStyle = rgba(gray(C.merged, g), 0.9);
-      ctx.fill();
-      ctx.fillStyle = '#08120c';
-      ctx.fillText(o.badge, rightEdge - bw + 6.5 * s, iy);
-      ctx.restore();
-      rightEdge -= bw + 6 * s;
-    }
-    ctx.font = '600 ' + (9.5 * s).toFixed(1) + 'px ' + MONOF;
-    var lw = ctx.measureText(t.type).width + 13 * s;
-    var lx = x + 31 * s + nw + 9 * s;
-    if (lx + lw < rightEdge) {
-      roundRect(lx, iy - 8.5 * s, lw, 17 * s, 8.5 * s);
-      ctx.fillStyle = rgba(sc, 0.15);
-      ctx.fill();
-      ctx.strokeStyle = rgba(sc, 0.5);
-      ctx.stroke();
-      ctx.fillStyle = rgba(gray(sc, 0.2), 0.95);
-      ctx.fillText(t.type, lx + 6.5 * s, iy);
-    }
-    ctx.font = '600 ' + (13.5 * s).toFixed(1) + 'px ' + SANSF;
-    ctx.fillStyle = rgba(gray(C.text, g), 0.86);
-    ctx.fillText(t.name, x + 19 * s, y + 48 * s, w - 36 * s);
-    ctx.restore();
-  }
 
   /* One row inside a map card. */
   var ROW_H = 25, ROW_STEP = 31, ROWS_SHOWN = 3;
@@ -1580,13 +1496,6 @@ function runArc() {
     return { x0: box.x0, y0: box.y0, x1: box.x1, y1: box.y1, bands: bands, cands: cands };
   }
 
-  /* ================================================================
-     The five compositions. Each one lays the same three parts inside
-     the free box: the cloud of loose work, curia, and the maps. The
-     weights swell whichever part the reader is on, which is the only
-     camera this needs.
-     ================================================================ */
-
   /* Fit map cards into a rectangle, side by side or stacked, however
      many of them genuinely fit. Never one card because the code said
      so: round 2 called that out on its own. */
@@ -1614,104 +1523,6 @@ function runArc() {
     for (k = 0; k < n; k++) {
       L.maps.push({ x: cx - totalW / 2 + cw / 2 + k * (cw + GAPM), y: cy, w: cw, m: MAPS[k] });
     }
-  }
-
-  function layout(b, rise, fall) {
-    var bw = Math.max(120, b.x1 - b.x0), bh = Math.max(120, b.y1 - b.y0);
-    var cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2;
-    var wCloud = 1.0 + 2.3 * rise * (1 - fall);
-    var wNode = 0.85;
-    var wMaps = 1.0 + 2.3 * fall;
-    var sum = wCloud + wNode + wMaps;
-    var L = { cloud: {}, node: {}, maps: [], cw: 0, bend: 0, bands: b.bands };
-    var id = ARC_ID;
-    var bands = b.bands;
-    /* the side the words lean to, for the compositions that answer it */
-    var lm = W, rm = 0, k0;
-    for (k0 = 0; k0 < bands.length; k0++) {
-      if (bands[k0].l < lm) lm = bands[k0].l;
-      if (bands[k0].r > rm) rm = bands[k0].r;
-    }
-    var far = bands.length && lm > W - rm ? -1 : 1;
-
-
-    if (id === 2) {
-      /* rise — the same axis as stack, run backwards: the pile sits at
-         the bottom, and work climbs out of it into the maps above. */
-      var h2 = bh / sum;
-      L.cloud = { cx: cx, cy: b.y1 - h2 * wCloud * 0.5, rx: bw * 0.4, ry: h2 * wCloud * 0.38 };
-      L.node = { x: cx, y: b.y1 - h2 * (wCloud + wNode * 0.5), r: 0 };
-      L.node.r = clamp(Math.min(h2 * wNode * 0.95, bw * 0.26), 44, 118);
-      placeMaps(L, cx, b.y0 + h2 * wMaps * 0.5, bw, h2 * wMaps, false);
-      L.bend = 0;
-      L.up = true;
-    } else if (id === 3) {
-      /* conveyor — one horizontal run: the pile at the near end, curia
-         in the middle, the maps stacked at the far end. */
-      var nodeW3 = clamp(bw * 0.2, 88, 180);
-      var mapsW3 = Math.min(Math.max(bw / sum * wMaps, 132), Math.max(110, bw - nodeW3 - 110));
-      var cloudW3 = Math.max(90, bw - nodeW3 - mapsW3);
-      L.cloud = { cx: b.x0 + cloudW3 * 0.5, cy: cy, rx: cloudW3 * 0.44, ry: bh * 0.38 };
-      L.node = { x: b.x0 + cloudW3 + nodeW3 * 0.5, y: cy, r: 0 };
-      L.node.r = clamp(Math.min(nodeW3 * 0.48, bh * 0.3), 44, 112);
-      placeMaps(L, b.x1 - mapsW3 * 0.5, cy, mapsW3, bh, true);
-      L.bend = 0.15;
-    } else if (id === 4) {
-      /* diagonal — the pile in one corner and the maps stepping down
-         to the far one, curia on the line between. */
-      L.cloud = {
-        cx: cx - far * bw * 0.2, cy: b.y0 + bh * 0.24,
-        rx: bw * (0.28 + 0.12 * rise), ry: bh * (0.2 + 0.12 * rise)
-      };
-      L.node = { x: cx + far * bw * 0.06, y: cy + bh * 0.02, r: 0 };
-      L.node.r = clamp(Math.min(bh * 0.16, bw * 0.24), 44, 112);
-      placeMaps(L, cx + far * bw * 0.13, b.y1 - bh * 0.18, bw * 0.8, bh * (0.3 + 0.08 * fall), false);
-      /* the steps: each map hangs a little lower than the one before */
-      var st4 = Math.min(bh * 0.07, 26), q4;
-      for (q4 = 0; q4 < L.maps.length; q4++) {
-        L.maps[q4].y += (far > 0 ? q4 : L.maps.length - 1 - q4) * st4 - st4 * (L.maps.length - 1) / 2;
-      }
-      L.bend = -0.6 * far;
-    } else if (id === 5) {
-      /* hub — curia holds the middle, large, and the work turns around
-         it on every side. The maps take the foot of the box. */
-      var mh5 = Math.min(bh * 0.34, 150);
-      var hubY = b.y0 + (bh - mh5) * 0.46;
-      L.node = { x: cx, y: hubY, r: 0 };
-      L.node.r = clamp(Math.min((bh - mh5) * 0.3, bw * 0.3), 56, 132);
-      L.cloud = { cx: cx, cy: hubY, rx: bw * 0.46, ry: (bh - mh5) * 0.44, ring: L.node.r };
-      placeMaps(L, cx, b.y1 - mh5 * 0.5, bw, mh5, false);
-      L.bend = 0;
-    } else {
-      /* stack — the pile above, curia, the maps below. Work falls. */
-      var h1 = bh / sum;
-      L.cloud = { cx: cx, cy: b.y0 + h1 * wCloud * 0.5, rx: bw * 0.38, ry: h1 * wCloud * 0.38 };
-      L.node = { x: cx, y: b.y0 + h1 * (wCloud + wNode * 0.5), r: 0 };
-      L.node.r = clamp(Math.min(h1 * wNode * 0.95, bw * 0.26), 44, 118);
-      placeMaps(L, cx, b.y1 - h1 * wMaps * 0.5, bw, h1 * wMaps, false);
-      L.bend = 0;
-    }
-
-    /* The zones the art may occupy. Every card is held inside one of
-       them, so no arithmetic slip can put a card on the words. Only
-       `through` has two, and only its routes cross between them. */
-    L.zones = [{ x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1 }];
-
-    /* The cloud has to hold cards, not points, so it gives back half a
-       card on every side before it settles its radii, and it keeps
-       clear of curia. */
-    var z0 = L.zones[0];
-    var zw = Math.max(60, z0.x1 - z0.x0);
-    L.cw = clamp(Math.min(L.cloud.rx * 1.25, zw - 24), 88, CARD_W);
-    var chw = L.cw / 2 + 5, chh = CARD_H * (L.cw / CARD_W) / 2 + 5;
-    var cTop = id === 2 ? Math.max(z0.y0, L.node.y + L.node.r + 14) : z0.y0;
-    var cBot = id >= 3 ? z0.y1 : Math.min(z0.y1, L.node.y - L.node.r - 14);
-    var roomH = Math.max(2 * chh + 12, cBot - cTop);
-    L.cloud.rx = Math.max(6, Math.min(L.cloud.rx, zw / 2 - chw) / 1.08);
-    L.cloud.ry = Math.max(6, Math.min(L.cloud.ry, roomH / 2 - chh) / 1.08);
-    L.cloud.cx = mid(z0.x0 + chw + L.cloud.rx, z0.x1 - chw - L.cloud.rx, L.cloud.cx);
-    L.cloud.cy = mid(cTop + chh + L.cloud.ry, cBot - chh - L.cloud.ry, L.cloud.cy);
-    return L;
   }
 
   /* Clamp into a span, or take its middle when the span has collapsed. */
@@ -1768,67 +1579,230 @@ function runArc() {
     return place(L, x, y, w / 2 + 3, CARD_H * (w / CARD_W) / 2 + 3);
   }
 
-  /* ---- the cloud: work nobody is holding, turning ---- */
-  function orbitPos(i, n, clock, L) {
-    var c = L.cloud;
+  /* ================================================================
+     One arc, and five ways of giving the work its labels.
+
+     Round 3 offered five compositions. The operator kept parts of two
+     and named the story the arc should tell, so the composition is
+     settled now and it borrows from both:
+
+       the hero    stack, because it shows loose work floating down
+                   into curia with the maps standing under it
+       scrolling   the maps ride up out of sight, the way rise made
+                   natural, and the work gathers into the orbiting
+                   cloud
+       further     the labels arrive, and that is what order means
+
+     And the thing the mess is made of changed:
+
+       the mess        grayscale notes, with nothing written on them
+       organized       labeled tickets
+
+     So curia's whole effect is one move a reader can name. A note has
+     no number, no kind and no state. A ticket has all three. What the
+     five variations differ in is the MOMENT the labels land, because
+     that moment is the point of the scene.
+     ================================================================ */
+
+  var NOTE_BG = [32, 32, 37];
+  function mixc(a, b, t) { return [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)]; }
+
+  /* One piece of work, anywhere between a note and a ticket. m is 0
+     for a blank note and 1 for a labeled ticket, and every part of the
+     card crosses over on that one number. */
+  function drawWork(cx, cy, w, t, o) {
+    o = o || {};
+    var a = o.a == null ? 1 : o.a;
+    if (a <= 0.015 || w < 40) return;
+    var m = clamp(o.m == null ? 1 : o.m, 0, 1);
+    var s = w / CARD_W, h = CARD_H * s;
+    var st = o.st == null ? 0 : o.st;
+    var sc = ST[st];
+    ctx.save();
+    ctx.globalAlpha = clamp(a, 0, 1);
+    ctx.translate(cx, cy);
+    if (o.tilt) ctx.rotate(o.tilt);
+    if (o.pop && o.pop !== 1) ctx.scale(o.pop, o.pop);
+    var x = -w / 2, y = -h / 2;
+
+    roundRect(x, y, w, h, lerp(3, 11, m) * s);
+    ctx.fillStyle = rgba(mixc(NOTE_BG, C.panel, m), 0.96);
+    ctx.fill();
+    ctx.strokeStyle = rgba(C.edge, lerp(0.08, 0.26, m));
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    if (m > 0.02) {
+      ctx.save();
+      ctx.clip();
+      ctx.fillStyle = rgba(sc, 0.9 * m);
+      ctx.fillRect(x, y, 3.5 * s, h);
+      ctx.restore();
+    }
+
+    /* what a note has instead of words: marks nobody can act on */
+    if (m < 0.98) {
+      var d = parseInt(t.id, 10) || 7;
+      var bars = [
+        0.40 + 0.34 * (((d * 13) % 7) / 7),
+        0.62 + 0.28 * (((d * 29) % 5) / 5),
+        0.26 + 0.30 * (((d * 7) % 3) / 3)
+      ];
+      ctx.save();
+      ctx.globalAlpha = clamp(a * (1 - m), 0, 1);
+      ctx.fillStyle = rgba(C.dim, 0.42);
+      var bi;
+      for (bi = 0; bi < 3; bi++) {
+        roundRect(x + 15 * s, y + (17 + bi * 15) * s, (w - 30 * s) * bars[bi], 4.5 * s, 2.2 * s);
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    /* what curia gave it: a number, a kind, a state */
+    if (m > 0.02) {
+      ctx.save();
+      ctx.globalAlpha = clamp(a * m, 0, 1);
+      var ix = x + 19 * s, iy = y + 21 * s;
+      ctx.beginPath();
+      ctx.arc(ix, iy, 5.6 * s, 0, TAU);
+      if (st === 0) ctx.setLineDash([2.2 * s, 2.2 * s]);
+      ctx.strokeStyle = rgb(sc);
+      ctx.lineWidth = 1.6 * s;
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.lineWidth = 1;
+      if (st > 0) {
+        ctx.beginPath();
+        ctx.arc(ix, iy, 2 * s, 0, TAU);
+        ctx.fillStyle = rgb(sc);
+        ctx.fill();
+      }
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.font = '700 ' + (12.5 * s).toFixed(1) + 'px ' + MONOF;
+      ctx.fillStyle = rgba(C.text, 0.95);
+      ctx.fillText('#' + t.id, x + 31 * s, iy);
+      var nw = ctx.measureText('#' + t.id).width;
+      var rightEdge = x + w - 10 * s;
+      if (o.badge) {
+        ctx.font = '700 ' + (9.5 * s).toFixed(1) + 'px ' + MONOF;
+        var bw = ctx.measureText(o.badge).width + 13 * s;
+        ctx.save();
+        ctx.globalAlpha = clamp(a * m * (o.badgeIn == null ? 1 : o.badgeIn), 0, 1);
+        roundRect(rightEdge - bw, iy - 8.5 * s, bw, 17 * s, 4 * s);
+        ctx.fillStyle = rgba(C.merged, 0.9);
+        ctx.fill();
+        ctx.fillStyle = '#08120c';
+        ctx.fillText(o.badge, rightEdge - bw + 6.5 * s, iy);
+        ctx.restore();
+        rightEdge -= bw + 6 * s;
+      }
+      ctx.font = '600 ' + (9.5 * s).toFixed(1) + 'px ' + MONOF;
+      var lw = ctx.measureText(t.type).width + 13 * s;
+      var lx = x + 31 * s + nw + 9 * s;
+      if (lx + lw < rightEdge) {
+        roundRect(lx, iy - 8.5 * s, lw, 17 * s, 8.5 * s);
+        ctx.fillStyle = rgba(sc, 0.15);
+        ctx.fill();
+        ctx.strokeStyle = rgba(sc, 0.5);
+        ctx.stroke();
+        ctx.fillStyle = rgba(sc, 0.95);
+        ctx.fillText(t.type, lx + 6.5 * s, iy);
+      }
+      ctx.font = '600 ' + (13.5 * s).toFixed(1) + 'px ' + SANSF;
+      ctx.fillStyle = rgba(C.text, 0.86);
+      ctx.fillText(t.name, x + 19 * s, y + 48 * s, w - 36 * s);
+      ctx.restore();
+    }
+    ctx.restore();
+  }
+
+  /* ---- the shape of the arc ----
+     Three keyframes the whole scene reads from. The hero stacks the
+     machine, the mess hands the screen to the cloud and rides the maps
+     up out of sight, and the order beat brings them back. */
+  function keyframes(b, mapsH) {
+    var bw = Math.max(120, b.x1 - b.x0), bh = Math.max(120, b.y1 - b.y0);
+    var cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2;
+    return {
+      hero: {
+        cloudY: b.y0 + bh * 0.19, cloudRX: bw * 0.44, cloudRY: bh * 0.15,
+        nodeY: b.y0 + bh * 0.56, nodeR: clamp(Math.min(bh * 0.15, bw * 0.24), 46, 116),
+        mapsY: b.y1 - mapsH / 2, mapsA: 1, cloudA: 1
+      },
+      mess: {
+        cloudY: cy, cloudRX: bw * 0.46, cloudRY: bh * 0.42,
+        nodeY: b.y1 + 40, nodeR: clamp(Math.min(bh * 0.1, bw * 0.16), 34, 76),
+        mapsY: b.y0 - mapsH * 1.4, mapsA: 0, cloudA: 1
+      },
+      order: {
+        cloudY: b.y0 + bh * 0.2, cloudRX: bw * 0.42, cloudRY: bh * 0.17,
+        nodeY: b.y0 + bh * 0.47, nodeR: clamp(Math.min(bh * 0.14, bw * 0.22), 46, 110),
+        mapsY: b.y1 - mapsH / 2, mapsA: 1, cloudA: 1
+      },
+      cx: cx, cy: cy, bw: bw, bh: bh
+    };
+  }
+  function mixkf(a, b2, t) {
+    var out = {}, k;
+    for (k in a) { if (typeof a[k] === 'number') out[k] = lerp(a[k], b2[k], t); }
+    return out;
+  }
+
+  /* Where a piece of work floats while nobody has taken it. The cloud
+     turns, at several radii, in two counter-turning shells. */
+  function cloudPos(i, n, clock, S) {
     var f = (i * 0.618034) % 1;
     var dir = i % 2 ? 1 : -1;
     var ang = (i / n + f * 0.37) * TAU + clock * (0.055 + 0.035 * f) * dir;
     var rr = 0.44 + 0.64 * f;
-    /* hub turns the work around curia, so nothing sits on top of it */
-    if (c.ring) {
-      var floorF = clamp((c.ring + 44) / Math.max(1, Math.min(c.rx, c.ry)), 0.35, 0.96);
-      rr = lerp(floorF, 1.08, f);
-    }
     return {
-      x: c.cx + Math.cos(ang) * c.rx * rr,
-      y: c.cy + Math.sin(ang) * c.ry * rr + Math.sin(clock * 0.5 + i) * 4,
-      tilt: Math.cos(ang) * 0.17 * dir
+      x: S.cx + Math.cos(ang) * S.cloudRX * rr,
+      y: S.cloudY + Math.sin(ang) * S.cloudRY * rr + Math.sin(clock * 0.5 + i) * 4,
+      tilt: Math.cos(ang) * 0.19 * dir
     };
   }
 
-  /* ---- curia: what it is, and what it is for ---- */
-  function portPoint(k, n, L) {
-    var nd = L.node;
-    if (n < 2) return { x: nd.x, y: nd.y + nd.r };
-    var a0, a1;
-    if (ARC_ID === 4) { a0 = -0.72; a1 = 0.72; }
-    else { a0 = 0.62; a1 = 2.52; }
-    var ang = lerp(a0, a1, k / (n - 1));
-    return { x: nd.x + Math.cos(ang) * nd.r, y: nd.y + Math.sin(ang) * nd.r };
+  function portPoint(k, n, S) {
+    if (n < 2) return { x: S.cx, y: S.nodeY + S.nodeR };
+    var ang = lerp(0.62, 2.52, k / (n - 1));
+    return { x: S.cx + Math.cos(ang) * S.nodeR, y: S.nodeY + Math.sin(ang) * S.nodeR };
   }
 
-  function drawRoutes(L, heat, behind) {
+  function drawRoutes(S, maps, heat, a) {
+    if (a <= 0.02) return;
     var i;
     ctx.save();
-    for (i = 0; i < L.maps.length; i++) {
-      var p = portPoint(i, L.maps.length, L);
-      var m = L.maps[i];
-      var mh = mapHeight(m.w / MAP_W);
-      var tx = m.x, ty = ARC_ID === 4 ? m.y : m.y - mh / 2;
-      if (ARC_ID === 4) tx = m.x - m.w / 2;
+    ctx.globalAlpha = clamp(a, 0, 1);
+    for (i = 0; i < maps.length; i++) {
+      var p = portPoint(i, maps.length, S);
+      var mm = maps[i];
+      var ty = mm.y - mapHeight(mm.w / MAP_W) / 2;
       ctx.setLineDash([7, 6]);
-      ctx.strokeStyle = rgba(C.merged, (behind ? 0.10 : 0.17) + 0.40 * (heat[i] || 0));
+      ctx.strokeStyle = rgba(C.merged, 0.17 + 0.4 * (heat[i] || 0));
       ctx.lineWidth = 1.3 + 1.5 * (heat[i] || 0);
       ctx.beginPath();
       ctx.moveTo(p.x, p.y);
-      ctx.quadraticCurveTo((p.x + tx) / 2 + L.bend * 60, (p.y + ty) / 2, tx, ty);
+      ctx.quadraticCurveTo((p.x + mm.x) / 2, (p.y + ty) / 2, mm.x, ty);
       ctx.stroke();
       ctx.setLineDash([]);
     }
     ctx.restore();
   }
 
-  function drawNode(L, clock, act, n) {
-    var nd = L.node, r = nd.r;
+  function drawNode(S, clock, act, n, a) {
+    if (a <= 0.02) return;
+    var r = S.nodeR, nx = S.cx, ny = S.nodeY;
     var breath = 0.5 + 0.5 * Math.sin(clock * 1.1);
     ctx.save();
+    ctx.globalAlpha = clamp(a, 0, 1);
     ctx.beginPath();
-    ctx.arc(nd.x, nd.y, r * (1.55 + breath * 0.1), 0, TAU);
+    ctx.arc(nx, ny, r * (1.55 + breath * 0.1), 0, TAU);
     ctx.fillStyle = rgba(C.merged, 0.05 + 0.07 * act);
     ctx.fill();
     ctx.beginPath();
-    ctx.arc(nd.x, nd.y, r, 0, TAU);
+    ctx.arc(nx, ny, r, 0, TAU);
     ctx.fillStyle = 'rgba(9,13,16,0.92)';
     ctx.fill();
     ctx.fillStyle = rgba(C.merged, 0.15 + 0.12 * act);
@@ -1837,7 +1811,7 @@ function runArc() {
     ctx.lineWidth = 2.6;
     ctx.stroke();
     ctx.save();
-    ctx.translate(nd.x, nd.y);
+    ctx.translate(nx, ny);
     ctx.rotate(clock * 0.3);
     ctx.setLineDash([10, 8]);
     ctx.beginPath();
@@ -1848,12 +1822,11 @@ function runArc() {
     ctx.restore();
     ctx.setLineDash([]);
     ctx.lineWidth = 1;
-    /* one port per map, so the sorting shows before anything moves */
     var i;
     for (i = 0; i < n; i++) {
-      var p = portPoint(i, n, L);
+      var p = portPoint(i, n, S);
       ctx.beginPath();
-      ctx.arc(p.x, p.y, 7, 0, TAU);
+      ctx.arc(p.x, p.y, Math.max(4, r * 0.08), 0, TAU);
       ctx.fillStyle = rgba(C.merged, 0.9);
       ctx.fill();
       ctx.strokeStyle = 'rgba(8,12,10,0.9)';
@@ -1865,36 +1838,45 @@ function runArc() {
     ctx.textBaseline = 'middle';
     ctx.font = '800 ' + (r * 0.4).toFixed(0) + 'px ' + MONOF;
     ctx.fillStyle = rgba(C.merged, 0.98);
-    ctx.fillText('curia', nd.x, nd.y - r * 0.12);
-    ctx.font = '600 ' + Math.max(8.5, r * 0.145).toFixed(1) + 'px ' + MONOF;
-    ctx.fillStyle = rgba(C.merged, 0.74);
-    ctx.fillText('reads every repo', nd.x, nd.y + r * 0.3);
+    ctx.fillText('curia', nx, ny - r * 0.12);
+    if (r > 52) {
+      ctx.font = '600 ' + Math.max(8.5, r * 0.145).toFixed(1) + 'px ' + MONOF;
+      ctx.fillStyle = rgba(C.merged, 0.74);
+      ctx.fillText('reads every repo', nx, ny + r * 0.3);
+    }
     ctx.restore();
   }
 
-  function crossFlash(L, t) {
-    var fl = clamp(1 - Math.abs(t - 0.5) / 0.07, 0, 1);
-    if (fl <= 0.02) return;
-    ctx.save();
-    ctx.globalAlpha = clamp(fl * 0.7, 0, 1);
-    ctx.beginPath();
-    ctx.arc(L.node.x, L.node.y, L.node.r * 0.8 + (1 - fl) * 120, 0, TAU);
-    ctx.strokeStyle = rgb(C.merged);
-    ctx.lineWidth = 2.6 * fl;
-    ctx.stroke();
-    ctx.restore();
-  }
+  /* ---- the five moments a label can arrive ---- */
 
-  /* The path work takes. The bend is what makes each composition move
-     differently: a drop, an arc, a crossing, a sweep. */
-  function bez(x0, y0, x1, y1, bend, t) {
-    var mx = (x0 + x1) / 2 - (y1 - y0) * bend * 0.35;
-    var my = (y0 + y1) / 2 + (x1 - x0) * bend * 0.35;
-    var it = 1 - t;
-    return {
-      x: it * it * x0 + 2 * it * t * mx + t * t * x1,
-      y: it * it * y0 + 2 * it * t * my + t * t * y1
-    };
+  /* How far ticket i has come from note to ticket, and how far it has
+     travelled to its map, given how far the order claim has come. */
+  function progressOf(i, n, fall, clock, S, home, sweepY) {
+    var lead = i / n;
+    var m, t;
+    if (ARC_ID === 1) {
+      /* sweep — a line walks down the cloud and everything it has
+         passed is labeled where it lies */
+      m = clamp((sweepY - home.y) / 70 + 0.5, 0, 1);
+      t = smooth(0.70 + lead * 0.22, 0.95 + lead * 0.22, fall);
+    } else if (ARC_ID === 2) {
+      /* through — nothing is labeled until it has been through curia */
+      t = smooth(0.10 + lead * 0.44, 0.64 + lead * 0.44, fall);
+      m = smooth(0.46, 0.56, t);
+    } else if (ARC_ID === 3) {
+      /* snap — curia takes one beat and the whole pile turns at once */
+      m = smooth(0.34, 0.41, fall);
+      t = smooth(0.52 + lead * 0.3, 0.86 + lead * 0.3, fall);
+    } else if (ARC_ID === 4) {
+      /* stamp — labels fly out of curia and land one at a time */
+      m = smooth(0.12 + lead * 0.46, 0.24 + lead * 0.46, fall);
+      t = smooth(0.66 + lead * 0.24, 0.94 + lead * 0.24, fall);
+    } else {
+      /* unfold — each note opens into a ticket where it floats */
+      m = smooth(0.10 + lead * 0.48, 0.40 + lead * 0.48, fall);
+      t = smooth(0.70 + lead * 0.22, 0.97 + lead * 0.22, fall);
+    }
+    return { m: clamp(m, 0, 1), t: clamp(t, 0, 1), lead: lead };
   }
 
   var raf = 0, last = 0, clock = 0;
@@ -1913,90 +1895,191 @@ function runArc() {
 
     var wide = W >= 620;
     var rise = smooth(0.04, 0.50, panelProgress(messPanel));
-    var fall = smooth(0.26, 0.55, panelProgress(orderPanel));
+    var fall = smooth(0.10, 0.56, panelProgress(orderPanel));
     stageEl.style.setProperty('--warm', (1 - 0.86 * rise * (1 - fall)).toFixed(3));
     stageEl.style.setProperty('--ord', fall.toFixed(3));
 
     var b = freeBox(dt, wordsBands());
-    var L = layout(b, rise, fall);
-    var nMaps = L.maps.length;
+    var L = { bands: b.bands, zones: [{ x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1 }] };
 
-    /* the maps, alive on their own clocks, each held inside its zone */
-    var cycles = [], maxMapH = 0, si;
+    /* the maps, sized to the foot of the free box */
+    var maps = [];
+    placeMaps({ maps: maps }, (b.x0 + b.x1) / 2, 0,
+      b.x1 - b.x0, Math.max(120, (b.y1 - b.y0) * 0.34), false);
+    var mapsH = maps.length ? mapHeight(maps[0].w / MAP_W) : 140;
+
+    var K = keyframes(b, mapsH);
+    var S = mixkf(mixkf(K.hero, K.mess, rise), K.order, fall);
+    S.cx = K.cx;
+    /* curia stands down while the mess owns the screen, and wherever
+       it does stand it keeps off the words like everything else */
+    var nodeA = clamp(1 - rise * (1 - fall), 0, 1);
+    if (nodeA > 0.02) {
+      var np = place(L, S.cx, S.nodeY, S.nodeR + 8, S.nodeR + 8);
+      S.cx = np.x; S.nodeY = np.y;
+    }
+    var nMaps = maps.length;
+
+    /* the maps ride up out of sight while the mess holds the screen,
+       and fade before they could ever reach the words */
+    var mapsA = clamp(1 - rise + fall, 0, 1);
+    var mi;
+    for (mi = 0; mi < nMaps; mi++) maps[mi].y = S.mapsY;
+
+    var cycles = [], si;
     for (si = 0; si < nMaps; si++) {
-      var mc = L.maps[si];
-      cycles[si] = mapCycle(mc.m, clock);
-      var mh = mapHeight(mc.w / MAP_W);
-      var at = place(L, mc.x, mc.y, mc.w / 2 + 3, mh / 2 + 3);
-      mc.x = at.x; mc.y = at.y;
-      maxMapH = Math.max(maxMapH, drawMapCard(mc.x, mc.y, mc.w, mc.m, cycles[si]));
+      cycles[si] = mapCycle(maps[si].m, clock);
+      if (mapsA > 0.02) {
+        var at = place(L, maps[si].x, maps[si].y, maps[si].w / 2 + 3, mapsH / 2 + 3);
+        maps[si].x = at.x; maps[si].y = at.y;
+        drawMapCard(maps[si].x, maps[si].y, maps[si].w, maps[si].m, cycles[si], mapsA);
+      }
     }
 
-    if (wide && maxMapH > 0) {
-      var lg = place(L, L.maps[0].x, L.maps[0].y - maxMapH / 2 - 18, 120, 10);
-      drawLegend(lg.x, lg.y, smooth(0.15, 0.5, fall), true);
+    if (wide && mapsA > 0.8) {
+      var lg = place(L, maps[0].x, maps[0].y - mapsH / 2 - 18, 120, 10);
+      drawLegend(lg.x, lg.y, smooth(0.15, 0.5, fall) * mapsA, true);
     }
 
-    /* the stream: work always entering curia and always leaving it */
+    /* the work itself */
     var n = MESS.length;
-    var FLIGHT = 0.42;
-    var push = 0.62 * fall;
+    var cw = clamp(Math.min(S.cloudRX * 1.2, (b.x1 - b.x0) * 0.55), 92, CARD_W);
     var heat = [0, 0, 0];
-    var i, home, t, ph;
+    /* the sweep walks the cloud, not the screen, so it takes its time
+       over the work rather than crossing empty space */
+    var sweepY = lerp(S.cloudY - S.cloudRY * 1.15 - 50, S.cloudY + S.cloudRY * 1.15 + 50,
+      smooth(0.12, 0.66, fall));
+    var snapNow = ARC_ID === 3 ? smooth(0.44, 0.52, fall) : 0;
+    var i;
     for (i = 0; i < n; i++) {
-      home = orbitPos(i, n, clock, L);
-      var slot = i % nMaps;
-      ph = (clock * 0.075 + i / n + push) % 1;
-      if (ph >= FLIGHT) {
-        var at0 = fitTicket(L, home.x, home.y, L.cw);
-        drawTicket(at0.x, at0.y, L.cw, MESS[i], { gray: 1, tilt: home.tilt, st: 0, a: 0.94 });
-        continue;
-      }
-      t = ph / FLIGHT;
-      var m = L.maps[slot];
-      if (t < 0.5) {
-        var t1 = ease(t / 0.5);
-        var q = bez(home.x, home.y, L.node.x, L.node.y, L.bend * 0.5, t1);
-        var at1 = fitTicket(L, q.x, q.y, L.cw);
-        drawTicket(at1.x, at1.y, L.cw, MESS[i],
-          { gray: 1, tilt: home.tilt * (1 - t1), st: 0, a: 0.94 });
+      var home = cloudPos(i, n, clock, S);
+      var pr = progressOf(i, n, fall, clock, S, home, sweepY);
+      var slot = i % Math.max(1, nMaps);
+      var mm = maps[slot];
+      var x, y, tilt = home.tilt * (1 - pr.m), pop = 1, a = 0.95;
+
+      if (pr.t <= 0.001) {
+        x = home.x; y = home.y;
+      } else if (pr.t >= 0.999) {
+        continue;                        /* it lives in the map now */
+      } else if (ARC_ID === 2) {
+        /* through curia, then out of a port to its map */
+        if (pr.t < 0.5) {
+          var t1 = ease(pr.t / 0.5);
+          x = lerp(home.x, S.cx, t1); y = lerp(home.y, S.nodeY, t1);
+          tilt = home.tilt * (1 - t1);
+        } else {
+          var t2 = ease((pr.t - 0.5) / 0.5);
+          var p0 = portPoint(slot, nMaps, S);
+          x = lerp(p0.x, mm.x, t2); y = lerp(p0.y, mm.y, t2);
+          tilt = 0;
+          pop = 1 + 0.22 * Math.sin(Math.min(1, t2 * 4) * Math.PI);
+          a = (1 - smooth(0.7, 1, t2)) * 0.96;
+          heat[slot] = Math.max(heat[slot], 1 - t2);
+        }
       } else {
-        var t2 = ease((t - 0.5) / 0.5);
-        /* `through` hands work across the words on its routes alone.
-           The card leaves curia and picks up again at the far zone. */
-        var p0 = L.handoff != null
-          ? { x: L.node.x, y: L.handoff }
-          : portPoint(slot, nMaps, L);
-        var q2 = bez(p0.x, p0.y, m.x, m.y, L.bend, t2);
-        var at2 = fitTicket(L, q2.x, q2.y, L.cw);
-        drawTicket(at2.x, at2.y, L.cw, MESS[i], {
-          gray: 0, tilt: 0, st: slot % 3 === 1 ? 1 : 3,
-          a: (1 - smooth(0.68, 1, t2)) * (L.handoff != null ? smooth(0, 0.16, t2) : 1) * 0.96,
-          pop: 1 + 0.22 * Math.sin(Math.min(1, t2 * 4) * Math.PI),
-          badge: m.m.label, badgeIn: smooth(0, 0.22, t2)
-        });
-        heat[slot] = Math.max(heat[slot], 1 - t2);
+        /* labeled where it floated, then it goes to its map */
+        var tt = ease(pr.t);
+        x = lerp(home.x, mm.x, tt); y = lerp(home.y, mm.y, tt);
+        a = (1 - smooth(0.74, 1, tt)) * 0.96;
+        if (pr.t > 0.02) heat[slot] = Math.max(heat[slot], 1 - pr.t);
       }
-      crossFlash(L, t);
+
+      if (ARC_ID === 5) pop = 1 + 0.3 * Math.sin(clamp(pr.m, 0, 1) * Math.PI);
+      if (ARC_ID === 3 && snapNow > 0.01 && snapNow < 0.99) pop = 1 + 0.28 * Math.sin(snapNow * Math.PI);
+
+      var at2 = fitTicket(L, x, y, cw);
+      drawWork(at2.x, at2.y, cw, MESS[i], {
+        m: pr.m, tilt: tilt, pop: pop, a: a,
+        st: pr.m > 0.5 ? (slot % 3 === 1 ? 1 : 3) : 0,
+        badge: pr.m > 0.9 && pr.t > 0.02 ? mm.m.label : null,
+        badgeIn: smooth(0.02, 0.3, pr.t)
+      });
+
+      /* stamp: the label flies out of curia and lands on the note */
+      if (ARC_ID === 4 && pr.m > 0.01 && pr.m < 0.99) {
+        var fx = lerp(S.cx, at2.x, ease(pr.m));
+        var fy = lerp(S.nodeY, at2.y, ease(pr.m));
+        ctx.save();
+        ctx.globalAlpha = clamp(1 - pr.m, 0, 1);
+        roundRect(fx - 16, fy - 7, 32, 14, 4);
+        ctx.fillStyle = rgba(C.merged, 0.9);
+        ctx.fill();
+        ctx.restore();
+      }
     }
 
-    drawRoutes(L, heat, !!L.node.behind);
-    drawNode(L, clock, clamp(0.45 + 0.55 * fall, 0, 1), nMaps);
+    /* the hero keeps working while the reader is still reading it */
+    var idleA = (1 - smooth(0.02, 0.16, rise)) * (1 - fall);
+    if (idleA > 0.02 && nMaps) {
+      var li;
+      for (li = 0; li < 5; li++) {
+        var lm = li * 2;
+        var lt = (clock * 0.16 + li / 5) % 1;
+        var lhome = cloudPos(lm, n, clock, S);
+        var lslot = li % nMaps;
+        var lx, ly, lmv, ltilt, lpop = 1, la = idleA * 0.95;
+        if (lt < 0.5) {
+          var e1 = ease(lt / 0.5);
+          lx = lerp(lhome.x, S.cx, e1); ly = lerp(lhome.y, S.nodeY, e1);
+          lmv = 0; ltilt = lhome.tilt * (1 - e1);
+        } else {
+          var e2 = ease((lt - 0.5) / 0.5);
+          var lp = portPoint(lslot, nMaps, S);
+          lx = lerp(lp.x, maps[lslot].x, e2); ly = lerp(lp.y, maps[lslot].y, e2);
+          lmv = 1; ltilt = 0;
+          lpop = 1 + 0.22 * Math.sin(Math.min(1, e2 * 4) * Math.PI);
+          la *= 1 - smooth(0.72, 1, e2);
+          heat[lslot] = Math.max(heat[lslot], 1 - e2);
+        }
+        var lat = fitTicket(L, lx, ly, cw);
+        drawWork(lat.x, lat.y, cw, MESS[lm], {
+          m: lmv, tilt: ltilt, pop: lpop, a: la, st: lmv ? 3 : 0
+        });
+      }
+    }
+
+    /* the sweep line, and the beat that snaps the pile over */
+    if (ARC_ID === 1 && fall > 0.02 && fall < 0.98) {
+      ctx.save();
+      ctx.globalAlpha = clamp(smooth(0.06, 0.16, fall) * (1 - smooth(0.66, 0.78, fall)), 0, 1);
+      ctx.strokeStyle = rgba(C.merged, 0.9);
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(b.x0, sweepY);
+      ctx.lineTo(b.x1, sweepY);
+      ctx.stroke();
+      ctx.restore();
+    }
+    if (ARC_ID === 3 && snapNow > 0.01 && snapNow < 0.99) {
+      ctx.save();
+      ctx.globalAlpha = clamp(1 - snapNow, 0, 1);
+      ctx.beginPath();
+      ctx.arc(S.cx, S.nodeY, S.nodeR + snapNow * Math.max(W, H) * 0.8, 0, TAU);
+      ctx.strokeStyle = rgb(C.merged);
+      ctx.lineWidth = 3 * (1 - snapNow);
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    drawRoutes(S, maps, heat, mapsA * nodeA);
+    drawNode(S, clock, clamp(0.45 + 0.55 * fall, 0, 1), nMaps, nodeA);
 
     /* the agents, on the maps they are working */
-    for (si = 0; si < nMaps; si++) {
-      var cy = cycles[si], sl = L.maps[si];
-      if (!cy.agent) continue;
+    for (si = 0; si < nMaps && mapsA > 0.4; si++) {
+      var cy2 = cycles[si], sl = maps[si];
+      if (!cy2.agent) continue;
       var s2 = sl.w / MAP_W;
-      var rowY = sl.y - mapHeight(s2) / 2 + (64 + (1 - cy.adv) * ROW_STEP + ROW_H / 2) * s2;
+      var rowY = sl.y - mapsH / 2 + (64 + (1 - cy2.adv) * ROW_STEP + ROW_H / 2) * s2;
       var restX = sl.x + sl.w / 2 - 16 * s2;
-      var ax = lerp(sl.x + (si % 2 ? 1 : -1) * (W * 0.5), restX, cy.agent.in);
-      var ay = lerp(rowY - H * 0.16, rowY, cy.agent.in);
-      if (cy.agent.off > 0) {
-        ax = lerp(restX, restX + W * 0.22, cy.agent.off);
-        ay = lerp(rowY, rowY - H * 0.14, cy.agent.off);
+      var ax = lerp(sl.x + (si % 2 ? 1 : -1) * (W * 0.5), restX, cy2.agent.in);
+      var ay = lerp(rowY - H * 0.16, rowY, cy2.agent.in);
+      if (cy2.agent.off > 0) {
+        ax = lerp(restX, restX + W * 0.22, cy2.agent.off);
+        ay = lerp(rowY, rowY - H * 0.14, cy2.agent.off);
       }
-      drawAgent(ax, ay, 9 * Math.max(s2, 0.75), cy.agent.in * (1 - cy.agent.off), cy.agent.working);
+      drawAgent(ax, ay, 9 * Math.max(s2, 0.75),
+        cy2.agent.in * (1 - cy2.agent.off) * mapsA, cy2.agent.working);
     }
   }
 

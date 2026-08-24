@@ -234,6 +234,44 @@ the shortest distance.
 | 4 | diagonal | the pile in one corner, the maps stepping down to the far one |
 | 5 | hub | curia holds the middle, large, and the work turns around it on every side |
 
+**The operator's answer.** No single pick. They took parts of two compositions, named the story the
+arc should tell, and changed what the mess is made of:
+
+> rise is nice because it can scroll the maps up out of sight naturally and focus on the mess
+>
+> at the hero level 1 does a better job to show the floating mess coming into curia
+>
+> scrolling 2 should move the maps away and translate the tickets in the orbiting variations from
+> earlier
+>
+> scrolling further should then bring the order by giving them the labels
+>
+> mess -> grayscale notes
+> organized -> labeled tickets
+
+**Round 5.** The composition is settled, and it borrows from both:
+
+1. **The hero** is stack, because it shows loose work floating down into curia with the maps
+   standing under it.
+2. **Scrolling** rides the maps up out of sight, the way rise made natural, while the work gathers
+   into the orbiting cloud.
+3. **Further** brings the labels, and that is what order means.
+
+The mess is no longer gray tickets. **A note carries no number, no kind and no state, only marks
+nobody can act on. A ticket carries all three.** One card is drawn for both, and every part of it
+crosses over on a single number, so a note becomes a ticket rather than fading into one. That makes
+curia's whole effect one move a reader can name: it gives work its labels.
+
+The five variations are the MOMENT the labels land, because that moment is the point of the scene:
+
+| id | moment | what the reader sees |
+|----|--------|----------------------|
+| 1 | sweep | a line walks down the cloud, and everything it has passed is labeled where it lies |
+| 2 | through | nothing is labeled until it has been through curia and out of a port |
+| 3 | snap | curia takes one beat and the whole pile turns at once, on a shockwave |
+| 4 | stamp | labels fly out of curia and land on the notes one at a time |
+| 5 | unfold | each note opens into a ticket where it floats, with a pop |
+
 ## The verdict
 
 **The identity is duotone, locked at [#624](https://github.com/alp82/curia/issues/624) over
