@@ -141,6 +141,16 @@
   body.arcon .room.lead { height: 55svh; }
   body.arcon .room.short { height: 55svh; }
 
+  /* Round 3 of #625: the words and the canvas must never sit on top of
+     each other. On a wide screen each claim docks to its own side and
+     the art takes the other one, which is the alternation #624 already
+     asked for. On a phone they share the height instead, and the art
+     tracks whichever half the words have left. */
+  @media (min-width: 64rem) {
+    .arc .apanel.wrap { max-width: 30rem; margin: 0; padding-left: 7vw; }
+    .arc .apanel.sR.wrap { margin-left: auto; padding-left: 1.25rem; padding-right: 7vw; }
+  }
+
   .q-mark { font-family: var(--mono); font-size: 0.8rem; color: var(--dim); }
   .q-mark b { color: var(--accent); font-weight: 600; }
   h1 {
@@ -570,17 +580,19 @@
       <!-- Scene 1 · the first screen. The headline is the wrapper claim,
            picked at #625 round 1, which overrides the line locked at
            #587 and lifts the wayfinder ban in positioning.md. -->
-      <header class="a-hero apanel wrap" id="w-hero">
-        <p class="q-mark"><b>curia</b> — self-hosted agent dispatcher</p>
-        <h1>Run Matt Pocock’s wayfinder from your phone</h1>
-        <p class="lede">Curia knows about all your projects and tells you what to build next.
-          It helps you dispatch parallel agents without losing track.</p>
-        <p class="skills">Wayfinder ships with curia, with the rest of
-          <a href="https://github.com/mattpocock/skills">Matt Pocock’s skills</a>.</p>
-        <p class="ctas">
-          <a class="cta" href="#setup">Set it up</a>
-          <a class="cta ghost" href="https://github.com/alp82/curia">GitHub</a>
-        </p>
+      <header class="a-hero" id="w-hero">
+        <div class="apanel wrap sL" id="w-hero-words">
+          <p class="q-mark"><b>curia</b> — self-hosted agent dispatcher</p>
+          <h1>Run Matt Pocock’s wayfinder from your phone</h1>
+          <p class="lede">Curia knows about all your projects and tells you what to build next.
+            It helps you dispatch parallel agents without losing track.</p>
+          <p class="skills">Wayfinder ships with curia, with the rest of
+            <a href="https://github.com/mattpocock/skills">Matt Pocock’s skills</a>.</p>
+          <p class="ctas">
+            <a class="cta" href="#setup">Set it up</a>
+            <a class="cta ghost" href="https://github.com/alp82/curia">GitHub</a>
+          </p>
+        </div>
       </header>
 
       <div class="room lead" aria-hidden="true"></div>
@@ -1045,28 +1057,27 @@ function clampNum(v, a, b) { return v < a ? a : v > b ? b : v; }
 /* ================================================================
    The opening arc (#625) — scenes 1, 2 and 3 over one sticky canvas.
 
-   Round 2 of this ticket rebuilt the arc on the operator's notes:
+   Round 3 answers two faults the operator found in round 2.
 
-   - The scroll is never taken. The canvas sticks for a screen and the
-     words scroll over it in normal flow. The big titles never wait for
-     an animation.
-   - The mess ORBITS. The scatter and the grid both lost: one drew a
-     diagonal, the other looked sorted already.
-   - The maps are alive from the first frame. Work arrives, an agent
-     takes the takeable row, the row merges and leaves, and the queue
-     advances a place.
-   - curia has a visible job. Each staging tells it a different way.
+   THE WORDS AND THE ART SHARE THE SCREEN. They never overlap. Every
+   frame the canvas measures where the words are, takes the largest
+   space they have left, and eases into it. So the art moves because
+   the words moved, which is the dance: on a wide screen the claim
+   docks to its side and the art takes the other, and on a phone they
+   trade the top and the bottom of the screen.
 
-   The camera reads the words rather than a scroll fraction: the mess
-   claim pulls it up into the cloud, and the order claim brings it down
-   onto the maps. So the visuals react to the scroll and the reader
-   still owns it.
+   THE FIVE STAGINGS DIFFER IN COMPOSITION, not in ornament. Round 2
+   varied how curia's job was told and the five read as one. That job
+   is a fault to fix, not an axis to vary, so all five now carry the
+   whole fix: the disc says what it does, its rim holds one port per
+   map, and lit routes run from it to each map before a ticket moves.
+   What varies is the shape of the machine and the path work takes
+   through it.
 
-   The rule of the arc: ABOVE the curia line a ticket is gray and
-   askew, and BELOW it the same ticket is colored and square.
+   The rule of the arc: work is gray and askew until it reaches curia,
+   and colored and square after it.
 
-   Five stagings ride ?id=1..5. Every number below is a real issue of
-   this repo.
+   ?id=1..5 picks a composition. Every number is a real issue here.
    ================================================================ */
 
 var arcEl = document.getElementById('arc');
@@ -1080,19 +1091,16 @@ function param(key, max) {
   return v >= 1 && v <= max ? v : 1;
 }
 var ARC_ID = param('id', 5);
-
-/* ---- round furniture: the switcher (#635 — five variations a round).
-   It leaves the file with the round that settles the staging. ---- */
+var NAMES = ['', 'stack', 'rise', 'conveyor', 'diagonal', 'hub'];
 
 (function switcher() {
-  var names = ['', 'routes', 'ports', 'stamp', 'queue', 'pulse'];
   var d = document.createElement('div');
   var html = '<b>arc</b>', i;
   for (i = 1; i <= 5; i++) {
-    html += '<a href="?id=' + i + '" title="' + names[i] + '"' +
+    html += '<a href="?id=' + i + '" title="' + NAMES[i] + '"' +
       (i === ARC_ID ? ' class="on"' : '') + '>' + i + '</a>';
   }
-  html += '<b>' + names[ARC_ID] + '</b>';
+  html += '<b>' + NAMES[ARC_ID] + '</b>';
   d.className = 'vary';
   d.innerHTML = html;
   document.body.appendChild(d);
@@ -1122,7 +1130,6 @@ function runArc() {
     running: [224, 174, 76],
     merged: [125, 211, 160]
   };
-  /* 0 blocked · 1 takeable · 2 an agent is on it · 3 merged */
   var ST = [C.blocked, C.takeable, C.running, C.merged];
 
   function clamp(v, a, b) { return v < a ? a : v > b ? b : v; }
@@ -1161,14 +1168,12 @@ function runArc() {
     ctx.closePath();
   }
 
-  /* A ticket, drawn the way a GitHub issue card reads: the state edge,
-     the issue icon, the number, the label chip, the title. A badge on
-     the right is the map curia routed it to. */
+  /* A ticket, drawn the way a GitHub issue card reads. */
   var CARD_W = 216, CARD_H = 68;
   function drawTicket(cx, cy, w, t, o) {
     o = o || {};
     var a = o.a == null ? 1 : o.a;
-    if (a <= 0.015) return;
+    if (a <= 0.015 || w < 40) return;
     var g = o.gray || 0;
     var s = w / CARD_W;
     var h = CARD_H * s;
@@ -1212,17 +1217,13 @@ function runArc() {
     ctx.fillStyle = rgba(gray(C.text, g), 0.95);
     ctx.fillText('#' + t.id, x + 31 * s, iy);
     var nw = ctx.measureText('#' + t.id).width;
-    ctx.font = '600 ' + (9.5 * s).toFixed(1) + 'px ' + MONOF;
-    var lw = ctx.measureText(t.type).width + 13 * s;
-    var lx = x + 31 * s + nw + 9 * s;
     var rightEdge = x + w - 10 * s;
-    /* the map badge curia stamped on, if it has one yet */
+    /* the map curia routed it to, stamped on as it leaves */
     if (o.badge) {
       ctx.font = '700 ' + (9.5 * s).toFixed(1) + 'px ' + MONOF;
       var bw = ctx.measureText(o.badge).width + 13 * s;
-      var ba = o.badgeIn == null ? 1 : o.badgeIn;
       ctx.save();
-      ctx.globalAlpha = clamp(a * ba, 0, 1);
+      ctx.globalAlpha = clamp(a * (o.badgeIn == null ? 1 : o.badgeIn), 0, 1);
       roundRect(rightEdge - bw, iy - 8.5 * s, bw, 17 * s, 4 * s);
       ctx.fillStyle = rgba(gray(C.merged, g), 0.9);
       ctx.fill();
@@ -1232,6 +1233,8 @@ function runArc() {
       rightEdge -= bw + 6 * s;
     }
     ctx.font = '600 ' + (9.5 * s).toFixed(1) + 'px ' + MONOF;
+    var lw = ctx.measureText(t.type).width + 13 * s;
+    var lx = x + 31 * s + nw + 9 * s;
     if (lx + lw < rightEdge) {
       roundRect(lx, iy - 8.5 * s, lw, 17 * s, 8.5 * s);
       ctx.fillStyle = rgba(sc, 0.15);
@@ -1247,7 +1250,7 @@ function runArc() {
     ctx.restore();
   }
 
-  /* One row inside a map card: the same ticket, compact. */
+  /* One row inside a map card. */
   var ROW_H = 25, ROW_STEP = 31, ROWS_SHOWN = 3;
   function drawRow(x, y, w, r, st, s, a) {
     if (a <= 0.02) return;
@@ -1290,12 +1293,12 @@ function runArc() {
   }
 
   /* A map card. Its queue moves: the merged row leaves the top, the
-     rest step up, and new work drops in at the bottom. Round 2: the
-     maps must not feel static and tickets must not stay in them. */
+     rest step up, and new work drops in at the bottom. */
   var MAP_W = 252;
   function mapHeight(s) { return (64 + ROWS_SHOWN * ROW_STEP + 26) * s; }
 
   function drawMapCard(cx, cy, w, m, cyc) {
+    if (w < 90) return 0;
     var s = w / MAP_W;
     var h = mapHeight(s);
     var x = cx - w / 2, y = cy - h / 2;
@@ -1325,20 +1328,17 @@ function runArc() {
     ctx.fillStyle = rgba(C.dim, 0.95);
     ctx.fillText(m.name, x + 15 * s, y + 43 * s, w - 60 * s);
 
-    /* the rows, on a conveyor, clipped to their own well */
     var ry = y + 64 * s;
-    var wellH = ROWS_SHOWN * ROW_STEP * s;
     ctx.save();
-    roundRect(x + 10 * s, ry - 3 * s, w - 20 * s, wellH, 8 * s);
+    roundRect(x + 10 * s, ry - 3 * s, w - 20 * s, ROWS_SHOWN * ROW_STEP * s, 8 * s);
     ctx.clip();
     var j;
     for (j = 0; j < ROWS_SHOWN + 1; j++) {
       var slot = cyc.slots[j];
       if (!slot) continue;
       var rowY = ry + (j - cyc.adv) * ROW_STEP * s;
-      /* the dashed edge to what this row waits on */
       if (slot.st === 0 && j > 0) {
-        var ex = x + 13 * s + 14 * s;
+        var ex = x + 27 * s;
         ctx.setLineDash([3 * s, 3 * s]);
         ctx.strokeStyle = rgba(C.blocked, 0.55 * slot.a);
         ctx.beginPath();
@@ -1362,8 +1362,6 @@ function runArc() {
     return h;
   }
 
-  /* An agent: the amber orb that comes for a takeable ticket, and
-     carries it off when it is merged. */
   function drawAgent(x, y, r, a, label) {
     if (a <= 0.02) return;
     ctx.save();
@@ -1393,16 +1391,14 @@ function runArc() {
     ctx.restore();
   }
 
-  /* The legend names the states, so nobody has to guess where the
-     blocked tickets are. */
-  function drawLegend(cx, y, a) {
-    if (a <= 0.02) return;
+  function drawLegend(cx, y, a, wide) {
+    if (a <= 0.02 || !wide) return;
     var items = [['blocked', C.blocked], ['takeable', C.takeable], ['an agent on it', C.running]];
     ctx.save();
     ctx.globalAlpha = clamp(a, 0, 1);
     ctx.font = '600 10.5px ' + MONOF;
     ctx.textBaseline = 'middle';
-    var gap = 16, total = 0, i, widths = [];
+    var gap = 15, total = 0, i, widths = [];
     for (i = 0; i < items.length; i++) {
       widths[i] = 15 + ctx.measureText(items[i][0]).width;
       total += widths[i];
@@ -1431,7 +1427,7 @@ function runArc() {
     ctx.restore();
   }
 
-  /* ---- the work on the canvas: real issues of this repo ---- */
+  /* ---- the work: real issues of this repo ---- */
 
   var MESS = [
     { id: '550', name: 'grill the landing page', type: 'grilling' },
@@ -1450,7 +1446,6 @@ function runArc() {
     { id: '107', name: 'no dev session', type: 'task' }
   ];
 
-  /* Three real maps. Each one holds a pool its queue runs through. */
   var MAPS = [
     { label: 'map 600', name: 'ship the story page', off: 0.0, pool: [
       { id: '624', name: 'the visual identity' }, { id: '625', name: 'the opening arc' },
@@ -1467,18 +1462,12 @@ function runArc() {
     ] }
   ];
 
-  /* One turn of a map's queue, on its own clock.
-       0.00-0.14  the agent flies in for the takeable row
-       0.14-0.44  the agent works it
-       0.44-0.60  it merges
-       0.60-0.76  the agent carries it off
-       0.76-1.00  the queue steps up a place */
   var CYCLE = 8.5;
   function mapCycle(m, clock) {
     var raw = clock / CYCLE + m.off;
     var idx = Math.floor(raw), u = raw - idx;
     var n = m.pool.length;
-    var out = { slots: [], adv: smooth(0.78, 1, u), prog: 0, agent: null, u: u };
+    var out = { slots: [], adv: smooth(0.78, 1, u), prog: 0, agent: null };
     var j;
     for (j = 0; j < ROWS_SHOWN + 1; j++) {
       var t = m.pool[(idx + j) % n];
@@ -1492,7 +1481,6 @@ function runArc() {
       }
       out.slots.push({ t: t, st: st, a: a });
     }
-    /* the bar counts what this map has merged, and it never runs back */
     out.prog = clamp(0.18 + 0.62 * ((idx % n) / n) + 0.2 * smooth(0.44, 0.78, u), 0, 1);
     if (u < 0.76) {
       out.agent = {
@@ -1504,84 +1492,352 @@ function runArc() {
     return out;
   }
 
-  /* ---- the world ----
-     World y is screen y with the camera at rest and unzoomed. */
-  var NODE_Y = 0.20, MAP_Y = 0.44, CLOUD_Y = -0.24;
+  /* ================================================================
+     Where the words are, and what they have left.
+     ================================================================ */
 
-  /* ---- the orbiting mess ----
-     The scatter drew a diagonal and the grid looked sorted already.
-     The cloud turns instead, at several radii, which reads as depth
-     and as work with nobody holding it. */
-  function cloudGeom(narrow) {
-    var base = Math.min(W * 0.40, H * 0.36);
-    return narrow
-      ? { rx: base * 0.80, ry: base * 1.15, cw: 150 }
-      : { rx: base * 1.30, ry: base * 0.62, cw: CARD_W };
+  var panels = ['w-hero-words', 'w-mess', 'w-order'].map(function (id) {
+    return document.getElementById(id);
+  }).filter(Boolean);
+  var messPanel = document.getElementById('w-mess');
+  var orderPanel = document.getElementById('w-order');
+
+  function panelProgress(el) {
+    if (!el) return 0;
+    var r = el.getBoundingClientRect();
+    var vh = window.innerHeight;
+    return clamp((vh - r.top) / (vh + r.height), 0, 1);
   }
-  function orbitPos(i, n, clock, narrow) {
-    var g = cloudGeom(narrow);
-    var f = (i * 0.618034) % 1;             /* the radius band */
-    var k = i / n;                           /* the place on the ring */
-    var dir = i % 2 ? 1 : -1;                /* two counter-turning shells */
-    var spin = 0.055 + 0.035 * f;
-    if (ARC_ID === 5) spin *= 1.35;          /* pulse turns faster */
-    var ang = (k + f * 0.37) * TAU + clock * spin * dir;
-    var rx = g.rx * (0.46 + 0.62 * f);
-    var ry = g.ry * (0.46 + 0.62 * f);
+
+  /* Each block of words on screen, clipped to it. They are kept apart
+     rather than merged: two claims are often on screen at once, one
+     leaving the top and the next arriving, and one rectangle around
+     both of them would swallow the whole screen and leave the art
+     nowhere to stand. */
+  function wordsBands() {
+    var out = [], i;
+    for (i = 0; i < panels.length; i++) {
+      var q = panels[i].getBoundingClientRect();
+      if (q.bottom < 2 || q.top > H - 2 || q.width <= 0) continue;
+      out.push({
+        t: Math.max(q.top, 0), b: Math.min(q.bottom, H),
+        l: Math.max(q.left, 0), r: Math.min(q.right, W)
+      });
+    }
+    out.sort(function (a, c) { return a.t - c.t; });
+    return out;
+  }
+
+  /* The rectangles the words have left: every gap between the blocks,
+     and either side of them when they all leave that side clear. */
+  function freeCandidates(bands) {
+    var out = [], i, cur = 0;
+    for (i = 0; i < bands.length; i++) {
+      if (bands[i].t - cur > 1) out.push({ x0: PAD, y0: cur, x1: W - PAD, y1: bands[i].t - PAD });
+      if (bands[i].b > cur) cur = bands[i].b;
+    }
+    if (H - cur > 1) out.push({ x0: PAD, y0: cur + PAD, x1: W - PAD, y1: H - PAD });
+    var lm = W, rm = 0;
+    for (i = 0; i < bands.length; i++) {
+      if (bands[i].l < lm) lm = bands[i].l;
+      if (bands[i].r > rm) rm = bands[i].r;
+    }
+    if (bands.length) {
+      if (lm > 190) out.push({ x0: PAD, y0: PAD, x1: lm - PAD, y1: H - PAD });
+      if (W - rm > 190) out.push({ x0: rm + PAD, y0: PAD, x1: W - PAD, y1: H - PAD });
+    }
+    if (!out.length) out.push({ x0: PAD, y0: PAD, x1: W - PAD, y1: H - PAD });
+    return out;
+  }
+
+  /* The largest rectangle the words have left. It is eased into, never
+     jumped to, so the art flows from one side of them to the other. */
+  var PAD = 16;
+  var box = { x0: 0, y0: 0, x1: 0, y1: 0, set: false };
+  function boxArea(c) {
+    var w = c.x1 - c.x0, h = c.y1 - c.y0;
+    if (w <= 0 || h <= 0) return 0;
+    /* a sliver is not a stage: it has to hold a card */
+    return w * h * (w < 150 || h < 150 ? 0.15 : 1);
+  }
+  function freeBox(dt, bands) {
+    var cands = freeCandidates(bands);
+    var best = cands[0], bestA = -1, i;
+    for (i = 0; i < cands.length; i++) {
+      var a = boxArea(cands[i]);
+      if (a > bestA) { bestA = a; best = cands[i]; }
+    }
+    var t = best;
+    if (!box.set) {
+      box.x0 = t.x0; box.y0 = t.y0; box.x1 = t.x1; box.y1 = t.y1; box.set = true;
+    } else {
+      var k = clamp(dt * 7, 0, 1);
+      box.x0 += (t.x0 - box.x0) * k;
+      box.y0 += (t.y0 - box.y0) * k;
+      box.x1 += (t.x1 - box.x1) * k;
+      box.y1 += (t.y1 - box.y1) * k;
+    }
+    return { x0: box.x0, y0: box.y0, x1: box.x1, y1: box.y1, bands: bands, cands: cands };
+  }
+
+  /* ================================================================
+     The five compositions. Each one lays the same three parts inside
+     the free box: the cloud of loose work, curia, and the maps. The
+     weights swell whichever part the reader is on, which is the only
+     camera this needs.
+     ================================================================ */
+
+  /* Fit map cards into a rectangle, side by side or stacked, however
+     many of them genuinely fit. Never one card because the code said
+     so: round 2 called that out on its own. */
+  var GAPM = 16;
+  /* drawMapCard draws nothing under 90 px wide, so no fit may ask for
+     less: a map that vanishes is worse than one that crowds. */
+  var MIN_S = 92 / MAP_W;
+  function placeMaps(L, cx, cy, availW, availH, column) {
+    var s, n, need, k;
+    if (column) {
+      s = clamp(availW / MAP_W, MIN_S, 1.0);
+      n = clamp(Math.floor((availH + GAPM) / (mapHeight(s) + GAPM)), 1, 3);
+      need = n * mapHeight(s) + GAPM * (n - 1);
+      if (need > availH) s = Math.max(MIN_S, s * (availH / need));
+      var ch = mapHeight(s), totalH = ch * n + GAPM * (n - 1);
+      for (k = 0; k < n; k++) {
+        L.maps.push({ x: cx, y: cy - totalH / 2 + ch / 2 + k * (ch + GAPM), w: MAP_W * s, m: MAPS[k] });
+      }
+      return;
+    }
+    var minW = 118;
+    n = clamp(Math.floor((availW + GAPM) / (minW + GAPM)), 1, 3);
+    s = clamp(Math.min((availW - GAPM * (n - 1)) / n / MAP_W, availH / mapHeight(1)), MIN_S, 1.05);
+    var cw = MAP_W * s, totalW = cw * n + GAPM * (n - 1);
+    for (k = 0; k < n; k++) {
+      L.maps.push({ x: cx - totalW / 2 + cw / 2 + k * (cw + GAPM), y: cy, w: cw, m: MAPS[k] });
+    }
+  }
+
+  function layout(b, rise, fall) {
+    var bw = Math.max(120, b.x1 - b.x0), bh = Math.max(120, b.y1 - b.y0);
+    var cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2;
+    var wCloud = 1.0 + 2.3 * rise * (1 - fall);
+    var wNode = 0.85;
+    var wMaps = 1.0 + 2.3 * fall;
+    var sum = wCloud + wNode + wMaps;
+    var L = { cloud: {}, node: {}, maps: [], cw: 0, bend: 0, bands: b.bands };
+    var id = ARC_ID;
+    var bands = b.bands;
+    /* the side the words lean to, for the compositions that answer it */
+    var lm = W, rm = 0, k0;
+    for (k0 = 0; k0 < bands.length; k0++) {
+      if (bands[k0].l < lm) lm = bands[k0].l;
+      if (bands[k0].r > rm) rm = bands[k0].r;
+    }
+    var far = bands.length && lm > W - rm ? -1 : 1;
+
+
+    if (id === 2) {
+      /* rise — the same axis as stack, run backwards: the pile sits at
+         the bottom, and work climbs out of it into the maps above. */
+      var h2 = bh / sum;
+      L.cloud = { cx: cx, cy: b.y1 - h2 * wCloud * 0.5, rx: bw * 0.4, ry: h2 * wCloud * 0.38 };
+      L.node = { x: cx, y: b.y1 - h2 * (wCloud + wNode * 0.5), r: 0 };
+      L.node.r = clamp(Math.min(h2 * wNode * 0.95, bw * 0.26), 44, 118);
+      placeMaps(L, cx, b.y0 + h2 * wMaps * 0.5, bw, h2 * wMaps, false);
+      L.bend = 0;
+      L.up = true;
+    } else if (id === 3) {
+      /* conveyor — one horizontal run: the pile at the near end, curia
+         in the middle, the maps stacked at the far end. */
+      var nodeW3 = clamp(bw * 0.2, 88, 180);
+      var mapsW3 = Math.min(Math.max(bw / sum * wMaps, 132), Math.max(110, bw - nodeW3 - 110));
+      var cloudW3 = Math.max(90, bw - nodeW3 - mapsW3);
+      L.cloud = { cx: b.x0 + cloudW3 * 0.5, cy: cy, rx: cloudW3 * 0.44, ry: bh * 0.38 };
+      L.node = { x: b.x0 + cloudW3 + nodeW3 * 0.5, y: cy, r: 0 };
+      L.node.r = clamp(Math.min(nodeW3 * 0.48, bh * 0.3), 44, 112);
+      placeMaps(L, b.x1 - mapsW3 * 0.5, cy, mapsW3, bh, true);
+      L.bend = 0.15;
+    } else if (id === 4) {
+      /* diagonal — the pile in one corner and the maps stepping down
+         to the far one, curia on the line between. */
+      L.cloud = {
+        cx: cx - far * bw * 0.2, cy: b.y0 + bh * 0.24,
+        rx: bw * (0.28 + 0.12 * rise), ry: bh * (0.2 + 0.12 * rise)
+      };
+      L.node = { x: cx + far * bw * 0.06, y: cy + bh * 0.02, r: 0 };
+      L.node.r = clamp(Math.min(bh * 0.16, bw * 0.24), 44, 112);
+      placeMaps(L, cx + far * bw * 0.13, b.y1 - bh * 0.18, bw * 0.8, bh * (0.3 + 0.08 * fall), false);
+      /* the steps: each map hangs a little lower than the one before */
+      var st4 = Math.min(bh * 0.07, 26), q4;
+      for (q4 = 0; q4 < L.maps.length; q4++) {
+        L.maps[q4].y += (far > 0 ? q4 : L.maps.length - 1 - q4) * st4 - st4 * (L.maps.length - 1) / 2;
+      }
+      L.bend = -0.6 * far;
+    } else if (id === 5) {
+      /* hub — curia holds the middle, large, and the work turns around
+         it on every side. The maps take the foot of the box. */
+      var mh5 = Math.min(bh * 0.34, 150);
+      var hubY = b.y0 + (bh - mh5) * 0.46;
+      L.node = { x: cx, y: hubY, r: 0 };
+      L.node.r = clamp(Math.min((bh - mh5) * 0.3, bw * 0.3), 56, 132);
+      L.cloud = { cx: cx, cy: hubY, rx: bw * 0.46, ry: (bh - mh5) * 0.44, ring: L.node.r };
+      placeMaps(L, cx, b.y1 - mh5 * 0.5, bw, mh5, false);
+      L.bend = 0;
+    } else {
+      /* stack — the pile above, curia, the maps below. Work falls. */
+      var h1 = bh / sum;
+      L.cloud = { cx: cx, cy: b.y0 + h1 * wCloud * 0.5, rx: bw * 0.38, ry: h1 * wCloud * 0.38 };
+      L.node = { x: cx, y: b.y0 + h1 * (wCloud + wNode * 0.5), r: 0 };
+      L.node.r = clamp(Math.min(h1 * wNode * 0.95, bw * 0.26), 44, 118);
+      placeMaps(L, cx, b.y1 - h1 * wMaps * 0.5, bw, h1 * wMaps, false);
+      L.bend = 0;
+    }
+
+    /* The zones the art may occupy. Every card is held inside one of
+       them, so no arithmetic slip can put a card on the words. Only
+       `through` has two, and only its routes cross between them. */
+    L.zones = [{ x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1 }];
+
+    /* The cloud has to hold cards, not points, so it gives back half a
+       card on every side before it settles its radii, and it keeps
+       clear of curia. */
+    var z0 = L.zones[0];
+    var zw = Math.max(60, z0.x1 - z0.x0);
+    L.cw = clamp(Math.min(L.cloud.rx * 1.25, zw - 24), 88, CARD_W);
+    var chw = L.cw / 2 + 5, chh = CARD_H * (L.cw / CARD_W) / 2 + 5;
+    var cTop = id === 2 ? Math.max(z0.y0, L.node.y + L.node.r + 14) : z0.y0;
+    var cBot = id >= 3 ? z0.y1 : Math.min(z0.y1, L.node.y - L.node.r - 14);
+    var roomH = Math.max(2 * chh + 12, cBot - cTop);
+    L.cloud.rx = Math.max(6, Math.min(L.cloud.rx, zw / 2 - chw) / 1.08);
+    L.cloud.ry = Math.max(6, Math.min(L.cloud.ry, roomH / 2 - chh) / 1.08);
+    L.cloud.cx = mid(z0.x0 + chw + L.cloud.rx, z0.x1 - chw - L.cloud.rx, L.cloud.cx);
+    L.cloud.cy = mid(cTop + chh + L.cloud.ry, cBot - chh - L.cloud.ry, L.cloud.cy);
+    return L;
+  }
+
+  /* Clamp into a span, or take its middle when the span has collapsed. */
+  function mid(lo, hi, v) { return lo > hi ? (lo + hi) / 2 : clamp(v, lo, hi); }
+
+  /* Hold a card inside the zone nearest it. This is the guarantee the
+     words rest on: an art position is a wish, and this is the answer. */
+  function fitIn(L, x, y, hw, hh) {
+    var zs = L.zones, best = null, bd = 1e9, i;
+    for (i = 0; i < zs.length; i++) {
+      var z = zs[i];
+      var d = Math.abs(y - (z.y0 + z.y1) / 2) + Math.abs(x - (z.x0 + z.x1) / 2) * 0.15;
+      if (d < bd) { bd = d; best = z; }
+    }
+    if (!best) return { x: x, y: y };
+    var lx = best.x0 + hw, hx = best.x1 - hw;
+    var ly = best.y0 + hh, hy = best.y1 - hh;
     return {
-      x: W / 2 + Math.cos(ang) * rx,
-      y: CLOUD_Y * H + Math.sin(ang) * ry + Math.sin(clock * 0.5 + i) * 4,
-      tilt: Math.cos(ang) * 0.16 * dir,
-      cw: g.cw
+      x: lx > hx ? (best.x0 + best.x1) / 2 : clamp(x, lx, hx),
+      y: ly > hy ? (best.y0 + best.y1) / 2 : clamp(y, ly, hy)
+    };
+  }
+  /* The eased box is where the art WANTS to be, and it lags the scroll
+     by design, because easing is what makes the motion flow. The words
+     move at scroll speed, so the promise that nothing lands on them is
+     kept against their live rectangle, every frame, after the fact. */
+  function avoidWords(L, x, y, hw, hh) {
+    var bands = L.bands, i, pass;
+    for (pass = 0; pass < 3; pass++) {
+      var moved = false;
+      for (i = 0; i < bands.length; i++) {
+        var wr = bands[i];
+        if (x + hw <= wr.l || x - hw >= wr.r || y + hh <= wr.t || y - hh >= wr.b) continue;
+        var up = (y + hh) - (wr.t - 4);
+        var down = (wr.b + 4) - (y - hh);
+        var left = (x + hw) - (wr.l - 4);
+        var right = (wr.r + 4) - (x - hw);
+        var best = Math.min(up, down, left, right);
+        if (best === up) y -= up;
+        else if (best === down) y += down;
+        else if (best === left) x -= left;
+        else x += right;
+        moved = true;
+      }
+      if (!moved) break;
+    }
+    return { x: x, y: y };
+  }
+  function place(L, x, y, hw, hh) {
+    var p = fitIn(L, x, y, hw, hh);
+    return avoidWords(L, p.x, p.y, hw, hh);
+  }
+  function fitTicket(L, x, y, w) {
+    return place(L, x, y, w / 2 + 3, CARD_H * (w / CARD_W) / 2 + 3);
+  }
+
+  /* ---- the cloud: work nobody is holding, turning ---- */
+  function orbitPos(i, n, clock, L) {
+    var c = L.cloud;
+    var f = (i * 0.618034) % 1;
+    var dir = i % 2 ? 1 : -1;
+    var ang = (i / n + f * 0.37) * TAU + clock * (0.055 + 0.035 * f) * dir;
+    var rr = 0.44 + 0.64 * f;
+    /* hub turns the work around curia, so nothing sits on top of it */
+    if (c.ring) {
+      var floorF = clamp((c.ring + 44) / Math.max(1, Math.min(c.rx, c.ry)), 0.35, 0.96);
+      rr = lerp(floorF, 1.08, f);
+    }
+    return {
+      x: c.cx + Math.cos(ang) * c.rx * rr,
+      y: c.cy + Math.sin(ang) * c.ry * rr + Math.sin(clock * 0.5 + i) * 4,
+      tilt: Math.cos(ang) * 0.17 * dir
     };
   }
 
-  /* Where a ticket waits at the rim before curia pulls it in. Staging 4
-     is the one that shows this queue. */
-  function rimPos(slotOfQueue, count, nodeR) {
-    var a0 = -2.5, a1 = -0.65;
-    var ang = count < 2 ? (a0 + a1) / 2 : lerp(a0, a1, slotOfQueue / (count - 1));
-    return {
-      x: W / 2 + Math.cos(ang) * (nodeR + 44),
-      y: NODE_Y * H + Math.sin(ang) * (nodeR + 44)
-    };
+  /* ---- curia: what it is, and what it is for ---- */
+  function portPoint(k, n, L) {
+    var nd = L.node;
+    if (n < 2) return { x: nd.x, y: nd.y + nd.r };
+    var a0, a1;
+    if (ARC_ID === 4) { a0 = -0.72; a1 = 0.72; }
+    else { a0 = 0.62; a1 = 2.52; }
+    var ang = lerp(a0, a1, k / (n - 1));
+    return { x: nd.x + Math.cos(ang) * nd.r, y: nd.y + Math.sin(ang) * nd.r };
   }
 
-  /* ---- curia, and the five ways of showing what it is for ---- */
-
-  function nodeRadius() { return clamp(Math.min(W, H) * 0.105, 58, 128); }
-
-  /* Where a ticket leaves curia for its map. Staging 2 gives each map
-     its own port on the rim, so the sorting is visible before the
-     ticket has gone anywhere. */
-  function exitPoint(slotIndex, nSlots, r) {
-    if (ARC_ID !== 2 || nSlots < 2) return { x: W / 2, y: NODE_Y * H + (ARC_ID === 2 ? r : 0) };
-    var ang = lerp(0.55, 2.59, slotIndex / (nSlots - 1));
-    return { x: W / 2 + Math.cos(ang) * r, y: NODE_Y * H + Math.sin(ang) * r };
+  function drawRoutes(L, heat, behind) {
+    var i;
+    ctx.save();
+    for (i = 0; i < L.maps.length; i++) {
+      var p = portPoint(i, L.maps.length, L);
+      var m = L.maps[i];
+      var mh = mapHeight(m.w / MAP_W);
+      var tx = m.x, ty = ARC_ID === 4 ? m.y : m.y - mh / 2;
+      if (ARC_ID === 4) tx = m.x - m.w / 2;
+      ctx.setLineDash([7, 6]);
+      ctx.strokeStyle = rgba(C.merged, (behind ? 0.10 : 0.17) + 0.40 * (heat[i] || 0));
+      ctx.lineWidth = 1.3 + 1.5 * (heat[i] || 0);
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y);
+      ctx.quadraticCurveTo((p.x + tx) / 2 + L.bend * 60, (p.y + ty) / 2, tx, ty);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    ctx.restore();
   }
 
-  function drawNode(clock, act, narrow, slots, beat) {
-    var r = nodeRadius();
-    var nx = W / 2, ny = NODE_Y * H;
+  function drawNode(L, clock, act, n) {
+    var nd = L.node, r = nd.r;
     var breath = 0.5 + 0.5 * Math.sin(clock * 1.1);
     ctx.save();
-    if (ARC_ID === 5) r *= 1 + 0.13 * beat;
-    /* the halo */
     ctx.beginPath();
-    ctx.arc(nx, ny, r * (1.55 + breath * 0.1), 0, TAU);
+    ctx.arc(nd.x, nd.y, r * (1.55 + breath * 0.1), 0, TAU);
     ctx.fillStyle = rgba(C.merged, 0.05 + 0.07 * act);
     ctx.fill();
-    /* the body */
     ctx.beginPath();
-    ctx.arc(nx, ny, r, 0, TAU);
-    ctx.fillStyle = rgba(C.merged, 0.16 + 0.12 * act);
+    ctx.arc(nd.x, nd.y, r, 0, TAU);
+    ctx.fillStyle = 'rgba(9,13,16,0.92)';
+    ctx.fill();
+    ctx.fillStyle = rgba(C.merged, 0.15 + 0.12 * act);
     ctx.fill();
     ctx.strokeStyle = rgba(C.merged, 0.95);
     ctx.lineWidth = 2.6;
     ctx.stroke();
-    /* the turning collar */
     ctx.save();
-    ctx.translate(nx, ny);
+    ctx.translate(nd.x, nd.y);
     ctx.rotate(clock * 0.3);
     ctx.setLineDash([10, 8]);
     ctx.beginPath();
@@ -1591,126 +1847,54 @@ function runArc() {
     ctx.stroke();
     ctx.restore();
     ctx.setLineDash([]);
-    if (ARC_ID === 2) {
-      /* the ports: one per map, on the lower rim */
-      var pi;
-      for (pi = 0; pi < slots.length; pi++) {
-        var e = exitPoint(pi, slots.length, r);
-        ctx.beginPath();
-        ctx.arc(e.x, e.y, 8, 0, TAU);
-        ctx.fillStyle = rgba(C.merged, 0.85);
-        ctx.fill();
-        ctx.strokeStyle = 'rgba(8,12,10,0.9)';
-        ctx.lineWidth = 2;
-        ctx.stroke();
-      }
-      ctx.lineWidth = 1;
-    }
-    if (ARC_ID === 5 && beat > 0.02) {
-      /* the beat: what pulls a batch in and fires it out */
+    ctx.lineWidth = 1;
+    /* one port per map, so the sorting shows before anything moves */
+    var i;
+    for (i = 0; i < n; i++) {
+      var p = portPoint(i, n, L);
       ctx.beginPath();
-      ctx.arc(nx, ny, r * (1 + (1 - beat) * 1.7), 0, TAU);
-      ctx.strokeStyle = rgba(C.merged, 0.55 * beat);
-      ctx.lineWidth = 3 * beat;
+      ctx.arc(p.x, p.y, 7, 0, TAU);
+      ctx.fillStyle = rgba(C.merged, 0.9);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(8,12,10,0.9)';
+      ctx.lineWidth = 2;
       ctx.stroke();
-      ctx.lineWidth = 1;
     }
-    /* the name, and one line saying what it does */
+    ctx.lineWidth = 1;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.font = '800 ' + (r * 0.4).toFixed(0) + 'px ' + MONOF;
     ctx.fillStyle = rgba(C.merged, 0.98);
-    ctx.fillText('curia', nx, ny - r * 0.1);
-    ctx.font = '600 ' + Math.max(9, r * 0.15).toFixed(0) + 'px ' + MONOF;
-    ctx.fillStyle = rgba(C.merged, 0.72);
-    ctx.fillText('reads every repo', nx, ny + r * 0.34);
-    ctx.restore();
-    return r;
-  }
-
-  /* The routes curia sends work down. Staging 1 keeps them lit the
-     whole time, so the reader sees three destinations before a single
-     ticket has moved. */
-  function drawRoutes(slots, r, heat) {
-    if (ARC_ID !== 1) return;
-    var i;
-    ctx.save();
-    for (i = 0; i < slots.length; i++) {
-      var sl = slots[i];
-      ctx.setLineDash([7, 6]);
-      ctx.strokeStyle = rgba(C.merged, 0.16 + 0.38 * (heat[i] || 0));
-      ctx.lineWidth = 1.3 + 1.4 * (heat[i] || 0);
-      ctx.beginPath();
-      ctx.moveTo(W / 2, NODE_Y * H + r);
-      ctx.lineTo(sl.x, sl.y - mapHeight(sl.w / MAP_W) / 2);
-      ctx.stroke();
-      ctx.setLineDash([]);
-    }
+    ctx.fillText('curia', nd.x, nd.y - r * 0.12);
+    ctx.font = '600 ' + Math.max(8.5, r * 0.145).toFixed(1) + 'px ' + MONOF;
+    ctx.fillStyle = rgba(C.merged, 0.74);
+    ctx.fillText('reads every repo', nd.x, nd.y + r * 0.3);
     ctx.restore();
   }
 
-  function orderSlots(narrow) {
-    var cw = narrow ? Math.min(W - 32, 300) : Math.min((W - 72) / 3, MAP_W);
-    var gap = narrow ? 0 : 20;
-    var n = narrow ? 1 : 3;
-    var res = [], k;
-    for (k = 0; k < n; k++) {
-      res.push({
-        x: n === 1 ? W / 2 : W / 2 + (k - 1) * (cw + gap),
-        y: MAP_Y * H,
-        w: cw,
-        m: MAPS[k]
-      });
-    }
-    return res;
-  }
-
-  /* One traveler's place on the way through the line. */
-  function travelPoint(from, target, t, r, slotIndex, nSlots) {
-    if (t < 0.5) {
-      var t1 = ease(t / 0.5);
-      return {
-        x: lerp(from.x, W / 2, t1), y: lerp(from.y, NODE_Y * H, t1),
-        gray: 1, tilt: from.tilt * (1 - t1), st: 0, pop: 1, a: 1, badgeIn: 0
-      };
-    }
-    var t2 = ease((t - 0.5) / 0.5);
-    var e = exitPoint(slotIndex, nSlots, r);
-    var ex = lerp(W / 2, e.x, Math.min(1, t2 * 3));
-    var ey = lerp(NODE_Y * H, e.y, Math.min(1, t2 * 3));
-    return {
-      x: lerp(ex, target.x, t2), y: lerp(ey, target.y, t2),
-      gray: 0, tilt: 0, st: (slotIndex % 3 === 1) ? 1 : 3,
-      pop: 1 + 0.22 * Math.sin(Math.min(1, t2 * 4) * Math.PI),
-      a: 1 - smooth(0.7, 1, t2),
-      badgeIn: smooth(0.0, 0.22, t2)
-    };
-  }
-
-  function crossFlash(t, strength) {
-    var fl = clamp(1 - Math.abs(t - 0.5) / 0.07, 0, 1) * (strength == null ? 1 : strength);
+  function crossFlash(L, t) {
+    var fl = clamp(1 - Math.abs(t - 0.5) / 0.07, 0, 1);
     if (fl <= 0.02) return;
     ctx.save();
     ctx.globalAlpha = clamp(fl * 0.7, 0, 1);
     ctx.beginPath();
-    ctx.arc(W / 2, NODE_Y * H, 42 + (1 - fl) * 130, 0, TAU);
+    ctx.arc(L.node.x, L.node.y, L.node.r * 0.8 + (1 - fl) * 120, 0, TAU);
     ctx.strokeStyle = rgb(C.merged);
     ctx.lineWidth = 2.6 * fl;
     ctx.stroke();
     ctx.restore();
   }
 
-  /* ---- the camera reads the words ----
-     A panel's progress is 0 while it is still below the fold and 1
-     once it has left the top. The mess claim pulls the camera up into
-     the cloud, the order claim brings it down onto the maps. */
-  var messPanel = document.getElementById('w-mess');
-  var orderPanel = document.getElementById('w-order');
-  function panelProgress(el) {
-    if (!el) return 0;
-    var r = el.getBoundingClientRect();
-    var vh = window.innerHeight;
-    return clamp((vh - r.top) / (vh + r.height), 0, 1);
+  /* The path work takes. The bend is what makes each composition move
+     differently: a drop, an arc, a crossing, a sweep. */
+  function bez(x0, y0, x1, y1, bend, t) {
+    var mx = (x0 + x1) / 2 - (y1 - y0) * bend * 0.35;
+    var my = (y0 + y1) / 2 + (x1 - x0) * bend * 0.35;
+    var it = 1 - t;
+    return {
+      x: it * it * x0 + 2 * it * t * mx + t * t * x1,
+      y: it * it * y0 + 2 * it * t * my + t * t * y1
+    };
   }
 
   var raf = 0, last = 0, clock = 0;
@@ -1718,7 +1902,7 @@ function runArc() {
   function frame(ts) {
     raf = requestAnimationFrame(frame);
     if (document.hidden) return;
-    var dt = Math.min(0.033, (ts - last) / 1000 || 0.016);
+    var dt = Math.min(0.05, (ts - last) / 1000 || 0.016);
     last = ts;
     clock += dt;
     size();
@@ -1727,96 +1911,86 @@ function runArc() {
     ctx.clearRect(0, 0, W, H);
     if (arcBox.bottom < -40 || arcBox.top > H + 40) return;
 
-    var narrow = W < 620;
-    /* The mess claim pulls the camera up into the cloud and is fully
-       up as that claim centers. The order claim brings it down onto
-       the maps and is fully down as that claim centers. */
+    var wide = W >= 620;
     var rise = smooth(0.04, 0.50, panelProgress(messPanel));
     var fall = smooth(0.26, 0.55, panelProgress(orderPanel));
-    var camY = (-0.05 + 0.624 * rise - 0.714 * fall) * H;
-    var zoom = lerp(lerp(0.74, narrow ? 1.02 : 1.12, rise), 1.0, fall);
-    var warm = 1 - 0.86 * rise * (1 - fall);
-    stageEl.style.setProperty('--warm', warm.toFixed(3));
+    stageEl.style.setProperty('--warm', (1 - 0.86 * rise * (1 - fall)).toFixed(3));
     stageEl.style.setProperty('--ord', fall.toFixed(3));
 
-    var slots = orderSlots(narrow);
-    var nSlots = slots.length;
-    var r = nodeRadius();
+    var b = freeBox(dt, wordsBands());
+    var L = layout(b, rise, fall);
+    var nMaps = L.maps.length;
 
-    ctx.save();
-    ctx.translate(W / 2, NODE_Y * H);
-    ctx.scale(zoom, zoom);
-    ctx.translate(-W / 2, -NODE_Y * H + camY);
-
-    /* the maps, alive on their own clocks */
+    /* the maps, alive on their own clocks, each held inside its zone */
     var cycles = [], maxMapH = 0, si;
-    for (si = 0; si < nSlots; si++) {
-      cycles[si] = mapCycle(slots[si].m, clock);
-      maxMapH = Math.max(maxMapH, drawMapCard(slots[si].x, slots[si].y, slots[si].w, slots[si].m, cycles[si]));
+    for (si = 0; si < nMaps; si++) {
+      var mc = L.maps[si];
+      cycles[si] = mapCycle(mc.m, clock);
+      var mh = mapHeight(mc.w / MAP_W);
+      var at = place(L, mc.x, mc.y, mc.w / 2 + 3, mh / 2 + 3);
+      mc.x = at.x; mc.y = at.y;
+      maxMapH = Math.max(maxMapH, drawMapCard(mc.x, mc.y, mc.w, mc.m, cycles[si]));
     }
 
-    drawLegend(W / 2, MAP_Y * H - maxMapH / 2 - 22, smooth(0.15, 0.5, fall));
+    if (wide && maxMapH > 0) {
+      var lg = place(L, L.maps[0].x, L.maps[0].y - maxMapH / 2 - 18, 120, 10);
+      drawLegend(lg.x, lg.y, smooth(0.15, 0.5, fall), true);
+    }
 
-    /* the stream. Every slot of the cloud takes its turn through
-       curia, so work is always coming in and always going out. The
-       sort beat pushes the whole stream forward, which is what the
-       scroll buys. */
+    /* the stream: work always entering curia and always leaving it */
     var n = MESS.length;
     var FLIGHT = 0.42;
     var push = 0.62 * fall;
     var heat = [0, 0, 0];
-    var i, ph, slotIndex, tp, home;
+    var i, home, t, ph;
     for (i = 0; i < n; i++) {
-      home = orbitPos(i, n, clock, narrow);
-      slotIndex = i % nSlots;
-      /* staging 5 sends them in batches, which is its beat */
-      var lane = ARC_ID === 5 ? Math.floor(i / 4) / Math.ceil(n / 4) : i / n;
-      ph = (clock * 0.075 + lane + push) % 1;
+      home = orbitPos(i, n, clock, L);
+      var slot = i % nMaps;
+      ph = (clock * 0.075 + i / n + push) % 1;
       if (ph >= FLIGHT) {
-        /* still out there, or waiting at the rim */
-        var wait = (ph - FLIGHT) / (1 - FLIGHT);
-        if (ARC_ID === 4 && wait > 0.72) {
-          var q = rimPos(slotIndex, nSlots, r);
-          var qq = ease((wait - 0.72) / 0.28);
-          drawTicket(lerp(home.x, q.x, qq), lerp(home.y, q.y, qq), home.cw, MESS[i],
-            { gray: 1, tilt: home.tilt * (1 - qq), st: 0, a: 0.94 });
-        } else {
-          drawTicket(home.x, home.y, home.cw, MESS[i],
-            { gray: 1, tilt: home.tilt, st: 0, a: 0.94 });
-        }
+        var at0 = fitTicket(L, home.x, home.y, L.cw);
+        drawTicket(at0.x, at0.y, L.cw, MESS[i], { gray: 1, tilt: home.tilt, st: 0, a: 0.94 });
         continue;
       }
-      var t = ph / FLIGHT;
-      tp = travelPoint(home, slots[slotIndex], t, r, slotIndex, nSlots);
-      drawTicket(tp.x, tp.y, home.cw, MESS[i], {
-        gray: tp.gray, tilt: tp.tilt, st: tp.st, a: tp.a * 0.96, pop: tp.pop,
-        badge: ARC_ID === 3 && t > 0.5 ? slots[slotIndex].m.label : null,
-        badgeIn: tp.badgeIn
-      });
-      crossFlash(t, ARC_ID === 3 ? 1.3 : 1);
-      if (t > 0.5) heat[slotIndex] = Math.max(heat[slotIndex], 1 - (t - 0.5) / 0.5);
+      t = ph / FLIGHT;
+      var m = L.maps[slot];
+      if (t < 0.5) {
+        var t1 = ease(t / 0.5);
+        var q = bez(home.x, home.y, L.node.x, L.node.y, L.bend * 0.5, t1);
+        var at1 = fitTicket(L, q.x, q.y, L.cw);
+        drawTicket(at1.x, at1.y, L.cw, MESS[i],
+          { gray: 1, tilt: home.tilt * (1 - t1), st: 0, a: 0.94 });
+      } else {
+        var t2 = ease((t - 0.5) / 0.5);
+        /* `through` hands work across the words on its routes alone.
+           The card leaves curia and picks up again at the far zone. */
+        var p0 = L.handoff != null
+          ? { x: L.node.x, y: L.handoff }
+          : portPoint(slot, nMaps, L);
+        var q2 = bez(p0.x, p0.y, m.x, m.y, L.bend, t2);
+        var at2 = fitTicket(L, q2.x, q2.y, L.cw);
+        drawTicket(at2.x, at2.y, L.cw, MESS[i], {
+          gray: 0, tilt: 0, st: slot % 3 === 1 ? 1 : 3,
+          a: (1 - smooth(0.68, 1, t2)) * (L.handoff != null ? smooth(0, 0.16, t2) : 1) * 0.96,
+          pop: 1 + 0.22 * Math.sin(Math.min(1, t2 * 4) * Math.PI),
+          badge: m.m.label, badgeIn: smooth(0, 0.22, t2)
+        });
+        heat[slot] = Math.max(heat[slot], 1 - t2);
+      }
+      crossFlash(L, t);
     }
 
-    drawRoutes(slots, r, heat);
+    drawRoutes(L, heat, !!L.node.behind);
+    drawNode(L, clock, clamp(0.45 + 0.55 * fall, 0, 1), nMaps);
 
-    /* curia, over the work it acts on */
-    var beat = ARC_ID === 5 ? Math.pow(1 - ((clock * 0.075 * Math.ceil(n / 4)) % 1), 3) : 0;
-    var act = clamp(0.45 + 0.55 * fall, 0, 1);
-    var nodeA = 1 - 0.8 * rise * (1 - fall);
-    ctx.save();
-    ctx.globalAlpha = clamp(nodeA, 0, 1);
-    drawNode(clock, act, narrow, slots, beat);
-    ctx.restore();
-
-    /* the agents, on top of the maps they are working */
-    for (si = 0; si < nSlots; si++) {
-      var cy = cycles[si], sl = slots[si];
+    /* the agents, on the maps they are working */
+    for (si = 0; si < nMaps; si++) {
+      var cy = cycles[si], sl = L.maps[si];
       if (!cy.agent) continue;
       var s2 = sl.w / MAP_W;
       var rowY = sl.y - mapHeight(s2) / 2 + (64 + (1 - cy.adv) * ROW_STEP + ROW_H / 2) * s2;
       var restX = sl.x + sl.w / 2 - 16 * s2;
-      var fromX = sl.x + (si % 2 ? 1 : -1) * (W * 0.5);
-      var ax = lerp(fromX, restX, cy.agent.in);
+      var ax = lerp(sl.x + (si % 2 ? 1 : -1) * (W * 0.5), restX, cy.agent.in);
       var ay = lerp(rowY - H * 0.16, rowY, cy.agent.in);
       if (cy.agent.off > 0) {
         ax = lerp(restX, restX + W * 0.22, cy.agent.off);
@@ -1824,8 +1998,6 @@ function runArc() {
       }
       drawAgent(ax, ay, 9 * Math.max(s2, 0.75), cy.agent.in * (1 - cy.agent.off), cy.agent.working);
     }
-
-    ctx.restore();
   }
 
   size();

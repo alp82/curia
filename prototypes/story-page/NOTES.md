@@ -194,6 +194,46 @@ axis the five vary on:
 All five keep the orbiting cloud, the live maps, the solid disc with its turning collar, and the
 order beat. The disc carries one line under its name that says what it does.
 
+**The operator's answer.** Two faults, and no pick:
+
+> strange, all 5 look the same to me. also the scrolling content is blocking the animations. they
+> should never get in each others way. instead they need to dance together in a flowing motion
+
+Both were fair. The five differed only in ornament: a port dot, a badge chip, a flash. The
+composition was the same in all five, so on a phone they read as one page. And the words scrolled
+over a canvas that knew nothing about them, so the art sat under the text.
+
+**Round 3.** Two changes, and a lesson worth keeping.
+
+**The lesson.** Round 2 varied the fix for a fault instead of varying the design. curia's unclear
+purpose was a fault to repair everywhere, not an axis to spread across five. So all five now carry
+the whole repair: the disc says "reads every repo" under its name, its rim holds one port per map,
+and lit routes run from it to each map before a ticket moves. The variations went to the design.
+
+**The words and the art share the screen.** They never overlap. Every frame the canvas measures
+each block of words on screen, takes the largest space they have left, and eases into it. On a wide
+screen each claim docks to its own side and the art takes the other, which is the alternation #624
+already asked for. On a phone they trade the top and the bottom.
+
+The blocks are measured apart rather than merged. One rectangle around all of them swallows the
+whole screen whenever two claims are on it at once, one leaving the top and the next arriving,
+which is most of the scroll.
+
+The eased box is where the art wants to be, and it lags the scroll on purpose, because easing is
+what makes the motion flow. The words move at scroll speed, so the promise is kept against their
+live rectangle every frame, after the fact. A card that would land on a word is pushed off it by
+the shortest distance.
+
+**The five differ by axis.** Not by ornament:
+
+| id | composition | where the work goes |
+|----|-------------|---------------------|
+| 1 | stack | the pile above, curia, the maps below. Work falls |
+| 2 | rise | the pile below, curia, the maps above. Work climbs |
+| 3 | conveyor | the pile at one end, curia in the middle, the maps stacked at the far end |
+| 4 | diagonal | the pile in one corner, the maps stepping down to the far one |
+| 5 | hub | curia holds the middle, large, and the work turns around it on every side |
+
 ## The verdict
 
 **The identity is duotone, locked at [#624](https://github.com/alp82/curia/issues/624) over
