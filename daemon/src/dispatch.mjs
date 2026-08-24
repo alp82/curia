@@ -1844,6 +1844,13 @@ export class Dispatcher {
     const overseer = affected.includes('overseer')
       ? 'The overseer is not frozen. Its turns fail until sign-in finishes, and its next turn reads the replacement.'
       : null
+    // EVERY LANE HELD IS NOT THE SAME OUTAGE as one lane held, and the per-lane
+    // lines above read as a partial one. Nothing dispatches at all, and a cap
+    // landing on either provider has nowhere left to chain to (#675).
+    const providers = [...new Set(Object.values(CONSUMER_CREDENTIALS).map((c) => c.provider))]
+    const stopped = providers.every((p) => this.cooling.heldFor(p))
+      ? 'No lane can take work: every model lane is held, so nothing dispatches at all until someone signs in.'
+      : null
     // NEVER THE CODE. A one-time auth code in a chat log is a credential in a
     // chat log; it reaches the terminal link and the dashboard, both of which
     // sit behind the operator's own Tailscale login.
@@ -1860,6 +1867,7 @@ export class Dispatcher {
         who,
         overseer,
         'Nothing new dispatches on this lane until someone signs in again.',
+        stopped,
         login,
       ].filter(Boolean).join('\n'))
     } catch (e) {

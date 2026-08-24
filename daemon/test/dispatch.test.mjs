@@ -6787,6 +6787,26 @@ describe('a re-authentication session is invisible to every sweep (#642)', () =>
     assert.match(says[0], /overseer is not frozen/i)
     assert.match(says[0], /reauth|sign-in running/)
     assert.ok(!says[0].includes('curia-574'))
+    assert.ok(!/no lane can take work/i.test(says[0]), 'the codex lane is still free, and the alarm does not overstate it')
+  })
+
+  test('the alarm says when the hold leaves no lane that can take work (#675)', async () => {
+    // A held anthropic lane on a box whose codex lane is already held dispatches
+    // nothing at all, and a codex cap has nowhere left to chain to. The per-lane
+    // lines read as a partial outage on their own, so the alarm says the whole.
+    const says = []
+    const d = makeDispatcher()
+    d.announce = async (text) => { says.push(text); return true }
+    d.startReauth = async () => 'sign-in running'
+    d.cooling.holdProvider('openai', 'refresh_token_reused')
+
+    await d.holdCredentialLane({
+      provider: 'anthropic', by: 'provider', status: 401, code: 'authentication_error',
+      why: 'Anthropic rejected the static credential with HTTP 401 authentication_error',
+    })
+
+    assert.match(says[0], /no lane can take work/i)
+    assert.match(says[0], /until someone signs in/i)
   })
 
   test('the dispatcher schedules the quota-free anthropic credential check', async () => {

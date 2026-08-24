@@ -1140,13 +1140,20 @@ describe('AccountUsage', () => {
     assert.deepEqual(u.windows().map((w) => w.pct), [73, 64])
   })
 
-  test('a bare 401 bypasses the quota throttle for five one-minute attempts', async () => {
+  test('a bare 401 latches this reader off the wire: no retry, no bound, no hold (#675)', async () => {
+    // ONE DETECTOR OWNS THE SEQUENCE. The counter, the clock and the bound live
+    // on the quota-free metadata probe. This reader spends a real completion per
+    // attempt, so an unrecognized refusal ends its probing the way every refusal
+    // did before the lane hold existed.
     home()
     let now = NOW
     let calls = 0
     const terminal = []
+    const said = []
+    const stampFile = path.join(dir, '.claude', 'cache', 'oauth-usage.attempt')
     const u = new AccountUsage({
       home: dir,
+      log: (line) => said.push(line),
       now: () => now,
       credentials: store(),
       fetchImpl: async () => {
@@ -1156,15 +1163,56 @@ describe('AccountUsage', () => {
       onTerminal: async (outcome) => terminal.push(outcome),
     })
 
+    u.windows()
+    await u.pending
+    assert.equal(calls, 1)
+    assert.equal(fs.existsSync(stampFile), true, 'the refused attempt took the shared stamp')
+
+    // Five one-minute ticks with the shared lock cleared out of the way, so the
+    // only thing that can stop a second attempt is the latch itself.
     for (let i = 0; i < TRANSIENT_RETRY_BOUND; i += 1) {
+      now += CREDENTIAL_RETRY_MS
+      fs.rmSync(stampFile, { force: true })
       u.windows()
       await u.pending
-      now += CREDENTIAL_RETRY_MS
     }
 
-    assert.equal(calls, TRANSIENT_RETRY_BOUND)
-    assert.equal(terminal.length, 1)
-    assert.equal(terminal[0].by, 'bound')
+    assert.equal(calls, 1, 'one attempt, then the latch, whatever the clock says')
+    assert.deepEqual(terminal, [], 'an unrecognized refusal never holds the lane from here')
+    assert.match(said.join('\n'), /unrecognized HTTP 401/)
+  })
+
+  test('a refusal buys no exemption from the shared attempt stamp (#675)', async () => {
+    // Rule 4 is a lock shared with the operator's own statusline.sh. A fresh
+    // stamp stands down a probe whose credential carries no latch at all.
+    home()
+    let calls = 0
+    const owned = store('expired')
+    const u = new AccountUsage({
+      home: dir,
+      log: () => {},
+      now: at(),
+      credentials: owned,
+      fetchImpl: async () => {
+        calls += 1
+        return { ok: false, status: 401, headers: headers({}), json: async () => ({}) }
+      },
+    })
+    u.windows()
+    await u.pending
+    assert.equal(calls, 1)
+
+    // A replacement credential clears the latch. The stamp the refusal took is
+    // not cleared with it, so this attempt waits for the window like any other.
+    owned.set('tok-2')
+    u.windows()
+    await u.pending
+    assert.equal(calls, 1, 'the shared lock still stands over a refusal retry')
+
+    fs.rmSync(path.join(dir, '.claude', 'cache', 'oauth-usage.attempt'), { force: true })
+    u.windows()
+    await u.pending
+    assert.equal(calls, 2)
   })
 
   test('account_bars off keeps reading the cached copy and spends nothing', () => {

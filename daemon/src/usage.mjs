@@ -73,9 +73,14 @@
 //
 // FOUR RULES BOUND THAT PROBE, and all four are load bearing:
 //
-//   1. The daemon NEVER writes a credential and never refreshes one. A typed
-//      authentication refusal is terminal. An unrecognized refusal gets five
-//      one-minute attempts before the same operator action starts.
+//   1. The daemon NEVER writes a credential and never refreshes one. So a 401
+//      or 403 is terminal HERE: this probe stops until the credential itself
+//      changes. A TYPED refusal (401 `authentication_error`, 403
+//      `permission_error`) reports the lane hold on its way out, because the
+//      provider has stated the credential is dead. An unrecognized one is
+//      logged and nothing more. The bounded retry an unrecognized refusal
+//      earns belongs to the `AnthropicCredentialHealth` detector, which spends
+//      no account quota and is free to ask again a minute later (#675).
 //   2. The headers ARE the reading, whatever the status code. A window that is
 //      spent still states itself on the rejection, which is the moment the bars
 //      matter most.
@@ -87,7 +92,9 @@
 //   4. The attempt stamp beside the cache stays a cooperative lock. The
 //      operator's own statusline.sh writes the same two files in the same
 //      shape, so a reading either one takes serves both, and neither probes
-//      while the other's attempt is fresh.
+//      while the other's attempt is fresh. EVERY attempt this probe makes
+//      takes the stamp, a refusal included: it spends a real completion
+//      whatever the answer, so no answer buys an exemption (#675).
 //
 // The read path costs nothing and always runs; the probe is what
 // `usage.account_bars` turns off.
@@ -476,6 +483,10 @@ export function anthropicCredential(record) {
   return { secret: token, headers: { authorization: `Bearer ${token}`, 'anthropic-beta': OAUTH_BETA } }
 }
 
+// One anthropic credential serves both consumers, so a refusal measured by
+// either reader is evidence about both. Named once here rather than twice.
+export const ANTHROPIC_CONSUMERS = Object.freeze(['claude', 'overseer'])
+
 // Anthropic makes the error type, not the message, its stable contract. A typed
 // refusal is terminal on the first answer. A bare refusal stays unknown until a
 // bounded sequence makes the operator action unavoidable.
@@ -506,6 +517,11 @@ export async function classifyAnthropicCredentialRefusal(res) {
 
 // One refusal sequence, keyed by the credential itself. The terminal latch
 // prevents repeated probes and alarms. A different credential starts clean.
+//
+// ONE DETECTOR OWNS THIS (#675). `AnthropicCredentialHealth` is its only
+// holder: the counter, the one-minute clock, and the latch all live on the
+// quota-free request, so nothing that spends account quota has to schedule a
+// retry. `AccountUsage` reports what it saw and keeps no sequence of its own.
 class CredentialRefusals {
   constructor({ operation, now, log, onTerminal }) {
     this.operation = operation
@@ -566,7 +582,7 @@ class CredentialRefusals {
     this.failures = 0
     this.retryAt = 0
     const outcome = {
-      provider: 'anthropic', consumers: ['claude', 'overseer'], operation: this.operation,
+      provider: 'anthropic', consumers: ANTHROPIC_CONSUMERS, operation: this.operation,
       by, ...verdict,
       ...(by === 'bound' ? { attempts: TRANSIENT_RETRY_BOUND } : {}),
     }
@@ -830,9 +846,14 @@ export class AccountUsage {
     this.cacheFile = path.join(home, '.claude', 'cache', 'oauth-usage.json')
     this.stampFile = path.join(home, '.claude', 'cache', 'oauth-usage.attempt')
     this.fetching = false
-    this.refusals = new CredentialRefusals({
-      operation: 'anthropic account usage probe', now: () => this.now(), log, onTerminal,
-    })
+    // Raised on a TYPED refusal, and on nothing else (#675). This reader is the
+    // corroborating one, and on a box with the bars on it is usually the faster
+    // of the two: a hold delayed by ten minutes is ten minutes of dispatches
+    // onto a dead lane.
+    this.onTerminal = onTerminal
+    // The fingerprint of the credential a refusal was measured against. That is
+    // the whole of this reader's refusal state: no counter, no clock, no bound.
+    this.refusedFor = null
     this.pending = Promise.resolve() // the in-flight probe, for the tests to await
   }
 
@@ -878,13 +899,14 @@ export class AccountUsage {
     const cred = anthropicCredential(this.credentials?.read())
     if (!cred) return
     const credId = fingerprint(cred.secret)
-    if (this.refusals.blocked(credId)) return
-    const retrying = this.refusals.retrying(credId)
-    if (retrying && !this.refusals.retryDue(credId)) return
-    // The shared throttle belongs to quota-bearing account probes. A refusal
-    // retry spends no completion, so it follows the one-minute credential clock
-    // instead. The stamp still keeps every other fetcher out of this attempt.
-    if (!retrying && now - mtimeMs(this.stampFile) < USAGE_ATTEMPT_MS) return
+    // A refused credential stays refused until the credential itself changes.
+    // The daemon does not refresh it, and the retry belongs to the quota-free
+    // detector: see rule 1.
+    if (this.refusedFor === credId) return
+    // Rule 4, the shared throttle: whoever touched the stamp last owns this
+    // window, daemon or statusline.sh. Every attempt below spends a real
+    // completion, so every attempt asks the lock first.
+    if (now - mtimeMs(this.stampFile) < USAGE_ATTEMPT_MS) return
     try {
       fs.mkdirSync(path.dirname(this.stampFile), { recursive: true })
       fs.writeFileSync(this.stampFile, '')
@@ -928,12 +950,30 @@ export class AccountUsage {
       fs.writeFileSync(tmp, JSON.stringify(payload))
       fs.renameSync(tmp, this.cacheFile)
     }
-    if (refusal) return this.refusals.refused(credId, refusal)
-    if (!payload) {
-      this.refusals.accepted(credId)
-      throw new Error(`HTTP ${res.status} carried no usage headers`)
+    if (refusal) return this.#refused(credId, refusal)
+    if (!payload) throw new Error(`HTTP ${res.status} carried no usage headers`)
+  }
+
+  // The probe stops here whatever the refusal was, and rule 2 has already
+  // banked the headers by the time this runs.
+  //
+  // A TYPED refusal is the provider stating that this credential is dead, so it
+  // reports into the same provider hold the metadata detector raises.
+  // `holdProvider` answers false for the second caller, so whichever reader got
+  // there first raises the one alarm.
+  async #refused(credId, refusal) {
+    this.refusedFor = credId
+    if (!refusal.terminal) {
+      this.log(`account usage: ${refusal.why}. The daemon does not refresh it; the bars stay at their last reading until the credential changes`)
+      return refusal
     }
-    this.refusals.accepted(credId)
+    this.log(`account usage: ${refusal.why}. The bars stay at their last reading until a fresh credential lands`)
+    const outcome = {
+      provider: 'anthropic', consumers: ANTHROPIC_CONSUMERS,
+      operation: 'anthropic account usage probe', by: 'provider', ...refusal,
+    }
+    await this.onTerminal(outcome)
+    return outcome
   }
 }
 
