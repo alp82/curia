@@ -44,6 +44,14 @@ export const RESULT_KIND = 'report-result'
 // what the operator must do, and this says which ledger counts the rejections.
 export const NOTIFY_KIND = 'notify'
 
+const FOLLOW_UP_RECORD = [
+  'In every resolution comment and the `report_result` summary, name each direct follow-up ticket this',
+  'session created or unblocked. This includes an existing follow-up ticket you unblock and a new',
+  'follow-up ticket you create. Keep each ticket number and title.',
+  'If there is no direct follow-up ticket, state that fact in both places. Keep this information out',
+  'of question cards.',
+]
+
 export const ENDING = [
   {
     key: 'commit',
@@ -108,10 +116,12 @@ export const ENDING = [
         // silent either — #316 stranded exactly there.
         'If no open child remains but Not yet specified still holds patches, leave the map open and say',
         'so in your report_result summary: the map cannot close until that fog is graduated or ruled.',
+        ...FOLLOW_UP_RECORD,
       ]
       : [
         `Then resolve the ticket on the tracker with \`gh\`: post the resolution as a comment on ${repo}#{n},`,
         'then close it.',
+        ...FOLLOW_UP_RECORD,
       ]),
   },
   {
@@ -208,6 +218,7 @@ const CHARTING_LANDING = [
       'Only after the merge: resolve each research ticket you burned down — its resolution comment, its',
       'close, then its line in the map\'s Decisions so far. Never close one before the merge: a ticket',
       'closed on unmerged findings makes the map state an answer no branch carries (#48).',
+      ...FOLLOW_UP_RECORD,
     ],
   },
 ]
