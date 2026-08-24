@@ -872,12 +872,38 @@ The claim comes before the evidence on a phone in all five (#624 rule 1). On a w
 them put the evidence in the left column and dock the claim right, which is the alternation the
 identity asks of an `sR` scene.
 
+**Round 5.** The operator picked the light desk: "light is great!". Two corrections came with it.
+The title was breaking into seven lines, and the copy of the previewed website read as weird. The
+other four desks left the file with round 4.
+
+**The title fault.** The claim was capped at `14ch`. A `ch` is relative to the element's own font
+size, and the cap sat on the `header`, which inherits 1rem, not on the 3rem line it holds. So the
+cap was about 112px and the title broke seven times. The claim takes the width of its grid column
+now, and no cap.
+
+**The copy.** The ask for cooler copy is also the answer to the question that rode rounds 1 to 4:
+the page inside the phone stays an invented site rather than a real curia prototype. Deviation
+from [#601](https://github.com/alp82/curia/issues/601) recorded here.
+
+The composition is settled, so `?id=1..5` now picks what the agent built. One subject fills all
+five art directions, which is what a prototype round looks like:
+
+1. **conf** — OFFLINE FIRST, a one-day conference. "Software that works on a train."
+2. **type** — GRAVITY, a type foundry. "A typeface with weight."
+3. **synth** — PULSE 01, a pocket synth. "A synth that fits in a pocket."
+4. **club** — NOCTURNE, a record club. "Records pressed at night."
+5. **park** — DARK SKY, a night reserve. "Dark enough to see the galaxy."
+
+Subject 1 is in the markup, so the page still reads whole with no script. The other four are in
+the script, beside the table that names them.
+
 **Six build checks** ran against the file, since no agent on this ticket has eyes on it: every
-design appears once with its own palette and its own art, every composition places all five
-elements of the scene, states a grid of its own and is written for a wide screen as well as a
-phone, no two compositions are the same composition under two names, every class the markup uses
-is styled and every hook the script reaches for is in the markup, and the build rules hold (no
-image, no remote asset, no webfont). Each check was validated by breaking the
+design appears once with its own palette and its own art, the composition places all five elements
+of the scene and is written for a wide screen as well as a phone, every subject is whole and keeps
+a headline the screen can hold, no two subjects share a headline, the markup carries a subject of
+its own so the page reads with no script, every class the markup uses is styled and every hook the
+script reaches for is in the markup, and the build rules hold (no image, no remote asset, no
+webfont). Each check was validated by breaking the
 file on purpose first, one break at a time, and every break produced exactly one failure.
 
 ## The verdict of the Discord scene ([#626](https://github.com/alp82/curia/issues/626))

@@ -967,215 +967,71 @@
   }
 
   /* ================================================================
-     Round 4 — the operator picked desk, with two corrections: "give
-     it a bit of the perspective of stage (only a little bit) and
-     dont overlap the two too much, only a bit". So every variation
-     here is a desk. The workstation lies back a little, the phone
-     stands in front of it and crosses only a corner of it, and a
-     little of the stage light falls on both.
+     Round 5 — the operator picked the light desk: "light is great!".
+     The other four desks left the file with round 4, the way the
+     identity switcher left it at #624. Two corrections came with the
+     pick: the title was breaking into seven lines, and the copy of
+     the previewed website read as weird.
 
-     The other four compositions of round 3 left the file with that
-     round, the way the identity switcher left it at #624.
+     So the composition is settled and ?id=1..5 now picks what the
+     agent built. Five subjects ride it, and each one fills all five
+     art directions. The words are in the script, beside the table
+     that names them.
 
-     What still varies, and it is what the five are:
-       1 low     a low camera, both devices standing on a lit surface
-       2 light   one spotlight from the corner, the phone on the right
-       3 flat    the workstation nearly lying down, seen from above
-       4 turn    the workstation faces the other way, the claim docks
-                 right, where this scene's side is
-       5 plane   both devices share one tilt, as two things on a desk
-     Each is written for a phone first and for a wide screen after.
-     ================================================================ */
-
-  /* The desk itself, shared by all five. */
-  #preview .pv { perspective: 1500px; }
-  #preview .pv-desk {
-    transform-origin: 62% 100%;
-    box-shadow: 0 2.4rem 3.4rem -1.5rem rgba(0, 0, 0, 0.82);
-  }
-  #preview .pv-dev { transform-origin: 50% 100%; }
-  /* The light. Every variation gets one, and every variation puts it
-     somewhere else. The colour half of it is the key colour of
-     whichever design is showing, which the script sets as --pvglow. */
-  #preview .pv::before {
-    content: ''; position: absolute; z-index: 0; grid-area: dev;
-    inset: -14% -18% -22% -18%; pointer-events: none;
-    background:
-      radial-gradient(46% 42% at var(--lx, 50%) var(--ly, 8%), rgba(255, 255, 255, 0.075), transparent 70%),
-      radial-gradient(52% 44% at var(--gx, 50%) var(--gy, 74%), var(--pvglow, transparent), transparent 74%);
-    transition: background 0.5s var(--ease);
-  }
-  /* The words never sit in the light (#624 rule 5). */
-  #preview .claim, #preview .pv-rail, #preview .fact { position: relative; z-index: 4; }
-  #preview .pv-dev { z-index: 3; }
-  #preview .pv-desk { z-index: 2; }
-
-  /* ---- 1 low. The camera is low, both devices stand on a surface
-     that catches their light, and the phone crosses the near corner
-     of the workstation. ---- */
-  #preview[data-v="1"] .pv {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: "claim" "dev" "rail" "fact";
-    --lx: 38%; --ly: 4%; --gx: 46%; --gy: 88%;
-  }
-  #preview[data-v="1"] .claim { grid-area: claim; text-align: left; }
-  #preview[data-v="1"] .pv-rail { grid-area: rail; justify-self: start; }
-  #preview[data-v="1"] .fact { grid-area: fact; text-align: left; }
-  #preview[data-v="1"] .pv-desk {
-    grid-area: dev; width: 74%; justify-self: end; align-self: start;
-    transform: rotateX(21deg) rotateY(-9deg) rotate(0.8deg);
-  }
-  #preview[data-v="1"] .pv-dev {
-    grid-area: dev; --pvw: min(32vw, 8.5rem); justify-self: start; align-self: end;
-  }
-  /* the surface both devices stand on */
-  #preview[data-v="1"] .pv::after {
-    content: ''; position: absolute; z-index: 1; grid-area: dev;
-    left: -20%; right: -20%; bottom: -2%; height: 26%;
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.055), transparent 62%);
-    border-top: 1px solid rgba(255, 255, 255, 0.09);
-    transform: perspective(900px) rotateX(62deg); transform-origin: 50% 0;
-    pointer-events: none;
-  }
-  @media (min-width: 60rem) {
-    #preview[data-v="1"] .pv {
-      grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.3fr);
-      grid-template-areas: "claim dev" "rail dev" "fact dev";
-      align-content: center; column-gap: 3vw;
-    }
-    #preview[data-v="1"] .claim { align-self: end; max-width: 15ch; }
-    #preview[data-v="1"] .pv-desk { width: 80%; }
-    #preview[data-v="1"] .pv-dev { --pvw: min(13vw, 11rem); }
-  }
-
-  /* ---- 2 light. One spotlight out of the top-left corner, the
+     The desk: one spotlight out of the top-left corner, the
      workstation barely tipped, and the phone standing at the right
-     where the light falls off. ---- */
-  #preview[data-v="2"] .pv {
+     where the light falls off. The colour half of the light is the
+     key colour of whichever design is showing, so the desk changes
+     colour as the round turns.
+     ================================================================ */
+  .pv {
+    perspective: 1500px;
     grid-template-columns: minmax(0, 1fr);
     grid-template-areas: "claim" "dev" "rail" "fact";
     --lx: 14%; --ly: -6%; --gx: 72%; --gy: 70%;
   }
-  #preview[data-v="2"] .claim { grid-area: claim; text-align: left; }
-  #preview[data-v="2"] .pv-rail { grid-area: rail; justify-self: end; }
-  #preview[data-v="2"] .fact { grid-area: fact; text-align: right; }
-  #preview[data-v="2"] .pv-desk {
-    grid-area: dev; width: 76%; justify-self: start; align-self: start;
+  .pv > .claim { grid-area: claim; text-align: left; }
+  .pv > .pv-rail { grid-area: rail; justify-self: end; }
+  .pv > .fact { grid-area: fact; text-align: right; }
+  .pv-desk {
+    grid-area: dev; width: 76%; justify-self: start; align-self: start; z-index: 2;
     transform: rotateX(13deg) rotateY(-15deg) rotate(-0.6deg);
+    transform-origin: 62% 100%;
+    box-shadow: 0 2.4rem 3.4rem -1.5rem rgba(0, 0, 0, 0.82);
   }
-  #preview[data-v="2"] .pv-dev {
+  .pv-dev {
     grid-area: dev; --pvw: min(32vw, 8.5rem); justify-self: end; align-self: end;
+    transform-origin: 50% 100%; z-index: 3;
   }
+  /* The light. Its white half comes out of the corner, and its
+     coloured half is whatever the screen is showing. */
+  .pv::before {
+    content: ''; position: absolute; z-index: 0; grid-area: dev;
+    inset: -14% -18% -22% -18%; pointer-events: none;
+    background:
+      radial-gradient(46% 42% at var(--lx) var(--ly), rgba(255, 255, 255, 0.075), transparent 70%),
+      radial-gradient(52% 44% at var(--gx) var(--gy), var(--pvglow, transparent), transparent 74%);
+    transition: background 0.5s var(--ease);
+  }
+  /* The words never sit in the light (#624 rule 5). */
+  #preview .claim, #preview .pv-rail, #preview .fact { position: relative; z-index: 4; }
+
   @media (min-width: 60rem) {
-    #preview[data-v="2"] .pv {
-      grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.35fr);
+    .pv {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
       grid-template-areas: "claim dev" "rail dev" "fact dev";
       align-content: center; column-gap: 3vw; --lx: 30%;
     }
-    #preview[data-v="2"] .claim { align-self: end; max-width: 14ch; }
-    #preview[data-v="2"] .pv-rail { justify-self: start; }
-    #preview[data-v="2"] .fact { text-align: left; }
-    #preview[data-v="2"] .pv-desk { width: 82%; }
-    #preview[data-v="2"] .pv-dev { --pvw: min(13vw, 11rem); }
+    /* The claim takes the width its column gives it. Round 4 capped
+       it in ch, which is relative to the header's own 1rem and not to
+       the 3rem line it holds, so the title broke over seven lines. */
+    .pv > .claim { align-self: end; }
+    .pv > .pv-rail { justify-self: start; }
+    .pv > .fact { text-align: left; }
+    .pv-desk { width: 82%; }
+    .pv-dev { --pvw: min(13vw, 11rem); }
   }
 
-  /* ---- 3 flat. The workstation is nearly lying down and seen from
-     above, which is the most of stage's angle any of these takes.
-     The phone stands upright out of it. ---- */
-  #preview[data-v="3"] .pv {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: "claim" "dev" "rail" "fact";
-    --lx: 52%; --ly: -2%; --gx: 40%; --gy: 62%;
-  }
-  #preview[data-v="3"] .claim { grid-area: claim; text-align: left; }
-  #preview[data-v="3"] .pv-rail { grid-area: rail; justify-self: start; }
-  #preview[data-v="3"] .fact { grid-area: fact; text-align: left; }
-  #preview[data-v="3"] .pv-desk {
-    grid-area: dev; width: 88%; justify-self: center; align-self: center;
-    transform: rotateX(32deg) rotateY(-4deg) scale(0.98);
-    transform-origin: 50% 100%;
-  }
-  #preview[data-v="3"] .pv-dev {
-    grid-area: dev; --pvw: min(30vw, 8rem); justify-self: end; align-self: end;
-    margin-right: 6%;
-  }
-  @media (min-width: 60rem) {
-    #preview[data-v="3"] .pv {
-      grid-template-columns: minmax(0, 1.3fr) minmax(0, 0.8fr);
-      grid-template-areas: "dev claim" "dev rail" "dev fact";
-      align-content: center; column-gap: 3vw;
-    }
-    #preview[data-v="3"] .claim { align-self: end; max-width: 15ch; }
-    #preview[data-v="3"] .pv-desk { width: 92%; }
-    #preview[data-v="3"] .pv-dev { --pvw: min(12vw, 10rem); }
-  }
-
-  /* ---- 4 turn. The workstation faces the other way, and the claim
-     docks on the right, which is the side this scene owns in the
-     identity (#624 rule 2). ---- */
-  #preview[data-v="4"] .pv {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: "claim" "dev" "rail" "fact";
-    --lx: 76%; --ly: 2%; --gx: 30%; --gy: 76%;
-  }
-  #preview[data-v="4"] .claim { grid-area: claim; text-align: right; }
-  #preview[data-v="4"] .pv-rail { grid-area: rail; justify-self: end; }
-  #preview[data-v="4"] .fact { grid-area: fact; text-align: right; }
-  #preview[data-v="4"] .pv-desk {
-    grid-area: dev; width: 76%; justify-self: end; align-self: start;
-    transform: rotateX(18deg) rotateY(13deg) rotate(-1deg);
-    transform-origin: 38% 100%;
-  }
-  #preview[data-v="4"] .pv-dev {
-    grid-area: dev; --pvw: min(32vw, 8.5rem); justify-self: start; align-self: end;
-    transform: rotate(1.5deg);
-  }
-  @media (min-width: 60rem) {
-    #preview[data-v="4"] .pv {
-      grid-template-columns: minmax(0, 1.3fr) minmax(0, 0.85fr);
-      grid-template-areas: "dev claim" "dev rail" "dev fact";
-      align-content: center; column-gap: 3vw;
-    }
-    #preview[data-v="4"] .claim { align-self: end; max-width: 15ch; }
-    #preview[data-v="4"] .pv-desk { width: 82%; justify-self: start; }
-    #preview[data-v="4"] .pv-dev { --pvw: min(13vw, 11rem); }
-  }
-
-  /* ---- 5 plane. Both devices share one tilt, so they read as two
-     things lying on the same desk rather than a screen and a photo
-     of a phone. ---- */
-  #preview[data-v="5"] .pv {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-areas: "claim" "dev" "meta";
-    --lx: 46%; --ly: 0%; --gx: 58%; --gy: 80%;
-    row-gap: 1.2rem;
-  }
-  #preview[data-v="5"] .claim { grid-area: claim; text-align: left; }
-  #preview[data-v="5"] .pv-rail { grid-area: meta; justify-self: start; align-self: center; }
-  #preview[data-v="5"] .fact { grid-area: meta; justify-self: end; align-self: center; text-align: right; }
-  #preview[data-v="5"] .pv-desk {
-    grid-area: dev; width: 78%; justify-self: end; align-self: start;
-    transform: rotateX(19deg) rotateY(-11deg);
-  }
-  #preview[data-v="5"] .pv-dev {
-    grid-area: dev; --pvw: min(31vw, 8.5rem); justify-self: start; align-self: end;
-    transform: rotateX(19deg) rotateY(-11deg) rotate(1deg);
-    transform-origin: 62% 100%;
-  }
-  @media (min-width: 60rem) {
-    #preview[data-v="5"] .pv {
-      grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.3fr);
-      grid-template-areas: "claim dev" "rail dev" "fact dev";
-      align-content: center; column-gap: 3vw;
-    }
-    #preview[data-v="5"] .claim { align-self: end; max-width: 15ch; }
-    #preview[data-v="5"] .pv-rail { grid-area: rail; align-self: center; }
-    #preview[data-v="5"] .fact { grid-area: fact; justify-self: start; text-align: left; }
-    #preview[data-v="5"] .pv-desk { width: 84%; }
-    #preview[data-v="5"] .pv-dev { --pvw: min(13vw, 11rem); }
-  }
-
-  .pv-desk { width: 84%; }
   .pv-win {
     border-radius: 9px; overflow: hidden; background: #f5f6f8;
     box-shadow: 0 1.4rem 3rem -0.8rem rgba(0, 0, 0, 0.7), inset 0 0 0 1px rgba(255, 255, 255, 0.14);
@@ -1682,7 +1538,9 @@
   <!-- Scene 5 · the preview (#627). The device is drawn, not shot
        (#601). Inside it is what the agent built — a prototype served
        from the box over the tailnet, with the round switcher curia
-       ships in every prototype, cycling on its own. -->
+       ships in every prototype, cycling on its own. The words of
+       subject 1 are here, so the page reads whole with no script;
+       the other four subjects are in the script. -->
   <section class="scene sR" id="preview" data-stage="agent" data-n="04" data-name="the preview" data-v="1" style="--g1:#0c2226;--g2:#081316">
     <div class="pv" id="pv">
       <header class="claim rv">
@@ -1704,38 +1562,38 @@
               <div class="pv-site" id="pv-pool">
                 <article class="pv-v v-sun on">
                   <span class="pv-art"></span>
-                  <div class="pv-top"><span class="pv-mark">SUNROOM</span><span class="pv-nav">menu · hours · visit</span></div>
-                  <h3 class="pv-h">Bread, before the sun.</h3>
-                  <p class="pv-p">A bakery on Rua da Prata. Doors at six, gone by ten.</p>
-                  <span class="pv-cta">Today’s bake</span>
+                  <div class="pv-top"><span class="pv-mark">OFFLINE FIRST</span><span class="pv-nav">talks · tickets</span></div>
+                  <h3 class="pv-h">Software that works on a train.</h3>
+                  <p class="pv-p">One day, one track, Lisbon. March 2027.</p>
+                  <span class="pv-cta">Get a ticket</span>
                 </article>
                 <article class="pv-v v-acid">
                   <span class="pv-art"></span>
-                  <div class="pv-top"><span class="pv-mark">SUNROOM</span><span class="pv-nav">menu · hours · visit</span></div>
-                  <h3 class="pv-h">Bread, before the sun.</h3>
-                  <p class="pv-p">A bakery on Rua da Prata. Doors at six, gone by ten.</p>
-                  <span class="pv-cta">Today’s bake</span>
+                  <div class="pv-top"><span class="pv-mark">OFFLINE FIRST</span><span class="pv-nav">talks · tickets</span></div>
+                  <h3 class="pv-h">Software that works on a train.</h3>
+                  <p class="pv-p">One day, one track, Lisbon. March 2027.</p>
+                  <span class="pv-cta">Get a ticket</span>
                 </article>
                 <article class="pv-v v-bloom">
                   <span class="pv-art"></span>
-                  <div class="pv-top"><span class="pv-mark">SUNROOM</span><span class="pv-nav">menu · hours · visit</span></div>
-                  <h3 class="pv-h">Bread, before the sun.</h3>
-                  <p class="pv-p">A bakery on Rua da Prata. Doors at six, gone by ten.</p>
-                  <span class="pv-cta">Today’s bake</span>
+                  <div class="pv-top"><span class="pv-mark">OFFLINE FIRST</span><span class="pv-nav">talks · tickets</span></div>
+                  <h3 class="pv-h">Software that works on a train.</h3>
+                  <p class="pv-p">One day, one track, Lisbon. March 2027.</p>
+                  <span class="pv-cta">Get a ticket</span>
                 </article>
                 <article class="pv-v v-riso">
                   <span class="pv-art"></span>
-                  <div class="pv-top"><span class="pv-mark">SUNROOM</span><span class="pv-nav">menu · hours · visit</span></div>
-                  <h3 class="pv-h">Bread, before the sun.</h3>
-                  <p class="pv-p">A bakery on Rua da Prata. Doors at six, gone by ten.</p>
-                  <span class="pv-cta">Today’s bake</span>
+                  <div class="pv-top"><span class="pv-mark">OFFLINE FIRST</span><span class="pv-nav">talks · tickets</span></div>
+                  <h3 class="pv-h">Software that works on a train.</h3>
+                  <p class="pv-p">One day, one track, Lisbon. March 2027.</p>
+                  <span class="pv-cta">Get a ticket</span>
                 </article>
                 <article class="pv-v v-dusk">
                   <span class="pv-art"></span>
-                  <div class="pv-top"><span class="pv-mark">SUNROOM</span><span class="pv-nav">menu · hours · visit</span></div>
-                  <h3 class="pv-h">Bread, before the sun.</h3>
-                  <p class="pv-p">A bakery on Rua da Prata. Doors at six, gone by ten.</p>
-                  <span class="pv-cta">Today’s bake</span>
+                  <div class="pv-top"><span class="pv-mark">OFFLINE FIRST</span><span class="pv-nav">talks · tickets</span></div>
+                  <h3 class="pv-h">Software that works on a train.</h3>
+                  <p class="pv-p">One day, one track, Lisbon. March 2027.</p>
+                  <span class="pv-cta">Get a ticket</span>
                 </article>
               </div>
 
@@ -2112,11 +1970,53 @@ if (prefersStill || !window.IntersectionObserver) {
   var pv = document.getElementById('pv');
   if (!scene || !pv) return;
 
-  var NAME = { '1': 'low', '2': 'light', '3': 'flat', '4': 'turn', '5': 'plane' };
+  var NAME = { '1': 'conf', '2': 'type', '3': 'synth', '4': 'club', '5': 'park' };
+
+  /* Round 5: the composition is settled, so ?id picks WHAT the agent
+     built. One subject fills all five art directions, which is what a
+     prototype round looks like. Subject 1 is the markup, so the page
+     reads whole with no script at all. */
+  var SUBJECTS = {
+    '2': {
+      mark: 'GRAVITY', nav: 'fonts · trials · licences',
+      h: 'A typeface with weight.',
+      p: 'Nine weights, two widths, and one axis for the space between.',
+      cta: 'Try it free'
+    },
+    '3': {
+      mark: 'PULSE 01', nav: 'specs · sounds · buy',
+      h: 'A synth that fits in a pocket.',
+      p: 'Eight voices, one knob per thing, batteries that last a weekend.',
+      cta: 'Hear it'
+    },
+    '4': {
+      mark: 'NOCTURNE', nav: 'records · club · shop',
+      h: 'Records pressed at night.',
+      p: 'One a month, picked by people. Cancel whenever you like.',
+      cta: 'Join the club'
+    },
+    '5': {
+      mark: 'DARK SKY', nav: 'map · stays · rules',
+      h: 'Dark enough to see the galaxy.',
+      p: 'Forty square miles with no streetlight, two hours from the city.',
+      cta: 'Plan a night'
+    }
+  };
   var pick = (/[?&]id=([1-5])/.exec(location.search) || [])[1] || '1';
   scene.setAttribute('data-v', pick);
 
   var pool = [].slice.call(document.querySelectorAll('#pv-pool > .pv-v'));
+  (function (sub) {
+    if (!sub) return;
+    pool.forEach(function (v) {
+      var put = function (sel, text) {
+        var el = v.querySelector(sel);
+        if (el) el.textContent = text;
+      };
+      put('.pv-mark', sub.mark); put('.pv-nav', sub.nav);
+      put('.pv-h', sub.h); put('.pv-p', sub.p); put('.pv-cta', sub.cta);
+    });
+  })(SUBJECTS[pick]);
   var chips = [].slice.call(scene.querySelectorAll('[data-pvi]'));
   var prog = scene.querySelector('.pv-sw .prog s');
   var wide = [];
