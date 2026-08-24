@@ -72,7 +72,16 @@ export function namedModel(labels, override) {
 //      ways round.
 export class Cooling {
   constructor() {
-    // model -> { at: Date }, provider -> { at: Date, predicted?, window?, pct? }
+    // model -> { at: Date }
+    // provider -> { at: Date | null, predicted?, held?, why?, window?, pct? }
+    //
+    // THREE KINDS live in the provider map, and `at: null` is what separates the
+    // third from the other two. A landed cap and a pre-emptive hold both end on
+    // a clock. A CREDENTIAL HOLD (#646) ends when a human finishes a login, so
+    // it states no reset instant rather than inventing one — `earliestReset`
+    // feeds the dashboard banner and Discord `/status`, and a fabricated "back
+    // at" time on a credentials surface is the class of lie #641 exists to
+    // remove.
     this.models = new Map()
     this.providers = new Map()
   }
@@ -82,7 +91,37 @@ export class Cooling {
   }
 
   coolProvider(provider, resetAt) {
+    // A landed cap does NOT overwrite a credential hold. The cap ends on the
+    // provider's clock and the hold does not, so letting the timed entry win
+    // would silently un-hold a dead lane the moment the cap reset — and the
+    // credential would still be dead.
+    if (this.heldFor(provider)) return false
     this.providers.set(provider, { at: resetAt })
+    return true
+  }
+
+  // The credential hold (#646): this provider cannot be reached at all, and no
+  // clock changes that. Answers whether it was NEWLY armed, so the caller
+  // alarms once per transition rather than once per tick.
+  holdProvider(provider, why) {
+    if (this.heldFor(provider)) return false
+    this.providers.set(provider, { at: null, held: true, why })
+    return true
+  }
+
+  // Lift it. Adoption of a fresh credential is the only caller. Answers whether
+  // anything was standing, for the same reason.
+  releaseHold(provider) {
+    if (!this.heldFor(provider)) return false
+    this.providers.delete(provider)
+    return true
+  }
+
+  // The hold standing on this provider, or null. Read by `stallSweep`, which
+  // must not spend a recovery rung on an agent whose lane is dead.
+  heldFor(provider) {
+    const e = this.providers.get(provider)
+    return e?.held ? { provider, why: e.why ?? null } : null
   }
 
   // The pre-emptive hold (#384). `window` and `pct` are the reading that wrote
@@ -130,6 +169,9 @@ export class Cooling {
   #active(map, key) {
     const e = map.get(key)
     if (!e) return false
+    // A hold states no reset instant, so no clock can expire it. `releaseHold`
+    // is the only exit.
+    if (e.at === null) return true
     if (e.at.getTime() <= Date.now()) {
       map.delete(key) // expired — stop suppressing
       return false
@@ -150,6 +192,10 @@ export class Cooling {
     const now = Date.now()
     let best = null
     for (const { at } of [...this.models.values(), ...this.providers.values()]) {
+      // A hold has no reset to be earliest. Skipping it is the point: this
+      // number becomes "back at HH:MM" on two surfaces, and a held lane comes
+      // back when a person acts, not at a time.
+      if (at === null) continue
       if (at.getTime() > now && (!best || at.getTime() < best.getTime())) best = at
     }
     return best

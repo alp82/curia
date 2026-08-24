@@ -1142,9 +1142,16 @@ function reauthCard(r) {
    #648. */
 function credentialCard(c) {
   if (!["expired", "unreadable", "absent"].includes(c.state) && !c.last_error) return [];
-  const why = c.last_error ?? c.why ?? "";
+  /* A HELD credential (#646) is the one case where the state word would lie.
+     The access token can be perfectly valid for another two days and still be
+     unrecoverable, so the card names the lane rather than the token, and says
+     what happened to the agents on it. */
+  const why = c.held?.why ?? c.last_error ?? c.why ?? "";
+  const what = c.held
+    ? "cannot be refreshed — the lane is held and its agents are frozen in place"
+    : `is ${esc(c.state)}`;
   return [`<div class="att-item token">
-    <span class="who">${esc(c.consumer)}</span>the model credential is ${esc(c.state)}
+    <span class="who">${esc(c.consumer)}</span>the model credential ${what}
     <div class="dim">${esc(why)} — type <code>reauth</code> to sign in from a browser</div></div>`];
 }
 

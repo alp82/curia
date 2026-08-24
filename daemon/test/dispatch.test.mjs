@@ -5942,6 +5942,52 @@ describe('the stall watchdog (#574)', () => {
     assert.equal(paneAcceptedNudge(idlePane, idlePane, ready), false)
   })
 
+  // #646: FREEZE MEANS THE LADDER DOES NOT RUN. Without this guard freeze is not
+  // freeze — rung 1 nudges a credential that cannot work and rung 2 respawns,
+  // which kills the session half an hour after a failure whose whole design was
+  // to keep the agent.
+  test('an agent whose lane is held is skipped, and the skip is said once', async () => {
+    let pane = idlePane
+    const sent = []
+    const { d, w } = await stalled({
+      capturePane: async () => pane,
+      sendText: async (session, body) => { sent.push({ session, body }); pane = activePane },
+    })
+    w.provider = 'openai'
+    d.cooling.holdProvider('openai', 'OpenAI answered HTTP 401 `refresh_token_reused`')
+
+    await d.stallSweep()
+    await d.stallSweep()
+
+    assert.deepEqual(sent, [], 'not one keystroke into a credential that cannot work')
+    assert.ok(!events.some((e) => e.type === 'stall_detected'))
+    const skips = events.filter((e) => e.type === 'stall_sweep_skipped')
+    assert.equal(skips.length, 1, 'said once per agent, not once per 60-second tick')
+    assert.match(skips[0].why, /refresh_token_reused/)
+
+    // And the ladder is armed again the moment the credential is back: #644
+    // measured that the nudge is what finishes the recovery.
+    d.cooling.releaseHold('openai')
+    await d.stallSweep()
+    assert.equal(sent.length, 1, 'rung 1 finishes the recovery')
+  })
+
+  test('an agent on a lane that is merely capped is NOT frozen', async () => {
+    let pane = idlePane
+    const sent = []
+    const { d, w } = await stalled({
+      capturePane: async () => pane,
+      sendText: async (session, body) => { sent.push({ session, body }); pane = activePane },
+    })
+    w.provider = 'openai'
+    d.cooling.coolProvider('openai', new Date(Date.now() + 3600_000))
+
+    await d.stallSweep()
+
+    assert.equal(sent.length, 1, 'a cap is a wait, not a dead credential')
+    assert.ok(!events.some((e) => e.type === 'stall_sweep_skipped'))
+  })
+
   test('an open question disables stall recovery but not lifetime classification', async () => {
     let captures = 0
     const { d } = await stalled({ capturePane: async () => { captures += 1; return idlePane } })
@@ -6622,6 +6668,118 @@ describe('a re-authentication session is invisible to every sweep (#642)', () =>
     assert.match(fs.readFileSync(path.join(cfgOfSession('curia-999'), 'auth.json'), 'utf8'), /rt\.spent/,
       'a config dir whose agent is not live is not a target')
     assert.ok(events.some((e) => e.type === 'credential_fanned_out' && e.agents.includes('curia-574')))
+  })
+
+  // #646: what the tick does when the refresh comes back terminal. The broker's
+  // own classification is `credentials.test.mjs`'s; what is under test here is
+  // the FLEET consequence, so the broker is a double that just states a verdict.
+  const brokerSaying = (...outcomes) => ({
+    calls: 0,
+    async refreshIfDue() {
+      this.calls += 1
+      return outcomes[Math.min(this.calls - 1, outcomes.length - 1)]
+    },
+    fanOut: () => ({ healed: [], errors: [] }),
+    state: () => ({ consumer: 'codex', state: 'expiring' }),
+  })
+
+  const TERMINAL = {
+    refreshed: false, terminal: true, by: 'provider', status: 401,
+    code: 'refresh_token_reused',
+    why: 'OpenAI answered HTTP 401 `refresh_token_reused`, which names a refresh token that cannot be exchanged again',
+  }
+
+  test('a terminal refresh holds the lane, freezes what is on it, and starts a login', async () => {
+    const says = []
+    const logins = []
+    const d = makeDispatcher({}, { credentials: brokerSaying(TERMINAL) })
+    d.announce = async (t) => { says.push(t); return true }
+    d.startReauth = async (opts) => { logins.push(opts); return '🔑 signing `openai` back in. Terminal: https://box/attach' }
+    d.agents.set('curia-574', { session: 'curia-574', ticket: '574', provider: 'openai', cfgDir: '/nowhere' })
+    d.agents.set('curia-600', { session: 'curia-600', ticket: '600', provider: 'anthropic', cfgDir: '/nowhere' })
+
+    await d.syncModelCredentials()
+
+    assert.equal(d.cooling.isCool('gpt', 'openai'), true, 'nothing new spawns into a dead credential')
+    assert.equal(d.cooling.isCool('opus', 'anthropic'), false, 'the surviving lane still dispatches')
+    assert.equal(d.cooling.earliestReset() == null, true, 'and no surface is handed a reset time nobody measured')
+
+    assert.deepEqual(logins, [{ consumer: 'openai', by: 'credential-hold' }])
+
+    const ev = events.find((e) => e.type === 'credential_hold')
+    assert.deepEqual(ev.frozen, ['curia-574'])
+    assert.equal(ev.by, 'provider')
+    assert.equal(ev.code, 'refresh_token_reused')
+
+    assert.equal(says.length, 1)
+    assert.match(says[0], /cannot be refreshed/)
+    assert.match(says[0], /frozen, not lost/)
+    assert.match(says[0], /curia-574/)
+    assert.ok(!says[0].includes('curia-600'), 'only the dead lane freezes')
+    assert.match(says[0], /Terminal: https:\/\/box\/attach/, 'the login is in the same breath as the alarm')
+  })
+
+  // ONCE PER TRANSITION. The broker latches itself off the wire so a second
+  // tick never reports terminal again — this pins the dispatcher's own guard,
+  // the way the auth-session refusals are pinned on both paths.
+  test('a standing hold does not re-alarm on every tick', async () => {
+    const says = []
+    const logins = []
+    const d = makeDispatcher({}, { credentials: brokerSaying(TERMINAL, TERMINAL) })
+    d.announce = async (t) => { says.push(t); return true }
+    d.startReauth = async (opts) => { logins.push(opts); return 'ok' }
+
+    await d.syncModelCredentials()
+    await d.syncModelCredentials()
+
+    assert.equal(says.length, 1, 'a held provider that speaks every 60 seconds is a channel nobody reads')
+    assert.equal(logins.length, 1)
+    assert.equal(events.filter((e) => e.type === 'credential_hold').length, 1)
+  })
+
+  test('a held broker reports held rather than terminal, and the tick does nothing', async () => {
+    const says = []
+    const d = makeDispatcher({}, { credentials: brokerSaying({ refreshed: false, held: true, why: 'already held' }) })
+    d.announce = async (t) => { says.push(t); return true }
+
+    const out = await d.syncModelCredentials()
+
+    assert.deepEqual(out, { refreshed: false, healed: [] })
+    assert.deepEqual(says, [])
+    assert.ok(!events.some((e) => e.type === 'credential_hold'))
+  })
+
+  // Adoption is the only exit, and lifting BEFORE the sync is what lets the
+  // same tick's fan-out and the next tick's ladder do their jobs.
+  test('a completed login lifts the hold and names the agents that healed', async () => {
+    const says = []
+    const d = makeDispatcher({}, { credentials: brokerSaying({ refreshed: false, why: 'nothing due' }) })
+    d.announce = async (t) => { says.push(t); return true }
+    d.credentials.fanOut = () => ({ healed: ['curia-574'], errors: [] })
+    d.cooling.holdProvider('openai', 'refresh_token_reused')
+    d.reauth.poll = async () => ({ consumer: 'openai', state: 'done', expires_at: null })
+    d.reauth.clear = () => {}
+
+    await d.pollReauth()
+
+    assert.equal(d.cooling.isCool('gpt', 'openai'), false, 'the lane dispatches again')
+    assert.ok(events.some((e) => e.type === 'credential_hold_lifted' && e.provider === 'openai'))
+    assert.equal(says.length, 1)
+    assert.match(says[0], /authenticated again/)
+    assert.match(says[0], /curia-574/)
+  })
+
+  test('a login that timed out lifts nothing', async () => {
+    const d = makeDispatcher({}, { credentials: brokerSaying({ refreshed: false, why: 'nothing due' }) })
+    d.announce = async () => true
+    d.cooling.holdProvider('openai', 'refresh_token_reused')
+    d.reauth.poll = async () => ({ consumer: 'openai', state: 'timeout' })
+    d.reauth.clear = () => {}
+
+    await d.pollReauth()
+
+    assert.equal(d.cooling.isCool('gpt', 'openai'), true, 'the credential is still dead')
+    assert.ok(!events.some((e) => e.type === 'credential_hold_lifted'))
   })
 
   test('a daemon with no broker brokers nothing, and says so rather than pretending', async () => {

@@ -24,10 +24,11 @@
 //     device login in a tmux session the operator drives from a phone, with no
 //     ssh anywhere in it.
 //
-// WHAT HAPPENS WHEN A REFRESH FAILS IS NOT HERE. Classifying a spent token
-// against a network blip, cooling the lane and deciding freeze-or-kill is #646,
-// and it is blocked on research this module deliberately does not pre-empt. A
-// failed refresh here logs, journals and leaves the last good file in place.
+// WHAT HAPPENS WHEN A REFRESH FAILS IS NOW HERE TOO (#646). This module tells a
+// spent refresh token apart from a network blip and latches itself off the wire
+// once the provider has said the credential is dead. It does NOT cool the lane,
+// freeze the agents or raise the alarm — those are the dispatcher's, because
+// they are facts about the fleet rather than about this file.
 
 import fs from 'node:fs'
 import os from 'node:os'
@@ -175,7 +176,10 @@ export async function exchangeRefreshToken({ refreshToken, fetchImpl = globalThi
     payload = text ? JSON.parse(text) : null
   } catch { /* a non-JSON body leaves the status as the whole answer */ }
   if (!res.ok) {
-    const code = payload?.error?.code ?? payload?.error ?? null
+    // Three locations, in the order #643 measured them: OpenAI's own envelope
+    // first, then the OAuth standard's top-level string, then a bare `code`.
+    // The measured answer — `refresh_token_reused` — lives only in the first.
+    const code = payload?.error?.code ?? payload?.error ?? payload?.code ?? null
     const detail = payload?.error?.message ?? payload?.error_description ?? text.slice(0, 200)
     const err = new Error(`OpenAI refused the codex refresh with HTTP ${res.status}${code ? ` (${code})` : ''}${detail ? `: ${detail}` : ''}`)
     err.status = res.status
@@ -183,7 +187,13 @@ export async function exchangeRefreshToken({ refreshToken, fetchImpl = globalThi
     throw err
   }
   if (!payload?.access_token) {
-    throw new Error(`OpenAI answered the codex refresh with HTTP ${res.status} and no access token, so there is nothing to store`)
+    // Carries the status so the classifier can say WHICH success carried
+    // nothing. It stays transient: a 200 with no token is a provider having a
+    // bad minute, and it proves nothing about the refresh token.
+    const err = new Error(`OpenAI answered the codex refresh with HTTP ${res.status} and no access token, so there is nothing to store`)
+    err.status = res.status
+    err.code = null
+    throw err
   }
   return payload
 }
@@ -203,6 +213,74 @@ export function applyRefresh(authJson, response, { now = Date.now } = {}) {
   if (response.refresh_token) tokens.refresh_token = response.refresh_token
   return `${JSON.stringify({ ...auth, tokens, last_refresh: new Date(now()).toISOString() }, null, 2)}\n`
 }
+
+// ---- classifying a failed refresh (#646) -----------------------------------
+//
+// The credential sibling of `health.mjs`'s `classifyFault`, and deliberately the
+// same shape: `{ terminal, why }`, with `why` journalled so a wrong call is
+// arguable after the fact rather than inferred from a timestamp.
+//
+// The direction of the asymmetry is the whole design. A wrong TRANSIENT call
+// costs a few more minutes of an outage that is already happening. A wrong
+// TERMINAL call cools a lane, freezes a fleet and wakes the operator at 3am for
+// a network blip. So everything unrecognised is transient, and the retry bound
+// in the broker is what stops "unrecognised" from meaning "forever".
+
+// The three codes codex 0.146.0 itself recognises, read out of its own refresh
+// classifier rather than guessed (docs/research/provider-credential-failures.md).
+// `refresh_token_reused` is the one #643 MEASURED, on this account, on this box.
+export const TERMINAL_REFRESH_CODES = Object.freeze(new Set([
+  'refresh_token_expired',
+  'refresh_token_reused',
+  'refresh_token_invalidated',
+]))
+
+// The provider whose lane a dead codex credential holds. The broker's consumer
+// is `codex` and the routing table's provider is `openai`; `Cooling` is keyed by
+// the second, so the translation lives here beside the credential rather than as
+// a string literal at the call site.
+export const CODEX_PROVIDER = 'openai'
+
+// Statuses that are the provider asking for a retry in as many words.
+const RETRY_STATUSES = new Set([408, 429])
+
+// Does this failed refresh prove the refresh token is dead?
+//
+// NOTE what is NOT here: "any 401 is permanent". Codex itself takes that rule,
+// and curia deliberately does not copy it. An unknown 401 does not prove the
+// credential died — it proves curia has not seen this response before — and the
+// bounded retry turns that into a terminal call within minutes anyway.
+export function classifyRefreshFailure(err) {
+  const status = Number.isFinite(err?.status) ? err.status : null
+  const code = typeof err?.code === 'string' ? err.code : null
+
+  if ((status === 400 || status === 401) && code && TERMINAL_REFRESH_CODES.has(code)) {
+    return { terminal: true, why: `OpenAI answered HTTP ${status} \`${code}\`, which names a refresh token that cannot be exchanged again` }
+  }
+  // The OAuth standard's answer, which loses the subtype but not the verdict.
+  if (status === 400 && code === 'invalid_grant') {
+    return { terminal: true, why: 'OpenAI answered HTTP 400 `invalid_grant`, the OAuth standard’s dead-refresh-token answer' }
+  }
+  if (status === null) {
+    return { terminal: false, why: `no HTTP response reached curia (${err?.message ?? err})` }
+  }
+  if (RETRY_STATUSES.has(status) || status >= 500) {
+    return { terminal: false, why: `HTTP ${status} is the provider asking for a retry, not an answer about the refresh token` }
+  }
+  return { terminal: false, why: `HTTP ${status}${code ? ` \`${code}\`` : ''} is not a response curia recognises, and an unrecognised answer does not prove the credential died` }
+}
+
+// How many consecutive transient failures make a terminal call anyway.
+//
+// Five, at the 60-second dispatch tick, is five minutes. That is the number the
+// ticket argued for in prose — "the retry bound turns a persistent unknown into
+// a terminal call within minutes anyway" — and the reason it is small is that a
+// refresh only starts 2.5 days before the token dies, so the alternative to
+// giving up early is an outage nobody is told about until the token expires.
+//
+// It counts CONSECUTIVE failures and a success resets it, so a provider that
+// flaps for an hour never reaches the bound.
+export const TRANSIENT_RETRY_BOUND = 5
 
 // ---- writing it down -------------------------------------------------------
 
@@ -256,6 +334,10 @@ export class CodexCredentialBroker {
   // so two concurrent exchanges would spend each other's and strand the store.
   #refreshing = null
 
+  // Consecutive transient refresh failures. Reset by a success and by adoption,
+  // never persisted: see `TRANSIENT_RETRY_BOUND`.
+  #transientFailures = 0
+
   constructor({
     home = null, fetchImpl = globalThis.fetch, now = Date.now,
     log = () => {}, journal = () => {},
@@ -269,6 +351,16 @@ export class CodexCredentialBroker {
     // has tried — "not attempted" and "succeeded" are different facts.
     this.lastError = null
     this.lastRefreshAt = null
+    // The hold, or null. Set when a refresh proves the credential dead, and
+    // lifted ONLY by adoption — a dead refresh token does not resurrect on a
+    // timer, so nothing here counts down.
+    //
+    // NOT PERSISTED, on purpose. A restart clears it, the token is still inside
+    // its last quarter so `refreshDue` is still true, and the next tick spends
+    // exactly one refresh to hear the same answer and re-arm. That costs one
+    // call and buys a hold derived from the provider rather than remembered
+    // from a file — the posture this whole module already takes.
+    this.held = null
   }
 
   // The host store's text, or null when there is none. Never throws: a box with
@@ -290,6 +382,10 @@ export class CodexCredentialBroker {
       ...credentialState(this.read(), this.now()),
       last_refresh_at: this.lastRefreshAt,
       last_error: this.lastError,
+      // The card says "held" rather than leaving the operator to infer it from
+      // an expiry that is still hours away. A held credential can be perfectly
+      // valid right now and still be unrecoverable.
+      held: this.held,
     }
   }
 
@@ -306,6 +402,12 @@ export class CodexCredentialBroker {
   async refreshIfDue() {
     const text = this.read()
     if (text === null) return { refreshed: false, why: 'no codex credential on this box' }
+    // THE LATCH. Once the provider has said the refresh token is dead, every
+    // further exchange asks a question already answered — and answers it into
+    // the journal once a minute, which is the record the operator will read to
+    // reconstruct the incident. `held` is reported without `terminal`, so the
+    // dispatcher arms the alarm on the transition and never again.
+    if (this.held) return { refreshed: false, held: true, why: this.held.why }
     const verdict = refreshDue(text, this.now())
     if (!verdict.due) return { refreshed: false, why: verdict.why }
     if (this.#refreshing) return this.#refreshing
@@ -320,7 +422,7 @@ export class CodexCredentialBroker {
       try {
         response = await exchangeRefreshToken({ refreshToken: auth?.tokens?.refresh_token, fetchImpl: this.fetchImpl })
       } catch (e) {
-        return this.#failed(e.message, e.code ?? null, e.status ?? null)
+        return this.#failedExchange(e)
       }
       const fresh = applyRefresh(text, response, { now: this.now })
       try {
@@ -329,6 +431,7 @@ export class CodexCredentialBroker {
         return this.#failed(`the refreshed codex credential could not be written to ${this.authFile} (${e.message})`, null)
       }
       const expiry = codexAccessTokenExpiry(fresh)
+      this.#transientFailures = 0
       this.lastError = null
       this.lastRefreshAt = new Date(this.now()).toISOString()
       this.journal('credential_refreshed', {
@@ -347,6 +450,50 @@ export class CodexCredentialBroker {
     }
   }
 
+  // One failed exchange, classified. Transient failures count toward the bound;
+  // the bound and a terminal code both end in the same hold, because five
+  // unrecognised answers and one recognised one leave the operator with the
+  // identical job.
+  #failedExchange(e) {
+    const { terminal, why } = classifyRefreshFailure(e)
+    const code = typeof e?.code === 'string' ? e.code : null
+    const status = Number.isFinite(e?.status) ? e.status : null
+    if (terminal) return this.#hold({ why, code, status, by: 'provider' })
+    this.#transientFailures += 1
+    if (this.#transientFailures >= TRANSIENT_RETRY_BOUND) {
+      return this.#hold({
+        why: `${TRANSIENT_RETRY_BOUND} refreshes in a row failed without an answer curia recognises — the last was: ${why}`,
+        code, status, by: 'bound',
+      })
+    }
+    this.lastError = why
+    this.journal('credential_refresh_failed', {
+      consumer: 'codex', code, status, terminal: false,
+      attempt: this.#transientFailures, of: TRANSIENT_RETRY_BOUND, why,
+    })
+    this.log(`the codex credential refresh failed (${why}) — attempt ${this.#transientFailures} of ${TRANSIENT_RETRY_BOUND}, the file already on disk stands until the next tick`)
+    return { refreshed: false, terminal: false, why, code, status }
+  }
+
+  // Arm the hold, and say WHICH of the two roads led here.
+  //
+  // The give-up gets its own event rather than a fifth `credential_refresh_failed`.
+  // "The provider said it is dead" and "curia stopped believing the unknown" are
+  // different facts, and only the first is evidence about the credential — an
+  // operator reading the journal after the fact has to be able to tell them
+  // apart without counting lines.
+  #hold({ why, code, status, by }) {
+    this.held = { why, code, status, by, at: new Date(this.now()).toISOString() }
+    this.lastError = why
+    this.#transientFailures = 0
+    this.journal(by === 'bound' ? 'credential_refresh_exhausted' : 'credential_refresh_failed', {
+      consumer: 'codex', code, status, terminal: true, why,
+      ...(by === 'bound' ? { attempts: TRANSIENT_RETRY_BOUND } : {}),
+    })
+    this.log(`the codex credential cannot be refreshed (${why}) — the lane is held until someone signs in again`)
+    return { refreshed: false, terminal: true, why, code, status, by }
+  }
+
   #failed(why, code, status = null) {
     this.lastError = why
     this.journal('credential_refresh_failed', { consumer: 'codex', code, status, why })
@@ -361,6 +508,10 @@ export class CodexCredentialBroker {
     // no `~/.codex`, and this is the call that gives it one.
     fs.mkdirSync(path.dirname(this.authFile), { recursive: true })
     writeCredentialFile(this.authFile, text, { mode: HOST_CREDENTIAL_MODE })
+    // Adoption is the ONLY thing that lifts the hold. The operator just proved
+    // intent by completing a login; asking them to confirm again is ceremony.
+    this.held = null
+    this.#transientFailures = 0
     this.lastError = null
     this.lastRefreshAt = new Date(this.now()).toISOString()
     return codexAccessTokenExpiry(text)

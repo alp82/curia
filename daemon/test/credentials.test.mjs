@@ -21,6 +21,7 @@ import {
   exchangeRefreshToken, applyRefresh, writeCredentialFile,
   CodexCredentialBroker, ReauthFlow,
   authSessionName, isAuthSession, scrapeDeviceAuth, reauthRunCmd,
+  classifyRefreshFailure, TERMINAL_REFRESH_CODES, TRANSIENT_RETRY_BOUND, CODEX_PROVIDER,
 } from '../src/credentials.mjs'
 
 const DAY = 24 * 60 * 60 * 1000
@@ -625,5 +626,227 @@ describe('the re-authentication flow (#642)', () => {
     f.hasSession = async () => { throw new Error('tmux session presence is indeterminate') }
     assert.equal(await f.poll(), null)
     assert.equal(f.state().state, 'waiting')
+  })
+})
+
+// #646: what happens when a refresh FAILS.
+//
+// The table below is the whole classifier, and the row that matters most is the
+// unrecognised 401: codex itself calls any 401 permanent, and curia calls it
+// transient. A wrong transient call costs minutes of an outage already under
+// way; a wrong terminal call cools a lane, freezes a fleet and wakes the
+// operator for a network blip.
+describe('classifying a failed refresh (#646)', () => {
+  const wire = (status, code, message = 'refused') => Object.assign(new Error(message), { status, code })
+
+  test('the three codes codex itself recognises are terminal, on 400 and on 401', () => {
+    for (const code of TERMINAL_REFRESH_CODES) {
+      for (const status of [400, 401]) {
+        const out = classifyRefreshFailure(wire(status, code))
+        assert.equal(out.terminal, true, `${status} ${code}`)
+        assert.match(out.why, new RegExp(code))
+      }
+    }
+  })
+
+  // The one #643 MEASURED, in OpenAI's own error envelope rather than the
+  // OAuth standard's top-level field.
+  test('the measured spent-token answer is terminal', () => {
+    assert.equal(classifyRefreshFailure(wire(401, 'refresh_token_reused')).terminal, true)
+  })
+
+  test('the OAuth standard invalid_grant is terminal on 400', () => {
+    assert.equal(classifyRefreshFailure(wire(400, 'invalid_grant')).terminal, true)
+  })
+
+  // WHERE CURIA PARTS COMPANY WITH CODEX, and the reason the retry bound exists.
+  test('an unrecognised 401 is TRANSIENT, and says why', () => {
+    const out = classifyRefreshFailure(wire(401, 'some_new_code'))
+    assert.equal(out.terminal, false)
+    assert.match(out.why, /does not prove the credential died/)
+  })
+
+  test('an unrecognised code on 403 is transient too', () => {
+    assert.equal(classifyRefreshFailure(wire(403, null)).terminal, false)
+  })
+
+  test('a request that never got a response is transient', () => {
+    const out = classifyRefreshFailure(Object.assign(new Error('fetch failed'), { code: 'ECONNRESET' }))
+    assert.equal(out.terminal, false)
+    assert.match(out.why, /no HTTP response reached curia/)
+  })
+
+  test('408, 429 and 5xx are the provider asking for a retry', () => {
+    for (const status of [408, 429, 500, 502, 503]) {
+      const out = classifyRefreshFailure(wire(status, null))
+      assert.equal(out.terminal, false, String(status))
+      assert.match(out.why, /asking for a retry/)
+    }
+  })
+
+  // A 200 carrying no token is a provider having a bad minute. It proves
+  // nothing about the refresh token, so it counts toward the bound like any
+  // other unknown rather than killing the lane on its own.
+  test('a success that carried no access token is transient', async () => {
+    await assert.rejects(
+      exchangeRefreshToken({ refreshToken: 'rt', fetchImpl: async () => new Response('{}', { status: 200 }) }),
+      (e) => {
+        assert.equal(e.status, 200)
+        assert.equal(classifyRefreshFailure(e).terminal, false)
+        return true
+      },
+    )
+  })
+
+  // #643 measured the code at `error.code`. The other two locations are the
+  // OAuth standard's and a bare one, in the order the research note names.
+  test('the code is read from all three locations, envelope first', async () => {
+    const codeFrom = async (body) => {
+      try {
+        await exchangeRefreshToken({ refreshToken: 'rt', fetchImpl: async () => new Response(JSON.stringify(body), { status: 400 }) })
+      } catch (e) { return e.code }
+      return null
+    }
+    assert.equal(await codeFrom({ error: { code: 'refresh_token_reused' } }), 'refresh_token_reused')
+    assert.equal(await codeFrom({ error: 'invalid_grant' }), 'invalid_grant')
+    assert.equal(await codeFrom({ code: 'invalid_grant' }), 'invalid_grant')
+  })
+
+  test('the codex consumer holds the openai lane', () => {
+    assert.equal(CODEX_PROVIDER, 'openai')
+  })
+})
+
+// #646: the bound, and the hold it arms.
+describe('the retry bound and the hold (#646)', () => {
+  const iat = 1_000_000_000_000
+  const exp = iat + 10 * DAY
+
+  // Every call sits inside the last quarter, so `refreshDue` stays true and the
+  // only thing stopping an exchange is the latch under test.
+  function brokerOn(fetchImpl, events = []) {
+    seedHost(authJson({ iat, exp }))
+    return new CodexCredentialBroker({
+      home: dir, now: () => exp - DAY, fetchImpl,
+      journal: (e, d) => events.push([e, d]),
+    })
+  }
+
+  const refused = (status, code) => async () => new Response(JSON.stringify({ error: { code } }), { status })
+  const flaky = () => async () => new Response('gateway', { status: 503 })
+
+  test('a terminal code holds the lane on the first answer', async () => {
+    const events = []
+    const b = brokerOn(refused(401, 'refresh_token_reused'), events)
+    const out = await b.refreshIfDue()
+    assert.equal(out.terminal, true)
+    assert.equal(out.by, 'provider')
+    assert.equal(b.held.code, 'refresh_token_reused')
+    assert.deepEqual(events.map((e) => e[0]), ['credential_refresh_failed'])
+    assert.equal(events[0][1].terminal, true)
+  })
+
+  // THE LATCH. A dead refresh token does not resurrect, and asking once a
+  // minute writes a failure line into the journal the operator will read to
+  // reconstruct the incident.
+  test('a held broker never touches the wire again, and reports held rather than terminal', async () => {
+    let calls = 0
+    const b = brokerOn(async () => { calls += 1; return new Response(JSON.stringify({ error: { code: 'refresh_token_reused' } }), { status: 401 }) })
+    await b.refreshIfDue()
+    assert.equal(calls, 1)
+
+    const again = await b.refreshIfDue()
+    assert.equal(calls, 1, 'the second tick asks a question already answered')
+    assert.equal(again.held, true)
+    assert.equal(again.terminal, undefined, 'so the dispatcher alarms once per transition, not once per tick')
+  })
+
+  test(`${TRANSIENT_RETRY_BOUND} unknown answers in a row make a terminal call, journalled as its own event`, async () => {
+    const events = []
+    const b = brokerOn(flaky(), events)
+    for (let i = 1; i < TRANSIENT_RETRY_BOUND; i += 1) {
+      const out = await b.refreshIfDue()
+      assert.equal(out.terminal, false, `attempt ${i}`)
+      assert.equal(b.held, null)
+    }
+    const last = await b.refreshIfDue()
+    assert.equal(last.terminal, true)
+    assert.equal(last.by, 'bound')
+
+    const names = events.map((e) => e[0])
+    assert.deepEqual(names.slice(0, TRANSIENT_RETRY_BOUND - 1), Array(TRANSIENT_RETRY_BOUND - 1).fill('credential_refresh_failed'))
+    // The give-up is NOT a fifth `credential_refresh_failed`: "the provider said
+    // it is dead" and "curia stopped believing the unknown" are different facts.
+    assert.equal(names.at(-1), 'credential_refresh_exhausted')
+    assert.equal(events.at(-1)[1].attempts, TRANSIENT_RETRY_BOUND)
+  })
+
+  test('a success in between resets the count, so a flapping provider never reaches the bound', async () => {
+    const events = []
+    let fail = true
+    // The fresh token keeps the SAME expiry, so the credential is still due and
+    // the next call is still a real attempt.
+    const b = brokerOn(async () => (fail
+      ? new Response('gateway', { status: 503 })
+      : new Response(JSON.stringify({ access_token: accessToken({ iat, exp }) }), { status: 200 })), events)
+
+    for (let i = 1; i < TRANSIENT_RETRY_BOUND; i += 1) await b.refreshIfDue()
+    fail = false
+    assert.equal((await b.refreshIfDue()).refreshed, true)
+    fail = true
+    for (let i = 1; i < TRANSIENT_RETRY_BOUND; i += 1) await b.refreshIfDue()
+
+    assert.equal(b.held, null)
+    assert.ok(!events.some((e) => e[0] === 'credential_refresh_exhausted'))
+  })
+
+  // Adoption is the ONLY exit. The operator just proved intent by completing a
+  // login; asking them to confirm again is ceremony.
+  test('adoption lifts the hold and the broker exchanges again', async () => {
+    let calls = 0
+    const b = brokerOn(async () => {
+      calls += 1
+      return new Response(JSON.stringify({ error: { code: 'refresh_token_reused' } }), { status: 401 })
+    })
+    await b.refreshIfDue()
+    assert.equal(b.held.by, 'provider')
+
+    b.adopt(authJson({ iat: exp - DAY, exp: exp + 9 * DAY, refresh: 'rt.fresh' }))
+    assert.equal(b.held, null)
+    assert.equal(b.state().held, null)
+    assert.equal(b.state().last_error, null)
+
+    // still inside the last quarter of the ADOPTED token? no — so prove the
+    // latch is gone by putting a due credential back under it.
+    b.adopt(authJson({ iat, exp }))
+    await b.refreshIfDue()
+    assert.equal(calls, 2, 'the wire is reachable again')
+  })
+
+  // #646 does not persist the hold: `armedCoolings` carries `{provider, at}`
+  // rows and a hold has no `at`, so persisting it means inventing the sentinel
+  // date the design refused. A fresh broker re-derives it in one call.
+  test('a fresh broker starts unheld and re-arms from the provider’s own answer', async () => {
+    const events = []
+    const b = brokerOn(refused(401, 'refresh_token_invalidated'), events)
+    await b.refreshIfDue()
+    assert.equal(b.held.code, 'refresh_token_invalidated')
+
+    const restarted = new CodexCredentialBroker({
+      home: dir, now: () => exp - DAY,
+      fetchImpl: refused(401, 'refresh_token_invalidated'),
+      journal: () => {},
+    })
+    assert.equal(restarted.held, null, 'nothing is remembered across a restart')
+    assert.equal((await restarted.refreshIfDue()).terminal, true, 'one call re-derives it')
+  })
+
+  test('the card says held, so nobody has to infer it from an expiry hours away', async () => {
+    const b = brokerOn(refused(401, 'refresh_token_expired'))
+    await b.refreshIfDue()
+    const state = b.state()
+    assert.equal(state.state, 'expiring', 'the token itself is still alive')
+    assert.equal(state.held.by, 'provider')
+    assert.match(state.held.why, /refresh_token_expired/)
   })
 })

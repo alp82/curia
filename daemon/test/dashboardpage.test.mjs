@@ -299,6 +299,26 @@ describe('the read screens (#264)', () => {
       assert.match(t, /an agent on it will fail at its first gh call/)
     })
 
+    // #646: a held credential is the one case where the state word lies. The
+    // access token below is `expiring` — perfectly usable for another two days —
+    // and the lane is unrecoverable all the same.
+    test('a held credential names the lane rather than the token, and the frozen agents', () => {
+      const t = text(page.screenHome(payload({
+        credentials: {
+          consumers: [{
+            consumer: 'codex', state: 'expiring', expires_at: '2026-09-02T13:35:23Z',
+            last_error: 'OpenAI answered HTTP 401 `refresh_token_reused`',
+            held: { by: 'provider', code: 'refresh_token_reused', why: 'OpenAI answered HTTP 401 `refresh_token_reused`' },
+          }],
+          reauth: null,
+        },
+      })))
+      assert.match(t, /the model credential cannot be refreshed/)
+      assert.match(t, /agents are frozen in place/)
+      assert.match(t, /refresh_token_reused/)
+      assert.ok(!/credential is expiring/.test(t), 'the state word would be true about the token and false about the lane')
+    })
+
     test('a credential warning IS counted, because an operator act is what ends it', () => {
       // The rule that separates it from a spent window, which the count skips:
       // a window rolls on its own clock, and a token nobody mints stays dead.

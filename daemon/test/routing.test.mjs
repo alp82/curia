@@ -163,6 +163,87 @@ describe('Cooling', () => {
     assert.equal(c.earliestReset() == null, true)
   })
 
+  // The third kind (#646). A landed cap and a prediction both end on a clock; a
+  // CREDENTIAL HOLD ends when a person finishes a login, so it states no reset
+  // instant rather than inventing one.
+  describe('the credential hold (#646)', () => {
+    const soon = () => new Date(Date.now() + 3600_000)
+
+    test('a hold cools the provider, and no clock lifts it', () => {
+      const c = new Cooling()
+      assert.equal(c.holdProvider('openai', 'refresh_token_reused'), true)
+      assert.equal(c.isCool('gpt', 'openai'), true)
+      assert.equal(c.isCool('opus', 'anthropic'), false, 'the other lane is untouched')
+      assert.deepEqual(c.heldFor('openai'), { provider: 'openai', why: 'refresh_token_reused' })
+      assert.equal(c.heldFor('anthropic'), null)
+    })
+
+    // The reason the hold carries no date at all: this number becomes "back at
+    // HH:MM" on the dashboard banner and in Discord `/status`, and a held lane
+    // comes back when someone acts.
+    test('a hold has no reset, so earliestReset never invents one', () => {
+      const c = new Cooling()
+      c.holdProvider('openai', 'dead')
+      assert.equal(c.earliestReset() == null, true)
+
+      c.coolProvider('anthropic', soon())
+      assert.equal(c.earliestReset().getTime(), [...c.providers.values()].find((e) => e.at)?.at.getTime())
+    })
+
+    test('a hold is not a prediction, and no reading touches it', () => {
+      const c = new Cooling()
+      c.holdProvider('openai', 'dead')
+      assert.deepEqual(c.predictions(), [])
+      assert.equal(c.predictionFor('openai'), null)
+      assert.equal(c.clearPrediction('openai'), false)
+      assert.equal(c.predictProvider('openai', { at: soon(), window: '5h', pct: 92 }), false)
+      assert.equal(c.isCool('gpt', 'openai'), true, 'and it still stands after all of that')
+    })
+
+    // A named model steps over a guess. It does not step over a credential that
+    // cannot be reached.
+    test('a named model never steps over a hold', () => {
+      const c = new Cooling()
+      c.holdProvider('openai', 'dead')
+      assert.equal(c.isCool('gpt', 'openai', { ignorePredicted: true }), true)
+    })
+
+    // A landed cap ends on the provider's clock and a hold does not, so letting
+    // the timed entry win would un-hold a dead lane the moment the cap reset.
+    test('a landed cap does not overwrite a hold', () => {
+      const c = new Cooling()
+      c.holdProvider('openai', 'dead')
+      assert.equal(c.coolProvider('openai', soon()), false)
+      assert.deepEqual(c.heldFor('openai'), { provider: 'openai', why: 'dead' })
+      assert.equal(c.earliestReset() == null, true)
+    })
+
+    // The arm answers whether it took, which is what keeps the alarm to one
+    // message per transition rather than one per 60-second tick.
+    test('arming twice is refused, so the alarm is said once', () => {
+      const c = new Cooling()
+      assert.equal(c.holdProvider('openai', 'dead'), true)
+      assert.equal(c.holdProvider('openai', 'still dead'), false)
+      assert.equal(c.heldFor('openai').why, 'dead', 'and the first reason survives')
+    })
+
+    test('releasing lifts it, and says whether anything stood', () => {
+      const c = new Cooling()
+      assert.equal(c.releaseHold('openai'), false, 'nothing to lift')
+      c.holdProvider('openai', 'dead')
+      assert.equal(c.releaseHold('openai'), true)
+      assert.equal(c.isCool('gpt', 'openai'), false)
+      assert.equal(c.heldFor('openai'), null)
+    })
+
+    test('releasing never touches a landed cap wearing the same key', () => {
+      const c = new Cooling()
+      c.coolProvider('openai', soon())
+      assert.equal(c.releaseHold('openai'), false)
+      assert.equal(c.isCool('gpt', 'openai'), true)
+    })
+  })
+
   // The second trigger (#384). One store, two kinds of provider entry, and the
   // difference between them binds three rules.
   describe('the predicted entry (#384)', () => {

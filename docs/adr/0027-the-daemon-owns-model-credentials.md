@@ -64,11 +64,33 @@ The dashboard scrapes the link and the code off the pane and draws them as a car
 
 Discord carries the alarm and a link to the dashboard. It never carries the code. A one-time auth code in a chat log is a credential in a chat log.
 
+### A failed refresh is classified, and an unknown answer is never fatal
+
+A refresh can fail because the token is spent or revoked, which needs a person, or because the network blipped, which needs a retry. `classifyRefreshFailure` returns `{ terminal, why }`, and `why` is journaled so a wrong call is arguable after the fact.
+
+Terminal means HTTP 400 or 401 carrying `refresh_token_expired`, `refresh_token_reused`, or `refresh_token_invalidated`, or HTTP 400 carrying `invalid_grant`. The first three are codex's own vocabulary, and `refresh_token_reused` is the one measured on this account. Everything else is transient, including an unrecognized HTTP 401.
+
+Codex itself treats any 401 as permanent, and curia deliberately does not copy that rule. The asymmetry is the design: a wrong transient call costs a few more minutes of an outage already under way, and a wrong terminal call cools a lane, freezes a fleet, and wakes the operator for a network blip. Five consecutive transient failures make a terminal call anyway, which at the dispatch tick is five minutes.
+
+### A dead lane is held, and a hold has no reset instant
+
+A terminal call holds the provider so nothing new spawns into a credential that cannot work. `Cooling` gains a third kind for it: a landed cap and a pre-emptive hold both end on a clock, and a credential hold ends when a person finishes a login.
+
+Cooling to an invented far-future date was refused. `earliestReset` becomes "back at HH:MM" on the dashboard banner and in Discord `/status`, and a fabricated reset time on a credentials surface is the class of lie this whole ADR exists to remove.
+
+The hold also latches the broker off the wire, because a dead refresh token does not resurrect and a per-minute retry writes a failure line every 60 seconds into the journal the operator will read to reconstruct the incident. It is not persisted: a restart clears it, the token is still inside its last quarter, and the next tick spends exactly one refresh to hear the same answer and re-arm. That costs one call and buys a hold derived from the provider rather than remembered from a file.
+
+### Freeze means the stall ladder does not run
+
+On the codex lane the agents are left alone: pane, claim, worktree, and conversation. This does not hold by itself. A turn that died leaves the agent idle at the composer, the stall sweep's pane check matches the ready prompt, and fifteen minutes later rung 1 nudges a credential that cannot work and rung 2 respawns, which kills the session. Freeze would silently become a kill half an hour after a failure whose whole design was to keep the agent.
+
+So the stall sweep skips every agent whose provider is held, and journals it once per agent. Adoption then lifts the hold, the fan-out heals on that same tick, and the next sweep's rung 1 nudge is what finishes the recovery.
+
 ## Consequences
 
 - ADR-0007 rule 1 is **amended, not withdrawn**. The daemon writes the credential store for the consumers it owns, and the rule's original reason survives as the `0400` bit: exactly one writer, and it is the daemon. The account-usage probe keeps reading under rules 2 and 3 unchanged.
 - ADR-0007's narrowing for sandboxed agents said "nothing here writes a credential, and the container has no path back to the host store". The second half still holds and is now the point. The first half is superseded for the codex consumer.
 - ADR-0014 gains a boundary it did not have. The overseer's model credential arrives through `.env.overseer` at container create, which means replacing it requires recreating the container. #648 moves it to a file the daemon writes.
-- What happens when a refresh **fails** is deliberately not decided here. Distinguishing a spent token from a network blip needs evidence, and it is [#646](https://github.com/alp82/curia/issues/646).
-- Freeze-versus-kill differs per consumer, and that is measurement rather than choice. A running codex process picks up a replaced `auth.json` with no restart, keeping its pane, claim, worktree, and conversation; it needs a nudge, because a turn that died leaves the agent idle at the composer. The claude lane cannot be healed this way at all, because `modelCredential` hands the container its credential as an environment variable and a running process's environment cannot be changed from outside.
+- What happens when a refresh **fails** was deliberately left open here until the evidence existed. It is now decided above, by [#646](https://github.com/alp82/curia/issues/646), on the measurements in [#643](https://github.com/alp82/curia/issues/643) and [#644](https://github.com/alp82/curia/issues/644).
+- Freeze-versus-kill differs per consumer, and that is measurement rather than choice. A running codex process picks up a replaced `auth.json` with no restart, keeping its pane, claim, worktree, and conversation; it needs a nudge, because a turn that died leaves the agent idle at the composer. The claude lane cannot be healed this way at all, because `modelCredential` hands the container its credential as an environment variable and a running process's environment cannot be changed from outside. #646 **states** that asymmetry, in the claude and overseer rows of the credentials status, and builds no kill path for it: with no refresh that can fail there is no caller for one, so it ships with #648, in the slice that makes it callable.
 - A new harness added with no credential story is how this bug returns. The per-consumer contract that refuses one is #648's, because the overseer is a consumer and not a harness, and the table it belongs in may no longer be keyed by harness alone.

@@ -46,7 +46,7 @@ import {
 import { ownersOf } from './overseercreds.mjs'
 import { ensureAgentImage } from './image.mjs'
 // the daemon-owned model credential (#642, ADR-0027)
-import { CodexCredentialBroker, ReauthFlow, isAuthSession } from './credentials.mjs'
+import { CodexCredentialBroker, ReauthFlow, isAuthSession, CODEX_PROVIDER } from './credentials.mjs'
 import { readDiffDigest, readFileHunks, digestLine, sliceFromPatch, capText } from './diffdigest.mjs'
 import { transcriptReset, holdVerdict, hottestPct, WARM_PCT } from './usage.mjs'
 import { transcriptActivity } from './transcript.mjs'
@@ -1665,7 +1665,12 @@ export class Dispatcher {
   // is good for days.
   async syncModelCredentials() {
     if (!this.credentials) return { refreshed: false, healed: [] }
-    const { refreshed } = await this.credentials.refreshIfDue()
+    const outcome = await this.credentials.refreshIfDue()
+    // A refresh that proved the credential dead holds the lane BEFORE the
+    // fan-out runs. The fan-out below still runs, and still does nothing: the
+    // host store is unchanged, so every live agent already holds a byte-identical
+    // copy. That is what freeze looks like from here — no writes, no kills.
+    if (outcome.terminal) await this.#holdCredentialLane(outcome)
     const targets = [...this.agents.values()]
       .filter((a) => a.cfgDir || a.session)
       .map((a) => ({ session: a.session, cfgDir: a.cfgDir ?? cfgDirFor(this.root, a.session) }))
@@ -1677,7 +1682,59 @@ export class Dispatcher {
       this.reduction.journal('credential_fanned_out', { consumer: 'codex', agents: healed })
       this.log(`handed the current codex credential to ${healed.length} live agent(s): ${healed.join(', ')}`)
     }
-    return { refreshed, healed }
+    return { refreshed: Boolean(outcome.refreshed), healed }
+  }
+
+  // The lane is dead (#646): hold it, freeze what is on it, and put a login in
+  // front of the operator in the same breath.
+  //
+  // ONCE PER TRANSITION, not once per tick, and `holdProvider`'s return value is
+  // what enforces that — a held provider that re-alarms every 60 seconds is a
+  // channel nobody reads. The broker latches itself off the wire in the same
+  // moment, so the second tick does not even reach here.
+  //
+  // The agents are NOT touched. #644 measured that a running codex process picks
+  // up a replaced `auth.json` with no restart, so the cheapest correct thing is
+  // to leave the pane, the claim, the worktree and the conversation exactly
+  // where they are. Killing to save the minutes it takes an operator to open a
+  // link on a phone throws away hours of context.
+  async #holdCredentialLane({ why, code = null, status = null, by = 'provider' }) {
+    const provider = CODEX_PROVIDER
+    if (!this.cooling.holdProvider(provider, why)) return
+    const frozen = [...this.agents.values()].filter((a) => a.provider === provider).map((a) => a.session)
+    this.reduction.journal('credential_hold', {
+      consumer: 'codex', provider, code, status, by, why, frozen,
+    })
+    this.log(`the ${provider} lane is held: ${why} — ${frozen.length} live agent(s) frozen in place`)
+    // The second caller `startReauth` was written for. The operator's `reauth`
+    // verb is the first, and both land on one flow so there is one session to
+    // attach to and one thing to test.
+    let login
+    try {
+      login = await this.startReauth({ consumer: provider, by: 'credential-hold' })
+    } catch (e) {
+      login = `❌ curia could not start the login by itself (${e.message}) — type \`reauth\` to start one.`
+    }
+    const who = frozen.length
+      ? `${frozen.length} live agent(s) are **frozen, not lost** — they keep their pane, claim and worktree, and heal on the next tick after a fresh credential lands: ${frozen.join(', ')}.`
+      : 'No agent was running on it.'
+    // NEVER THE CODE. A one-time auth code in a chat log is a credential in a
+    // chat log; it reaches the terminal link and the dashboard, both of which
+    // sit behind the operator's own Tailscale login.
+    // A bridge that cannot carry the alarm must not cost the fan-out below, the
+    // hold, or the login already started. It is logged loudly instead: the
+    // dashboard card and the `credential_hold` journal line both stand whatever
+    // Discord did, and the operator's other two surfaces still say it.
+    try {
+      await this.announce([
+        `⚠️ the \`${provider}\` model credential cannot be refreshed: ${why}.`,
+        who,
+        'Nothing new dispatches on this lane until someone signs in again.',
+        login,
+      ].join('\n'))
+    } catch (e) {
+      this.log(`the ${provider} credential alarm could not be announced (${e.message}) — the hold stands and the login is running`)
+    }
   }
 
   // Start a device login for one model-credential consumer, or hand back the one
@@ -1750,6 +1807,15 @@ export class Dispatcher {
       // credential reaches every live codex agent on this same tick, and #644
       // measured that a running codex process picks up a replaced `auth.json`
       // with no restart.
+      // Adoption is the only thing that lifts a credential hold, and the broker
+      // has already cleared its own latch inside `adopt`. Lifting it BEFORE the
+      // sync is what lets that same tick's fan-out and the next tick's stall
+      // ladder do their jobs.
+      const lifted = this.cooling.releaseHold(CODEX_PROVIDER)
+      if (lifted) {
+        this.#frozenNoted.clear()
+        this.reduction.journal('credential_hold_lifted', { consumer: outcome.consumer, provider: CODEX_PROVIDER })
+      }
       const { healed } = await this.syncModelCredentials()
       const line = healed.length
         ? `✅ \`${outcome.consumer}\` is authenticated again, and ${healed.length} live agent(s) hold the fresh credential: ${healed.join(', ')}.`
@@ -1774,8 +1840,14 @@ export class Dispatcher {
         this.credentials
           ? this.credentials.state()
           : { consumer: 'codex', state: 'unowned', expires_at: null, why: 'this daemon brokers no model credential' },
-        { consumer: 'claude', state: 'unowned', expires_at: null, why: 'the container reads it from its environment at create (#648)' },
-        { consumer: 'overseer', state: 'unowned', expires_at: null, why: 'the container reads it from .env.overseer at create (#648)' },
+        // The asymmetry is STATED rather than implemented (#646). A credential
+        // that arrives as an environment variable cannot be replaced under a
+        // running process, so freeze-in-place is unreachable on these two lanes
+        // and the recovery there is a kill. Nothing here builds that kill: with
+        // no refresh to fail there is no caller for it, and it ships with #648
+        // in the slice that makes it callable.
+        { consumer: 'claude', state: 'unowned', expires_at: null, why: 'the container reads it from its environment at create, so it cannot be refreshed or healed in place (#648)' },
+        { consumer: 'overseer', state: 'unowned', expires_at: null, why: 'the container reads it from .env.overseer at create, so it cannot be refreshed or healed in place (#648)' },
       ],
       reauth: this.reauth?.state() ?? null,
     }
@@ -6000,6 +6072,10 @@ export class Dispatcher {
 
   // A live tmux pane can hold a dead turn. Transcript age is the primary
   // signal. A narrow pane match confirms it before this method types or kills.
+  // Agents already recorded as frozen by a standing credential hold, so the
+  // sweep says it once rather than once a minute. Cleared when the hold lifts.
+  #frozenNoted = new Set()
+
   async stallSweep() {
     for (const w of [...this.agents.values()]) {
       // THE RE-AUTHENTICATION INVARIANT (#642), said here as well as on the
@@ -6010,6 +6086,34 @@ export class Dispatcher {
       // stray keystroke costs most.
       if (isAuthSession(w.session)) continue
       if (w.state !== 'ready' || w.resultReceived) continue
+      // FREEZE MEANS THE LADDER DOES NOT RUN (#646). Without this guard freeze
+      // is not freeze: a turn that died on a dead credential leaves the agent
+      // idle at the composer, `paneConfirmsStall` matches the ready prompt, and
+      // fifteen minutes later rung 1 nudges a credential that cannot work and
+      // rung 2 respawns — which kills the session. The agent would be gone half
+      // an hour after a failure whose whole design was to keep it.
+      //
+      // ABOVE the pane capture, because there is nothing to classify: a held
+      // lane is a fact about the credential, not about what the pane says. And
+      // BELOW the ready check, so the skip is recorded for the agents the
+      // ladder would actually have acted on rather than for every record.
+      //
+      // Once the hold lifts, the fan-out heals on that same tick and the NEXT
+      // sweep's rung 1 nudge is what finishes the recovery — exactly the
+      // sequence #644 measured.
+      const held = this.cooling.heldFor(w.provider)
+      if (held) {
+        // Journalled once per agent per hold, not once per tick: this sweep
+        // runs every 60 seconds and a hold lasts as long as a person takes.
+        if (!this.#frozenNoted.has(w.session)) {
+          this.#frozenNoted.add(w.session)
+          this.reduction.journal('stall_sweep_skipped', {
+            repo: w.repo, ticket: w.ticket, agent: w.session,
+            provider: w.provider, why: `the ${w.provider} credential is held: ${held.why}`,
+          })
+        }
+        continue
+      }
 
       // Capture and classify before every stall-only guard. A cap can land
       // while the transcript is still recent, while a reviewer is running, or
