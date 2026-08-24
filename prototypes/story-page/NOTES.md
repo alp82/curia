@@ -757,6 +757,56 @@ Five presses ride `?d=1..5`:
 window up to 16.5px, which is about what the client itself uses. The floor of 7px on the smallest
 screens is unchanged.
 
+## The preview scene ([#627](https://github.com/alp82/curia/issues/627))
+
+Scene 5, the preview. The operator's note at #551 round 2: the phone preview looks really bad, it
+needs a much better and more realistic display and actual content inside, a really nice bright
+artsy website design, and a prototype switcher that cycles automatically.
+
+**Round 1.** The old phone was a rounded rectangle with three gray bars in it. It is gone. The
+device is now drawn part by part: a titanium rail, a black bezel, the dynamic island with its
+lens, the status bar with signal, wifi and battery, the four side buttons, the home indicator and
+one specular pass over the glass. Safari's floating address bar carries the tailnet host, which is
+the evidence the claim asks for.
+
+**What plays inside is a round, not a page.** Curia sends five variations per prototype round
+([#635](https://github.com/alp82/curia/issues/635)), so the phone shows five art directions of one
+bright landing page, and the switcher inside the phone is the one curia ships with a prototype. It
+cycles every three seconds, a tap takes it over, and the cycle comes back eight seconds later. The
+five directions are sun (cream, one tangerine sun, editorial serif), acid (white, black grotesk,
+a lime block with a hard magenta shadow), bloom (a pastel mesh with soft cards), riso (mint,
+halftone dots, two inks overprinted) and dusk (a sunset poster with a white arch).
+
+The screen is drawn against a 15.5rem device and zoomed to whatever width a variation gives it, so
+a smaller phone is a smaller phone rather than a zoomed-in page.
+
+Five presentations ride `?id=1..5`:
+
+1. **deck** — front on and as large as the column allows, standing in the scene's stage light. The
+   round cross-fades in place, and the switcher stays inside the phone.
+2. **tilt** — the device in perspective under a stronger specular, with the round on a rail beside
+   it. The screens slide like a carousel.
+3. **stage** — the phone is pinned against the viewport and the reader's own scroll turns the
+   round. Nothing cycles by itself, and the bar under the chips is the scroll's position.
+4. **stack** — the rest of the round waits behind the front design as tilted plates in its key
+   color, and cycling pushes the front one back.
+5. **pair** — the other half of the claim. The same preview fills a workstation window, and the
+   phone hangs off its bottom-left corner. The window is drawn at 720px and scaled into place,
+   which is what makes a miniature read as a desktop rather than as a narrow column.
+
+**One deviation to record.** The prototype inside the phone is an invented one, a bakery called
+SUNROOM. Every other proof scene on this page shows real curia records ([#601](https://github.com/alp82/curia/issues/601)).
+A real curia prototype is dark, and a dark page inside a dark page proves nothing at phone size,
+so the ask for a bright artsy design and the ask for true content pull apart here. Round 1 asks
+the operator which one wins.
+
+**Four build checks** ran against the file, since no agent on this ticket has eyes on it: every
+design appears once with its own palette and its own art, every presentation carries rules of its
+own, every class the markup uses is styled and every hook the script reaches for is in the markup,
+and the build rules hold (no image, no remote asset, no webfont). Each check was validated by
+breaking the file on purpose first, one break at a time, and every break produced exactly one
+failure.
+
 ## The verdict of the Discord scene ([#626](https://github.com/alp82/curia/issues/626))
 
 **Locked over six operator rounds.** Every variation that lost, and the switcher that carried them,
