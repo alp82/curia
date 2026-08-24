@@ -388,7 +388,7 @@ export class Dispatcher {
   // escalation and returns its record; lapseEscalation closes one as lapsed
   // (journal + message edit); confirmNote posts a line next to a record's
   // buttons; overseerNote journals a synthetic line for a thread's session.
-  constructor({ config, routing, reduction, notify, announce, openConfirm, lapseEscalation, confirmNote, overseerNote, askReview, cancelEscalation, threads, log = console.log, cooling, readings, dataDir, daemonPort, previews, attachLinks, attachSessionLink, channelName, minter, credentials, anthropic, deps }) {
+  constructor({ config, routing, reduction, notify, announce, openConfirm, lapseEscalation, confirmNote, overseerNote, askReview, cancelEscalation, threads, log = console.log, cooling, readings, dataDir, daemonPort, previews, attachLinks, attachSessionLink, channelName, minter, credentials, anthropic, anthropicHealth, deps }) {
     this.config = config
     this.routing = routing
     this.reduction = reduction
@@ -529,6 +529,10 @@ export class Dispatcher {
     // Null is legal here too, and a null one owns nothing rather than reading
     // the operator's own `~/.claude`.
     this.anthropic = anthropic ?? null
+    // A quota-free metadata request checks the anthropic credential even when
+    // account bars are disabled and no agent is running. It reports terminal
+    // evidence through `holdCredentialLane`, so this field owns only scheduling.
+    this.anthropicHealth = anthropicHealth ?? null
     // The re-authentication flow (#642). It takes the RAW tmux calls above, for
     // the reason the refusal states, and its image is filled in by
     // `startReauth` — an image ref is a per-dispatch build, not a constant.
@@ -1726,7 +1730,7 @@ export class Dispatcher {
     // fan-out runs. The fan-out below still runs, and still does nothing: the
     // host store is unchanged, so every live agent already holds a byte-identical
     // copy. That is what freeze looks like from here — no writes, no kills.
-    if (outcome.terminal) await this.#holdCredentialLane(outcome)
+    if (outcome.terminal) await this.holdCredentialLane({ provider: CODEX_PROVIDER, ...outcome })
     const { healed, errors } = this.credentials.fanOut(this.#credentialTargets())
     for (const { session, why } of errors) {
       this.log(`could not hand ${session} the refreshed codex credential (${why}) — the file it already holds stands until the next tick`)
@@ -1776,6 +1780,10 @@ export class Dispatcher {
     return { healed }
   }
 
+  async checkAnthropicCredential() {
+    return this.anthropicHealth?.check() ?? null
+  }
+
   // The agent's own copy, written at spawn (#648). See the call site in
   // `#prepareContainer` for why a missing credential refuses the dispatch.
   //
@@ -1801,19 +1809,26 @@ export class Dispatcher {
   // channel nobody reads. The broker latches itself off the wire in the same
   // moment, so the second tick does not even reach here.
   //
-  // The agents are NOT touched. #644 measured that a running codex process picks
-  // up a replaced `auth.json` with no restart, so the cheapest correct thing is
-  // to leave the pane, the claim, the worktree and the conversation exactly
-  // where they are. Killing to save the minutes it takes an operator to open a
-  // link on a phone throws away hours of context.
-  async #holdCredentialLane({ why, code = null, status = null, by = 'provider' }) {
-    const provider = CODEX_PROVIDER
+  // The agents are NOT touched. #644 and #659 measured that both harnesses pick
+  // up a replacement with no restart. Leave the pane, claim, worktree, and
+  // conversation where they are. A restart would throw away hours of context.
+  async holdCredentialLane({
+    provider, why, code = null, status = null, by = 'provider', operation = null,
+    consumers = null, attempts = null,
+  }) {
+    if (!provider) throw new Error('a credential hold needs a provider')
     if (!this.cooling.holdProvider(provider, why)) return
+    const affected = consumers ?? Object.entries(CONSUMER_CREDENTIALS)
+      .filter(([, contract]) => contract.provider === provider)
+      .map(([consumer]) => consumer)
     const frozen = [...this.agents.values()].filter((a) => a.provider === provider).map((a) => a.session)
     this.reduction.journal('credential_hold', {
-      consumer: 'codex', provider, code, status, by, why, frozen,
+      ...(affected.length === 1 ? { consumer: affected[0] } : {}),
+      consumers: affected, provider, code, status, by, why, frozen,
+      ...(operation ? { operation } : {}),
+      ...(attempts ? { attempts } : {}),
     })
-    this.log(`the ${provider} lane is held: ${why} — ${frozen.length} live agent(s) frozen in place`)
+    this.log(`the ${provider} lane is held: ${why}. ${frozen.length} live agent(s) frozen in place`)
     // The second caller `startReauth` was written for. The operator's `reauth`
     // verb is the first, and both land on one flow so there is one session to
     // attach to and one thing to test.
@@ -1821,11 +1836,21 @@ export class Dispatcher {
     try {
       login = await this.startReauth({ provider, by: 'credential-hold' })
     } catch (e) {
-      login = `❌ curia could not start the login by itself (${e.message}) — type \`reauth\` to start one.`
+      login = `❌ curia could not start the login by itself (${e.message}). Type \`reauth ${provider}\` to start one.`
     }
     const who = frozen.length
-      ? `${frozen.length} live agent(s) are **frozen, not lost** — they keep their pane, claim and worktree, and heal on the next tick after a fresh credential lands: ${frozen.join(', ')}.`
+      ? `${frozen.length} live agent(s) are **frozen, not lost**. They keep their pane, claim, and worktree. They heal after a fresh credential lands: ${frozen.join(', ')}.`
       : 'No agent was running on it.'
+    const overseer = affected.includes('overseer')
+      ? 'The overseer is not frozen. Its turns fail until sign-in finishes, and its next turn reads the replacement.'
+      : null
+    // EVERY LANE HELD IS NOT THE SAME OUTAGE as one lane held, and the per-lane
+    // lines above read as a partial one. Nothing dispatches at all, and a cap
+    // landing on either provider has nowhere left to chain to (#675).
+    const providers = [...new Set(Object.values(CONSUMER_CREDENTIALS).map((c) => c.provider))]
+    const stopped = providers.every((p) => this.cooling.heldFor(p))
+      ? 'No lane can take work: every model lane is held, so nothing dispatches at all until someone signs in.'
+      : null
     // NEVER THE CODE. A one-time auth code in a chat log is a credential in a
     // chat log; it reaches the terminal link and the dashboard, both of which
     // sit behind the operator's own Tailscale login.
@@ -1834,14 +1859,19 @@ export class Dispatcher {
     // dashboard card and the `credential_hold` journal line both stand whatever
     // Discord did, and the operator's other two surfaces still say it.
     try {
+      const fault = provider === CODEX_PROVIDER
+        ? `cannot be refreshed: ${why}`
+        : `cannot be used: ${why}`
       await this.announce([
-        `⚠️ the \`${provider}\` model credential cannot be refreshed: ${why}.`,
+        `⚠️ the \`${provider}\` model credential ${fault}.`,
         who,
+        overseer,
         'Nothing new dispatches on this lane until someone signs in again.',
+        stopped,
         login,
-      ].join('\n'))
+      ].filter(Boolean).join('\n'))
     } catch (e) {
-      this.log(`the ${provider} credential alarm could not be announced (${e.message}) — the hold stands and the login is running`)
+      this.log(`the ${provider} credential alarm could not be announced (${e.message}). The hold stands, and the login is running`)
     }
   }
 
@@ -1934,11 +1964,9 @@ export class Dispatcher {
       // sync is what lets that same tick's fan-out and the next tick's stall
       // ladder do their jobs.
       //
-      // THE HOLD IS RELEASED ON EITHER LANE, even though only codex can take one
-      // today: `refresh: null` means nothing on the anthropic lane can classify a
-      // failure as terminal, so nothing holds it. Asking anyway costs one map
-      // lookup and is what stops #666's probe-401 hold from shipping a lane that
-      // signs in and stays frozen.
+      // THE HOLD IS RELEASED ON EITHER LANE. Codex can hold after a terminal
+      // refresh failure. Anthropic can hold after a terminal probe refusal.
+      // Asking here prevents either lane from signing in and staying frozen.
       const lifted = this.cooling.releaseHold(provider)
       if (lifted) {
         this.#frozenNoted.clear()
@@ -1979,10 +2007,14 @@ export class Dispatcher {
       consumer, provider, state: 'unowned', expires_at: null,
       why: 'this daemon brokers no model credential for that provider',
     })
+    const withHold = (row) => {
+      const held = this.cooling.heldFor(row.provider)
+      return held ? { ...row, held: row.held ?? { why: held.why } } : row
+    }
     return {
       consumers: [
-        this.credentials ? this.credentials.state() : unowned('codex', CODEX_PROVIDER),
-        ...['claude', 'overseer'].map((consumer) => (this.anthropic
+        withHold(this.credentials ? this.credentials.state() : unowned('codex', CODEX_PROVIDER)),
+        ...['claude', 'overseer'].map((consumer) => withHold(this.anthropic
           ? {
             ...this.anthropic.state(consumer),
             delivery: CONSUMER_CREDENTIALS[consumer].deliver.how,
@@ -7575,6 +7607,7 @@ export class Dispatcher {
     // classifier pass in stallSweep follows this repair and intercepts provider
     // faults before the ladder spends that rung (#647).
     await this.syncModelCredentials().catch((e) => this.log('the model credential sync failed:', e.message))
+    await this.checkAnthropicCredential().catch((e) => this.log('the anthropic credential check failed:', e.message))
     // The anthropic lane's half (#648). It runs on every tick for the reason the
     // codex fan-out does: it costs a content comparison per live claude agent,
     // and the tick it finally writes something is the tick the fleet would

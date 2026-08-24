@@ -146,6 +146,7 @@ function makeDispatcher(deps = {}, {
   // refresh token, so a test that forgot to pass one must broker nothing rather
   // than reach the box's own `~/.codex`.
   credentials = null,
+  anthropicHealth = null,
   // Discarded by default. A test that asserts on a boot line passes a collector,
   // because the lines it wants are written inside the constructor (#377).
   log = () => {},
@@ -322,6 +323,7 @@ function makeDispatcher(deps = {}, {
     minter,
     credentials,
     anthropic,
+    anthropicHealth,
     deps: { ...base, ...deps },
   })
   // #151: index.mjs hangs the identity proxy on the dispatcher the way it hangs
@@ -6756,6 +6758,67 @@ describe('a re-authentication session is invisible to every sweep (#642)', () =>
     assert.match(says[0], /Terminal: https:\/\/box\/attach/, 'the login is in the same breath as the alarm')
   })
 
+  test('an anthropic refusal holds both consumers, freezes only agents, and leaves the overseer available', async () => {
+    const says = []
+    const logins = []
+    const d = makeDispatcher()
+    d.announce = async (text) => { says.push(text); return true }
+    d.startReauth = async (opts) => { logins.push(opts); return 'sign-in running' }
+    d.agents.set('curia-600', { session: 'curia-600', ticket: '600', provider: 'anthropic', cfgDir: '/nowhere' })
+    d.agents.set('curia-574', { session: 'curia-574', ticket: '574', provider: 'openai', cfgDir: '/nowhere' })
+
+    await d.holdCredentialLane({
+      provider: 'anthropic', consumers: ['claude', 'overseer'], operation: 'anthropic account usage probe',
+      by: 'provider', status: 401, code: 'authentication_error',
+      why: 'Anthropic rejected the static credential with HTTP 401 authentication_error',
+    })
+
+    assert.equal(d.cooling.isCool('opus', 'anthropic'), true)
+    assert.equal(d.cooling.isCool('gpt', 'openai'), false)
+    assert.deepEqual(logins, [{ provider: 'anthropic', by: 'credential-hold' }])
+    const held = events.find((event) => event.type === 'credential_hold')
+    assert.deepEqual(held.consumers, ['claude', 'overseer'])
+    assert.equal(held.consumer, undefined)
+    assert.deepEqual(held.frozen, ['curia-600'])
+    assert.equal(held.operation, 'anthropic account usage probe')
+    const rows = d.credentialsStatus().consumers
+    assert.ok(rows.filter((row) => row.provider === 'anthropic').every((row) => row.held?.why))
+    assert.equal(rows.find((row) => row.provider === 'openai').held, undefined)
+    assert.match(says[0], /overseer is not frozen/i)
+    assert.match(says[0], /reauth|sign-in running/)
+    assert.ok(!says[0].includes('curia-574'))
+    assert.ok(!/no lane can take work/i.test(says[0]), 'the codex lane is still free, and the alarm does not overstate it')
+  })
+
+  test('the alarm says when the hold leaves no lane that can take work (#675)', async () => {
+    // A held anthropic lane on a box whose codex lane is already held dispatches
+    // nothing at all, and a codex cap has nowhere left to chain to. The per-lane
+    // lines read as a partial outage on their own, so the alarm says the whole.
+    const says = []
+    const d = makeDispatcher()
+    d.announce = async (text) => { says.push(text); return true }
+    d.startReauth = async () => 'sign-in running'
+    d.cooling.holdProvider('openai', 'refresh_token_reused')
+
+    await d.holdCredentialLane({
+      provider: 'anthropic', by: 'provider', status: 401, code: 'authentication_error',
+      why: 'Anthropic rejected the static credential with HTTP 401 authentication_error',
+    })
+
+    assert.match(says[0], /no lane can take work/i)
+    assert.match(says[0], /until someone signs in/i)
+  })
+
+  test('the dispatcher schedules the quota-free anthropic credential check', async () => {
+    let calls = 0
+    const d = makeDispatcher({}, {
+      anthropicHealth: { check: async () => { calls += 1; return { terminal: false, status: 200 } } },
+    })
+
+    assert.deepEqual(await d.checkAnthropicCredential(), { terminal: false, status: 200 })
+    assert.equal(calls, 1)
+  })
+
   // ONCE PER TRANSITION. The broker latches itself off the wire so a second
   // tick never reports terminal again — this pins the dispatcher's own guard,
   // the way the auth-session refusals are pinned on both paths.
@@ -7136,6 +7199,7 @@ describe('signing the anthropic lane back in (#660)', () => {
     d.credentials = { fanOut: () => { codexFanOut.push(1); return { healed: [], errors: [] } } }
     d.reauth.poll = async () => ({ provider: 'anthropic', state: 'done', expires_at: null })
     d.reauth.clear = () => {}
+    d.cooling.holdProvider('anthropic', 'authentication_error')
 
     await d.pollReauth()
 
@@ -7144,6 +7208,8 @@ describe('signing the anthropic lane back in (#660)', () => {
     assert.match(says[0], /`anthropic` is authenticated again/)
     assert.match(says[0], /curia-207, curia-625/)
     assert.ok(events.some((e) => e.type === 'credential_fanned_out' && e.provider === 'anthropic'))
+    assert.equal(d.cooling.isCool('opus', 'anthropic'), false)
+    assert.ok(events.some((e) => e.type === 'credential_hold_lifted' && e.provider === 'anthropic'))
   })
 
   // The OVERSEER is healed and is not in that list. Its delivery is the store

@@ -24,12 +24,14 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import {
-  AccountUsage, ModelWindows, accountWindows, bar, meterParts, paceMark, paceOf, payloadFromHeaders,
+  AccountUsage, AnthropicCredentialHealth, ModelWindows, accountWindows, bar, meterParts, paceMark, paceOf, payloadFromHeaders,
+  classifyAnthropicCredentialRefusal,
   readTranscriptMeters, modelName, windowFromModel, windowLabel, agentMeters,
   spentReset, transcriptReset, consoleConversationsOnWire,
   holdVerdict, hottestPct, COOL_PCT, WARM_PCT, SPENT_PCT,
   USAGE_ATTEMPT_MS, USAGE_STALE_MS, WINDOW_STALE_MS,
 } from '../src/usage.mjs'
+import { CREDENTIAL_RETRY_MS, TRANSIENT_RETRY_BOUND } from '../src/credentialpolicy.mjs'
 
 const NOW = Date.parse('2026-08-03T12:00:00Z')
 const MIN = 60 * 1000
@@ -464,6 +466,104 @@ describe('ModelWindows', () => {
     assert.equal(w.windowFor('../../v1/messages'), null)
     assert.equal(w.windowFor(null), null)
     assert.equal(w.windowFor(''), null)
+  })
+})
+
+describe('the anthropic credential health probe (#666)', () => {
+  const store = (token = 'setup-tok') => {
+    const box = { token }
+    return {
+      read: () => (box.token ? { token: box.token } : null),
+      set: (token) => { box.token = token },
+    }
+  }
+  const response = (status, type = null) => ({
+    ok: status < 400,
+    status,
+    json: async () => (type ? { error: { type } } : {}),
+  })
+
+  test('the stable error types are terminal, and a bare refusal is not', async () => {
+    assert.deepEqual(await classifyAnthropicCredentialRefusal(response(401, 'authentication_error')), {
+      terminal: true,
+      status: 401,
+      code: 'authentication_error',
+      why: 'Anthropic rejected the static credential with HTTP 401 authentication_error',
+    })
+    assert.equal((await classifyAnthropicCredentialRefusal(response(403, 'permission_error'))).terminal, true)
+    assert.equal((await classifyAnthropicCredentialRefusal(response(401))).terminal, false)
+    assert.equal(await classifyAnthropicCredentialRefusal(response(500)), null)
+  })
+
+  test('one typed 401 reports the lane failure and latches the same credential off the wire', async () => {
+    let now = NOW
+    let calls = 0
+    const terminal = []
+    const owned = store()
+    const probe = new AnthropicCredentialHealth({
+      credentials: owned,
+      now: () => now,
+      fetchImpl: async () => { calls += 1; return response(401, 'authentication_error') },
+      onTerminal: async (outcome) => terminal.push(outcome),
+    })
+
+    await probe.check()
+    now += 10 * USAGE_ATTEMPT_MS
+    await probe.check()
+
+    assert.equal(calls, 1)
+    assert.equal(terminal.length, 1)
+    assert.equal(terminal[0].provider, 'anthropic')
+    assert.deepEqual(terminal[0].consumers, ['claude', 'overseer'])
+    assert.equal(terminal[0].by, 'provider')
+
+    owned.set('replacement')
+    await probe.check()
+    assert.equal(calls, 2, 'a different credential is measured rather than inheriting the old latch')
+  })
+
+  test(`${TRANSIENT_RETRY_BOUND} bare 401 answers retry one minute apart, then report a bounded failure`, async () => {
+    let now = NOW
+    let calls = 0
+    const terminal = []
+    const probe = new AnthropicCredentialHealth({
+      credentials: store(),
+      now: () => now,
+      fetchImpl: async () => { calls += 1; return response(401) },
+      onTerminal: async (outcome) => terminal.push(outcome),
+    })
+
+    for (let i = 0; i < TRANSIENT_RETRY_BOUND; i += 1) {
+      await probe.check()
+      now += CREDENTIAL_RETRY_MS
+    }
+
+    assert.equal(calls, TRANSIENT_RETRY_BOUND)
+    assert.equal(terminal.length, 1)
+    assert.equal(terminal[0].by, 'bound')
+    assert.equal(terminal[0].attempts, TRANSIENT_RETRY_BOUND)
+  })
+
+  test('an accepted answer resets the refusal sequence', async () => {
+    let now = NOW
+    const answers = [response(401), response(200), ...Array(TRANSIENT_RETRY_BOUND - 1).fill(response(401))]
+    const terminal = []
+    const probe = new AnthropicCredentialHealth({
+      credentials: store(),
+      now: () => now,
+      fetchImpl: async () => answers.shift(),
+      onTerminal: async (outcome) => terminal.push(outcome),
+    })
+
+    await probe.check()
+    now += CREDENTIAL_RETRY_MS
+    await probe.check()
+    for (let i = 0; i < TRANSIENT_RETRY_BOUND - 1; i += 1) {
+      now += USAGE_ATTEMPT_MS
+      await probe.check()
+    }
+
+    assert.deepEqual(terminal, [])
   })
 })
 
@@ -977,7 +1077,7 @@ describe('AccountUsage', () => {
     assert.equal(fs.existsSync(stampFile), false, 'no credential, no attempt, no stamp')
   })
 
-  test('a refused credential is never refreshed — probing stops until the credential changes', async () => {
+  test('a typed 401 holds on the first answer and probing stops until the credential changes', async () => {
     home()
     const owned = store('expired')
     let calls = 0
@@ -986,7 +1086,14 @@ describe('AccountUsage', () => {
       log: () => {},
       now: at(),
       credentials: owned,
-      fetchImpl: async () => { calls += 1; return { ok: false, status: 401, headers: headers({}) } },
+      fetchImpl: async () => {
+        calls += 1
+        return {
+          ok: false, status: 401, headers: headers({}),
+          json: async () => ({ error: { type: 'authentication_error' } }),
+        }
+      },
+      onTerminal: async (outcome) => { assert.equal(outcome.by, 'provider') },
     })
     u.windows()
     await u.pending
@@ -1004,6 +1111,104 @@ describe('AccountUsage', () => {
     // refusal is keyed on the credential ITSELF rather than on the store's
     // mtime, which is what makes it survive a rewrite that changed nothing.
     owned.set('tok-2')
+    fs.rmSync(path.join(dir, '.claude', 'cache', 'oauth-usage.attempt'), { force: true })
+    u.windows()
+    await u.pending
+    assert.equal(calls, 2)
+  })
+
+  test('a typed refusal also preserves the usage headers', async () => {
+    home()
+    const terminal = []
+    const u = new AccountUsage({
+      home: dir,
+      now: at(),
+      credentials: store(),
+      fetchImpl: async () => ({
+        ok: false,
+        status: 401,
+        headers: limitHeaders(73, 64),
+        json: async () => ({ error: { type: 'authentication_error' } }),
+      }),
+      onTerminal: async (outcome) => terminal.push(outcome),
+    })
+
+    u.windows()
+    await u.pending
+
+    assert.equal(terminal.length, 1)
+    assert.deepEqual(u.windows().map((w) => w.pct), [73, 64])
+  })
+
+  test('a bare 401 latches this reader off the wire: no retry, no bound, no hold (#675)', async () => {
+    // ONE DETECTOR OWNS THE SEQUENCE. The counter, the clock and the bound live
+    // on the quota-free metadata probe. This reader spends a real completion per
+    // attempt, so an unrecognized refusal ends its probing the way every refusal
+    // did before the lane hold existed.
+    home()
+    let now = NOW
+    let calls = 0
+    const terminal = []
+    const said = []
+    const stampFile = path.join(dir, '.claude', 'cache', 'oauth-usage.attempt')
+    const u = new AccountUsage({
+      home: dir,
+      log: (line) => said.push(line),
+      now: () => now,
+      credentials: store(),
+      fetchImpl: async () => {
+        calls += 1
+        return { ok: false, status: 401, headers: headers({}), json: async () => ({}) }
+      },
+      onTerminal: async (outcome) => terminal.push(outcome),
+    })
+
+    u.windows()
+    await u.pending
+    assert.equal(calls, 1)
+    assert.equal(fs.existsSync(stampFile), true, 'the refused attempt took the shared stamp')
+
+    // Five one-minute ticks with the shared lock cleared out of the way, so the
+    // only thing that can stop a second attempt is the latch itself.
+    for (let i = 0; i < TRANSIENT_RETRY_BOUND; i += 1) {
+      now += CREDENTIAL_RETRY_MS
+      fs.rmSync(stampFile, { force: true })
+      u.windows()
+      await u.pending
+    }
+
+    assert.equal(calls, 1, 'one attempt, then the latch, whatever the clock says')
+    assert.deepEqual(terminal, [], 'an unrecognized refusal never holds the lane from here')
+    assert.match(said.join('\n'), /unrecognized HTTP 401/)
+  })
+
+  test('a refusal buys no exemption from the shared attempt stamp (#675)', async () => {
+    // Rule 4 is a lock shared with the operator's own statusline.sh. A fresh
+    // stamp stands down a probe whose credential carries no latch at all.
+    home()
+    let calls = 0
+    const owned = store('expired')
+    const u = new AccountUsage({
+      home: dir,
+      log: () => {},
+      now: at(),
+      credentials: owned,
+      fetchImpl: async () => {
+        calls += 1
+        return { ok: false, status: 401, headers: headers({}), json: async () => ({}) }
+      },
+    })
+    u.windows()
+    await u.pending
+    assert.equal(calls, 1)
+
+    // A replacement credential clears the latch. The stamp the refusal took is
+    // not cleared with it, so this attempt waits for the window like any other.
+    owned.set('tok-2')
+    u.windows()
+    await u.pending
+    assert.equal(calls, 1, 'the shared lock still stands over a refusal retry')
+
     fs.rmSync(path.join(dir, '.claude', 'cache', 'oauth-usage.attempt'), { force: true })
     u.windows()
     await u.pending
