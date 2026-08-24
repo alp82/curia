@@ -1,1 +1,18 @@
-{}
+{
+  "enableAllProjectMcpServers": true,
+  "permissions": {
+    "defaultMode": "bypassPermissions"
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "curl -s -X POST 'http://host.docker.internal:4271/agent_done?agent=curia-671' -H 'Content-Type: application/json' -H 'x-curia-agent-token: 0612cbe8fdd4c3ba93e5065d28ad0904620a495e1d49661caeb667c8a03d7d50' -d @-"
+          }
+        ]
+      }
+    ]
+  }
+}
