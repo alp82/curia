@@ -708,6 +708,55 @@ receipt reads `via select menu` rather than `via button` (`bridge.mjs:1742`).
 rule this file has held since #551: the page reads a whole real escalation with no script at all.
 When a story is picked, it becomes the static one.
 
+**The operator picked the medium, and settled four more things:**
+
+> 1. medium
+> 2. discords default colors
+> 3. let's make this, thread names, etc. more accessible for the sake of the landing page. easy and
+>    short, nothing cryptic
+> 4. keep it. pressing the button can be visualized with some kind of mini animation and pulse or
+>    even cursor movement that appears and disappears
+>
+> window title should be Discord instead of AI Stack. alp82 should be Alper. selected thread should
+> be correct in the sidebar. the window can be bigger in both dimensions if there is the space, we
+> can also scale the font once we reach a certain viewport width like you do for smallest screens
+
+**Round 5.** The scene tells [#601](https://github.com/alp82/curia/issues/601), the medium of every
+proof moment, and its answer is what built every scene of this page.
+
+**The card is now the redressed shape of
+[ADR-0025](../../docs/adr/0025-the-cards-under-the-one-voice.md).** That answers the head-line
+question three rounds carried, and it answers it the accessible way, because the two answers agree:
+
+- The card head is dead ([ADR-0021](../../docs/adr/0021-the-thread-formatting-and-the-one-voice.md)).
+  No `[esc-1]`, no `curia-601`, no `(choice)`. The `❓` carries the signal on the headline.
+- The button carries a letter and a short handle, `A · HTML`, because the body already holds the
+  full words. It is a press target, not the option said twice.
+- The answered mark is small print.
+
+**The names came down to plain words.** A thread reads `⏳ 601 · the proof medium`, not
+`⏳ 601 · curia · grilling`. That is a DEVIATION from `bridge.mjs:644`, taken on the operator's
+ruling that this page reads to a stranger first. The open thread is the selected one, which it was
+not before. The window is titled Discord, the operator is Alper, and the server is curia.
+
+**The press is shown, not merely recorded.** The scroll fires the beat, a short animation runs, and
+the answer lands on its heel. Then the true thing happens: curia edits the card and clears its
+components, so the button rows really do collapse away, the mark comes up in small print, the
+message wears `(edited)`, and the thread turns green in the header and the channel list at once.
+
+Five presses ride `?d=1..5`:
+
+1. **cursor** — a pointer flies in from off the window, lands on the button, clicks, and leaves.
+2. **pulse** — the button rings twice before it takes the answer.
+3. **tap** — a thumb lands in the middle of it.
+4. **ripple** — the press washes across it.
+5. **lift** — the button rises to meet the press.
+
+**Bigger where there is room.** The window goes to 66rem past 64rem of viewport and 76rem past
+96rem, the height cap takes 88 per cent of what the claim leaves, and the type scales with the
+window up to 16.5px, which is about what the client itself uses. The floor of 7px on the smallest
+screens is unchanged.
+
 ## The verdict of the opening arc ([#625](https://github.com/alp82/curia/issues/625))
 
 **Locked over nine operator rounds.** The other four pipelines, the switcher and the `?id` parameter
