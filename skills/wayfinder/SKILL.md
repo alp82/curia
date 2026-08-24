@@ -122,7 +122,16 @@ User invokes with a map (URL or number). A ticket is **optional** — without on
 1. Load the **map** — the low-res view, not every ticket body.
 2. Choose the ticket. If the user named one, use it. Otherwise take the first frontier ticket in order. **Claim it**: assign it to yourself before any work.
 3. Resolve it — **zoom as needed**: fetch the full body of any related or closed ticket on demand; invoke the skills the `## Notes` block names. If in doubt, use `/grilling` and `/domain-modeling`.
-4. Record the resolution: post the answer as a **resolution comment**, **close** the issue, and **append a context pointer** to the map's Decisions-so-far.
-5. Add newly-surfaced tickets (create-then-wire); graduate any fog the answer has made specifiable, clearing each graduated patch from **Not yet specified** so it lives only as its new ticket. If the answer reveals a ticket — this one or another — sits beyond the destination, **rule it out of scope** rather than resolving it on the route. If the decision invalidates other parts of the map, update or delete those tickets.
+4. Add newly surfaced tickets.
+5. Wire the blocking edges for the new tickets.
+6. For each fog patch the answer made specifiable, graduate the patch into tickets.
+7. Clear each graduated patch from **Not yet specified**.
+8. If the answer puts a ticket beyond the destination, **rule it out of scope** rather than resolving it on the route.
+9. If the decision invalidates other tickets, update or delete those tickets.
+10. Post the answer as a **resolution comment**.
+11. **Close** the issue.
+12. **Append a context pointer** to the map's Decisions-so-far.
+
+In every resolution comment and the `report_result` summary, name each direct follow-up ticket this session created or unblocked. This includes an existing follow-up ticket you unblock and a new follow-up ticket you create. Keep each ticket number and title. If there is no direct follow-up ticket, state that fact in both places. Keep this information out of question cards.
 
 The user may run unblocked tickets in parallel, so expect other sessions to be editing the tracker concurrently.

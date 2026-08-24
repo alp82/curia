@@ -21,6 +21,7 @@ import {
 import { ENDING } from '../src/lifecycle.mjs'
 
 const ISSUE = { number: 42, title: 'Close the loop', body: 'the question' }
+const TICKET_TYPES = ['wayfinder:research', 'wayfinder:prototype', 'wayfinder:grilling', 'wayfinder:task', null]
 
 let tmp
 beforeEach(() => { tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-prompt-test-')) })
@@ -43,6 +44,24 @@ function writeParts(opts) {
     prompt: fs.readFileSync(file, 'utf8'),
     standing: fs.readFileSync(path.join(tmp, STANDING_FILE), 'utf8'),
   }
+}
+
+function writeTicketType(type) {
+  return write({
+    mapNumber: type ? 1 : null,
+    type,
+    ...(type === 'wayfinder:prototype' ? { prototypeVariations: 3 } : {}),
+  })
+}
+
+function forEveryTicketType(assertion) {
+  for (const type of TICKET_TYPES) assertion(writeTicketType(type), type ?? 'untyped')
+}
+
+function assertBothEndingRecords(generatedInstructions, label) {
+  assert.match(generatedInstructions, /ticket number and title/i, `${label} omits the ticket identity`)
+  assert.match(generatedInstructions, /resolution comment and the `report_result` summary/i,
+    `${label} omits one ending record`)
 }
 
 describe('the wayfinder invocation', () => {
@@ -397,6 +416,40 @@ describe('the ordered ending', () => {
   test('a mapless ticket is told to resolve on the tracker instead of through the skill', () => {
     assert.match(write({ mapNumber: null }), /post the resolution as a comment on o\/r#42/)
     assert.match(write({ mapNumber: 1 }), /the resolve step of the skill you are running/)
+  })
+
+  test('every ticket type names each existing ticket it unblocks in both ending records', () => {
+    forEveryTicketType((generatedInstructions, label) => {
+      assert.match(generatedInstructions, /existing\s+follow-up ticket[^.]*unblock/i,
+        `${label} omits existing follow-up tickets`)
+      assertBothEndingRecords(generatedInstructions, label)
+    })
+  })
+
+  test('every ticket type names each new follow-up ticket it creates in both ending records', () => {
+    forEveryTicketType((generatedInstructions, label) => {
+      assert.match(generatedInstructions, /new\s+follow-up ticket[^.]*create/i,
+        `${label} omits new follow-up tickets`)
+      assertBothEndingRecords(generatedInstructions, label)
+    })
+  })
+
+  test('every ticket type records when it has no direct follow-up ticket', () => {
+    forEveryTicketType((generatedInstructions, label) => {
+      assert.match(generatedInstructions, /no direct follow-up ticket/i, `${label} omits the empty result`)
+    })
+  })
+
+  test('charting endings record follow-up tickets from resolved research tickets', () => {
+    for (const generatedInstructions of [
+      write({ mapNumber: 1, charting: true }),
+      write({ newMap: true, instruction: 'Chart a map' }),
+    ]) {
+      assert.match(generatedInstructions, /existing\s+follow-up ticket[^.]*unblock/i)
+      assert.match(generatedInstructions, /new\s+follow-up ticket[^.]*create/i)
+      assert.match(generatedInstructions, /no direct follow-up ticket/i)
+      assertBothEndingRecords(generatedInstructions, 'charting')
+    }
   })
 
   test('blocked is still the honest way out, and the Stop hook is announced', () => {
