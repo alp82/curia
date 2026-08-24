@@ -1087,6 +1087,85 @@ them outright.
 
 > 1 - i have nothing to complain
 
+## The terminal scene ([#629](https://github.com/alp82/curia/issues/629))
+
+Scene 7 — the harness, live. The operator's note at #551 round 2, verbatim:
+
+> the claude code and codex tui's look not like their original counterparts at all. they should
+> be really realistic
+
+**What the rebuild rests on.** This repo already holds verbatim tmux captures of both TUIs, taken
+by earlier probes, so nothing here is drawn from memory:
+
+| what | where | what it gives |
+|------|-------|---------------|
+| Claude Code v2.1.220 | [prototypes/overseer-pane/evidence/](../overseer-pane/evidence/) and [prototypes/pane-rewind/evidence/](../pane-rewind/evidence/) | the banner, the ❯ turn, the ● tool row, the ⎿ result row, the ✻ elapsed line, the two composer rules, the ⏵⏵ mode footer |
+| Codex 0.146.0 | [prototypes/pane-rewind/evidence/codex-\*.txt](../pane-rewind/evidence/) | the rounded banner box, the Tip block, the › turn, the • Ran row with its └ output, the full-width separators around an answer, the `<model> <effort> · <cwd>` footer |
+| the terminal chrome | [prototypes/embedded-terminal/](../embedded-terminal/) (#537) | the window, the tmux status bar |
+
+**A terminal is a character grid, and that is what the old pane got wrong.** The panes are
+authored at exactly 58 columns, and the script measures a 58ch ruler against the live frame and
+scales the font until 58 columns fill it. So the Codex banner box, the Claude composer rules and
+every ─ separator end on the same column at every width. Line height is exactly 1, because a
+browser draws │ at the glyph height and any leading opens a gap a real terminal does not have.
+Each pane is a scrollback and a composer, the way both TUIs are built: the transcript sits at the
+bottom of the pane and the input row never moves.
+
+**The records are real** ([#601](https://github.com/alp82/curia/issues/601)). The Claude Code pane
+is this ticket's own session. `config/routing.yaml` routes a prototype ticket to `opus` on the
+claude harness, which is why the banner says Opus 5 and the footer says bypass permissions. The
+Codex pane is [#579](https://github.com/alp82/curia/issues/579), a research ticket, which the same
+file sends to `gpt-5.6-sol` at high effort on the codex harness. Its numbers are the measured ones
+in [docs/research/codex-deferred-curia-tools.md](../../docs/research/codex-deferred-curia-tools.md).
+Both `Read 24 lines` rows are the true line counts of the two captures they name.
+
+**The one thing a capture cannot record is color.** Every capture in this repo is plain text, so
+the structure is lifted and the hues are chosen: Claude Code carries a warm clay accent on its
+mark, its elapsed line and its permission mode, and Codex is almost monochrome. Round 1 asks the
+operator to judge that by eye, because nothing here can.
+
+**Round 1.** Five compositions on `?id=1..5`, differing in the chrome around the pane and in how
+the two harnesses are reached, not in ornament: 1 tab (a browser window over the tailnet URL, tmux
+windows switch), 2 split (one tmux, both harnesses at once), 3 full (edge to edge, the status bar
+the only chrome), 4 rail (curia's own frame, a harness rail beside the pane), 5 type (the session
+prints as you watch, then hands to codex). Four questions went with them: the composition, whether
+the TUIs read as real, whether 58 columns is the right density on a phone, and whether the winner
+should print itself.
+
+**The scene is one composition canvas.** The claim, the terminal and the fact line are grid items
+of `.tm`. The old scene 7 held the claim in a centred `.wrap` and the pane in a `.shot`, which is
+the pair that broke the preview scene at [#627](https://github.com/alp82/curia/issues/627) round 3
+and the atlas at [#628](https://github.com/alp82/curia/issues/628) round 2, at a desktop width no
+agent here can see.
+
+**Eighteen build checks** run against the file, and every one was shown a real failure first. They
+cover the canvas, the identity frame, the locked words, the character grid, the TUI markers, the
+real records, the distinctness of the five compositions, the classes and hooks, the no-script and
+reduced-motion paths, the build rules and balanced markup.
+
+**Two of the eighteen were wrong before they were right**, which is the lesson this file keeps
+relearning:
+
+- **A break landed in the wrong scene.** The mutation meant to prove the `.wrap` check inserted a
+  `.wrap` at the first `<header class="claim rv">` in the whole file, which belongs to an earlier
+  scene. The check stayed green and proved nothing. This is the same fault #628 recorded, repeated
+  by the same shortcut. The break targets scene 7 by its own hook now.
+- **The distinctness check compared the wrong scope.** It gathered every declaration a composition
+  contributes, including the ones inside the desktop media query. A composition copied wholesale
+  still looked different, because its media-query rules survived the copy. It compares the base
+  scope now, which is where a composition states what it is.
+
+**One layout fault found by reading, not by a check.** The scrollback was a column flex box, which
+made the transcript sit at the bottom. Composition 5 wraps every line in its own span so it can
+print them one at a time, and in a flex box each of those spans becomes a flex item, with the
+newline between two of them taking a row of its own. The pane is a block box now, pushed down with
+`margin-top: auto`, which holds the same alignment and leaves the spans inline.
+
+**The cutover check still stands.** The fact line names four harnesses and `config/routing.yaml`
+ships `claude` and `codex` today, so [#604](https://github.com/alp82/curia/issues/604) must hold
+that line until the code lands. A build check asserts the file still ships two, and it goes red on
+the day it ships four, which is the day the line is safe.
+
 ## The verdict of the atlas scene ([#628](https://github.com/alp82/curia/issues/628))
 
 **Locked over three operator rounds.** The four compositions that lost, and the bar that carried

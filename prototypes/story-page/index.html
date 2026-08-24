@@ -1277,45 +1277,236 @@
   }
 
   /* ================================================================
-     Scene 7 — the harness, live. The embedded terminal in its own
-     tokens, with a real pane and the tmux status bar.
+     Scene 7 — the harness, live (#629).
+
+     THE PANES ARE THE REAL TUIs, not an impression of them. Every row
+     is the shape of a verbatim tmux capture kept in this repo:
+     prototypes/pane-rewind/evidence/claude-*.txt and
+     prototypes/overseer-pane/evidence/pane-*.txt for Claude Code,
+     prototypes/pane-rewind/evidence/codex-*.txt for Codex. The banner,
+     the ⎿ result rows, the ✻ elapsed line, the composer rules and the
+     ⏵⏵ mode footer are Claude Code v2.1.220. The rounded banner box,
+     the • Ran row with its └ output, the full-width separators around
+     an answer and the `<model> <effort> · <cwd>` footer are Codex
+     0.146.0. The chrome around them is the embedded terminal decided
+     at #537 (prototypes/embedded-terminal/), with its tmux status bar.
+
+     A terminal is a CHARACTER GRID, so both panes are authored at
+     exactly 58 columns and the script scales the font until 58 columns
+     fill the frame. That is what makes the box drawing meet: the Codex
+     banner box, the Claude composer rules and every ─ separator end on
+     the same column at every width. Line height is exactly 1, because
+     a browser draws │ at the glyph height and any leading opens a gap
+     the real terminal does not have. With no script the clamp keeps it
+     close and the pane clips rather than reflowing.
+
+     Each pane is a SCROLLBACK and a COMPOSER, the way both TUIs are
+     built: .tm-out holds the transcript and is bottom-aligned inside a
+     bounded screen, .tm-in holds the input row and the status footer
+     and never moves.
+
+     The scene is ONE composition canvas — the claim, the terminal and
+     the fact line are grid items of .tm. No .wrap and no .shot: that
+     pair broke the preview scene at #627 round 3 and the atlas at #628
+     round 2, at a desktop width no agent here can see.
+
+     ROUND 1 of #629 offers five compositions on ?id=1..5. They differ
+     in the chrome around the pane and in how the two harnesses are
+     reached, not in ornament:
+       1 tab    a browser window on the tailnet URL; tmux windows switch
+       2 split  one tmux, both harnesses at once in a split
+       3 full   edge to edge, no chrome but the status bar
+       4 rail   curia's own frame: a harness rail beside the pane
+       5 type   the session prints as you watch, then hands to codex
      ================================================================ */
-  .term {
-    background: #0b0e12; border: 1px solid #262d33; border-radius: 10px; overflow: hidden;
-    box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
+  .tm {
+    position: relative; width: 100%; max-width: 96rem; margin: 0 auto;
+    padding: 0 clamp(1.1rem, 5vw, 4rem);
+    display: grid; align-content: start; row-gap: 1.15rem;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "claim" "term" "fact";
   }
-  .term-head {
-    display: flex; align-items: center; gap: 0.55rem;
-    background: #0c0f11; border-bottom: 1px solid #262d33;
-    padding: 0.4rem 0.65rem; font: 0.68rem var(--mono); color: #5a6472;
-    white-space: nowrap; overflow: hidden;
+  .tm > .claim { grid-area: claim; margin: 0; }
+  .tm > .fact { grid-area: fact; margin: 0; }
+  .tm-stage { grid-area: term; min-width: 0; position: relative; }
+
+  /* ---- the window ---- */
+  .tmw {
+    position: relative; background: #0b0e12; border: 1px solid #262d33; border-radius: 10px; overflow: hidden;
+    box-shadow: 0 1.6rem 3.2rem -1.2rem rgba(0, 0, 0, 0.85), 0 0.3rem 1rem rgba(0, 0, 0, 0.4);
   }
-  .term-head .sess { color: #dde3e0; font-weight: 700; }
-  .term-head .url { overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; }
-  .term-head .pill {
-    flex: none; border-radius: 999px; padding: 0.1rem 0.5rem;
-    background: #12241f; color: #4cc2a0; font-weight: 600;
+  .tm-panes { display: block; }
+  .tm-pane {
+    display: flex; flex-direction: column; min-width: 0;
+    min-height: var(--tmh, 14rem);
   }
-  .term-tabs { display: flex; gap: 0.4rem; padding: 0.5rem 0.65rem 0; }
-  .term-tab {
-    font: 600 0.7rem var(--mono); color: #6b7684; background: none;
-    border: 1px solid #262d33; border-radius: 6px; padding: 0.28rem 0.6rem; cursor: pointer;
+  .tm-pane[hidden] { display: none; }
+  /* The scrollback sits at the BOTTOM of the pane and the composer under
+     it, the way both TUIs hold their input row against the last line.
+     margin-top: auto does that, and the pane stays a block box: with
+     display: flex here, composition 5's per-line spans would each become
+     a flex item and the newlines between them would take rows of their
+     own. */
+  .tm-out { display: block; margin: auto 0 0; padding: 0.5rem 0.6rem 0; overflow: hidden; }
+  .tm-in { margin: 0; padding: 0.2rem 0.6rem 0.5rem; overflow: hidden; }
+  .tm-out, .tm-in {
+    font-family: var(--mono);
+    font-size: var(--tmfs, clamp(0.4rem, 2.05vw, 0.8rem));
+    line-height: 1; color: #d7dce4; white-space: pre;
   }
-  .term-tab[aria-pressed="true"] { color: #58c99a; border-color: #58c99a; }
-  .term pre {
-    margin: 0; padding: 0.6rem 0.75rem 0.7rem; overflow-x: auto;
-    font: 0.72rem/1.45 var(--mono); color: #d6dde6; white-space: pre;
+  /* the 58-column ruler the script measures the frame against */
+  .tm-ruler {
+    position: absolute; left: 0; top: 0; visibility: hidden; pointer-events: none;
+    width: 58ch; height: 0; overflow: hidden;
+    font-family: var(--mono); font-size: var(--tmfs, clamp(0.4rem, 2.05vw, 0.8rem));
   }
-  .term .g { color: #58c99a; }
-  .term .y { color: #e0c06a; }
-  .term .b { color: #6aa9e0; }
-  .term .d { color: #6b7684; }
-  .term .cur { background: #d6dde6; color: #0b0e12; animation: blink 1.1s steps(1) infinite; }
-  @keyframes blink { 50% { background: none; color: #d6dde6; } }
-  .tmux-bar {
-    display: flex; justify-content: space-between; gap: 0.5rem;
-    font: 0.68rem/1.7 var(--mono); background: #1c3d33; color: #9fe0c6; padding: 0 0.6rem;
+
+  /* Read off the two TUIs: Claude Code carries a warm clay accent on
+     its mark, its elapsed line and its permission mode; Codex is
+     almost monochrome. Nothing here is guessed structure — the hues
+     are the one thing a text capture cannot record. */
+  .tm-out .lg, .tm-out .sp { color: #d97757; }
+  .tm-out .tn { color: #eef1f6; font-weight: 700; }
+  .tm-out .ar { color: #98a1b0; }
+  .tm-out .bu { color: #ccd3dd; }
+  .tm-out .bx { color: #5c6675; }
+  .tm-out .cy { color: #9aa4b2; }
+  .tm-out .d, .tm-in .d { color: #79808d; }
+  .tm-in .bd { color: #3a434f; }
+  .tm-in .o { color: #d97757; }
+  .tm-in .cy { color: #9aa4b2; }
+  .tm-out .pad { color: transparent; }
+  .tm-in .cur { background: #d7dce4; color: #0b0e12; animation: blink 1.05s steps(1) infinite; }
+  @keyframes blink { 50% { background: none; color: #d7dce4; } }
+
+  /* ---- the tmux status bar: the window list IS the harness switch,
+     the way C-b n is in a real session ---- */
+  .tmux {
+    display: flex; align-items: center; gap: 0.15rem;
+    background: #1c3d33; color: #9fe0c6; padding: 0 0.45rem;
+    font: 0.62rem/1.85 var(--mono); white-space: nowrap; overflow: hidden;
   }
+  .tmux .sess { padding-right: 0.4rem; }
+  .tmux .clock { margin-left: auto; padding-left: 0.5rem; }
+  .tmw-btn {
+    border: 0; background: none; color: #9fe0c6; font: inherit; padding: 0 0.35rem;
+    cursor: pointer; border-radius: 2px;
+  }
+  .tmw-btn::after { content: ' '; }
+  .tmw-btn[aria-pressed="true"] { background: #9fe0c6; color: #0b2019; }
+  .tmw-btn[aria-pressed="true"]::after { content: '*'; }
+
+  /* ---- the browser around the tab (composition 1) ---- */
+  .br { display: none; background: #16181d; border-bottom: 1px solid #262d33; }
+  .br-tabs { display: flex; align-items: center; gap: 0.4rem; padding: 0.4rem 0.55rem 0; }
+  .br-dot { width: 0.46rem; height: 0.46rem; border-radius: 50%; flex: none; background: #3d444d; }
+  .br-dot.r { background: #e06c60; } .br-dot.y { background: #e0b34c; } .br-dot.g { background: #62c06a; }
+  .br-tab {
+    font: 0.6rem/1.6 var(--mono); color: #79808d; background: #101318;
+    border-radius: 6px 6px 0 0; padding: 0.22rem 0.55rem;
+    max-width: 11rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .br-tab.on { background: #0b0e12; color: #dbe1e9; }
+  .br-url {
+    display: flex; align-items: center; gap: 0.4rem; padding: 0.32rem 0.6rem;
+    background: #0b0e12; font: 0.6rem/1.6 var(--mono); color: #8a93a3;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .br-url .lock { color: #7dd3a0; }
+
+  /* ---- curia's own frame (composition 4) ---- */
+  .tm-rail { display: none; }
+  .tm-rail .rh {
+    font: 700 0.56rem var(--mono); letter-spacing: 0.2em; text-transform: uppercase;
+    color: #8a93a3; padding: 0.6rem 0.7rem 0.4rem;
+  }
+  .tm-rail button {
+    display: block; width: 100%; text-align: left; border: 0; background: none; cursor: pointer;
+    color: #aab3c1; font: 0.72rem/1.35 var(--sans); padding: 0.42rem 0.7rem; border-radius: 7px;
+  }
+  .tm-rail button b { display: block; font-weight: 700; color: #e6e9ef; }
+  .tm-rail button span { font: 0.62rem var(--mono); color: #79808d; }
+  .tm-rail button[aria-pressed="true"] { background: #15281f; }
+  .tm-rail button[aria-pressed="true"] b { color: #7dd3a0; }
+
+  /* ---- the split (composition 2) ---- */
+  .tm-panes.split .tm-pane { display: flex !important; }
+  .tm-panes.split .tm-pane + .tm-pane { border-top: 1px solid #2c3540; }
+  .tm-panes.split .tm-pane { min-height: var(--tmhs, 10rem); }
+
+  /* the identity saturates the evidence with the scroll value (#624
+     rule 5); the .shot that used to carry it is gone from this scene */
+  #term-scene .tm-stage { filter: saturate(calc(0.62 + 0.38 * var(--p, 1))); }
+
+  /* ================= the five compositions ================= */
+
+  /* 1 tab — a browser window on the tailnet URL. */
+  .tm.c1 .br { display: block; }
+  .tm.c1 .tm-stage { max-width: 46rem; margin-right: 0; }
+
+  /* 2 split — one tmux, both harnesses at once. */
+  .tm.c2 .tmux .tmw-btn { pointer-events: none; }
+
+  /* 3 full — edge to edge, no chrome but the status bar. */
+  .tm.c3 { max-width: none; padding: 0; }
+  .tm.c3 > .claim, .tm.c3 > .fact {
+    width: 100%; max-width: 96rem; margin: 0 auto;
+    padding: 0 clamp(1.1rem, 5vw, 4rem);
+  }
+  .tm.c3 .tmw { border-radius: 0; border-left: 0; border-right: 0; box-shadow: none; }
+  .tm.c3 .tm-pane { min-height: var(--tmhf, 22rem); }
+
+  /* 4 rail — curia's frame, a harness rail beside the pane. */
+  .tm.c4 .tmw { display: grid; grid-template-columns: minmax(0, 1fr); background: #0f1116; }
+  .tm.c4 .tm-rail { display: block; background: #0f1116; border-bottom: 1px solid #262d33; }
+  .tm.c4 .tm-rail .rl { display: flex; gap: 0.3rem; padding: 0 0.5rem 0.5rem; }
+  .tm.c4 .tm-rail button { width: auto; flex: 1; }
+  .tm.c4 .tm-body { background: #0b0e12; min-width: 0; }
+  .tm.c4 .tm-stage { max-width: 48rem; margin-right: 0; }
+
+  /* 5 type — the session prints as you watch. */
+  .tm.c5 .tm-out .ln { visibility: hidden; }
+  .tm.c5 .tm-out .ln.on { visibility: visible; }
+  .tm.c5 .tm-in { opacity: 0.55; }
+  .tm.c5 .tm-stage { max-width: 44rem; margin-right: 0; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .tm.c5 .tm-out .ln { visibility: visible; }
+    .tm-in .cur { animation: none; }
+  }
+
+  @media (min-width: 60rem) {
+    .tm {
+      column-gap: clamp(1.5rem, 3vw, 3rem);
+      grid-template-columns: minmax(0, 1.35fr) minmax(15rem, 0.85fr);
+      grid-template-areas: "term claim" "term fact";
+      align-items: center;
+    }
+    .tm > .fact { align-self: start; }
+    .tm.c3 { grid-template-columns: minmax(0, 1fr); grid-template-areas: "claim" "term" "fact"; }
+    .tm.c1 .tm-stage, .tm.c4 .tm-stage, .tm.c5 .tm-stage { max-width: none; }
+    .tm.c2 .tm-panes.split { display: grid; grid-template-columns: 1fr 1fr; }
+    .tm.c2 .tm-panes.split .tm-pane + .tm-pane { border-top: 0; border-left: 1px solid #2c3540; }
+    .tm.c4 .tmw { grid-template-columns: 12.5rem minmax(0, 1fr); }
+    .tm.c4 .tm-rail { border-bottom: 0; border-right: 1px solid #262d33; }
+    .tm.c4 .tm-rail .rl { display: block; }
+    .tm.c4 .tm-rail button { width: 100%; }
+  }
+
+  /* ---- the round switcher; it leaves the file when the scene locks ---- */
+  .idsw {
+    position: fixed; z-index: 50; left: 50%; transform: translateX(-50%);
+    bottom: calc(0.6rem + env(safe-area-inset-bottom));
+    display: flex; gap: 0.3rem; align-items: center;
+    background: #0d1015e6; border: 1px solid var(--line); border-radius: 999px;
+    padding: 0.3rem 0.45rem; backdrop-filter: blur(8px);
+  }
+  .idsw span { font: 700 0.58rem var(--mono); letter-spacing: 0.12em; color: var(--dim); padding: 0 0.25rem; }
+  .idsw button {
+    border: 1px solid var(--line); background: none; color: var(--body); cursor: pointer;
+    font: 700 0.66rem var(--mono); border-radius: 999px; padding: 0.2rem 0.55rem;
+  }
+  .idsw button.on { background: var(--st-agent); border-color: var(--st-agent); color: #08090c; }
 
   /* ================================================================
      Scene 8 — one ticket on GitHub. A horizontal run from issue to
@@ -1909,47 +2100,132 @@
     </div>
   </section>
 
-  <!-- Scene 7 · the harness, live. The pane is this ticket's own
-       session. The toggle switches the harness. -->
-  <section class="scene sR" data-stage="agent" data-n="06" data-name="the harness, live" style="--g1:#0e1a14;--g2:#080f0b">
-    <div class="wrap">
+  <!-- Scene 7 · the harness, live (#629). The two panes are the real
+       TUIs. Every row is the shape of a verbatim tmux capture in this
+       repo: prototypes/pane-rewind/evidence/ and
+       prototypes/overseer-pane/evidence/. Both are authored at exactly
+       58 columns, and the script scales the font until 58 columns fill
+       the frame, so the box drawing meets at every width.
+
+       The records are real (#601). The Claude Code pane is this
+       ticket's own session — curia routes a prototype ticket to opus
+       on the claude harness, which is why the banner says Opus 5 and
+       the footer says bypass permissions (config/routing.yaml). The
+       Codex pane is curia#579, a research ticket, which routing.yaml
+       sends to gpt-5.6-sol at high effort on the codex harness; its
+       numbers are the measured ones in
+       docs/research/codex-deferred-curia-tools.md.
+
+       The scene is ONE composition canvas: the claim, the terminal and
+       the fact line are grid items of .tm. No .wrap, no .shot.
+       ?id=1..5 puts a composition class on the canvas, so both panes
+       are written once and the page reads whole with no script. -->
+  <section class="scene sR" id="term-scene" data-stage="agent" data-n="06" data-name="the harness, live" style="--g1:#0e1a14;--g2:#080f0b">
+    <div class="tm c1" id="tm">
       <header class="claim rv">
         <p class="kick"><span class="kn">06</span><span class="kname">the harness, live</span></p>
         <h2 class="bold">Watch the agent type in your browser tab.</h2>
       </header>
-    </div>
-    <div class="shot rv">
-      <div class="term">
-        <div class="term-head"><span class="sess">curia-551</span>
-          <span class="url">box.tailnet.ts.net:8445/terminal/?arg=curia-551</span>
-          <span class="pill">live · ttyd</span></div>
-        <div class="term-tabs" role="group" aria-label="Harness">
-          <button class="term-tab" type="button" data-harness="claude" aria-pressed="true">Claude Code</button>
-          <button class="term-tab" type="button" data-harness="codex" aria-pressed="false">Codex</button>
+
+      <div class="tm-stage rv">
+        <div class="tmw">
+          <span class="tm-ruler" aria-hidden="true"></span>
+          <!-- composition 1: the browser the tab lives in -->
+          <div class="br">
+            <div class="br-tabs">
+              <i class="br-dot r"></i><i class="br-dot y"></i><i class="br-dot g"></i>
+              <span class="br-tab on">curia · terminal</span>
+              <span class="br-tab">alp82/curia · issues</span>
+            </div>
+            <div class="br-url"><span class="lock">&#9919;</span>box.tailnet.ts.net/terminal/?arg=curia-629</div>
+          </div>
+
+          <!-- composition 4: curia's own frame picks the harness -->
+          <div class="tm-rail">
+            <p class="rh">harness</p>
+            <div class="rl">
+              <button type="button" data-h="claude" aria-pressed="true"><b>Claude Code</b><span>opus · #629</span></button>
+              <button type="button" data-h="codex" aria-pressed="false"><b>Codex</b><span>gpt-5.6-sol · #579</span></button>
+            </div>
+          </div>
+
+          <div class="tm-body">
+            <div class="tm-panes" id="tm-panes">
+        <div class="tm-pane" data-h="claude" role="group" aria-label="Claude Code">
+          <pre class="tm-out"><i class="lg"> ▐▛███▜▌</i>   Claude Code v2.1.220
+<i class="lg">▝▜█████▛▘</i>  Opus 5 (1M context) · API Usage Billing
+<i class="lg">  ▘▘ ▝▝  </i><i class="d">  /workspace</i>
+
+
+<i class="d">❯ </i>alp82/curia#629 — The terminal scene of the story page
+  Rebuild scene 7 so the Claude Code and Codex TUIs match
+  their real counterparts.
+
+<i class="bu">● </i><i class="tn">Read</i><i class="ar">(prototypes/overseer-pane/evidence/pane-1-spawn.txt)</i>
+<i class="d">  ⎿  Read 24 lines</i>
+
+<i class="bu">● </i><i class="tn">Read</i><i class="ar">(prototypes/pane-rewind/evidence/codex-1-before.txt)</i>
+<i class="d">  ⎿  Read 24 lines</i>
+
+<i class="bu">● </i><i class="tn">Bash</i><i class="ar">(grep -n "harnesses:" -A24 config/routing.yaml)</i>
+<i class="d">  ⎿  claude, codex. Pi and Opencode are not there yet.</i>
+
+<i class="bu">● </i><i class="tn">Update</i><i class="ar">(prototypes/story-page/index.html)</i>
+<i class="d">  ⎿  Updated with 5 compositions on ?id=1..5</i>
+
+<i class="bu">● </i>Five compositions are on the preview. The fact line
+  names four harnesses and routing.yaml ships two, so
+  the cutover ticket holds it until the code lands.
+
+<i class="sp">✻ Cooked</i><i class="d"> for 47s</i></pre>
+          <pre class="tm-in"><i class="bd">──────────────────────────────────────────────────────────</i>
+<i class="d">❯ </i><i class="cur"> </i>
+<i class="bd">──────────────────────────────────────────────────────────</i>
+<i class="o">  ⏵⏵ bypass permissions on</i><i class="d"> (shift+tab to cycle)</i></pre>
         </div>
-        <pre id="pane-claude"><span class="g"> ✻</span> Claude Code · curia-551 — The story page
+        <div class="tm-pane" data-h="codex" role="group" aria-label="Codex">
+          <pre class="tm-out"><i class="bx">╭────────────────────────────────────────────────────╮</i>
+<i class="bx">│ </i>&gt;_ OpenAI Codex (v0.146.0)<i class="pad">                        </i><i class="bx"> │</i>
+<i class="bx">│ </i><i class="pad">                                                  </i><i class="bx"> │</i>
+<i class="bx">│ </i>model:       gpt-5.6-sol   <i class="d">/model to change</i><i class="pad">       </i><i class="bx"> │</i>
+<i class="bx">│ </i>directory:   /workspace<i class="pad">                           </i><i class="bx"> │</i>
+<i class="bx">│ </i>permissions: YOLO mode<i class="pad">                            </i><i class="bx"> │</i>
+<i class="bx">╰────────────────────────────────────────────────────╯</i>
 
-<span class="g"> ●</span> <span class="b">Read</span>(prototypes/landing-copy/NOTES.md)
-<span class="d">   └ 111 lines · the locked words of every scene</span>
-<span class="g"> ●</span> <span class="b">Write</span>(prototypes/story-page/index.html)
-<span class="d">   └ one self-contained file, twelve scenes</span>
-<span class="g"> ✻</span> <span class="y">Bash</span>: python3 -m http.server 9000
-<span class="d">   └ serving prototypes/story-page</span>
+<i class="d">  Tip: Our most capable model yet. GPT-5.6 Sol can tackle</i>
+<i class="d">  complex code changes, dig into research, and take on</i>
+<i class="d">  your most ambitious work.</i>
 
-<span class="d"> The preview link is on its way to your phone.</span>
 
-<span class="g"> ❯</span> <span class="cur">█</span></pre>
-        <pre id="pane-codex" hidden><span class="d">/ T R A N S C R I P T / / / / / / / / / / /</span>
+<i class="cy">› </i>alp82/curia#579 — What the deferred tool offer costs a
+  codex agent in a pane
 
-  <span class="b">user:</span> build the story page from the locked copy
-  <span class="g">codex:</span> I read the locked words and the storyboard.
-         The twelve scenes render from one file.
 
-<span class="d">  q to quit   esc/← to edit prev   enter to send</span></pre>
-        <div class="tmux-bar"><span>[curia-551] 0:claude*</span><span>"box" 19:42</span></div>
+<i class="bu">• </i>Ran <i class="ar">RUNS=5 PREFIX=report TASK=report node matrix.mjs</i>
+<i class="d">  └ 20 runs written to out/report/</i>
+
+<i class="bd">──────────────────────────────────────────────────────────</i>
+
+<i class="bu">• </i>20 real-model runs, no obedience failure. The pane lane
+  spent a median 51,937 tokens against 38,159 for codex
+  exec: 13,778 more, and 6.05 s later to the first call.
+
+<i class="bd">──────────────────────────────────────────────────────────</i></pre>
+          <pre class="tm-in"><i class="cy">› </i><i class="cur"> </i>
+
+<i class="d">  gpt-5.6-sol high · /workspace</i></pre>
+        </div>
+            </div>
+            <div class="tmux">
+              <span class="sess">[curia]</span>
+              <button class="tmw-btn" type="button" data-h="claude" aria-pressed="true">0:claude</button>
+              <button class="tmw-btn" type="button" data-h="codex" aria-pressed="false">1:codex</button>
+              <span class="clock">"box" 19:42</span>
+            </div>
+          </div>
+        </div>
       </div>
-    </div>
-    <div class="wrap">
+
       <p class="fact rv">Claude Code, Codex, Pi and Opencode are supported</p>
     </div>
   </section>
@@ -2325,18 +2601,175 @@ if (prefersStill || !window.IntersectionObserver) {
 
 })();
 
-/* ---- the harness toggle ---- */
+/* ================================================================
+   Scene 7 (#629) — the harness, live.
 
-[].slice.call(document.querySelectorAll('.term-tab')).forEach(function (b) {
-  b.addEventListener('click', function () {
-    var pick = b.getAttribute('data-harness');
-    [].slice.call(document.querySelectorAll('.term-tab')).forEach(function (t) {
-      t.setAttribute('aria-pressed', String(t === b));
+   Three jobs, none of which the page depends on: it fits the pane to
+   58 columns, it switches the harness, and in composition 5 it prints
+   the session. With no script both panes stand whole, one above the
+   other, at the CSS clamp size.
+
+   THE FIT is what makes the panes read as terminals. A terminal is a
+   character grid: the Codex banner box, the Claude composer rules and
+   every ─ separator are authored at exactly 58 columns, so they meet
+   only if 58 columns are exactly as wide as the frame. The ruler is a
+   58ch box measured against the live frame, and the font size is the
+   ratio. It is linear, so one measurement lands it.
+   ================================================================ */
+(function () {
+  var scene = document.getElementById('term-scene');
+  var tm = document.getElementById('tm');
+  if (!scene || !tm) return;
+
+  var win = tm.querySelector('.tmw');
+  var ruler = tm.querySelector('.tm-ruler');
+  var panesEl = document.getElementById('tm-panes');
+  var panes = [].slice.call(tm.querySelectorAll('.tm-pane'));
+  var picks = [].slice.call(tm.querySelectorAll('.tmw-btn, .tm-rail button'));
+  var comp = 1;
+  var harness = 'claude';
+
+  /* ---- the fit: 58 columns exactly fill the frame ---- */
+  function fit() {
+    var live = panes.filter(function (p) { return !p.hidden; })[0];
+    if (!live) return;
+    var out = live.querySelector('.tm-out');
+    var cs = window.getComputedStyle(out);
+    var avail = out.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    if (avail <= 0) return;
+    win.style.removeProperty('--tmfs');
+    var base = parseFloat(window.getComputedStyle(ruler).fontSize);
+    var wide = ruler.getBoundingClientRect().width;
+    if (!wide || !base) return;
+    var next = base * avail / wide;
+    win.style.setProperty('--tmfs', Math.max(5.5, Math.min(15, next)).toFixed(2) + 'px');
+  }
+
+  /* ---- the harness: the tmux window list and curia's rail both
+     drive the same state, and composition 2 shows both at once ---- */
+  function showHarness(h) {
+    harness = h;
+    var both = comp === 2;
+    panes.forEach(function (p) { p.hidden = !both && p.getAttribute('data-h') !== h; });
+    picks.forEach(function (b) {
+      b.setAttribute('aria-pressed', String(both || b.getAttribute('data-h') === h));
     });
-    document.getElementById('pane-claude').hidden = pick !== 'claude';
-    document.getElementById('pane-codex').hidden = pick !== 'codex';
+    fit();
+  }
+  picks.forEach(function (b) {
+    b.addEventListener('click', function () {
+      if (comp === 2) return;
+      showHarness(b.getAttribute('data-h'));
+      stopType();
+      clearTimeout(hold);
+      hold = setTimeout(startType, 9000);
+    });
   });
-});
+
+  /* ---- composition 5 prints the session, so every ─ rule and every
+     ⎿ row arrives the way it does in the pane. Each .tm-out line is
+     wrapped once; the reveal is visibility only, so the frame never
+     resizes and the words never move. ---- */
+  var still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var wrapped = false;
+  function wrapLines() {
+    if (wrapped) return;
+    wrapped = true;
+    panes.forEach(function (p) {
+      var out = p.querySelector('.tm-out');
+      out.innerHTML = out.innerHTML.split('\n').map(function (l) {
+        return '<span class="ln">' + l + '</span>';
+      }).join('\n');
+    });
+  }
+  var timer = null, hold = null;
+  function lines(h) {
+    var p = panes.filter(function (n) { return n.getAttribute('data-h') === h; })[0];
+    return [].slice.call(p.querySelectorAll('.tm-out .ln'));
+  }
+  function clearLines() {
+    panes.forEach(function (p) {
+      [].slice.call(p.querySelectorAll('.tm-out .ln')).forEach(function (l) { l.classList.remove('on'); });
+    });
+  }
+  function printPane(h, done) {
+    showHarness(h);
+    var ls = lines(h), i = 0;
+    timer = setInterval(function () {
+      if (i >= ls.length) { clearInterval(timer); timer = null; setTimeout(done, 1400); return; }
+      ls[i].classList.add('on');
+      i += 1;
+    }, 52);
+  }
+  function startType() {
+    if (comp !== 5 || still || timer) return;
+    wrapLines();
+    clearLines();
+    printPane('claude', function () {
+      printPane('codex', function () {
+        hold = setTimeout(startType, 1800);
+      });
+    });
+  }
+  function stopType() {
+    if (timer) { clearInterval(timer); timer = null; }
+    clearTimeout(hold);
+    if (comp === 5) { wrapLines(); clearLines(); }
+  }
+
+  /* ---- the round: ?id=1..5 puts the composition on the canvas ---- */
+  function setComp(n) {
+    comp = n;
+    tm.className = 'tm c' + n;
+    panesEl.classList.toggle('split', n === 2);
+    stopType();
+    if (n === 5 && !still) { wrapLines(); clearLines(); } else if (wrapped) {
+      panes.forEach(function (p) {
+        [].slice.call(p.querySelectorAll('.tm-out .ln')).forEach(function (l) { l.classList.add('on'); });
+      });
+    }
+    showHarness(harness);
+    [].slice.call(document.querySelectorAll('.idsw button')).forEach(function (b) {
+      b.classList.toggle('on', Number(b.getAttribute('data-id')) === n);
+    });
+    requestAnimationFrame(fit);
+    if (n === 5) startType();
+  }
+
+  var NAMES = ['tab', 'split', 'full', 'rail', 'type'];
+  var sw = document.createElement('nav');
+  sw.className = 'idsw';
+  sw.setAttribute('aria-label', 'round 1 of #629');
+  sw.innerHTML = '<span>#629</span>' + NAMES.map(function (nm, k) {
+    return '<button type="button" data-id="' + (k + 1) + '" title="' + nm + '">' + (k + 1) + '</button>';
+  }).join('');
+  document.body.appendChild(sw);
+  [].slice.call(sw.querySelectorAll('button')).forEach(function (b) {
+    b.addEventListener('click', function () {
+      var n = Number(b.getAttribute('data-id'));
+      var u = new URL(window.location.href);
+      u.searchParams.set('id', String(n));
+      history.replaceState(null, '', u);
+      setComp(n);
+    });
+  });
+
+  var want = Number(new URLSearchParams(window.location.search).get('id'));
+  setComp(want >= 1 && want <= 5 ? want : 1);
+
+  if (window.ResizeObserver) new ResizeObserver(fit).observe(win);
+  window.addEventListener('resize', fit, { passive: true });
+  window.addEventListener('load', fit);
+
+  if (window.IntersectionObserver) {
+    new IntersectionObserver(function (es) {
+      es.forEach(function (e) {
+        fit();
+        if (e.isIntersecting) startType(); else stopType();
+      });
+    }, { threshold: 0.15 }).observe(tm);
+  }
+})();
 
 /* ---- #624: each scene owns its color field, so a color change
    never repaints an earlier scene. --p says how active a scene is:
