@@ -253,41 +253,8 @@
   .shot { margin: 0 0 2.2rem; display: flex; justify-content: center; }
   .shot > * { width: 100%; max-width: 24rem; }
 
-  /* ================================================================
-     Scene 4 — the grilling. A real escalation (curia#377, the card
-     shape the operator picked at #415), in Discord's own chrome.
-     ================================================================ */
-  .discord {
-    background: #313338; border-radius: 12px; overflow: hidden;
-    color: #dbdee1; font-size: 0.85rem; line-height: 1.45;
-    font-family: "gg sans", "Noto Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
-  }
-  .d-top {
-    padding: 0.55rem 0.9rem; border-bottom: 1px solid #26282c;
-    font-weight: 600; font-size: 0.82rem; color: #f2f3f5;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  }
-  .d-msg { display: flex; gap: 0.65rem; padding: 0.6rem 0.9rem 0.4rem; }
-  .d-msg:last-child { padding-bottom: 0.8rem; }
-  .d-av {
-    width: 2.1rem; height: 2.1rem; border-radius: 50%; flex: none;
-    display: grid; place-items: center; color: #fff; font: 700 0.9rem var(--sans);
-    background: #23508d;
-  }
-  .d-av.op { background: #7a5c2e; }
-  .d-body { min-width: 0; flex: 1; }
-  .d-who { font-weight: 600; font-size: 0.82rem; color: #f2f3f5; }
-  .d-who .app {
-    font-style: normal; font-size: 0.6rem; font-weight: 700; color: #fff;
-    background: #5865f2; border-radius: 4px; padding: 0.05rem 0.28rem;
-    vertical-align: 2px; margin-left: 0.3rem;
-  }
-  .d-who .ts { font-weight: 400; font-size: 0.68rem; color: #949ba4; margin-left: 0.4rem; }
-  .d-sm { color: #949ba4; font-size: 0.74rem; }
-  .d-txt b { color: #f2f3f5; }
-  .d-opt { margin: 0.35rem 0 0; }
-  .d-opt .oc { color: #949ba4; font-size: 0.78rem; display: block; }
+  /* The gate card of scene 8 borrows Discord's button and receipt
+     shapes. They live here, outside the scene-4 chrome below. */
   .d-btns { display: flex; gap: 0.45rem; flex-wrap: wrap; margin: 0.55rem 0 0.15rem; }
   .d-btn {
     border: none; border-radius: 6px; padding: 0.4rem 0.85rem;
@@ -297,6 +264,308 @@
   .d-btn.ok { background: #248046; }
   .d-btn.pressed { box-shadow: inset 0 0 0 1.5px #fff; }
   .d-receipt { color: #949ba4; font-size: 0.74rem; margin-top: 0.4rem; }
+
+  /* ================================================================
+     Scene 4 — the grilling (#626). A real escalation, curia#377, in
+     the card shape the operator picked at #415, inside Discord's own
+     chrome. The chat ASSEMBLES as it rises: the typing row alone at
+     the fold, the card streaming in on the scroll, and the whole of
+     it standing by the time the frame is two thirds up the viewport.
+
+     Five chromes ride ?d=1..5 — 1 phone app, 2 desktop app, 3 thread
+     panel, 4 the bare message, 5 the phone app with the channel
+     behind it. The switcher is a round-only control.
+
+     The page ships no webfont (build.md), so the type is Discord's
+     own fallback stack. gg sans is licensed, and it never loads here.
+     ================================================================ */
+  .grillpin { padding-bottom: 0; }
+  /* The lead holds the frame at the fold while the claim is read, so
+     the chat comes AFTER the title and rises from the bottom edge.
+     Landing on #grill-pin puts the claim at the top of the screen and
+     the frame exactly at the fold, which is where its assembly starts. */
+  .grill-track { position: relative; padding-top: 67svh; height: 220svh; }
+  .grill-stage {
+    position: sticky; top: 6svh; height: 88svh;
+    display: flex; align-items: stretch; justify-content: center;
+    padding: 0 1.1rem;
+  }
+  @media (min-width: 64rem) {
+    .sL .grill-stage { justify-content: flex-end; padding-right: 7vw; }
+  }
+
+  .dc {
+    --dc-chat: #313338;
+    --dc-side: #2b2d31;
+    --dc-rail: #1e1f22;
+    --dc-ink: #dbdee1;
+    --dc-name: #f2f3f5;
+    --dc-mute: #949ba4;
+    --dc-int: #b5bac1;
+    --dc-link: #00a8fc;
+    --dc-blurple: #5865f2;
+    --dc-code: #2b2d31;
+    --dc-input: #383a40;
+    --dc-edge: #1f2124;
+    --gg: "gg sans", "Noto Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    --dc-mono: ui-monospace, "Consolas", "Andale Mono WT", "Andale Mono", "Lucida Console", monospace;
+    font-family: var(--gg);
+    font-size: var(--fs, 0.8rem);
+    line-height: 1.375;
+    color: var(--dc-ink);
+    width: 100%; max-width: 23rem; height: 100%;
+    display: flex; overflow: hidden;
+    background: var(--dc-chat);
+    border-radius: 14px;
+    box-shadow: 0 24px 70px rgba(0, 0, 0, 0.62), 0 0 0 1px rgba(255, 255, 255, 0.05);
+    filter: saturate(calc(0.7 + 0.3 * var(--p, 1)));
+  }
+  .dc * { min-width: 0; }
+  .dc b, .dc strong { font-weight: 700; color: var(--dc-name); }
+  .dc code {
+    background: var(--dc-code); border-radius: 4px; padding: 0.05em 0.25em;
+    font: 0.85em/1.2 var(--dc-mono); color: var(--dc-ink);
+  }
+  .dc-app { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+  /* ---- the phone status bar ---- */
+  .dc-status {
+    display: none; align-items: center; justify-content: space-between;
+    padding: 0.5em 1.1em 0.15em; font-size: 0.85em; font-weight: 600;
+    color: var(--dc-name); background: var(--dc-chat);
+  }
+  .dc-status .sig { display: flex; align-items: flex-end; gap: 0.14em; height: 0.72em; }
+  .dc-status .sig i { width: 0.19em; background: var(--dc-name); border-radius: 0.5px; }
+  .dc-status .sig i:nth-child(1) { height: 35%; }
+  .dc-status .sig i:nth-child(2) { height: 58%; }
+  .dc-status .sig i:nth-child(3) { height: 80%; }
+  .dc-status .sig i:nth-child(4) { height: 100%; }
+  .dc-status .bat {
+    width: 1.5em; height: 0.72em; border-radius: 0.22em; position: relative;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.42);
+  }
+  .dc-status .bat::before {
+    content: ''; position: absolute; inset: 0.14em; right: 0.42em;
+    background: var(--dc-name); border-radius: 0.08em;
+  }
+  .dc-status .bat::after {
+    content: ''; position: absolute; left: 100%; top: 0.24em; width: 0.1em; height: 0.24em;
+    background: rgba(255, 255, 255, 0.42); border-radius: 0 0.1em 0.1em 0;
+  }
+  .dc-status .right { display: flex; align-items: center; gap: 0.4em; }
+
+  /* ---- the guild rail and the channel sidebar ---- */
+  .dc-rail {
+    display: none; flex: 0 0 3.4em; background: var(--dc-rail);
+    flex-direction: column; align-items: center; gap: 0.5em; padding: 0.6em 0;
+  }
+  .dc-rail i {
+    position: relative;
+    width: 2.3em; height: 2.3em; border-radius: 35%; display: grid; place-items: center;
+    background: #313338; color: var(--dc-name); font: 700 0.8em/1 var(--gg);
+    font-style: normal;
+  }
+  .dc-rail i.on { border-radius: 30%; background: var(--dc-blurple); }
+  .dc-rail i.on::before {
+    content: ''; position: absolute; left: -0.62em; width: 0.28em; height: 1.6em;
+    background: #fff; border-radius: 0 0.28em 0.28em 0;
+  }
+  .dc-rail hr { width: 1.6em; border: none; border-top: 1px solid #35373c; margin: 0.15em 0; }
+  .dc-side {
+    display: none; flex: 0 0 9.5em; background: var(--dc-side);
+    flex-direction: column; overflow: hidden;
+  }
+  .dc-side .gname {
+    padding: 0.85em 0.8em; font-weight: 700; color: var(--dc-name);
+    border-bottom: 1px solid var(--dc-edge); font-size: 0.95em;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  .dc-side .cat {
+    padding: 1em 0.7em 0.25em; font: 700 0.68em/1 var(--gg);
+    letter-spacing: 0.02em; text-transform: uppercase; color: var(--dc-mute);
+  }
+  .dc-side .ch {
+    display: flex; align-items: center; gap: 0.35em; margin: 0.05em 0.5em;
+    padding: 0.35em 0.5em; border-radius: 4px; color: var(--dc-mute);
+    font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .dc-side .ch s { text-decoration: none; color: #6d6f78; }
+  .dc-side .ch.on { background: #404249; color: var(--dc-name); }
+  .dc-side .ch.un { color: var(--dc-name); font-weight: 600; }
+
+  /* ---- the channel header ---- */
+  .dc-head {
+    display: flex; align-items: center; gap: 0.4em; flex: none;
+    padding: 0.7em 0.8em; color: var(--dc-name); font-weight: 600;
+    box-shadow: 0 1px 0 var(--dc-edge), 0 1.5px 0 rgba(0, 0, 0, 0.05);
+  }
+  .dc-head .back {
+    display: none; color: var(--dc-int); font-weight: 400; flex: none;
+    font-size: 1.4em; line-height: 0.8; margin-right: 0.05em;
+  }
+  .dc-head .hash { color: var(--dc-mute); font-weight: 400; font-size: 1.15em; flex: none; }
+  .dc-head .tt {
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1;
+  }
+  .dc-head .sub { color: var(--dc-mute); font-weight: 400; }
+  .dc-head .icons { display: flex; gap: 0.55em; color: var(--dc-int); flex: none; }
+
+  /* ---- the message log ---- */
+  .dc-log {
+    flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column;
+    justify-content: flex-end; padding: 0 0 0.4em;
+  }
+  .dc-hist { display: none; }
+  .dc-sys {
+    display: none; align-items: baseline; gap: 0.4em; color: var(--dc-mute);
+    padding: 0.35em 1em 0.35em 2.6em; position: relative; font-size: 0.92em;
+  }
+  .dc-sys::before { content: '#'; position: absolute; left: 1.35em; color: #4e5058; }
+  .dc-sys b { color: var(--dc-name); font-weight: 600; }
+  .dc-msg { display: flex; gap: 0.8em; padding: 0.55em 1em 0.2em; }
+  .dc-av {
+    flex: none; width: 2.5em; height: 2.5em; border-radius: 50%; overflow: hidden;
+    background: #101318; display: block;
+  }
+  .dc-av svg { display: block; width: 100%; height: 100%; }
+  .dc-who {
+    display: flex; align-items: baseline; gap: 0.35em; flex-wrap: wrap;
+    margin-bottom: 0.08em;
+  }
+  .dc-who .nm { color: var(--dc-name); font-weight: 500; }
+  .dc-who .badge {
+    background: var(--dc-blurple); color: #fff; border-radius: 3px;
+    font: 700 0.62em/1.35 var(--gg); padding: 0.06em 0.28em; letter-spacing: 0.02em;
+    align-self: center;
+  }
+  .dc-who .badge .ck { font-size: 0.85em; margin-right: 0.15em; }
+  .dc-who .ts { color: var(--dc-mute); font-size: 0.75em; font-weight: 500; }
+  .dc-body { flex: 1; }
+  .dc-b { margin: 0; }
+  .dc-b + .dc-b { margin-top: 0.42em; }
+  .dc-b.tight + .dc-b.tight { margin-top: 0.1em; }
+  .dc-sm { font-size: 0.8em; color: var(--dc-mute); }
+  .dc-sm b { color: var(--dc-mute); font-weight: 700; }
+  .dc-opt .oc, .dc-opt .ox { display: block; color: var(--dc-ink); }
+  .dc-opt .oc::before, .dc-opt .ox::before { color: var(--dc-mute); }
+  .dc pre {
+    background: var(--dc-code); border: 1px solid var(--dc-edge); border-radius: 4px;
+    margin: 0; padding: 0.4em 0.55em; overflow: hidden;
+    font: 0.8em/1.32 var(--dc-mono); color: var(--dc-ink); white-space: pre;
+  }
+  .dc .spoil {
+    background: #232428; border-radius: 3px; color: transparent; padding: 0 0.2em;
+    -webkit-user-select: none; user-select: none;
+  }
+  .dc .men {
+    background: rgba(88, 101, 242, 0.3); color: #c9cdfb; border-radius: 3px;
+    padding: 0 0.12em; font-weight: 500;
+  }
+  .dc a { color: var(--dc-link); text-decoration: none; }
+
+  /* ---- the message components ---- */
+  .dc-row { display: flex; gap: 0.5em; flex-wrap: wrap; margin-top: 0.5em; }
+  .dc-btn {
+    border: none; border-radius: 8px; padding: 0.55em 1em; text-align: left;
+    font: 500 0.95em/1.2 var(--gg); color: #fff; background: var(--dc-blurple);
+    max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .dc-btn.sec { background: #4e5058; }
+  .dc-btn.link::after { content: ' ↗'; opacity: 0.65; font-size: 0.85em; }
+  .dc-btn.hit { box-shadow: inset 0 0 0 2px #fff; }
+  .dc-mark { color: var(--dc-mute); font-size: 0.8em; }
+  .dc-mark b { color: var(--dc-mute); }
+
+  /* ---- the typing row and the composer ---- */
+  .dc-typing {
+    flex: none; display: flex; align-items: center; gap: 0.45em;
+    padding: 0.3em 1em 0.35em; font-size: 0.8em; color: var(--dc-ink);
+    min-height: 1.6em;
+  }
+  .dc-typing b { color: var(--dc-name); font-weight: 700; }
+  .dc-dots { display: inline-flex; gap: 0.2em; align-items: center; }
+  .dc-dots i {
+    width: 0.42em; height: 0.42em; border-radius: 50%; background: var(--dc-mute);
+    animation: dcbob 1.4s infinite ease-in-out;
+  }
+  .dc-dots i:nth-child(2) { animation-delay: 0.18s; }
+  .dc-dots i:nth-child(3) { animation-delay: 0.36s; }
+  @keyframes dcbob {
+    0%, 60%, 100% { transform: translateY(0); opacity: 0.55; }
+    30% { transform: translateY(-0.25em); opacity: 1; }
+  }
+  .dc-composer {
+    flex: none; display: flex; align-items: center; gap: 0.6em;
+    margin: 0.15em 0.7em 0.7em; padding: 0.6em 0.75em;
+    background: var(--dc-input); border-radius: 8px; color: #6d6f78;
+  }
+  .dc-composer .plus {
+    flex: none; width: 1.5em; height: 1.5em; border-radius: 50%; background: var(--dc-int);
+    color: var(--dc-input); display: grid; place-items: center; font: 700 1em/1 var(--gg);
+  }
+  .dc-composer .ph { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dc-composer .tools { display: flex; gap: 0.45em; color: var(--dc-int); flex: none; }
+
+  /* ---- what each chrome shows ---- */
+  .dc[data-d="1"] .dc-status, .dc[data-d="5"] .dc-status { display: flex; }
+  .dc[data-d="1"] .dc-head .back, .dc[data-d="5"] .dc-head .back { display: block; }
+  .dc[data-d="2"] { max-width: 46rem; }
+  .dc[data-d="2"] .dc-rail, .dc[data-d="2"] .dc-side { display: flex; }
+  .dc[data-d="2"] .dc-typing { order: 2; padding-top: 0; }
+  .dc[data-d="2"] .dc-composer { order: 1; margin-bottom: 0.15em; }
+  .dc[data-d="2"] .dc-app { display: flex; flex-direction: column; }
+  .dc[data-d="3"] .dc-crumb { display: flex; }
+  .dc[data-d="3"] .dc-head .hash { display: none; }
+  .dc[data-d="4"] .dc-head, .dc[data-d="4"] .dc-composer, .dc[data-d="4"] .dc-status { display: none; }
+  .dc[data-d="4"] { background: transparent; box-shadow: none; }
+  .dc[data-d="4"] .dc-log { justify-content: flex-end; }
+  .dc[data-d="4"] .dc-msg { background: var(--dc-chat); border-radius: 12px; padding: 0.8em 1em; }
+  .dc[data-d="4"] .dc-typing { padding-left: 1.1em; }
+  .dc[data-d="5"] .dc-hist { display: block; }
+  .dc[data-d="5"] .dc-sys { display: flex; }
+  .dc[data-d="1"] .dc-head .icons, .dc[data-d="5"] .dc-head .icons { font-size: 1.05em; }
+  .dc-crumb {
+    display: none; align-items: center; gap: 0.35em; flex: none;
+    padding: 0.4em 0.9em 0.5em; color: var(--dc-mute); font-size: 0.85em;
+    box-shadow: 0 1px 0 var(--dc-edge);
+  }
+  .dc-crumb .pill {
+    background: #404249; border-radius: 4px; padding: 0.1em 0.4em; color: var(--dc-ink);
+  }
+
+  /* The history behind the escalation, in variation 5. */
+  .dc-hist .dc-msg { opacity: 0.9; }
+
+  /* Assembly. Without the script, or with reduced motion, every block
+     of the card stands and the typing row is gone. */
+  .js .dc.on .dc-card > .dc-b,
+  .js .dc.on .dc-card > .dc-row,
+  .js .dc.on .dc-card > .dc-mark { display: none; }
+  .js .dc.on .dc-card > .up { display: block; }
+  .js .dc.on .dc-card > .dc-row.up { display: flex; }
+  .js .dc.on .ch-off { opacity: 0; }
+  .js .dc .cursor {
+    display: inline-block; width: 0.48em; height: 0.95em; vertical-align: -0.12em;
+    background: var(--dc-mute); margin-left: 0.06em; animation: dcblink 1s steps(1) infinite;
+  }
+  @keyframes dcblink { 0%, 50% { opacity: 1; } 50.01%, 100% { opacity: 0; } }
+  .dc-typing { transition: opacity 0.25s var(--ease); }
+  .dc-typing.gone { opacity: 0; }
+  .dc-card > .up { transition: opacity 0.22s var(--ease), transform 0.22s var(--ease); }
+
+  /* The round switcher of #626. It leaves the file when the chrome is
+     picked, the way the identity switcher left it at #624. */
+  .dswitch {
+    position: fixed; z-index: 40; left: 50%; bottom: 0.7rem; transform: translateX(-50%);
+    display: flex; gap: 0.3rem; padding: 0.35rem 0.45rem;
+    background: rgba(10, 12, 18, 0.82); border: 1px solid var(--line); border-radius: 999px;
+    backdrop-filter: blur(6px); font: 600 0.72rem/1 var(--mono);
+  }
+  .dswitch a {
+    color: var(--dim); text-decoration: none; padding: 0.35rem 0.5rem; border-radius: 999px;
+  }
+  .dswitch a.on { background: var(--st-agent); color: #08090c; }
+  .dswitch span { color: var(--dim); padding: 0.35rem 0.2rem 0.35rem 0.35rem; }
 
   /* ================================================================
      Scene 5 — the preview. A phone, and inside it the agent's work,
@@ -602,10 +871,14 @@
     </div>
   </div>
 
-  <!-- Scene 4 · the grilling. The question is a real escalation on this
-       repo (curia#377), in the card shape the operator picked at #415.
-       The real answer was A: the journal. -->
-  <section class="scene sL" data-stage="agent" data-n="03" data-name="the grilling" style="--g1:#171930;--g2:#0d0e1c">
+  <!-- Scene 4 · the grilling (#626). The question is a real escalation
+       on this repo (curia#377), in the card shape the operator picked
+       at #415 — every line of it is what daemon/src/card.mjs composes
+       and daemon/src/bridge.mjs posts. The real answer was A, the
+       journal. The chat assembles as the frame rises: the typing row
+       alone at the fold, the card streaming in, the whole of it at two
+       thirds of the viewport, then the press and the receipt. -->
+  <section class="scene sL grillpin" id="grill-pin" data-stage="agent" data-n="03" data-name="the grilling" style="--g1:#171930;--g2:#0d0e1c">
     <div class="wrap">
       <header class="claim rv">
         <p class="kick"><span class="kn">03</span><span class="kname">the grilling</span></p>
@@ -613,33 +886,132 @@
       </header>
       <p class="story rv">An agent hits a real decision and asks you in Discord.</p>
     </div>
-    <div class="shot rv">
-      <div class="discord" id="grill">
-        <div class="d-top">🎫 377 · Cooling dies with the daemon</div>
-        <div class="d-msg tw">
-          <div class="d-av" aria-hidden="true">c</div>
-          <div class="d-body">
-            <div class="d-who">CuriaBot <span class="app">APP</span><span class="ts">13:02</span></div>
-            <div class="d-sm">[esc-1] curia-377 asks (choice):</div>
-            <div class="d-txt"><b>A restart forgets every rate-limit cooling. Re-arm it at boot,
-              and from what?</b></div>
-            <div class="d-opt tw"><b>A. From the journal.</b> Re-read the caps curia already landed.
-              <span class="oc">↳ curia waits at the next start and spends no container.</span></div>
-            <div class="d-opt tw"><b>B. From a fresh account reading.</b> Ask the provider at boot.
-              <span class="oc">↳ It answers “am I near the cap”, not “did I hit one”.</span></div>
-            <div class="d-opt tw"><b>C. Leave it in memory.</b> A restart clears cooling.
-              <span class="oc">↳ Every deploy inside a window costs one container.</span></div>
-            <div class="d-txt tw" style="margin-top:0.35rem">Recommendation: <b>A</b>.</div>
-            <div class="d-btns tw">
-              <button class="d-btn" type="button" id="btn-a">A</button>
-              <button class="d-btn" type="button">B</button>
-              <button class="d-btn" type="button">C</button>
+
+    <div class="grill-track">
+      <div class="grill-stage">
+        <div class="dc" id="grill" data-d="1">
+
+          <!-- the guild rail and the channel list, desktop chrome only -->
+          <div class="dc-rail" aria-hidden="true">
+            <i class="on">c</i>
+            <hr>
+            <i>ds</i>
+            <i>ml</i>
+          </div>
+          <div class="dc-side" aria-hidden="true">
+            <div class="gname">curia <span>˅</span></div>
+            <div class="cat">Tickets</div>
+            <div class="ch on"><s>#</s> curia</div>
+            <div class="ch un"><s>⏳</s> 377 · curia</div>
+            <div class="ch"><s>🔎</s> 371 · curia</div>
+            <div class="ch"><s>✅</s> 364 · curia</div>
+            <div class="cat">Boxes</div>
+            <div class="ch"><s>#</s> overseer</div>
+          </div>
+
+          <div class="dc-app">
+            <div class="dc-status" aria-hidden="true">
+              <span>13:03</span>
+              <span class="right">
+                <span class="sig"><i></i><i></i><i></i><i></i></span>
+                <span class="bat"></span>
+              </span>
             </div>
-            <div class="d-receipt tw" id="grill-receipt">✅ answered by @alp82 via button: A</div>
+
+            <div class="dc-head">
+              <span class="back" aria-hidden="true">‹</span>
+              <span class="hash" aria-hidden="true">#</span>
+              <span class="tt" id="dc-title">⏳ 377 · curia · grilling</span>
+              <span class="icons" aria-hidden="true">
+                <svg width="1em" height="1em" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="8.5" cy="8.5" r="5"/><path d="M12.5 12.5 L17 17" stroke-linecap="round"/></svg>
+                <svg width="1em" height="1em" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="7.5" cy="6.5" r="3"/><path d="M2 16c0-3 2.5-4.5 5.5-4.5S13 13 13 16" stroke-linecap="round"/><circle cx="14.5" cy="7" r="2.3"/></svg>
+              </span>
+            </div>
+
+            <div class="dc-crumb" aria-hidden="true">
+              <span class="pill">Thread</span>
+              <span>#curia</span>
+              <span>›</span>
+              <span>377 · curia · grilling</span>
+            </div>
+
+            <div class="dc-log" id="dc-log">
+
+              <!-- the channel behind the card, variation 5 only -->
+              <div class="dc-hist" aria-hidden="true">
+                <div class="dc-sys"><b>alp82</b> started <b>curia-377</b> · Cooling dies with the daemon</div>
+                <div class="dc-msg">
+                  <span class="dc-av">
+                    <svg viewBox="0 0 40 40"><rect width="40" height="40" fill="#12161f"/><circle cx="20" cy="20" r="12.5" fill="none" stroke="#7dd3a0" stroke-width="2.4"/><circle cx="20" cy="20" r="4.6" fill="#7dd3a0"/><circle cx="20" cy="6.5" r="2.6" fill="#e0ae4c"/></svg>
+                  </span>
+                  <div class="dc-body">
+                    <div class="dc-who"><span class="nm">curia</span><span class="badge"><span class="ck">✓</span>APP</span><span class="ts">Today at 12:58</span></div>
+                    <div class="dc-b"><code>curia-377</code> claimed <b>377 · Cooling dies with the daemon</b> · grilling</div>
+                    <div class="dc-b dc-sm">worktree <code>curia/377</code> · container up · 4 turns</div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="dc-msg" id="dc-msg">
+                <span class="dc-av">
+                  <svg viewBox="0 0 40 40" aria-hidden="true"><rect width="40" height="40" fill="#12161f"/><circle cx="20" cy="20" r="12.5" fill="none" stroke="#7dd3a0" stroke-width="2.4"/><circle cx="20" cy="20" r="4.6" fill="#7dd3a0"/><circle cx="20" cy="6.5" r="2.6" fill="#e0ae4c"/></svg>
+                </span>
+                <div class="dc-body dc-card">
+                  <div class="dc-who"><span class="nm">curia</span><span class="badge"><span class="ck">✓</span>APP</span><span class="ts">Today at 13:03</span></div>
+
+                  <div class="dc-b"><b>[esc-1]</b> <code>curia-377</code> asks (<i>choice</i>):</div>
+                  <div class="dc-b"><b>A restart forgets every rate-limit cooling. Re-arm it at boot, and from what?</b></div>
+                  <div class="dc-b"><pre>09:00  cap lands, cooling until 14:20
+13:02  deploy ......... memory wiped
+13:03  start curia#390
+        A journal -&gt; waits, no container
+        B reading -&gt; starts, dies at cap
+        C memory  -&gt; starts, dies at cap</pre></div>
+                  <div class="dc-b dc-opt"><b>A. From the journal.</b> Re-read the caps curia already landed.
+                    <span class="oc">↳ A guessed reset can hold at most 55 minutes too long.</span>
+                    <span class="ox">› <code>start</code> at 13:03 answers "opus cools until 14:20".</span></div>
+                  <div class="dc-b dc-opt"><b>B. From a fresh account reading.</b> Ask the provider at boot.
+                    <span class="oc">↳ It answers "am I near the cap", not "did I hit one". One API call per boot.</span>
+                    <span class="ox">› The boot reading says 41% used, so the 09:00 cap is invisible.</span></div>
+                  <div class="dc-b dc-opt"><b>C. Leave it in memory.</b> A restart clears cooling.
+                    <span class="oc">↳ Every deploy inside a window costs one container.</span>
+                    <span class="ox">› 13:03 clones a worktree and the first turn dies on the cap.</span></div>
+                  <div class="dc-b">Recommendation: <b>A</b>.</div>
+                  <div class="dc-b tight">Details: <span class="spoil">model_cooling reset_at 14:20, journalled since #175</span></div>
+                  <div class="dc-b tight dc-sm">The reasoning is on the timeline. The button is below.</div>
+
+                  <div class="dc-row">
+                    <button class="dc-btn" type="button" id="dc-a">A. From the journal.</button>
+                    <button class="dc-btn" type="button">B. From a fresh account reading.</button>
+                    <button class="dc-btn" type="button">C. Leave it in memory.</button>
+                  </div>
+                  <div class="dc-row">
+                    <button class="dc-btn sec link" type="button">🔗 preview</button>
+                    <button class="dc-btn sec link" type="button">timeline</button>
+                    <button class="dc-btn sec link" type="button">terminal</button>
+                  </div>
+                  <div class="dc-mark" id="dc-receipt">✅ <b>answered</b> by <span class="men">@alp82</span> via button: <code>A. From the journal.</code></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="dc-typing" id="dc-typing">
+              <span class="dc-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+              <span><b>curia</b> is typing...</span>
+            </div>
+
+            <div class="dc-composer" aria-hidden="true">
+              <span class="plus">+</span>
+              <span class="ph">Message #⏳ 377 · curia · grilling</span>
+              <span class="tools">
+                <svg width="1.05em" height="1.05em" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="10" cy="10" r="7.2"/><path d="M7 12c.9 1 1.9 1.5 3 1.5s2.1-.5 3-1.5" stroke-linecap="round"/><circle cx="7.5" cy="8" r=".9" fill="currentColor" stroke="none"/><circle cx="12.5" cy="8" r=".9" fill="currentColor" stroke="none"/></svg>
+              </span>
+            </div>
           </div>
         </div>
       </div>
     </div>
+
     <div class="wrap">
       <p class="fact rv">one thread per ticket · parallel chats</p>
     </div>
@@ -969,7 +1341,7 @@ if (prefersStill || !window.IntersectionObserver) {
   [].slice.call(document.querySelectorAll('.rv')).forEach(function (n) { obs.observe(n); });
   /* Containers whose children come in one after another: the thread
      writes itself, the pane types, the run walks stage by stage. */
-  ['grill', 'phone', 'run-track'].forEach(function (id) {
+  ['phone', 'run-track'].forEach(function (id) {
     var el = document.getElementById(id);
     if (el) { el.classList.add('stagger'); obs.observe(el); }
   });
@@ -1033,6 +1405,205 @@ if (!prefersStill) {
   })();
 }
 function clampNum(v, a, b) { return v < a ? a : v > b ? b : v; }
+
+/* ================================================================
+   Scene 4 (#626) — the Discord chat assembles as it rises.
+
+   Every line in the frame is a shape curia ships: the head line and
+   the buttons come from daemon/src/bridge.mjs, the headline, the
+   options, the recommendation, the spoiler and the small print from
+   daemon/src/card.mjs, and the receipt from the edit the bridge makes
+   when the operator presses. The question is the real escalation of
+   curia#377, in the card shape picked at #415.
+
+   The assembly is scroll POSITION, never a clock. q says how far the
+   frame has risen: 0 while it sits at the fold, 1 once its top stands
+   two thirds of the viewport up, which is where the operator asked
+   for the whole card to be shown. The press and the receipt ride the
+   pin travel after that, so the answer lands last.
+
+   Five chromes ride ?d=1..5, and each one assembles its own way:
+   1 phone, streamed word by word · 2 desktop, block by block ·
+   3 thread panel, typed with a caret · 4 the bare message, each block
+   rising from the typing row · 5 the phone with the channel behind it.
+   ================================================================ */
+(function () {
+  var dc = document.getElementById('grill');
+  var pin = document.getElementById('grill-pin');
+  var log = document.getElementById('dc-log');
+  var typing = document.getElementById('dc-typing');
+  var title = document.getElementById('dc-title');
+  var receipt = document.getElementById('dc-receipt');
+  var btnA = document.getElementById('dc-a');
+  if (!dc || !pin || !log) return;
+
+  var card = dc.querySelector('.dc-card');
+  var blocks = [].slice.call(card.children).filter(function (n) {
+    return n !== receipt &&
+      (n.classList.contains('dc-b') || n.classList.contains('dc-row'));
+  });
+
+  /* ---- the round switcher. It leaves the file when the chrome is
+     picked, the way the identity switcher left it at #624. ---- */
+  var MODE = { '1': 'stream', '2': 'pop', '3': 'type', '4': 'rise', '5': 'pop' };
+  var NAME = { '1': 'phone', '2': 'desktop', '3': 'thread', '4': 'bare', '5': 'channel' };
+  var pick = (/[?&]d=([1-5])/.exec(location.search) || [])[1] || '1';
+  dc.setAttribute('data-d', pick);
+  var mode = MODE[pick];
+  (function () {
+    var bar = document.createElement('nav');
+    bar.className = 'dswitch';
+    bar.setAttribute('aria-label', 'Discord chrome, round 1 of #626');
+    var html = '<span>chrome</span>';
+    for (var i = 1; i <= 5; i++) {
+      html += '<a href="?d=' + i + '#grill-pin"' + (String(i) === pick ? ' class="on"' : '') +
+        '>' + i + ' ' + NAME[String(i)] + '</a>';
+    }
+    bar.innerHTML = html;
+    document.body.appendChild(bar);
+  })();
+
+  /* ---- the type never breaks out of the frame. gg sans is licensed
+     and the page ships no webfont, so the card is measured at its own
+     size and the whole of it is made to fit the log. ---- */
+  function base() {
+    var w = dc.clientWidth || 320;
+    var d = w / (pick === '2' ? 44 : 26);
+    return clampNum(d, pick === '2' ? 7 : 9.5, 15);
+  }
+  function fit() {
+    var on = dc.classList.contains('on');
+    dc.classList.remove('on');
+    var b = base();
+    for (var pass = 0; pass < 3; pass++) {
+      dc.style.setProperty('--fs', b.toFixed(2) + 'px');
+      var need = 0;
+      [].slice.call(log.children).forEach(function (c) {
+        if (getComputedStyle(c).display === 'none') return;
+        need += c.offsetHeight;
+      });
+      var have = log.clientHeight;
+      if (!have || need <= have) break;
+      b = Math.max(b * (have / need), 9);
+    }
+    if (on) dc.classList.add('on');
+  }
+
+  /* ---- the stream. A block takes no space until it starts, so the
+     card grows upward from the typing row the way a chat does. Inside
+     the block that is arriving, the characters come in one by one. ---- */
+  function chars(el) {
+    if (el._ch) return el._ch;
+    var out = [];
+    (function walk(node) {
+      [].slice.call(node.childNodes).forEach(function (n) {
+        if (n.nodeType === 3) {
+          if (!n.nodeValue) return;
+          var frag = document.createDocumentFragment();
+          for (var i = 0; i < n.nodeValue.length; i++) {
+            var s = document.createElement('span');
+            s.textContent = n.nodeValue.charAt(i);
+            frag.appendChild(s);
+            out.push(s);
+          }
+          node.replaceChild(frag, n);
+        } else if (n.nodeType === 1 && !n.classList.contains('cursor')) {
+          walk(n);
+        }
+      });
+    })(el);
+    el._ch = out;
+    return out;
+  }
+  var caret = document.createElement('span');
+  caret.className = 'cursor';
+
+  function writeChars(el, f, wantCaret) {
+    var list = chars(el);
+    var k = Math.round(f * list.length);
+    if (el._k !== k) {
+      for (var j = 0; j < list.length; j++) {
+        var want = j >= k;
+        if (list[j]._off !== want) {
+          list[j].className = want ? 'ch-off' : '';
+          list[j]._off = want;
+        }
+      }
+      el._k = k;
+    }
+    if (wantCaret && k > 0 && k < list.length) {
+      var at = list[k - 1];
+      if (caret.previousSibling !== at) at.parentNode.insertBefore(caret, at.nextSibling);
+    }
+  }
+
+  function apply(q) {
+    var n = blocks.length;
+    var t = q * n;
+    for (var i = 0; i < n; i++) {
+      var b = blocks[i];
+      var f = t - i;
+      if (f <= 0) {
+        b.classList.remove('up');
+        b.style.opacity = '';
+        b.style.transform = '';
+        continue;
+      }
+      b.classList.add('up');
+      if (f > 1) f = 1;
+      if (mode === 'stream' || mode === 'type') {
+        writeChars(b, f, mode === 'type' && f < 1);
+      } else {
+        var e = f * (mode === 'rise' ? 1.7 : 3);
+        if (e > 1) e = 1;
+        b.style.opacity = e === 1 ? '' : e.toFixed(3);
+        b.style.transform = e === 1 ? ''
+          : 'translateY(' + ((1 - e) * (mode === 'rise' ? 1.3 : 0.45)).toFixed(2) + 'em)';
+      }
+    }
+    if (mode === 'type' && (q >= 1 || q <= 0) && caret.parentNode) {
+      caret.parentNode.removeChild(caret);
+    }
+  }
+
+  /* ---- the answer beat, on the pin travel after the card stands ---- */
+  function answer(on) {
+    if (dc._ans === on) return;
+    dc._ans = on;
+    if (btnA) btnA.classList.toggle('hit', on);
+    if (receipt) receipt.classList.toggle('up', on);
+    if (title) title.textContent = (on ? '✅' : '⏳') + ' 377 · curia · grilling';
+  }
+
+  function still() {
+    dc.classList.remove('on');
+    typing.classList.add('gone');
+    apply(1);
+    answer(true);
+  }
+
+  if (prefersStill || !window.requestAnimationFrame) { still(); return; }
+  window.addEventListener('error', still);
+
+  dc.classList.add('on');
+  fit();
+  window.addEventListener('resize', fit, { passive: true });
+
+  var raf = 0;
+  (function tick() {
+    raf = requestAnimationFrame(tick);
+    if (document.hidden) return;
+    var vh = window.innerHeight;
+    var r = dc.getBoundingClientRect();
+    if (r.bottom < -vh || r.top > vh * 2) return;
+    var q = clampNum((vh - r.top) / (vh * 0.66), 0, 1);
+    apply(q);
+    typing.classList.toggle('gone', q >= 1);
+    var pr = pin.getBoundingClientRect();
+    var trav = pr.height - vh;
+    answer(q >= 1 && trav > 0 && -pr.top / trav > 0.72);
+  })();
+})();
 
 /* ================================================================
    The opening arc (#625) — scenes 1, 2 and 3 over one sticky canvas.

@@ -501,6 +501,61 @@ without them.
 
 > vortex works and is good enough. lets lock this in
 
+## The Discord scene ([#626](https://github.com/alp82/curia/issues/626))
+
+Scene 4, the grilling. The operator's note at #551 round 2: the chat comes after the couch title,
+it assembles while the page scrolls, the typing row stands alone at the bottom, the message
+streams in, the whole of it is shown at two thirds of the viewport, and the chrome must read as a
+real Discord chat.
+
+**Round 1.** The scene became a pinned track. A lead holds the frame at the fold while the claim
+is read, then the frame rises and the card writes itself into it. The scroll POSITION drives the
+assembly, never a clock: `q` is 0 at the fold and 1 when the top of the frame stands two thirds of
+the viewport up. The typing row goes at `q` 1. The press of button A and the receipt ride the pin
+travel after that, so the answer lands last and the thread glyph turns from ⏳ to ✅.
+
+Every line in the frame is a shape curia ships, read out of the daemon rather than invented:
+
+| part | source |
+|------|--------|
+| the head line, esc id and agent name | `daemon/src/bridge.mjs:1251` |
+| headline, options, the ↳ consequence and the › example | `daemon/src/card.mjs:53,67,42,43` |
+| the recommendation line | `daemon/src/card.mjs:70` |
+| the details spoiler and the timeline small print | `daemon/src/card.mjs:82,83` |
+| one Primary button per option, carrying the full label | `daemon/src/bridge.mjs:1183` |
+| the preview, timeline and terminal link row | `daemon/src/bridge.mjs:1491` |
+| the answered receipt, edited onto the same message | `daemon/src/bridge.mjs:1521` |
+| the thread name and its ⏳ and ✅ glyphs | `daemon/src/bridge.mjs:644,96` |
+| the parent channel, `#curia` | `daemon/src/bridge.mjs:482` |
+
+The question and the three options are the real escalation of curia#377, in card 4 of
+[#415](https://github.com/alp82/curia/issues/415) — the shape the operator picked, word for word
+from [`prototypes/escalation-card/variants.mjs`](../escalation-card/variants.mjs). The real answer
+was A, the journal.
+
+Five chromes ride `?d=1..5`, and each assembles its own way:
+
+1. **phone** — the mobile app: status bar, back chevron, header, composer. Streamed character by
+   character.
+2. **desktop** — the guild rail, the channel list with the other ticket threads, the chat pane.
+   Block by block, and the typing row sits under the composer the way the desktop client puts it.
+3. **thread** — the thread panel with its breadcrumb. Typed, with a caret.
+4. **bare** — no app chrome at all, the message alone on the stage. Each block rises from the
+   typing row.
+5. **channel** — the phone app with the channel behind it: the start line and the claim message
+   above the card, which scroll out of the top as the card grows.
+
+**The type.** The page ships no webfont ([build.md](../../docs/landing-page/build.md)), so the
+frame uses Discord's own fallback stack, `"gg sans", "Noto Sans", "Helvetica Neue", Helvetica,
+Arial`. gg sans is licensed and never loads. On an Apple device that lands on Helvetica, which is
+what Discord itself falls back to. It is narrower and more closed than gg sans, so the names and
+the bold lines run slightly short.
+
+**The card is long.** The whole of it at once means small type: the frame measures the card
+against the log and shrinks the root size until it fits, with a floor of 9px. The alternative is
+life-size type with the top of the message clipped, the way a real chat clips. That is a round 1
+question.
+
 ## The verdict of the opening arc ([#625](https://github.com/alp82/curia/issues/625))
 
 **Locked over nine operator rounds.** The other four pipelines, the switcher and the `?id` parameter
