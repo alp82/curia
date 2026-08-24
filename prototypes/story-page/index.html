@@ -1091,7 +1091,7 @@ function param(key, max) {
   return v >= 1 && v <= max ? v : 1;
 }
 var ARC_ID = param('id', 5);
-var NAMES = ['', 'sweep', 'through', 'snap', 'stamp', 'unfold'];
+var NAMES = ['', 'ring', 'sphere', 'spiral', 'lobes', 'orrery'];
 
 (function switcher() {
   var d = document.createElement('div');
@@ -1719,27 +1719,39 @@ function runArc() {
   }
 
   /* ---- the shape of the arc ----
-     Three keyframes the whole scene reads from. The hero stacks the
-     machine, the mess hands the screen to the cloud and rides the maps
-     up out of sight, and the order beat brings them back. */
+     RISE is the baseline, as the operator ruled: the maps stand ABOVE,
+     curia holds the middle, and the loose work lies BELOW. Work climbs.
+     That is what lets the maps ride up out of sight on the scroll and
+     hand the screen to the mess.
+
+     Three keyframes the whole scene reads from:
+
+       hero    the maps above, curia in the middle, the notes floating
+               up into it from below
+       mess    the maps ride up and out, and the notes take the screen
+               as an ORBIT around curia, which stays where it is
+       order   the labels arrive, and the maps come back down for the
+               tickets climbing to them
+  */
   function keyframes(b, mapsH) {
     var bw = Math.max(120, b.x1 - b.x0), bh = Math.max(120, b.y1 - b.y0);
     var cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2;
     return {
       hero: {
-        cloudY: b.y0 + bh * 0.19, cloudRX: bw * 0.44, cloudRY: bh * 0.15,
-        nodeY: b.y0 + bh * 0.56, nodeR: clamp(Math.min(bh * 0.15, bw * 0.24), 46, 116),
-        mapsY: b.y1 - mapsH / 2, mapsA: 1, cloudA: 1
+        cloudY: b.y1 - bh * 0.17, cloudRX: bw * 0.44, cloudRY: bh * 0.14,
+        nodeY: b.y0 + bh * 0.52, nodeR: clamp(Math.min(bh * 0.15, bw * 0.24), 46, 116),
+        mapsY: b.y0 + mapsH / 2, mapsA: 1, orbit: 0
       },
       mess: {
-        cloudY: cy, cloudRX: bw * 0.46, cloudRY: bh * 0.42,
-        nodeY: b.y1 + 40, nodeR: clamp(Math.min(bh * 0.1, bw * 0.16), 34, 76),
-        mapsY: b.y0 - mapsH * 1.4, mapsA: 0, cloudA: 1
+        /* curia keeps its place and the work turns around it */
+        cloudY: cy, cloudRX: bw * 0.47, cloudRY: bh * 0.43,
+        nodeY: cy, nodeR: clamp(Math.min(bh * 0.13, bw * 0.2), 44, 100),
+        mapsY: b.y0 - mapsH * 1.5, mapsA: 0, orbit: 1
       },
       order: {
-        cloudY: b.y0 + bh * 0.2, cloudRX: bw * 0.42, cloudRY: bh * 0.17,
-        nodeY: b.y0 + bh * 0.47, nodeR: clamp(Math.min(bh * 0.14, bw * 0.22), 46, 110),
-        mapsY: b.y1 - mapsH / 2, mapsA: 1, cloudA: 1
+        cloudY: b.y1 - bh * 0.16, cloudRX: bw * 0.44, cloudRY: bh * 0.15,
+        nodeY: b.y0 + bh * 0.58, nodeR: clamp(Math.min(bh * 0.14, bw * 0.22), 46, 110),
+        mapsY: b.y0 + mapsH / 2, mapsA: 1, orbit: 0
       },
       cx: cx, cy: cy, bw: bw, bh: bh
     };
@@ -1750,23 +1762,82 @@ function runArc() {
     return out;
   }
 
-  /* Where a piece of work floats while nobody has taken it. The cloud
-     turns, at several radii, in two counter-turning shells. */
+  /* ---- the five orbits ----
+     The mess chapter IS the orbit, so the orbit is what the five
+     variations differ in. Each one turns the work around curia a
+     different way, and each keeps its character in the hero and order
+     chapters, where the same figure lies flat as a drift below curia.
+
+     z is depth, -1 behind curia and 1 in front of it. The frame draws
+     the far half, then curia, then the near half. */
+  var ORBITS = ['', 'ring', 'sphere', 'spiral', 'lobes', 'orrery'];
+
   function cloudPos(i, n, clock, S) {
-    var f = (i * 0.618034) % 1;
-    var dir = i % 2 ? 1 : -1;
-    var ang = (i / n + f * 0.37) * TAU + clock * (0.055 + 0.035 * f) * dir;
-    var rr = 0.44 + 0.64 * f;
-    return {
-      x: S.cx + Math.cos(ang) * S.cloudRX * rr,
-      y: S.cloudY + Math.sin(ang) * S.cloudRY * rr + Math.sin(clock * 0.5 + i) * 4,
-      tilt: Math.cos(ang) * 0.19 * dir
-    };
+    var cx = S.cx, cy = S.cloudY, rx = S.cloudRX, ry = S.cloudRY;
+    var x, y, z = 0, tilt = 0, k = i / n, scale = 1;
+    if (ARC_ID === 2) {
+      /* sphere — a globe of work standing all around curia. Depth is
+         real: a note behind it passes behind it, smaller and dimmer. */
+      var t0 = (i + 0.5) / n;
+      var phi = Math.acos(clamp(1 - 2 * t0, -1, 1));
+      var th = TAU * i * 0.618034 + clock * 0.22;
+      var sp = Math.sin(phi);
+      x = cx + sp * Math.cos(th) * rx;
+      y = cy + Math.cos(phi) * ry;
+      z = sp * Math.sin(th);
+      tilt = sp * Math.cos(th) * 0.08;
+      scale = lerp(0.5, 1.3, (z + 1) / 2);
+    } else if (ARC_ID === 3) {
+      /* spiral — ONE arm winding out of curia, so the radius climbs
+         with the angle and the work reads as a line, not a field */
+      var ang3 = k * TAU * 3.5 + clock * 0.28;
+      var rr3 = 0.08 + 0.98 * k;
+      x = cx + Math.cos(ang3) * rx * rr3;
+      y = cy + Math.sin(ang3) * ry * rr3;
+      z = Math.sin(ang3) * 0.9;
+      tilt = Math.cos(ang3) * 0.2;
+      scale = lerp(0.66, 1.18, k);
+    } else if (ARC_ID === 4) {
+      /* lobes — a dumbbell orbit, wide out to each side and pinched
+         above and below, so curia sits in the waist of it */
+      var ang4 = k * TAU + clock * 0.15;
+      var rr4 = 0.2 + 0.9 * Math.abs(Math.cos(ang4));
+      x = cx + Math.cos(ang4) * rx * rr4;
+      y = cy + Math.sin(ang4) * ry * rr4 * 0.46;
+      z = Math.sin(ang4);
+      tilt = Math.sin(ang4) * 0.24;
+    } else if (ARC_ID === 5) {
+      /* orrery — three rings at three radii, each on its own tilt and
+         its own speed, with clear sky between them */
+      var ring = i % 3;
+      var rr5 = [0.26, 0.66, 1.08][ring];
+      var sp5 = [0.42, -0.26, 0.16][ring];
+      var tl5 = [0, 0.4, -0.32][ring];
+      var per = Math.ceil(n / 3);
+      var ang5 = (Math.floor(i / 3) / per) * TAU + clock * sp5;
+      var px = Math.cos(ang5) * rx * rr5, py = Math.sin(ang5) * ry * rr5;
+      x = cx + px * Math.cos(tl5) - py * Math.sin(tl5);
+      y = cy + px * Math.sin(tl5) + py * Math.cos(tl5);
+      z = Math.sin(ang5);
+      tilt = tl5 * 0.5;
+      scale = [0.86, 0.96, 1.06][ring];
+    } else {
+      /* ring — one necklace. Every piece of work at the same radius,
+         evenly spaced, turning as one. */
+      var ang1 = k * TAU + clock * 0.09;
+      x = cx + Math.cos(ang1) * rx;
+      y = cy + Math.sin(ang1) * ry;
+      z = Math.sin(ang1);
+      tilt = Math.cos(ang1) * 0.14;
+    }
+    return { x: x, y: y, z: z, tilt: tilt, scale: scale * lerp(0.94, 1.06, (z + 1) / 2) };
   }
 
+  /* Work leaves curia through the top of its rim, because the maps are
+     above it. */
   function portPoint(k, n, S) {
-    if (n < 2) return { x: S.cx, y: S.nodeY + S.nodeR };
-    var ang = lerp(0.62, 2.52, k / (n - 1));
+    if (n < 2) return { x: S.cx, y: S.nodeY - S.nodeR };
+    var ang = lerp(-2.52, -0.62, k / (n - 1));
     return { x: S.cx + Math.cos(ang) * S.nodeR, y: S.nodeY + Math.sin(ang) * S.nodeR };
   }
 
@@ -1778,7 +1849,7 @@ function runArc() {
     for (i = 0; i < maps.length; i++) {
       var p = portPoint(i, maps.length, S);
       var mm = maps[i];
-      var ty = mm.y - mapHeight(mm.w / MAP_W) / 2;
+      var ty = mm.y + mapHeight(mm.w / MAP_W) / 2;
       ctx.setLineDash([7, 6]);
       ctx.strokeStyle = rgba(C.merged, 0.17 + 0.4 * (heat[i] || 0));
       ctx.lineWidth = 1.3 + 1.5 * (heat[i] || 0);
@@ -1803,7 +1874,7 @@ function runArc() {
     ctx.fill();
     ctx.beginPath();
     ctx.arc(nx, ny, r, 0, TAU);
-    ctx.fillStyle = 'rgba(9,13,16,0.92)';
+    ctx.fillStyle = 'rgba(9,13,16,0.94)';
     ctx.fill();
     ctx.fillStyle = rgba(C.merged, 0.15 + 0.12 * act);
     ctx.fill();
@@ -1847,36 +1918,13 @@ function runArc() {
     ctx.restore();
   }
 
-  /* ---- the five moments a label can arrive ---- */
-
-  /* How far ticket i has come from note to ticket, and how far it has
-     travelled to its map, given how far the order claim has come. */
-  function progressOf(i, n, fall, clock, S, home, sweepY) {
+  /* How far work i has come from note to ticket, and how far it has
+     climbed to its map. Nothing is labeled until it has been through
+     curia, which is the move the whole scene is about. */
+  function progressOf(i, n, fall) {
     var lead = i / n;
-    var m, t;
-    if (ARC_ID === 1) {
-      /* sweep — a line walks down the cloud and everything it has
-         passed is labeled where it lies */
-      m = clamp((sweepY - home.y) / 70 + 0.5, 0, 1);
-      t = smooth(0.70 + lead * 0.22, 0.95 + lead * 0.22, fall);
-    } else if (ARC_ID === 2) {
-      /* through — nothing is labeled until it has been through curia */
-      t = smooth(0.10 + lead * 0.44, 0.64 + lead * 0.44, fall);
-      m = smooth(0.46, 0.56, t);
-    } else if (ARC_ID === 3) {
-      /* snap — curia takes one beat and the whole pile turns at once */
-      m = smooth(0.34, 0.41, fall);
-      t = smooth(0.52 + lead * 0.3, 0.86 + lead * 0.3, fall);
-    } else if (ARC_ID === 4) {
-      /* stamp — labels fly out of curia and land one at a time */
-      m = smooth(0.12 + lead * 0.46, 0.24 + lead * 0.46, fall);
-      t = smooth(0.66 + lead * 0.24, 0.94 + lead * 0.24, fall);
-    } else {
-      /* unfold — each note opens into a ticket where it floats */
-      m = smooth(0.10 + lead * 0.48, 0.40 + lead * 0.48, fall);
-      t = smooth(0.70 + lead * 0.22, 0.97 + lead * 0.22, fall);
-    }
-    return { m: clamp(m, 0, 1), t: clamp(t, 0, 1), lead: lead };
+    var t = smooth(0.10 + lead * 0.44, 0.64 + lead * 0.44, fall);
+    return { m: smooth(0.46, 0.56, t), t: t, lead: lead };
   }
 
   var raf = 0, last = 0, clock = 0;
@@ -1902,7 +1950,6 @@ function runArc() {
     var b = freeBox(dt, wordsBands());
     var L = { bands: b.bands, zones: [{ x0: b.x0, y0: b.y0, x1: b.x1, y1: b.y1 }] };
 
-    /* the maps, sized to the foot of the free box */
     var maps = [];
     placeMaps({ maps: maps }, (b.x0 + b.x1) / 2, 0,
       b.x1 - b.x0, Math.max(120, (b.y1 - b.y0) * 0.34), false);
@@ -1911,21 +1958,16 @@ function runArc() {
     var K = keyframes(b, mapsH);
     var S = mixkf(mixkf(K.hero, K.mess, rise), K.order, fall);
     S.cx = K.cx;
-    /* curia stands down while the mess owns the screen, and wherever
-       it does stand it keeps off the words like everything else */
-    var nodeA = clamp(1 - rise * (1 - fall), 0, 1);
-    if (nodeA > 0.02) {
-      var np = place(L, S.cx, S.nodeY, S.nodeR + 8, S.nodeR + 8);
-      S.cx = np.x; S.nodeY = np.y;
-    }
-    var nMaps = maps.length;
+    /* curia never leaves. The mess chapter turns around it. */
+    var np = place(L, S.cx, S.nodeY, S.nodeR + 8, S.nodeR + 8);
+    S.cx = np.x; S.nodeY = np.y;
 
-    /* the maps ride up out of sight while the mess holds the screen,
-       and fade before they could ever reach the words */
-    var mapsA = clamp(1 - rise + fall, 0, 1);
+    var nMaps = maps.length;
+    var mapsA = clamp(S.mapsA, 0, 1);
     var mi;
     for (mi = 0; mi < nMaps; mi++) maps[mi].y = S.mapsY;
 
+    /* the maps stand above, and ride up out of sight for the mess */
     var cycles = [], si;
     for (si = 0; si < nMaps; si++) {
       cycles[si] = mapCycle(maps[si].m, clock);
@@ -1935,81 +1977,77 @@ function runArc() {
         drawMapCard(maps[si].x, maps[si].y, maps[si].w, maps[si].m, cycles[si], mapsA);
       }
     }
-
     if (wide && mapsA > 0.8) {
-      var lg = place(L, maps[0].x, maps[0].y - mapsH / 2 - 18, 120, 10);
+      var lg = place(L, maps[0].x, maps[0].y + mapsH / 2 + 18, 120, 10);
       drawLegend(lg.x, lg.y, smooth(0.15, 0.5, fall) * mapsA, true);
     }
 
-    /* the work itself */
+    /* every piece of work, placed before any of it is drawn, so the
+       far half can go behind curia and the near half in front */
     var n = MESS.length;
-    var cw = clamp(Math.min(S.cloudRX * 1.2, (b.x1 - b.x0) * 0.55), 92, CARD_W);
+    /* The card size comes from the box, and the orbit is then sized to
+       hold whole cards inside it. Without this the orbit runs past the
+       edges, every card gets clamped onto the boundary, and all five
+       shapes collapse into the same rectangle of work. */
+    var cw = clamp((b.x1 - b.x0) * 0.38, 92, CARD_W);
+    var chw = cw / 2 + 6, chh = CARD_H * (cw / CARD_W) / 2 + 6;
+    S.cloudRX = Math.max(24, Math.min(S.cloudRX, (b.x1 - b.x0) / 2 - chw));
+    S.cloudRY = Math.max(24, Math.min(S.cloudRY, (b.y1 - b.y0) / 2 - chh));
     var heat = [0, 0, 0];
-    /* the sweep walks the cloud, not the screen, so it takes its time
-       over the work rather than crossing empty space */
-    var sweepY = lerp(S.cloudY - S.cloudRY * 1.15 - 50, S.cloudY + S.cloudRY * 1.15 + 50,
-      smooth(0.12, 0.66, fall));
-    var snapNow = ARC_ID === 3 ? smooth(0.44, 0.52, fall) : 0;
+    var back = [], front = [];
     var i;
     for (i = 0; i < n; i++) {
       var home = cloudPos(i, n, clock, S);
-      var pr = progressOf(i, n, fall, clock, S, home, sweepY);
+      var pr = progressOf(i, n, fall);
+      if (pr.t >= 0.999) continue;              /* it lives in the map now */
       var slot = i % Math.max(1, nMaps);
       var mm = maps[slot];
-      var x, y, tilt = home.tilt * (1 - pr.m), pop = 1, a = 0.95;
-
+      var it = { i: i, z: home.z, m: pr.m, tilt: home.tilt * (1 - pr.m),
+                 pop: home.scale, a: 0.95, slot: slot };
       if (pr.t <= 0.001) {
-        x = home.x; y = home.y;
-      } else if (pr.t >= 0.999) {
-        continue;                        /* it lives in the map now */
-      } else if (ARC_ID === 2) {
-        /* through curia, then out of a port to its map */
-        if (pr.t < 0.5) {
-          var t1 = ease(pr.t / 0.5);
-          x = lerp(home.x, S.cx, t1); y = lerp(home.y, S.nodeY, t1);
-          tilt = home.tilt * (1 - t1);
-        } else {
-          var t2 = ease((pr.t - 0.5) / 0.5);
-          var p0 = portPoint(slot, nMaps, S);
-          x = lerp(p0.x, mm.x, t2); y = lerp(p0.y, mm.y, t2);
-          tilt = 0;
-          pop = 1 + 0.22 * Math.sin(Math.min(1, t2 * 4) * Math.PI);
-          a = (1 - smooth(0.7, 1, t2)) * 0.96;
-          heat[slot] = Math.max(heat[slot], 1 - t2);
-        }
+        it.x = home.x; it.y = home.y;
+      } else if (pr.t < 0.5) {
+        var t1 = ease(pr.t / 0.5);
+        it.x = lerp(home.x, S.cx, t1);
+        it.y = lerp(home.y, S.nodeY, t1);
+        it.tilt = home.tilt * (1 - t1);
+        it.z = lerp(home.z, 0.9, t1);
       } else {
-        /* labeled where it floated, then it goes to its map */
-        var tt = ease(pr.t);
-        x = lerp(home.x, mm.x, tt); y = lerp(home.y, mm.y, tt);
-        a = (1 - smooth(0.74, 1, tt)) * 0.96;
-        if (pr.t > 0.02) heat[slot] = Math.max(heat[slot], 1 - pr.t);
+        var t2 = ease((pr.t - 0.5) / 0.5);
+        var p0 = portPoint(slot, nMaps, S);
+        it.x = lerp(p0.x, mm.x, t2);
+        it.y = lerp(p0.y, mm.y, t2);
+        it.tilt = 0;
+        it.z = 1;
+        it.pop = home.scale * (1 + 0.22 * Math.sin(Math.min(1, t2 * 4) * Math.PI));
+        it.a = (1 - smooth(0.72, 1, t2)) * 0.96;
+        it.badge = mm.m.label;
+        it.badgeIn = smooth(0.02, 0.3, t2);
+        heat[slot] = Math.max(heat[slot], 1 - t2);
       }
+      (it.z < 0 ? back : front).push(it);
+    }
 
-      if (ARC_ID === 5) pop = 1 + 0.3 * Math.sin(clamp(pr.m, 0, 1) * Math.PI);
-      if (ARC_ID === 3 && snapNow > 0.01 && snapNow < 0.99) pop = 1 + 0.28 * Math.sin(snapNow * Math.PI);
-
-      var at2 = fitTicket(L, x, y, cw);
-      drawWork(at2.x, at2.y, cw, MESS[i], {
-        m: pr.m, tilt: tilt, pop: pop, a: a,
-        st: pr.m > 0.5 ? (slot % 3 === 1 ? 1 : 3) : 0,
-        badge: pr.m > 0.9 && pr.t > 0.02 ? mm.m.label : null,
-        badgeIn: smooth(0.02, 0.3, pr.t)
-      });
-
-      /* stamp: the label flies out of curia and lands on the note */
-      if (ARC_ID === 4 && pr.m > 0.01 && pr.m < 0.99) {
-        var fx = lerp(S.cx, at2.x, ease(pr.m));
-        var fy = lerp(S.nodeY, at2.y, ease(pr.m));
-        ctx.save();
-        ctx.globalAlpha = clamp(1 - pr.m, 0, 1);
-        roundRect(fx - 16, fy - 7, 32, 14, 4);
-        ctx.fillStyle = rgba(C.merged, 0.9);
-        ctx.fill();
-        ctx.restore();
+    function paint(list) {
+      var k;
+      for (k = 0; k < list.length; k++) {
+        var it = list[k];
+        var at2 = fitTicket(L, it.x, it.y, cw);
+        drawWork(at2.x, at2.y, cw, MESS[it.i], {
+          m: it.m, tilt: it.tilt, pop: it.pop, a: it.a,
+          st: it.m > 0.5 ? (it.slot % 3 === 1 ? 1 : 3) : 0,
+          badge: it.badge, badgeIn: it.badgeIn
+        });
       }
     }
 
-    /* the hero keeps working while the reader is still reading it */
+    paint(back);
+    drawRoutes(S, maps, heat, mapsA);
+    drawNode(S, clock, clamp(0.45 + 0.55 * fall, 0, 1), nMaps, 1);
+    paint(front);
+
+    /* the hero keeps working while the reader is still reading it:
+       notes float up into curia and come out as tickets for the maps */
     var idleA = (1 - smooth(0.02, 0.16, rise)) * (1 - fall);
     if (idleA > 0.02 && nMaps) {
       var li;
@@ -2038,32 +2076,6 @@ function runArc() {
         });
       }
     }
-
-    /* the sweep line, and the beat that snaps the pile over */
-    if (ARC_ID === 1 && fall > 0.02 && fall < 0.98) {
-      ctx.save();
-      ctx.globalAlpha = clamp(smooth(0.06, 0.16, fall) * (1 - smooth(0.66, 0.78, fall)), 0, 1);
-      ctx.strokeStyle = rgba(C.merged, 0.9);
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(b.x0, sweepY);
-      ctx.lineTo(b.x1, sweepY);
-      ctx.stroke();
-      ctx.restore();
-    }
-    if (ARC_ID === 3 && snapNow > 0.01 && snapNow < 0.99) {
-      ctx.save();
-      ctx.globalAlpha = clamp(1 - snapNow, 0, 1);
-      ctx.beginPath();
-      ctx.arc(S.cx, S.nodeY, S.nodeR + snapNow * Math.max(W, H) * 0.8, 0, TAU);
-      ctx.strokeStyle = rgb(C.merged);
-      ctx.lineWidth = 3 * (1 - snapNow);
-      ctx.stroke();
-      ctx.restore();
-    }
-
-    drawRoutes(S, maps, heat, mapsA * nodeA);
-    drawNode(S, clock, clamp(0.45 + 0.55 * fall, 0, 1), nMaps, nodeA);
 
     /* the agents, on the maps they are working */
     for (si = 0; si < nMaps && mapsA > 0.4; si++) {

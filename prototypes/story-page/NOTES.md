@@ -272,6 +272,47 @@ The five variations are the MOMENT the labels land, because that moment is the p
 | 4 | stamp | labels fly out of curia and land on the notes one at a time |
 | 5 | unfold | each note opens into a ticket where it floats, with a pop |
 
+**The operator's answer.** Three faults, and the last one is the one that matters:
+
+> all 5 look the same to me. also you didn't use RISE as the baseline. and you didn't use ORBIT for
+> the mess chapter at all.
+>
+> FOLLOW MY PREFERENCES WHEN BUILDING PROTOTYPES
+
+All three were right, and two were plain instructions from the round before that this build did not
+carry out. The round 3 answer said rise is the baseline. The build put the maps at the BOTTOM and
+the pile at the top, which is stack. The same answer said the tickets translate into the orbiting
+variation for the mess chapter. The build faded curia out during the mess, so there was nothing left
+to orbit.
+
+**Round 5.** The preferences first, then the variations.
+
+**Rise is the baseline.** The maps stand ABOVE, curia holds the middle, and the loose work lies
+BELOW it. Work climbs. That is what lets the maps ride up out of sight on the scroll and hand the
+screen to the mess, which is the reason the operator gave for choosing it.
+
+**The mess chapter is the orbit.** curia keeps its place and stays lit, and the work turns around
+it on every side. The hero keeps the quality of stack that the operator singled out: notes float
+into curia and come out as tickets for the maps, and that stream runs the whole time the hero words
+are on screen.
+
+**The five are the orbit**, because the orbit is the chapter the operator asked about:
+
+| id | orbit | what turns around curia |
+|----|-------|-------------------------|
+| 1 | ring | one necklace, every piece at the same radius, evenly spaced |
+| 2 | sphere | a globe, with real depth: work behind curia passes behind it |
+| 3 | spiral | one arm winding out of curia over three and a half turns |
+| 4 | lobes | a dumbbell, wide to each side, with sky above and below curia |
+| 5 | orrery | three rings at three radii, each on its own tilt and speed |
+
+A build check now asserts the preferences rather than trusting the build: the maps above curia and
+the work below it at the hero, the maps gone and curia still lit at the mess, work on all four sides
+of curia there, and the maps back for the order beat. It runs for every variation at two viewport
+sizes. Two rounds were lost to not checking this, and the check found a third fault on the way: the
+orbit was drawn wider than the space it had, so every card was clamped onto the boundary and all
+five shapes collapsed into the same rectangle of work.
+
 ## The verdict
 
 **The identity is duotone, locked at [#624](https://github.com/alp82/curia/issues/624) over
