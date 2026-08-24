@@ -400,6 +400,50 @@ The preference check caught a silent failure this round: an edit meant to introd
 not apply, so the page kept one fixed pace while the notes claimed five. The five all measured
 identical, which is how it surfaced.
 
+**The operator's answer.** Three faults:
+
+> problems with scene 2:
+> * the maps should stay at the bottom, no need to move them above again
+> * the tickets make huge steps. i want a smooth movement and transition path
+> * first ticket can be done deliberately, and then it quickly grows exponentially to do the rest
+
+**Round 8.**
+
+**The maps stay at the bottom.** They still ride up and out of sight for the mess, and the empty
+ones rise from the foot of the screen, but they stop at the foot of the box now instead of climbing
+over curia again. curia sends work out of whichever rim faces its maps, so the ports and the routes
+turned to face down, and the orbit keeps clear of the map cards as well as of the edges.
+
+A map on its way up travels through space the words hold. Shoving it aside would spoil the arrival,
+so it fades across them instead. Nothing is ever drawn on top of a word either way.
+
+**The huge steps were one bad line, not a pace.** The journey's last move started at curia's PORT
+while the two before it ended at the HOLD above curia's middle, so the card vanished from one and
+reappeared at the other. The three moves share their end points now, and the last one is a curve
+bent through the port rather than a jump to it. The card also travels linearly with the scroll, so
+the movement tracks the reader's finger.
+
+**The first journey is deliberate, and the rest accelerate.** Each journey's window is the one
+before it times a ratio, so the first is long enough to follow and the last is a flash. The five
+variations are how steep that ramp is. Scroll for each of the six journeys, on a 390 by 760 phone:
+
+| id | ramp | #1 | #2 | #3 | #4 | #5 | #6 |
+|----|------|----|----|----|----|----|----|
+| 1 | gentle | 588 | 471 | 377 | 301 | 241 | 193 |
+| 2 | easy | 738 | 517 | 362 | 253 | 177 | 124 |
+| 3 | middle | 874 | 542 | 336 | 208 | 129 | 80 |
+| 4 | steep | 1063 | 553 | 287 | 149 | 78 | 40 |
+| 5 | steepest | 1266 | 532 | 223 | 94 | 39 | 17 |
+
+The arc is 7.1 screens for all five, because only the ramp changes.
+
+**A check for the path.** It follows one ticket by its number through its whole journey, with the
+clock held still so nothing but the traveller moves, and reports the largest hop for a small scroll
+step. The path now hops at most 19 px for an 8 px step. The check was wrong the first time: it
+matched cards to their nearest neighbour, and a neighbouring card stood in for the one that had
+jumped, so it reported smooth. Restoring the old bad line proved the fixed version catches it, at
+85 px.
+
 ## The verdict
 
 **The identity is duotone, locked at [#624](https://github.com/alp82/curia/issues/624) over

@@ -1091,7 +1091,7 @@ function param(key, max) {
   return v >= 1 && v <= max ? v : 1;
 }
 var ARC_ID = param('id', 5);
-var NAMES = ['', 'slowest', 'slow', 'middle', 'quick', 'quickest'];
+var NAMES = ['', 'gentle', 'easy', 'middle', 'steep', 'steepest'];
 
 (function switcher() {
   var d = document.createElement('div');
@@ -1575,6 +1575,22 @@ function runArc() {
     var p = fitIn(L, x, y, hw, hh);
     return avoidWords(L, p.x, p.y, hw, hh);
   }
+  /* How clear of the words a card is, 1 clear and 0 sitting on them.
+     A map rising into place travels through space the words hold, and
+     shoving it aside would spoil the arrival, so it fades across them
+     instead. The promise is kept either way: nothing is drawn on top
+     of a word. */
+  function clearOfWords(L, x, y, hw, hh) {
+    var bands = L.bands, i, out = 1;
+    for (i = 0; i < bands.length; i++) {
+      var wr = bands[i];
+      if (x + hw <= wr.l || x - hw >= wr.r) continue;
+      var gap = Math.max(wr.t - (y + hh), (y - hh) - wr.b);
+      var v = clamp(gap / 30, 0, 1);
+      if (v < out) out = v;
+    }
+    return out;
+  }
   function fitTicket(L, x, y, w) {
     return place(L, x, y, w / 2 + 3, CARD_H * (w / CARD_W) / 2 + 3);
   }
@@ -1755,10 +1771,12 @@ function runArc() {
         nodeY: cy, nodeR: clamp(Math.min(bh * 0.13, bw * 0.2), 44, 100),
         mapsY: b.y0 - mapsH * 1.5, mapsA: 0, orbit: 1
       },
+      /* The maps rise from the foot of the screen and STOP at the foot
+         of the box. They do not climb over curia again. */
       order: {
-        cloudY: b.y1 - bh * 0.21, cloudRX: bw * 0.44, cloudRY: bh * 0.16,
-        nodeY: b.y0 + bh * 0.58, nodeR: clamp(Math.min(bh * 0.14, bw * 0.22), 46, 110),
-        mapsY: b.y0 + mapsH / 2, mapsA: 1, orbit: 0
+        cloudY: b.y0 + bh * 0.33, cloudRX: bw * 0.44, cloudRY: bh * 0.2,
+        nodeY: b.y0 + bh * 0.33, nodeR: clamp(Math.min(bh * 0.13, bw * 0.21), 46, 106),
+        mapsY: b.y1 - mapsH / 2, mapsA: 1, orbit: 0
       },
       cx: cx, cy: cy, bw: bw, bh: bh
     };
@@ -1818,9 +1836,12 @@ function runArc() {
 
   /* Work leaves curia through the top of its rim, because the maps are
      above it. */
+  /* Work leaves curia through the rim that faces its maps. */
   function portPoint(k, n, S) {
-    if (n < 2) return { x: S.cx, y: S.nodeY - S.nodeR };
-    var ang = lerp(-2.52, -0.62, k / (n - 1));
+    var down = S.portsDown;
+    if (n < 2) return { x: S.cx, y: S.nodeY + (down ? S.nodeR : -S.nodeR) };
+    var a0 = down ? 0.62 : -2.52, a1 = down ? 2.52 : -0.62;
+    var ang = lerp(a0, a1, k / (n - 1));
     return { x: S.cx + Math.cos(ang) * S.nodeR, y: S.nodeY + Math.sin(ang) * S.nodeR };
   }
 
@@ -1832,7 +1853,8 @@ function runArc() {
     for (i = 0; i < maps.length; i++) {
       var p = portPoint(i, maps.length, S);
       var mm = maps[i];
-      var ty = mm.y + mapHeight(mm.w / MAP_W) / 2;
+      var mh2 = mapHeight(mm.w / MAP_W) / 2;
+      var ty = S.portsDown ? mm.y - mh2 : mm.y + mh2;
       ctx.setLineDash([7, 6]);
       ctx.strokeStyle = rgba(C.merged, 0.17 + 0.4 * (heat[i] || 0));
       ctx.lineWidth = 1.3 + 1.5 * (heat[i] || 0);
@@ -1920,22 +1942,25 @@ function runArc() {
      about a screen to cross, and that was the ceiling on the pace.
      ================================================================ */
 
-  var PACES = ['', 'slowest', 'slow', 'middle', 'quick', 'quickest'];
+  var PACES = ['', 'gentle ramp', 'easy ramp', 'middle ramp', 'steep ramp', 'steepest'];
 
   /* How many screens of scroll the whole order beat is given, and how
      many pieces of work make the journey. The rest stay in the orbit,
      because the backlog does not empty. */
-  /* The five are a ladder of PACE, because pace is the open question:
-     the operator could see a ticket for a split second and asked what a
-     slower one looks like. Everything else about the beat is identical
-     in all five, so speed is the only thing being judged.
+  /* The five are a ladder of RAMP: how sharply the beat accelerates
+     after the first journey. Everything else is identical in all five.
 
-     A span is how many screens of scroll the order beat is given. The
-     tail room under the claim is set from it, so a brisk pace leaves no
-     screens of dead scroll behind it. */
-  var SPANS = [0, 7.0, 5.5, 4.2, 3.2, 2.4];
-  var ORDER_SPAN = SPANS[ARC_ID];
+     The span is how many screens of scroll the order beat is given, and
+     the tail room under the claim is set from it. */
+  var ORDER_SPAN = 4.2;
   var TRAVEL_N = 6;
+
+  /* The first journey is deliberate and the rest come faster and
+     faster, which is the operator's shape: teach it once, then show
+     the throughput. Each journey's window is the last one times a
+     ratio, and the five variations are how steep that ramp is. */
+  var RATIOS = [0, 0.80, 0.70, 0.62, 0.52, 0.42];
+  var RATIO = RATIOS[ARC_ID];
   document.documentElement.style.setProperty('--tail', ((ORDER_SPAN + 0.19) * 100).toFixed(0) + 'svh');
 
   /* Which map each piece of work belongs to, and what it turns out to
@@ -1952,37 +1977,59 @@ function runArc() {
     }
   })();
 
-  /* The window of the order beat that work i's journey runs in. The
-     journeys never overlap, so every one of them gets the screen to
-     itself: that is what makes the three moves watchable. */
-  function windowOf(i) {
-    var w = 1 / TRAVEL_N;
-    return { a: i * w, b: i * w + w * 0.96 };
+  /* The window of the order beat each journey runs in. They never
+     overlap, so every one has the screen to itself, and each is the
+     one before it times RATIO: the first is long enough to follow and
+     the last is a flash. */
+  var WINDOWS = (function () {
+    var raw = [], sum = 0, i;
+    for (i = 0; i < TRAVEL_N; i++) { raw[i] = Math.pow(RATIO, i); sum += raw[i]; }
+    var out = [], acc = 0;
+    for (i = 0; i < TRAVEL_N; i++) {
+      var width = raw[i] / sum;
+      out.push({ a: acc, b: acc + width * 0.96 });
+      acc += width;
+    }
+    return out;
+  })();
+  function windowOf(i) { return WINDOWS[i]; }
+
+  function qbez(x0, y0, cx, cy, x1, y1, t) {
+    var it = 1 - t;
+    return {
+      x: it * it * x0 + 2 * it * t * cx + t * t * x1,
+      y: it * it * y0 + 2 * it * t * cy + t * t * y1
+    };
   }
 
-  /* One journey, in its three moves. u runs 0 to 1. */
+  /* One journey, as ONE unbroken path. The three moves share their end
+     points, so the card never jumps: it travels to curia, STOPS there
+     while it takes its labels, then leaves along a curve bent through
+     curia's port to its map. The card left the hold and reappeared at
+     the port before, which is what made the movement look like steps. */
   function journey(u, home, S, port, map) {
-    var holdY = S.nodeY - S.nodeR * 0.55;
+    var holdX = S.cx, holdY = S.nodeY - S.nodeR * 0.45;
     if (u < 0.34) {
       var t1 = ease(u / 0.34);
       return {
-        x: lerp(home.x, S.cx, t1), y: lerp(home.y, holdY, t1),
+        x: lerp(home.x, holdX, t1), y: lerp(home.y, holdY, t1),
         m: 0, tilt: home.tilt * (1 - t1), z: lerp(home.z, 0.95, t1),
-        pop: 1, a: 1
+        scale: lerp(home.scale, 1, t1), pop: 1, a: 1
       };
     }
     if (u < 0.66) {
       /* the change, in place, where it can be watched */
       var t2 = (u - 0.34) / 0.32;
       return {
-        x: S.cx, y: holdY, m: ease(t2), tilt: 0, z: 0.95,
-        pop: 1 + 0.24 * Math.sin(t2 * Math.PI), a: 1
+        x: holdX, y: holdY, m: ease(t2), tilt: 0, z: 0.95,
+        scale: 1, pop: 1 + 0.24 * Math.sin(t2 * Math.PI), a: 1
       };
     }
     var t3 = ease((u - 0.66) / 0.34);
+    var q = qbez(holdX, holdY, port.x, port.y, map.x, map.y, t3);
     return {
-      x: lerp(port.x, map.x, t3), y: lerp(port.y, map.y, t3),
-      m: 1, tilt: 0, z: 1, pop: 1, a: 1 - smooth(0.82, 1, t3)
+      x: q.x, y: q.y, m: 1, tilt: 0, z: 1, scale: 1, pop: 1,
+      a: 1 - smooth(0.84, 1, t3)
     };
   }
 
@@ -2045,13 +2092,22 @@ function runArc() {
 
     var nMaps = maps.length;
     for (mi = 0; mi < nMaps; mi++) maps[mi].y = S.mapsY;
+    /* curia sends work out of whichever rim faces its maps */
+    S.portsDown = nMaps > 0 && S.mapsY > S.nodeY;
 
     var n = MESS.length;
     var cw = clamp((b.x1 - b.x0) * 0.38, 92, CARD_W);
     var chw = cw / 2 + 6, chh = CARD_H * (cw / CARD_W) / 2 + 6;
     S.cloudRY *= lerp(1, 2.8, S.orbitMix);
+    /* the orbit keeps clear of the maps as well as of the edges, so a
+       note never turns through a map card */
+    var floorY = b.y1, ceilY = b.y0;
+    if (nMaps > 0 && mapsA > 0.3) {
+      if (S.portsDown) floorY = Math.min(floorY, S.mapsY - mapsH / 2 - 8);
+      else ceilY = Math.max(ceilY, S.mapsY + mapsH / 2 + 8);
+    }
     var roomX = Math.min(S.cx - b.x0, b.x1 - S.cx) - chw;
-    var roomY = Math.min(S.cloudY - b.y0, b.y1 - S.cloudY) - chh;
+    var roomY = Math.min(S.cloudY - ceilY, floorY - S.cloudY) - chh;
     S.cloudRX = Math.max(20, Math.min(S.cloudRX, roomX));
     S.cloudRY = Math.max(16, Math.min(S.cloudRY, roomY));
 
@@ -2079,7 +2135,7 @@ function runArc() {
       } else {
         var j = journey(u, home, S, portPoint(slot, nMaps, S), mm);
         it.x = j.x; it.y = j.y; it.z = j.z; it.m = j.m; it.tilt = j.tilt;
-        it.pop = home.scale * j.pop;
+        it.pop = j.scale * j.pop;
         it.a = j.a * 0.96;
         if (j.m > 0.9) { it.badge = mm.m.label; it.badgeIn = smooth(0.66, 0.78, u); }
         if (u > 0.66) heat[slot] = Math.max(heat[slot], 1 - (u - 0.66) / 0.34);
@@ -2141,11 +2197,20 @@ function runArc() {
 
     /* the maps go on last, so a map rising from the bottom passes in
        front of the work it is coming to collect */
+    var settled = fall <= 0.001 || mapsIn > 0.98;
     for (si = 0; si < nMaps; si++) {
       if (mapsA <= 0.02) break;
-      var at = place(L, maps[si].x, maps[si].y, maps[si].w / 2 + 3, mapsH / 2 + 3);
-      maps[si].x = at.x; maps[si].y = at.y;
-      drawMapCard(maps[si].x, maps[si].y, maps[si].w, maps[si].m, cycles[si], mapsA);
+      var mc = maps[si];
+      var mhw = mc.w / 2 + 3, mhh = mapsH / 2 + 3;
+      if (settled) {
+        var at = place(L, mc.x, mc.y, mhw, mhh);
+        mc.x = at.x; mc.y = at.y;
+      } else {
+        /* on its way up it keeps its travel, and only its column is held */
+        mc.x = fitIn(L, mc.x, mc.y, mhw, mhh).x;
+      }
+      drawMapCard(mc.x, mc.y, mc.w, mc.m, cycles[si],
+        mapsA * clearOfWords(L, mc.x, mc.y, mhw, mhh));
     }
     if (wide && mapsA > 0.8) {
       var lg = place(L, maps[0].x, maps[0].y + mapsH / 2 + 18, 120, 10);
@@ -2165,7 +2230,7 @@ function runArc() {
         var lj = journey(lu, lhome, S, portPoint(lslot, nMaps, S), maps[lslot]);
         var lat = fitTicket(L, lj.x, lj.y, cw);
         drawWork(lat.x, lat.y, cw, MESS[lm], {
-          m: lj.m, tilt: lj.tilt, pop: lhome.scale * lj.pop,
+          m: lj.m, tilt: lj.tilt, pop: lj.scale * lj.pop,
           a: lj.a * idleA * 0.95, st: lj.m > 0.5 ? STOF[lm] : 0
         });
       }
