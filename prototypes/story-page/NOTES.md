@@ -1023,6 +1023,66 @@ says how they meet. It has the drill line between them now.
 sized, so a map taller than the home would have been clipped by it. Both screens share one grid
 cell now, so the frame is as tall as the taller of the two.
 
+**The operator's answer.** Rejected, with a screenshot:
+
+> looks completely broken. move the title to the center and move the slightly tilted dashboard
+> screens left and right, both facing the title
+>
+> 5 variations like this and you can experiment with layout, etc.
+
+The screenshot showed the fault plainly, and it is the SAME fault the preview scene hit at #627
+round 3. At desktop width the claim sat in a centered `.wrap` on the left while the panel leaned
+right inside a `.shot`, so the title stood alone with a screen of dead space beside it, and the
+panel ran off the fold as one endless list. Round 2 read fine on a phone and fell apart on a
+desktop, because nothing in the scene placed the claim and the evidence against each other.
+
+**Round 3.** The repair is the one #627 already proved, and the composition is the one the
+operator drew.
+
+**The scene is one composition canvas.** The `.wrap` and the `.shot` are gone from it. The claim
+and both screens are grid items of `.at`, placed for a phone and placed again past 60rem. On a
+wide screen the grid is three columns, `hm claim mp`, so the title stands between the screens
+rather than beside a gap.
+
+**The claim is centered, and the screens face it.** `rotateY` turns a screen's normal toward the
+side it is rotated to, so the home takes a positive angle and the map a negative one, and both
+faces point at the title. A build check asserts those signs, because getting one backwards would
+turn a screen away from the claim and nobody here can see it.
+
+**A screen is a screen now.** Each one is a bounded card with its own header strip that clips what
+runs past its bottom edge. Round 2 let the panel grow for ever, which is what made it run off the
+fold.
+
+The five compositions on `?id=1..5`, all of them centered claim, both screens tilted toward it:
+
+| id | composition | what the reader sees |
+|----|-------------|----------------------|
+| 1 | flank | the plain reading. Same size, same tilt, level with the claim between them |
+| 2 | stagger | depth rather than symmetry: the map larger and lower, the home smaller and higher |
+| 3 | converge | a harder perspective, the screens turned well in, the claim in the pocket they leave |
+| 4 | rise | two tall walls running past the claim top and bottom, cut by the section edges |
+| 5 | desk | both screens lie back on one baseline, the way two monitors sit on a desk |
+
+**Eleven build checks** ran against the file: the canvas holding all three items with no `.wrap`
+and no `.shot`, the claim centered and every tilt facing it and staying slight, five compositions
+that each lay the canvas out and differ in their declarations rather than only in their number,
+the screens bounded and headed, the home carrying the #519 ring and agents and one bar per open
+map, the map carrying the #588 stops line with the red-lined box and the striped strip, the counts
+matching the tracker snapshot, every class styled and every hook present, the page reading with no
+script and with reduced motion, the build rules, and balanced markup. Each was validated by
+breaking the file on purpose first.
+
+**Two faults the validation caught in the checks themselves**, which is the lesson this file keeps
+relearning. A distinctness check compared whole CSS rules, so two compositions with different
+selectors always looked different even when their declarations were identical. It compares the
+declarations now. And a break that was meant to prove the `.wrap` check landed in a different
+scene, so the check had never actually been shown a failure. Both were fixed and then proved.
+
+**One fault reading caught.** The screens come in on opacity, so they read a class the scene wears
+rather than the reveal's own. With reduced motion the observers never attach, so the screens would
+have stayed invisible. The fail-open path sets that class too now, and a reduced-motion rule shows
+them outright.
+
 ## The verdict of the preview scene ([#627](https://github.com/alp82/curia/issues/627))
 
 **Locked over five operator rounds.** Round 5 settled the last of it: "type is great, lets lock it

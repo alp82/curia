@@ -1070,16 +1070,15 @@
   }
 
   /* ================================================================
-     Scene 6 — the atlas (#628). TWO screens, which is what the
-     operator asked for at round 1: a simplified home dashboard, and
-     the map itself in the treatment the frontier visual decided.
+     Scene 6 — the atlas (#628). TWO screens of curia's own dashboard,
+     tilted to face a claim that stands between them.
 
-     Both are redraws of decided curia screens, in the V6 dashboard
+     Both screens redraw a DECIDED curia screen in the V6 dashboard
      tokens (#519):
 
-     - the home is the synthesis home screen of
-       prototypes/home-directions/ (#519): the ring of what needs you,
-       the agents that run, and one progress bar per map.
+     - the home is the synthesis home of prototypes/home-directions/
+       (#519): the ring of what needs you, the agents that run, and
+       one progress bar per map.
      - the map is the stops line of prototypes/frontier-visual/
        (#588): the walked stop, the running row, the frontier rule,
        then the blocked in their red-lined box and the fog on its
@@ -1087,84 +1086,125 @@
 
      Every count is what the tracker held when this file was written
      (#601: real records). The map is alp82/curia#600, the map that is
-     building this page.
+     building this page, and the agent on the home screen is the one
+     that built this scene.
 
-     ROUND 2 rides ?id=1..5 — 1 stack, 2 drill, 3 pair, 4 focus,
-     5 ribbon. They differ in how the two screens are put together.
-     The screens themselves live once, in composition 1, and the
-     script clones them into the other four, the way the preview scene
-     fills its workstation from one pool. With no script composition 1
-     shows both screens whole and the round bar never appears.
+     ROUND 3 — the scene is ONE composition canvas. Round 2 kept the
+     claim in a centred .wrap while the panel leaned right inside a
+     .shot, and at desktop width that left the title alone on the left
+     with a screen of dead space beside it. That is the same fault the
+     preview scene hit at #627 round 3, and this is the same repair:
+     the claim and both screens are grid items of one canvas, placed
+     for a phone and placed again past 60rem.
+
+     The operator's direction: the title centred, and the two screens
+     left and right, slightly tilted, both facing it. That CENTRES the
+     claim of a scene the identity docks left (#624 rule 2), which is
+     a deviation this scene takes on their instruction.
+
+     ?id=1..5 picks the composition: 1 flank, 2 stagger, 3 converge,
+     4 rise, 5 desk. The screens are written once and a class on the
+     canvas lays them out, so with no script the page shows both
+     screens whole in composition 1 and the round bar never appears.
      ================================================================ */
-  .atlas {
-    background: #0b0c10; border: 1px solid #20242c; border-radius: 14px;
-    padding: 0.9rem 0.9rem 1rem; color: #e6e9ef;
-    box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
-    font-size: 0.85rem;
+  .at {
+    position: relative; width: 100%; max-width: 96rem; margin: 0 auto;
+    padding: 0 clamp(1.1rem, 5vw, 4rem);
+    display: grid; align-content: start; row-gap: 1.3rem;
+    perspective: 1600px;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "claim" "hm" "mp";
   }
-  .scene .shot > .atlas { max-width: 30rem; }
-  .at-v { display: none; }
-  .at-v:first-of-type { display: block; }
+  .at > .claim { grid-area: claim; margin: 0; text-align: center; }
+  .at > .claim .bold { text-wrap: balance; }
+  .at > .hm-scr { grid-area: hm; }
+  .at > .mp-scr { grid-area: mp; }
+
+  /* Each screen is a screen: a bounded card with its own header strip
+     that clips what runs past its bottom edge, rather than a list
+     that grows for ever. */
+  .at-scr {
+    position: relative; overflow: hidden; max-height: 34rem;
+    background: #0b0c10; border: 1px solid #20242c; border-radius: 12px;
+    color: #e6e9ef; font-size: 0.8rem;
+    box-shadow: 0 1.6rem 3.2rem -1.2rem rgba(0, 0, 0, 0.85), 0 0.3rem 1rem rgba(0, 0, 0, 0.4);
+    transform-style: preserve-3d;
+  }
+  .at-scr > .at-body { padding: 0.85rem 0.9rem 1rem; }
+  .at-scr::after {
+    content: ''; position: absolute; inset: auto 0 0 0; height: 2.4rem; pointer-events: none;
+    background: linear-gradient(rgba(11, 12, 16, 0), #0b0c10);
+  }
+  /* The identity saturates the evidence with the scroll value. The
+     .shot that used to carry that filter is gone from this scene, so
+     the screens carry it themselves. And they come in with opacity
+     alone, because a reveal transform would fight the tilt. */
+  #atlas .at-scr { filter: saturate(calc(0.6 + 0.4 * var(--p, 1))); }
+  .js #atlas .at-scr { opacity: 0; transition: opacity 0.55s var(--ease); }
+  .js #atlas.seen .at-scr { opacity: 1; }
+  .js #atlas.seen .mp-scr { transition-delay: 0.12s; }
+  #atlas .claim { position: relative; z-index: 4; }
   .at-ht {
     display: flex; justify-content: space-between; gap: 0.5rem;
-    font: 600 0.6rem var(--mono); letter-spacing: 0.2em; text-transform: uppercase;
+    padding: 0.55rem 0.9rem; border-bottom: 1px solid #20242c;
+    font: 600 0.58rem var(--mono); letter-spacing: 0.2em; text-transform: uppercase;
     color: #8a93a3;
   }
   .at-ht .needs { color: #ffb454; letter-spacing: 0.08em; }
 
   /* ---- the home screen (#519) ---- */
-  .hm-core { text-align: center; padding: 0.9rem 0 0.2rem; }
-  .hm-ring { width: 8rem; height: 8rem; margin: 0 auto; position: relative; }
+  .hm-core { text-align: center; padding: 0.5rem 0 0.2rem; }
+  .hm-ring { width: 7rem; height: 7rem; margin: 0 auto; position: relative; }
   .hm-ring svg { position: absolute; inset: 0; width: 100%; height: 100%; }
   .hm-ring .in {
     position: absolute; inset: 0; display: flex; flex-direction: column;
     justify-content: center; align-items: center;
   }
   .hm-ring .n {
-    font: 700 2.8rem var(--mono); line-height: 1; color: #ffb454;
+    font: 700 2.4rem var(--mono); line-height: 1; color: #ffb454;
     text-shadow: 0 0 14px rgba(255, 180, 84, 0.35);
   }
   .hm-ring .k {
-    margin-top: 0.35rem; font: 0.52rem var(--mono); letter-spacing: 0.3em;
+    margin-top: 0.3rem; font: 0.5rem var(--mono); letter-spacing: 0.3em;
     text-transform: uppercase; color: #8a93a3;
   }
-  .hm-sub { margin: 0.6rem 0 0; font: 0.7rem var(--sans); color: #8a93a3; }
+  .hm-sub { margin: 0.55rem 0 0; font: 0.68rem var(--sans); color: #8a93a3; }
   .hm-h {
-    margin: 1.4rem 0 0.2rem; font: 600 0.52rem var(--mono); letter-spacing: 0.3em;
+    margin: 1.1rem 0 0.2rem; font: 600 0.5rem var(--mono); letter-spacing: 0.3em;
     text-transform: uppercase; color: #8a93a3;
   }
   .hm-row {
-    display: flex; align-items: center; gap: 0.55rem; padding: 0.6rem 0;
-    border-top: 1px solid #20242c; font-size: 0.78rem;
+    display: flex; align-items: center; gap: 0.55rem; padding: 0.5rem 0;
+    border-top: 1px solid #20242c; font-size: 0.74rem;
   }
-  .hm-h + .hm-row, .hm-h + .quest { border-top: 0; }
-  .hm-row .dot { flex: none; width: 0.5rem; height: 0.5rem; border-radius: 999px; background: #41d98d; }
+  .hm-h + .hm-row, .hm-h + .hm-maps .quest:first-child { border-top: 0; }
+  .hm-row .dot { flex: none; width: 0.45rem; height: 0.45rem; border-radius: 999px; background: #41d98d; }
   .ttl { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
-  .ttl .sub { display: block; margin-top: 0.15rem; font: 0.6rem var(--mono); color: #8a93a3; font-weight: 400; }
-  .go { flex: none; font: 0.65rem var(--mono); color: #5ec8e5; }
-  .quest { padding: 0.6rem 0; border-top: 1px solid #20242c; }
-  .quest .l1 { display: flex; align-items: baseline; gap: 0.6rem; font-size: 0.78rem; }
-  .quest .num { flex: none; font: 0.62rem var(--mono); color: #8a93a3; font-variant-numeric: tabular-nums; }
-  .qbar { position: relative; height: 2px; margin-top: 0.5rem; background: #20242c; }
+  .ttl .sub { display: block; margin-top: 0.12rem; font: 0.58rem var(--mono); color: #8a93a3; font-weight: 400; }
+  .go { flex: none; font: 0.62rem var(--mono); color: #5ec8e5; }
+  .quest { padding: 0.5rem 0; border-top: 1px solid #20242c; }
+  .quest .l1 { display: flex; align-items: baseline; gap: 0.6rem; font-size: 0.74rem; }
+  .quest .num { flex: none; font: 0.6rem var(--mono); color: #8a93a3; font-variant-numeric: tabular-nums; }
+  .qbar { position: relative; height: 2px; margin-top: 0.45rem; background: #20242c; }
   .qbar i { position: absolute; inset: 0 auto 0 0; background: #5ec8e5; }
   .qbar .fg { position: absolute; top: 0; bottom: 0; border-top: 2px dotted #8a93a3; opacity: 0.6; }
   .quest.sel .l1 .ttl { color: #5ec8e5; }
   .quest.sel .qbar i { box-shadow: 0 0 12px rgba(94, 200, 229, 0.45); }
 
   /* ---- the map screen (#588, the decided stops line) ---- */
-  .at-head { display: flex; align-items: baseline; gap: 0.6rem; }
-  .at-frac { flex: none; font: 700 1.15rem var(--mono); font-variant-numeric: tabular-nums; }
-  .at-frac span { color: #8a93a3; font-size: 0.8rem; font-weight: 600; }
-  .at-frac .fg { color: #8a93a3; font-size: 0.7rem; font-weight: 400; }
-  .at-nm { font-weight: 700; font-size: 0.82rem; min-width: 0; }
-  .at-meta { margin-top: 0.2rem; font: 0.62rem var(--mono); color: #8a93a3; }
+  .at-head { display: flex; align-items: baseline; gap: 0.55rem; }
+  .at-frac { flex: none; font: 700 1.1rem var(--mono); font-variant-numeric: tabular-nums; }
+  .at-frac span { color: #8a93a3; font-size: 0.78rem; font-weight: 600; }
+  .at-frac .fg { color: #8a93a3; font-size: 0.68rem; font-weight: 400; }
+  .at-nm { font-weight: 700; font-size: 0.8rem; min-width: 0; }
+  .at-meta { margin: 0.2rem 0 0; font: 0.58rem var(--mono); color: #8a93a3; }
 
-  .rl { margin-top: 0.9rem; }
+  .rl { margin-top: 0.75rem; }
   .rrow {
-    position: relative; display: flex; align-items: center; gap: 0.6rem;
-    padding: 0.45rem 0 0.45rem 1.5rem; font-size: 0.76rem;
+    position: relative; display: flex; align-items: center; gap: 0.55rem;
+    padding: 0.36rem 0 0.36rem 1.4rem; font-size: 0.74rem;
   }
-  .rrow::before { content: ''; position: absolute; left: 0.25rem; top: 0; bottom: 0; width: 2px; background: #5ec8e5; }
+  .rrow::before { content: ''; position: absolute; left: 0.22rem; top: 0; bottom: 0; width: 2px; background: #5ec8e5; }
   .rrow.below::before {
     background: none; opacity: 0.55;
     background-image: linear-gradient(#8a93a3 45%, transparent 45%); background-size: 2px 9px;
@@ -1172,121 +1212,131 @@
   .rrow.dim { color: #8a93a3; }
   .rrow.dim .ttl { font-weight: 400; }
   .rrow .stop { position: absolute; left: 0; top: 50%; transform: translateY(-50%); }
-  .s-walk { width: 0.7rem; height: 0.7rem; border-radius: 999px; background: #5ec8e5; }
+  .s-walk { width: 0.65rem; height: 0.65rem; border-radius: 999px; background: #5ec8e5; }
   .s-run {
-    width: 0.7rem; height: 0.7rem; border-radius: 999px; background: #41d98d;
+    width: 0.65rem; height: 0.65rem; border-radius: 999px; background: #41d98d;
     box-shadow: 0 0 0 3px rgba(65, 217, 141, 0.16);
   }
-  .s-fog { width: 0.7rem; height: 0.7rem; border-radius: 999px; border: 2px dotted #8a93a3; }
-  .front { display: flex; align-items: center; gap: 0.6rem; margin: 0.5rem 0 0.2rem; }
+  .s-fog { width: 0.65rem; height: 0.65rem; border-radius: 999px; border: 2px dotted #8a93a3; }
+  .front { display: flex; align-items: center; gap: 0.55rem; margin: 0.45rem 0 0.15rem; }
   .front .frontlbl {
-    flex: none; font: 700 0.52rem var(--mono); letter-spacing: 0.24em;
+    flex: none; font: 700 0.5rem var(--mono); letter-spacing: 0.24em;
     text-transform: uppercase; color: #5ec8e5;
   }
   .front .frule { flex: 1; height: 2px; background: #5ec8e5; box-shadow: 0 0 12px rgba(94, 200, 229, 0.45); }
-  .front .fcap { flex: none; font: 0.58rem var(--mono); color: #8a93a3; }
+  .front .fcap { flex: none; font: 0.56rem var(--mono); color: #8a93a3; }
 
   /* The blocked box and the fog strip, as #588 round 5 drew them:
      red rules behind what waits, diagonal grey stripes behind what
      nobody has specified yet. */
   .waitr {
-    margin-top: 0.7rem; padding: 0.5rem 0.75rem 0.6rem;
+    margin-top: 0.6rem; padding: 0.45rem 0.65rem 0.5rem;
     border: 1px solid rgba(242, 112, 122, 0.45); border-radius: 8px;
     background: repeating-linear-gradient(0deg, rgba(242, 112, 122, 0.1) 0 2px, transparent 2px 9px);
   }
   .slbl {
-    margin-bottom: 0.25rem; font: 600 0.52rem var(--mono); letter-spacing: 0.18em;
+    margin: 0 0 0.2rem; font: 600 0.5rem var(--mono); letter-spacing: 0.18em;
     text-transform: uppercase; color: #8a93a3;
   }
   .waitr .slbl { color: #f2707a; }
-  .wrow { display: flex; align-items: center; gap: 0.55rem; padding: 0.28rem 0; font-size: 0.74rem; color: #8a93a3; }
+  .wrow { display: flex; align-items: center; gap: 0.5rem; padding: 0.22rem 0; font-size: 0.7rem; color: #8a93a3; }
   .s-waitr {
-    flex: none; width: 0.6rem; height: 0.6rem; border-radius: 2px;
+    flex: none; width: 0.55rem; height: 0.55rem; border-radius: 2px;
     background: rgba(242, 112, 122, 0.1); border: 1px solid #f2707a;
   }
   .wrow .ttl { font-weight: 400; white-space: normal; }
   .wrow .ttl .sub { color: rgba(242, 112, 122, 0.75); }
   .fogs {
-    margin-top: 0.6rem; padding: 0.5rem 0.75rem 0.6rem;
+    margin-top: 0.5rem; padding: 0.45rem 0.65rem 0.55rem;
     border: 1px solid #20242c; border-radius: 8px; color: #8a93a3;
-    font: 0.68rem var(--sans); line-height: 1.5;
+    font: 0.66rem var(--sans); line-height: 1.5;
     background: repeating-linear-gradient(45deg, #20242c 0 4px, transparent 4px 8px);
   }
 
-  /* ---- 1 stack: the home whole, then the map under it, with the
-       drill line between them saying which map was opened ---- */
-  .v-stack .hm { padding-bottom: 0.2rem; }
-  .v-stack .at-drill {
-    display: flex; align-items: center; gap: 0.5rem; margin: 1rem 0 0;
-    font: 0.6rem var(--mono); letter-spacing: 0.14em; text-transform: uppercase; color: #5ec8e5;
-  }
-  .v-stack .at-drill::after { content: ''; flex: 1; height: 1px; background: #20242c; }
-  .v-stack .mp { margin-top: 0.9rem; padding-top: 0.9rem; border-top: 1px solid #20242c; }
+  /* ================================================================
+     The five compositions. All of them keep what the operator asked
+     for: the claim in the middle, and the two screens to its left and
+     right, tilted so each one FACES it. rotateY turns a screen's
+     normal toward the side it is rotated to, so the left screen takes
+     a positive angle and the right screen a negative one.
 
-  /* ---- 2 drill: one frame. The map slides up over the home once the
-       scene arrives, the way the app drills into a map. ---- */
-  /* Both children share one grid cell, so the composition is as tall
-     as the TALLER of the two screens and the map is never clipped by
-     the frame it slides into. */
-  .v-drill { display: grid; overflow: hidden; border-radius: 10px; }
-  .v-drill > * { grid-area: 1 / 1; }
-  .v-drill .hm { align-self: start; padding-bottom: 1rem; }
-  .v-drill .dr-over {
-    align-self: end; background: #0b0c10;
-    border-top: 1px solid #20242c; border-radius: 10px 10px 0 0;
-    padding: 0.75rem 0.8rem 0.85rem; box-shadow: 0 -12px 30px rgba(0, 0, 0, 0.6);
-    transform: translateY(101%);
-  }
-  .js .v-drill.in .dr-over { transform: none; transition: transform 0.7s var(--ease) 0.45s; }
-  .v-drill .dr-crumb { margin-bottom: 0.6rem; font: 0.6rem var(--mono); color: #5ec8e5; }
+     Each is written twice, once for a phone and once past 60rem, so
+     the five stay distinct on the screen the operator judges from as
+     well as on a desktop.
+     ================================================================ */
+  .at .hm-scr { transform-origin: 100% 50%; }
+  .at .mp-scr { transform-origin: 0% 50%; }
 
-  /* ---- 3 pair: two cards in depth, the map in front ---- */
-  .v-pair { position: relative; padding-bottom: 1rem; }
-  .v-pair .hm {
-    padding: 0.7rem 0.8rem; border: 1px solid #20242c; border-radius: 10px;
-    background: #0d0f14; transform: perspective(900px) rotateY(9deg) scale(0.94);
-    transform-origin: left center;
-  }
-  .v-pair .mp {
-    position: relative; margin: -3.2rem 0 0 0.9rem; padding: 0.75rem 0.8rem 0.85rem;
-    border: 1px solid #2a3038; border-radius: 10px; background: #0b0c10;
-    box-shadow: 0 14px 40px rgba(0, 0, 0, 0.65);
+  /* 1 flank — the plain reading. Both screens the same size, the same
+     tilt, standing level with the claim between them. */
+  .at.v1 .hm-scr { transform: rotateY(9deg) rotate(-0.5deg); }
+  .at.v1 .mp-scr { transform: rotateY(-9deg) rotate(0.5deg); }
+
+  /* 2 stagger — the pair reads as depth, not symmetry: the map larger
+     and lower, the home smaller and higher. */
+  .at.v2 .hm-scr { transform: rotateY(13deg) scale(0.88) translateY(-1.4rem); }
+  .at.v2 .mp-scr { transform: rotateY(-11deg) scale(1.02) translateY(1.4rem); }
+
+  /* 3 converge — a hard perspective, the screens turned well in and
+     pulled behind the claim, which stands in the pocket they leave. */
+  .at.v3 { perspective: 900px; }
+  .at.v3 .hm-scr { transform: rotateY(18deg) translateX(1.2rem); }
+  .at.v3 .mp-scr { transform: rotateY(-18deg) translateX(-1.2rem); }
+  .at.v3 > .claim { z-index: 5; }
+
+  /* 4 rise — two tall walls. The screens run past the claim top and
+     bottom and are cut by the section edges, so the title reads in the
+     gap between them. */
+  .at.v4 .at-scr { max-height: none; }
+  .at.v4 .hm-scr { transform: rotateY(11deg) rotate(-1.2deg); }
+  .at.v4 .mp-scr { transform: rotateY(-11deg) rotate(1.2deg); }
+
+  /* 5 desk — both screens lie back on one baseline, the way two
+     monitors sit on a desk, and the claim stands between them. */
+  .at.v5 .hm-scr { transform: rotateX(9deg) rotateY(14deg); transform-origin: 100% 100%; }
+  .at.v5 .mp-scr { transform: rotateX(9deg) rotateY(-14deg); transform-origin: 0% 100%; }
+
+  /* ---- the phone forms: one column, the claim first (#624 rule 1),
+       then the two screens, each still leaning toward the middle ---- */
+  @media (max-width: 59.999rem) {
+    .at.v2 .hm-scr { transform: rotateY(11deg) scale(0.92) translateX(-0.6rem); }
+    .at.v2 .mp-scr { transform: rotateY(-11deg) scale(1) translateX(0.6rem); }
+    .at.v2 .mp-scr { margin-top: -0.6rem; }
+    .at.v3 { row-gap: 0.6rem; }
+    .at.v3 .hm-scr { transform: rotateY(15deg) translateX(0.9rem) scale(0.95); }
+    .at.v3 .mp-scr { transform: rotateY(-15deg) translateX(-0.9rem) scale(0.95); }
+    .at.v4 { padding: 0; row-gap: 0.9rem; }
+    .at.v4 > .claim { padding: 0 1.25rem; }
+    .at.v4 .at-scr { max-height: 22rem; border-radius: 0; border-left: 0; border-right: 0; }
+    .at.v4 .hm-scr { transform: rotateY(8deg); }
+    .at.v4 .mp-scr { transform: rotateY(-8deg); }
+    .at.v5 .hm-scr { transform: rotateX(12deg) rotateY(9deg); }
+    .at.v5 .mp-scr { transform: rotateX(12deg) rotateY(-9deg); }
   }
 
-  /* ---- 4 focus: the map leads, and the home is the inset it came
-       from ---- */
-  .v-focus { position: relative; }
-  .v-focus .mp { padding-top: 0.2rem; }
-  .v-focus .hm {
-    margin-top: 1rem; padding: 0.6rem 0.7rem; border: 1px solid #20242c; border-radius: 10px;
-    background: #0d0f14; transform: scale(0.9); transform-origin: right bottom;
+  @media (min-width: 60rem) {
+    .at {
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1.05fr) minmax(0, 1fr);
+      grid-template-areas: "hm claim mp";
+      align-items: center; column-gap: clamp(1rem, 3.2vw, 3.2rem); row-gap: 0;
+    }
+    .at > .claim { padding: 0 0.5rem; }
+    .at.v2 { align-items: start; }
+    .at.v2 > .claim { align-self: center; }
+    .at.v3 { column-gap: clamp(0.5rem, 1.4vw, 1.4rem); }
+    .at.v3 .hm-scr { transform: rotateY(20deg) translateX(2.2rem); }
+    .at.v3 .mp-scr { transform: rotateY(-20deg) translateX(-2.2rem); }
+    .at.v4 {
+      align-items: stretch; column-gap: clamp(1rem, 3vw, 3rem);
+      grid-template-columns: minmax(0, 1fr) minmax(0, 0.9fr) minmax(0, 1fr);
+    }
+    .at.v4 > .claim { align-self: center; }
+    .at.v4 .at-scr { max-height: min(42rem, 84vh); }
+    .at.v5 { perspective: 1200px; align-items: end; }
+    .at.v5 > .claim { align-self: center; padding-bottom: 2.5rem; }
   }
-  .v-focus .hm-ring { width: 4.2rem; height: 4.2rem; }
-  .v-focus .hm-ring .n { font-size: 1.4rem; }
-  .v-focus .hm-core { padding: 0.2rem 0 0; }
-  .v-focus .hm-h, .v-focus .hm-row { display: none; }
-  .v-focus .hm-h.m, .v-focus .quest { display: block; }
 
-  /* ---- 5 ribbon: the home shrinks to one status line, the map takes
-       the room ---- */
-  .v-ribbon .hm {
-    display: flex; align-items: center; gap: 0.75rem; padding-bottom: 0.8rem;
-    border-bottom: 1px solid #20242c;
-  }
-  .v-ribbon .at-ht, .v-ribbon .hm-h, .v-ribbon .hm-row { display: none; }
-  .v-ribbon .hm-core { flex: none; padding: 0; text-align: left; }
-  .v-ribbon .hm-ring { width: 2.8rem; height: 2.8rem; margin: 0; }
-  .v-ribbon .hm-ring .n { font-size: 1.05rem; }
-  .v-ribbon .hm-ring .k { display: none; }
-  .v-ribbon .hm-sub { display: none; }
-  .v-ribbon .hm-maps { flex: 1; min-width: 0; display: flex; gap: 0.6rem; }
-  .v-ribbon .quest { flex: 1; min-width: 0; padding: 0; border-top: 0; }
-  .v-ribbon .quest .l1 { font-size: 0.6rem; }
-  .v-ribbon .quest .l1 .ttl { font-weight: 500; }
-  .v-ribbon .quest .num { display: none; }
-  .v-ribbon .mp { margin-top: 0.9rem; }
-
-  /* ROUND CHROME (#628 round 2) — the variation bar. It leaves the
+  /* ROUND CHROME (#628 round 3) — the variation bar. It leaves the
      file when the operator settles the round, the way the identity
      switcher left it at #624. */
   .at-sw {
@@ -1470,6 +1520,7 @@
   @media (prefers-reduced-motion: reduce) {
     html { scroll-behavior: auto; }
     .js .rv, .js .tw { opacity: 1 !important; transform: none !important; clip-path: none !important; }
+    .js #atlas .at-scr { opacity: 1; }
     .js .claim::before { transform: none !important; }
     * { animation-duration: 0.001ms !important; }
     .arc-words { padding-top: 4rem; }
@@ -1834,9 +1885,8 @@
     </div>
   </section>
 
-  <!-- Scene 6 · the atlas (#628). TWO screens, which is what the
-       operator asked for at round 1: a simplified home dashboard and
-       the map itself, in the treatment the frontier visual decided.
+  <!-- Scene 6 · the atlas (#628). TWO screens of curia's own
+       dashboard, tilted to face a claim that stands between them.
 
        Both redraw decided curia screens in the V6 dashboard tokens:
        the home is the synthesis home of prototypes/home-directions/
@@ -1849,116 +1899,88 @@
        this page, and the agent on the home screen is the one that
        built this scene.
 
-       Round 2 rides ?id=1..5. The two screens live once, in
-       composition 1, and the script clones them into the other four. -->
+       The scene is ONE composition canvas: the claim and both screens
+       are grid items of .at, placed for a phone and placed again past
+       60rem. ?id=1..5 puts a composition class on the canvas, so the
+       screens are written once and the page reads whole with no
+       script. -->
   <section class="scene sL" id="atlas" data-stage="agent" data-n="05" data-name="the atlas" style="--g1:#0e1c26;--g2:#081018">
-    <div class="wrap">
+    <div class="at v1" id="at">
       <header class="claim rv">
         <p class="kick"><span class="kn">05</span><span class="kname">the atlas</span></p>
         <h2 class="bold">A dashboard that shows where every map stands and which agents are
           currently running.</h2>
       </header>
-    </div>
-    <div class="shot rv">
-      <div class="atlas" id="atlas-panel">
 
-        <!-- 1 stack — the home whole, then the map under it. -->
-        <div class="at-v v-stack" data-atv="1">
-          <div class="hm" id="hm-src">
-            <div class="at-ht"><span>curia · atlas</span><span class="needs">1 needs you</span></div>
-            <div class="hm-core tw">
-              <div class="hm-ring">
-                <svg viewBox="0 0 150 150" aria-hidden="true">
-                  <circle cx="75" cy="75" r="68" fill="none" stroke="#20242c" stroke-width="3"></circle>
-                  <circle cx="75" cy="75" r="68" fill="none" stroke="#ffb454" stroke-width="3"
-                    stroke-dasharray="142 285" stroke-dashoffset="-71" stroke-linecap="round"></circle>
-                </svg>
-                <div class="in"><span class="n">1</span><span class="k">needs you</span></div>
-              </div>
-              <p class="hm-sub">One agent runs, and it is asking you a question.</p>
+      <!-- the home screen (#519) -->
+      <div class="at-scr hm-scr">
+        <div class="at-ht"><span>curia · atlas</span><span class="needs">1 needs you</span></div>
+        <div class="at-body">
+          <div class="hm-core">
+            <div class="hm-ring">
+              <svg viewBox="0 0 150 150" aria-hidden="true">
+                <circle cx="75" cy="75" r="68" fill="none" stroke="#20242c" stroke-width="3"></circle>
+                <circle cx="75" cy="75" r="68" fill="none" stroke="#ffb454" stroke-width="3"
+                  stroke-dasharray="142 285" stroke-dashoffset="-71" stroke-linecap="round"></circle>
+              </svg>
+              <div class="in"><span class="n">1</span><span class="k">needs you</span></div>
             </div>
-            <h3 class="hm-h tw">Agents</h3>
-            <div class="hm-row tw"><i class="dot"></i>
-              <span class="ttl">claude · The atlas scene of the story page<span class="sub">#628 · prototype · claude-opus-5</span></span>
+            <p class="hm-sub">One agent runs, and it is asking you a question.</p>
+          </div>
+          <h3 class="hm-h">Agents</h3>
+          <div class="hm-row"><i class="dot"></i>
+            <span class="ttl">claude · The atlas scene of the story page<span class="sub">#628 · prototype · claude-opus-5</span></span>
+            <span class="go">chat →</span></div>
+          <h3 class="hm-h">Maps</h3>
+          <div class="hm-maps">
+            <div class="quest">
+              <div class="l1"><span class="ttl">Build the Atlas operator experience</span><span class="num">8/42</span></div>
+              <div class="qbar"><i style="width:19%"></i></div>
+            </div>
+            <div class="quest">
+              <div class="l1"><span class="ttl">Model credentials and provider-account failures</span><span class="num">16/19</span></div>
+              <div class="qbar"><i style="width:84%"></i></div>
+            </div>
+            <div class="quest sel">
+              <div class="l1"><span class="ttl">Ship the story landing page</span><span class="num">10/16 +2</span></div>
+              <div class="qbar"><i style="width:63%"></i><span class="fg" style="left:88%;width:12%"></span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- the map screen (#588, the decided stops line) -->
+      <div class="at-scr mp-scr">
+        <div class="at-ht"><span>curia · atlas · maps</span><span>#600</span></div>
+        <div class="at-body">
+          <div class="at-head">
+            <span class="at-frac">10<span>/16</span><span class="fg">+2</span></span>
+            <span class="at-nm">Ship the story landing page</span>
+          </div>
+          <p class="at-meta">alp82/curia · destination: the page is live at curia.sh</p>
+          <div class="rl">
+            <div class="rrow dim"><i class="stop s-walk"></i>
+              <span class="ttl">10 walked<span class="sub">#627 the preview · #626 the Discord scene · #625 the opening arc</span></span></div>
+            <div class="rrow"><i class="stop s-run"></i>
+              <span class="ttl">The atlas scene of the story page<span class="sub">runs · claude-opus-5 · #628</span></span>
               <span class="go">chat →</span></div>
-            <h3 class="hm-h m tw">Maps</h3>
-            <div class="hm-maps">
-              <div class="quest tw">
-                <div class="l1"><span class="ttl">Build the Atlas operator experience</span><span class="num">8/42</span></div>
-                <div class="qbar"><i style="width:19%"></i></div>
-              </div>
-              <div class="quest tw">
-                <div class="l1"><span class="ttl">Model credentials and provider-account failures</span><span class="num">16/19</span></div>
-                <div class="qbar"><i style="width:84%"></i></div>
-              </div>
-              <div class="quest sel tw">
-                <div class="l1"><span class="ttl">Ship the story landing page</span><span class="num">10/16 +2</span></div>
-                <div class="qbar"><i style="width:63%"></i><span class="fg" style="left:88%;width:12%"></span></div>
-              </div>
-            </div>
+            <div class="front"><span class="frontlbl">the frontier</span><span class="frule"></span><span class="fcap">0 takeable</span></div>
+            <div class="rrow below dim"><i class="stop s-fog"></i>
+              <span class="ttl">nothing takeable. the way is in flight</span></div>
           </div>
-          <p class="at-drill tw">↓ Ship the story landing page</p>
-          <div class="mp" id="mp-src">
-            <div class="at-head tw">
-              <span class="at-frac">10<span>/16</span><span class="fg">+2</span></span>
-              <span class="at-nm">Ship the story landing page</span>
-            </div>
-            <p class="at-meta tw">alp82/curia · #600 · destination: the page is live at curia.sh</p>
-            <div class="rl">
-              <div class="rrow dim tw"><i class="stop s-walk"></i>
-                <span class="ttl">10 walked<span class="sub">#627 the preview · #626 the Discord scene · #625 the opening arc</span></span></div>
-              <div class="rrow tw"><i class="stop s-run"></i>
-                <span class="ttl">The atlas scene of the story page<span class="sub">runs · claude-opus-5 · #628</span></span>
-                <span class="go">chat →</span></div>
-              <div class="front tw"><span class="frontlbl">the frontier</span><span class="frule"></span><span class="fcap">0 takeable</span></div>
-              <div class="rrow below dim tw"><i class="stop s-fog"></i>
-                <span class="ttl">nothing takeable. the way is in flight</span></div>
-            </div>
-            <div class="waitr tw">
-              <p class="slbl">blocked · 5</p>
-              <div class="wrow"><i class="s-waitr"></i><span class="ttl">The terminal scene of the story page<span class="sub">#629 · behind the atlas scene</span></span></div>
-              <div class="wrow"><i class="s-waitr"></i><span class="ttl">The ticket run scene of the story page<span class="sub">#630 · behind the terminal scene</span></span></div>
-              <div class="wrow"><i class="s-waitr"></i><span class="ttl">The VPS scene of the story page<span class="sub">#631 · behind the ticket run scene</span></span></div>
-              <div class="wrow"><i class="s-waitr"></i><span class="ttl">Cut over to the story page<span class="sub">#604 · behind the VPS scene</span></span></div>
-              <div class="wrow"><i class="s-waitr"></i><span class="ttl">Announce and distribute the page<span class="sub">#145 · behind the cutover</span></span></div>
-            </div>
-            <div class="fogs tw">
-              <p class="slbl">the fog · 2</p>
-              the README beyond the scene 11 link exchange · what becomes of the two prototype
-              directories
-            </div>
+          <div class="waitr">
+            <p class="slbl">blocked · 5</p>
+            <div class="wrow"><i class="s-waitr"></i><span class="ttl">The terminal scene of the story page<span class="sub">#629 · behind the atlas scene</span></span></div>
+            <div class="wrow"><i class="s-waitr"></i><span class="ttl">The ticket run scene of the story page<span class="sub">#630 · behind the terminal scene</span></span></div>
+            <div class="wrow"><i class="s-waitr"></i><span class="ttl">The VPS scene of the story page<span class="sub">#631 · behind the ticket run scene</span></span></div>
+            <div class="wrow"><i class="s-waitr"></i><span class="ttl">Cut over to the story page<span class="sub">#604 · behind the VPS scene</span></span></div>
+            <div class="wrow"><i class="s-waitr"></i><span class="ttl">Announce and distribute the page<span class="sub">#145 · behind the cutover</span></span></div>
           </div>
-        </div>
-
-        <!-- 2 drill — one frame. The map slides up over the home once
-             the scene arrives, the way the app drills into a map. -->
-        <div class="at-v v-drill" data-atv="2">
-          <div data-hm></div>
-          <div class="dr-over">
-            <p class="dr-crumb">← maps · Ship the story landing page</p>
-            <div data-mp></div>
+          <div class="fogs">
+            <p class="slbl">the fog · 2</p>
+            the README beyond the scene 11 link exchange · what becomes of the two prototype
+            directories
           </div>
-        </div>
-
-        <!-- 3 pair — two cards in depth, the map standing in front of
-             the home it was opened from. -->
-        <div class="at-v v-pair" data-atv="3">
-          <div data-hm></div>
-          <div data-mp></div>
-        </div>
-
-        <!-- 4 focus — the map leads at full size, and the home is the
-             inset it came from. -->
-        <div class="at-v v-focus" data-atv="4">
-          <div data-mp></div>
-          <div data-hm></div>
-        </div>
-
-        <!-- 5 ribbon — the home shrinks to one status line and the map
-             takes the room. -->
-        <div class="at-v v-ribbon" data-atv="5">
-          <div data-hm></div>
-          <div data-mp></div>
         </div>
       </div>
     </div>
@@ -2191,6 +2213,11 @@ function reveal(nodes) {
 }
 function revealEverything() {
   reveal([].slice.call(document.querySelectorAll('.rv, .tw')));
+  /* Scenes whose evidence comes in on opacity alone read that class
+     rather than .in, so the fail-open path has to set it too. */
+  [].slice.call(document.querySelectorAll('#atlas, #preview')).forEach(function (n) {
+    n.classList.add('seen');
+  });
 }
 window.addEventListener('error', revealEverything);
 setTimeout(function () {
@@ -2228,12 +2255,24 @@ if (prefersStill || !window.IntersectionObserver) {
     var el = document.getElementById(id);
     if (el) { el.classList.add('stagger'); obs.observe(el); }
   });
-  /* Scene 6 staggers each composition on its own, not the whole
-     panel: a hidden composition never intersects, so it reveals the
-     first time the round bar brings it on screen. */
-  [].slice.call(document.querySelectorAll('.at-v, .box')).forEach(function (el) {
+  [].slice.call(document.querySelectorAll('.box')).forEach(function (el) {
     el.classList.add('stagger'); obs.observe(el);
   });
+  /* Scene 6's screens come in on opacity alone, because a reveal
+     transform would fight the tilt a composition puts on them. The
+     scene carries the class and the screens read it. */
+  (function () {
+    var at = document.getElementById('atlas');
+    if (!at) return;
+    var seen = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) {
+        if (!e.isIntersecting) return;
+        seen.unobserve(e.target);
+        e.target.classList.add('seen');
+      });
+    }, { rootMargin: '0px 0px -10% 0px', threshold: 0.04 });
+    seen.observe(at);
+  })();
 }
 
 /* ================================================================
@@ -2390,12 +2429,12 @@ if (prefersStill || !window.IntersectionObserver) {
 });
 
 /* ================================================================
-   Scene 6 (#628) round 2 — the two screens, and the round bar.
+   Scene 6 (#628) round 3 — the round bar.
 
-   The home and the map live ONCE, in composition 1, so the page
-   reads whole with no script at all. This clones them into the other
-   four compositions, the way the preview scene fills its workstation
-   from one pool rather than from a second copy of the markup.
+   The claim and both screens are grid items of one canvas, and a
+   composition is a CLASS on that canvas. So the screens are written
+   once, the page reads whole with no script, and switching a
+   composition rearranges what is already on the page.
 
    ROUND CHROME: the bar leaves the file when the operator settles
    the round, the way the identity switcher left it at #624. ?id=1..5
@@ -2403,36 +2442,24 @@ if (prefersStill || !window.IntersectionObserver) {
    operator compares the five without leaving the scene.
    ================================================================ */
 (function () {
-  var panel = document.getElementById('atlas-panel');
+  var at = document.getElementById('at');
   var bar = document.getElementById('at-sw');
-  if (!panel || !bar) return;
-  var views = [].slice.call(panel.querySelectorAll('.at-v'));
+  if (!at || !bar) return;
   var btns = [].slice.call(bar.querySelectorAll('[data-atv]'));
-  if (!views.length || views.length !== btns.length) return;
-
-  /* Fill the empty compositions from the two screens of the first
-     one. A slot is REPLACED by its clone, so no wrapper stands
-     between a composition and the screen it lays out. */
-  var src = { hm: document.getElementById('hm-src'), mp: document.getElementById('mp-src') };
-  if (src.hm && src.mp) {
-    [].slice.call(panel.querySelectorAll('[data-hm], [data-mp]')).forEach(function (slot) {
-      var which = slot.hasAttribute('data-hm') ? 'hm' : 'mp';
-      var copy = src[which].cloneNode(true);
-      copy.removeAttribute('id');
-      slot.replaceWith(copy);
-    });
-  }
+  if (!btns.length) return;
 
   function show(i) {
-    views.forEach(function (v, k) { v.style.display = k === i ? 'block' : 'none'; });
-    btns.forEach(function (b, k) { b.classList.toggle('on', k === i); });
+    btns.forEach(function (b, k) {
+      at.classList.toggle('v' + (k + 1), k === i);
+      b.classList.toggle('on', k === i);
+    });
     var p = new URLSearchParams(location.search);
     p.set('id', String(i + 1));
     history.replaceState(null, '', location.pathname + '?' + p.toString() + location.hash);
   }
 
   var want = parseInt(new URLSearchParams(location.search).get('id'), 10);
-  if (!(want >= 1 && want <= views.length)) want = 1;
+  if (!(want >= 1 && want <= btns.length)) want = 1;
   btns.forEach(function (b, k) {
     b.addEventListener('click', function () { show(k); });
   });
