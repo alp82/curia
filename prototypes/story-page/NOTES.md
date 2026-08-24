@@ -495,6 +495,62 @@ so the alpha that fades an arriving map had been ignored since round 6 and the m
 all. And a splice that inserted the pipelines deleted the curve helper the journey path depends on,
 which would have thrown on the first ticket to leave curia.
 
+**The operator's answer.** Curia went down while this question was open, and four calls failed
+before the answer came back on a later one. Nobody answered in the meantime and nothing was decided
+without them.
+
+> vortex works and is good enough. lets lock this in
+
+## The verdict of the opening arc ([#625](https://github.com/alp82/curia/issues/625))
+
+**Locked over nine operator rounds.** The other four pipelines, the switcher and the `?id` parameter
+left the file with the round that settled them, the way the identity switcher did at #624.
+
+**The hero title** is "Run Matt Pocock's wayfinder from your phone", picked at round 1 from five
+candidates. It overrides the headline locked at [#587](https://github.com/alp82/curia/issues/587),
+and it lifts the wayfinder ban. Both changes are recorded in
+[positioning.md](../../docs/landing-page/positioning.md) by this ticket.
+
+**Scenes 1 to 3 are one arc over a sticky canvas**, 7.1 screens tall:
+
+1. **The hero.** Rise is the baseline: the maps stand above, curia holds the middle, and loose work
+   lies below in a flat ring. Work climbs. Notes float up into curia and come out as tickets for the
+   maps, and that stream runs the whole time the hero words are on screen.
+2. **The mess.** The ring opens into a globe with real depth from the first turn of the wheel. The
+   maps ride up out of sight, and the work turns around a curia that keeps its place.
+3. **The order.** A pipeline top to bottom. The globe resolves into a vortex above curia, curia
+   sits lower, and the maps rise from the foot of the screen and stay there, arriving empty. Each
+   piece of work climbs out of the whirl, STOPS at curia to take its labels, then carries on into
+   its map. All fourteen clear, and nothing of the mess is left.
+
+**The rules the build keeps:**
+
+- **A note is not a ticket.** A note carries no number, no kind and no state, only marks nobody can
+  act on. A ticket carries all three, and its chip reads `wayfinder:prototype`. One card is drawn
+  for both, and every part crosses over on one number, so a note BECOMES a ticket.
+- **The words and the art never overlap.** The canvas measures each block of words on screen, takes
+  the largest space they leave, and eases into it. The blocks are measured apart, never merged. The
+  eased box lags on purpose, so the promise is kept against the live rectangle every frame.
+- **The scroll is never taken.** The words scroll in normal flow over a canvas that only reacts.
+- **The path never breaks.** The three moves of a journey share their end points, and the card
+  travels linearly with the scroll.
+- **The first journey is deliberate**, at 61 per cent of the beat, and the rest accelerate.
+- **The page reads with no script and with reduced motion.** The track collapses and the three
+  panels stack as ordinary sections.
+
+**Four build checks** run against the file, since no agent on this ticket can look at it:
+
+| check | what it asserts |
+|-------|-----------------|
+| preferences | the fifteen things the operator asked for, at two viewport sizes |
+| words | no canvas text lands on the words, at any scroll position |
+| path | one ticket followed by number never leaps, with the clock held still |
+| distinctness | five variations differ in fact, not only in the notes |
+
+Each one caught a real fault, and three of them were wrong themselves before they were right. The
+lesson worth keeping: a green check that has never been shown a known failure proves nothing. Every
+check here was validated by breaking the code on purpose first.
+
 ## The verdict
 
 **The identity is duotone, locked at [#624](https://github.com/alp82/curia/issues/624) over
