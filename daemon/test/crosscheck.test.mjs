@@ -146,7 +146,11 @@ function makeDispatcher(deps = {}, { askReview } = {}) {
     defaultBranchOf: async () => 'main',
     commitsOnBranch: async () => [],
     pushBranch: async () => 'abc1234',
-    hasUnpushedWork: async () => false,
+    hasUnpushedCommits: async () => false,
+    // #649: nothing local-only, and no salvage. A test that is about the salvage
+    // passes its own — the real ones reach a real clone on disk.
+    hasUncommittedChanges: async () => false,
+    salvageLocalOnlyWork: async () => ({ salvaged: false, branch: null, sha: null }),
     setPullRequestBody: async () => {},
     // #389: a spawn authors the worktree as the bot, so it reaches git. Inert
     // here — dispatch.test.mjs owns the identity itself.

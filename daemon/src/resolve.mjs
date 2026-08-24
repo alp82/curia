@@ -504,7 +504,7 @@ export async function resolveAndLand({
           journal('resolved_unmerged', { repo, ticket, agent, branch, url: pr.url, pr_state: pr.state })
           // push whatever is not on the remote yet, so nothing lives only in a
           // worktree the human may now discard
-          if (await deps.hasUnpushedWork(wtPath, branch, defaultBranch).catch(() => true)) {
+          if (await deps.hasUnpushedCommits(wtPath, branch, defaultBranch).catch(() => true)) {
             const sha = await deps.pushBranch(wtPath, repo, branch)
             journal('branch_pushed', { repo, ticket, agent, branch, sha, commits: commits.length, reason: 'unmerged at resolve' })
           }

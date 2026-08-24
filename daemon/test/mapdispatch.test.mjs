@@ -164,7 +164,11 @@ function makeDispatcher(deps = {}, { issue = MAP_ISSUE, routing = ROUTING } = {}
     defaultBranchOf: async () => 'main',
     commitsOnBranch: async () => [],
     pushBranch: async () => { calls.push('pushBranch'); return 'abc1234' },
-    hasUnpushedWork: async () => false,
+    hasUnpushedCommits: async () => false,
+    // #649: nothing local-only, and no salvage. A test that is about the salvage
+    // passes its own — the real ones reach a real clone on disk.
+    hasUncommittedChanges: async () => false,
+    salvageLocalOnlyWork: async () => ({ salvaged: false, branch: null, sha: null }),
     setPullRequestBody: async () => {},
     // #389: a spawn authors the worktree as the bot, so it reaches git. Inert
     // here — dispatch.test.mjs owns the identity itself.
@@ -469,6 +473,10 @@ describe('the charting checklist', () => {
     // ending, so the fixture states the channel the real path would have.
     const chartLive = async (deps) => {
       const d = makeDispatcher(deps)
+      // #649: `map <n>` refuses over a clone still on disk, so the second
+      // dispatch here needs the first one's clone gone — which is what every
+      // real ending does to it.
+      fs.rmSync(path.join(tmp, 'work', 'repos', 'o__r', 'wt', '147'), { recursive: true, force: true })
       await d.chart('147')
       d.agents.get('curia-147').mcpSeenAt = Date.now()
       return d

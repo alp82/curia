@@ -34,7 +34,7 @@ import {
   removeConfigDir, removeCredentials, createReviewCheckout, reviewPathFor, writeReviewPrompt,
   seedConfigDir, writeConnectionSettings, writePrompt, worktreePathFor, cfgDirFor,
   branchFor, defaultBranchOf, commitsOnBranch, changedFilesOnBranch, uncommittedFiles,
-  pushBranch, hasUnpushedWork, agentEnv, setGitIdentity,
+  pushBranch, hasUnpushedCommits, hasUncommittedChanges, salvageLocalOnlyWork, agentEnv, setGitIdentity,
   untrustedProjectConfig, plantedSkills,
 } from './workspace.mjs'
 // the agent's minted GitHub credential (#389, ADR-0018)
@@ -231,7 +231,9 @@ const DEFAULT_DEPS = {
   // the gate press as a real GitHub approval (#391) — the one call here that
   // keeps the operator's own login
   approvePullRequest,
-  defaultBranchOf, commitsOnBranch, changedFilesOnBranch, uncommittedFiles, pushBranch, hasUnpushedWork,
+  defaultBranchOf, commitsOnBranch, changedFilesOnBranch, uncommittedFiles, pushBranch, hasUnpushedCommits,
+  // local-only work, and where it goes before a clone dies (#649, ADR-0028)
+  hasUncommittedChanges, salvageLocalOnlyWork,
   // the diff digest (#355) — the numbers at the gate, the hunks on demand
   readDiffDigest, readFileHunks,
 }
@@ -942,6 +944,23 @@ export class Dispatcher {
       if (!reuse && hasLabel(issue, MAP_LABEL)) {
         return await this.#startNextOfMap(theRepo, n, issue, { model, by, threadId })
       }
+      // #649: `createPrivateClone` opens with an unconditional `rmSync`, so a
+      // start over a surviving clone takes every uncommitted file in it. #376
+      // already taught the auto loop to check this exact path and RESUME
+      // instead; the operator's verb gets the same rule in the shape `start`
+      // uses for every other anomaly — refuse, and name the way out. Refusing
+      // costs no salvage branch, because the teardown does not have to happen.
+      //
+      // Checked before the assignee and blocker anomalies: those are cleared on
+      // GitHub, and this one is not — telling the operator to go clear a label
+      // would be advice that does not reach the thing standing in the way.
+      const survivingClone = worktreePathFor(this.root, theRepo, n)
+      if (!reuse && fs.existsSync(survivingClone)) {
+        this.reduction.journal('start_refused_over_clone', {
+          repo: theRepo, ticket: n, agent: session, by: by ?? 'unknown', path: survivingClone, verb: 'start',
+        })
+        return `❌ ${theRepo}#${n} still has a clone on disk from an earlier agent — \`start\` recreates it from origin and would take every uncommitted file with it. \`resume ${n}\` inherits it instead; \`cancel ${n}\` ends it, capturing anything that exists nowhere else.`
+      }
       const anomalies = []
       const assignees = (issue.assignees ?? []).map((a) => a.login)
       if (assignees.length) anomalies.push(`already assigned to ${assignees.join(', ')}`)
@@ -1050,6 +1069,20 @@ export class Dispatcher {
       if (issue.state !== 'open') return `❌ ${theRepo}#${n} is ${issue.state} — a closed map is not charted; reopen it first`
       if (!hasLabel(issue, MAP_LABEL)) {
         return `❌ ${theRepo}#${n} is not a \`${MAP_LABEL}\` issue — \`map\` updates a map, and \`start ${n}\` is how a ticket gets worked`
+      }
+      // #649: the same refusal `start` carries, for the same reason. A charting
+      // clone is a private clone, `createPrivateClone` opens with an
+      // unconditional `rmSync`, and a charting session that died mid-turn never
+      // reached the Stop hook that would have had it commit its findings. The
+      // sharpest case is a clone cancel deliberately KEPT because its salvage
+      // failed: without this, the next `map <n>` destroys the one copy curia had
+      // just refused to destroy.
+      const survivingClone = worktreePathFor(this.root, theRepo, n)
+      if (!reuse && fs.existsSync(survivingClone)) {
+        this.reduction.journal('start_refused_over_clone', {
+          repo: theRepo, ticket: n, agent: session, by: by ?? 'unknown', path: survivingClone, verb: 'map',
+        })
+        return `❌ ${theRepo}#${n} still has a charting clone on disk from an earlier agent — \`map\` recreates it from origin and would take every uncommitted file with it. \`resume ${n}\` inherits it instead; \`cancel ${n}\` ends it, capturing anything that exists nowhere else.`
       }
       return (await this.#dispatch(theRepo, n, issue, { model, instruction, by, reuse, threadId, charting: true })) ?? this.#exhaustedReply()
     } finally {
@@ -2341,7 +2374,7 @@ export class Dispatcher {
     const wtPath = builder?.wtPath ?? worktreePathFor(this.root, repo, ticket)
     if (!fs.existsSync(wtPath)) return null
     try {
-      const unpushed = await this.deps.hasUnpushedWork(wtPath, branchFor(ticket), await this.deps.defaultBranchOf(wtPath))
+      const unpushed = await this.deps.hasUnpushedCommits(wtPath, branchFor(ticket), await this.deps.defaultBranchOf(wtPath))
       if (!unpushed) return null
       return `❌ #${ticket} holds commits that are on no remote, and a reviewer reads the PUSHED tip — the verdict would be about a different diff than the pull request shows. Have the builder call \`open_pull_request\`, then ask again.`
     } catch (e) {
@@ -5168,6 +5201,25 @@ export class Dispatcher {
     }
   }
 
+  // The one capture both destroying paths run (#649, ADR-0028). It never throws:
+  // it hands back the branch it captured onto, or the reason it could not, and
+  // each caller decides what a failure buys. Cancel keeps the clone; the lease
+  // keeps the whole workspace. `teardown` names which path asked, so the journal
+  // can tell a cancel's capture from a lease's.
+  async #captureLocalOnlyWork({ wtPath, repo, ticket, agent, teardown }) {
+    try {
+      const captured = await this.deps.salvageLocalOnlyWork(wtPath, repo, ticket)
+      if (!captured.salvaged) return { branch: null, error: null }
+      this.reduction.journal('work_salvaged', {
+        repo, ticket, agent, path: wtPath, branch: captured.branch, sha: captured.sha, teardown,
+      })
+      return { branch: captured.branch, error: null }
+    } catch (e) {
+      this.reduction.journal('salvage_failed', { repo, ticket, agent, path: wtPath, teardown, error: e.message })
+      return { branch: null, error: e.message }
+    }
+  }
+
   // Merge ends the workspace lease (#54 item 7), replacing "worktree, branch and
   // claim kept for review" — the review is over by now.
   //
@@ -5210,6 +5262,27 @@ export class Dispatcher {
       }
     }
 
+    // #649: the pull request is merged, so anything still dirty in there is by
+    // definition NOT what landed — and it exists in no other place. Capture it,
+    // then proceed. Keeping the clone instead would leak disk on the common
+    // happy ending forever, with no sweep able to take it: the orphan sweep
+    // would find it dirty and keep it too.
+    //
+    // A capture that FAILED keeps the workspace. ADR-0028 sanctions a keep only
+    // for cancel, and argues against keeping HERE because a kept clone leaks
+    // disk with no sweep able to take it. That argument is about keeping as a
+    // POLICY on a dirty tree, and this is the failure case the same ADR rules on
+    // one section later: destroying the only copy because a network call failed
+    // is the bug it closes. It is also the rule every other branch of this
+    // function already runs on. The leak is real and accepted: it costs one
+    // clone per failed capture, and the alternative costs the work.
+    const capture = await this.#captureLocalOnlyWork({ wtPath, repo, ticket, agent: agentName, teardown: 'lease' })
+    if (capture.error) {
+      this.reduction.journal('lease_kept', { repo, ticket, agent: agentName, branch, reason: `local-only work could not be captured: ${capture.error}` })
+      return `⚠️ worktree KEPT — ${pr ? `${pr.url} is merged, but ` : ''}the clone holds work that exists nowhere else and curia could not capture it (${capture.error})`
+    }
+    const salvageBranch = capture.branch
+
     let removed = false
     try {
       await this.deps.removeWorkspace(wtPath)
@@ -5226,8 +5299,11 @@ export class Dispatcher {
         branchNote = `, remote \`${branch}\` still there (${e.message})`
       }
     }
-    this.reduction.journal('lease_released', { repo, ticket, agent: agentName, branch, merged: Boolean(pr), worktree_removed: removed })
-    return `${pr ? `${pr.url} is merged` : 'no code was produced'} — ${removed ? 'worktree removed' : 'worktree removal FAILED'}${branchNote}`
+    this.reduction.journal('lease_released', {
+      repo, ticket, agent: agentName, branch, merged: Boolean(pr), worktree_removed: removed, salvage: salvageBranch,
+    })
+    const salvageNote = salvageBranch ? `, and work that existed nowhere else was captured on \`${salvageBranch}\` first` : ''
+    return `${pr ? `${pr.url} is merged` : 'no code was produced'} — ${removed ? 'worktree removed' : 'worktree removal FAILED'}${branchNote}${salvageNote}`
   }
 
   // ---- cancel --------------------------------------------------------------------
@@ -5774,8 +5850,33 @@ export class Dispatcher {
     const chartedMap = charting && isChatHandle(ticket) ? this.#chartedMap(session, ticket, w) : null
     let released = false
     let failure = null
+    // #649: the operator ordered a teardown and the teardown happens — curia's
+    // job at an ordered ending is not to argue with the order, it is to not lose
+    // the work silently. So the clone's local-only work is CAPTURED first, and
+    // only a capture that FAILED holds the removal back: destroying the only
+    // copy because a network call failed is the exact bug ADR-0028 closes, and
+    // it would arrive under a line announcing a successful teardown.
+    let salvageBranch = null
+    let salvageFailure = null
+    // Whether the clone is actually gone, rather than whether curia tried. The
+    // removal's own failure used to be swallowed under a line saying "worktree
+    // removed", which is the same lie in a second place.
+    let cloneRemoved = false
     if (w) {
-      await this.deps.removeWorkspace(w.wtPath).catch((e) => this.log(`workspace removal for ${session} failed:`, e.message))
+      const capture = await this.#captureLocalOnlyWork({
+        wtPath: w.wtPath, repo: w.repo, ticket, agent: session, teardown: 'cancel',
+      })
+      salvageBranch = capture.branch
+      salvageFailure = capture.error
+      if (salvageFailure) {
+        this.log(`salvage for ${session} failed (${salvageFailure}) — the clone at ${w.wtPath} is KEPT`)
+      } else {
+        cloneRemoved = await this.deps.removeWorkspace(w.wtPath).then(() => true)
+          .catch((e) => { this.log(`workspace removal for ${session} failed:`, e.message); return false })
+      }
+      // The session dies and the claim is released either way. The agent ending
+      // is what was ordered; the clone is the only thing an unreadable salvage
+      // buys a stay for.
       if (!charting) {
         try {
           await this.deps.unclaim(w.repo, ticket, this.claimLogin())
@@ -5799,17 +5900,28 @@ export class Dispatcher {
     // status's recent-cancelled view reads this event; the unclaim events
     // above cannot carry it because an untracked cancel writes none.
     this.reduction.journal('agent_cancelled', { repo: w?.repo, ticket, agent: session, by: by ?? 'unknown', tracked: Boolean(w) })
+    // "worktree removed" is a lie the moment a capture failed and the clone
+    // stands, so the word is built from what actually happened (#649).
+    const removal = cloneRemoved ? 'removed' : 'KEPT'
     const chartTail = isChatHandle(ticket)
       ? (chartedMap
-        ? `, checkout removed — nothing was claimed, and the map it created (${w?.repo ? `${w.repo}#` : '#'}${chartedMap}) STANDS`
-        : ', checkout removed — nothing was claimed, and it had created no map yet, so the tracker is untouched')
-      : ', checkout removed — the map was never claimed, and whatever the agent already wrote to it STANDS'
+        ? `, checkout ${removal} — nothing was claimed, and the map it created (${w?.repo ? `${w.repo}#` : '#'}${chartedMap}) STANDS`
+        : `, checkout ${removal} — nothing was claimed, and it had created no map yet, so the tracker is untouched`)
+      : `, checkout ${removal} — the map was never claimed, and whatever the agent already wrote to it STANDS`
     const tail = w
       ? (charting
         ? chartTail
-        : released ? ', worktree removed, ticket re-frontiered' : ', worktree removed — but the claim release FAILED: the issue is still assigned; reconcile will retry')
+        : released ? `, worktree ${removal}, ticket re-frontiered` : `, worktree ${removal} — but the claim release FAILED: the issue is still assigned; reconcile will retry`)
       : ' (was untracked; GitHub claim untouched)'
-    const msg = `⚰️ \`${session}\` cancelled — session killed${tail}${reviewerLine ? `\n${reviewerLine}` : ''}`
+    // A salvage branch nobody is told about is a patch nobody reads (ADR-0028),
+    // so cancel names it. A failed capture says all three things at once: the
+    // session is gone, the claim moved, and the clone is still on the box.
+    const salvageLine = salvageBranch
+      ? `\n💾 the clone held work that existed nowhere else — curia captured it on \`${salvageBranch}\` before removing it. Nothing deletes that branch.`
+      : salvageFailure
+        ? `\n⚠️ the clone is KEPT at \`${w?.wtPath}\` — curia could not capture the local-only work in it (${salvageFailure}), and it will not destroy the only copy.`
+        : ''
+    const msg = `⚰️ \`${session}\` cancelled — session killed${tail}${salvageLine}${reviewerLine ? `\n${reviewerLine}` : ''}`
     this.notify(ticket, msg)
     // the agent is positively gone ⇒ any OTHER open confirm on it lapses (#94)
     this.lapseConfirmsFor(session, `\`${session}\` was cancelled`)
@@ -7025,16 +7137,31 @@ export class Dispatcher {
   // worktree (loudly); and "cannot tell" is not "nothing there" — an
   // indeterminate check keeps it too, the same evidence rule the rest of
   // reconcile runs on.
+  //
+  // #649 widened it from commits to LOCAL-ONLY WORK. A tree an agent edited for
+  // hours and never committed exists in no other place either, and nothing here
+  // established anything or ordered anything — so it gets the same answer the
+  // commits get. This path never captures: rubble is cheaper than a salvage
+  // branch spent on a teardown nobody asked for.
   async #sweepWorktree(repo, n, session) {
     const wt = worktreePathFor(this.root, repo, n)
-    let unpushed = true
+    let keep = true
     let why = 'it holds commits that exist nowhere else'
     try {
-      unpushed = await this.deps.hasUnpushedWork(wt, branchFor(n), await this.deps.defaultBranchOf(wt))
+      keep = await this.deps.hasUnpushedCommits(wt, branchFor(n), await this.deps.defaultBranchOf(wt))
     } catch (e) {
       why = `curia could not tell whether it holds unlanded commits (${e.message})`
     }
-    if (unpushed) {
+    if (!keep) {
+      try {
+        keep = await this.deps.hasUncommittedChanges(wt)
+        if (keep) why = 'it holds uncommitted changes that exist nowhere else'
+      } catch (e) {
+        keep = true
+        why = `curia could not tell whether it holds uncommitted changes (${e.message})`
+      }
+    }
+    if (keep) {
       this.reduction.journal('orphan_worktree_kept', { agent: session, ticket: n, repo, path: wt, reason: why })
       this.log(`reconcile: kept orphan worktree ${wt} — ${why}`)
       return

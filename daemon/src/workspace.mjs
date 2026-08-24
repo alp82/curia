@@ -31,6 +31,9 @@ import { codexAccessTokenExpiry } from './credentials.mjs'
 // the daemon's own minted credential (#390, ADR-0018) — every clone, fetch and
 // push below reaches GitHub as `curia-sh[bot]` rather than as the operator
 import { daemonGhEnv } from './daemongh.mjs'
+// the salvage branch's stamp (#649). One stamp shape for the whole daemon: UTC,
+// colons folded to hyphens, sorting in write order.
+import { stampFor } from './backup.mjs'
 
 // The mandatory communication rules (#133): a curia-owned copy of the
 // operator's STE writing standard, seeded into every config dir as the CLI's
@@ -201,7 +204,7 @@ export async function uncommittedFiles(wtPath) {
 // token keeps the host login, which is exactly what this line did before.
 //
 // Pushing an explicit URL does not move refs/remotes/origin/*, and
-// hasUnpushedWork() — which decides whether the orphan sweep is allowed to
+// hasUnpushedCommits() — which decides whether the orphan sweep is allowed to
 // destroy a worktree — reads exactly that ref. So the tracking ref is updated
 // here, to the sha that was actually pushed and nothing else.
 export async function pushBranch(wtPath, repo, branch) {
@@ -215,12 +218,25 @@ export async function pushBranch(wtPath, repo, branch) {
   return sha
 }
 
+// ---- local-only work, in its two kinds (#649, ADR-0028) ---------------------
+//
+// Work that exists in no place but this clone. It is the union of two facts,
+// and they stay TWO predicates rather than one widened one: the cross-check
+// callers ask about the pushed tip, and a dirty tree is no reason to refuse a
+// cross-check or to trigger a repair push. A single vague predicate would have
+// changed behavior at call sites that never asked for it.
+//
+// Both throw when they cannot tell, and every caller reads "unknown" as "keep".
+
 // Does this worktree hold commits that exist nowhere else? Before #41 a
 // worktree held only a local commit nobody depended on, so the orphan sweep
 // could force-remove it freely. Now the daemon is expected to land that work,
 // and a sweep that fires between the commit and the push would destroy the only
 // copy. Throws when it cannot tell — callers must read "unknown" as "keep".
-export async function hasUnpushedWork(wtPath, branch, defaultBranch) {
+//
+// Named `hasUnpushedCommits` since #649, because after it there is a second
+// question this must not be mistaken for.
+export async function hasUnpushedCommits(wtPath, branch, defaultBranch) {
   let ref = `origin/${defaultBranch}`
   try {
     await git(wtPath, ['rev-parse', '--verify', `refs/remotes/origin/${branch}`])
@@ -228,6 +244,96 @@ export async function hasUnpushedWork(wtPath, branch, defaultBranch) {
   } catch { /* never pushed: measure against the default branch instead */ }
   const { stdout } = await git(wtPath, ['rev-list', '--count', `${ref}..HEAD`])
   return Number(stdout.trim()) > 0
+}
+
+// The other kind: a tree an agent has been editing and has not committed. Built
+// on `uncommittedFiles` rather than on a second `git status` call, so the two
+// can never disagree about what counts — untracked files included, and the
+// repo's `.gitignore` plus the clone's own `.git/info/exclude` are what separate
+// work from noise.
+export async function hasUncommittedChanges(wtPath) {
+  return (await uncommittedFiles(wtPath)).length > 0
+}
+
+// Who a salvage commit says it is. NOT the clone's own identity, which is the
+// ticket owner's or the app bot's and belongs to commits an agent chose to
+// make: a machine commit of a tree nobody reviewed, under the owner's name,
+// would be a lie about who wrote it. A constant rather than a read of the app's
+// bot user, because this runs on the path that must not fail for a network
+// reason — the whole point of the salvage is that it happens.
+const SALVAGE_AUTHOR = { name: 'curia', email: 'curia@users.noreply.github.com' }
+
+// Where local-only work goes. The stamp is `backup.mjs`'s — UTC, colons folded
+// to hyphens, sorting in write order — and it is what makes the branch
+// ACCUMULATE rather than overwrite: one ticket can be salvaged more than once,
+// and a salvage that destroys the previous salvage is the same silent loss one
+// level up.
+export function salvageBranchFor(n, at) {
+  return `curia/${n}-salvage-${stampFor(at)}`
+}
+
+// Capture everything this clone holds that exists nowhere else, then hand back
+// the branch it landed on (#649, ADR-0028).
+//
+// `git add -A` and a commit, never `git diff HEAD`: the diff form silently drops
+// untracked files, honors no ignore rules of its own, and produces a text blob
+// where a ref is wanted. Pushing HEAD carries any unpushed commits along in the
+// same act, which closes cancel's second silent loss for free.
+//
+// It goes to GitHub rather than to a patch under the workspace root because
+// ADR-0001 says GitHub is the only durable state home — and because nobody
+// reads a patch. A branch on the tracker is findable later, by the person who
+// saw the alarm, with no knowledge that an archive directory exists.
+//
+// The push runs on `daemonGhEnv`, the daemon's OWN token, so it cannot race a
+// cancel path that has already forgotten the agent's credential.
+//
+// `{ salvaged: false }` when there is nothing to capture — including a clone
+// that is already gone, which is not a loss and must not read as one. It THROWS
+// on every other failure, and every caller reads a throw as "keep the clone":
+// destroying the only copy because a network call failed is the exact bug this
+// closes.
+//
+// A push that fails leaves the COMMIT behind in the kept clone, and that is the
+// right direction rather than a leak: the work is now committed instead of
+// loose, the ticket branch reads as holding unpushed commits, and every keep
+// rule downstream already answers that correctly.
+//
+// `remote` is the seam `checkoutTicketBranch`'s `env` is: the real caller passes
+// none and the push goes to GitHub, and the suite drives a local bare origin.
+export async function salvageLocalOnlyWork(wtPath, repo, n, { at = Date.now(), remote = null } = {}) {
+  const nothing = { salvaged: false, branch: null, sha: null }
+  if (!fs.existsSync(wtPath)) return nothing
+  if (!repo) throw new Error('curia could not tell which repo this clone belongs to, so it has nowhere to push a salvage')
+  const branch = branchFor(n)
+  const dirty = await hasUncommittedChanges(wtPath)
+  if (!dirty && !await hasUnpushedCommits(wtPath, branch, await defaultBranchOf(wtPath))) return nothing
+  if (dirty) {
+    await git(wtPath, ['add', '-A'])
+    // `--no-verify`: a salvage must not run whatever hooks the repo or the
+    // agent installed. It is curia's own act, not a commit the agent is making.
+    await git(wtPath, [
+      '-c', `user.name=${SALVAGE_AUTHOR.name}`,
+      '-c', `user.email=${SALVAGE_AUTHOR.email}`,
+      'commit', '--no-verify', '-m', salvageMessage(branch),
+    ])
+  }
+  const { stdout } = await git(wtPath, ['rev-parse', 'HEAD'])
+  const sha = stdout.trim()
+  const salvage = salvageBranchFor(n, at)
+  await git(wtPath, [
+    '-c', 'credential.helper=!gh auth git-credential',
+    'push', remote ?? `https://github.com/${repo}.git`, `${sha}:refs/heads/${salvage}`,
+  ], { timeout: CLONE_TIMEOUT_MS, env: await daemonGhEnv(repo) })
+  return { salvaged: true, branch: salvage, sha }
+}
+
+function salvageMessage(branch) {
+  return `Salvage local-only work from ${branch}\n\n`
+    + 'Committed by curia, not by the agent whose clone this was, and not '
+    + 'reviewed by anyone. The clone was about to be destroyed and this is '
+    + 'everything in it that existed nowhere else.\n\n'
+    + 'See ADR-0028 and alp82/curia#649.\n'
 }
 
 // Branch is kept deliberately (salvage; re-frontier is the recovery).
