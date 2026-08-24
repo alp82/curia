@@ -351,6 +351,55 @@ The five variations are the RHYTHM of that landing, which is what there is to wa
 | 4 | map by map | one map fills, a pause, then the next |
 | 5 | state by state | the merged ones first, then the takeable, then the blocked |
 
+**The operator's answer.** Still too fast, and the maps arrive from the wrong side:
+
+> scene 2 should scroll the maps into place from the bottom to feel more natural with the journey
+>
+> the tickets move too fast even with a single scroll tick, it's just a super fast movement from the
+> mess into the map, i can see the actual ticket just for a split second
+>
+> i actually want to see how they move into curia, transform into the beautiful labeled self and the
+> move into the maps
+
+**Round 7.** The journey is three plain moves with a HOLD in the middle, so there is something to
+watch at each one:
+
+1. **Into curia.** The note climbs out of the orbit, straightening as it goes.
+2. **The change.** It STOPS at curia and becomes a labeled ticket, in place.
+3. **Into the map.** The ticket carries on up to the map it belongs to.
+
+The three moves get equal scroll. Six pieces of work make the journey and the rest stay in the
+orbit, because the backlog does not empty.
+
+**The maps rise from the bottom.** They ride up and out of sight for the mess as before, and the
+empty ones come back up from the foot of the screen, which is the way the reader is travelling. The
+two sets never cross, because the swap happens while both are off the screen. The maps are drawn
+last now, so one rising past the orbit passes in front of the work it is coming to collect.
+
+**What was capping the pace.** The beat used to be driven by the order claim crossing the screen,
+and a claim only takes about a screen to cross. It is driven by how far the reader has scrolled PAST
+the claim now, so the beat can be given as much scroll as it needs.
+
+**The five are a ladder of pace**, since pace is the open question. Everything else is identical in
+all five. Each rung sets its own tail room, so a quick pace leaves no dead scroll behind it.
+Measured on a 390 by 760 phone:
+
+| id | pace | scroll per move | whole journey | the arc |
+|----|------|-----------------|---------------|---------|
+| 1 | slowest | 192 px | 575 px | 9.9 screens |
+| 2 | slow | 150 px | 451 px | 8.4 screens |
+| 3 | middle | 115 px | 345 px | 7.1 screens |
+| 4 | quick | 88 px | 263 px | 6.1 screens |
+| 5 | quickest | 66 px | 197 px | 5.3 screens |
+
+For comparison, the whole journey was about 44 px of scroll in round 6, which is the split second
+the operator saw. The arc's total height is the price of watching six journeys, and it is what the
+ladder trades against.
+
+The preference check caught a silent failure this round: an edit meant to introduce the ladder did
+not apply, so the page kept one fixed pace while the notes claimed five. The five all measured
+identical, which is how it surfaced.
+
 ## The verdict
 
 **The identity is duotone, locked at [#624](https://github.com/alp82/curia/issues/624) over

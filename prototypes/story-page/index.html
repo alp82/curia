@@ -139,7 +139,7 @@
   body.arcon .a-hero { min-height: 100svh; }
   body.arcon .room { height: 70svh; }
   body.arcon .room.lead { height: 55svh; }
-  body.arcon .room.short { height: 110svh; }
+  body.arcon .room.short { height: var(--tail, 440svh); }
 
   /* Round 3 of #625: the words and the canvas must never sit on top of
      each other. On a wide screen each claim docks to its own side and
@@ -1091,7 +1091,7 @@ function param(key, max) {
   return v >= 1 && v <= max ? v : 1;
 }
 var ARC_ID = param('id', 5);
-var NAMES = ['', 'one', 'labels first', 'stream', 'by map', 'by state'];
+var NAMES = ['', 'slowest', 'slow', 'middle', 'quick', 'quickest'];
 
 (function switcher() {
   var d = document.createElement('div');
@@ -1902,72 +1902,88 @@ function runArc() {
   }
 
   /* ================================================================
-     The order beat, at the pace the operator asked to watch.
+     The order beat, at a pace a reader can actually watch.
 
-     The maps come back EMPTY and settle into place first. Only then do
-     the notes take their labels, and only then do the tickets climb
-     into the maps, one at a time. A map fills from the top, and once
-     it holds three the oldest steps out to make room.
+     The operator could see a ticket for a split second and asked to
+     watch the whole journey, so the journey is now three plain moves
+     with a HOLD in the middle:
 
-     The five variations are the RHYTHM of that, which is the thing
-     there is to see: how fast, in what order, and whether labeling and
-     landing overlap.
+       into curia    the note climbs out of the orbit, straightening
+       the change    it stops at curia and becomes a labeled ticket
+       into the map  the ticket carries on up to the map it belongs to
+
+     The maps come back EMPTY, and they rise into place from the bottom
+     of the screen, which is the direction everything else travels.
+
+     The beat is driven by how far the reader has scrolled PAST the
+     claim, not by the claim crossing the screen. The claim only takes
+     about a screen to cross, and that was the ceiling on the pace.
      ================================================================ */
 
-  var PACES = ['', 'one at a time', 'label all first', 'steady stream', 'map by map', 'state by state'];
+  var PACES = ['', 'slowest', 'slow', 'middle', 'quick', 'quickest'];
+
+  /* How many screens of scroll the whole order beat is given, and how
+     many pieces of work make the journey. The rest stay in the orbit,
+     because the backlog does not empty. */
+  /* The five are a ladder of PACE, because pace is the open question:
+     the operator could see a ticket for a split second and asked what a
+     slower one looks like. Everything else about the beat is identical
+     in all five, so speed is the only thing being judged.
+
+     A span is how many screens of scroll the order beat is given. The
+     tail room under the claim is set from it, so a brisk pace leaves no
+     screens of dead scroll behind it. */
+  var SPANS = [0, 7.0, 5.5, 4.2, 3.2, 2.4];
+  var ORDER_SPAN = SPANS[ARC_ID];
+  var TRAVEL_N = 6;
+  document.documentElement.style.setProperty('--tail', ((ORDER_SPAN + 0.19) * 100).toFixed(0) + 'svh');
 
   /* Which map each piece of work belongs to, and what it turns out to
-     be. The two are deliberately uncorrelated, so every map ends up
-     holding one merged, one takeable and one blocked ticket. */
+     be. The two are uncorrelated, so every map ends up holding one
+     merged, one takeable and one blocked ticket. */
   var MAPOF = [], STOF = [];
   (function () {
     var i;
     for (i = 0; i < MESS.length; i++) {
       MAPOF[i] = i % 3;
-      STOF[i] = [3, 1, 0][Math.floor(i / 3) % 3];
+      /* the six that travel are dealt out so every map ends up
+         holding two rows of different states, blocked among them */
+      STOF[i] = i < 6 ? [3, 1, 0, 1, 0, 3][i] : [3, 1, 0][Math.floor(i / 3) % 3];
     }
   })();
 
-  /* The order the work goes in, and the group it goes with. */
-  var ORDER = [], POS = [], GROUP = [], WITHIN = [], GSIZE = [0, 0, 0];
-  (function () {
-    var i, idx = [];
-    for (i = 0; i < MESS.length; i++) idx.push(i);
-    if (ARC_ID === 4) idx.sort(function (a, b) { return MAPOF[a] - MAPOF[b] || a - b; });
-    else if (ARC_ID === 5) idx.sort(function (a, b) { return STOF[b] - STOF[a] || a - b; });
-    ORDER = idx;
-    for (i = 0; i < idx.length; i++) POS[idx[i]] = i;
-    for (i = 0; i < MESS.length; i++) {
-      GROUP[i] = ARC_ID === 5 ? [3, 1, 0].indexOf(STOF[i]) : MAPOF[i];
-      WITHIN[i] = GSIZE[GROUP[i]];
-      GSIZE[GROUP[i]]++;
-    }
-  })();
+  /* The window of the order beat that work i's journey runs in. The
+     journeys never overlap, so every one of them gets the screen to
+     itself: that is what makes the three moves watchable. */
+  function windowOf(i) {
+    var w = 1 / TRAVEL_N;
+    return { a: i * w, b: i * w + w * 0.96 };
+  }
 
-  /* When work i takes its label, and when it climbs, in the units of
-     the order beat's own progress. */
-  function scheduleOf(i, n) {
-    var k = POS[i], w;
-    if (ARC_ID === 2) {
-      /* label all first, then send them up one after another */
-      var s2 = (k / n) * 0.24;
-      return { la: s2, lb: s2 + 0.10, fa: 0.34 + (k / n) * 0.60, fb: 0.34 + (k / n) * 0.60 + 0.08 };
+  /* One journey, in its three moves. u runs 0 to 1. */
+  function journey(u, home, S, port, map) {
+    var holdY = S.nodeY - S.nodeR * 0.55;
+    if (u < 0.34) {
+      var t1 = ease(u / 0.34);
+      return {
+        x: lerp(home.x, S.cx, t1), y: lerp(home.y, holdY, t1),
+        m: 0, tilt: home.tilt * (1 - t1), z: lerp(home.z, 0.95, t1),
+        pop: 1, a: 1
+      };
     }
-    if (ARC_ID === 3) {
-      /* a steady stream: labeling and climbing overlap, a few at once */
-      var s3 = (k / n) * 0.76;
-      return { la: s3, lb: s3 + 0.11, fa: s3 + 0.08, fb: s3 + 0.28 };
+    if (u < 0.66) {
+      /* the change, in place, where it can be watched */
+      var t2 = (u - 0.34) / 0.32;
+      return {
+        x: S.cx, y: holdY, m: ease(t2), tilt: 0, z: 0.95,
+        pop: 1 + 0.24 * Math.sin(t2 * Math.PI), a: 1
+      };
     }
-    if (ARC_ID === 4 || ARC_ID === 5) {
-      /* one group at a time, in bursts, with sky between them */
-      var g = GROUP[i], gs = Math.max(1, GSIZE[g]);
-      var base = (g / 3) * 0.94;
-      var s4 = base + (WITHIN[i] / gs) * 0.18;
-      return { la: s4, lb: s4 + 0.07, fa: s4 + 0.05, fb: s4 + 0.24 };
-    }
-    /* one at a time, nothing overlapping anything */
-    w = 1 / n;
-    return { la: k * w, lb: k * w + 0.42 * w, fa: k * w + 0.46 * w, fb: (k + 1) * w };
+    var t3 = ease((u - 0.66) / 0.34);
+    return {
+      x: lerp(port.x, map.x, t3), y: lerp(port.y, map.y, t3),
+      m: 1, tilt: 0, z: 1, pop: 1, a: 1 - smooth(0.82, 1, t3)
+    };
   }
 
   var raf = 0, last = 0, clock = 0;
@@ -1985,14 +2001,12 @@ function runArc() {
     if (arcBox.bottom < -40 || arcBox.top > H + 40) return;
 
     var wide = W >= 620;
-    var travel = arcEl.offsetHeight - window.innerHeight;
-    var arcP = travel > 0 ? clamp(-arcBox.top / travel, 0, 1) : 0;
+    var travelPx = arcEl.offsetHeight - window.innerHeight;
+    var arcP = travelPx > 0 ? clamp(-arcBox.top / travelPx, 0, 1) : 0;
     var rise = smooth(0.04, 0.50, panelProgress(messPanel));
-    /* The order beat gets a screen and a bit of scroll to itself,
-       against the half screen it had. Round 5 was called too fast, and
-       this is where that is fixed: the tail room after the claim is what
-       gives the landing its room. */
-    var fall = smooth(0.05, 0.92, panelProgress(orderPanel));
+    /* how far PAST the order claim the reader has come, in screens */
+    var ro = orderPanel ? orderPanel.getBoundingClientRect() : null;
+    var fall = ro ? clamp((H * 0.55 - ro.top) / (H * ORDER_SPAN), 0, 1) : 0;
     stageEl.style.setProperty('--warm', (1 - 0.86 * rise * (1 - fall)).toFixed(3));
     stageEl.style.setProperty('--ord', fall.toFixed(3));
 
@@ -2007,93 +2021,91 @@ function runArc() {
     var K = keyframes(b, mapsH);
     var S = mixkf(mixkf(K.hero, K.mess, rise), K.order, fall);
     S.cx = K.cx;
-    /* the necklace opens into the globe from the first turn of the wheel */
-    S.orbitMix = smooth(0.01, 0.30, arcP);
+    /* Measured in screens of scroll, not in a share of the arc: the
+       arc changes height between rounds, and a share would mean the
+       necklace opens more slowly every time the arc grows. */
+    S.orbitMix = smooth(0.02, 0.85, (-arcBox.top) / H);
 
-    /* The maps come back BEFORE anything is labeled, and they come back
-       empty. Their own progress runs ahead of the order beat. */
-    var mapsIn = smooth(0.02, 0.26, fall);
-    S.mapsY = lerp(lerp(K.hero.mapsY, K.mess.mapsY, rise), K.order.mapsY, mapsIn);
-    var mapsA = clamp(lerp(lerp(K.hero.mapsA, K.mess.mapsA, rise), K.order.mapsA, mapsIn), 0, 1);
+    /* The maps ride UP out of sight for the mess, and the empty ones
+       come back UP from the bottom, which is the way the reader is
+       travelling. They are two different sets, so the swap happens
+       while both are off the screen. */
+    var mapsIn = smooth(0.02, 0.30, fall);
+    var mapsA, mi;
+    if (fall <= 0.001) {
+      S.mapsY = lerp(K.hero.mapsY, K.mess.mapsY, rise);
+      mapsA = clamp(lerp(K.hero.mapsA, K.mess.mapsA, rise), 0, 1);
+    } else {
+      S.mapsY = lerp(b.y1 + mapsH * 0.9, K.order.mapsY, mapsIn);
+      mapsA = clamp(smooth(0.04, 0.34, mapsIn), 0, 1);
+    }
 
     var np = place(L, S.cx, S.nodeY, S.nodeR + 8, S.nodeR + 8);
     S.cx = np.x; S.nodeY = np.y;
 
     var nMaps = maps.length;
-    var mi;
     for (mi = 0; mi < nMaps; mi++) maps[mi].y = S.mapsY;
 
     var n = MESS.length;
     var cw = clamp((b.x1 - b.x0) * 0.38, 92, CARD_W);
     var chw = cw / 2 + 6, chh = CARD_H * (cw / CARD_W) / 2 + 6;
-    /* the necklace lies nearly flat below curia and rounds out into the
-       globe as the reader scrolls, bounded by the room it has */
     S.cloudRY *= lerp(1, 2.8, S.orbitMix);
-    /* Bounded by the room around WHERE THE CLOUD IS, not by half the
-       box: the hero cloud sits low, so a centred bound let its lower
-       cards run past the edge and get clamped, which broke the ring. */
     var roomX = Math.min(S.cx - b.x0, b.x1 - S.cx) - chw;
     var roomY = Math.min(S.cloudY - b.y0, b.y1 - S.cloudY) - chh;
     S.cloudRX = Math.max(20, Math.min(S.cloudRX, roomX));
     S.cloudRY = Math.max(16, Math.min(S.cloudRY, roomY));
 
-    /* where every piece of work stands, before any of it is drawn */
-    var sp = smooth(0.28, 1, fall);
+    var sp = smooth(0.32, 1, fall);
     var heat = [0, 0, 0];
     var back = [], front = [];
     var arrivals = [[], [], []];
     var i;
     for (i = 0; i < n; i++) {
       var home = cloudPos(i, n, clock, S);
-      var sc = scheduleOf(i, n);
-      var m = smooth(sc.la, sc.lb, sp);
-      var t = smooth(sc.fa, sc.fb, sp);
-      var slot = MAPOF[i] % Math.max(1, nMaps);
-      arrivals[MAPOF[i]].push({ i: i, t: t, st: STOF[i] });
-      if (t >= 0.999) continue;                 /* it lives in the map now */
-      var mm = maps[slot];
-      var it = { i: i, z: home.z, m: m, tilt: home.tilt * (1 - m),
-                 pop: home.scale, a: 0.95, slot: slot, st: m > 0.5 ? STOF[i] : 0 };
-      if (t <= 0.001) {
-        it.x = home.x; it.y = home.y;
-      } else if (t < 0.5) {
-        var t1 = ease(t / 0.5);
-        it.x = lerp(home.x, S.cx, t1);
-        it.y = lerp(home.y, S.nodeY, t1);
-        it.tilt = home.tilt * (1 - t1) * (1 - m);
-        it.z = lerp(home.z, 0.9, t1);
-      } else {
-        var t2 = ease((t - 0.5) / 0.5);
-        var p0 = portPoint(slot, nMaps, S);
-        it.x = lerp(p0.x, mm.x, t2);
-        it.y = lerp(p0.y, mm.y, t2);
-        it.tilt = 0;
-        it.z = 1;
-        it.pop = home.scale * (1 + 0.2 * Math.sin(Math.min(1, t2 * 4) * Math.PI));
-        it.a = (1 - smooth(0.78, 1, t2)) * 0.96;
-        it.badge = mm.m.label;
-        it.badgeIn = smooth(0.02, 0.3, t2);
-        heat[slot] = Math.max(heat[slot], 1 - t2);
+      var travels = i < TRAVEL_N;
+      var u = 0;
+      if (travels) {
+        var wnd = windowOf(i);
+        u = smooth(wnd.a, wnd.b, sp);
+        arrivals[MAPOF[i]].push({ i: i, u: u, st: STOF[i] });
       }
+      if (u >= 0.999) continue;                 /* it lives in the map now */
+      var slot = MAPOF[i] % Math.max(1, nMaps);
+      var mm = maps[slot];
+      var it = { i: i, slot: slot, a: 0.95, pop: home.scale };
+      if (u <= 0.001) {
+        it.x = home.x; it.y = home.y; it.z = home.z;
+        it.m = 0; it.tilt = home.tilt;
+      } else {
+        var j = journey(u, home, S, portPoint(slot, nMaps, S), mm);
+        it.x = j.x; it.y = j.y; it.z = j.z; it.m = j.m; it.tilt = j.tilt;
+        it.pop = home.scale * j.pop;
+        it.a = j.a * 0.96;
+        if (j.m > 0.9) { it.badge = mm.m.label; it.badgeIn = smooth(0.66, 0.78, u); }
+        if (u > 0.66) heat[slot] = Math.max(heat[slot], 1 - (u - 0.66) / 0.34);
+      }
+      it.st = it.m > 0.5 ? STOF[i] : 0;
       (it.z < 0 ? back : front).push(it);
     }
 
-    /* A map's rows are what has landed in it. It starts empty, fills
+    /* A map's rows are what has landed in it: empty at first, filling
        from the top, and once it holds three the oldest steps out. */
     function landedRows(mapIndex) {
       var list = arrivals[mapIndex] || [];
       var landed = 0, arriving = 0, k;
       for (k = 0; k < list.length; k++) {
-        if (list[k].t >= 0.999) landed++;
-        else if (list[k].t > 0.5) arriving = Math.max(arriving, (list[k].t - 0.5) / 0.5);
+        if (list[k].u >= 0.999) landed++;
+        else if (list[k].u > 0.66) {
+          arriving = Math.max(arriving, (list[k].u - 0.66) / 0.34);
+        }
       }
       var start = Math.max(0, landed - ROWS_SHOWN);
       var win = list.slice(start, landed + 1);
-      var slots = [], j;
-      for (j = 0; j < win.length; j++) {
-        var isLast = (start + j) === landed;
+      var slots = [], j2;
+      for (j2 = 0; j2 < win.length; j2++) {
+        var isLast = (start + j2) === landed;
         slots.push({
-          t: MESS[win[j].i], st: win[j].st,
+          t: MESS[win[j2].i], st: win[j2].st,
           a: isLast ? clamp(arriving, 0, 1) : 1
         });
       }
@@ -2104,21 +2116,10 @@ function runArc() {
       };
     }
 
-    /* the maps: alive on their own clock at the hero, and filled by
-       what arrives once the order beat starts */
-    var ordering = fall > 0.015;
+    var ordering = fall > 0.002;
     var cycles = [], si;
     for (si = 0; si < nMaps; si++) {
       cycles[si] = ordering ? landedRows(si) : mapCycle(maps[si].m, clock);
-      if (mapsA > 0.02) {
-        var at = place(L, maps[si].x, maps[si].y, maps[si].w / 2 + 3, mapsH / 2 + 3);
-        maps[si].x = at.x; maps[si].y = at.y;
-        drawMapCard(maps[si].x, maps[si].y, maps[si].w, maps[si].m, cycles[si], mapsA);
-      }
-    }
-    if (wide && mapsA > 0.8) {
-      var lg = place(L, maps[0].x, maps[0].y + mapsH / 2 + 18, 120, 10);
-      drawLegend(lg.x, lg.y, smooth(0.15, 0.5, fall) * mapsA, true);
     }
 
     function paint(list) {
@@ -2138,33 +2139,34 @@ function runArc() {
     drawNode(S, clock, clamp(0.45 + 0.55 * fall, 0, 1), nMaps, 1);
     paint(front);
 
-    /* the hero keeps working while the reader is still reading it:
-       notes float up into curia and come out as tickets for the maps */
-    var idleA = (1 - smooth(0.02, 0.16, rise)) * (1 - fall);
+    /* the maps go on last, so a map rising from the bottom passes in
+       front of the work it is coming to collect */
+    for (si = 0; si < nMaps; si++) {
+      if (mapsA <= 0.02) break;
+      var at = place(L, maps[si].x, maps[si].y, maps[si].w / 2 + 3, mapsH / 2 + 3);
+      maps[si].x = at.x; maps[si].y = at.y;
+      drawMapCard(maps[si].x, maps[si].y, maps[si].w, maps[si].m, cycles[si], mapsA);
+    }
+    if (wide && mapsA > 0.8) {
+      var lg = place(L, maps[0].x, maps[0].y + mapsH / 2 + 18, 120, 10);
+      drawLegend(lg.x, lg.y, smooth(0.15, 0.5, fall) * mapsA, true);
+    }
+
+    /* the hero keeps working while the reader is still reading it, and
+       it makes the same three moves, on a clock instead of the scroll */
+    var idleA = (1 - smooth(0.02, 0.16, rise)) * (1 - smooth(0, 0.06, fall));
     if (idleA > 0.02 && nMaps) {
       var li;
-      for (li = 0; li < 5; li++) {
-        var lm = li * 2;
-        var lt = (clock * 0.16 + li / 5) % 1;
+      for (li = 0; li < 4; li++) {
+        var lm = li * 3;
+        var lu = (clock * 0.13 + li / 4) % 1;
         var lhome = cloudPos(lm, n, clock, S);
-        var lslot = li % nMaps;
-        var lx, ly, lmv, ltilt, lpop = 1, la = idleA * 0.95;
-        if (lt < 0.5) {
-          var e1 = ease(lt / 0.5);
-          lx = lerp(lhome.x, S.cx, e1); ly = lerp(lhome.y, S.nodeY, e1);
-          lmv = 0; ltilt = lhome.tilt * (1 - e1);
-        } else {
-          var e2 = ease((lt - 0.5) / 0.5);
-          var lp = portPoint(lslot, nMaps, S);
-          lx = lerp(lp.x, maps[lslot].x, e2); ly = lerp(lp.y, maps[lslot].y, e2);
-          lmv = 1; ltilt = 0;
-          lpop = 1 + 0.22 * Math.sin(Math.min(1, e2 * 4) * Math.PI);
-          la *= 1 - smooth(0.72, 1, e2);
-          heat[lslot] = Math.max(heat[lslot], 1 - e2);
-        }
-        var lat = fitTicket(L, lx, ly, cw);
+        var lslot = MAPOF[lm] % nMaps;
+        var lj = journey(lu, lhome, S, portPoint(lslot, nMaps, S), maps[lslot]);
+        var lat = fitTicket(L, lj.x, lj.y, cw);
         drawWork(lat.x, lat.y, cw, MESS[lm], {
-          m: lmv, tilt: ltilt, pop: lpop, a: la, st: lmv ? 3 : 0
+          m: lj.m, tilt: lj.tilt, pop: lhome.scale * lj.pop,
+          a: lj.a * idleA * 0.95, st: lj.m > 0.5 ? STOF[lm] : 0
         });
       }
     }
