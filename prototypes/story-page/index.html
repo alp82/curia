@@ -1069,18 +1069,6 @@
     .pv.run .pv-sw .prog s { animation: none; transform: scaleX(1); }
   }
 
-  /* The round switcher of #627, a round-only control. It leaves the
-     file with the round that settles the presentation. */
-  .dswitch {
-    position: fixed; z-index: 40; left: 50%; bottom: 0.7rem; transform: translateX(-50%);
-    display: flex; gap: 0.3rem; padding: 0.35rem 0.45rem;
-    background: rgba(10, 12, 18, 0.82); border: 1px solid var(--line); border-radius: 999px;
-    backdrop-filter: blur(6px); font: 600 0.72rem/1 var(--mono);
-  }
-  .dswitch a { color: var(--dim); text-decoration: none; padding: 0.35rem 0.5rem; border-radius: 999px; }
-  .dswitch a.on { background: var(--st-agent); color: #08090c; }
-  .dswitch span { color: var(--dim); padding: 0.35rem 0.2rem 0.35rem 0.35rem; }
-
   /* ================================================================
      Scene 6 — the atlas. The maps screen in its own design language
      (the V6 dashboard tokens), with this repo's real maps.
@@ -1538,10 +1526,9 @@
   <!-- Scene 5 · the preview (#627). The device is drawn, not shot
        (#601). Inside it is what the agent built — a prototype served
        from the box over the tailnet, with the round switcher curia
-       ships in every prototype, cycling on its own. The words of
-       subject 1 are here, so the page reads whole with no script;
-       the other four subjects are in the script. -->
-  <section class="scene sR" id="preview" data-stage="agent" data-n="04" data-name="the preview" data-v="1" style="--g1:#0c2226;--g2:#081316">
+       ships in every prototype, cycling on its own. The site is
+       GRAVITY, a type foundry, locked at round 5. -->
+  <section class="scene sR" id="preview" data-stage="agent" data-n="04" data-name="the preview" style="--g1:#0c2226;--g2:#081316">
     <div class="pv" id="pv">
       <header class="claim rv">
         <p class="kick"><span class="kn">04</span><span class="kname">the preview</span></p>
@@ -1562,38 +1549,38 @@
               <div class="pv-site" id="pv-pool">
                 <article class="pv-v v-sun on">
                   <span class="pv-art"></span>
-                  <div class="pv-top"><span class="pv-mark">OFFLINE FIRST</span><span class="pv-nav">talks · tickets</span></div>
-                  <h3 class="pv-h">Software that works on a train.</h3>
-                  <p class="pv-p">One day, one track, Lisbon. March 2027.</p>
-                  <span class="pv-cta">Get a ticket</span>
+                  <div class="pv-top"><span class="pv-mark">GRAVITY</span><span class="pv-nav">fonts · trials · licences</span></div>
+                  <h3 class="pv-h">A typeface with weight.</h3>
+                  <p class="pv-p">Nine weights, two widths, and one axis for the space between.</p>
+                  <span class="pv-cta">Try it free</span>
                 </article>
                 <article class="pv-v v-acid">
                   <span class="pv-art"></span>
-                  <div class="pv-top"><span class="pv-mark">OFFLINE FIRST</span><span class="pv-nav">talks · tickets</span></div>
-                  <h3 class="pv-h">Software that works on a train.</h3>
-                  <p class="pv-p">One day, one track, Lisbon. March 2027.</p>
-                  <span class="pv-cta">Get a ticket</span>
+                  <div class="pv-top"><span class="pv-mark">GRAVITY</span><span class="pv-nav">fonts · trials · licences</span></div>
+                  <h3 class="pv-h">A typeface with weight.</h3>
+                  <p class="pv-p">Nine weights, two widths, and one axis for the space between.</p>
+                  <span class="pv-cta">Try it free</span>
                 </article>
                 <article class="pv-v v-bloom">
                   <span class="pv-art"></span>
-                  <div class="pv-top"><span class="pv-mark">OFFLINE FIRST</span><span class="pv-nav">talks · tickets</span></div>
-                  <h3 class="pv-h">Software that works on a train.</h3>
-                  <p class="pv-p">One day, one track, Lisbon. March 2027.</p>
-                  <span class="pv-cta">Get a ticket</span>
+                  <div class="pv-top"><span class="pv-mark">GRAVITY</span><span class="pv-nav">fonts · trials · licences</span></div>
+                  <h3 class="pv-h">A typeface with weight.</h3>
+                  <p class="pv-p">Nine weights, two widths, and one axis for the space between.</p>
+                  <span class="pv-cta">Try it free</span>
                 </article>
                 <article class="pv-v v-riso">
                   <span class="pv-art"></span>
-                  <div class="pv-top"><span class="pv-mark">OFFLINE FIRST</span><span class="pv-nav">talks · tickets</span></div>
-                  <h3 class="pv-h">Software that works on a train.</h3>
-                  <p class="pv-p">One day, one track, Lisbon. March 2027.</p>
-                  <span class="pv-cta">Get a ticket</span>
+                  <div class="pv-top"><span class="pv-mark">GRAVITY</span><span class="pv-nav">fonts · trials · licences</span></div>
+                  <h3 class="pv-h">A typeface with weight.</h3>
+                  <p class="pv-p">Nine weights, two widths, and one axis for the space between.</p>
+                  <span class="pv-cta">Try it free</span>
                 </article>
                 <article class="pv-v v-dusk">
                   <span class="pv-art"></span>
-                  <div class="pv-top"><span class="pv-mark">OFFLINE FIRST</span><span class="pv-nav">talks · tickets</span></div>
-                  <h3 class="pv-h">Software that works on a train.</h3>
-                  <p class="pv-p">One day, one track, Lisbon. March 2027.</p>
-                  <span class="pv-cta">Get a ticket</span>
+                  <div class="pv-top"><span class="pv-mark">GRAVITY</span><span class="pv-nav">fonts · trials · licences</span></div>
+                  <h3 class="pv-h">A typeface with weight.</h3>
+                  <p class="pv-p">Nine weights, two widths, and one axis for the space between.</p>
+                  <span class="pv-cta">Try it free</span>
                 </article>
               </div>
 
@@ -1957,12 +1944,13 @@ if (prefersStill || !window.IntersectionObserver) {
    turns on its own while the scene is on screen. A tap takes it
    over, and the cycle comes back eight seconds later.
 
-   Round 4's five desks ride ?id=1..5: 1 low, 2 light, 3 flat,
-   4 turn, 5 plane. Each places the claim, both devices, the
-   switcher and the fact line for itself, at both widths, and each
-   puts the light somewhere else. Without this script the phone
-   still shows the first design, whole, and the workstation window
-   stands empty rather than wrong.
+   LOCKED over five operator rounds. Every variation that lost, and
+   the switcher that carried them, left the file with the round that
+   settled it, the way the identity switcher left it at #624.
+
+   Without this script the phone still shows the first design,
+   whole, and the workstation window stands empty rather than
+   wrong.
    ================================================================ */
 
 (function () {
@@ -1970,53 +1958,7 @@ if (prefersStill || !window.IntersectionObserver) {
   var pv = document.getElementById('pv');
   if (!scene || !pv) return;
 
-  var NAME = { '1': 'conf', '2': 'type', '3': 'synth', '4': 'club', '5': 'park' };
-
-  /* Round 5: the composition is settled, so ?id picks WHAT the agent
-     built. One subject fills all five art directions, which is what a
-     prototype round looks like. Subject 1 is the markup, so the page
-     reads whole with no script at all. */
-  var SUBJECTS = {
-    '2': {
-      mark: 'GRAVITY', nav: 'fonts · trials · licences',
-      h: 'A typeface with weight.',
-      p: 'Nine weights, two widths, and one axis for the space between.',
-      cta: 'Try it free'
-    },
-    '3': {
-      mark: 'PULSE 01', nav: 'specs · sounds · buy',
-      h: 'A synth that fits in a pocket.',
-      p: 'Eight voices, one knob per thing, batteries that last a weekend.',
-      cta: 'Hear it'
-    },
-    '4': {
-      mark: 'NOCTURNE', nav: 'records · club · shop',
-      h: 'Records pressed at night.',
-      p: 'One a month, picked by people. Cancel whenever you like.',
-      cta: 'Join the club'
-    },
-    '5': {
-      mark: 'DARK SKY', nav: 'map · stays · rules',
-      h: 'Dark enough to see the galaxy.',
-      p: 'Forty square miles with no streetlight, two hours from the city.',
-      cta: 'Plan a night'
-    }
-  };
-  var pick = (/[?&]id=([1-5])/.exec(location.search) || [])[1] || '1';
-  scene.setAttribute('data-v', pick);
-
   var pool = [].slice.call(document.querySelectorAll('#pv-pool > .pv-v'));
-  (function (sub) {
-    if (!sub) return;
-    pool.forEach(function (v) {
-      var put = function (sel, text) {
-        var el = v.querySelector(sel);
-        if (el) el.textContent = text;
-      };
-      put('.pv-mark', sub.mark); put('.pv-nav', sub.nav);
-      put('.pv-h', sub.h); put('.pv-p', sub.p); put('.pv-cta', sub.cta);
-    });
-  })(SUBJECTS[pick]);
   var chips = [].slice.call(scene.querySelectorAll('[data-pvi]'));
   var prog = scene.querySelector('.pv-sw .prog s');
   var wide = [];
@@ -2064,8 +2006,7 @@ if (prefersStill || !window.IntersectionObserver) {
     });
     /* The status bar and the home indicator belong to the phone, not
        to the design, so they take their ink from whichever design is
-       showing. The plates behind the stack take its key color the
-       same way. */
+       showing. */
     var cs = getComputedStyle(pool[at]);
     ['--pvfg', '--pvkey'].forEach(function (k) {
       var v = cs.getPropertyValue(k);
@@ -2081,9 +2022,10 @@ if (prefersStill || !window.IntersectionObserver) {
     if (prog) { prog.style.animation = 'none'; void prog.offsetWidth; prog.style.animation = ''; }
   }
 
-  /* The screen is drawn against a 15.5rem device. Variations 3 and 5
-     give it less, so the whole mock is zoomed to what it actually
-     got: a smaller phone, not a zoomed-in page. */
+  /* The screen is drawn against a 15.5rem device, and the
+     composition gives it about half of that, so the whole mock is
+     zoomed to what it actually got: a smaller phone, not a zoomed-in
+     page. The window on the desk is scaled the same way. */
   var REF = 15.5 * (parseFloat(getComputedStyle(document.documentElement).fontSize) || 16);
   function fitPhone() {
     [].slice.call(pv.querySelectorAll('.pv-screen')).forEach(function (el) {
@@ -2134,21 +2076,6 @@ if (prefersStill || !window.IntersectionObserver) {
     start();
   }
 
-  /* ---- the round switcher of THIS ticket. It leaves the file when
-     the presentation is picked, the way the identity switcher left
-     it at #624. ---- */
-  (function () {
-    var bar = document.createElement('nav');
-    bar.className = 'dswitch';
-    bar.setAttribute('aria-label', 'the preview scene, the compositions of round 3');
-    var html = '<span>view</span>';
-    for (var i = 1; i <= 5; i++) {
-      html += '<a href="?id=' + i + '#preview"' + (String(i) === pick ? ' class="on"' : '') +
-        '>' + i + ' ' + NAME[String(i)] + '</a>';
-    }
-    bar.innerHTML = html;
-    document.body.appendChild(bar);
-  })();
 })();
 
 /* ---- the harness toggle ---- */
