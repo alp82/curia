@@ -1083,6 +1083,70 @@ rather than the reveal's own. With reduced motion the observers never attach, so
 have stayed invisible. The fail-open path sets that class too now, and a reduced-motion rule shows
 them outright.
 
+**The operator's answer.** The composition is settled, and nothing else is open:
+
+> 1 - i have nothing to complain
+
+## The verdict of the atlas scene ([#628](https://github.com/alp82/curia/issues/628))
+
+**Locked over three operator rounds.** The four compositions that lost, and the bar that carried
+them, left the file with the round that settled it, the way the identity switcher left it at #624.
+
+**What the scene is, finally:**
+
+1. **Two screens, not one map.** Round 1 offered one map with its tickets under it. The operator
+   ruled that too little: the scene shows a **home dashboard** and **one map**, side by side.
+2. **Both screens redraw a DECIDED curia screen**, in the V6 dashboard tokens
+   ([#519](https://github.com/alp82/curia/issues/519)). Nothing in this scene is a shape this
+   ticket invented.
+   - The home is the synthesis home of [prototypes/home-directions/](../home-directions/) (#519),
+     cut back for a phone: the ring of what needs you, the agents that run, one progress bar per
+     map. The log tail and the token readouts are gone.
+   - The map is the stops line of [prototypes/frontier-visual/](../frontier-visual/)
+     ([#588](https://github.com/alp82/curia/issues/588)), decided there over six rounds: the
+     walked stop, the running row, the frontier rule, then the blocked in their **red-lined box**
+     and the fog on its **diagonal grey stripes**. The operator named those two treatments by
+     sight, and they are lifted value for value.
+3. **The claim stands between them, and both screens face it.** `rotateY` turns a screen's normal
+   toward the side it is rotated to, so the home takes a positive angle and the map a negative one.
+4. **The scene is one composition canvas.** The claim and both screens are grid items of `.at`,
+   placed for a phone and placed again past 60rem, where the grid is three columns.
+5. **A screen is bounded.** Each one is a card with its own header strip that clips what runs past
+   its bottom edge.
+6. **The counts are real** ([#601](https://github.com/alp82/curia/issues/601)). The home carries
+   this repo's three open maps at their true fractions: Build the Atlas operator experience at
+   8/42, Model credentials and provider-account failures at 16/19, and Ship the story landing page
+   at 10/16 +2. The map screen is #600, the map that is building this page, and the agent on the
+   home screen is the one that built this scene. The frontier is empty, because the one unblocked
+   ticket is the one being worked.
+
+**One deliberate deviation from the identity**, taken on the operator's round 2 instruction and
+recorded here rather than buried: the claim is **centred**. [#624](https://github.com/alp82/curia/issues/624)
+rule 2 docks a scene's claim to its own side, and this scene is `sL`. Two screens flanking a title
+need a middle to face, so the claim takes it.
+
+**The fault that cost a round, and why it is worth keeping.** Round 2 read fine on a phone and
+broke at desktop width. The claim sat in a centred `.wrap` while the evidence leaned right inside a
+`.shot`, so the title stood alone with a screen of dead space beside it. That is the SAME fault the
+preview scene hit at [#627](https://github.com/alp82/curia/issues/627) round 3, and the same repair
+fixed it. **A scene that boxes its claim and its evidence in two separate centred containers has no
+composition at all**, and the fault only shows at a width no agent here can see.
+
+**Eleven build checks** run against the file, since no agent on this ticket has eyes on it: the
+canvas holding all three items with no `.wrap` and no `.shot`, the claim centred and both tilts
+facing it and staying slight, the losing compositions and the bar gone, the screens bounded and
+headed, the home carrying the #519 ring and agents and one bar per open map, the map carrying the
+#588 stops line with the red-lined box and the striped strip, the counts matching the tracker
+snapshot, every class styled and every hook present, the page reading with no script and with
+reduced motion, the build rules, and balanced markup.
+
+**Two of the checks were wrong before they were right**, which is the lesson this file keeps
+relearning. A distinctness check compared whole CSS rules, so two compositions with different
+selectors always looked different even when their declarations were identical. And a break meant to
+prove the `.wrap` check landed in a different scene, so that check had never been shown a failure
+at all. **A green check that has never been shown a known failure proves nothing**, and neither
+does a break you did not confirm landed.
+
 ## The verdict of the preview scene ([#627](https://github.com/alp82/curia/issues/627))
 
 **Locked over five operator rounds.** Round 5 settled the last of it: "type is great, lets lock it

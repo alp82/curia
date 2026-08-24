@@ -1089,23 +1089,22 @@
      building this page, and the agent on the home screen is the one
      that built this scene.
 
-     ROUND 3 — the scene is ONE composition canvas. Round 2 kept the
-     claim in a centred .wrap while the panel leaned right inside a
-     .shot, and at desktop width that left the title alone on the left
-     with a screen of dead space beside it. That is the same fault the
-     preview scene hit at #627 round 3, and this is the same repair:
-     the claim and both screens are grid items of one canvas, placed
-     for a phone and placed again past 60rem.
+     The scene is ONE composition canvas. Round 2 kept the claim in a
+     centred .wrap while the panel leaned right inside a .shot, and at
+     desktop width that left the title alone on the left with a screen
+     of dead space beside it. That is the same fault the preview scene
+     hit at #627 round 3, and this is the same repair: the claim and
+     both screens are grid items of one canvas, placed for a phone and
+     placed again past 60rem.
 
-     The operator's direction: the title centred, and the two screens
-     left and right, slightly tilted, both facing it. That CENTRES the
-     claim of a scene the identity docks left (#624 rule 2), which is
-     a deviation this scene takes on their instruction.
+     The operator's direction at round 2: the title centred, and the
+     two screens left and right, slightly tilted, both facing it. That
+     CENTRES the claim of a scene the identity docks left (#624
+     rule 2), which is a deviation this scene takes on their
+     instruction.
 
-     ?id=1..5 picks the composition: 1 flank, 2 stagger, 3 converge,
-     4 rise, 5 desk. The screens are written once and a class on the
-     canvas lays them out, so with no script the page shows both
-     screens whole in composition 1 and the round bar never appears.
+     Nothing here needs the script. The page shows both screens whole
+     with no script at all, and the script only fades them in.
      ================================================================ */
   .at {
     position: relative; width: 100%; max-width: 96rem; margin: 0 auto;
@@ -1254,65 +1253,19 @@
   }
 
   /* ================================================================
-     The five compositions. All of them keep what the operator asked
-     for: the claim in the middle, and the two screens to its left and
-     right, tilted so each one FACES it. rotateY turns a screen's
-     normal toward the side it is rotated to, so the left screen takes
-     a positive angle and the right screen a negative one.
+     The composition, LOCKED at round 3: the claim in the middle, and
+     the two screens to its left and right, tilted so each one FACES
+     it. rotateY turns a screen's normal toward the side it is rotated
+     to, so the left screen takes a positive angle and the right screen
+     a negative one.
 
-     Each is written twice, once for a phone and once past 60rem, so
-     the five stay distinct on the screen the operator judges from as
-     well as on a desktop.
+     The operator picked this one, flank, out of five: "1 - i have
+     nothing to complain". The four that lost, and the bar that carried
+     them, left the file with this round, the way the identity switcher
+     left it at #624.
      ================================================================ */
-  .at .hm-scr { transform-origin: 100% 50%; }
-  .at .mp-scr { transform-origin: 0% 50%; }
-
-  /* 1 flank — the plain reading. Both screens the same size, the same
-     tilt, standing level with the claim between them. */
-  .at.v1 .hm-scr { transform: rotateY(9deg) rotate(-0.5deg); }
-  .at.v1 .mp-scr { transform: rotateY(-9deg) rotate(0.5deg); }
-
-  /* 2 stagger — the pair reads as depth, not symmetry: the map larger
-     and lower, the home smaller and higher. */
-  .at.v2 .hm-scr { transform: rotateY(13deg) scale(0.88) translateY(-1.4rem); }
-  .at.v2 .mp-scr { transform: rotateY(-11deg) scale(1.02) translateY(1.4rem); }
-
-  /* 3 converge — a hard perspective, the screens turned well in and
-     pulled behind the claim, which stands in the pocket they leave. */
-  .at.v3 { perspective: 900px; }
-  .at.v3 .hm-scr { transform: rotateY(18deg) translateX(1.2rem); }
-  .at.v3 .mp-scr { transform: rotateY(-18deg) translateX(-1.2rem); }
-  .at.v3 > .claim { z-index: 5; }
-
-  /* 4 rise — two tall walls. The screens run past the claim top and
-     bottom and are cut by the section edges, so the title reads in the
-     gap between them. */
-  .at.v4 .at-scr { max-height: none; }
-  .at.v4 .hm-scr { transform: rotateY(11deg) rotate(-1.2deg); }
-  .at.v4 .mp-scr { transform: rotateY(-11deg) rotate(1.2deg); }
-
-  /* 5 desk — both screens lie back on one baseline, the way two
-     monitors sit on a desk, and the claim stands between them. */
-  .at.v5 .hm-scr { transform: rotateX(9deg) rotateY(14deg); transform-origin: 100% 100%; }
-  .at.v5 .mp-scr { transform: rotateX(9deg) rotateY(-14deg); transform-origin: 0% 100%; }
-
-  /* ---- the phone forms: one column, the claim first (#624 rule 1),
-       then the two screens, each still leaning toward the middle ---- */
-  @media (max-width: 59.999rem) {
-    .at.v2 .hm-scr { transform: rotateY(11deg) scale(0.92) translateX(-0.6rem); }
-    .at.v2 .mp-scr { transform: rotateY(-11deg) scale(1) translateX(0.6rem); }
-    .at.v2 .mp-scr { margin-top: -0.6rem; }
-    .at.v3 { row-gap: 0.6rem; }
-    .at.v3 .hm-scr { transform: rotateY(15deg) translateX(0.9rem) scale(0.95); }
-    .at.v3 .mp-scr { transform: rotateY(-15deg) translateX(-0.9rem) scale(0.95); }
-    .at.v4 { padding: 0; row-gap: 0.9rem; }
-    .at.v4 > .claim { padding: 0 1.25rem; }
-    .at.v4 .at-scr { max-height: 22rem; border-radius: 0; border-left: 0; border-right: 0; }
-    .at.v4 .hm-scr { transform: rotateY(8deg); }
-    .at.v4 .mp-scr { transform: rotateY(-8deg); }
-    .at.v5 .hm-scr { transform: rotateX(12deg) rotateY(9deg); }
-    .at.v5 .mp-scr { transform: rotateX(12deg) rotateY(-9deg); }
-  }
+  .at .hm-scr { transform-origin: 100% 50%; transform: rotateY(9deg) rotate(-0.5deg); }
+  .at .mp-scr { transform-origin: 0% 50%; transform: rotateY(-9deg) rotate(0.5deg); }
 
   @media (min-width: 60rem) {
     .at {
@@ -1321,37 +1274,7 @@
       align-items: center; column-gap: clamp(1rem, 3.2vw, 3.2rem); row-gap: 0;
     }
     .at > .claim { padding: 0 0.5rem; }
-    .at.v2 { align-items: start; }
-    .at.v2 > .claim { align-self: center; }
-    .at.v3 { column-gap: clamp(0.5rem, 1.4vw, 1.4rem); }
-    .at.v3 .hm-scr { transform: rotateY(20deg) translateX(2.2rem); }
-    .at.v3 .mp-scr { transform: rotateY(-20deg) translateX(-2.2rem); }
-    .at.v4 {
-      align-items: stretch; column-gap: clamp(1rem, 3vw, 3rem);
-      grid-template-columns: minmax(0, 1fr) minmax(0, 0.9fr) minmax(0, 1fr);
-    }
-    .at.v4 > .claim { align-self: center; }
-    .at.v4 .at-scr { max-height: min(42rem, 84vh); }
-    .at.v5 { perspective: 1200px; align-items: end; }
-    .at.v5 > .claim { align-self: center; padding-bottom: 2.5rem; }
   }
-
-  /* ROUND CHROME (#628 round 3) — the variation bar. It leaves the
-     file when the operator settles the round, the way the identity
-     switcher left it at #624. */
-  .at-sw {
-    position: fixed; left: 50%; bottom: 0.9rem; transform: translateX(-50%); z-index: 60;
-    display: flex; align-items: center; gap: 0.25rem; padding: 0.3rem 0.45rem;
-    background: rgba(14, 16, 19, 0.92); border: 1px solid #2c313b; border-radius: 999px;
-    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.55);
-    font: 600 0.68rem var(--mono); color: #cdd5e0;
-  }
-  .at-sw .lbl { padding: 0 0.35rem; color: #8a93a3; letter-spacing: 0.05em; }
-  .at-sw button {
-    min-width: 2.1rem; min-height: 2.1rem; padding: 0 0.4rem; border: 0; border-radius: 999px;
-    background: transparent; color: #cdd5e0; font: inherit; cursor: pointer;
-  }
-  .at-sw button.on { background: #273043; color: #fff; }
 
   /* ================================================================
      Scene 7 — the harness, live. The embedded terminal in its own
@@ -1905,7 +1828,7 @@
        screens are written once and the page reads whole with no
        script. -->
   <section class="scene sL" id="atlas" data-stage="agent" data-n="05" data-name="the atlas" style="--g1:#0e1c26;--g2:#081018">
-    <div class="at v1" id="at">
+    <div class="at" id="at">
       <header class="claim rv">
         <p class="kick"><span class="kn">05</span><span class="kname">the atlas</span></p>
         <h2 class="bold">A dashboard that shows where every map stands and which agents are
@@ -2180,19 +2103,6 @@
 
 </main>
 
-<!-- ROUND CHROME (#628 round 2) — the variation bar for scene 6. It
-     leaves the file when the operator settles the round, the way the
-     identity switcher left it at #624. Hidden until the script runs,
-     so the page without a script simply shows composition 1. -->
-<nav class="at-sw" id="at-sw" aria-label="atlas round" hidden>
-  <span class="lbl">atlas</span>
-  <button type="button" data-atv="1">1</button>
-  <button type="button" data-atv="2">2</button>
-  <button type="button" data-atv="3">3</button>
-  <button type="button" data-atv="4">4</button>
-  <button type="button" data-atv="5">5</button>
-</nav>
-
 <script>
 (function () {
 'use strict';
@@ -2427,45 +2337,6 @@ if (prefersStill || !window.IntersectionObserver) {
     document.getElementById('pane-codex').hidden = pick !== 'codex';
   });
 });
-
-/* ================================================================
-   Scene 6 (#628) round 3 — the round bar.
-
-   The claim and both screens are grid items of one canvas, and a
-   composition is a CLASS on that canvas. So the screens are written
-   once, the page reads whole with no script, and switching a
-   composition rearranges what is already on the page.
-
-   ROUND CHROME: the bar leaves the file when the operator settles
-   the round, the way the identity switcher left it at #624. ?id=1..5
-   deep-links a composition, and a tap swaps it in place, so the
-   operator compares the five without leaving the scene.
-   ================================================================ */
-(function () {
-  var at = document.getElementById('at');
-  var bar = document.getElementById('at-sw');
-  if (!at || !bar) return;
-  var btns = [].slice.call(bar.querySelectorAll('[data-atv]'));
-  if (!btns.length) return;
-
-  function show(i) {
-    btns.forEach(function (b, k) {
-      at.classList.toggle('v' + (k + 1), k === i);
-      b.classList.toggle('on', k === i);
-    });
-    var p = new URLSearchParams(location.search);
-    p.set('id', String(i + 1));
-    history.replaceState(null, '', location.pathname + '?' + p.toString() + location.hash);
-  }
-
-  var want = parseInt(new URLSearchParams(location.search).get('id'), 10);
-  if (!(want >= 1 && want <= btns.length)) want = 1;
-  btns.forEach(function (b, k) {
-    b.addEventListener('click', function () { show(k); });
-  });
-  bar.hidden = false;
-  show(want - 1);
-})();
 
 /* ---- #624: each scene owns its color field, so a color change
    never repaints an earlier scene. --p says how active a scene is:
