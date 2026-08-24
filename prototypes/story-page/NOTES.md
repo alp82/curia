@@ -444,6 +444,57 @@ matched cards to their nearest neighbour, and a neighbouring card stood in for t
 jumped, so it reported smooth. Restoring the old bad line proved the fixed version catches it, at
 85 px.
 
+**The operator's answer.** The order beat becomes a pipeline, and the rhythm is named exactly:
+
+> at roughly this point, the curia node should be a bit further below, the maps should already
+> scroll in (faster than the content) and the sphereing ticket mess should resolve more above the
+> node so that we have a pipeline from (center/top) right to bottom
+>
+> the first ticket should then be processed with full visibility
+> then the second and third in very quick succession
+> and then the rest very quickly to clean up everything until nothing of the mess remains
+>
+> 5 variations, but always make them distinct, not only slightly different
+
+**Round 9.** The order beat is a pipeline read top to bottom: the mess resolves ABOVE curia, curia
+sits lower in the middle than it did, and the maps hold the foot of the box.
+
+**The maps arrive early and fast.** Their cue is the order claim approaching rather than the beat
+itself, so they are already rising while the claim is below the fold, and they cross the screen
+inside about two thirds of it. That is faster than the reader is scrolling.
+
+**Every piece of work now clears.** All fourteen make the journey, against six before, and the
+check asserts that nothing is left adrift at the end.
+
+**The rhythm**, measured on a 390 by 760 phone over a beat of 2171 px:
+
+| journey | scroll | share of the beat |
+|---------|--------|-------------------|
+| #1 | 1329 px | 0% to 61%, alone |
+| #2 | 372 px | 61% to 78% |
+| #3 | 319 px | 77% to 91% |
+| #4 to #14 | 230 px down to 9 px | the last 17%, three in the air at once |
+
+**The five pipelines** differ in the shape work takes on the way down, since the pipeline itself is
+settled. They are wholly different figures, not variants of one:
+
+| id | pipeline | the shape above curia |
+|----|----------|-----------------------|
+| 1 | column | one narrow stack, straight above curia |
+| 2 | funnel | a V, wide at the top and closing to a throat |
+| 3 | chute | one slant corner to corner, cutting across |
+| 4 | tiers | three shelves with clear sky between them |
+| 5 | vortex | a whirl standing over curia, winding inward |
+
+A check compares where every pipeline puts its work, pair by pair. The weakest pair now differs on
+45 per cent of cards, from 7 per cent when the shapes were first written: the early ones all lay
+along one another's edges. The arc is 7.1 screens for all five.
+
+**Two faults the checks caught.** `drawMapCard` took five arguments and was being called with six,
+so the alpha that fades an arriving map had been ignored since round 6 and the maps never faded at
+all. And a splice that inserted the pipelines deleted the curve helper the journey path depends on,
+which would have thrown on the first ticket to leave curia.
+
 ## The verdict
 
 **The identity is duotone, locked at [#624](https://github.com/alp82/curia/issues/624) over

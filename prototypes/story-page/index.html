@@ -1091,7 +1091,7 @@ function param(key, max) {
   return v >= 1 && v <= max ? v : 1;
 }
 var ARC_ID = param('id', 5);
-var NAMES = ['', 'gentle', 'easy', 'middle', 'steep', 'steepest'];
+var NAMES = ['', 'column', 'funnel', 'chute', 'tiers', 'vortex'];
 
 (function switcher() {
   var d = document.createElement('div');
@@ -1213,12 +1213,14 @@ function runArc() {
   var MAP_W = 252;
   function mapHeight(s) { return (64 + ROWS_SHOWN * ROW_STEP + 26) * s; }
 
-  function drawMapCard(cx, cy, w, m, cyc) {
-    if (w < 90) return 0;
+  function drawMapCard(cx, cy, w, m, cyc, a) {
+    if (a == null) a = 1;
+    if (w < 90 || a <= 0.02) return 0;
     var s = w / MAP_W;
     var h = mapHeight(s);
     var x = cx - w / 2, y = cy - h / 2;
     ctx.save();
+    ctx.globalAlpha = clamp(a, 0, 1);
     roundRect(x, y, w, h, 14 * s);
     ctx.fillStyle = 'rgba(10,13,18,0.93)';
     ctx.fill();
@@ -1263,7 +1265,7 @@ function runArc() {
         ctx.stroke();
         ctx.setLineDash([]);
       }
-      drawRow(x + 13 * s, rowY, w - 26 * s, slot.t, slot.st, s, slot.a);
+      drawRow(x + 13 * s, rowY, w - 26 * s, slot.t, slot.st, s, slot.a * a);
     }
     ctx.restore();
 
@@ -1771,11 +1773,12 @@ function runArc() {
         nodeY: cy, nodeR: clamp(Math.min(bh * 0.13, bw * 0.2), 44, 100),
         mapsY: b.y0 - mapsH * 1.5, mapsA: 0, orbit: 1
       },
-      /* The maps rise from the foot of the screen and STOP at the foot
-         of the box. They do not climb over curia again. */
+      /* A pipeline, top to bottom: the mess resolves ABOVE curia, curia
+         sits low in the middle, and the maps hold the foot of the box.
+         The maps do not climb over curia again. */
       order: {
-        cloudY: b.y0 + bh * 0.33, cloudRX: bw * 0.44, cloudRY: bh * 0.2,
-        nodeY: b.y0 + bh * 0.33, nodeR: clamp(Math.min(bh * 0.13, bw * 0.21), 46, 106),
+        cloudY: b.y0 + bh * 0.17, cloudRX: bw * 0.42, cloudRY: bh * 0.14,
+        nodeY: b.y0 + bh * 0.50, nodeR: clamp(Math.min(bh * 0.12, bw * 0.2), 42, 98),
         mapsY: b.y1 - mapsH / 2, mapsA: 1, orbit: 0
       },
       cx: cx, cy: cy, bw: bw, bh: bh
@@ -1942,7 +1945,7 @@ function runArc() {
      about a screen to cross, and that was the ceiling on the pace.
      ================================================================ */
 
-  var PACES = ['', 'gentle ramp', 'easy ramp', 'middle ramp', 'steep ramp', 'steepest'];
+  
 
   /* How many screens of scroll the whole order beat is given, and how
      many pieces of work make the journey. The rest stay in the orbit,
@@ -1953,14 +1956,9 @@ function runArc() {
      The span is how many screens of scroll the order beat is given, and
      the tail room under the claim is set from it. */
   var ORDER_SPAN = 4.2;
-  var TRAVEL_N = 6;
-
-  /* The first journey is deliberate and the rest come faster and
-     faster, which is the operator's shape: teach it once, then show
-     the throughput. Each journey's window is the last one times a
-     ratio, and the five variations are how steep that ramp is. */
-  var RATIOS = [0, 0.80, 0.70, 0.62, 0.52, 0.42];
-  var RATIO = RATIOS[ARC_ID];
+  /* EVERY piece of work makes the journey: the mess is cleared out, and
+     nothing of it is left standing at the end. */
+  var TRAVEL_N = MESS.length;
   document.documentElement.style.setProperty('--tail', ((ORDER_SPAN + 0.19) * 100).toFixed(0) + 'svh');
 
   /* Which map each piece of work belongs to, and what it turns out to
@@ -1977,22 +1975,89 @@ function runArc() {
     }
   })();
 
-  /* The window of the order beat each journey runs in. They never
-     overlap, so every one has the screen to itself, and each is the
-     one before it times RATIO: the first is long enough to follow and
-     the last is a flash. */
+  /* The rhythm the operator asked for. The first journey has the beat
+     to itself and can be followed the whole way. The second and third
+     come in quick succession. The rest overlap into one sweep that
+     clears what is left.
+
+     WIDTHS is how long each journey takes, and GAPS is how much of one
+     has to pass before the next starts, so the tail runs several at
+     once. */
   var WINDOWS = (function () {
-    var raw = [], sum = 0, i;
-    for (i = 0; i < TRAVEL_N; i++) { raw[i] = Math.pow(RATIO, i); sum += raw[i]; }
-    var out = [], acc = 0;
+    var d = [], gap = [], i;
     for (i = 0; i < TRAVEL_N; i++) {
-      var width = raw[i] / sum;
-      out.push({ a: acc, b: acc + width * 0.96 });
-      acc += width;
+      d[i] = i === 0 ? 1 : i === 1 ? 0.28 : 0.24 * Math.pow(0.72, i - 2);
+      gap[i] = i === 0 ? 1 : i === 1 ? 0.9 : 0.45;
+    }
+    var start = [], acc = 0;
+    for (i = 0; i < TRAVEL_N; i++) { start[i] = acc; acc += d[i] * gap[i]; }
+    var total = start[TRAVEL_N - 1] + d[TRAVEL_N - 1];
+    var out = [];
+    for (i = 0; i < TRAVEL_N; i++) {
+      out.push({ a: start[i] / total, b: (start[i] + d[i]) / total });
     }
     return out;
   })();
   function windowOf(i) { return WINDOWS[i]; }
+
+  /* ---- the five pipelines ----
+     The operator settled the pipeline: the mess resolves above curia,
+     curia sits low in the middle, and the maps hold the foot. What is
+     still open is the SHAPE work takes on its way down, so that is
+     what the five differ in, and they differ in it wholly.
+
+     Each returns where work i waits once the mess has resolved into
+     the feed. The sphere melts into this shape as the beat starts. */
+  var PIPES = ['', 'column', 'funnel', 'chute', 'tiers', 'vortex'];
+
+  function feedPos(i, n, clock, S) {
+    var cx = S.cx, k = i / Math.max(1, n - 1);
+    var top = S.feedTop, bot = S.feedBot, fw = S.feedW;
+    var mid = (top + bot) / 2, half = (bot - top) / 2;
+    var x, y, z = 0, tilt = 0, scale = 1;
+    if (ARC_ID === 2) {
+      /* funnel — a wide mouth at the top closing to a throat over
+         curia, so the whole pile is visibly narrowing into one point */
+      var wide = Math.pow(1 - k, 0.8);
+      var side = i % 2 ? 1 : -1;
+      x = cx + side * fw * wide + Math.sin(clock * 0.4 + i) * 4;
+      y = lerp(top, bot, k);
+      z = side * wide * 0.5;
+      tilt = -side * 0.26 * wide;
+      scale = lerp(1.08, 0.78, k);
+    } else if (ARC_ID === 3) {
+      /* chute — one slanted run corner to corner, cutting clean across
+         the space rather than closing on curia */
+      x = lerp(cx - fw, cx + fw, k) + Math.sin(clock * 0.5 + i) * 4;
+      y = lerp(top, bot, k);
+      tilt = -0.22;
+      scale = lerp(0.86, 1.08, k);
+    } else if (ARC_ID === 4) {
+      /* tiers — three shelves with clear sky between them, and work
+         steps down from one to the next */
+      var tier = i % 3, per = Math.ceil(n / 3), idx = Math.floor(i / 3);
+      x = cx + (per < 2 ? 0 : lerp(-fw, fw, idx / (per - 1)));
+      y = lerp(top, bot, tier / 2);
+      z = tier - 1;
+      scale = [0.88, 1, 1.1][tier];
+    } else if (ARC_ID === 5) {
+      /* vortex — a whirl standing over curia, winding inward */
+      var aV = k * TAU * 2.6 + clock * 0.5;
+      var rV = 0.58 + 0.42 * (1 - k);
+      x = cx + Math.cos(aV) * fw * rV;
+      y = mid + Math.sin(aV) * half * 0.86 * rV;
+      z = Math.sin(aV);
+      tilt = Math.cos(aV) * 0.3 * rV;
+      scale = lerp(1.12, 0.74, k);
+    } else {
+      /* column — one narrow stack, straight above curia */
+      x = cx + Math.sin(clock * 0.4 + i * 1.7) * 7;
+      y = lerp(top, bot, k);
+      tilt = Math.sin(i * 2.1) * 0.03;
+      scale = lerp(0.94, 1.06, k);
+    }
+    return { x: x, y: y, z: z, tilt: tilt, scale: scale };
+  }
 
   function qbez(x0, y0, cx, cy, x1, y1, t) {
     var it = 1 - t;
@@ -2077,9 +2142,13 @@ function runArc() {
        come back UP from the bottom, which is the way the reader is
        travelling. They are two different sets, so the swap happens
        while both are off the screen. */
-    var mapsIn = smooth(0.02, 0.30, fall);
+    /* The maps are already arriving when the claim does, and they cross
+       the screen faster than the reader is scrolling: their cue starts
+       while the claim is still below the fold and finishes inside half
+       a screen. */
+    var mapsIn = ro ? smooth(0, 1, clamp((H * 1.15 - ro.top) / (H * 0.62), 0, 1)) : 0;
     var mapsA, mi;
-    if (fall <= 0.001) {
+    if (mapsIn <= 0.001) {
       S.mapsY = lerp(K.hero.mapsY, K.mess.mapsY, rise);
       mapsA = clamp(lerp(K.hero.mapsA, K.mess.mapsA, rise), 0, 1);
     } else {
@@ -2106,6 +2175,10 @@ function runArc() {
       if (S.portsDown) floorY = Math.min(floorY, S.mapsY - mapsH / 2 - 8);
       else ceilY = Math.max(ceilY, S.mapsY + mapsH / 2 + 8);
     }
+    /* the room the feed has: from the top of the box down to curia */
+    S.feedTop = b.y0 + chh;
+    S.feedBot = Math.max(S.feedTop + 40, S.nodeY - S.nodeR - chh - 8);
+    S.feedW = Math.max(30, Math.min(S.cx - b.x0, b.x1 - S.cx) - chw);
     var roomX = Math.min(S.cx - b.x0, b.x1 - S.cx) - chw;
     var roomY = Math.min(S.cloudY - ceilY, floorY - S.cloudY) - chh;
     S.cloudRX = Math.max(20, Math.min(S.cloudRX, roomX));
@@ -2115,9 +2188,19 @@ function runArc() {
     var heat = [0, 0, 0];
     var back = [], front = [];
     var arrivals = [[], [], []];
+    /* the sphere melts into whichever feed this pipeline uses */
+    var pipe = smooth(0.02, 0.42, fall);
     var i;
     for (i = 0; i < n; i++) {
       var home = cloudPos(i, n, clock, S);
+      if (pipe > 0.002) {
+        var fd = feedPos(i, n, clock, S);
+        home = {
+          x: lerp(home.x, fd.x, pipe), y: lerp(home.y, fd.y, pipe),
+          z: lerp(home.z, fd.z, pipe), tilt: lerp(home.tilt, fd.tilt, pipe),
+          scale: lerp(home.scale, fd.scale, pipe)
+        };
+      }
       var travels = i < TRAVEL_N;
       var u = 0;
       if (travels) {
@@ -2172,7 +2255,7 @@ function runArc() {
       };
     }
 
-    var ordering = fall > 0.002;
+    var ordering = mapsIn > 0.002;
     var cycles = [], si;
     for (si = 0; si < nMaps; si++) {
       cycles[si] = ordering ? landedRows(si) : mapCycle(maps[si].m, clock);
@@ -2197,7 +2280,7 @@ function runArc() {
 
     /* the maps go on last, so a map rising from the bottom passes in
        front of the work it is coming to collect */
-    var settled = fall <= 0.001 || mapsIn > 0.98;
+    var settled = mapsIn <= 0.001 || mapsIn > 0.98;
     for (si = 0; si < nMaps; si++) {
       if (mapsA <= 0.02) break;
       var mc = maps[si];
