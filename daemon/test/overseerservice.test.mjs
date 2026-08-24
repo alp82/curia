@@ -3,9 +3,9 @@
 //
 // The compose stanza is PINNED here the way attach.test.mjs pins the ttyd
 // argv. Two of its lines are security-relevant and nothing else would notice
-// them changing: the env file it loads (#313's whole boundary), and the absence
-// of `network_mode: host` (which is what keeps a shell in this container off
-// host loopback and off the tailnet).
+// them changing: the absence of an env file, and the absence of `network_mode:
+// host`. Those omissions keep credentials and host-only services outside the
+// container boundary.
 
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
@@ -32,12 +32,10 @@ const DOCKERFILE = fs.readFileSync(path.join(REPO, 'deploy', 'overseer', 'Docker
 const DOCKER_INSTRUCTIONS = DOCKERFILE.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n')
 
 describe('the compose overseer service (#327 pins)', () => {
-  test('it loads the overseer env file, and NEVER the daemon one', () => {
-    assert.deepEqual(SERVICE.env_file, ['../daemon/.env.overseer'])
-    assert.ok(
-      !JSON.stringify(SERVICE).includes('.env.daemon'),
-      '.env.daemon carries the agents\' read-write tokens and the Discord bot token — a shell in this container exports whatever it is given (#313)',
-    )
+  test('it loads no env file', () => {
+    assert.equal(SERVICE.env_file, undefined)
+    assert.ok(!JSON.stringify(SERVICE).includes('.env.daemon'))
+    assert.ok(!JSON.stringify(SERVICE).includes('.env.overseer'))
   })
 
   test('it is NOT on the host network, unlike every other service', () => {

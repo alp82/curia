@@ -29,10 +29,9 @@
 // daemon writes needs neither: watching a repo of a brand new owner is an
 // ordinary save, and the next turn routes it.
 //
-// WHAT IS LEFT IN `.env.overseer` IS THE MODEL CREDENTIAL, which is the one host
-// secret ADR-0014 lets into that container. The file stays, and it stops being a
-// token file. The daemon still reads it without loading it, for the two warnings
-// below.
+// #726 retired `.env.overseer` after every credential moved behind a mounted
+// file. The daemon still reads a copy that remains on disk without loading it.
+// That read exists only to name credentials the operator must delete.
 
 import fs from 'node:fs'
 import path from 'node:path'
@@ -41,8 +40,7 @@ import { AGENT_TOKEN_KEY } from './workspace.mjs'
 
 // ---- the second env file ----------------------------------------------------
 //
-// Beside `daemon/.env.daemon`, and spelled the same way, because the two are one
-// operator habit: an env file the deploy copies to the box and never commits.
+// The legacy name stays as a deletion surface until deployed copies are gone.
 
 export const OVERSEER_ENV_FILE = '.env.overseer'
 
@@ -54,9 +52,8 @@ export function overseerEnvPath(daemonRoot) {
   return path.join(daemonRoot, OVERSEER_ENV_FILE)
 }
 
-// The file, parsed, or an empty environment when it is not there. Absent is
-// legal: a box that has not set up a model credential yet is a box whose
-// overseer cannot run a turn, and the container says so at its own start.
+// The file, parsed, or an empty environment when it is not there. Absent is the
+// expected state after #726.
 //
 // A file that exists and cannot be read is a different thing from one that is
 // missing, and it throws rather than reading as empty — an unreadable file would
@@ -76,12 +73,8 @@ export function loadOverseerEnv(file) {
   return parseEnv(raw)
 }
 
-// Keys that must never sit in this file, because the container gets every key in
-// it and that container holds a shell. The daemon's own secrets are the ones an
-// operator would copy in by hand while setting the file up, so they are the ones
-// worth naming back. What this catches is the real accident —
-// `cp daemon/.env.daemon daemon/.env.overseer` — which hands the read-only
-// container every read-write token on the box.
+// Keys that must never sit in this retired file. The daemon's own secrets are
+// the ones an operator might have copied into it, so they are worth naming back.
 //
 // The agent prefix stays on this list after #466 retired it. Nothing reads that
 // key any more, but a value under it is still a live read-write PAT, and a copy

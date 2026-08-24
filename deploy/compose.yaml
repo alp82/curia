@@ -276,25 +276,9 @@ services:
       # derives the same path from the config; a bash script cannot, so compose
       # states it. It is a path and not a secret.
       CURIA_OVERSEER_TOKEN_DIR: ${CURIA_WORKSPACE_ROOT:-/home/alp/curia-work}/overseer/tokens
-    # WHAT IS LEFT IN THE SECOND ENV FILE IS A FIRST-BOOT SEED (#313, #392, #648).
-    # `.env.daemon` carries the agents' read-WRITE tokens and the Discord bot
-    # token, compose hands a container its env file whole, and a shell in here
-    # exports whatever it is given. So this service loads `.env.overseer` and
-    # never that one. The GitHub tokens left this file with #392: the daemon
-    # mints them and writes the tokens tree below.
-    #
-    # COMPOSE READS THIS FILE AT CONTAINER CREATE, which is the whole reason the
-    # model credential stopped living in it (#648). It was the last value a turn
-    # could not re-read: replacing it meant recreating this service, and the
-    # overseer dying on a stale credential is a worse outage than an agent dying.
-    # The daemon owns it now and writes the credentials tree below; the key here
-    # is read exactly ONCE, into an empty store, and then it is a leftover the
-    # daemon's boot names and asks you to delete.
-    #
-    # The `env_file:` line stays whatever the file holds, because compose refuses
-    # a missing one.
-    env_file:
-      - ../daemon/.env.overseer
+    # NO ENV FILE ENTERS THIS CONTAINER (#726). The daemon writes GitHub tokens
+    # and the model credential into the read-only trees that follow. This keeps
+    # a legacy environment token from becoming an untracked fallback.
     volumes:
       # The same mount list the dashboard runs on, and the same reason it names
       # files rather than trees: `daemon/` as a whole would carry `.env.daemon`

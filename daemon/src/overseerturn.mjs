@@ -180,23 +180,25 @@ export async function credentialPass(repos, dir, {
 // NOT OVER THE LOOPBACK TURN BODY. A secret riding the request would put it in
 // one more place — the daemon's memory, the wire, and whatever logs either side.
 //
-// THE ENV IS THE FALLBACK AND ONLY WHEN THE STORE IS EMPTY, which is the same
-// seed rule the daemon applies on its own side: the store wins, always. What
-// this covers is the window on a box mid-deploy where the daemon has not written
-// the store yet — a chat that refuses to answer is no way to hear about it.
-export function modelCredentialEnv(root, { env = process.env } = {}) {
+// THE STORE IS THE ONLY SOURCE (#726). An absent store needs `reauth anthropic`.
+// A frozen environment token has unknown age and validity, so using it would
+// restore the second source that the provider store replaced.
+export function modelCredentialEnv(root) {
   const record = new AnthropicCredentialStore({ workspaceRoot: root }).read()
   if (record) return { env: { CLAUDE_CODE_OAUTH_TOKEN: record.token }, note: null }
-  if (env.CLAUDE_CODE_OAUTH_TOKEN) {
-    return {
-      env: { CLAUDE_CODE_OAUTH_TOKEN: env.CLAUDE_CODE_OAUTH_TOKEN },
-      note: `${SIGNALS.warn} curia owns no anthropic credential yet (${anthropicStoreFile(root)} is empty), so this turn runs on the seed from daemon/.env.overseer — a value this container cannot re-read`,
-    }
-  }
   return {
     env: {},
-    note: `${SIGNALS.warn} there is no anthropic credential for this turn: ${anthropicStoreFile(root)} holds none and no seed is in the environment`,
+    note: `${SIGNALS.warn} there is no anthropic credential for this turn: ${anthropicStoreFile(root)} holds none. Run reauth anthropic`,
   }
+}
+
+// Never let a caller's environment restore a retired credential path. The
+// adopted store value is added after this copy at the query boundary.
+export function overseerProcessEnv(env = process.env) {
+  const clean = { ...env }
+  delete clean.CLAUDE_CODE_OAUTH_TOKEN
+  delete clean.ANTHROPIC_API_KEY
+  return clean
 }
 
 // THE TURN, inside the container.
@@ -280,10 +282,10 @@ function runOneTurn({
           // Measured live on 2026-08-16: with this flag the init message
           // states the server `connected` and lists the verbs; without it the
           // server stays `pending` and the tool list is empty.
-          // The credential goes LAST, so it beats whatever `.env.overseer` left
-          // in `process.env` at container create. The store wins, always (#648).
+          // The inherited environment is scrubbed before the store credential
+          // goes last. No legacy model variable can become a fallback (#726).
           env: {
-            ...process.env,
+            ...overseerProcessEnv(),
             ENABLE_TOOL_SEARCH: '0',
             ...agentEnv(configDir, 'claude', { sandboxed: true }),
             ...credential.env,

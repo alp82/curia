@@ -20,7 +20,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import {
   TURN_PATH, TURN_EVENTS, OVERSEER_MCP_PATH, OVERSEER_CONTAINER_MODEL, CONTAINER_MAX_TURNS,
   turnRoute, refuseTurn, checkoutNote, credentialPass, overseerConfigDirFor, overseerHomeFor,
-  modelCredentialEnv,
+  modelCredentialEnv, overseerProcessEnv,
 } from '../src/overseerturn.mjs'
 import { AnthropicCredentialStore, anthropicStoreFile } from '../src/credentials.mjs'
 import { unroutedNote } from '../src/overseercreds.mjs'
@@ -349,35 +349,35 @@ describe('the container half: POST /turn (#314)', () => {
 
 // The git routing, re-read per turn (#361). The real `install` writes the
 // runner's own global git config, so every case below injects its own.
-// The model credential, re-read per turn (#648). It used to arrive from
-// `.env.overseer`, which compose hands a container at CREATE — so replacing it
-// meant recreating the service, and the overseer dying on a stale credential is
-// a worse outage than an agent dying, because the overseer is how the operator
-// finds out anything is wrong at all.
+// The model credential is re-read per turn (#648). #726 removes the environment
+// fallback, so the store is the only source.
 describe('the model credential is a file the daemon rewrites (#648)', () => {
   const OAT = 'sk-ant-oat01-aaaaaaaaaaaaaaaaaaaaaaaaaaaa'
   const OAT2 = 'sk-ant-oat01-bbbbbbbbbbbbbbbbbbbbbbbbbbbb'
 
-  test('the store beats whatever the env file froze into this container at create', () => {
+  test('the store supplies the credential', () => {
     const root = tmpRoot('turn-cred')
     new AnthropicCredentialStore({ workspaceRoot: root }).adopt(OAT)
-    const { env, note } = modelCredentialEnv(root, { env: { CLAUDE_CODE_OAUTH_TOKEN: 'the-frozen-seed' } })
+    const { env, note } = modelCredentialEnv(root)
     assert.equal(env.CLAUDE_CODE_OAUTH_TOKEN, OAT)
     assert.equal(note, null)
   })
 
-  test('an empty store falls back to the seed, and says which one this turn ran on', () => {
-    const root = tmpRoot('turn-cred-seed')
-    const { env, note } = modelCredentialEnv(root, { env: { CLAUDE_CODE_OAUTH_TOKEN: 'the-frozen-seed' } })
-    assert.equal(env.CLAUDE_CODE_OAUTH_TOKEN, 'the-frozen-seed')
-    assert.match(note, /cannot re-read/)
-  })
-
-  test('no credential at all is a note on the turn, never a turn that refuses to answer', () => {
+  test('an empty store requires re-authentication', () => {
     const root = tmpRoot('turn-cred-none')
-    const { env, note } = modelCredentialEnv(root, { env: {} })
+    const { env, note } = modelCredentialEnv(root)
     assert.deepEqual(env, {})
     assert.match(note, /no anthropic credential/)
+    assert.match(note, /reauth anthropic/)
+  })
+
+  test('legacy model variables are removed from the inherited environment', () => {
+    const env = overseerProcessEnv({
+      PATH: '/bin',
+      CLAUDE_CODE_OAUTH_TOKEN: 'the-frozen-seed',
+      ANTHROPIC_API_KEY: 'the-metered-key',
+    })
+    assert.deepEqual(env, { PATH: '/bin' })
   })
 
   test('A REWRITTEN FILE REACHES THE NEXT TURN WITH NOTHING RESTARTED', async () => {

@@ -53,6 +53,6 @@ Five costs come out of that shape.
 - **The reach half of that watch changed source.** It read a repo with the PAT that reached it, which could never see a PUBLIC repo left off the grant. An installation token has the same hole and a wider one: it reads every public repository on GitHub. So the watch asks the installation which repositories it covers, which answers for private and public alike.
 - **Attribution becomes honest.** A push the daemon performs for an agent reads as `curia-sh[bot]`.
 - **The gate becomes a real GitHub approval**, which is what makes branch protection usable at all.
-- **`.env.overseer` retired as a token file** with [#392](https://github.com/alp82/curia/issues/392). What is left in it is the model credential, which is the one host secret ADR-0014 lets into that container. The overseer reads one file per owner out of a read-only mount the daemon writes, so the container asks for nothing and holds nothing from its own boot.
+- **`.env.overseer` retired as a token file** with [#392](https://github.com/alp82/curia/issues/392). [#726](https://github.com/alp82/curia/issues/726) retired the file after moving the model credential to its provider store. The overseer reads both credential classes from separate read-only mounts.
 - **One-click setup from the dashboard** rides GitHub's app manifest flow. It stays fog on [#244](https://github.com/alp82/curia/issues/244) until the app is real.
 - **[ADR-0007](0007-shared-credential-store.md) is untouched.** That one shares the MODEL credential, and nothing here reads it.

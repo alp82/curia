@@ -93,8 +93,8 @@ const ROOT = path.join(DIR, '..')
 // minimal env loader (daemon/.env.daemon, never committed)
 //
 // The name gained its suffix with #313, which gave the overseer container an env
-// file of its own. Two files, one per container that holds secrets, and the pair
-// reads as a pair: `.env.daemon` and `.env.overseer`.
+// file of its own. #726 retired that second file. The daemon still reads an
+// existing copy separately so boot can name credentials that need deletion.
 //
 // The old name is still loaded, and it says so. A box that has not been renamed
 // yet keeps booting, and the line names the one move that silences it. In the
@@ -110,7 +110,7 @@ if (loadFrom) {
     if (m && !(m[1] in process.env)) process.env[m[1]] = m[2]
   }
 }
-if (loadFrom === legacyEnvFile) log('WARNING: daemon/.env is the old name — rename it to daemon/.env.daemon, beside daemon/.env.overseer (#313)')
+if (loadFrom === legacyEnvFile) log('WARNING: daemon/.env is the old name. Rename it to daemon/.env.daemon (#313)')
 
 const PORT = Number(process.env.PORT ?? 4271)
 // CURIA_DATA_DIR mirrors CURIA_CONFIG_DIR: the boot test points both at a
@@ -165,14 +165,12 @@ for (const key of retiredAgentTokenKeys()) {
 }
 
 // #313 gave the overseer its own read-only PAT per owner, in a second env file.
-// #392 retired that: the daemon mints the overseer's token from the app and
-// writes one file per owner into a tree the container mounts read-only, and the
-// refresh rides the dispatch tick. What is left in the env file is the model
-// credential. The daemon still reads that file, and never into `process.env`: a
-// bare token there would re-authenticate the daemon's own `gh`.
+// #392 retired those PATs, and #726 retired the model seed that remained. The
+// daemon reads an existing file only to name legacy keys for deletion. It never
+// loads the file into `process.env`.
 const overseerEnv = loadOverseerEnv(overseerEnvPath(ROOT))
 for (const key of daemonOnlyKeys(overseerEnv)) {
-  log(`WARNING: ${key} is in daemon/${OVERSEER_ENV_FILE} — that file is the overseer's read-only boundary, and its container gets every key in it`)
+  log(`WARNING: ${key} is in retired daemon/${OVERSEER_ENV_FILE}. Delete the key from the box`)
 }
 for (const key of retiredTokenKeys(overseerEnv)) {
   log(`WARNING: ${key} is in daemon/${OVERSEER_ENV_FILE} and nothing reads it — the overseer mints its own token now (#392). Delete the key and revoke the token on GitHub`)
@@ -373,36 +371,21 @@ reduction.journal(DAEMON_BOOT, { pid: process.pid })
 // process that actually runs the box is the one that hands it over.
 const anthropic = new AnthropicCredentialStore({
   workspaceRoot: curiaConfig.dispatch.workspace_root,
-  log,
   journal: (event, detail) => reduction.journal(event, detail),
 })
 
-// THE SEED IS READ EXACTLY ONCE, and only into an empty store.
-//
-// `.env.daemon` and `.env.overseer` stay as first-boot seeds — the `env_file:`
-// lines stay too, because compose refuses a missing one — and the STORE wins
-// from the second boot onward. A seed that keeps being read is not a seed, it is
-// a second source of truth, and two sources are how the claude row and the
-// overseer row would drift apart.
-//
-// `.env.daemon` first, because that one is already this process's environment.
-// Both name the same account, so which of the two answers is a tie-break and not
-// a decision.
-const seeded = anthropic.seedOnce(
-  process.env.CLAUDE_CODE_OAUTH_TOKEN ?? overseerEnv.CLAUDE_CODE_OAUTH_TOKEN,
-  { from: process.env.CLAUDE_CODE_OAUTH_TOKEN ? 'daemon/.env.daemon' : `daemon/${OVERSEER_ENV_FILE}` },
-)
-if (!seeded.seeded && !anthropic.read()) {
-  log(`WARNING: curia owns no anthropic credential and found no CLAUDE_CODE_OAUTH_TOKEN to seed one from — every claude dispatch and every overseer turn refuses until one exists at ${anthropicStoreFile(curiaConfig.dispatch.workspace_root)}`)
+// THE STORE IS THE ONLY SOURCE. A missing store is a re-authentication case.
+// An environment token cannot act as disaster recovery because its age,
+// validity, and revocation state are not tracked on any curia surface (#726).
+if (!anthropic.read()) {
+  log(`WARNING: curia owns no anthropic credential at ${anthropicStoreFile(curiaConfig.dispatch.workspace_root)}. Run reauth anthropic before starting a claude agent or an overseer turn`)
 }
 
-// EVERY BOOT AFTER THE SEED NAMES THE LEFTOVER KEY, the same two acts #392 asks
-// for on the overseer's retired PAT: delete the key, because a live subscription
-// token in an env file nothing reads is a credential with no owner and no
-// expiry anyone is watching.
+// EVERY BOOT NAMES A LEGACY KEY. A live subscription token in an env file is a
+// credential with no owner and no expiry anyone is watching.
 for (const [file, env] of [['daemon/.env.daemon', process.env], [`daemon/${OVERSEER_ENV_FILE}`, overseerEnv]]) {
-  if (env.CLAUDE_CODE_OAUTH_TOKEN && !seeded.seeded) {
-    log(`WARNING: CLAUDE_CODE_OAUTH_TOKEN is in ${file} and nothing reads it any more — curia owns the anthropic credential now (#648). Delete the key`)
+  if (env.CLAUDE_CODE_OAUTH_TOKEN) {
+    log(`WARNING: CLAUDE_CODE_OAUTH_TOKEN is in ${file} and nothing reads it. Delete the key (#726)`)
   }
   // `ANTHROPIC_API_KEY` is not a leftover, it is a REFUSED shape. The map
   // settled subscription-only, and #648 took the key out of both readers that
