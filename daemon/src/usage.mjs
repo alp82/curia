@@ -447,21 +447,29 @@ function fingerprint(secret) {
   return crypto.createHash('sha256').update(secret).digest('hex').slice(0, 16)
 }
 
-// Whatever this box authenticates with, in the CLI's own precedence order —
-// #100's trap is that an API key outranks the OAuth token, so a box carrying
-// both is already using the key and a reader must use it too. The stored
-// credential comes last: it is the one shape a headless box does not have.
+// The credential curia OWNS, and nothing else (#648).
 //
-// Read only, and never written back. That is ADR-0007's first rule, and it
-// binds every reader here, not just the usage probe.
-export function anthropicCredential(env, credFile) {
-  const key = env.ANTHROPIC_API_KEY
-  if (key) return { secret: key, headers: { 'x-api-key': key } }
-  const oauth = env.CLAUDE_CODE_OAUTH_TOKEN ?? readJson(credFile)?.claudeAiOauth?.accessToken
-  if (oauth) {
-    return { secret: oauth, headers: { authorization: `Bearer ${oauth}`, 'anthropic-beta': OAUTH_BETA } }
-  }
-  return null
+// THREE RUNGS CAME OUT OF THIS LADDER, and the removal is the whole point rather
+// than a tidy-up. `ANTHROPIC_API_KEY` was first, because #100 measured that the
+// CLI prefers it and a reader had to match — and the map settled
+// subscription-only, so a branch left in is an escape hatch left in. It had to
+// leave BOTH readers in one act: `sandbox.mjs` had the identical ladder, and
+// half a removal leaves the metered-billing path alive in the one reader nobody
+// would think to check. `CLAUDE_CODE_OAUTH_TOKEN` out of the environment was the
+// value compose froze at container create, which is the freeze this map exists
+// for. And `~/.claude/.credentials.json` is the operator's own store, which
+// curia reads from nowhere now.
+//
+// What is left is the daemon's own record. `null` where there is none, which is
+// the same answer the old ladder gave a box with nothing set — so a probe with
+// no credential still takes no cooperative lock (#162).
+//
+// Read only, and never written back. That is ADR-0007's first rule, and it binds
+// every reader here, not just the usage probe.
+export function anthropicCredential(record) {
+  const token = record?.token
+  if (!token) return null
+  return { secret: token, headers: { authorization: `Bearer ${token}`, 'anthropic-beta': OAUTH_BETA } }
 }
 
 // ---------------------------------------------------------------------------
@@ -491,14 +499,16 @@ export function windowFromModel(payload) {
 export class ModelWindows {
   constructor({
     home = os.homedir(), log = () => {}, now = () => Date.now(),
-    fetchImpl = globalThis.fetch, version = '2.1.211', env = process.env,
+    fetchImpl = globalThis.fetch, version = '2.1.211', credentials = null,
   } = {}) {
     this.log = log
     this.now = now
     this.fetchImpl = fetchImpl
     this.version = version
-    this.env = env
-    this.credFile = path.join(home, '.claude', '.credentials.json')
+    // The daemon's own anthropic store (#648), injected. Null is legal and
+    // means this reader has no credential — the same posture the Dispatcher
+    // takes toward a null broker.
+    this.credentials = credentials
     this.cacheFile = path.join(home, '.claude', 'cache', 'model-windows.json')
     this.entries = readJson(this.cacheFile) ?? {} // id -> { window: number|null, at: ms }
     this.inFlight = new Set()
@@ -519,7 +529,7 @@ export class ModelWindows {
 
   #fetch(id) {
     if (!this.fetchImpl || this.inFlight.has(id)) return
-    const cred = anthropicCredential(this.env, this.credFile)
+    const cred = anthropicCredential(this.credentials?.read())
     if (!cred) return
     const credId = fingerprint(cred.secret)
     if (this.refusedFor === credId) return
@@ -642,7 +652,7 @@ export class AccountUsage {
   constructor({
     home = os.homedir(), enabled = true, log = () => {},
     now = () => Date.now(), fetchImpl = globalThis.fetch, version = '2.1.211',
-    env = process.env, probeModel = PROBE_MODEL,
+    credentials = null, probeModel = PROBE_MODEL,
   } = {}) {
     this.home = home
     this.enabled = enabled
@@ -650,10 +660,12 @@ export class AccountUsage {
     this.now = now
     this.fetchImpl = fetchImpl
     this.version = version
-    this.env = env
+    // The daemon's own anthropic store (#648), injected. Null is legal and means
+    // this probe has no credential — so it takes no cooperative lock and makes
+    // no call, exactly as a box with nothing set behaved before.
+    this.credentials = credentials
     this.probeModel = probeModel
     this.cliFile = path.join(home, '.claude.json')
-    this.credFile = path.join(home, '.claude', '.credentials.json')
     this.cacheFile = path.join(home, '.claude', 'cache', 'oauth-usage.json')
     this.stampFile = path.join(home, '.claude', 'cache', 'oauth-usage.attempt')
     this.fetching = false
@@ -703,7 +715,7 @@ export class AccountUsage {
     // fetcher a window was spent when it was not (#162: measured on the
     // deployment box, which carries no credential file at all, so the daemon
     // touched the lock every ten minutes for nothing).
-    const cred = anthropicCredential(this.env, this.credFile)
+    const cred = anthropicCredential(this.credentials?.read())
     if (!cred) return
     const credId = fingerprint(cred.secret)
     // A refused credential stays refused until the credential itself changes.

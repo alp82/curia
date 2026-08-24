@@ -24,6 +24,7 @@ import { readOverseerToken } from '../src/overseertoken.mjs'
 import { removeCredentials, writePrompt as writeWorkspacePrompt } from '../src/workspace.mjs'
 import { CodexCredentialBroker } from '../src/credentials.mjs'
 import { OPENAI_CREDIT_GATE_PANE } from './fixtures/panes.mjs'
+import { workingAnthropicStore, TEST_ANTHROPIC_TOKEN } from './fixtures/credentials.mjs'
 
 const ROUTING = {
   defaults: { untyped: 'sonnet' },
@@ -122,6 +123,10 @@ function makeDispatcher(deps = {}, {
   // credential or refuses, so every test gets one that works. The two tests
   // about a box that cannot mint pass their own — null, and one that throws.
   minter = workingMinter(),
+  // #648: the anthropic store. Every claude spawn writes a credential file or
+  // refuses, so every test gets one that works — the same posture the minter
+  // takes one line above. The refusal has its own test, and passes null.
+  anthropic = workingAnthropicStore(),
   // #390: who a claim assigns. `loadCuriaConfig` refuses a boot without it, so
   // every test gets one; the null case is its own test, and it pins that
   // reconcile skips rather than sweeps.
@@ -303,6 +308,7 @@ function makeDispatcher(deps = {}, {
     daemonPort: 4271,
     minter,
     credentials,
+    anthropic,
     deps: { ...base, ...deps },
   })
   // #151: index.mjs hangs the identity proxy on the dispatcher the way it hangs
@@ -1921,24 +1927,36 @@ describe('every spawn path authenticates the agent the same way (#53, #156)', ()
   // frozen-copy failure (#34) came back on the *respawn* path in an earlier
   // shape of this code, so both paths are read. An agent authenticated one way
   // at spawn and another way after a fallback is still broken.
+  //
+  // #648 MOVED THE CREDENTIAL OFF THE ENV FILE, so the two paths are read on the
+  // credential FILE now — and the env file is read for the absence. That is the
+  // frozen-copy failure closed rather than re-accepted: a value in the env file
+  // is frozen for the agent's life by construction, and a file in the config dir
+  // is what the dispatch tick can rewrite under a running agent (#659).
   const envFileOf = (session) => {
     const file = path.join(tmp, 'work', 'cfg', session, ENV_FILE)
     return Object.fromEntries(fs.readFileSync(file, 'utf8').split('\n')
       .filter(Boolean).map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]))
   }
+  const credentialOf = (session) => JSON.parse(
+    fs.readFileSync(path.join(tmp, 'work', 'cfg', session, '.credentials.json'), 'utf8'),
+  ).claudeAiOauth
 
-  test('the initial spawn puts nothing in the pane and the credential in the container env file', async () => {
+  test('the initial spawn puts nothing in the pane, no credential in the env file, and the credential in a file', async () => {
     const envs = []
     const files = []
+    const creds = []
     const d = makeDispatcher({
-      newSession: async ({ env }) => { envs.push(env); files.push(envFileOf('curia-42')) },
+      newSession: async ({ env }) => { envs.push(env); files.push(envFileOf('curia-42')); creds.push(credentialOf('curia-42')) },
     })
 
     await d.start('42', { repo: 'o/r', by: 'test' })
 
     assert.equal(envs.length, 1)
     assert.deepEqual(envs[0], {}, 'the pane env would show every value in `ps`')
-    assert.equal(files[0].ANTHROPIC_API_KEY, 'sk-test')
+    assert.equal(files[0].ANTHROPIC_API_KEY, undefined, 'the API key rung left both readers with #648')
+    assert.equal(files[0].CLAUDE_CODE_OAUTH_TOKEN, undefined, 'the env file is where the credential used to freeze')
+    assert.equal(creds[0].accessToken, TEST_ANTHROPIC_TOKEN)
     // the config dir the AGENT sees is its mount point, not the host path
     assert.equal(files[0].CLAUDE_CONFIG_DIR, GUEST_CFG)
     assert.equal('CLAUDE_SECURESTORAGE_CONFIG_DIR' in files[0], false, 'the container denies the host HOME')
@@ -1959,16 +1977,18 @@ describe('every spawn path authenticates the agent the same way (#53, #156)', ()
       harnesses: ROUTING.harnesses,
     }
     const files = []
+    const creds = []
     const d = makeDispatcher({
-      newSession: async () => { files.push(envFileOf('curia-42')) },
+      newSession: async () => { files.push(envFileOf('curia-42')); creds.push(credentialOf('curia-42')) },
       capturePane: async () => 'Sonnet usage limit reached | 1800000000',
     }, { routing })
 
     await d.start('42', { repo: 'o/r', by: 'test' })
     await waitFor(() => files.length > 1)
 
-    assert.equal(files[1].ANTHROPIC_API_KEY, 'sk-test')
-    assert.deepEqual(files[1], files[0], 'a respawn must not be authenticated differently from a spawn')
+    assert.equal(creds[1].accessToken, TEST_ANTHROPIC_TOKEN)
+    assert.deepEqual(creds[1], creds[0], 'a respawn must not be authenticated differently from a spawn')
+    assert.deepEqual(files[1], files[0], 'and nothing else about its environment may differ either')
 
     // this pane says "usage limit" forever, so the watchdog would respawn on a
     // loop for the rest of the run if the record stayed

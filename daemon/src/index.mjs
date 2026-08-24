@@ -49,7 +49,7 @@ import { OVERSEER_MCP_PATH } from './overseerturn.mjs'
 import { hasSession } from './tmux.mjs'
 import { retiredAgentTokenKeys } from './workspace.mjs'
 import { APP_ID_KEY, APP_KEY_FILE_KEY, minterFrom } from './githubapp.mjs'
-import { CodexCredentialBroker } from './credentials.mjs'
+import { CodexCredentialBroker, AnthropicCredentialStore, anthropicStoreFile } from './credentials.mjs'
 import {
   OVERSEER_ENV_FILE, overseerEnvPath, loadOverseerEnv, daemonOnlyKeys, retiredTokenKeys,
 } from './overseertoken.mjs'
@@ -174,15 +174,6 @@ for (const key of daemonOnlyKeys(overseerEnv)) {
 for (const key of retiredTokenKeys(overseerEnv)) {
   log(`WARNING: ${key} is in daemon/${OVERSEER_ENV_FILE} and nothing reads it — the overseer mints its own token now (#392). Delete the key and revoke the token on GitHub`)
 }
-// #327: the model credential rides the same file. ADR-0014 lets exactly one
-// host secret into that container, and this is it — `.env.daemon` is the file
-// the overseer service must never load, so the value cannot come from there.
-// Stated rather than warned: the container says it louder at its own start, and
-// until #314 carries the turn nothing in there runs a model anyway.
-log(overseerEnv.CLAUDE_CODE_OAUTH_TOKEN || overseerEnv.ANTHROPIC_API_KEY
-  ? `overseer model credential present in daemon/${OVERSEER_ENV_FILE}`
-  : `overseer model credential absent from daemon/${OVERSEER_ENV_FILE} — the container can run no turn without one`)
-
 // And the watch list against GitHub itself, once per watched owner. What a
 // credential reaches lives on GitHub rather than in an env file, so nothing
 // local can tell that a newly watched repo was left off it. Detached from the
@@ -370,17 +361,71 @@ reduction.journal(DAEMON_BOOT, { pid: process.pid })
 // Per-agent status line (#108 item 8): one Discord message per agent
 // thread, edited in place through the journal's own lifecycle events. With
 // the bridge down, post returns null and the next transition retries.
+// ---- the anthropic credential store (#648, ADR-0027) ------------------------
+//
+// The second store, and the one THREE consumers share: the claude agent
+// containers and the overseer run on one value from one account, so the store is
+// keyed by provider and both rows point at it. It is constructed HERE for the
+// reason the codex broker is — it writes curia's real credential store, so the
+// process that actually runs the box is the one that hands it over.
+const anthropic = new AnthropicCredentialStore({
+  workspaceRoot: curiaConfig.dispatch.workspace_root,
+  log,
+  journal: (event, detail) => reduction.journal(event, detail),
+})
+
+// THE SEED IS READ EXACTLY ONCE, and only into an empty store.
+//
+// `.env.daemon` and `.env.overseer` stay as first-boot seeds — the `env_file:`
+// lines stay too, because compose refuses a missing one — and the STORE wins
+// from the second boot onward. A seed that keeps being read is not a seed, it is
+// a second source of truth, and two sources are how the claude row and the
+// overseer row would drift apart.
+//
+// `.env.daemon` first, because that one is already this process's environment.
+// Both name the same account, so which of the two answers is a tie-break and not
+// a decision.
+const seeded = anthropic.seedOnce(
+  process.env.CLAUDE_CODE_OAUTH_TOKEN ?? overseerEnv.CLAUDE_CODE_OAUTH_TOKEN,
+  { from: process.env.CLAUDE_CODE_OAUTH_TOKEN ? 'daemon/.env.daemon' : `daemon/${OVERSEER_ENV_FILE}` },
+)
+if (!seeded.seeded && !anthropic.read()) {
+  log(`WARNING: curia owns no anthropic credential and found no CLAUDE_CODE_OAUTH_TOKEN to seed one from — every claude dispatch and every overseer turn refuses until one exists at ${anthropicStoreFile(curiaConfig.dispatch.workspace_root)}`)
+}
+
+// EVERY BOOT AFTER THE SEED NAMES THE LEFTOVER KEY, the same two acts #392 asks
+// for on the overseer's retired PAT: delete the key, because a live subscription
+// token in an env file nothing reads is a credential with no owner and no
+// expiry anyone is watching.
+for (const [file, env] of [['daemon/.env.daemon', process.env], [`daemon/${OVERSEER_ENV_FILE}`, overseerEnv]]) {
+  if (env.CLAUDE_CODE_OAUTH_TOKEN && !seeded.seeded) {
+    log(`WARNING: CLAUDE_CODE_OAUTH_TOKEN is in ${file} and nothing reads it any more — curia owns the anthropic credential now (#648). Delete the key`)
+  }
+  // `ANTHROPIC_API_KEY` is not a leftover, it is a REFUSED shape. The map
+  // settled subscription-only, and #648 took the key out of both readers that
+  // preferred it — `sandbox.mjs`'s and `usage.mjs`'s — so a box carrying one is
+  // a box paying metered rates for nothing.
+  if (env.ANTHROPIC_API_KEY) {
+    log(`WARNING: ANTHROPIC_API_KEY is in ${file} and curia reads it nowhere — the map settled subscription-only and #648 removed the branch from both readers. Delete the key`)
+  }
+}
+
 // One account reading for every anthropic agent (#146): the 5 h / 7 d windows
 // are an account fact, not an agent fact.
 const accountUsage = new AccountUsage({
   enabled: curiaConfig.usage.account_bars,
   probeModel: curiaConfig.usage.probe_model,
+  // The credential curia OWNS, not the environment and not `~/.claude` (#648).
+  // The probe is also the anthropic lane's liveness signal: a `setup-token`
+  // credential has no refresh that can fail, so a 401 here is the honest
+  // evidence that it died.
+  credentials: anthropic,
   log,
 })
 // The context %'s denominator, looked up live per model id (#178). Not gated by
 // `account_bars`: that switch exists because the account probe spends quota,
 // and this lookup spends none.
-const modelWindows = new ModelWindows({ log })
+const modelWindows = new ModelWindows({ credentials: anthropic, log })
 
 // Same harness resolution the timeline uses: the dispatcher's word on what it
 // spawned, on-disk evidence for re-adopted and lab sessions.
@@ -1122,6 +1167,8 @@ const dispatcher = new Dispatcher({
     log,
     journal: (event, detail) => reduction.journal(event, detail),
   }),
+  // The anthropic store (#648), constructed above beside the seed that fills it.
+  anthropic,
   deps: {
     // #188: the container-facing listener is this file's, so the check that a
     // sandboxed dispatch can rely on it is this file's too. It binds lazily,

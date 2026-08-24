@@ -1,7 +1,7 @@
 # ADR-0027: The daemon owns model credentials
 
-**Status**: accepted (2026-08). Built for the codex consumer; the other two cut over on their own ticket.
-**Provenance**: [Model credentials and provider-account failures (#641)](https://github.com/alp82/curia/issues/641), built by [Slice A1 (#642)](https://github.com/alp82/curia/issues/642) and measured by [#644](https://github.com/alp82/curia/issues/644). Amends [ADR-0007](0007-shared-credential-store.md) rule 1 and [ADR-0014](0014-the-overseer-in-its-own-container.md).
+**Status**: accepted (2026-08). All three consumers are under it.
+**Provenance**: [Model credentials and provider-account failures (#641)](https://github.com/alp82/curia/issues/641), built by [Slice A1 (#642)](https://github.com/alp82/curia/issues/642) and [Slice C1 (#648)](https://github.com/alp82/curia/issues/648), measured by [#644](https://github.com/alp82/curia/issues/644) and [#659](https://github.com/alp82/curia/issues/659). Amends [ADR-0007](0007-shared-credential-store.md) rule 1 and [ADR-0014](0014-the-overseer-in-its-own-container.md).
 
 ## Context
 
@@ -19,7 +19,36 @@ ADR-0007 rule 1 is what left the bound in place. It says the daemon never writes
 
 ### Three consumers, not two
 
-There are three model-credential consumers: codex agent containers, claude agent containers, and the overseer. The word is consumer, not harness, because the overseer is one and is not the other. A decision that covers two of the three makes this ADR's own claim false on the day it lands, so all three are named here and [#648](https://github.com/alp82/curia/issues/648) brings the second and third under it.
+There are three model-credential consumers: codex agent containers, claude agent containers, and the overseer. The word is consumer, not harness, because the overseer is one and is not the other. A decision that covers two of the three makes this ADR's own claim false on the day it lands, so all three are named here, and [#648](https://github.com/alp82/curia/issues/648) brought the second and third under it.
+
+### The store is keyed by provider, and the contract is two tables
+
+The claude agent containers and the overseer run on one value from one account, so there are **two stores and three rows**. A store per consumer would be two copies of one token, two expiry answers free to disagree, and a re-authentication that healed one row and left the other stale. Codex's store stays at `~/.codex/auth.json` because that one is the CLI's own store and the CLI must read it; the anthropic store is a new daemon-owned file at `<workspace_root>/credentials/anthropic.json`, holding `{ token, obtained_at }`.
+
+It is deliberately **not** `~/.claude/.credentials.json`. Writing curia's record into the CLI's own path would leave a host `claude` session reading a file it did not write in a shape it did not expect, which [ADR-0007](0007-shared-credential-store.md) already paid for once.
+
+The contract this ADR left open is **two tables**, and neither is keyed by harness:
+
+- **Provider**: `credentialExpiry`, `refresh`, `reauth`.
+- **Consumer**: `provider`, `deliver`, `heal`.
+
+What varies by provider — how a credential expires, whether it rotates, how you sign back in — and what varies by consumer — how it reaches them, what happens to a live one — are different axes. One table keyed on either writes the anthropic answer twice, which is how the claude row and the overseer row drift apart. `config.mjs` refuses a boot where a configured harness names a provider with no contract row, or a consumer declares no delivery.
+
+### The anthropic lane declares `refresh: null`
+
+A `claude /login` credential does have a refresh lineage: measured on the workstation on August 23, 2026, an `accessToken`, a `refreshToken`, an `expiresAt` 8.0 hours out and a `refreshTokenExpiresAt` 17.7 days out. So "no refresh path" is true of `setup-token`, not of the provider.
+
+The `/login` shape is **refused anyway**. It hands every agent container a credential with the operator's full account scope, where a `setup-token` credential can only make model requests — visible in the authorize URL, which requests `scope=user:inference` alone. It also brings an undocumented file format, a rotating refresh token (this ADR's own trap, on a second lane), and a 17.7-day ceiling if the daemon is ever down that long.
+
+So `refresh` is explicitly `null` on this lane, and **`null` is a statement rather than a gap**. Two consequences follow. The expiry column comes from a daemon-stamped `obtained_at` plus the documented one-year lifetime, labelled as an estimate from the docs rather than a date the token states — and a credential seeded from an env file carries no stamp, so its row reads `unknown`, which is the nudge to sign in once and get a real one. And what detects a dead credential here is the account-usage probe's 401, because that call already runs on this credential on this schedule and nothing new has to poll.
+
+### Delivery is per consumer, and neither shape is an environment variable
+
+An agent's claude credential is a **file in its own config dir**, `<cfgDir>/.credentials.json`, written at spawn and rewritten by the dispatch tick. Measured on the box in [#659](https://github.com/alp82/curia/issues/659): the CLI reads it in the sandboxed shape, a good file rescues a dead environment variable, and a dead file does not poison a good one. Three fields are load-bearing — `accessToken`, an `expiresAt` in the future, and a non-empty `scopes` — and a file missing any of them reads as no credential at all.
+
+The overseer's is the **store itself, behind a read-only mount**, re-read per turn beside the checkout pass and the credential pass it already runs per turn. That is [#392](https://github.com/alp82/curia/issues/392)'s shape, in the same container, for the same reason. Not over the loopback turn body: a secret riding the request puts it in one more place. A turn in flight when the credential changes fails; the next one is correct.
+
+The environment carries no model credential to any consumer now. That was the freeze itself — compose reads an env file at container **create**, so a refreshed credential could never reach a running process.
 
 ### The refresh clock is the token's own
 
@@ -90,7 +119,8 @@ So the stall sweep skips every agent whose provider is held, and journals it onc
 
 - ADR-0007 rule 1 is **amended, not withdrawn**. The daemon writes the credential store for the consumers it owns, and the rule's original reason survives as the `0400` bit: exactly one writer, and it is the daemon. The account-usage probe keeps reading under rules 2 and 3 unchanged.
 - ADR-0007's narrowing for sandboxed agents said "nothing here writes a credential, and the container has no path back to the host store". The second half still holds and is now the point. The first half is superseded for the codex consumer.
-- ADR-0014 gains a boundary it did not have. The overseer's model credential arrives through `.env.overseer` at container create, which means replacing it requires recreating the container. #648 moves it to a file the daemon writes.
+- ADR-0014 gains a boundary it did not have. The overseer's model credential used to arrive through `.env.overseer` at container create, so replacing it meant recreating the container. #648 moved it to a file the daemon writes and that container mounts read-only. `.env.overseer` and `.env.daemon` stay as **first-boot seeds**, read exactly once into an empty store; every boot after that names the leftover key and asks for its deletion, the same two acts #392 asks for on the retired PAT.
 - What happens when a refresh **fails** was deliberately left open here until the evidence existed. It is now decided above, by [#646](https://github.com/alp82/curia/issues/646), on the measurements in [#643](https://github.com/alp82/curia/issues/643) and [#644](https://github.com/alp82/curia/issues/644).
-- Freeze-versus-kill differs per consumer, and that is measurement rather than choice. A running codex process picks up a replaced `auth.json` with no restart, keeping its pane, claim, worktree, and conversation; it needs a nudge, because a turn that died leaves the agent idle at the composer. The claude lane cannot be healed this way at all, because `modelCredential` hands the container its credential as an environment variable and a running process's environment cannot be changed from outside. #646 **states** that asymmetry, in the claude and overseer rows of the credentials status, and builds no kill path for it: with no refresh that can fail there is no caller for one, so it ships with #648, in the slice that makes it callable.
-- A new harness added with no credential story is how this bug returns. The per-consumer contract that refuses one is #648's, because the overseer is a consumer and not a harness, and the table it belongs in may no longer be keyed by harness alone.
+- Freeze-in-place works on **both** agent lanes, and that is measurement rather than choice. A running codex process picks up a replaced `auth.json` with no restart, keeping its pane, claim, worktree, and conversation. #646 recorded the claude lane as unreachable, which was an inference from `modelCredential` handing over an environment variable — and [#659](https://github.com/alp82/curia/issues/659) overturned it by measuring the other channel: writing a good `.credentials.json` into a running agent's already-mounted config dir heals it with no restart, **including an agent spawned before #648, with its expired variable still in its environment**. So no kill path was built, the fix reaches the agents that predate it, and both lanes need the same nudge afterwards, because a turn that died leaves the agent idle at the composer.
+- A new harness added with no credential story is how this bug returns, and the two tables above are what refuse one at boot. `HARNESS` gained a `provider` row for the same reason it carries `memoryFile`: a new lane has to answer it.
+- The re-authentication **flow** for the anthropic lane is not here. `claude setup-token` puts its whole TUI on stdout and writes no credential file, so this ADR's completion rule — the credential file appearing — has nothing to detect on that lane, and picking a capture is [#660](https://github.com/alp82/curia/issues/660)'s decision. Until it lands, `reauth` answers `openai` alone and says so.

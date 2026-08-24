@@ -22,6 +22,10 @@ import {
   CodexCredentialBroker, ReauthFlow,
   authSessionName, isAuthSession, scrapeDeviceAuth, reauthRunCmd,
   classifyRefreshFailure, TERMINAL_REFRESH_CODES, TRANSIENT_RETRY_BOUND, CODEX_PROVIDER,
+  ANTHROPIC_PROVIDER, ANTHROPIC_DOCUMENTED_LIFETIME_MS, ANTHROPIC_EXPIRING_WINDOW_MS, ANTHROPIC_TOKEN_RE,
+  anthropicStoreFile, claudeCredentialsJson, writeClaudeCredentials, deliveryExpiry,
+  AnthropicCredentialStore, PROVIDER_CREDENTIALS, CONSUMER_CREDENTIALS, CONSUMER_NAMES,
+  consumerContractFault, providerContractFault, SETUP_TOKEN_SCOPES, CLAUDE_CREDENTIAL_FILE,
 } from '../src/credentials.mjs'
 
 const DAY = 24 * 60 * 60 * 1000
@@ -848,5 +852,244 @@ describe('the retry bound and the hold (#646)', () => {
     assert.equal(state.state, 'expiring', 'the token itself is still alive')
     assert.equal(state.held.by, 'provider')
     assert.match(state.held.why, /refresh_token_expired/)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// the anthropic store and the two contract tables (#648)
+// ---------------------------------------------------------------------------
+//
+// Hermetic like everything above it: no test reaches Anthropic and none reads
+// the box's own credential. What CANNOT be tested here is whether the claude CLI
+// accepts the file this module writes — that is a measurement, and it lives in
+// docs/live-checks/648-claude-credential-shape.md.
+
+// A `setup-token` value, shaped like the real thing and reaching nothing.
+const OAT = 'sk-ant-oat01-aaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+const OAT2 = 'sk-ant-oat01-bbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+
+const storeOn = (over = {}) => new AnthropicCredentialStore({
+  workspaceRoot: dir, now: () => Date.parse('2026-08-24T12:00:00Z'), ...over,
+})
+
+describe('the anthropic store (#648)', () => {
+  test('the store is keyed by PROVIDER, and it is not the CLI own path', () => {
+    assert.equal(anthropicStoreFile('/w'), '/w/credentials/anthropic.json')
+    // Writing curia's record into `~/.claude/.credentials.json` would leave a
+    // host session reading a file it did not write in a shape it did not expect.
+    assert.ok(!anthropicStoreFile('/w').includes('.claude'))
+  })
+
+  test('adoption stamps `obtained_at`, and that is the only place it is stamped', () => {
+    const s = storeOn()
+    const record = s.adopt(OAT)
+    assert.equal(record.obtained_at, '2026-08-24T12:00:00.000Z')
+    assert.equal(record.seeded_at, null)
+    assert.equal(s.read().token, OAT)
+  })
+
+  test('a seed carries NO adoption instant, and its row reads unknown', () => {
+    const s = storeOn()
+    assert.equal(s.seedOnce(OAT, { from: 'daemon/.env.daemon' }).seeded, true)
+    const record = s.read()
+    assert.equal(record.obtained_at, null, 'curia did not watch that login, so it invents no age for it')
+    assert.equal(record.seeded_at, '2026-08-24T12:00:00.000Z')
+    const row = s.state('claude')
+    assert.equal(row.state, 'unknown')
+    assert.equal(row.expires_at, null)
+    assert.match(row.why, /sign in once/)
+  })
+
+  test('the seed is read EXACTLY ONCE — the store wins from then on', () => {
+    const s = storeOn()
+    assert.equal(s.seedOnce(OAT).seeded, true)
+    const second = s.seedOnce(OAT2)
+    assert.equal(second.seeded, false)
+    assert.match(second.why, /the store wins/)
+    assert.equal(s.read().token, OAT, 'a seed that keeps being read is a second source of truth')
+  })
+
+  test('a value that is not a subscription token is refused rather than stored', () => {
+    const s = storeOn()
+    assert.throws(() => s.adopt('sk-proj-an-api-key'), /sk-ant/)
+    assert.equal(s.seedOnce('').seeded, false)
+    assert.equal(s.read(), null)
+  })
+
+  test('the store is written through a rename, at 0600, and never left half-written', () => {
+    const s = storeOn()
+    s.adopt(OAT)
+    const file = anthropicStoreFile(dir)
+    assert.equal(modeOf(file), HOST_CREDENTIAL_MODE)
+    // A rename leaves no temp file behind for a sweep to find a live token in.
+    assert.deepEqual(fs.readdirSync(path.dirname(file)), ['anthropic.json'])
+  })
+
+  test('an adopted credential states an expiry from the DOCS, and says so', () => {
+    const at = Date.parse('2026-08-24T12:00:00Z')
+    const s = storeOn()
+    s.adopt(OAT)
+    const row = s.state('claude')
+    assert.equal(row.state, 'valid')
+    assert.equal(Date.parse(row.expires_at), at + ANTHROPIC_DOCUMENTED_LIFETIME_MS)
+    assert.match(row.why, /documented one-year lifetime/)
+    assert.match(row.why, /not a date the token states/)
+  })
+
+  test('`expiring` is a month out, not a quarter of a year — nothing refreshes on this lane', () => {
+    const adopted = Date.parse('2026-08-24T12:00:00Z')
+    const at = (ms) => storeOn({ now: () => ms }).state('claude').state
+    storeOn().adopt(OAT)
+    const ends = adopted + ANTHROPIC_DOCUMENTED_LIFETIME_MS
+    assert.equal(at(ends - ANTHROPIC_EXPIRING_WINDOW_MS - 1000), 'valid')
+    assert.equal(at(ends - ANTHROPIC_EXPIRING_WINDOW_MS + 1000), 'expiring')
+    assert.equal(at(ends + 1000), 'expired')
+  })
+
+  test('both rows name the same store, because both consumers run on one account', () => {
+    const s = storeOn()
+    s.adopt(OAT)
+    const claude = s.state('claude')
+    const overseer = s.state('overseer')
+    assert.equal(claude.store, overseer.store)
+    assert.equal(claude.provider, ANTHROPIC_PROVIDER)
+    assert.equal(overseer.provider, ANTHROPIC_PROVIDER)
+    assert.equal(claude.expires_at, overseer.expires_at, 'two stores would be two answers free to disagree')
+  })
+})
+
+describe('the file the claude CLI reads (#648, measured by the live check)', () => {
+  const record = { token: OAT, obtained_at: '2026-08-24T12:00:00.000Z', seeded_at: null }
+
+  test('all three measured fields are written, and nothing else is', () => {
+    // Measured on the box: accessToken alone is refused, accessToken plus a
+    // future expiresAt is refused, and accessToken + expiresAt + a non-empty
+    // scopes array authenticates. `subscriptionType` is not one of the three.
+    const written = JSON.parse(claudeCredentialsJson(record)).claudeAiOauth
+    assert.deepEqual(Object.keys(written).sort(), ['accessToken', 'expiresAt', 'scopes'])
+    assert.equal(written.accessToken, OAT)
+    assert.deepEqual(written.scopes, [...SETUP_TOKEN_SCOPES])
+  })
+
+  test('the expiresAt is in the future, because the CLI refuses a date already past', () => {
+    const written = JSON.parse(claudeCredentialsJson(record)).claudeAiOauth
+    assert.equal(written.expiresAt, Date.parse(record.obtained_at) + ANTHROPIC_DOCUMENTED_LIFETIME_MS)
+    assert.ok(written.expiresAt > Date.now())
+  })
+
+  test('a SEEDED credential still gets a future date — from the seed instant, not an invented age', () => {
+    // The ROW reads `unknown` for a seed, because curia knows no age for it. The
+    // FILE has no such freedom: a missing or past `expiresAt` reads as no
+    // credential at all, and on this lane that is a fleet that cannot spawn.
+    const seed = { token: OAT, obtained_at: null, seeded_at: '2026-08-24T12:00:00.000Z' }
+    assert.equal(deliveryExpiry(seed), Date.parse(seed.seeded_at) + ANTHROPIC_DOCUMENTED_LIFETIME_MS)
+    assert.equal(PROVIDER_CREDENTIALS.anthropic.credentialExpiry(seed), null, 'and the row still states nothing')
+  })
+
+  test('a record with neither instant is refused rather than written with no date', () => {
+    assert.throws(() => claudeCredentialsJson({ token: OAT }), /expiresAt/)
+    assert.throws(() => claudeCredentialsJson({ token: 'sk-proj-key' }), /sk-ant/)
+  })
+
+  test('the agent copy is written through a rename, at 0600 and not 0400', () => {
+    // The codex copy is 0400 because the AGENT must not rotate it. A
+    // `setup-token` credential has nothing to rotate, and the live check
+    // measured the file untouched across four authenticated runs.
+    const cfgDir = path.join(dir, 'cfg', 'curia-1')
+    fs.mkdirSync(cfgDir, { recursive: true })
+    const file = writeClaudeCredentials(cfgDir, record)
+    assert.equal(file, path.join(cfgDir, CLAUDE_CREDENTIAL_FILE))
+    assert.equal(modeOf(file), HOST_CREDENTIAL_MODE)
+  })
+})
+
+describe('the fan-out to live claude agents (#648)', () => {
+  const seedClaude = (session) => {
+    const cfgDir = path.join(dir, 'cfg', session)
+    fs.mkdirSync(cfgDir, { recursive: true })
+    return { session, cfgDir, harness: 'claude' }
+  }
+
+  test('it CREATES the file where there is none — the agents that predate the slice', () => {
+    // The codex fan-out skips a config dir with no `auth.json`, because that
+    // file is its evidence. Here the absence is the ordinary case: every agent
+    // spawned before this slice got its credential in an environment variable,
+    // and #659 measured that writing a file into such an agent heals it.
+    const s = storeOn()
+    s.adopt(OAT)
+    const a = seedClaude('curia-1')
+    const { healed, errors } = s.fanOut([a])
+    assert.deepEqual(healed, ['curia-1'])
+    assert.deepEqual(errors, [])
+    assert.equal(JSON.parse(fs.readFileSync(path.join(a.cfgDir, CLAUDE_CREDENTIAL_FILE), 'utf8')).claudeAiOauth.accessToken, OAT)
+  })
+
+  test('a codex agent never grows a claude credential it cannot use', () => {
+    const s = storeOn()
+    s.adopt(OAT)
+    const codex = { ...seedClaude('curia-2'), harness: 'codex' }
+    assert.deepEqual(s.fanOut([codex]).healed, [])
+    assert.equal(fs.existsSync(path.join(codex.cfgDir, CLAUDE_CREDENTIAL_FILE)), false)
+  })
+
+  test('a byte-identical file is not rewritten, so a steady box does no disk writes', () => {
+    const s = storeOn()
+    s.adopt(OAT)
+    const a = seedClaude('curia-3')
+    assert.deepEqual(s.fanOut([a]).healed, ['curia-3'])
+    assert.deepEqual(s.fanOut([a]).healed, [], 'the returned list means "these agents just changed"')
+  })
+
+  test('an empty store heals nobody rather than writing an empty credential', () => {
+    assert.deepEqual(storeOn().fanOut([seedClaude('curia-4')]), { healed: [], errors: [] })
+  })
+})
+
+describe('the two contract tables (#648)', () => {
+  test('every consumer names a provider that exists and a delivery curia can perform', () => {
+    for (const consumer of CONSUMER_NAMES) {
+      assert.equal(consumerContractFault(consumer), null, consumer)
+    }
+    assert.deepEqual(CONSUMER_NAMES, ['codex', 'claude', 'overseer'], 'three consumers, and the overseer is not a harness')
+  })
+
+  test('the anthropic lane declares `refresh: null`, which is a statement and not a gap', () => {
+    assert.equal(PROVIDER_CREDENTIALS.anthropic.refresh, null)
+    assert.equal(typeof PROVIDER_CREDENTIALS.openai.refresh, 'function')
+  })
+
+  test('the claude row and the overseer row point at ONE provider, and differ in delivery', () => {
+    assert.equal(CONSUMER_CREDENTIALS.claude.provider, ANTHROPIC_PROVIDER)
+    assert.equal(CONSUMER_CREDENTIALS.overseer.provider, ANTHROPIC_PROVIDER)
+    assert.equal(CONSUMER_CREDENTIALS.claude.deliver.how, 'config-dir')
+    assert.equal(CONSUMER_CREDENTIALS.overseer.deliver.how, 'mount')
+    // What varies by provider and what varies by consumer are different axes.
+    // One table keyed on either writes the anthropic answer twice.
+    assert.equal(CONSUMER_CREDENTIALS.claude.heal, 'in-place')
+    assert.equal(CONSUMER_CREDENTIALS.overseer.heal, 'next-turn')
+  })
+
+  test('a consumer curia cannot deliver to is named rather than discovered at dispatch', () => {
+    // The fault reader is what `config.mjs` refuses a boot on, so the suite
+    // drives it directly rather than reconstructing the message.
+    assert.match(consumerContractFault('nobody'), /no row in CONSUMER_CREDENTIALS/)
+  })
+
+  test('a harness on a provider with no contract row refuses the boot, and says which', () => {
+    // The guard for the harness nobody has added yet: it cannot fire against
+    // the shipped table, which is exactly why the reader is tested here and the
+    // shipped table is asserted clean in config.test.mjs.
+    assert.equal(providerContractFault('claude', ANTHROPIC_PROVIDER), null)
+    assert.equal(providerContractFault('codex', CODEX_PROVIDER), null)
+    const fault = providerContractFault('gemini', 'google')
+    assert.match(fault, /harnesses\.gemini runs on provider "google"/)
+    assert.match(fault, /would get no model credential/)
+    assert.match(fault, /anthropic/, 'and it names the providers that do have a row')
+  })
+
+  test('the token pattern admits a subscription token and refuses an API key', () => {
+    assert.ok(ANTHROPIC_TOKEN_RE.test(OAT))
+    assert.ok(!ANTHROPIC_TOKEN_RE.test('sk-proj-abcdefghijklmnopqrstuvwxyz'))
+    assert.ok(!ANTHROPIC_TOKEN_RE.test('sk-ant-short'))
   })
 })

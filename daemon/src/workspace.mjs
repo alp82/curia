@@ -449,6 +449,14 @@ export function hostStorageDir(harness = 'claude') {
   return harnessDef(harness).hostStore()
 }
 
+// The provider whose credential a harness runs on (#648). One reader, because
+// the boot refusal, the dispatch's credential write and the fan-out all have to
+// agree — two answers here would be the claude row and the overseer row drifting
+// apart by another road.
+export function harnessProvider(harness) {
+  return harnessDef(harness).provider
+}
+
 // ---- the agent's GitHub authority (#155, retired by #466) -------------------
 //
 // An agent used to get a scoped fine-grained PAT as `GH_TOKEN`, one key per
@@ -587,6 +595,12 @@ const HARNESS = {
     // carry standing orders that survive turn one, and this row is where that
     // has to be answered.
     memoryFile: 'CLAUDE.md',
+    // Which PROVIDER's credential this harness runs on (#648). It is a row here
+    // rather than a ternary at the two call sites for the reason `memoryFile`
+    // is: a new harness has to answer it, and `config.mjs` refuses a configured
+    // harness whose provider has no contract row. A harness added with no
+    // credential story is how the #641 bug returns.
+    provider: 'anthropic',
     // CLAUDE_SECURESTORAGE_CONFIG_DIR is what separates config from credentials.
     // Claude Code resolves its credential store through it and falls back to
     // CLAUDE_CONFIG_DIR only when it is unset, so pointing it at the host's
@@ -714,6 +728,9 @@ const HARNESS = {
   codex: {
     // See the claude row: this is the durable channel, and #340 measured it.
     memoryFile: 'AGENTS.md',
+    // See the claude row (#648). `openai` is the name the routing table and
+    // `Cooling` use; `codex` is the consumer that runs on it.
+    provider: 'openai',
     // Codex hides a skill whose manifest says so, and its catalog is the only
     // channel that re-arms a skill without pasting it (#399). See
     // writeSkillPointers. A new harness answers this row for itself: a CLI with

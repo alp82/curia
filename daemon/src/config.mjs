@@ -7,7 +7,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { parse } from 'yaml'
 import { DEFAULT_RANGE as DEFAULT_PREVIEW_RANGE, DEFAULT_PROXY_FROM } from './preview.mjs'
-import { DEFAULT_SKILLS, defaultSkillsRoot, HARNESS_NAMES } from './workspace.mjs'
+import { DEFAULT_SKILLS, defaultSkillsRoot, HARNESS_NAMES, harnessProvider } from './workspace.mjs'
 import { LIMIT_PATTERNS, SAFE_SUBSTITUTION } from './routing.mjs'
 import { DEFAULT_INDEX, REBUILD_CMD } from './attach.mjs'
 import { PROBE_MODEL } from './usage.mjs'
@@ -17,6 +17,7 @@ import { DEFAULT_CONTAINER_PORTS, PORTS_PER_AGENT } from './sandbox.mjs'
 import { readAllow } from './identity.mjs'
 import { readDashboard } from './dashboard.mjs'
 import { readOverseer } from './overseerservice.mjs'
+import { CONSUMER_NAMES, consumerContractFault, providerContractFault } from './credentials.mjs'
 
 // Exported because the settings screen writes this key (#265), and a second
 // list of the legal modes would be a second answer to one question.
@@ -609,6 +610,15 @@ export function loadRoutingConfig(file, { localFile } = {}) {
     if (!HARNESS_NAMES.includes(name)) {
       fail(src, `harnesses.${name} has no entry in the HARNESS table in workspace.mjs — an agent under it would get no config dir, no curia tools and no Stop hook. Known harnesses: ${HARNESS_NAMES.join(', ')}`)
     }
+    // The credential half of that same question (#648). A harness whose provider
+    // has no contract row would spawn agents curia cannot give a credential to,
+    // cannot say an expiry for, and cannot sign back in — the shape ADR-0027
+    // left open and #641 exists because of. Refusing here is the same act
+    // `models.<n>.provider` already performs against the usage-limit vocabulary
+    // a few hundred lines above: adding a provider is a code change, and this
+    // names it.
+    const credentialFault = providerContractFault(name, harnessProvider(name))
+    if (credentialFault) fail(src, credentialFault)
     // The readiness marker is per harness and REQUIRED, not defaulted (#57's
     // precedent: silence by omission is the failure this refuses). #33 lost
     // readiness live to a marker that matched nothing, and the symptom was
@@ -649,6 +659,17 @@ export function loadRoutingConfig(file, { localFile } = {}) {
   }
   for (const [name, m] of Object.entries(cfg.models)) {
     if (!cfg.harnesses[m.harness]) fail(src, `models.${name}.harness names unknown harness "${m.harness}"`)
+  }
+
+  // The consumer contract, checked at the same boot (#648). This table is code
+  // rather than config, so nothing an operator writes can break it — which is
+  // exactly why it is asserted HERE instead of trusted: a consumer that declares
+  // no delivery reaches no agent, and the failure would otherwise be a dispatch
+  // discovering it with a claim already taken. Three consumers, not two: the
+  // overseer is one and is not a harness.
+  for (const consumer of CONSUMER_NAMES) {
+    const fault = consumerContractFault(consumer)
+    if (fault) fail(src, `the model-credential consumer contract in credentials.mjs is broken: ${fault}`)
   }
 
   return cfg

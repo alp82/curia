@@ -14,6 +14,7 @@ import { CommandRouter } from '../src/commands.mjs'
 import { Dispatcher } from '../src/dispatch.mjs'
 import { TEST_PINS, containerDeps, seedConfigDirStub, withTestCredential } from './fixtures/sandbox.mjs'
 import { emptyQuestions, journalEvents } from './fixtures/journal.mjs'
+import { workingAnthropicStore } from './fixtures/credentials.mjs'
 
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'curia-threads-test-'))
 
@@ -1034,6 +1035,8 @@ function makeDispatcher(deps = {}, { confirm = async () => true, bound = [] } = 
       tokenFor: async () => 'ghs_test',
       botIdentity: async () => ({ name: 'curia-sh[bot]', email: '1+curia-sh[bot]@users.noreply.github.com' }),
     },
+    // #648: every claude spawn writes a credential file or refuses.
+    anthropic: workingAnthropicStore(),
     reduction: {
       journal: (type, data) => ({ type, ...data }),
       // Nothing here reads the journal back, so the dispatcher's questions see
