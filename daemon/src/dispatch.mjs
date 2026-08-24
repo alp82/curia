@@ -1784,8 +1784,11 @@ export class Dispatcher {
     return { healed }
   }
 
-  async checkAnthropicCredential() {
-    return this.anthropicHealth?.check() ?? null
+  // `trigger` names why this call happened rather than the ten-minute
+  // schedule — a consumer reporting a failed model call re-checks its
+  // provider's detector at once (#678). Absent, it is the schedule.
+  async checkAnthropicCredential(trigger = null) {
+    return this.anthropicHealth?.check({ trigger }) ?? null
   }
 
   // The agent's own copy, written at spawn (#648). See the call site in
@@ -1818,7 +1821,7 @@ export class Dispatcher {
   // conversation where they are. A restart would throw away hours of context.
   async holdCredentialLane({
     provider, why, code = null, status = null, by = 'provider', operation = null,
-    consumers = null, attempts = null,
+    consumers = null, attempts = null, trigger = null,
   }) {
     if (!provider) throw new Error('a credential hold needs a provider')
     if (!this.cooling.holdProvider(provider, why)) return
@@ -1831,6 +1834,7 @@ export class Dispatcher {
       consumers: affected, provider, code, status, by, why, frozen,
       ...(operation ? { operation } : {}),
       ...(attempts ? { attempts } : {}),
+      ...(trigger ? { trigger } : {}),
     })
     this.log(`the ${provider} lane is held: ${why}. ${frozen.length} live agent(s) frozen in place`)
     // The second caller `startReauth` was written for. The operator's `reauth`

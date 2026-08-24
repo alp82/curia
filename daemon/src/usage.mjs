@@ -562,22 +562,28 @@ class CredentialRefusals {
     this.retryAt = 0
   }
 
-  async refused(credId, verdict) {
+  // `trigger` is optional and names WHY this call happened rather than WHO
+  // classified it — `by` already means the classification route. Absent for
+  // the ten-minute schedule, `'overseer_turn'` when a failed overseer turn
+  // asked for this check immediately (#678). It rides straight onto the
+  // terminal outcome and nowhere else: a transient refusal keeps retrying on
+  // its own clock regardless of what asked for this particular attempt.
+  async refused(credId, verdict, trigger = null) {
     this.#prepare(credId)
-    if (verdict.terminal) return this.#terminal(credId, verdict, 'provider')
+    if (verdict.terminal) return this.#terminal(credId, verdict, 'provider', trigger)
     this.failures += 1
     if (this.failures >= TRANSIENT_RETRY_BOUND) {
       return this.#terminal(credId, {
         ...verdict,
         why: `${TRANSIENT_RETRY_BOUND} ${this.operation} responses in a row were unrecognized credential refusals. The last was ${verdict.why}`,
-      }, 'bound')
+      }, 'bound', trigger)
     }
     this.retryAt = this.now() + CREDENTIAL_RETRY_MS
     this.log(`${this.operation}: ${verdict.why}. Attempt ${this.failures} of ${TRANSIENT_RETRY_BOUND}, retrying on the next credential tick`)
     return { terminal: false, attempt: this.failures, of: TRANSIENT_RETRY_BOUND, ...verdict }
   }
 
-  async #terminal(credId, verdict, by) {
+  async #terminal(credId, verdict, by, trigger = null) {
     this.terminalFor = credId
     this.failures = 0
     this.retryAt = 0
@@ -585,6 +591,7 @@ class CredentialRefusals {
       provider: 'anthropic', consumers: ANTHROPIC_CONSUMERS, operation: this.operation,
       by, ...verdict,
       ...(by === 'bound' ? { attempts: TRANSIENT_RETRY_BOUND } : {}),
+      ...(trigger ? { trigger } : {}),
     }
     await this.onTerminal(outcome)
     return outcome
@@ -611,7 +618,14 @@ export class AnthropicCredentialHealth {
     })
   }
 
-  async check() {
+  // `trigger` is the general escape hatch #678 adds: a caller that already
+  // knows something failed on this credential — today, a failed overseer turn
+  // — skips the ten-minute wait rather than parking behind it. It keeps every
+  // other guard: the terminal latch, the retry clock inside a transient
+  // sequence, and `pending`, which still collapses simultaneous callers (a
+  // triggered call and the schedule landing in the same instant) onto one
+  // request.
+  async check({ trigger = null } = {}) {
     if (!this.fetchImpl || !SAFE_MODEL_ID.test(this.probeModel)) return null
     const cred = anthropicCredential(this.credentials?.read())
     if (!cred) return null
@@ -620,14 +634,14 @@ export class AnthropicCredentialHealth {
     const retrying = this.refusals.retrying(credId)
     if (retrying
       ? !this.refusals.retryDue(credId)
-      : this.lastAttemptAt !== null && this.now() - this.lastAttemptAt < USAGE_ATTEMPT_MS) return null
+      : (!trigger && this.lastAttemptAt !== null && this.now() - this.lastAttemptAt < USAGE_ATTEMPT_MS)) return null
     if (this.pending) return this.pending
     this.lastAttemptAt = this.now()
-    this.pending = this.#check(cred, credId).finally(() => { this.pending = null })
+    this.pending = this.#check(cred, credId, trigger).finally(() => { this.pending = null })
     return this.pending
   }
 
-  async #check(cred, credId) {
+  async #check(cred, credId, trigger = null) {
     let res
     try {
       res = await this.fetchImpl(`${MODELS_URL}/${this.probeModel}`, {
@@ -642,7 +656,7 @@ export class AnthropicCredentialHealth {
       return null
     }
     const refusal = await classifyAnthropicCredentialRefusal(res)
-    if (refusal) return this.refusals.refused(credId, refusal)
+    if (refusal) return this.refusals.refused(credId, refusal, trigger)
     this.refusals.accepted(credId)
     if (!res.ok) this.log(`anthropic model metadata probe failed: HTTP ${res.status}`)
     return { terminal: false, status: res.status }
