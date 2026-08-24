@@ -1784,8 +1784,24 @@ export class Dispatcher {
     return { healed }
   }
 
-  async checkAnthropicCredential() {
-    return this.anthropicHealth?.check() ?? null
+  // The anthropic lane's detector, on its schedule and on demand both (#678).
+  //
+  // IT ANSWERS WITH THE LANE'S HOLD, not with the probe's own verdict. The
+  // triggered caller is composing a line for an operator, and what belongs on
+  // that line is whether the lane is held — a fact this check may have just
+  // armed, or which may have stood since long before it. The verdict is the
+  // detector's business and it acts on it through `onTerminal` already.
+  //
+  // ONE SEAM, so the hold can never be read from BEFORE the check. A separate
+  // injected reader would let a caller compose a pointer off a stale hold and
+  // nothing would notice; here the ordering is the signature.
+  //
+  // `trigger` names the event that asked, and it is the detector's to carry: it
+  // skips the schedule's interval on the way in and lands on the
+  // `credential_hold` journal line on the way out.
+  async checkAnthropicCredential({ trigger = null } = {}) {
+    await this.anthropicHealth?.check({ trigger })
+    return this.cooling.heldFor(ANTHROPIC_PROVIDER)
   }
 
   // The agent's own copy, written at spawn (#648). See the call site in
@@ -1818,7 +1834,7 @@ export class Dispatcher {
   // conversation where they are. A restart would throw away hours of context.
   async holdCredentialLane({
     provider, why, code = null, status = null, by = 'provider', operation = null,
-    consumers = null, attempts = null,
+    consumers = null, attempts = null, trigger = null,
   }) {
     if (!provider) throw new Error('a credential hold needs a provider')
     if (!this.cooling.holdProvider(provider, why)) return
@@ -1831,6 +1847,12 @@ export class Dispatcher {
       consumers: affected, provider, code, status, by, why, frozen,
       ...(operation ? { operation } : {}),
       ...(attempts ? { attempts } : {}),
+      // WHY CURIA LOOKED, when something other than the schedule made it look
+      // (#678). Absent when the schedule found it — a key that is there says
+      // an event happened, and a clock is not one. `by` and `operation` beside
+      // it mean the classification route and the reader; neither is free to
+      // carry this, and telling them apart after the fact is the whole value.
+      ...(trigger ? { trigger } : {}),
     })
     this.log(`the ${provider} lane is held: ${why}. ${frozen.length} live agent(s) frozen in place`)
     // The second caller `startReauth` was written for. The operator's `reauth`

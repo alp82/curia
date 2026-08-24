@@ -606,6 +606,157 @@ describe('the daemon half: OverseerClient (#314)', () => {
   })
 })
 
+// #678. The overseer runs on the anthropic credential and takes a turn whenever
+// the operator speaks, so a failed turn is the earliest thing on the box that
+// can know the credential died — the detector's own schedule is ten minutes
+// wide. The turn supplies the TIMING; the detector still supplies the VERDICT.
+describe('a failed overseer turn re-checks the anthropic credential (#678)', () => {
+  // The container, faked at the fetch seam, so all four failure shapes in
+  // `#hop` can be produced without four containers. `body` is what
+  // `turnEvents` iterates: NDJSON lines, or a throw for a stream that died.
+  const hop = ({ status = 200, lines = null, throws = null }) => async () => {
+    if (throws) throw new Error(throws)
+    return {
+      ok: status < 400,
+      status,
+      text: async () => 'detail',
+      body: (async function* () { for (const l of lines ?? []) yield `${JSON.stringify(l)}\n` })(),
+    }
+  }
+  const clientWith = (fetchImpl, onModelCallFailed) => new OverseerClient({
+    reduction: storeDouble(),
+    command: async () => '',
+    workspaceRoot: tmpRoot('client-678'),
+    port: 4999,
+    daemonPort: 4271,
+    log: quiet,
+    fetchImpl,
+    onModelCallFailed,
+  })
+  const ended = (ok, why = null) => [
+    { event: 'session', id: 's-678' },
+    { event: 'end', ok, why, tool_calls: 0 },
+  ]
+
+  test('all four failure shapes ask, and none of them classifies anything itself', async () => {
+    const shapes = [
+      ['the container refused the turn', hop({ status: 503 })],
+      ['the stream died', hop({ throws: 'socket hang up' })],
+      ['the stream closed with no end event', hop({ lines: [{ event: 'session', id: 's' }] })],
+      ['the turn ended not ok', hop({ lines: ended(false, 'the model refused') })],
+    ]
+    for (const [what, fetchImpl] of shapes) {
+      const asked = []
+      const client = clientWith(fetchImpl, async () => { asked.push('asked'); return null })
+      const out = await client.runTurn('console-1', 'hello', { say: () => {}, status: () => {} })
+      assert.equal(out.ok, false, what)
+      assert.deepEqual(asked, ['asked'], `${what} asks the detector exactly once`)
+    }
+  })
+
+  test('a turn that succeeded asks nothing', async () => {
+    const asked = []
+    const client = clientWith(hop({ lines: ended(true) }), async () => { asked.push('asked'); return null })
+    const out = await client.runTurn('console-1', 'hello', { say: () => {}, status: () => {} })
+    assert.equal(out.ok, true)
+    assert.deepEqual(asked, [], 'nothing failed, so nothing is asked')
+  })
+
+  // Structurally excluded rather than filtered: the busy branch returns before
+  // a turn is ever registered, so there is no failed model call to report.
+  test('a busy conversation asks nothing — no turn ever ran', async () => {
+    const asked = []
+    let release
+    const held = new Promise((r) => { release = r })
+    const client = clientWith(async () => { await held; return hop({ lines: ended(true) })() },
+      async () => { asked.push('asked'); return null })
+    const first = client.runTurn('console-1', 'one', { say: () => {}, status: () => {} })
+    const second = await client.runTurn('console-1', 'two', { say: () => {}, status: () => {} })
+    assert.equal(second.busy, true)
+    assert.deepEqual(asked, [])
+    release()
+    await first
+  })
+
+  test('a clean check leaves the failure line exactly as it was', async () => {
+    const said = []
+    const client = clientWith(hop({ lines: ended(false, 'max_turns') }), async () => null)
+    const out = await client.runTurn('console-1', 'hello', { say: (t) => said.push(t), status: () => {} })
+    assert.equal(out.ok, false)
+    assert.equal(said.length, 1)
+    assert.match(said[0], /session ended without an answer \(max_turns\)/)
+    assert.doesNotMatch(said[0], /anthropic/i, 'a turn that failed for its own reasons says nothing about credentials')
+  })
+
+  test('a held lane puts a pointer on the line — no link of its own, and not the hold’s why', async () => {
+    const said = []
+    const client = clientWith(
+      hop({ lines: ended(false, 'the model refused') }),
+      async () => ({ provider: 'anthropic', why: 'Anthropic rejected the static credential with HTTP 401 authentication_error' }),
+    )
+    const out = await client.runTurn('console-1', 'hello', { say: (t) => said.push(t), status: () => {} })
+
+    assert.equal(out.ok, false)
+    assert.equal(said.length, 1, 'still one message in the answer slot')
+    assert.match(said[0], /session ended without an answer/, 'the turn’s own failure still leads')
+    assert.match(said[0], /`anthropic` lane is held/, 'the lane is named from the hold, not from a literal here')
+    assert.match(said[0], /#curia/)
+    assert.match(said[0], /dashboard/)
+    // One login, one link, said where the alarm was said (#676).
+    assert.doesNotMatch(said[0], /http/, 'the pointer carries no link of its own')
+    assert.doesNotMatch(said[0], /401|authentication_error/, 'and never repeats the hold’s own account of the fault')
+  })
+
+  // The Chat screen reads the same strings back out of `browserTurn`, which is
+  // why the line is composed in `runTurn` and not in either door.
+  test('the Chat screen reads the same pointer the thread does', async () => {
+    const client = clientWith(
+      hop({ lines: ended(false, 'the model refused') }),
+      async () => ({ provider: 'anthropic', why: 'irrelevant here' }),
+    )
+    await assert.rejects(
+      () => client.browserTurn('console-1', 'hello'),
+      /`anthropic` lane is held/,
+    )
+  })
+
+  // A pointer one turn late is the failure this ticket exists to remove, so the
+  // check is awaited before the line is composed rather than fired alongside it.
+  test('the check is awaited before the line is composed', async () => {
+    const order = []
+    const client = clientWith(hop({ lines: ended(false, 'the model refused') }), async () => {
+      await new Promise((r) => setTimeout(r, 5))
+      order.push('checked')
+      return { provider: 'anthropic', why: 'dead' }
+    })
+    await client.runTurn('console-1', 'hello', {
+      say: () => { order.push('said') },
+      status: () => {},
+    })
+    assert.deepEqual(order, ['checked', 'said'])
+  })
+
+  // The detector is one more thing that can be down, and a turn that already
+  // failed must not fail twice. The operator still gets the turn's own failure.
+  test('a check that throws costs the operator nothing', async () => {
+    const said = []
+    const client = clientWith(hop({ lines: ended(false, 'the model refused') }), async () => {
+      throw new Error('the probe is unreachable')
+    })
+    const out = await client.runTurn('console-1', 'hello', { say: (t) => said.push(t), status: () => {} })
+    assert.equal(out.ok, false)
+    assert.match(said[0], /session ended without an answer/)
+  })
+
+  test('a client wired to nothing behaves exactly as it did before', async () => {
+    const said = []
+    const client = clientWith(hop({ lines: ended(false, 'the model refused') }), undefined)
+    const out = await client.runTurn('console-1', 'hello', { say: (t) => said.push(t), status: () => {} })
+    assert.equal(out.ok, false)
+    assert.match(said[0], /session ended without an answer/)
+  })
+})
+
 describe('the whole crossing: a verb reaches /command from inside the container (#314)', () => {
   let daemon, container, turns, posted, client, reduction
 

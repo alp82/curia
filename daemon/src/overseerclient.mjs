@@ -138,6 +138,24 @@ async function* turnEvents(body, log) {
   }
 }
 
+// The pointer a failed turn carries while the lane is held (#678).
+//
+// NO LINK OF ITS OWN, and NOT the hold's `why`. The hold already said both,
+// once, where it alarms — one login, one link, said where the alarm was said.
+// A second copy of either is a second account of one fault, free to disagree
+// with the first, and the disagreement is invisible until the minute it
+// matters. Slice D's lane-field rule, arriving on a third surface.
+//
+// What this line adds is the one thing neither surface can say: that the turn
+// the operator just watched fail and the alarm they may not have read are the
+// same event.
+//
+// THE LANE IS NAMED FROM THE HOLD, not written in here. The hold states its own
+// provider, and a literal would be this file's second opinion about which lane
+// died — wrong the day a consumer on another provider reports a failure here.
+const credentialPointer = (provider) =>
+  `The \`${provider}\` lane is held — curia cannot use this credential, so this turn could not run. The sign-in is waiting in \`#curia\` and on the dashboard.`
+
 export class OverseerClient {
   // `port` is the container's published loopback port (`overseer.port`, read
   // and never typed twice). `daemonHost`/`daemonPort` are how the container
@@ -146,6 +164,7 @@ export class OverseerClient {
     reduction, command, workspaceRoot, port, daemonPort,
     daemonHost = 'host.docker.internal', model = OVERSEER_CONTAINER_MODEL,
     log = console.log, fetchImpl = fetch, turns = new OverseerTurns(),
+    onModelCallFailed = null,
   }) {
     this.reduction = reduction
     this.command = command
@@ -157,6 +176,24 @@ export class OverseerClient {
     this.log = log
     this.fetchImpl = fetchImpl
     this.turns = turns
+    // A CONSUMER REPORTING A FAILED MODEL CALL (#678). The overseer runs on the
+    // anthropic credential and takes a turn whenever the operator speaks, so a
+    // failed turn is the earliest thing on the box that can know the credential
+    // died — the detector's own schedule is ten minutes wide.
+    //
+    // IT IS A TRIGGER AND NOT EVIDENCE, and the name says the act rather than
+    // the diagnosis. Every failure the container can have — an SDK throw, a
+    // dead MCP seam, an unreadable config, `max_turns` — has collapsed into one
+    // `why` STRING by the time it crosses the boundary (`overseerturn.mjs`), so
+    // there is nothing here to classify and this file never tries. The turn
+    // supplies the timing; the provider's own detector supplies the verdict. A
+    // `why` string must never freeze the fleet.
+    //
+    // It answers with the lane's HOLD, or null — both when nothing is wired and
+    // when the lane is fine. That return is what composes the pointer, and
+    // taking it from the same call is what stops the pointer being composed off
+    // a hold read BEFORE the check.
+    this.onModelCallFailed = onModelCallFailed
     // The Chat screen reads a transcript off this directory, and the container
     // writes it there because compose mounts the one path on both sides.
     this.configDir = overseerConfigDirFor(workspaceRoot)
@@ -222,11 +259,45 @@ export class OverseerClient {
       // without ever showing them to the model — and the replay is the one thing
       // that can still deliver them.
       const out = await this.#turn(key, fullPrompt, { say, step, routeThreadId, replay })
-      if (!out.ok) await say(`${SIGNALS.warn} ${out.said}`)
+      if (!out.ok) await say(`${SIGNALS.warn} ${await this.#failureLine(key, out)}`)
       return out
     } finally {
       this.busy.delete(key)
     }
+  }
+
+  // WHAT THE OPERATOR READS WHEN A TURN FAILS, composed in ONE place because
+  // there are two doors and one of them is not Discord (#678). The thread reads
+  // what `say` posts; the Chat screen reads the same strings back out of
+  // `browserTurn`'s collector. Composing it in either door would give the two
+  // surfaces two accounts of one failure.
+  //
+  // THE CHECK IS AWAITED, not fired alongside. A pointer that arrives one turn
+  // late is the exact failure this exists to remove, and the cost is bounded by
+  // the probe's own five-second timeout on a path that has already failed.
+  //
+  // EVERY non-`busy` FAILURE ASKS, with no filter on the shape. A busy return is
+  // excluded structurally — it leaves `runTurn` above before a turn is ever
+  // registered, so there is no failed model call to report. Over-firing costs
+  // one quota-free request that the detector's own latch and retry clock will
+  // refuse anyway; a filter here would be one more thing that can be wrong about
+  // a failure it was never told the shape of.
+  //
+  // A CLEAN CHECK LEAVES A LOG LINE AND NOTHING ELSE. `endOverseerTurn` already
+  // journals the failure with its `why`, and a second event per checked failure
+  // would be a journal of how often the operator spoke to a working box.
+  async #failureLine(key, out) {
+    if (!this.onModelCallFailed) return out.said
+    this.log(`[overseer] turn key=${key} failed (${out.why}) — re-checking the model credential`)
+    let held = null
+    try {
+      held = await this.onModelCallFailed()
+    } catch (e) {
+      // The detector is one more thing that can be down, and a turn that has
+      // already failed must not fail twice on the way to saying so.
+      this.log(`[overseer] the model credential check failed: ${e.message}`)
+    }
+    return held?.provider ? `${out.said}\n${credentialPointer(held.provider)}` : out.said
   }
 
   // THE REGISTERED TURN, and the two journal lines that bracket it (#388).
