@@ -1118,19 +1118,29 @@ function dispatchHoldCard(h) {
    The code is on this page and on no other surface. Discord carries the alarm
    and a link here; a one-time auth code in a chat log is a credential in a chat
    log. */
+/* TWO LANES SINCE #660, and the card differs in exactly one line. `typed` says
+   whether the operator puts a code IN rather than reads one OUT: the openai lane
+   shows a code to enter in the browser, and the anthropic lane has a code to
+   paste back into the terminal instead. The token that lane produces reaches
+   this page from nowhere — it goes straight from the pane to the store. */
 function reauthCard(r) {
   if (!r || r.state !== "waiting") return [];
   const mins = Math.floor((r.seconds_left ?? 0) / 60);
   const link = r.url
     ? `<a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.url)}</a>`
     : `<span class="dim">curia could not read the link off the pane — open the terminal</span>`;
-  const code = r.code
-    ? `<code class="reauth-code">${esc(r.code)}</code>`
-    : `<span class="dim">curia could not read the code off the pane — open the terminal</span>`;
+  const second = r.typed
+    ? `<span class="dim">paste the code the browser shows back into the terminal</span>`
+    : (r.code
+      ? `<code class="reauth-code">${esc(r.code)}</code>`
+      : `<span class="dim">curia could not read the code off the pane — open the terminal</span>`);
+  const how = r.typed
+    ? "is signing in — open the link, then paste the code back into the terminal"
+    : "is signing in — open the link, then enter the code";
   return [`<div class="att-item token">
-    <span class="who">${esc(r.consumer)}</span>is signing in — open the link, then enter the code
+    <span class="who">${esc(r.provider)}</span>${how}
     <div>${link}</div>
-    <div>${code}</div>
+    <div>${second}</div>
     <div class="dim">the session is <code>${esc(r.session)}</code>; it closes in ${mins} min if nothing completes it</div></div>`];
 }
 
@@ -1153,9 +1163,12 @@ function credentialCard(c) {
   const what = c.held
     ? "cannot be refreshed — the lane is held and its agents are frozen in place"
     : `is ${esc(c.state)}`;
+  /* THE VERB NAMES THE PROVIDER (#660). Two of the three rows are anthropic, and
+     a bare `reauth` on either of them would start the openai login instead. */
+  const verb = c.provider ? `reauth ${c.provider}` : "reauth";
   return [`<div class="att-item token">
     <span class="who">${esc(c.consumer)}</span>the model credential ${what}
-    <div class="dim">${esc(why)} — type <code>reauth</code> to sign in from a browser</div></div>`];
+    <div class="dim">${esc(why)} — type <code>${esc(verb)}</code> to sign in from a browser</div></div>`];
 }
 
 function attentionList(o) {

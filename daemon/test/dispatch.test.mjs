@@ -6741,7 +6741,7 @@ describe('a re-authentication session is invisible to every sweep (#642)', () =>
     assert.equal(d.cooling.isCool('opus', 'anthropic'), false, 'the surviving lane still dispatches')
     assert.equal(d.cooling.earliestReset() == null, true, 'and no surface is handed a reset time nobody measured')
 
-    assert.deepEqual(logins, [{ consumer: 'openai', by: 'credential-hold' }])
+    assert.deepEqual(logins, [{ provider: 'openai', by: 'credential-hold' }])
 
     const ev = events.find((e) => e.type === 'credential_hold')
     assert.deepEqual(ev.frozen, ['curia-574'])
@@ -6794,7 +6794,7 @@ describe('a re-authentication session is invisible to every sweep (#642)', () =>
     d.announce = async (t) => { says.push(t); return true }
     d.credentials.fanOut = () => ({ healed: ['curia-574'], errors: [] })
     d.cooling.holdProvider('openai', 'refresh_token_reused')
-    d.reauth.poll = async () => ({ consumer: 'openai', state: 'done', expires_at: null })
+    d.reauth.poll = async () => ({ provider: 'openai', state: 'done', expires_at: null })
     d.reauth.clear = () => {}
 
     await d.pollReauth()
@@ -6810,7 +6810,7 @@ describe('a re-authentication session is invisible to every sweep (#642)', () =>
     const d = makeDispatcher({}, { credentials: brokerSaying({ refreshed: false, why: 'nothing due' }) })
     d.announce = async () => true
     d.cooling.holdProvider('openai', 'refresh_token_reused')
-    d.reauth.poll = async () => ({ consumer: 'openai', state: 'timeout' })
+    d.reauth.poll = async () => ({ provider: 'openai', state: 'timeout' })
     d.reauth.clear = () => {}
 
     await d.pollReauth()
@@ -6819,12 +6819,19 @@ describe('a re-authentication session is invisible to every sweep (#642)', () =>
     assert.ok(!events.some((e) => e.type === 'credential_hold_lifted'))
   })
 
-  test('a daemon with no broker brokers nothing, and says so rather than pretending', async () => {
+  // A LANE PER STORE (#660), which is why this no longer refuses outright. The
+  // fixture owns the anthropic store and no codex broker, and that box can still
+  // sign anthropic back in — so the refusal names the provider it was asked
+  // about and lists what it CAN do, rather than claiming the daemon brokers
+  // nothing while holding a credential it does broker.
+  test('a daemon with no codex broker refuses the openai login by naming what it can do', async () => {
     const d = makeDispatcher()
     assert.deepEqual(await d.syncModelCredentials(), { refreshed: false, healed: [] })
     assert.equal(d.credentialsStatus().consumers[0].state, 'unowned')
     assert.equal(d.credentialsStatus().reauth, null)
-    assert.match(await d.startReauth({}), /brokers no model credential/)
+    const said = await d.startReauth({})
+    assert.match(said, /owns no `openai` credential/)
+    assert.match(said, /can re-authenticate: anthropic/)
   })
 
   // The scratch config dir holds the credential the login is about to write.
@@ -7076,5 +7083,108 @@ describe('teardown sees uncommitted work (#649)', () => {
 
       assert.equal(d.agents.get('curia-42')?.wtPath, wt)
     })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// the anthropic lane's login (#660)
+// ---------------------------------------------------------------------------
+//
+// #642 gave the dispatcher one login, keyed by what it called a consumer and
+// really keyed by provider. This is the second lane arriving, and what it pins is
+// the routing rather than the scrape — the scrape has its own tests, hermetic,
+// in credentials.test.mjs.
+
+describe('signing the anthropic lane back in (#660)', () => {
+  const anthropicDispatcher = (over = {}) => {
+    const d = makeDispatcher({ ensureAgentImage: async () => ({ ref: 'curia-agent:test' }) }, over)
+    return d
+  }
+
+  test('the verb starts a `claude setup-token` session named by the provider', async () => {
+    const spawned = []
+    const d = anthropicDispatcher()
+    d.reauth.newSession = async (opts) => { spawned.push(opts) }
+    d.reauth.hasSession = async () => false
+
+    const said = await d.startReauth({ provider: 'anthropic', by: 'u1' })
+
+    assert.equal(spawned.length, 1)
+    assert.equal(spawned[0].name, 'curia-auth-anthropic')
+    assert.match(spawned[0].shellCmd, /claude setup-token/)
+    // The two lanes ask different things of the operator, so the sentence is
+    // the lane's rather than one line covering both badly.
+    assert.match(said, /paste the code/i)
+    assert.ok(!/one-time code that lives fifteen minutes/.test(said), 'that is the codex lane’s sentence')
+    assert.ok(events.some((e) => e.type === 'reauth_requested' && e.provider === 'anthropic'))
+  })
+
+  // The hold path and the operator's verb land on ONE flow, so a login already
+  // running is attached to rather than replaced — on either lane.
+  test('a provider curia owns no credential for is refused by name', async () => {
+    const d = anthropicDispatcher({ anthropic: null, credentials: null })
+    assert.match(await d.startReauth({ provider: 'anthropic' }), /brokers no model credential/)
+  })
+
+  // The whole point of a provider-keyed store: one login, two consumers healed.
+  test('a completed anthropic login fans out to the claude agents, not the codex ones', async () => {
+    const says = []
+    const codexFanOut = []
+    const d = anthropicDispatcher()
+    d.announce = async (t) => { says.push(t); return true }
+    d.anthropic.fanOut = () => ({ healed: ['curia-207', 'curia-625'], errors: [] })
+    d.credentials = { fanOut: () => { codexFanOut.push(1); return { healed: [], errors: [] } } }
+    d.reauth.poll = async () => ({ provider: 'anthropic', state: 'done', expires_at: null })
+    d.reauth.clear = () => {}
+
+    await d.pollReauth()
+
+    assert.deepEqual(codexFanOut, [], 'an anthropic login does not touch the codex store')
+    assert.equal(says.length, 1)
+    assert.match(says[0], /`anthropic` is authenticated again/)
+    assert.match(says[0], /curia-207, curia-625/)
+    assert.ok(events.some((e) => e.type === 'credential_fanned_out' && e.provider === 'anthropic'))
+  })
+
+  // The OVERSEER is healed and is not in that list. Its delivery is the store
+  // behind a read-only mount, so there is nothing to push at it — `runOneTurn`
+  // re-reads the file the login just wrote (#648).
+  test('a login with no live claude agent still says what happened', async () => {
+    const says = []
+    const d = anthropicDispatcher()
+    d.announce = async (t) => { says.push(t); return true }
+    d.anthropic.fanOut = () => ({ healed: [], errors: [] })
+    d.reauth.poll = async () => ({ provider: 'anthropic', state: 'done', expires_at: null })
+    d.reauth.clear = () => {}
+
+    await d.pollReauth()
+
+    assert.match(says[0], /No live agent needed it/)
+  })
+
+  test('a failed anthropic login names the provider in the retry it suggests', async () => {
+    const says = []
+    const d = anthropicDispatcher()
+    d.announce = async (t) => { says.push(t); return true }
+    d.reauth.poll = async () => ({ provider: 'anthropic', state: 'failed', why: 'Anthropic answered HTTP 401' })
+    d.reauth.clear = () => {}
+
+    await d.pollReauth()
+
+    assert.match(says[0], /ended as \*\*failed\*\*/)
+    assert.match(says[0], /reauth anthropic/, 'a bare `reauth` would start the wrong lane')
+  })
+
+  // The guard the map names first, and the new session inherits it for free —
+  // which is the reason #660 grew one flow a lane rather than a second flow.
+  test('the pane write path refuses the anthropic login session too', async () => {
+    const writes = []
+    const d = makeDispatcher({
+      sendText: async (pane, body) => writes.push({ pane, body }),
+      sendKey: async (pane, key) => writes.push({ pane, key }),
+    })
+    await assert.rejects(d.deps.sendText('curia-auth-anthropic', 'continue'), /re-authentication session/)
+    await assert.rejects(d.deps.sendKey('curia-auth-anthropic', 'Enter'), /re-authentication session/)
+    assert.deepEqual(writes, [], 'the operator types the code, and curia never does')
   })
 })

@@ -26,7 +26,12 @@ import {
   anthropicStoreFile, claudeCredentialsJson, writeClaudeCredentials, deliveryExpiry,
   AnthropicCredentialStore, PROVIDER_CREDENTIALS, CONSUMER_CREDENTIALS, CONSUMER_NAMES,
   consumerContractFault, providerContractFault, SETUP_TOKEN_SCOPES, CLAUDE_CREDENTIAL_FILE,
+  DeviceLoginLane, SetupTokenLane, setupTokenRunCmd, joinWrapped,
+  scrapeAuthorizeUrl, scrapeSetupToken, checkAnthropicToken, ANTHROPIC_AUTHORIZE_HEAD,
 } from '../src/credentials.mjs'
+// #660 checks that the token under test is the one on the wire, and it asks with
+// the headers `usage.mjs` owns.
+import { MODELS_URL, OAUTH_BETA } from '../src/usage.mjs'
 
 const DAY = 24 * 60 * 60 * 1000
 
@@ -496,7 +501,7 @@ describe('the re-authentication flow (#642)', () => {
   function flow({ now = () => 0, sessions = new Set(), journal = () => {} } = {}) {
     const calls = { spawned: [], killed: [], stopped: [] }
     const f = new ReauthFlow({
-      broker: new CodexCredentialBroker({ home: dir, now }),
+      lanes: { openai: new DeviceLoginLane({ broker: new CodexCredentialBroker({ home: dir, now }) }) },
       image: 'curia-agent:test',
       agentUid: 1000,
       cfgDirFor: (session) => path.join(dir, 'cfg', session),
@@ -513,7 +518,7 @@ describe('the re-authentication flow (#642)', () => {
 
   test('starting spawns one session and reports it', async () => {
     const { f, calls } = flow()
-    const out = await f.start({ consumer: 'openai' })
+    const out = await f.start({ provider: 'openai' })
     assert.equal(out.started, true)
     assert.equal(out.session, 'curia-auth-openai')
     assert.equal(calls.spawned.length, 1)
@@ -521,12 +526,12 @@ describe('the re-authentication flow (#642)', () => {
     assert.equal(f.state().state, 'waiting')
   })
 
-  // One session per consumer, enforced by the fixed name. Pressing the button
+  // One session per provider, enforced by the fixed name. Pressing the button
   // twice attaches to the first, which is what an operator on a phone expects.
   test('a second start attaches to the first rather than opening another', async () => {
     const { f, calls } = flow()
-    await f.start({ consumer: 'openai' })
-    const again = await f.start({ consumer: 'openai' })
+    await f.start({ provider: 'openai' })
+    const again = await f.start({ provider: 'openai' })
     assert.equal(again.started, false)
     assert.equal(calls.spawned.length, 1)
   })
@@ -538,14 +543,14 @@ describe('the re-authentication flow (#642)', () => {
     fs.mkdirSync(cfgDir, { recursive: true })
     fs.writeFileSync(path.join(cfgDir, 'auth.json'), 'stale')
     const { f } = flow()
-    await f.start({ consumer: 'openai' })
+    await f.start({ provider: 'openai' })
     assert.equal(fs.existsSync(path.join(cfgDir, 'auth.json')), false)
   })
 
   test('the card fills in from the pane, and the journal never carries the code', async () => {
     const events = []
     const { f, calls, sessions } = flow({ journal: (e, d) => events.push([e, d]) })
-    await f.start({ consumer: 'openai' })
+    await f.start({ provider: 'openai' })
     calls.pane = '   https://auth.openai.com/codex/device\n2. Enter this one-time code (expires in 15 minutes)\n   85PT-A4E5M\n'
     sessions.add('curia-auth-openai')
     await f.poll()
@@ -561,7 +566,7 @@ describe('the re-authentication flow (#642)', () => {
     const iat = 1_000_000_000_000
     const events = []
     const { f, calls, sessions } = flow({ now: () => iat, journal: (e, d) => events.push([e, d]) })
-    await f.start({ consumer: 'openai' })
+    await f.start({ provider: 'openai' })
     fs.writeFileSync(path.join(dir, 'cfg', 'curia-auth-openai', 'auth.json'), authJson({ iat, exp: iat + 10 * DAY, refresh: 'rt.fresh' }))
     const out = await f.poll()
     assert.equal(out.state, 'done')
@@ -578,7 +583,7 @@ describe('the re-authentication flow (#642)', () => {
 
   test('a file that is not a credential is not completion', async () => {
     const { f } = flow()
-    await f.start({ consumer: 'openai' })
+    await f.start({ provider: 'openai' })
     fs.writeFileSync(path.join(dir, 'cfg', 'curia-auth-openai', 'auth.json'), '{"tokens":{}}')
     assert.equal(await f.poll(), null)
     assert.equal(f.state().state, 'waiting')
@@ -590,7 +595,7 @@ describe('the re-authentication flow (#642)', () => {
     let now = 0
     const events = []
     const { f, calls } = flow({ now: () => now, journal: (e, d) => events.push([e, d]) })
-    await f.start({ consumer: 'openai' })
+    await f.start({ provider: 'openai' })
     now = REAUTH_TIMEOUT_MS - 1
     assert.equal(await f.poll(), null)
     now = REAUTH_TIMEOUT_MS
@@ -607,7 +612,7 @@ describe('the re-authentication flow (#642)', () => {
     const iat = 1_000_000_000_000
     let now = iat
     const { f } = flow({ now: () => now })
-    await f.start({ consumer: 'openai' })
+    await f.start({ provider: 'openai' })
     fs.writeFileSync(path.join(dir, 'cfg', 'curia-auth-openai', 'auth.json'), authJson({ iat, exp: iat + 10 * DAY }))
     now = iat + REAUTH_TIMEOUT_MS
     assert.equal((await f.poll()).state, 'done')
@@ -616,7 +621,7 @@ describe('the re-authentication flow (#642)', () => {
   test('a session that is gone with no credential is reported, not forgotten', async () => {
     const events = []
     const { f, sessions } = flow({ journal: (e, d) => events.push([e, d]) })
-    await f.start({ consumer: 'openai' })
+    await f.start({ provider: 'openai' })
     sessions.delete('curia-auth-openai')
     assert.equal((await f.poll()).state, 'abandoned')
     assert.equal(events.at(-1)[0], 'reauth_abandoned')
@@ -626,7 +631,7 @@ describe('the re-authentication flow (#642)', () => {
   // absence.
   test('an indeterminate tmux ends nothing', async () => {
     const { f } = flow()
-    await f.start({ consumer: 'openai' })
+    await f.start({ provider: 'openai' })
     f.hasSession = async () => { throw new Error('tmux session presence is indeterminate') }
     assert.equal(await f.poll(), null)
     assert.equal(f.state().state, 'waiting')
@@ -1091,5 +1096,351 @@ describe('the two contract tables (#648)', () => {
     assert.ok(ANTHROPIC_TOKEN_RE.test(OAT))
     assert.ok(!ANTHROPIC_TOKEN_RE.test('sk-proj-abcdefghijklmnopqrstuvwxyz'))
     assert.ok(!ANTHROPIC_TOKEN_RE.test('sk-ant-short'))
+  })
+})
+
+// ---------------------------------------------------------------------------
+// the setup-token lane (#660)
+// ---------------------------------------------------------------------------
+//
+// The lane that reads its credential off a rendered TUI, and every fixture below
+// is a MEASUREMENT rather than a guess about one.
+//
+//   - `WAITING_60` is the verbatim `tmux capture-pane -p` of a real `claude
+//     setup-token` at 60 columns, run on the workstation on 2026-08-24 and
+//     abandoned at the paste prompt. Nothing was minted for it.
+//   - `successFrame` is laid out from the render tree read out of the BOX's own
+//     agent image, `curia-agent:2.1.220-0.146.0-7cba0f7a` — the `setup-token`
+//     success state is a column of bare Ink `Text` children with `gap: 1`, the
+//     token one of them, no border and no prefix.
+//
+// What is NOT here, and the record says so rather than implying coverage: a
+// frame from a login that actually completed. The layout is measured, the wrap
+// is measured, and the token's presence among those lines is inference — which
+// is exactly why `SetupTokenLane` asks Anthropic before it adopts anything.
+
+const WAITING_60 = [
+  'Welcome to Claude Code v2.1.241',
+  '',
+  ' This will guide you through long-lived (1-year) auth token',
+  ' setup for your Claude account. Claude subscription',
+  ' required.',
+  '',
+  " Browser didn't open? Use the url below to sign  (c to copy)",
+  ' in',
+  '',
+  'https://claude.com/cai/oauth/authorize?code=true&client_id=9',
+  'd1c250a-e61b-44d9-88ed-5944d1962f5e&response_type=code&redir',
+  'ect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fc',
+  'allback&scope=user%3Ainference&code_challenge=gBwSYcCCQjC9xU',
+  'Dnje4H0Limz_8WGf6LWi9KonM8CDU&code_challenge_method=S256&sta',
+  'te=9oq-pmO4pEY1t4nD2prvbnqYYqlSkptF03z3EABHPaA',
+  '',
+  '',
+  ' Paste code here if prompted >',
+].join('\n')
+
+// 108 characters, which is what the box's own credential measures.
+const LIVE_OAT = `sk-ant-oat01-${'x'.repeat(85)}_-abc7AB89`
+
+function successFrame(paneWidth, token = LIVE_OAT) {
+  const pad = (s) => ` ${s}`
+  const content = paneWidth - 1 // Ink indents the frame one column
+  const pieces = []
+  for (let i = 0; i < token.length; i += content) pieces.push(token.slice(i, i + content))
+  return [
+    'Welcome to Claude Code v2.1.220',
+    '',
+    pad('✓ Long-lived authentication token created successfully!'),
+    '',
+    pad('Your OAuth token (valid for 1 year):'),
+    '',
+    ...pieces.map(pad),
+    '',
+    pad("Store this token securely. You won't be able to see it again."),
+    '',
+    pad('Use this token by setting: export CLAUDE_CODE_OAUTH_TOKEN=<token>'),
+    '',
+    'curia@box:/cfg$ ',
+  ].join('\n')
+}
+
+describe('putting a wrapped TUI value back together (#660)', () => {
+  // Rule 1: a short line ended the run. Without it a rejoin walks into the
+  // paragraph underneath.
+  test('a run stops at the first piece shorter than the ones before it', () => {
+    const lines = ['aaaa', 'aaaa', 'bb', 'cccc']
+    assert.equal(joinWrapped(lines, 0, () => true), 'aaaaaaaabb')
+  })
+
+  // Rule 2: the charset ended the run. Ink's `gap: 1` puts a blank line after
+  // every child, and a blank line is not a continuation of anything.
+  test('a run stops at a line the continuation test rejects', () => {
+    const lines = ['aaaa', 'aaaa', '', 'aaaa']
+    assert.equal(joinWrapped(lines, 0, (l) => /^[a-z]+$/.test(l)), 'aaaaaaaa')
+  })
+
+  // BOTH guards are load-bearing. A value whose length is an exact multiple of
+  // the wrap width ends on a full-width piece, so rule 1 alone would run on.
+  test('a value that ends exactly on the wrap boundary still stops', () => {
+    const lines = ['aaaa', 'aaaa', '', 'zzzz']
+    assert.equal(joinWrapped(lines, 0, (l) => /^[a-z]+$/.test(l)), 'aaaaaaaa')
+  })
+})
+
+describe('reading the anthropic login pane (#660)', () => {
+  test('the authorize URL comes back whole from a real 60-column capture', () => {
+    const url = scrapeAuthorizeUrl(WAITING_60)
+    assert.ok(url.startsWith(ANTHROPIC_AUTHORIZE_HEAD))
+    const parsed = new URL(url)
+    // The bound #180 bought, visible in the request curia reassembled.
+    assert.equal(parsed.searchParams.get('scope'), 'user:inference')
+    assert.equal(parsed.searchParams.get('code_challenge_method'), 'S256')
+    assert.equal(parsed.searchParams.get('state'), '9oq-pmO4pEY1t4nD2prvbnqYYqlSkptF03z3EABHPaA')
+  })
+
+  // A reassembly that ran long lands its junk in the last parameter, and a link
+  // that fails after the operator has already opened it is worse than no link.
+  test('a URL missing the PKCE parameters is not offered', () => {
+    assert.equal(scrapeAuthorizeUrl(`${ANTHROPIC_AUTHORIZE_HEAD}code=true`), null)
+  })
+
+  test('the waiting frame holds no token, and curia does not invent one', () => {
+    assert.equal(scrapeSetupToken(WAITING_60), null)
+  })
+
+  // The whole point of the lane. A 108-character token wraps on every pane
+  // narrower than itself and does not on a wide one, and both go back together.
+  for (const width of [40, 60, 80, 110, 200]) {
+    test(`the token comes back whole from a ${width}-column success frame`, () => {
+      assert.equal(scrapeSetupToken(successFrame(width)), LIVE_OAT)
+    })
+  }
+
+  // 108 = 4 × 27, so at 28 columns the last piece is full width.
+  test('a token that ends exactly on the wrap boundary comes back whole', () => {
+    assert.equal(scrapeSetupToken(successFrame(28)), LIVE_OAT)
+  })
+
+  // The line below the token holds the literal string `<token>` and not the
+  // value, so the frame's own instructions can never be read as a credential.
+  test('the export line under the token is not mistaken for one', () => {
+    const frame = successFrame(200)
+    assert.ok(frame.includes('CLAUDE_CODE_OAUTH_TOKEN=<token>'))
+    assert.equal(scrapeSetupToken(frame), LIVE_OAT)
+  })
+
+  test('a frame with no `sk-ant-` line at all reads as not finished', () => {
+    assert.equal(scrapeSetupToken('nothing here\n\nnor here\n'), null)
+  })
+})
+
+describe('asking Anthropic whether the scrape is right (#660)', () => {
+  const check = (impl) => checkAnthropicToken(OAT, { fetchImpl: impl })
+
+  test('a 200 adopts', async () => {
+    assert.deepEqual(await check(async () => ({ ok: true, status: 200 })), {
+      ok: true, retry: false, why: 'Anthropic accepted the token',
+    })
+  })
+
+  // The credential the header carries is the one being checked, not the box's.
+  test('the request carries the token under test and the oauth beta header', async () => {
+    let seen = null
+    await checkAnthropicToken(OAT2, { fetchImpl: async (url, init) => { seen = { url, init }; return { ok: true, status: 200 } } })
+    assert.equal(seen.url, MODELS_URL)
+    assert.equal(seen.init.headers.authorization, `Bearer ${OAT2}`)
+    assert.equal(seen.init.headers['anthropic-beta'], OAUTH_BETA)
+  })
+
+  // The expensive failure this exists to stop: a mis-read frame reassembled into
+  // something that passes the prefix check and is not a credential.
+  for (const status of [401, 403]) {
+    test(`a ${status} is terminal — the store is not touched`, async () => {
+      const out = await check(async () => ({ ok: false, status }))
+      assert.equal(out.ok, false)
+      assert.equal(out.retry, false)
+      assert.match(out.why, /read the frame wrong/)
+    })
+  }
+
+  // A network that blinked proves nothing about the token, and treating it as a
+  // refusal would throw away a good login.
+  test('an unreachable provider is a retry, not a verdict', async () => {
+    const out = await check(async () => { throw new Error('ECONNRESET') })
+    assert.equal(out.retry, true)
+    assert.match(out.why, /could not reach Anthropic/)
+  })
+
+  test('a 500 is a retry, not a verdict', async () => {
+    assert.equal((await check(async () => ({ ok: false, status: 500 }))).retry, true)
+  })
+})
+
+describe('the setup-token lane (#660)', () => {
+  const laneOn = (over = {}) => {
+    const s = storeOn()
+    return { s, lane: new SetupTokenLane({ store: s, check: async () => ({ ok: true, retry: false }), ...over }) }
+  }
+
+  test('the container runs `claude setup-token` with its config home pointed at the mount', () => {
+    const cmd = setupTokenRunCmd({
+      name: 'curia-auth-anthropic', image: 'curia-agent:test', cfgDir: '/w/cfg/curia-auth-anthropic', agentUid: 1000,
+    })
+    assert.match(cmd, /claude setup-token$/)
+    assert.match(cmd, /-e CLAUDE_CONFIG_DIR=\/cfg/)
+    assert.match(cmd, /--user 1000:1000/)
+    assert.match(cmd, /--name curia-auth-anthropic/)
+    // NO CREDENTIAL REACHES IT. A login must not run against the token it is
+    // replacing, and the pane must not be able to show one that was already here.
+    assert.ok(!cmd.includes('CLAUDE_CODE_OAUTH_TOKEN'))
+    assert.ok(!cmd.includes('ANTHROPIC_API_KEY'))
+    // Unlabelled, so `#sweepContainers` never collects a half-finished login.
+    assert.ok(!cmd.includes('curia.session'))
+  })
+
+  test('the same shell-safety refusal guards both lanes', () => {
+    assert.throws(() => setupTokenRunCmd({ name: 'curia-auth-anthropic; rm -rf /', image: 'i', cfgDir: '/c', agentUid: 1 }), /not shell-safe/)
+  })
+
+  test('a pane with no token yet is not completion', async () => {
+    const { lane, s } = laneOn()
+    assert.equal(await lane.finish({ pane: WAITING_60 }), null)
+    assert.equal(s.read(), null)
+  })
+
+  test('a token Anthropic accepts is adopted, and the row gets a real date', async () => {
+    const { lane, s } = laneOn()
+    const out = await lane.finish({ pane: successFrame(60) })
+    assert.equal(s.read().token, LIVE_OAT)
+    assert.equal(s.read().obtained_at, '2026-08-24T12:00:00.000Z')
+    assert.equal(s.state('claude').state, 'valid')
+    // The flow reports an expiry and never a token.
+    assert.equal(out.expiresAt, Date.parse('2026-08-24T12:00:00Z') + ANTHROPIC_DOCUMENTED_LIFETIME_MS)
+    assert.equal(JSON.stringify(out).includes(LIVE_OAT), false)
+  })
+
+  // The store is left EXACTLY as it was. A fleet running on a good credential
+  // must not lose it to a login that read a frame wrong.
+  test('a token Anthropic rejects throws, and the store keeps what it had', async () => {
+    const { lane, s } = laneOn({ check: async () => ({ ok: false, retry: false, why: 'Anthropic answered HTTP 401' }) })
+    s.adopt(OAT)
+    await assert.rejects(() => lane.finish({ pane: successFrame(60) }), /401/)
+    assert.equal(s.read().token, OAT)
+  })
+
+  test('a check that could not be made waits for the next tick rather than failing', async () => {
+    const { lane, s } = laneOn({ check: async () => ({ ok: false, retry: true, why: 'unreachable' }) })
+    assert.equal(await lane.finish({ pane: successFrame(60) }), null)
+    assert.equal(s.read(), null, 'nothing is stored on a verdict curia never got')
+  })
+
+  test('the operator types on this lane, and does not on the codex one', () => {
+    assert.equal(new SetupTokenLane({ store: storeOn() }).typed, true)
+    assert.equal(new DeviceLoginLane({ broker: null }).typed, false)
+  })
+
+  // There is no code to READ on this lane — the operator puts one in. Inventing
+  // a field for it would put a wrong value on the card.
+  test('the card carries the link and no code', () => {
+    const { url, code } = new SetupTokenLane({ store: storeOn() }).scrape(WAITING_60)
+    assert.ok(url.startsWith(ANTHROPIC_AUTHORIZE_HEAD))
+    assert.equal(code, null)
+  })
+})
+
+describe('the flow drives either lane (#660)', () => {
+  function anthropicFlow({ check = async () => ({ ok: true, retry: false }) } = {}) {
+    const now = () => Date.parse('2026-08-24T12:00:00Z')
+    const calls = { spawned: [], killed: [], stopped: [], pane: '' }
+    const sessions = new Set()
+    const events = []
+    const s = new AnthropicCredentialStore({ workspaceRoot: dir, now })
+    const f = new ReauthFlow({
+      lanes: {
+        openai: new DeviceLoginLane({ broker: new CodexCredentialBroker({ home: dir, now }) }),
+        anthropic: new SetupTokenLane({ store: s, check }),
+      },
+      image: 'curia-agent:test',
+      agentUid: 1000,
+      cfgDirFor: (session) => path.join(dir, 'cfg', session),
+      newSession: async (opts) => { calls.spawned.push(opts); sessions.add(opts.name) },
+      capturePane: async () => calls.pane,
+      killSession: async (name) => { calls.killed.push(name); sessions.delete(name) },
+      hasSession: async (name) => sessions.has(name),
+      stopContainer: async (name) => { calls.stopped.push(name) },
+      now,
+      journal: (e, d) => events.push([e, d]),
+    })
+    return { f, calls, sessions, events, store: s }
+  }
+
+  test('the anthropic session is named by the PROVIDER, and the two consumers share it', async () => {
+    const { f, calls } = anthropicFlow()
+    const out = await f.start({ provider: 'anthropic' })
+    assert.equal(out.session, 'curia-auth-anthropic')
+    assert.match(calls.spawned[0].shellCmd, /claude setup-token/)
+    assert.equal(f.state().provider, 'anthropic')
+    assert.equal(f.state().typed, true)
+  })
+
+  test('a provider with no lane is refused by name', async () => {
+    const { f } = anthropicFlow()
+    await assert.rejects(() => f.start({ provider: 'gemini' }), /no re-authentication lane for provider "gemini"/)
+  })
+
+  // End to end on the lane whose completion signal is the PANE (#659 §3): the
+  // credential file ADR-0027 detects does not exist here.
+  test('the token appearing in the pane completes the flow, adopts it, and tears the session down', async () => {
+    const { f, calls, sessions, events, store } = anthropicFlow()
+    await f.start({ provider: 'anthropic' })
+    calls.pane = WAITING_60
+    assert.equal(await f.poll(), null, 'the link is up but nothing has completed')
+    assert.ok(f.state().url.startsWith(ANTHROPIC_AUTHORIZE_HEAD))
+
+    calls.pane = successFrame(80)
+    const out = await f.poll()
+
+    assert.equal(out.state, 'done')
+    assert.equal(out.provider, 'anthropic')
+    assert.equal(store.read().token, LIVE_OAT)
+    // The pane held a plaintext year-long credential; the teardown is what takes
+    // the last copy off the box.
+    assert.deepEqual(calls.killed, ['curia-auth-anthropic'])
+    await new Promise((r) => setTimeout(r, 5))
+    assert.deepEqual(calls.stopped, ['curia-auth-anthropic'])
+    assert.equal(fs.existsSync(path.join(dir, 'cfg', 'curia-auth-anthropic')), false)
+    assert.equal(sessions.has('curia-auth-anthropic'), false)
+  })
+
+  // THE ONE THAT MATTERS MOST. A device code is a fifteen-minute secret and the
+  // journal already refuses it; this token is good for a year.
+  test('the token reaches the store and NOTHING else — not the journal, not the card', async () => {
+    const { f, calls, events } = anthropicFlow()
+    await f.start({ provider: 'anthropic' })
+    calls.pane = successFrame(60)
+    await f.poll()
+    assert.equal(JSON.stringify(events).includes(LIVE_OAT), false, 'a year-long credential must never reach the journal')
+    assert.equal(JSON.stringify(f.state() ?? {}).includes(LIVE_OAT), false)
+    assert.equal(events.at(-1)[0], 'reauth_completed')
+    assert.equal(events.at(-1)[1].provider, 'anthropic')
+  })
+
+  // A rejected token ends the flow loudly and leaves the fleet on what it had.
+  test('a token the provider rejects ends the flow as failed', async () => {
+    const { f, calls, store } = anthropicFlow({ check: async () => ({ ok: false, retry: false, why: 'Anthropic answered HTTP 401' }) })
+    await f.start({ provider: 'anthropic' })
+    calls.pane = successFrame(60)
+    const out = await f.poll()
+    assert.equal(out.state, 'failed')
+    assert.match(out.why, /401/)
+    assert.equal(store.read(), null)
+  })
+
+  // Both are `curia-auth-` sessions, so the five sweep guards cover the new one
+  // for free — that is the whole reason it is one flow and not two.
+  test('the anthropic session is an auth session to every guard that asks', () => {
+    assert.equal(isAuthSession(authSessionName('anthropic')), true)
+    assert.equal(authSessionName('anthropic'), 'curia-auth-anthropic')
   })
 })

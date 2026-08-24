@@ -49,6 +49,7 @@ import { ensureAgentImage } from './image.mjs'
 import {
   CodexCredentialBroker, ReauthFlow, isAuthSession, CODEX_PROVIDER,
   ANTHROPIC_PROVIDER, writeClaudeCredentials, CONSUMER_CREDENTIALS,
+  DeviceLoginLane, SetupTokenLane,
 } from './credentials.mjs'
 import { readDiffDigest, readFileHunks, digestLine, sliceFromPatch, capText } from './diffdigest.mjs'
 import { transcriptReset, holdVerdict, hottestPct, WARM_PCT } from './usage.mjs'
@@ -531,8 +532,19 @@ export class Dispatcher {
     // The re-authentication flow (#642). It takes the RAW tmux calls above, for
     // the reason the refusal states, and its image is filled in by
     // `startReauth` — an image ref is a per-dispatch build, not a constant.
-    this.reauth = this.credentials ? new ReauthFlow({
-      broker: this.credentials,
+    // ONE FLOW, ONE LANE PER PROVIDER (#660). The flow is built when EITHER
+    // store exists, not only the codex one: a box that owns the anthropic
+    // credential and no codex one can still sign anthropic back in, and the old
+    // `this.credentials ? …` gate would have left it with no way to.
+    //
+    // A lane appears only for a store this daemon was actually handed, so
+    // `startReauth` refuses an unowned provider by naming what it can do rather
+    // than throwing from inside the flow.
+    const lanes = {}
+    if (this.credentials) lanes[CODEX_PROVIDER] = new DeviceLoginLane({ broker: this.credentials })
+    if (this.anthropic) lanes[ANTHROPIC_PROVIDER] = new SetupTokenLane({ store: this.anthropic })
+    this.reauth = Object.keys(lanes).length ? new ReauthFlow({
+      lanes,
       agentUid: config.sandbox?.agent_uid ?? 1000,
       cfgDirFor: (session) => cfgDirFor(this.root, session),
       newSession: realSpawn,
@@ -1807,7 +1819,7 @@ export class Dispatcher {
     // attach to and one thing to test.
     let login
     try {
-      login = await this.startReauth({ consumer: provider, by: 'credential-hold' })
+      login = await this.startReauth({ provider, by: 'credential-hold' })
     } catch (e) {
       login = `❌ curia could not start the login by itself (${e.message}) — type \`reauth\` to start one.`
     }
@@ -1840,20 +1852,22 @@ export class Dispatcher {
   // carries `docker` but not `codex` — the login runs in the AGENT image, and a
   // box whose image is not built yet pays the same four minutes a dispatch pays.
   //
-  // WHAT CALLS THIS. Today, the operator, by typing `reauth`. #646 adds the
+  // WHAT CALLS THIS. Today, the operator, by typing `reauth`. #646 added the
   // second caller: a refresh whose failure classifies as terminal. Both land on
   // one flow, so there is one thing to test and one session to attach to.
-  async startReauth({ consumer = 'openai', by = null } = {}) {
-    if (consumer !== 'openai') {
-      // #648 relocated the anthropic credential and gave it a store, so what is
-      // left missing here is the FLOW and not the plumbing: `claude setup-token`
-      // puts its whole TUI on stdout and writes no credential file, so ADR-0027's
-      // completion rule has nothing to detect and picking a capture is its own
-      // decision (#659 §3).
-      return `❌ curia can re-authenticate \`openai\` today. The anthropic credential has a store and a contract since #648; what it still needs is a login flow, which is #660.`
+  //
+  // KEYED BY PROVIDER SINCE #660, and the word changed because the second lane
+  // made the old one wrong: one anthropic login serves TWO consumers, the claude
+  // containers and the overseer, so there is no consumer named `anthropic` to
+  // sign in. `openai` stays the bare default — it is the lane that can die on a
+  // timer, so it is the one an operator reaches for without thinking.
+  async startReauth({ provider = CODEX_PROVIDER, by = null } = {}) {
+    if (!this.reauth) return '❌ this daemon brokers no model credential, so it has nothing to sign back in'
+    const lane = this.reauth.laneFor(provider)
+    if (!lane) {
+      return `❌ curia owns no \`${provider}\` credential, so there is nothing to sign back in. It can re-authenticate: ${this.reauth.providers.join(', ') || 'nothing'}`
     }
-    if (!this.credentials) return '❌ this daemon brokers no model credential, so it has nothing to sign back in'
-    if (!this.config.sandbox) return '❌ this daemon runs no containers, so it has nothing to run `codex login` in'
+    if (!this.config.sandbox) return '❌ this daemon runs no containers, so it has nothing to run the login in'
     let image
     try {
       image = await this.deps.ensureAgentImage(this.config.sandbox, {
@@ -1865,7 +1879,7 @@ export class Dispatcher {
     this.reauth.image = image.ref
     let started
     try {
-      started = await this.reauth.start({ consumer })
+      started = await this.reauth.start({ provider })
     } catch (e) {
       return `❌ the re-authentication session could not be started (${e.message})`
     }
@@ -1877,11 +1891,17 @@ export class Dispatcher {
     const where = attach
       ? `Terminal: ${attach}`
       : 'curia could not publish a terminal link for it. The dashboard card carries the link and the code.'
-    this.reduction.journal('reauth_requested', { consumer, session, by })
+    this.reduction.journal('reauth_requested', { provider, session, by })
     if (!started.started) return [`🔑 ${started.why}: \`${session}\`.`, where].join('\n')
+    // The LANE says what the operator will see, because the two lanes ask
+    // different things of them: codex prints a code to read, `claude
+    // setup-token` waits for one to be typed in. A single sentence covering both
+    // would be wrong about one of them.
     return [
-      `🔑 signing \`${consumer}\` back in. Open the session and follow the two lines codex prints: a link, then a one-time code that lives fifteen minutes. Nothing is pasted back.`,
-      'The code is on the dashboard too, and never in this channel.',
+      `🔑 signing \`${provider}\` back in. ${lane.howTo}`,
+      lane.typed
+        ? 'The link is on the dashboard too. The code you paste, and the token that comes back, never reach this channel.'
+        : 'The code is on the dashboard too, and never in this channel.',
       where,
     ].join('\n')
   }
@@ -1903,28 +1923,41 @@ export class Dispatcher {
     }
     if (!outcome) return null
     this.reauth.clear()
+    const provider = outcome.provider
     if (outcome.state === 'done') {
       // The fan-out is what makes this a recovery rather than a login: the
-      // credential reaches every live codex agent on this same tick, and #644
-      // measured that a running codex process picks up a replaced `auth.json`
-      // with no restart.
+      // credential reaches every live agent on this same tick, and both lanes
+      // have measured that a running process picks up a replaced file with no
+      // restart — #644 §1 for codex, #659 §2 for claude.
       // Adoption is the only thing that lifts a credential hold, and the broker
       // has already cleared its own latch inside `adopt`. Lifting it BEFORE the
       // sync is what lets that same tick's fan-out and the next tick's stall
       // ladder do their jobs.
-      const lifted = this.cooling.releaseHold(CODEX_PROVIDER)
+      //
+      // THE HOLD IS RELEASED ON EITHER LANE, even though only codex can take one
+      // today: `refresh: null` means nothing on the anthropic lane can classify a
+      // failure as terminal, so nothing holds it. Asking anyway costs one map
+      // lookup and is what stops #666's probe-401 hold from shipping a lane that
+      // signs in and stays frozen.
+      const lifted = this.cooling.releaseHold(provider)
       if (lifted) {
         this.#frozenNoted.clear()
-        this.reduction.journal('credential_hold_lifted', { consumer: outcome.consumer, provider: CODEX_PROVIDER })
+        this.reduction.journal('credential_hold_lifted', { provider })
       }
-      const { healed } = await this.syncModelCredentials()
-      const line = healed.length
-        ? `✅ \`${outcome.consumer}\` is authenticated again, and ${healed.length} live agent(s) hold the fresh credential: ${healed.join(', ')}.`
-        : `✅ \`${outcome.consumer}\` is authenticated again. No live agent needed it.`
-      await this.announce(line)
+      // Each lane heals its own consumers, and the anthropic one heals two.
+      const healed = provider === ANTHROPIC_PROVIDER
+        ? this.syncAnthropicCredentials().healed
+        : (await this.syncModelCredentials()).healed
+      // The OVERSEER is not in that list and does not need to be: its delivery
+      // is the store behind a read-only mount, so `runOneTurn` re-reads the file
+      // the login just wrote and needs nothing pushed to it (#648).
+      const who = healed.length
+        ? `${healed.length} live agent(s) hold the fresh credential: ${healed.join(', ')}.`
+        : 'No live agent needed it.'
+      await this.announce(`✅ \`${provider}\` is authenticated again, and ${who}`)
       return outcome
     }
-    await this.announce(`⚠️ the \`${outcome.consumer}\` re-authentication ended as **${outcome.state}**. Nothing was changed. Type \`reauth\` to start another one.`)
+    await this.announce(`⚠️ the \`${provider}\` re-authentication ended as **${outcome.state}**. Nothing was changed. Type \`reauth ${provider}\` to start another one.`)
     return outcome
   }
 

@@ -900,12 +900,14 @@ describe('bin/curia-attach.sh', () => {
 
 // #642: the operator's way back into a dead model credential, with no ssh in it.
 describe('reauth', () => {
-  test('bare means openai — the one consumer the daemon owns today', () => {
-    assert.deepEqual(parseCommand('reauth'), { verb: 'reauth', consumer: 'openai' })
+  test('bare means openai — the one lane whose credential dies on a timer', () => {
+    assert.deepEqual(parseCommand('reauth'), { verb: 'reauth', provider: 'openai' })
   })
 
-  test('a named consumer is carried through as typed', () => {
-    assert.deepEqual(parseCommand('reauth anthropic'), { verb: 'reauth', consumer: 'anthropic' })
+  // A PROVIDER, not a consumer (#660). One anthropic login serves the claude
+  // containers and the overseer both, so there is no consumer to name here.
+  test('a named provider is carried through as typed', () => {
+    assert.deepEqual(parseCommand('reauth anthropic'), { verb: 'reauth', provider: 'anthropic' })
   })
 
   test('anything shell-shaped or multi-word refuses', () => {
@@ -914,7 +916,7 @@ describe('reauth', () => {
     assert.equal(parseCommand('reauth OpenAI'), null)
   })
 
-  test('the router hands the verb to the dispatcher, consumer and all', async () => {
+  test('the router hands the verb to the dispatcher, provider and all', async () => {
     const seen = []
     const router = new CommandRouter({
       dispatcher: { config: { watch: [] }, startReauth: async (opts) => { seen.push(opts); return '🔑 ok' } },
@@ -922,7 +924,7 @@ describe('reauth', () => {
       log: () => {},
     })
     assert.equal(await router.handle('reauth', 'u1'), '🔑 ok')
-    assert.deepEqual(seen, [{ consumer: 'openai', by: 'u1' }])
+    assert.deepEqual(seen, [{ provider: 'openai', by: 'u1' }])
   })
 
   // The attach surface is the substrate under the whole flow, and it admits the

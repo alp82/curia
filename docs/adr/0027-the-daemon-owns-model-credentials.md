@@ -83,13 +83,32 @@ This was chosen over scraping a PTY and over reimplementing PKCE inside curia:
 - Phone-reachable, with no ssh.
 - One mechanism for every consumer.
 
-Session rules: the prefix is `curia-auth-`, one session per consumer enforced by the fixed name, completion detected by the credential file appearing in the scratch config dir, a 30-minute timeout comfortably past the code's own fifteen, and every outcome journaled. A re-authentication that silently vanished is the same class of bug as the credential that silently vanished.
+Session rules: the prefix is `curia-auth-`, one session per **provider** enforced by the fixed name, a 30-minute timeout comfortably past the code's own fifteen, and every outcome journaled. A re-authentication that silently vanished is the same class of bug as the credential that silently vanished.
+
+The session is keyed by provider and not by consumer, which the codex lane's name said from the first commit while the code called it a consumer. [#660](https://github.com/alp82/curia/issues/660) made the word matter: one `anthropic` login serves the claude containers **and** the overseer, so there is no consumer to name.
+
+### Completion is per lane, and only one lane has a file
+
+This ADR originally stated one completion rule — the credential file appearing in the scratch config dir. That rule is **codex's**, not the mechanism's. [#659](https://github.com/alp82/curia/issues/659) measured that `claude setup-token` writes no credential file at all: it prints the token once, into a redrawing Ink TUI on stdout, and saves nothing. So the anthropic lane has nothing to detect by that rule, and its completion signal is **the token appearing in the pane**.
+
+That means a parsing contract with the CLI's output, which the four reasons above were chosen to avoid. #660 accepted it under one condition, and the condition is what makes it safe: **curia asks Anthropic whether what it read is a working credential, and adopts only on a yes.** The contract is not avoided, it is made falsifiable. A wording change upstream, a layout change, or a misread frame ends the login as `failed` and leaves the store exactly as it was — where an unchecked scrape would write a broken token into the store and fan it out to every live claude agent.
+
+Two measured facts shape the read, both on the box's own agent image:
+
+- The token is a bare Ink `Text`, its own child of a bordered-less column with `gap: 1` — alone on its line, with a blank line either side.
+- Ink hard-wraps at the pane width, emitting real newlines, so `tmux capture-pane -J` does not rejoin them and no tmux flag does. A 108-character token arrives in pieces on any pane narrower than itself, and something has to put it back together.
+
+The three shapes #660 inherited resolved as follows. Redirecting stdout into the store is **dead**: everything goes to stdout, so the redirect hands the operator a blank pane. A stream-splitting wrapper and a pane scrape face the identical last step — picking the token out of a rendered frame — which makes the pane scrape the cheaper of the two rather than the last resort. Having the operator paste the token into the dashboard stays **refused**: a year-long credential through a browser and a request body is what the tmux surface exists to avoid.
 
 **No sweep ever walks a `curia-auth-` session.** Not the liveness sweep, not the stall sweep, not reconcile, not the credential sweep, not the container sweep. The stall sweep in particular would find a pane with no transcript growth and type a continue message into a login prompt.
 
 ### The device code reaches one surface
 
 The dashboard scrapes the link and the code off the pane and draws them as a card, because reading a code off a terminal on a phone at 3am is the experience this replaces. The card is an optimization over the terminal and never a replacement for it: when the scrape misses, it says so and points at the session.
+
+The anthropic lane runs this the other way round. The operator does not read a code out of the pane; the browser shows one and they paste it **in**, into the writable terminal — curia cannot type it for them, because the pane write path refuses a `curia-auth-` session by name and that refusal is what stops the stall ladder typing into a login prompt. So the card carries the link alone and says what to do with the code rather than inventing one to display.
+
+**The token that lane produces reaches no surface at all.** A device code is a fifteen-minute secret and the card is the one place it is allowed; a `setup-token` credential is good for a year. It goes from the pane to the store and appears in no card, no journal line, and no Discord message. The teardown is part of that: killing the session on the tick that adopts is what takes the last plaintext copy off the box.
 
 Discord carries the alarm and a link to the dashboard. It never carries the code. A one-time auth code in a chat log is a credential in a chat log.
 
@@ -123,4 +142,6 @@ So the stall sweep skips every agent whose provider is held, and journals it onc
 - What happens when a refresh **fails** was deliberately left open here until the evidence existed. It is now decided above, by [#646](https://github.com/alp82/curia/issues/646), on the measurements in [#643](https://github.com/alp82/curia/issues/643) and [#644](https://github.com/alp82/curia/issues/644).
 - Freeze-in-place works on **both** agent lanes, and that is measurement rather than choice. A running codex process picks up a replaced `auth.json` with no restart, keeping its pane, claim, worktree, and conversation. #646 recorded the claude lane as unreachable, which was an inference from `modelCredential` handing over an environment variable — and [#659](https://github.com/alp82/curia/issues/659) overturned it by measuring the other channel: writing a good `.credentials.json` into a running agent's already-mounted config dir heals it with no restart, **including an agent spawned before #648, with its expired variable still in its environment**. So no kill path was built, the fix reaches the agents that predate it, and both lanes need the same nudge afterwards, because a turn that died leaves the agent idle at the composer.
 - A new harness added with no credential story is how this bug returns, and the two tables above are what refuse one at boot. `HARNESS` gained a `provider` row for the same reason it carries `memoryFile`: a new lane has to answer it.
-- The re-authentication **flow** for the anthropic lane is not here. `claude setup-token` puts its whole TUI on stdout and writes no credential file, so this ADR's completion rule — the credential file appearing — has nothing to detect on that lane, and picking a capture is [#660](https://github.com/alp82/curia/issues/660)'s decision. Until it lands, `reauth` answers `openai` alone and says so.
+- The re-authentication **flow** now covers both lanes ([#660](https://github.com/alp82/curia/issues/660)). One flow, one lane object per provider: the session naming, the window, the sweep guards, the teardown and the journal are shared, and only what to run, what the pane means, and what completion is vary. Growing a second flow would have made all five sweep guards re-earn themselves.
+- **`reauth` takes a provider**, not a consumer, and bare still means `openai` — the one lane whose credential dies on a timer. The dashboard's own nudge names the provider with it, because two of the three rows are anthropic and a bare `reauth` on either would start the wrong login.
+- This ADR's "no parsing contract with the CLI" holds for the codex lane and is **bought back** on the anthropic one, at the price of one HTTP call per completed login. The trade is stated above rather than buried: the alternative was no login flow on that lane at all, since `setup-token` is the only way to mint the credential the map keeps.
