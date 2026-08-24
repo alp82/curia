@@ -780,7 +780,7 @@ halftone dots, two inks overprinted) and dusk (a sunset poster with a white arch
 The screen is drawn against a 15.5rem device and zoomed to whatever width a variation gives it, so
 a smaller phone is a smaller phone rather than a zoomed-in page.
 
-Five presentations ride `?id=1..5`:
+Round 1 offered five presentations of the device on `?id=1..5`:
 
 1. **deck** — front on and as large as the column allows, standing in the scene's stage light. The
    round cross-fades in place, and the switcher stays inside the phone.
@@ -800,12 +800,34 @@ A real curia prototype is dark, and a dark page inside a dark page proves nothin
 so the ask for a bright artsy design and the ask for true content pull apart here. Round 1 asks
 the operator which one wins.
 
-**Four build checks** ran against the file, since no agent on this ticket has eyes on it: every
-design appears once with its own palette and its own art, every presentation carries rules of its
-own, every class the markup uses is styled and every hook the script reaches for is in the markup,
-and the build rules hold (no image, no remote asset, no webfont). Each check was validated by
-breaking the file on purpose first, one break at a time, and every break produced exactly one
-failure.
+**Round 2.** The operator picked **pair**, and asked for five distinct layouts: "you can place all
+3 elements differently." The four other presentations left the file with round 1, the way the
+identity switcher left it at #624. The three elements are the phone, the workstation window, and
+the round switcher, and the five layouts on `?id=1..5` place all three differently:
+
+1. **corner** — the window fills the right, and the phone hangs off its bottom-left corner. The
+   switcher sits under the window.
+2. **desk** — both devices stand on one baseline, the way they stand on a desk, and the switcher
+   runs centered under the pair of them.
+3. **overlap** — the phone stands in front of a window turned a little off square, and the
+   switcher is a column on the left.
+4. **split** — the window runs off the left edge of the page, so the workstation reads as the
+   bigger surface, and the switcher is the spine between the two devices.
+5. **stack** — a column for a reader holding a phone: the switcher on top, then the window, then
+   the phone leaning up into it.
+
+**A fault of round 1, worth writing down.** The markup order is phone, then workstation, then
+switcher. The pair layout stated no position for any of them, so it took that order by accident:
+the phone rendered above the window and its negative margin pulled it up into the claim. Every
+layout now says where each of the three elements sits, and a build check refuses a layout that
+leaves one of them to the markup order.
+
+**Six build checks** ran against the file, since no agent on this ticket has eyes on it: every
+design appears once with its own palette and its own art, every layout places all three elements,
+every layout states where each one sits, no two layouts are the same layout under two names, every
+class the markup uses is styled and every hook the script reaches for is in the markup, and the
+build rules hold (no image, no remote asset, no webfont). Each check was validated by breaking the
+file on purpose first, one break at a time, and every break produced exactly one failure.
 
 ## The verdict of the Discord scene ([#626](https://github.com/alp82/curia/issues/626))
 
