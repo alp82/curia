@@ -1795,132 +1795,98 @@
 
 
   /* ================================================================
-     Round 5 (#630) — the ticket block, and the lanes that open under it.
+     Round 6 (#630) — one pinned ticket, and beats that scroll under it.
 
-     The operator's answer to round 4, verbatim:
+     The operator's answer to round 5, with a screenshot of their phone:
 
-       behind is not bad. the github block should have fixed height but
-       not that tall, only enough to fit everything without layout
-       shift. then the other screens show below it without that huge of
-       a gap
+       Can't check the desktop version right now but mobile is broken.
+       The pinned element should be just the ticket and the rest moves
+       and switches while scrolling
 
-       narration should be:
-       1. open ticket (only github ticket visible)
-       2. you tell it to start (dashboard ticket + start click)
-       3. agent starts working on it (discord thread developing while
-          scrolling, streaming questions, prototypes, etc.)
-       4. agent waits for confirmation (pull request display)
-       5. agent finishes the work (discord confifmation in thread)
+     WHY IT WAS BROKEN, and it is not what it looked like. Every lane
+     showed at once, squashed, because scene 9 already owns a class
+     called `.lane` — the VPS box's rows — and it declares it LATER in
+     this file. Same specificity, so it won. `.lane { display: none }`
+     never applied, and `.lane > * { height: 100% }` was damaging scene
+     9's own bars at the same time. Two scenes, one generic name.
 
-       it also kind of has parallel lanes. the ticket is always there,
-       but the discord thead and pull request life together at the end
-       of the journey, so we could also show them together evolving in
-       the last 2 steps
+     So every class this scene owns is prefixed `r8-` now, and a build
+     check refuses a scene 8 class that any other scene declares.
 
-       more variations in this direction
+     THE SHAPE, from the operator's own sentence. The ticket is the only
+     thing pinned. Everything else moves: the page scrolls through five
+     BEATS, each one its own words and the screens open at that point,
+     and the ticket's timeline grows a row as each beat arrives.
 
-     Four things settle with that:
-
-     1. THE TICKET BLOCK NEVER MOVES. Its rows are always laid out and
-        only their VISIBILITY changes, so the block is exactly as tall
-        as its fullest state from the first frame. No reserved magic
-        number, and no layout shift, because nothing is ever added.
-     2. THE LANES OPEN UNDER IT, close. One small gap, not a screen of
-        air.
-     3. FIVE STEPS, the operator's own five, and the ticket's timeline
-        grows one real row per step.
-     4. THE LANES ARE PARALLEL, not a sequence. The thread opens at step
-        3 and STAYS, the pull request opens at step 4 beside it, and
-        both are still evolving at step 5.
-
-     The Start button in the dashboard lane is a real control:
-     `dashboard.mjs` serves `POST /api/start` from a frontier card, and
-     it runs the same `start <repo>#<ticket>` the command channel does.
+     Nothing else is held. Round 5 pinned a whole 60dvh stage and packed
+     the ticket, three lanes and their chrome into it, which is what
+     clipped every one of them on a phone.
      ================================================================ */
 
-  /* ---- the track: the narration scrolls, the stage holds ---- */
-  .runtrack { position: relative; }
-  .runstage {
-    position: sticky; top: 0; z-index: 3;
-    height: 60dvh; display: flex; flex-direction: column; gap: 0.55rem;
-    padding: 0.7rem 0 0.8rem;
-    background: linear-gradient(180deg, rgba(17, 23, 45, 0.97) 80%, rgba(17, 23, 45, 0.86));
-    -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+  /* ---- the pinned ticket. The only held thing in the scene. ---- */
+  .r8-track { position: relative; }
+  .r8-tkt {
+    position: sticky; top: 0.5rem; z-index: 6;
+    font-size: 0.74rem; box-shadow: 0 12px 30px -8px rgba(0, 0, 0, 0.7);
   }
-  .steps { position: relative; z-index: 2; }
-  .steps .nb { min-height: 72svh; display: flex; flex-direction: column; justify-content: center; margin: 0; }
-  .steps .nb:last-child { min-height: 50svh; }
-  .steps .nb { opacity: 0.5; transition: opacity 0.4s var(--ease); }
-  .steps .nb.on { opacity: 1; }
-  .nb .nn {
+  .r8-tkt .gx-h1 { font-size: 1.02em; }
+  .r8-tl { margin-top: 0.5em; }
+  /* Every row is always laid out and only its VISIBILITY moves, so the
+     block is as tall as its fullest state from the first frame and
+     nothing is ever added to it. `display` would hand the shift back. */
+  .r8-tl li { font-size: 0.92em; margin-bottom: 0.45em; visibility: hidden; opacity: 0; transition: opacity 0.4s var(--ease); }
+  #run[data-k="1"] .r8-tl li:nth-child(-n+1),
+  #run[data-k="2"] .r8-tl li:nth-child(-n+2),
+  #run[data-k="3"] .r8-tl li:nth-child(-n+3),
+  #run[data-k="4"] .r8-tl li:nth-child(-n+4),
+  #run[data-k="5"] .r8-tl li { visibility: visible; opacity: 1; }
+  /* GitHub keeps a ticket Open until it is closed, so the pill moves
+     once and the ROWS carry the run. */
+  .r8-tkt .gx-st.done { display: none; }
+  #run[data-k="5"] .r8-tkt .gx-st.open { display: none; }
+  #run[data-k="5"] .r8-tkt .gx-st.done { display: inline-flex; }
+
+  /* ---- the beats. Each one is its words and the screens open at that
+         point in the run, and they scroll normally. ---- */
+  .r8-beat { padding: 3.2rem 0 1rem; display: grid; gap: 1rem; align-content: center; }
+  .r8-beat:first-child { min-height: 42svh; }
+  .r8-nb { margin: 0; }
+  .r8-nb .nn {
     display: inline-block;
     font: 800 0.72rem var(--mono); letter-spacing: 0.06em;
     background: var(--sc); color: #08090c; padding: 0.13rem 0.5rem; border-radius: 3px;
   }
-  .nb b {
+  .r8-nb b {
     font-size: clamp(1.15rem, 5.4vw, 1.7rem); font-weight: 800;
     letter-spacing: -0.02em; line-height: 1.15; color: var(--text);
-    display: block; margin-top: 0.6rem; text-wrap: balance;
+    display: block; margin-top: 0.55rem; text-wrap: balance;
   }
+  .r8-beat { opacity: 0.62; transition: opacity 0.4s var(--ease); }
+  .r8-beat.on { opacity: 1; }
 
-  /* ---- the ticket block. Fixed by construction: every row is always
-         laid out and only its visibility moves, so the block is as tall
-         as its fullest state from the first frame. ---- */
-  .tkt { flex: none; font-size: 0.74rem; }
-  .tkt .gx-h1 { font-size: 1.02em; }
-  .tkt-tl { margin-top: 0.55em; }
-  .tkt-tl li { font-size: 0.92em; margin-bottom: 0.5em; visibility: hidden; opacity: 0; transition: opacity 0.4s var(--ease); }
-  #run[data-k="1"] .tkt-tl li:nth-child(-n+1),
-  #run[data-k="2"] .tkt-tl li:nth-child(-n+2),
-  #run[data-k="3"] .tkt-tl li:nth-child(-n+3),
-  #run[data-k="4"] .tkt-tl li:nth-child(-n+4),
-  #run[data-k="5"] .tkt-tl li { visibility: visible; opacity: 1; }
-  /* GitHub keeps a ticket Open until it is closed, so the pill moves
-     once and the ROWS carry the run. */
-  .tkt .gx-st.done { display: none; }
-  #run[data-k="5"] .tkt .gx-st.open { display: none; }
-  #run[data-k="5"] .tkt .gx-st.done { display: inline-flex; }
+  /* ---- the floor and its lanes. The thread opens at beat 3 and the
+         pull request runs beside it for the last two, which is the
+         parallel the operator named. ---- */
+  .r8-floor { display: grid; gap: 0.7rem; }
+  .r8-lane { min-width: 0; }
+  .r8-lane .win, .r8-lane .at-scr { overflow: hidden; }
+  .r8-lane .at-scr { max-height: none; }
 
-  /* ---- the floor: the lanes that open under the ticket ---- */
-  .floor { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 0.55rem; }
-  .lane { display: none; min-height: 0; flex: 1 1 auto; }
-  .lane > * { height: 100%; overflow: hidden; }
-  #run[data-k="2"] .lane[data-lane="dash"],
-  #run[data-k="3"] .lane[data-lane="chat"],
-  #run[data-k="4"] .lane[data-lane="chat"], #run[data-k="4"] .lane[data-lane="pr"],
-  #run[data-k="5"] .lane[data-lane="chat"], #run[data-k="5"] .lane[data-lane="pr"] { display: block; }
-  .lane .win, .lane .at-scr, .lane .dcx { height: 100%; display: flex; flex-direction: column; }
-  .lane .win-body, .lane .at-body, .lane .dcx-log { flex: 1 1 auto; min-height: 0; overflow: hidden; }
-  .lane .at-scr { max-height: none; }
-
-  /* The thread develops as the run does: a message belongs to a step
-     and every earlier one stays. */
-  .lane .dc-msg { display: none; }
-  #run[data-k="3"] .lane .dc-msg[data-k="3"],
-  #run[data-k="4"] .lane .dc-msg[data-k="3"], #run[data-k="4"] .lane .dc-msg[data-k="4"],
-  #run[data-k="5"] .lane .dc-msg[data-k="3"], #run[data-k="5"] .lane .dc-msg[data-k="4"],
-  #run[data-k="5"] .lane .dc-msg[data-k="5"] { display: flex; }
-  /* The pull request lands merged at the last step, and nowhere else. */
-  .lane[data-lane="pr"] .gx-st.merged { display: none; }
-  #run[data-k="5"] .lane[data-lane="pr"] .gx-st.open { display: none; }
-  #run[data-k="5"] .lane[data-lane="pr"] .gx-st.merged { display: inline-flex; }
-
-  /* ---- the dashboard lane's frontier card and its Start button ---- */
-  .fcard {
+  /* the dashboard lane's frontier card and its Start button */
+  .r8-fcard {
     display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 0.6rem;
     background: #12141a; border: 1px solid #262b35; border-left: 3px solid #5ec8e5;
     border-radius: 8px; padding: 0.55rem 0.65rem; margin-top: 0.45rem;
   }
-  .fcard .fc-t { font-weight: 600; font-size: 0.78rem; line-height: 1.25; }
-  .fcard .fc-m { display: flex; align-items: center; gap: 0.4rem; margin-top: 0.3rem; }
-  .fcard .fc-n { font: 700 0.62rem var(--mono); color: #8a93a3; }
-  .fcard .fc-go {
-    grid-row: 1 / span 2; align-self: center;
+  .r8-fcard .fc-t { font-weight: 600; font-size: 0.78rem; line-height: 1.25; }
+  .r8-fcard .fc-m { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin-top: 0.3rem; }
+  .r8-fcard .fc-n { font: 700 0.62rem var(--mono); color: #8a93a3; }
+  .r8-fcard .fc-go {
     border: none; border-radius: 6px; padding: 0.4rem 0.9rem;
     font: 700 0.72rem var(--sans); color: #06231a; background: var(--st-merged);
   }
-  #run[data-k="2"] .fcard .fc-go { animation: runstart 900ms var(--ease) 480ms; }
-  @keyframes runstart {
+  #run[data-k="2"] .r8-fcard .fc-go { animation: r8start 900ms var(--ease) 460ms; }
+  @keyframes r8start {
     0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(125, 211, 160, 0.75); }
     40% { transform: scale(1.12); filter: brightness(1.35); box-shadow: 0 0 0 0.5em rgba(125, 211, 160, 0.35); }
     75% { transform: scale(0.99); box-shadow: 0 0 0 1.4em rgba(125, 211, 160, 0); }
@@ -1928,66 +1894,55 @@
   }
 
   @media (min-width: 62rem) {
-    .runtrack { display: grid; grid-template-columns: 20rem 1fr; column-gap: 3.4rem; align-items: start; }
-    .steps { grid-column: 1; }
-    .runstage {
-      grid-column: 2; grid-row: 1; height: 100dvh; padding: 8vh 0 6vh;
-      background: none; backdrop-filter: none; -webkit-backdrop-filter: none;
-    }
-    .steps .nb { min-height: 88svh; }
-    .steps .nb:last-child { min-height: 58svh; }
+    /* The words take the docking side and the screens the other, which
+       is #624's alternation read at the scale of one scene. The ticket
+       is still the only pinned thing. */
+    .r8-tkt { top: 6vh; }
+    .r8-beat { grid-template-columns: 17rem 1fr; column-gap: 3rem; align-items: center; padding: 4.5rem 0 1.5rem; }
+    .r8-nb { grid-column: 1; }
+    .r8-floor { grid-column: 2; }
+    .r8-beat:first-child { min-height: 30svh; }
   }
 
   /* ---- 1 · stack. The lanes open one under the other, and at the end
-         the thread and the pull request share the floor top to bottom.
-         The plainest reading of parallel. ---- */
-  .v-stack .floor { flex-direction: column; }
+         the thread and the pull request share the beat top to bottom.
+         The plainest reading of parallel, and the only one that gives a
+         lane the whole width at every screen size. ---- */
+  .v-stack .r8-floor { grid-auto-flow: row; gap: 1rem; }
+  .v-stack .r8-lane > * { box-shadow: 0 10px 26px rgba(0, 0, 0, 0.5); }
+  .v-stack .r8-lane + .r8-lane { border-left: 2px solid rgba(var(--scb), 0.45); padding-left: 0.8rem; }
 
   /* ---- 2 · pair. At the end the two lanes stand SIDE BY SIDE, which
          is what makes them read as running at the same time rather than
          one after the other. ---- */
   @media (min-width: 46rem) {
-    .v-pair .floor { flex-direction: row; }
-    .v-pair .lane { flex: 1 1 0; }
+    .v-pair .r8-floor { grid-auto-flow: column; grid-auto-columns: 1fr; align-items: start; }
   }
 
-  /* ---- 3 · deal. The lanes are dealt onto the floor like paper, each
+  /* ---- 3 · deal. The lanes are dealt onto the beat like paper, each
          turned a little and casting, which keeps the desk. ---- */
-  .v-deal .floor { position: relative; }
-  .v-deal .lane > * { box-shadow: 0 16px 34px rgba(0, 0, 0, 0.6); }
-  .v-deal .lane[data-lane="chat"] > * { transform: rotate(-0.7deg); }
-  .v-deal .lane[data-lane="pr"] > * { transform: rotate(0.8deg); }
-  .v-deal .lane[data-lane="dash"] > * { transform: rotate(-0.5deg); }
-  .v-deal .floor { gap: 0.35rem; }
+  .v-deal .r8-lane > * { box-shadow: 0 16px 34px rgba(0, 0, 0, 0.6); }
+  .v-deal .r8-lane:nth-child(odd) > * { transform: rotate(-0.8deg); }
+  .v-deal .r8-lane:nth-child(even) > * { transform: rotate(0.9deg); }
+  .v-deal .r8-floor { gap: 1.1rem; }
 
-  /* ---- 4 · rail. The floor is a rail and a lane slides in from the
-         docking side as it opens, so the newest is in front and the one
-         that opened first is still there behind it. ---- */
-  .v-rail .floor { position: relative; }
-  .v-rail .lane { transition: transform 0.45s var(--ease), opacity 0.45s var(--ease); }
-  .v-rail .lane[data-lane="pr"] { margin-left: 1.4rem; }
-  .v-rail .lane[data-lane="chat"] { margin-right: 1.4rem; }
-  .v-rail .lane > * { box-shadow: 0 12px 30px rgba(0, 0, 0, 0.55); }
+  /* ---- 4 · rail. A lane that opens later is inset from the docking
+         side, so the run reads as widening rather than stacking. ---- */
+  .v-rail .r8-lane:nth-child(2) { margin-left: 1.6rem; }
+  .v-rail .r8-lane > * { box-shadow: 0 12px 30px rgba(0, 0, 0, 0.55); }
+  .v-rail .r8-floor { gap: 0.5rem; }
 
-  /* ---- 5 · console. The ticket block and the lanes share ONE frame,
-         with no gap at all: the ticket is the header band and the lanes
-         are panes docked under it. ---- */
-  .v-console .runstage { gap: 0; }
-  .v-console .tkt { border-radius: 6px 6px 0 0; border-bottom: none; }
-  .v-console .floor { gap: 1px; background: var(--gx-line, #30363d); padding: 1px; border-radius: 0 0 6px 6px; }
-  .v-console .lane > * { border-radius: 0; border: none; }
+  /* ---- 5 · console. The lanes share ONE frame with no gap at all, so
+         a beat reads as one instrument rather than two pictures. ---- */
+  .v-console .r8-floor { gap: 1px; background: var(--gx-line, #30363d); padding: 1px; border-radius: 8px; }
+  .v-console .r8-lane > * { border-radius: 0; border: none; }
 
-  /* ---- the fail-open path. With reduced motion or no script the held
-         view lets go, every lane opens, the thread shows whole and the
-         ticket shows its full timeline. Every word reads, in order. ---- */
-  .still .runstage { position: static; height: auto; display: block; background: none; }
-  .still .floor { display: grid; gap: 1.4rem; margin-top: 1.2rem; }
-  .still .lane { display: block; }
-  .still .lane > *, .still .lane .win, .still .lane .at-scr, .still .lane .dcx { height: auto; }
-  .still .lane .win-body, .still .lane .at-body, .still .lane .dcx-log { overflow: visible; }
-  .still .lane .dc-msg { display: flex; }
-  .still .tkt-tl li { visibility: visible; opacity: 1; }
-  .still .steps .nb { min-height: 0; opacity: 1; margin-bottom: 2rem; }
+  /* ---- the fail-open path. With reduced motion or no script the
+         ticket stops following the reader and shows its whole timeline.
+         Every beat already stands on its own. ---- */
+  .still .r8-tkt { position: static; }
+  .still .r8-tl li { visibility: visible; opacity: 1; }
+  .still .r8-beat { opacity: 1; }
 
   /* ---- the round switcher. It leaves the file with the round that
          settles this scene, the way #624's identity bar did. ---- */
@@ -2809,159 +2764,218 @@
       <!-- The six events. ONE set of cards; compositions 1, 2, 4 and 5
            are four layouts over it, so the same evidence is judged
            every time and only the reading changes. -->
-    <!-- ROUND 5. The ticket block never moves, and the lanes open under
-         it. The thread opens at step 3 and STAYS, the pull request
-         opens at step 4 beside it, and both are still evolving at step
-         5 — the parallel lanes the operator named. -->
-    <div class="runtrack" id="runtrack">
-      <div class="runstage" id="runstage">
+    <!-- ROUND 6. The ticket is the ONLY pinned thing. Everything else
+         moves: the page scrolls through five beats, each one its words
+         and the screens open at that point, and the ticket grows a
+         timeline row as each beat arrives.
 
-        <!-- The constant. Every row is a real, timestamped event on
-             alp82/curia#587, read off its own timeline. Rows are always
-             laid out and only their visibility moves, so this block is
-             as tall as its fullest state from the first frame. -->
-        <article class="gx tkt" id="tkt">
-          <div class="gx-crumb">alp82 / <b>curia</b></div>
-          <h3 class="gx-h1">Choose the words of every scene of the final page <span class="num">#587</span></h3>
-          <div class="gx-meta">
-            <span class="gx-st open"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-pr"/></svg>Open</span>
-            <span class="gx-st done"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-closed"/></svg>Closed as completed</span>
-            <span class="tkt-chip">wayfinder:prototype</span>
-            <span class="gx-by"><b>alp82</b> opened this issue on Aug 21, 2026</span>
-          </div>
-          <ol class="gx-tl tkt-tl">
+         Every class this scene owns is prefixed `r8-`. Round 5 called
+         one of them `.lane`, which scene 9's VPS box already owns and
+         declares later in this file, so every lane showed at once and
+         squashed on the operator's phone. -->
+    <div class="r8-track" id="runtrack">
+
+      <!-- The constant. Every row is a real, timestamped event on
+           alp82/curia#587, read off its own timeline. Rows are always
+           laid out and only their visibility moves, so this block is as
+           tall as its fullest state from the first frame. -->
+      <article class="gx r8-tkt" id="tkt">
+        <div class="gx-crumb">alp82 / <b>curia</b></div>
+        <h3 class="gx-h1">Choose the words of every scene of the final page <span class="num">#587</span></h3>
+        <div class="gx-meta">
+          <span class="gx-st open"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-pr"/></svg>Open</span>
+          <span class="gx-st done"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-closed"/></svg>Closed as completed</span>
+          <span class="tkt-chip">wayfinder:prototype</span>
+          <span class="gx-by"><b>alp82</b> opened this issue on Aug 21, 2026</span>
+        </div>
+        <ol class="gx-tl r8-tl">
             <li><span class="nd2"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-commit"/></svg></span><b>alp82</b> opened this issue · Aug 21, 15:08</li>
             <li><span class="nd2"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-commit"/></svg></span><b>curia-sh</b> assigned this to <b>alp82</b> · Aug 21, 18:46</li>
             <li><span class="nd2"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-pr"/></svg></span><b>curia-sh</b> commented · Aug 21, 18:55<span class="cmt">🔗 curia pushed <code>curia/587</code> (1 commit) and opened <a href="https://github.com/alp82/curia/pull/597">#597</a></span></li>
             <li><span class="nd2"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-pr"/></svg></span><b>curia-sh</b> commented · Aug 22, 19:10<span class="cmt">🔗 curia pushed <code>curia/587</code> (5 commits) and updated <a href="https://github.com/alp82/curia/pull/597">#597</a></span></li>
             <li><span class="nd2 merged"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-merge"/></svg></span><b>curia-sh</b> merged <a href="https://github.com/alp82/curia/pull/597">#597</a> as <code>a71e154</code> and closed this as completed · Aug 22, 2026, 19:13</li>
-          </ol>
-        </article>
+        </ol>
+      </article>
 
-        <div class="floor" id="floor">
+      <div class="r8-beats" id="beats">
+        <section class="r8-beat on" data-i="0">
+          <p class="r8-nb"><span class="nn">01</span><b>You open a ticket.</b></p>
+        </section>
 
-          <!-- Step 2 · curia's own dashboard. The frontier card and its
-               Start button are a real control: dashboard.mjs serves
-               POST /api/start from that card, and it runs the same
-               `start <repo>#<ticket>` the command channel does. The
-               screen is the V6 dashboard of #519, in the shape scene 6
-               already draws it. -->
-          <div class="lane" data-lane="dash">
-            <div class="at-scr">
-              <div class="at-ht"><span>curia · atlas</span><span class="needs">1 takeable</span></div>
-              <div class="at-body">
-                <div class="front"><span class="frontlbl">the frontier</span><span class="frule"></span><span class="fcap">1 takeable</span></div>
-                <div class="fcard">
-                  <div>
-                    <div class="fc-t">Choose the words of every scene of the final page</div>
-                    <div class="fc-m"><span class="fc-n">alp82/curia#587</span><span class="tkt-chip">wayfinder:prototype</span></div>
+        <section class="r8-beat" data-i="1">
+          <p class="r8-nb"><span class="nn">02</span><b>You tell it to start.</b></p>
+          <div class="r8-floor">
+            <div class="r8-lane">
+              <div class="at-scr">
+                <div class="at-ht"><span>curia · atlas</span><span class="needs">1 takeable</span></div>
+                <div class="at-body">
+                  <div class="front"><span class="frontlbl">the frontier</span><span class="frule"></span><span class="fcap">1 takeable</span></div>
+                  <div class="r8-fcard">
+                    <div>
+                      <div class="fc-t">Choose the words of every scene of the final page</div>
+                      <div class="fc-m"><span class="fc-n">alp82/curia#587</span><span class="tkt-chip">wayfinder:prototype</span></div>
+                    </div>
+                    <button class="fc-go" type="button" id="runstart">Start</button>
                   </div>
-                  <button class="fc-go" type="button" id="runstart">Start</button>
                 </div>
               </div>
             </div>
           </div>
+        </section>
 
-          <!-- Steps 3 to 5 · the Discord thread, developing. It opens at
-               step 3 and stays open beside the pull request to the end.
-               The gate is the shape bridge.mjs really sends for the
-               review kind, and the press is the true thing curia does:
-               it edits the card and clears its components. -->
-          <div class="lane" data-lane="chat">
-            <div class="win dcw">
-              <div class="win-bar">
-                <span class="wn"><i></i>Discord</span>
-                <span class="winb" aria-hidden="true"><b>—</b><b>▢</b><b>✕</b></span>
-              </div>
-              <div class="win-body">
-                <article class="dcx" id="rungate">
-                  <div class="dcx-head"><span class="hash">#</span>curia <span class="sep">›</span> <span class="tt" id="runthread">🎫 587 · prototype</span></div>
-                  <div class="dcx-log">
-                    <div class="dc-msg" data-k="3">
-                      <span class="dc-av"><svg viewBox="0 0 40 40" aria-hidden="true"><use href="#mk-bot"/></svg></span>
-                      <div class="dc-body">
-                        <div class="dc-who"><span class="nm">CuriaBot</span><span class="badge">APP</span><span class="ts">18:41</span></div>
-                        <div class="dc-b">⚙️ dispatched on <b>claude-opus-5</b> — waiting for the composer</div>
-                        <div class="dc-b dc-sm">Round 2 of 4 · five candidates per slot, six headline directions.</div>
-                      </div>
-                    </div>
-                    <div class="dc-msg" data-k="4">
-                      <span class="dc-av"><svg viewBox="0 0 40 40" aria-hidden="true"><use href="#mk-bot"/></svg></span>
-                      <div class="dc-body dc-card">
-                        <div class="dc-who"><span class="nm">CuriaBot</span><span class="badge">APP</span><span class="ts">21:10</span><span class="ed" id="runedited">(edited)</span></div>
-                        <div class="dc-b"><b>[esc-4]</b> <code>curia-587</code> asks for review:</div>
-                        <div class="dc-b lead"><b>Is alp82/curia#587 done?</b> — Choose the words of every scene of the final page</div>
-                        <div class="dc-b"><b>What the agent did</b><span class="sub">The words of all twelve scenes are locked, over four operator rounds.</span></div>
-                        <div class="dc-b"><b>Look at</b><span class="sub"><a href="https://github.com/alp82/curia/pull/597">the pull request #597</a></span><span class="sub"><a>the preview</a></span><span class="sub"><a href="https://github.com/alp82/curia/issues/587">the ticket #587</a></span></div>
-                        <div class="dc-b tight dc-sm"><i>✅ Approve to merge and resolve, or reply in this thread with what to change (that reply is a rejection and the agent gets your words).</i></div>
-                        <div class="dc-b tight dc-sm"><i>🔎 Cross-check answers neither: it spawns a reviewer on the other provider, and the agent waits for its verdict.</i></div>
-                        <div class="dc-row">
-                          <button class="dc-btn ok" type="button" id="runapprove">✅ Approve</button>
-                          <button class="dc-btn dgr" type="button">❌ Reject</button>
-                          <button class="dc-btn sec" type="button">🔎 Cross-check</button>
+        <section class="r8-beat" data-i="2">
+          <p class="r8-nb"><span class="nn">03</span><b>The agent starts working on it.</b></p>
+          <div class="r8-floor">
+            <div class="r8-lane">
+              <div class="win dcw">
+                <div class="win-bar">
+                  <span class="wn"><i></i>Discord</span>
+                  <span class="winb" aria-hidden="true"><b>—</b><b>▢</b><b>✕</b></span>
+                </div>
+                <div class="win-body">
+                  <article class="dcx">
+                    <div class="dcx-head"><span class="hash">#</span>curia <span class="sep">›</span> <span class="tt">🎫 587 · prototype</span></div>
+                    <div class="dcx-log">
+                      <div class="dc-msg">
+                        <span class="dc-av"><svg viewBox="0 0 40 40" aria-hidden="true"><use href="#mk-bot"/></svg></span>
+                        <div class="dc-body">
+                          <div class="dc-who"><span class="nm">CuriaBot</span><span class="badge">APP</span><span class="ts">18:41</span></div>
+                          <div class="dc-b">⚙️ dispatched on <b>claude-opus-5</b> — waiting for the composer</div>
                         </div>
-                        <div class="dc-mark" id="runreceipt">✅ <b>approved</b> by <span class="men">@Alper</span> via button</div>
+                      </div>
+                      <div class="dc-msg">
+                        <span class="dc-av"><svg viewBox="0 0 40 40" aria-hidden="true"><use href="#mk-bot"/></svg></span>
+                        <div class="dc-body">
+                          <div class="dc-who"><span class="nm">CuriaBot</span><span class="badge">APP</span><span class="ts">09:18</span></div>
+                          <div class="dc-b">🔎 <b>round 2 of 4</b> — five candidates per slot, six headline directions</div>
+                          <div class="dc-b dc-sm">Preview is up. Reply with the picks, or ✅ to take every recommendation.</div>
+                        </div>
                       </div>
                     </div>
-                    <div class="dc-msg" data-k="5">
-                      <span class="dc-av"><svg viewBox="0 0 40 40" aria-hidden="true"><use href="#mk-bot"/></svg></span>
-                      <div class="dc-body">
-                        <div class="dc-who"><span class="nm">CuriaBot</span><span class="badge">APP</span><span class="ts">21:13</span></div>
-                        <div class="dc-b">✅ reports <b>resolved</b></div>
-                        <div class="dc-b">The words of all twelve scenes are locked, over four operator rounds.</div>
-                        <div class="dc-b dc-sm">#597 merged · #587 closed · the map records the decision.</div>
-                      </div>
-                    </div>
-                  </div>
-                </article>
+                  </article>
+                </div>
               </div>
             </div>
           </div>
+        </section>
 
-          <!-- Steps 4 and 5 · the pull request, beside the thread. It is
-               Open while the gate waits and Merged when the press
-               lands, which is the parallel the operator named. -->
-          <div class="lane" data-lane="pr">
-            <div class="win">
-              <div class="win-bar">
-                <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
-                <span class="url">github.com/alp82/curia/pull/597</span>
+        <section class="r8-beat" data-i="3">
+          <p class="r8-nb"><span class="nn">04</span><b>It waits for your confirmation.</b></p>
+          <div class="r8-floor">
+            <div class="r8-lane">
+              <div class="win dcw">
+                <div class="win-bar">
+                  <span class="wn"><i></i>Discord</span>
+                  <span class="winb" aria-hidden="true"><b>—</b><b>▢</b><b>✕</b></span>
+                </div>
+                <div class="win-body">
+                  <article class="dcx" id="rungate">
+                    <div class="dcx-head"><span class="hash">#</span>curia <span class="sep">›</span> <span class="tt">🔎 587 · prototype</span></div>
+                    <div class="dcx-log">
+                      <div class="dc-msg">
+                        <span class="dc-av"><svg viewBox="0 0 40 40" aria-hidden="true"><use href="#mk-bot"/></svg></span>
+                        <div class="dc-body dc-card">
+                          <div class="dc-who"><span class="nm">CuriaBot</span><span class="badge">APP</span><span class="ts">21:10</span><span class="ed" id="runedited">(edited)</span></div>
+                          <div class="dc-b"><b>[esc-4]</b> <code>curia-587</code> asks for review:</div>
+                          <div class="dc-b lead"><b>Is alp82/curia#587 done?</b> — Choose the words of every scene of the final page</div>
+                          <div class="dc-b"><b>What the agent did</b><span class="sub">The words of all twelve scenes are locked, over four operator rounds.</span></div>
+                          <div class="dc-b"><b>Look at</b><span class="sub"><a href="https://github.com/alp82/curia/pull/597">the pull request #597</a></span><span class="sub"><a>the preview</a></span><span class="sub"><a href="https://github.com/alp82/curia/issues/587">the ticket #587</a></span></div>
+                          <div class="dc-b tight dc-sm"><i>✅ Approve to merge and resolve, or reply in this thread with what to change (that reply is a rejection and the agent gets your words).</i></div>
+                          <div class="dc-b tight dc-sm"><i>🔎 Cross-check answers neither: it spawns a reviewer on the other provider, and the agent waits for its verdict.</i></div>
+                          <div class="dc-row">
+                            <button class="dc-btn ok" type="button" id="runapprove">✅ Approve</button>
+                            <button class="dc-btn dgr" type="button">❌ Reject</button>
+                            <button class="dc-btn sec" type="button">🔎 Cross-check</button>
+                          </div>
+                          <div class="dc-mark" id="runreceipt">✅ <b>approved</b> by <span class="men">@Alper</span> via button</div>
+                        </div>
+                      </div>
+                    </div>
+                  </article>
+                </div>
               </div>
-              <div class="win-body">
-                <article class="gx">
-                  <h3 class="gx-h1">Choose the words of every scene of the final page <span class="num">#597</span></h3>
-                  <div class="gx-meta">
-                    <span class="gx-st open"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-pr"/></svg>Open</span>
-                    <span class="gx-st merged"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-merge"/></svg>Merged</span>
-                    <span class="gx-by"><b>curia-sh</b> into <code>main</code> from <code>curia/587</code></span>
-                  </div>
-                  <div class="gx-cl">
-                    <div><span class="sha">b952921</span><span class="msg">The landing copy prototype: candidates for every scene, round 1 offered</span></div>
-                    <div><span class="sha">607fa84</span><span class="msg">Round 2: five candidates per slot, six headline directions, free-type rows</span></div>
-                    <div><span class="sha">72d09df</span><span class="msg">Round 3: the operator’s picks applied as an overlay, six findings</span></div>
-                    <div><span class="sha">8e1db06</span><span class="msg">Round 4: round 3 rulings applied, two locked-decision drifts on the table</span></div>
-                    <div><span class="sha">baa02ff</span><span class="msg">The words locked: verdict in NOTES, overrides recorded in positioning.md</span></div>
-                  </div>
-                  <div class="gx-meta">
-                    <span class="gx-diff">3 files changed<span class="a">+757</span><span class="d">−0</span><span class="sq"><i></i><i></i><i></i><i></i><i class="n"></i></span></span>
-                  </div>
-                </article>
+            </div>
+            <div class="r8-lane">
+              <div class="win">
+                <div class="win-bar">
+                  <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
+                  <span class="url">github.com/alp82/curia/pull/597</span>
+                </div>
+                <div class="win-body">
+                  <article class="gx">
+                    <h3 class="gx-h1">Choose the words of every scene of the final page <span class="num">#597</span></h3>
+                    <div class="gx-meta"><span class="gx-st open"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-pr"/></svg>Open</span><span class="gx-by"><b>curia-sh</b> into <code>main</code> from <code>curia/587</code></span></div>
+                    <div class="gx-cl">
+                      <div><span class="sha">b952921</span><span class="msg">The landing copy prototype: candidates for every scene, round 1 offered</span></div>
+                      <div><span class="sha">607fa84</span><span class="msg">Round 2: five candidates per slot, six headline directions, free-type rows</span></div>
+                      <div><span class="sha">72d09df</span><span class="msg">Round 3: the operator’s picks applied as an overlay, six findings</span></div>
+                      <div><span class="sha">8e1db06</span><span class="msg">Round 4: round 3 rulings applied, two locked-decision drifts on the table</span></div>
+                      <div><span class="sha">baa02ff</span><span class="msg">The words locked: verdict in NOTES, overrides recorded in positioning.md</span></div>
+                    </div>
+                    <div class="gx-meta">
+                      <span class="gx-diff">3 files changed<span class="a">+757</span><span class="d">−0</span><span class="sq"><i></i><i></i><i></i><i></i><i class="n"></i></span></span>
+                    </div>
+                  </article>
+                </div>
               </div>
             </div>
           </div>
+        </section>
 
-        </div>
-      </div>
+        <section class="r8-beat" data-i="4">
+          <p class="r8-nb"><span class="nn">05</span><b>It finishes the work.</b></p>
+          <div class="r8-floor">
+            <div class="r8-lane">
+              <div class="win dcw">
+                <div class="win-bar">
+                  <span class="wn"><i></i>Discord</span>
+                  <span class="winb" aria-hidden="true"><b>—</b><b>▢</b><b>✕</b></span>
+                </div>
+                <div class="win-body">
+                  <article class="dcx">
+                    <div class="dcx-head"><span class="hash">#</span>curia <span class="sep">›</span> <span class="tt">✅ 587 · prototype</span></div>
+                    <div class="dcx-log">
+                      <div class="dc-msg">
+                        <span class="dc-av"><svg viewBox="0 0 40 40" aria-hidden="true"><use href="#mk-bot"/></svg></span>
+                        <div class="dc-body">
+                          <div class="dc-who"><span class="nm">CuriaBot</span><span class="badge">APP</span><span class="ts">21:13</span></div>
+                          <div class="dc-b">✅ reports <b>resolved</b></div>
+                          <div class="dc-b">The words of all twelve scenes are locked, over four operator rounds.</div>
+                          <div class="dc-b dc-sm">#597 merged · #587 closed · the map records the decision.</div>
+                        </div>
+                      </div>
+                    </div>
+                  </article>
+                </div>
+              </div>
+            </div>
+            <div class="r8-lane">
+              <div class="win">
+                <div class="win-bar">
+                  <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
+                  <span class="url">github.com/alp82/curia/pull/597</span>
+                </div>
+                <div class="win-body">
+                  <article class="gx">
+                    <h3 class="gx-h1">Choose the words of every scene of the final page <span class="num">#597</span></h3>
+                    <div class="gx-meta"><span class="gx-st merged"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-merge"/></svg>Merged</span><span class="gx-by">merged as <code>a71e154</code></span></div>
+                    <div class="gx-cl">
+                      <div><span class="sha">b952921</span><span class="msg">The landing copy prototype: candidates for every scene, round 1 offered</span></div>
+                      <div><span class="sha">607fa84</span><span class="msg">Round 2: five candidates per slot, six headline directions, free-type rows</span></div>
+                      <div><span class="sha">72d09df</span><span class="msg">Round 3: the operator’s picks applied as an overlay, six findings</span></div>
+                      <div><span class="sha">8e1db06</span><span class="msg">Round 4: round 3 rulings applied, two locked-decision drifts on the table</span></div>
+                      <div><span class="sha">baa02ff</span><span class="msg">The words locked: verdict in NOTES, overrides recorded in positioning.md</span></div>
+                    </div>
+                    <div class="gx-meta">
+                      <span class="gx-diff">3 files changed<span class="a">+757</span><span class="d">−0</span><span class="sq"><i></i><i></i><i></i><i></i><i class="n"></i></span></span>
+                    </div>
+                  </article>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
 
-      <!-- The explanatory titles. They scroll naturally, on the side,
-           and each one owns a tall slot so it holds the lanes it names.
-           The five steps are the operator's own five. -->
-      <div class="steps" id="steps">
-        <p class="nb on" data-i="0"><span class="nn">01</span><b>You open a ticket.</b></p>
-        <p class="nb" data-i="1"><span class="nn">02</span><b>You tell it to start.</b></p>
-        <p class="nb" data-i="2"><span class="nn">03</span><b>The agent starts working on it.</b></p>
-        <p class="nb" data-i="3"><span class="nn">04</span><b>It waits for your confirmation.</b></p>
-        <p class="nb" data-i="4"><span class="nn">05</span><b>It finishes the work.</b></p>
       </div>
     </div>
 
@@ -3464,31 +3478,29 @@ if (!prefersStill) {
 function clampNum(v, a, b) { return v < a ? a : v > b ? b : v; }
 
 /* ================================================================
-   Scene 8 (#630) — the ticket block, and the lanes that open under it.
+   Scene 8 (#630) — one pinned ticket, and beats that scroll under it.
 
-   Round 5's shape, from the operator's own five steps. The explanatory
-   titles scroll on the side, the ticket block never moves, and the
-   lanes open under it: the Discord thread at step 3, the pull request
-   beside it at step 4, and both still evolving at step 5.
+   The operator's phone showed every lane at once, squashed. The cause
+   was not the layout: scene 9's VPS box already owns a class called
+   `.lane` and declares it LATER in this file, so at equal specificity
+   it won and `.lane { display: none }` never applied. Every class this
+   scene owns is prefixed `r8-` now.
 
-   So this script owns one number, the step k, 1 to 5. Everything else
-   is CSS off `data-k` on the section: which lanes are open, how far the
-   thread has developed, how many timeline rows the ticket shows, and
-   whether the pull request is Open or Merged.
+   The shape is the operator's own sentence: the ticket is the ONLY
+   pinned thing, and everything else moves. The page scrolls through
+   five beats, each one its words and the screens open at that point,
+   and this script owns one number — the beat k, 1 to 5 — which the
+   ticket's timeline rows and its state pill read off `data-k`.
 
-   The ticket block cannot shift, and not because a height was reserved
-   for it. Its rows are always laid out and only their VISIBILITY moves,
-   so nothing is ever added to it and there is nothing to shift.
-
-   No wheel listener, no scrollTo, no preventDefault: the scene reads
-   the scroll and never takes it. With reduced motion or no script the
-   held view lets go, every lane opens, and every word reads in order.
+   Nothing is held but the ticket, so there is no stage to clip a lane
+   against. No wheel listener, no scrollTo, no preventDefault. With
+   reduced motion or no script the ticket stops following the reader and
+   shows its whole timeline, and every beat already stands on its own.
    ================================================================ */
 (function () {
   var sec = document.getElementById('run');
-  var steps = [].slice.call(document.querySelectorAll('#steps .nb'));
-  var floor = document.getElementById('floor');
-  if (!sec || !steps.length || !floor) return;
+  var beats = [].slice.call(document.querySelectorAll('#beats .r8-beat'));
+  if (!sec || !beats.length) return;
 
   var V = { '1': 'v-stack', '2': 'v-pair', '3': 'v-deal', '4': 'v-rail', '5': 'v-console' };
   var swb = [].slice.call(document.querySelectorAll('#rsw button'));
@@ -3497,48 +3509,46 @@ function clampNum(v, a, b) { return v < a ? a : v > b ? b : v; }
   var io = null;
 
   function setK(next) {
-    next = next < 1 ? 1 : next > steps.length ? steps.length : next;
+    next = next < 1 ? 1 : next > beats.length ? beats.length : next;
     if (next === k) return;
     k = next;
     sec.setAttribute('data-k', String(k));
-    steps.forEach(function (n, i) { n.classList.toggle('on', i === k - 1); });
-    /* The thread's name follows its state the way bridge.mjs moves it:
-       🎫 while the agent runs, 🔎 while a review gate is open, ✅ when
-       the ticket is done (STATE_GLYPHS, bridge.mjs:96). */
-    var th = document.getElementById('runthread');
-    if (th) th.textContent = (k >= 5 ? '✅' : k >= 4 ? '🔎' : '🎫') + ' 587 · prototype';
-    if (k >= 5) press();
+    beats.forEach(function (n, i) { n.classList.toggle('on', i === k - 1); });
+    if (k >= 4) press();
   }
 
   function watch() {
     if (io || !window.IntersectionObserver) return;
-    /* A step owns the view from the moment it crosses the middle of the
-       viewport. The margins are what put that line there. */
+    /* A beat owns the ticket from the moment it crosses the middle of
+       the viewport. The margins are what put that line there. */
     io = new IntersectionObserver(function (es) {
       es.forEach(function (e) {
         if (!e.isIntersecting) return;
         setK(parseInt(e.target.getAttribute('data-i'), 10) + 1);
       });
     }, { rootMargin: '-45% 0px -45% 0px', threshold: 0 });
-    steps.forEach(function (n) { io.observe(n); });
+    beats.forEach(function (n) { io.observe(n); });
   }
 
   /* ---- the press. curia edits the card and clears its components when
          an answer lands, so the button row really does collapse and the
-         receipt really is small print under it (#626 round 5). ---- */
+         receipt really is small print under it (#626 round 5). It plays
+         on the beat whose words say the agent is waiting. ---- */
   var gate = document.getElementById('rungate');
   var pressed = false;
   function press() {
     if (pressed || !gate) return;
     pressed = true;
     if (prefersStill) { gate.classList.add('pressed'); return; }
-    gate.classList.add('pressing');
     setTimeout(function () {
-      gate.classList.remove('pressing');
-      gate.classList.add('pressed');
-      var ed = document.getElementById('runedited');
-      if (ed) ed.classList.add('up');
-    }, 720);
+      gate.classList.add('pressing');
+      setTimeout(function () {
+        gate.classList.remove('pressing');
+        gate.classList.add('pressed');
+        var ed = document.getElementById('runedited');
+        if (ed) ed.classList.add('up');
+      }, 720);
+    }, 900);
   }
   var approve = document.getElementById('runapprove');
   if (approve) approve.addEventListener('click', press);
@@ -3552,7 +3562,7 @@ function clampNum(v, a, b) { return v < a ? a : v > b ? b : v; }
     sec.className = 'scene run sL ' + V[v] + (prefersStill ? ' still' : '');
     swb.forEach(function (b) { b.setAttribute('aria-pressed', b.getAttribute('data-i') === v ? 'true' : 'false'); });
     if (prefersStill) { press(); return; }
-    steps.forEach(function (n, i) { n.classList.toggle('on', i === k - 1); });
+    beats.forEach(function (n, i) { n.classList.toggle('on', i === k - 1); });
     watch();
   }
 

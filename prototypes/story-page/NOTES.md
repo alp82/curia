@@ -1918,6 +1918,56 @@ and never moves. A gate card lifted out of the thread and dropped into the pull 
 green. It reads the position of the Approve BUTTON now, which is the thing that must not end up on
 the wrong surface.
 
+**The operator's answer to round 5**, verbatim, with a screenshot of their phone:
+
+> Can't check the desktop version right now but mobile is broken. The pinned element should be just
+> the ticket and the rest moves and switches while scrolling
+
+**What was actually broken, and it is not what it looked like.** The screenshot showed all three
+lanes at once, every one of them squashed to a title bar or clipped mid-sentence. The layout was
+not the cause. **Scene 9 already owns a class called `.lane`** — the VPS box's rows — and it
+declares it LATER in this file. Same specificity, so it won: `.lane { display: none }` never
+applied. The same collision was running the other way at the same time, because
+`.lane > * { height: 100% }` was landing on scene 9's own bars.
+
+**Two scenes, one generic name.** No check could have named it, because both scenes were exactly
+what they each claimed to be, and both were valid CSS. This is the lesson of the round, and it now
+has a check: **every class scene 8 ROOTS must be one no other scene roots.** The check compares the
+first compound of every selector, because `.dcx-head .hash` cannot collide with anyone else's
+`.hash` — the parent namespaces it — while a bare `.lane { }` can collide with anything, and did.
+Every class this scene introduces is prefixed `r8-` now.
+
+**Round 6.** The shape is the operator's own sentence: the ticket is the ONLY pinned thing, and
+everything else moves.
+
+- **Nothing is held but the ticket.** Round 5 pinned a whole 60dvh stage and packed the ticket,
+  three lanes and their chrome into it, which is what clipped every one of them on a phone. There is
+  no stage now. A check reads every sticky and fixed rule in the scene and refuses any but the
+  ticket's.
+- **The page scrolls through five BEATS**, one per step. Each beat is its words and the screens open
+  at that point, and the ticket grows a timeline row as the beat arrives.
+- **The thread and the pull request run together for the last two beats**, which is the parallel the
+  operator named. Beat 4 is the gate waiting beside an Open pull request. Beat 5 is the report
+  beside a Merged one.
+- **The thread develops across its three beats**, and its name moves with it: 🎫 while the agent
+  runs, 🔎 while the gate is open, ✅ when the ticket is done (`STATE_GLYPHS`, `bridge.mjs:96`).
+
+**The five compositions are the same five**, and they still ride `?id=1..5`. The operator could not
+check desktop, so nothing they said rules on them: stack, pair, deal, rail, console, differing in
+how the two lanes share a beat.
+
+**124 build checks** run against the file and all **67 breaks** that validate them land. The
+collision check was wrong before it was right, in the way that matters: **it read every class in a
+selector rather than the one the selector roots.** It flagged seventeen names, sixteen of them
+descendants that cannot collide — `.dcx-head .hash`, `.gx .num`, `.win-bar .wn` — and would have
+been switched off as noise. It compares roots now, and the one real collision is the only thing it
+reports.
+
+And **one check family had to learn to survive its own breaks.** Removing a beat made three checks
+raise instead of fail, because they indexed into a list the break had shortened. Every one of them
+tests its own precondition now: a check that crashes proves nothing, exactly like a check that
+cannot go red.
+
 ## The verdict of the terminal scene ([#629](https://github.com/alp82/curia/issues/629))
 
 **Locked over ten operator rounds**, the longest run of any scene on this page. Every variation
