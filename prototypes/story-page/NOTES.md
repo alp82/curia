@@ -1260,6 +1260,55 @@ that asks what the markup MEANS rather than what it says: `<i>` is not a neutral
 scene built on a character grid cannot use it. The operator's screenshot was the only instrument
 that could find this.
 
+**The operator's answer to round 5**, verbatim, with a screenshot:
+
+> good. logo is still cut off though
+>
+> then make variations for the actual content of the session. each of them working on something
+> regarding the typeface project shown above in section 04
+
+**The block art is drawn now, not set.** The italic was only half of it. The Claude Code mark and
+the opencode wordmark are rows of `█ ▀ ▛ ▝`, and a browser draws those glyphs at the FONT's
+metrics rather than at the line box. Two rows of them do not tile at line height 1: the halves
+detach, and the mark reads as cut in two. Each ROW is one SVG of the same rectangles now, one `em`
+tall and as many `ch` wide as it has cells, so rows stay rows, the halves meet, and the character
+grid is unchanged. The quadrant map covers all fourteen block characters, so any block art this
+scene ever carries is drawn the same way.
+
+**The session is the type foundry of scene 4.** GRAVITY was locked at
+[#627](https://github.com/alp82/curia/issues/627) — "A typeface with weight. Nine weights, two
+widths, and one axis for the space between." Every session here is an agent working on that site,
+so the preview scene and the terminal scene tell one story instead of two.
+
+**That makes these transcripts invented, and it is the SECOND instance of one deviation, not a new
+one.** [#601](https://github.com/alp82/curia/issues/601) rules every scene shows real records.
+#627 already broke that for the same reason, on the operator's instruction, when they asked for a
+site cooler than a real curia prototype. Extending that site into scene 7 extends the same
+deviation. [#604](https://github.com/alp82/curia/issues/604) carries both. Nothing in the scene
+claims to be a curia record any more: the rail rows state a model or a version and no ticket, the
+working directory is `~/gravity`, and a build check refuses a `#nnn` in the rail or a curia ticket
+number in a pane.
+
+**What the checks can still hold**, now that the content is invented, is that the two scenes agree.
+Scene 4's locked line and scene 7's sessions are compared against each other: nine weights, two
+widths, one spacing axis, and all nine weight names in order.
+
+**Round 6.** Five sessions on `?id=1..5`, each an agent doing a different job on GRAVITY: 1 the
+specimen (all nine weights at four sizes), 2 the axes (wght, wdth and the spacing axis on one
+tester), 3 the trial (the download and its licence gate), 4 the waterfall (twelve sizes down the
+fonts page), 5 the payload (subsetting the font to Latin). Each one carries all four harnesses, so
+switching the rail never leaves the project.
+
+**The window is 26 rows now**, down from 30, because the tallest pane across all five sessions is
+26. The check that refuses dead rows is what moved it.
+
+**A weakness the break rig caught, which is the reason it exists.** Every TUI-marker check asked
+whether a string appeared ANYWHERE in the scene. With one session that is the same question as
+"does this pane have it". With five it is not: breaking one session's footer left four intact and
+the check stayed green. The markers are asserted per pane now, over all twenty, and so is the rule
+that no TUI borrows another one's chrome. **A check that was right for one instance can be wrong
+for five, and only a break that lands in one instance can tell you.**
+
 **The scene is one composition canvas.** The claim, the terminal and the fact line are grid items
 of `.tm`. The old scene 7 held the claim in a centred `.wrap` and the pane in a `.shot`, which is
 the pair that broke the preview scene at [#627](https://github.com/alp82/curia/issues/627) round 3
