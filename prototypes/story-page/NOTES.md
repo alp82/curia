@@ -1243,6 +1243,23 @@ The page ships no webfont, so nothing reflows afterwards. Five checks hold this 
 is a fixed row count, no `min-height` can grow it, every pane fits it, the count is the tallest
 pane with no dead rows, and the fit is not deferred past the first paint.
 
+**The operator's answer to round 4**, verbatim, with a screenshot:
+
+> italic causes issues and opencode logo is cut off
+
+**Every pane was italic, and one mistake caused both faults.** The colored runs were `<i>`
+elements, and a browser slants `<i>` by default. An oblique face does not sit on the character grid
+this whole scene rests on: the columns drift against the 58-column ruler, and the last glyph of a
+run overhangs its advance and is clipped by the pane. The runs are `<span>` now, the generator
+emits `<span>`, and a guard rule plus two checks refuse italic inside a pane.
+
+**The lesson is the one this file keeps relearning, from a new direction.** 153 checks were green.
+Not one of them could see the difference between a roman face and an oblique one, because every
+check reads the source and no agent here has eyes. The check that would have caught it is the one
+that asks what the markup MEANS rather than what it says: `<i>` is not a neutral wrapper, and a
+scene built on a character grid cannot use it. The operator's screenshot was the only instrument
+that could find this.
+
 **The scene is one composition canvas.** The claim, the terminal and the fact line are grid items
 of `.tm`. The old scene 7 held the claim in a centred `.wrap` and the pane in a `.shot`, which is
 the pair that broke the preview scene at [#627](https://github.com/alp82/curia/issues/627) round 3
