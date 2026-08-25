@@ -1726,59 +1726,6 @@
      bridge.mjs really changes it: 🎫 running, 🔎 holding a review gate
      open, ✅ done (STATE_GLYPHS, bridge.mjs:96).
      ================================================================ */
-  .runset { position: relative; }
-  .runset .ev { position: relative; }
-  .runset .card > * { display: block; }
-  .runset .tag {
-    display: inline-flex; align-items: center; gap: 0.4em;
-    font: 700 0.64rem var(--mono); letter-spacing: 0.1em; text-transform: uppercase;
-  }
-  .ev[data-s="gh"] .tag { color: #a9b4c2; }
-  .ev[data-s="dc"] .tag { color: #a3abf5; }
-  .runset .nd {
-    display: grid; place-items: center; flex: none;
-    width: 1.7rem; height: 1.7rem; border-radius: 50%;
-    background: #1a1f2e; color: #cdd6e4;
-    box-shadow: 0 0 0 4px #0e1224;
-  }
-  .ev[data-s="dc"] .nd { background: #2f3455; color: #c3c9f8; }
-  .ev.is-gate .nd { background: var(--st-gate); color: #08090c; }
-
-  /* ---- 4 · deal. No journey and no travel: the run is a paper
-         trail, six documents dropped one on the next. Two kinds of
-         paper, so the split is what your eye sorts first. ---- */
-  .runset.as-deal { padding: 0 0.3rem; }
-  /* The pull is sized against the tab, not by eye. A tab is about
-     1.35rem tall and it sits ABOVE its own card, so tab plus pull is
-     what covers the card underneath. Every card here gets bottom room
-     to spare that, or the pile hides the last row of each document —
-     which on a GitHub card is its state pill. */
-  .as-deal .ev { margin-top: -0.35rem; }
-  .as-deal .ev:first-of-type { margin-top: 0; }
-  .as-deal .card .gx { padding-bottom: 1.5rem; }
-  .as-deal .card .dcx-log { padding-bottom: 1.6em; }
-  .as-deal .nd { display: none; }
-  .as-deal .tag {
-    background: #12172a; border: 1px solid #ffffff1f; border-bottom: none;
-    border-radius: 6px 6px 0 0; padding: 0.3em 0.7em; margin-left: 0.6rem;
-    position: relative; z-index: 1;
-  }
-  .as-deal .card { position: relative; box-shadow: 0 16px 34px rgba(0, 0, 0, 0.55); }
-  /* Three classes plus a pseudo-class, because the reveal's
-     `.js .tw.in { transform: none }` sits further down this file and
-     would otherwise flatten every card back into a straight pile. */
-  .runset.as-deal .ev:nth-of-type(odd) { transform: rotate(-0.7deg); margin-right: 1.1rem; }
-  .runset.as-deal .ev:nth-of-type(even) { transform: rotate(0.75deg); margin-left: 1.1rem; }
-  .runset.as-deal .ev.is-gate { transform: rotate(0deg); margin: -0.35rem 0 0; }
-  .as-deal .ev.is-gate .card { box-shadow: 0 0 0 1px rgba(var(--scb), 0.6), 0 22px 50px rgba(0, 0, 0, 0.6); }
-  .as-deal .ev { z-index: 1; }
-  .as-deal .ev:nth-of-type(2) { z-index: 2; }
-  .as-deal .ev:nth-of-type(3) { z-index: 3; }
-  .as-deal .ev:nth-of-type(4) { z-index: 4; }
-  .as-deal .ev:nth-of-type(5) { z-index: 5; }
-  .as-deal .ev:nth-of-type(6) { z-index: 6; }
-  .js .runset.as-deal .ev.tw:not(.in) { transform: translateY(1.6rem) rotate(-3deg); }
-
   /* The GitHub issue timeline. It outlived the devices composition of
      round 1: round 2's fourth screen is that same page. */
   .gx-tl { list-style: none; margin: 0.9em 0 0; padding: 0 0 0 2rem; position: relative; }
@@ -1793,34 +1740,6 @@
   }
   .gx-tl .nd2.open { background: var(--gx-open); color: #fff; }
   .gx-tl .nd2.done, .gx-tl .nd2.merged { background: var(--gx-done); color: #fff; }
-
-  /* ================================================================
-     Round 2 (#630) — the constant ticket, and the screens that pass it.
-
-     The operator's answer to round 1, verbatim:
-
-       Deals is a nice start
-
-       The vertical telling is nice. I think while we scroll through the
-       series of screens that should all look either like discord or a
-       phone or the browser, there is one constant element on the screen
-       that evolves but stays on place. The ticket
-
-     So the scene has a PROTAGONIST now, and it is the ticket. It comes
-     up alone, it stays put, and it evolves through the four stages of
-     curia's own pipeline while four screens pass it: a Discord window,
-     the browser, a phone, the browser again.
-
-     The ticket is the one thing here that wears NEITHER product's
-     chrome. It is curia's object, drawn in this page's own identity,
-     which is what lets it stand against a GitHub screen and a Discord
-     screen without reading as either. It carries no control of either
-     product, so the one-card-one-surface rule of round 1 still holds.
-
-     The five variations differ in where the constant sits and how the
-     screens pass it: top, top over a held stage, the side, the desk
-     under a dealt pile, and behind everything as type.
-     ================================================================ */
 
   /* ---- the constant ---- */
   .tkt {
@@ -1875,8 +1794,7 @@
 
   /* ---- the screens. Each one is a DEVICE, never a bare card: the
          Discord client, a browser, a phone. ---- */
-  .scrn { display: grid; gap: 2.4rem; margin-top: 1.7rem; }
-  .sc { position: relative; }
+  .scrn { margin-top: 1.7rem; }
   .win {
     background: #0b0d12; border: 1px solid #ffffff1c; border-radius: 10px;
     overflow: hidden; box-shadow: 0 22px 55px rgba(0, 0, 0, 0.6);
@@ -1914,127 +1832,155 @@
   .ph .ph-scr { background: #313338; border-radius: 17px; overflow: hidden; padding-top: 1.35rem; }
   .ph .dcx { border-radius: 0; --dfs: 0.74rem; }
 
-  /* ---- 1 · pin. The constant sticks at the top of the scene and the
-         screens scroll under it. The page scrolls exactly as it always
-         does: nothing is pinned but the ticket itself. ---- */
-  .v-pin .tkt { position: sticky; top: calc(var(--rswh, 0px) + 0.5rem); }
 
-  /* ---- 2 · stage. The scene holds one screen-tall stage. The ticket
-         sits at the top of it and the screens cross-fade in the space
-         below, one at a time, so the constant never moves at all. ---- */
-  .v-stage .runtrack { height: 430svh; }
-  .v-stage .runstage {
-    position: sticky; top: 0; height: 100dvh; overflow: hidden;
-    display: flex; flex-direction: column; gap: 0.9rem;
-    padding: calc(var(--rswh, 0px) + 0.7rem) 0 1.1rem;
-  }
-  .v-stage .scrn { position: relative; flex: 1 1 auto; min-height: 0; margin: 0; display: block; }
-  .v-stage .sc {
-    position: absolute; inset: 0; display: grid; place-items: center;
-    opacity: 0; transform: translateY(1.3rem) scale(0.985); pointer-events: none;
-    transition: opacity 0.5s var(--ease), transform 0.5s var(--ease);
-  }
-  .v-stage .sc.on { opacity: 1; transform: none; pointer-events: auto; }
-  .v-stage .sc > * { width: 100%; max-height: 100%; }
-  .v-stage .win-body, .v-stage .ph-scr { max-height: 62svh; overflow: hidden; }
+  /* ================================================================
+     Round 3 (#630) — the desk, narrated.
 
-  /* ---- 3 · rail. The constant is a rail, not a card. On a phone it
-         is one thin status line at the top. Past 62rem it stands down
-         the docking side and the screens run past it. ---- */
-  .v-rail .tkt { position: sticky; top: calc(var(--rswh, 0px) + 0.5rem); padding: 0.5rem 0.7rem; }
-  .v-rail .tkt-t, .v-rail .tkt-lbl, .v-rail .tkt-lines { display: none; }
-  .v-rail .tkt-track { margin-top: 0.5rem; }
-  @media (min-width: 62rem) {
-    /* No `align-items: start` here. It shrinks each grid item to its
-       own content, and a sticky item can only travel inside its own
-       box — so the rail would have stopped sticking the moment the
-       screens beside it grew taller than it. */
-    .v-rail .runstage { display: grid; grid-template-columns: 15.5rem 1fr; column-gap: 2.8rem; }
-    .v-rail .tkt { top: 18vh; padding: 0.85rem 0.95rem 0.9rem; }
-    .v-rail .tkt-t, .v-rail .tkt-lbl, .v-rail .tkt-lines { display: block; }
-    .v-rail .scrn { margin-top: 0; }
+     The operator's answer to round 2, verbatim:
+
+       desk is the new baseline
+
+       problems: i have to scroll quite a long time before i see
+       something at the bottom, it should appear right away. then we
+       should have boxes like the section titles in the beginning of
+       the page that scroll normally and narrate each step with simple
+       words
+
+       5 new distinct variations based on this
+
+     Three things settle with that, and they hold for every variation
+     here:
+
+     1. NOTHING IS HELD ANY MORE. Round 2's desk grew the section to
+        430svh and gave the first slot to the ticket alone, which is
+        exactly the long scroll the operator hit: about a screen of
+        travel before anything arrived. The section is its own height
+        now, the whole column scrolls normally, and the first narration
+        box and the first screen sit right under the claim.
+     2. EVERY STEP IS NARRATED, in a box built like the section titles
+        at the top of the page: the numbered mono kicker, then the
+        line. Simple words, present tense, and the reader is "you".
+     3. THE CONSTANT STAYS, and it does it without holding the page.
+        The docket is the LAST thing in the column and it sticks to the
+        BOTTOM of the viewport, so it is pinned from the first screen
+        and settles onto the desk at the last one.
+     ================================================================ */
+
+  /* ---- the narration box. Built from the identity frame's own parts
+         (#624): the numbered mono kicker, then the line. ---- */
+  .nb { margin: 0 0 0.9rem; }
+  .nb .nn {
+    display: inline-block; margin-right: 0.6rem;
+    font: 800 0.72rem var(--mono); letter-spacing: 0.06em;
+    background: var(--sc); color: #08090c; padding: 0.13rem 0.5rem; border-radius: 3px;
+  }
+  .nb b {
+    font-size: clamp(1.05rem, 4.6vw, 1.5rem); font-weight: 800;
+    letter-spacing: -0.02em; line-height: 1.15; color: var(--text);
+    display: block; margin-top: 0.5rem; text-wrap: balance;
   }
 
-  /* ---- 4 · desk. The pile of round 1, which the operator called a
-         nice start, with the constant under it. The ticket is a paper
-         docket lying on the desk, and the screens are dealt above it,
-         each one staying in the pile as the next lands. ---- */
-  .v-desk .runtrack { height: 430svh; }
-  .v-desk .runstage {
-    position: sticky; top: 0; height: 100dvh; overflow: hidden;
-    display: flex; flex-direction: column-reverse; justify-content: flex-start; gap: 1rem;
-    padding: calc(var(--rswh, 0px) + 0.7rem) 0 1.3rem;
-  }
-  .v-desk .scrn { position: relative; flex: 1 1 auto; min-height: 0; margin: 0; display: block; }
-  .v-desk .sc {
-    position: absolute; inset: auto 0 0; opacity: 0;
-    transform: translateY(2.2rem) rotate(-3deg);
-    transition: opacity 0.5s var(--ease), transform 0.5s var(--ease);
-  }
-  .v-desk .sc.seen { opacity: 0.3; transform: translateY(-0.7rem) rotate(var(--rot, -1deg)) scale(0.965); }
-  .v-desk .sc.on { opacity: 1; transform: rotate(var(--rot, -1deg)); z-index: 4; }
-  .v-desk .win-body, .v-desk .ph-scr { max-height: 54svh; overflow: hidden; }
-  /* The docket is PAPER, so it takes ink, not light. */
-  .v-desk .tkt {
-    background: linear-gradient(178deg, #f6f3ea, #e8e3d5);
-    border: none; border-radius: 3px; transform: rotate(-0.6deg);
-    box-shadow: 0 -6px 26px rgba(0, 0, 0, 0.5), 0 2px 0 #ffffff40 inset;
-  }
-  .v-desk .tkt-n { color: #6a6f7a; }
-  .v-desk .tkt-t { color: #191b21; }
-  .v-desk .tkt-track i { background: #00000018; }
-  .v-desk .tkt .tl { color: #5c626d; }
-  .v-desk .tkt .tl b { color: #191b21; }
-  /* The state is a rubber stamp on that paper. */
-  .v-desk .tkt-st {
-    border: 2px solid var(--kc); color: var(--kc); background: none;
-    transform: rotate(-5deg); font-weight: 800; padding: 0.16rem 0.55rem;
-  }
-  .v-desk .tkt-st i { display: none; }
+  /* ---- the column, the screens and the docket ---- */
+  .runstage { position: relative; }
+  .scrn { display: grid; gap: 2.6rem; }
+  .sc { position: relative; }
+  .dev { position: relative; }
+  /* The pile: the desk the operator kept. Papers overlap by a hair and
+     each one lands slightly turned, and the pull is sized so a screen
+     never covers the narration box of the one under it. */
+  .piled .scrn { gap: 0; }
+  .piled .sc { margin-top: 1.5rem; }
+  .piled .sc:first-child { margin-top: 0; }
+  .piled .dev { box-shadow: 0 18px 40px rgba(0, 0, 0, 0.6); }
+  .piled .sc:nth-child(odd) .dev { transform: rotate(-0.8deg); }
+  .piled .sc:nth-child(even) .dev { transform: rotate(0.7deg); }
+  .piled .sc:nth-child(1) { z-index: 1; }
+  .piled .sc:nth-child(2) { z-index: 2; }
+  .piled .sc:nth-child(3) { z-index: 3; }
+  .piled .sc:nth-child(4) { z-index: 4; }
 
-  /* ---- 5 · ghost. The constant is behind everything, at poster size,
-         and the screens scroll over it. The ticket takes no room in the
-         flow, so nothing here moves the screens off their column. ---- */
-  .v-ghost .tkt {
-    position: sticky; top: 0; height: 0; z-index: 0;
-    background: none; border: none; box-shadow: none; padding: 0;
-  }
-  .v-ghost .tkt-in { position: absolute; top: 24vh; left: 0; right: 0; text-align: center; pointer-events: none; }
-  .v-ghost .tkt-top { display: block; }
-  .v-ghost .tkt-n {
-    display: block; font: 900 clamp(4.5rem, 26vw, 11rem)/0.85 var(--mono);
-    letter-spacing: -0.06em; color: rgba(var(--kb), 0.16);
-    transition: color 0.5s var(--ease);
-  }
-  .v-ghost .tkt-st {
-    margin: 0.7rem auto 0; background: none; border: none; color: var(--kc);
-    font-size: 0.9rem; letter-spacing: 0.24em;
-  }
-  .v-ghost .tkt-t, .v-ghost .tkt-lbl, .v-ghost .tkt-lines { display: none; }
-  .v-ghost .tkt-track { width: 9rem; margin: 0.8rem auto 0; }
-  .v-ghost .scrn { position: relative; z-index: 1; margin-top: 0; }
+  /* The docket sticks to the BOTTOM. It is the last thing in the
+     column, so its own place is below the fold from the start, which
+     is what pins it there without holding the page. The column keeps
+     room under it so nothing ever reads from behind it. */
+  .tkt { position: sticky; bottom: 0.7rem; z-index: 7; }
+  .runstage { padding-bottom: 1rem; }
+  .scrn { margin-bottom: 1.4rem; }
 
-  /* ---- 0 · the deal set of round 1, kept reachable for reference.
-         It is the six cards without a constant, which is what the
-         operator called a nice start. ---- */
-  .runset { display: none; }
-  #run[data-v="0"] .runset { display: block; }
-  #run[data-v="0"] .runtrack { display: none; }
+  /* ---- 1 · step. The plainest reading: the box above its screen, the
+         screens standing well apart, the docket an ordinary card at the
+         near edge. No pile, no slab, no paper. ---- */
+  .v-step .scrn { gap: 3.4rem; }
+  .v-step .nb { border-left: 3px solid var(--sc); padding-left: 0.9rem; }
+  .v-step .nb .nn { background: none; color: var(--sc); padding: 0; margin-right: 0; }
+  .v-step .nb b { margin-top: 0.3rem; }
+  .v-step .dev { box-shadow: 0 14px 34px rgba(0, 0, 0, 0.5); }
 
-  /* ---- the fail-open path. With reduced motion or no script the
-         stage variations collapse to the flow the others use, so every
-         screen stands on its own and every word still reads. ---- */
-  .still .runtrack { height: auto; }
-  .still .runstage { position: static; height: auto; overflow: visible; display: block; padding: 0; }
-  .still .scrn { position: static; display: grid; gap: 2.4rem; margin-top: 1.7rem; }
-  .still .sc { position: relative; inset: auto; opacity: 1; transform: none; pointer-events: auto; }
-  .still .win-body, .still .ph-scr { max-height: none; }
-  .still .tkt { position: static; height: auto; }
-  /* `.still` and `.v-ghost` both sit on the SECTION, so this is one
-     element and not a descendant of one. Written as `.still .v-ghost`
-     it matched nothing, and the ghost kept its 24vh offset with no
-     stage under it to hold. */
-  .still.v-ghost .tkt-in { position: static; }
+  /* ---- 2 · slab. The box is a solid slab that bleeds off the edge,
+         the way the scene's own claim does (#624's one slab accent),
+         and it alternates sides. The screens pile. ---- */
+  .v-slab .nb {
+    background: var(--sc); width: fit-content; max-width: 92%;
+    padding: 0.7rem 1.1rem 0.8rem; margin-left: -1.25rem; padding-left: 2.5rem;
+    border-radius: 0 12px 12px 0; box-shadow: 0.45rem 0.45rem 0 rgba(var(--scb), 0.28);
+  }
+  .v-slab .sc:nth-child(even) .nb {
+    margin-left: auto; margin-right: -1.25rem; padding-left: 1.1rem; padding-right: 2.5rem;
+    border-radius: 12px 0 0 12px; text-align: right;
+    box-shadow: -0.45rem 0.45rem 0 rgba(var(--scb), 0.28);
+  }
+  .v-slab .nb .nn { background: #08090c; color: var(--sc); }
+  .v-slab .nb b { color: #08090c; }
+
+  /* ---- 3 · memo. The box is paper, the same stock as the docket, and
+         it is clipped over the corner of its screen. The whole scene is
+         one desk. ---- */
+  .v-memo .nb {
+    background: linear-gradient(178deg, #f6f3ea, #eae5d7); color: #191b21;
+    border-radius: 2px; padding: 0.6rem 0.85rem 0.7rem;
+    width: fit-content; max-width: 88%;
+    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.5);
+    transform: rotate(-1.1deg); position: relative; z-index: 5;
+    margin-bottom: -0.9rem; margin-left: 0.4rem;
+  }
+  .v-memo .sc:nth-child(even) .nb { transform: rotate(0.9deg); margin-left: auto; margin-right: 0.4rem; }
+  .v-memo .nb .nn { background: #191b21; color: #f6f3ea; }
+  .v-memo .nb b { color: #191b21; font-size: clamp(0.98rem, 4.2vw, 1.3rem); }
+
+  /* ---- 4 · column. Past 60rem the narration runs down one column and
+         the screens down the other, both scrolling normally, and the
+         docket rides the top of the narration column. On a phone it is
+         box, screen, box, screen. ---- */
+  .v-col .nb b { font-size: clamp(1rem, 4.2vw, 1.3rem); }
+  @media (min-width: 60rem) {
+    .v-col .runstage { display: grid; grid-template-columns: 17rem 1fr; column-gap: 3rem; }
+    .v-col .scrn { grid-column: 2; }
+    .v-col .tkt { grid-column: 1; grid-row: 1; position: sticky; top: 16vh; bottom: auto; align-self: start; }
+    .v-col .sc { display: grid; grid-template-columns: 1fr; }
+    .v-col .nb { margin-bottom: 0.8rem; }
+  }
+
+  /* ---- 5 · numeral. Megatype: the stage number stands behind the box
+         at poster size, the line small against it. The screens pile and
+         the docket is a full-bleed strip at the bottom edge. ---- */
+  .v-num .nb { position: relative; padding-top: 1.6rem; }
+  .v-num .nb .nn {
+    position: absolute; left: -0.4rem; top: -1.4rem; z-index: -1;
+    background: none; color: rgba(var(--scb), 0.2); padding: 0;
+    font: 900 clamp(4.5rem, 20vw, 8rem)/0.8 var(--mono); letter-spacing: -0.06em;
+  }
+  .v-num .nb b { margin-top: 0; }
+  .v-num .tkt {
+    border-radius: 0; margin: 0 -1.25rem; bottom: 0;
+    border-left: none; border-right: none; border-bottom: none;
+  }
+
+  /* ---- the fail-open path. Nothing in this scene is held any more,
+         so reduced motion only has to stop the docket from following
+         the reader and let every screen stand. ---- */
+  .still .tkt { position: static; }
+  .still .piled .sc { margin-top: 2.6rem; }
+  .still .piled .dev { transform: none; }
 
   /* ---- the round switcher. It leaves the file with the round that
          settles this scene, the way #624's identity bar did. ---- */
@@ -2822,18 +2768,15 @@
 
        Round 1 offers five readings of the same six events on ?id=1..5:
        1 timeline, 2 lanes, 3 devices, 4 deal, 5 steps. -->
-  <section class="scene run sL v-pin" id="run" data-v="1" data-k="0" data-stage="gate" data-n="07" data-name="one ticket on GitHub" style="--g1:#141b33;--g2:#0c1020">
+  <section class="scene run sL v-step piled" id="run" data-v="1" data-k="0" data-stage="gate" data-n="07" data-name="one ticket on GitHub" style="--g1:#141b33;--g2:#0c1020">
 
     <!-- The octicons and the two product marks. The page ships no
          image and no webfont, so every mark here is drawn (#629). -->
     <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs>
-      <g id="oc-issue" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="6.1"/><circle cx="8" cy="8" r="1.4" fill="currentColor"/></g>
       <g id="oc-closed" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="6.1"/><path d="m5.3 8.2 1.8 1.8 3.7-4.1" stroke-linecap="round" stroke-linejoin="round"/></g>
       <g id="oc-pr" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="4.3" cy="3.6" r="1.8"/><circle cx="4.3" cy="12.4" r="1.8"/><path d="M4.3 5.4v5.2" stroke-linecap="round"/><circle cx="11.7" cy="12.4" r="1.8"/><path d="M11.7 10.6V6.4A2.1 2.1 0 0 0 9.6 4.3H7.6" stroke-linecap="round"/><path d="M9 2.7 7.5 4.3 9 5.9" stroke-linecap="round" stroke-linejoin="round"/></g>
       <g id="oc-merge" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="4.3" cy="3.6" r="1.8"/><circle cx="4.3" cy="12.4" r="1.8"/><path d="M4.3 5.4v5.2" stroke-linecap="round"/><circle cx="11.7" cy="5.4" r="1.8"/><path d="M9.9 5.8H8.6a4 4 0 0 0-4 4v0.8" stroke-linecap="round"/></g>
       <g id="oc-commit" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="2.4"/><path d="M1.2 8h4.4M10.4 8h4.4" stroke-linecap="round"/></g>
-      <path id="oc-gh" fill="currentColor" d="M8 1a7 7 0 0 0-2.21 13.64c.35.07.48-.15.48-.34l-.01-1.2c-1.95.43-2.36-.94-2.36-.94-.32-.81-.78-1.03-.78-1.03-.64-.44.05-.43.05-.43.7.05 1.07.72 1.07.72.63 1.07 1.65.76 2.05.58.06-.45.25-.76.45-.94-1.57-.18-3.21-.78-3.21-3.48 0-.77.27-1.4.72-1.89-.07-.18-.31-.9.07-1.87 0 0 .59-.19 1.93.72a6.7 6.7 0 0 1 3.52 0c1.34-.91 1.93-.72 1.93-.72.38.97.14 1.69.07 1.87.45.49.72 1.12.72 1.89 0 2.71-1.65 3.3-3.22 3.47.25.22.48.66.48 1.33l-.01 1.97c0 .19.13.42.49.34A7 7 0 0 0 8 1Z"/>
-      <path id="oc-dc" fill="currentColor" d="M13.1 3.6a11 11 0 0 0-2.7-.83l-.17.34c.83.2 1.6.5 2.32.87a8.6 8.6 0 0 0-8.11 0c.72-.38 1.5-.68 2.32-.87l-.17-.34c-.96.17-1.86.45-2.7.83C1.63 6.7 1.05 9.7 1.34 12.55A11.1 11.1 0 0 0 4.7 14l.72-1.01c-.4-.15-.78-.34-1.14-.56l.28-.22a7.9 7.9 0 0 0 6.87 0l.28.22c-.36.22-.74.41-1.14.56l.72 1.01a11.1 11.1 0 0 0 3.36-1.45c.35-3.3-.6-6.27-2.55-8.95ZM5.72 10.79c-.66 0-1.2-.6-1.2-1.35 0-.74.53-1.35 1.2-1.35s1.21.61 1.2 1.35c0 .75-.53 1.35-1.2 1.35Zm4.56 0c-.66 0-1.2-.6-1.2-1.35 0-.74.53-1.35 1.2-1.35s1.21.61 1.2 1.35c0 .75-.53 1.35-1.2 1.35Z"/>
       <g id="mk-bot"><rect width="40" height="40" fill="#12161f"/><circle cx="20" cy="20" r="12.5" fill="none" stroke="#7dd3a0" stroke-width="2.4"/><circle cx="20" cy="20" r="4.6" fill="#7dd3a0"/><circle cx="20" cy="6.5" r="2.6" fill="#e0ae4c"/></g>
     </defs></svg>
 
@@ -2847,12 +2790,11 @@
     <!-- ROUND 1 DEVICE. It leaves the file with the round that settles
          this scene, the way #624's identity bar did. -->
     <div class="rsw" id="rsw" role="group" aria-label="composition">
-      <button type="button" data-i="1" aria-pressed="true">1 pin</button>
-      <button type="button" data-i="2" aria-pressed="false">2 stage</button>
-      <button type="button" data-i="3" aria-pressed="false">3 rail</button>
-      <button type="button" data-i="4" aria-pressed="false">4 desk</button>
-      <button type="button" data-i="5" aria-pressed="false">5 ghost</button>
-      <button type="button" data-i="0" aria-pressed="false">r1 deal</button>
+      <button type="button" data-i="1" aria-pressed="true">1 step</button>
+      <button type="button" data-i="2" aria-pressed="false">2 slab</button>
+      <button type="button" data-i="3" aria-pressed="false">3 memo</button>
+      <button type="button" data-i="4" aria-pressed="false">4 column</button>
+      <button type="button" data-i="5" aria-pressed="false">5 numeral</button>
     </div>
 
     <div class="runwrap">
@@ -2860,7 +2802,7 @@
       <!-- The six events. ONE set of cards; compositions 1, 2, 4 and 5
            are four layouts over it, so the same evidence is judged
            every time and only the reading changes. -->
-    <!-- ROUND 2. The constant ticket, and the four screens that pass
+    <!-- ROUND 3. The desk, narrated. Every step carries a box built
          it. The ticket comes up alone at stage 0, then each screen
          moves it one stage on: running, running with a pull request,
          in review, merged. The stage colours are the page's own four
@@ -2869,25 +2811,6 @@
     <div class="runtrack" id="runtrack">
       <div class="runstage" id="runstage">
 
-        <div class="tkt" id="tkt">
-          <div class="tkt-in">
-            <div class="tkt-top">
-              <span class="tkt-n">alp82/curia#587</span>
-              <span class="tkt-st"><i></i><span class="w" data-k="0">Open</span><span class="w" data-k="1">running</span><span class="w" data-k="2">running</span><span class="w" data-k="3">in review</span><span class="w" data-k="4">Merged</span></span>
-            </div>
-            <p class="tkt-t">Choose the words of every scene of the final page</p>
-            <div class="tkt-lbl"><span class="tkt-chip">wayfinder:prototype</span></div>
-            <div class="tkt-track" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
-            <div class="tkt-lines">
-              <span class="tl" data-k="0">opened by <b>you</b> on Aug 21, 2026</span>
-              <span class="tl" data-k="1">dispatched to <b>curia-587</b> on <b>claude-opus-5</b></span>
-              <span class="tl" data-k="2">pull request <b>#597</b> · 5 commits · <b>+757</b> in 3 files</span>
-              <span class="tl" data-k="3">the gate is open · waiting on <b>you</b></span>
-              <span class="tl" data-k="4"><b>#597</b> merged · <b>#587</b> closed as completed</span>
-            </div>
-          </div>
-        </div>
-
         <div class="scrn" id="scrn">
 
           <!-- Screen 1 · Discord, the client's own window. The dispatch
@@ -2895,6 +2818,7 @@
                (statusline.mjs:357), with the thread bound under the
                live glyph bridge.mjs:96 gives a running ticket. -->
           <div class="sc" data-i="0" style="--rot:-1.4deg">
+            <p class="nb"><span class="nn">01</span><b>You send it to an agent from Discord.</b></p>
             <div class="win dcw">
               <div class="win-bar">
                 <span class="wn"><i></i>Discord</span>
@@ -2928,6 +2852,7 @@
           <!-- Screen 2 · the browser. The pull request, with the five
                real SHAs and headlines of alp82/curia#597. -->
           <div class="sc" data-i="1" style="--rot:1.1deg">
+            <p class="nb"><span class="nn">02</span><b>The agent works and opens a pull request.</b></p>
             <div class="win">
               <div class="win-bar">
                 <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
@@ -2963,6 +2888,7 @@
                (bridge.mjs:1171-1181). The press is the true thing curia
                does: it edits the card and clears its components. -->
           <div class="sc" data-i="2" style="--rot:-0.7deg">
+            <p class="nb"><span class="nn">03</span><b>It asks you before anything merges.</b></p>
             <div class="ph">
               <div class="ph-scr">
                 <article class="dcx" id="rungate">
@@ -2997,6 +2923,7 @@
                nowhere else. The comment is the first line of the real
                resolution of alp82/curia#587. -->
           <div class="sc" data-i="3" style="--rot:1.3deg">
+            <p class="nb"><span class="nn">04</span><b>You approve. It merges and closes the ticket.</b></p>
             <div class="win">
               <div class="win-bar">
                 <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
@@ -3027,175 +2954,26 @@
           </div>
 
         </div>
+        <div class="tkt" id="tkt">
+          <div class="tkt-in">
+            <div class="tkt-top">
+              <span class="tkt-n">alp82/curia#587</span>
+              <span class="tkt-st"><i></i><span class="w" data-k="0">Open</span><span class="w" data-k="1">running</span><span class="w" data-k="2">running</span><span class="w" data-k="3">in review</span><span class="w" data-k="4">Merged</span></span>
+            </div>
+            <p class="tkt-t">Choose the words of every scene of the final page</p>
+            <div class="tkt-lbl"><span class="tkt-chip">wayfinder:prototype</span></div>
+            <div class="tkt-track" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+            <div class="tkt-lines">
+              <span class="tl" data-k="0">opened by <b>you</b> on Aug 21, 2026</span>
+              <span class="tl" data-k="1">dispatched to <b>curia-587</b> on <b>claude-opus-5</b></span>
+              <span class="tl" data-k="2">pull request <b>#597</b> · 5 commits · <b>+757</b> in 3 files</span>
+              <span class="tl" data-k="3">the gate is open · waiting on <b>you</b></span>
+              <span class="tl" data-k="4"><b>#597</b> merged · <b>#587</b> closed as completed</span>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
-
-      <!-- Round 1's deal set, kept reachable at ?id=0. The operator
-           called it a nice start, and round 2 builds the desk on it. -->
-      <div class="runset as-deal stagger" id="runset">
-
-          <!-- 01 · GitHub. The ticket, as GitHub draws one. -->
-          <div class="ev tw on" data-s="gh" data-i="0">
-            <span class="nd"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-issue"/></svg></span>
-            <span class="tag"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-gh"/></svg>GitHub</span>
-            <div class="card">
-              <article class="gx">
-                <div class="gx-crumb">alp82 / <b>curia</b></div>
-                <h3 class="gx-h1">Choose the words of every scene of the final page <span class="num">#587</span></h3>
-                <div class="gx-meta">
-                  <span class="gx-st open"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-issue"/></svg>Open</span>
-                  <span class="gx-by"><b>alp82</b> opened this issue on Aug 21, 2026</span>
-                </div>
-                <div class="gx-meta">
-                  <span class="gx-lbl">wayfinder:prototype</span>
-                  <span class="gx-by">Assignee <b>alp82</b></span>
-                </div>
-              </article>
-            </div>
-          </div>
-
-          <!-- 02 · Discord. The dispatch, and the thread curia binds
-               to the ticket. `⚙️ dispatched on **<model>** — waiting
-               for the composer` is the status line the daemon writes
-               (statusline.mjs:357), and `🎫 587 · prototype` is the
-               thread name in the short form #626 round 4 settled. -->
-          <div class="ev tw" data-s="dc" data-i="1">
-            <span class="nd"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-dc"/></svg></span>
-            <span class="tag"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-dc"/></svg>Discord</span>
-            <div class="card">
-              <article class="dcx">
-                <div class="dcx-head"><span class="hash">#</span>curia</div>
-                <div class="dcx-log">
-                  <div class="dc-msg">
-                    <span class="dc-av op" aria-hidden="true">A</span>
-                    <div class="dc-body">
-                      <div class="dc-who"><span class="nm">Alper</span><span class="ts">Yesterday at 18:41</span></div>
-                      <div class="dc-b"><code>start curia#587</code></div>
-                    </div>
-                  </div>
-                  <div class="dc-msg">
-                    <span class="dc-av"><svg viewBox="0 0 40 40" aria-hidden="true"><use href="#mk-bot"/></svg></span>
-                    <div class="dc-body">
-                      <div class="dc-who"><span class="nm">CuriaBot</span><span class="badge">APP</span><span class="ts">Yesterday at 18:41</span></div>
-                      <div class="dc-b">⚙️ dispatched on <b>claude-opus-5</b> — waiting for the composer</div>
-                      <div class="dc-b dc-sm">Thread <b>🎫 587 · prototype</b> is bound to this ticket.</div>
-                    </div>
-                  </div>
-                </div>
-              </article>
-            </div>
-          </div>
-
-          <!-- 03 · GitHub. The work arrives as a pull request. The five
-               SHAs, the five headlines, the branch and the diffstat are
-               the real ones on alp82/curia#597. -->
-          <div class="ev tw" data-s="gh" data-i="2">
-            <span class="nd"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-pr"/></svg></span>
-            <span class="tag"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-gh"/></svg>GitHub</span>
-            <div class="card">
-              <article class="gx">
-                <div class="gx-crumb">alp82 / <b>curia</b></div>
-                <h3 class="gx-h1">Choose the words of every scene of the final page <span class="num">#597</span></h3>
-                <div class="gx-meta">
-                  <span class="gx-st open"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-pr"/></svg>Open</span>
-                  <span class="gx-by"><b>curia-sh</b> wants to merge 5 commits into <code>main</code> from <code>curia/587</code></span>
-                </div>
-                <div class="gx-cl">
-                  <div><span class="sha">b952921</span><span class="msg">The landing copy prototype: candidates for every scene, round 1 offered</span></div>
-                  <div><span class="sha">607fa84</span><span class="msg">Round 2: five candidates per slot, six headline directions, free-type rows</span></div>
-                  <div><span class="sha">72d09df</span><span class="msg">Round 3: the operator’s picks applied as an overlay, six findings</span></div>
-                  <div><span class="sha">8e1db06</span><span class="msg">Round 4: round 3 rulings applied, two locked-decision drifts on the table</span></div>
-                  <div><span class="sha">baa02ff</span><span class="msg">The words locked: verdict in NOTES, overrides recorded in positioning.md</span></div>
-                </div>
-                <div class="gx-meta">
-                  <span class="gx-diff">3 files changed<span class="a">+757</span><span class="d">−0</span><span class="sq"><i></i><i></i><i></i><i></i><i class="n"></i></span></span>
-                </div>
-              </article>
-            </div>
-          </div>
-
-          <!-- 04 · Discord. THE CLIMAX. The review gate, in the shape
-               the daemon really sends it: the head from
-               bridge.mjs #escalationBody, curia's own question and the
-               blocks under it from lifecycle.mjs reviewGateText, the
-               two small-print lines verbatim, and three buttons —
-               Approve Success green, Reject Danger RED, Cross-check
-               Secondary grey (bridge.mjs:1171-1181).
-
-               The press is the true thing curia does: it edits the
-               card and clears its components, so the row collapses and
-               the receipt comes up as small print (#626 round 5). -->
-          <div class="ev tw is-gate" data-s="dc" data-i="3">
-            <span class="nd"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-dc"/></svg></span>
-            <span class="tag"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-dc"/></svg>Discord · the gate</span>
-            <div class="card">
-              <article class="dcx">
-                <div class="dcx-head"><span class="hash">#</span>curia <span class="sep">›</span> <span class="tt" id="runthread">🔎 587 · prototype</span></div>
-                <div class="dcx-log">
-                  <div class="dc-msg">
-                    <span class="dc-av"><svg viewBox="0 0 40 40" aria-hidden="true"><use href="#mk-bot"/></svg></span>
-                    <div class="dc-body dc-card">
-                      <div class="dc-who"><span class="nm">CuriaBot</span><span class="badge">APP</span><span class="ts">Today at 21:10</span><span class="ed">(edited)</span></div>
-                      <div class="dc-b"><b>[esc-4]</b> <code>curia-587</code> asks for review:</div>
-                      <div class="dc-b lead"><b>Is alp82/curia#587 done?</b> — Choose the words of every scene of the final page</div>
-                      <div class="dc-b"><b>What the agent did</b><span class="sub">The words of all twelve scenes are locked, over four operator rounds.</span></div>
-                      <div class="dc-b"><b>Charting it proposes for the map</b><span class="sub">1. Close #587 and record its verdict in Decisions so far.</span></div>
-                      <div class="dc-b"><b>Look at</b><span class="sub"><a href="https://github.com/alp82/curia/pull/597">the pull request #597</a></span><span class="sub"><a>the preview</a></span><span class="sub"><a href="https://github.com/alp82/curia/issues/587">the ticket #587</a></span></div>
-                      <div class="dc-b tight dc-sm"><i>✅ Approve to merge and resolve, or reply in this thread with what to change (that reply is a rejection and the agent gets your words).</i></div>
-                      <div class="dc-b tight dc-sm"><i>🔎 Cross-check answers neither: it spawns a reviewer on the other provider, and the agent waits for its verdict.</i></div>
-                      <div class="dc-row">
-                        <button class="dc-btn ok" type="button">✅ Approve</button>
-                        <button class="dc-btn dgr" type="button">❌ Reject</button>
-                        <button class="dc-btn sec" type="button">🔎 Cross-check</button>
-                      </div>
-                      <div class="dc-mark">✅ <b>approved</b> by <span class="men">@Alper</span> via button</div>
-                    </div>
-                  </div>
-                </div>
-              </article>
-            </div>
-          </div>
-
-          <!-- 05 · GitHub. The press lands here, and nowhere else. -->
-          <div class="ev tw" data-s="gh" data-i="4">
-            <span class="nd"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-merge"/></svg></span>
-            <span class="tag"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-gh"/></svg>GitHub</span>
-            <div class="card">
-              <article class="gx">
-                <div class="gx-meta" style="margin-top:0">
-                  <span class="gx-st merged"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-merge"/></svg>Merged</span>
-                  <span class="gx-by"><b>curia-sh</b> merged 5 commits into <code>main</code></span>
-                </div>
-                <div class="gx-meta">
-                  <span class="gx-by"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-commit"/></svg> <code>a71e154</code> on Aug 22, 2026 · branch <code>curia/587</code> deleted</span>
-                </div>
-              </article>
-            </div>
-          </div>
-
-          <!-- 06 · GitHub. The ticket closes on its own resolution
-               comment, which is the first line of the real one. -->
-          <div class="ev tw" data-s="gh" data-i="5">
-            <span class="nd"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-closed"/></svg></span>
-            <span class="tag"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-gh"/></svg>GitHub</span>
-            <div class="card">
-              <article class="gx">
-                <div class="gx-cm">
-                  <div class="h"><b>curia-sh</b> commented on Aug 22, 2026</div>
-                  <div class="b">
-                    <p><b>The words of all twelve scenes are locked, over four operator rounds.</b></p>
-                    <p>The verdict list, slot by slot, is in NOTES.md. The final build ships these lines and no others.</p>
-                  </div>
-                </div>
-                <div class="gx-meta">
-                  <span class="gx-st done"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-closed"/></svg>Closed as completed</span>
-                  <span class="gx-by">the map records the decision</span>
-                </div>
-              </article>
-            </div>
-          </div>
-
-      </div>
 
       <p class="caption rv">Your approval merges the pull request and closes the ticket</p>
     </div>
@@ -3353,12 +3131,6 @@ if (prefersStill || !window.IntersectionObserver) {
     });
   }, { rootMargin: '0px 0px -10% 0px', threshold: 0.08 });
   [].slice.call(document.querySelectorAll('.rv')).forEach(function (n) { obs.observe(n); });
-  /* Containers whose children come in one after another: the thread
-     writes itself, the pane types, the run walks stage by stage. */
-  ['runset'].forEach(function (id) {
-    var el = document.getElementById(id);
-    if (el) { el.classList.add('stagger'); obs.observe(el); }
-  });
   [].slice.call(document.querySelectorAll('.box')).forEach(function (el) {
     el.classList.add('stagger'); obs.observe(el);
   });
@@ -3701,92 +3473,63 @@ if (!prefersStill) {
 function clampNum(v, a, b) { return v < a ? a : v > b ? b : v; }
 
 /* ================================================================
-   Scene 8 (#630) — the constant ticket, and the screens that pass it.
+   Scene 8 (#630) — the desk, narrated.
 
-   Round 2's shape, from the operator's own words: one element stays in
-   place and evolves while a series of device screens scrolls by, and
-   that element is the ticket. So this script owns exactly one number,
-   the stage k, and everything else reads it.
+   Round 3 took the last held thing out of this scene. Round 2's desk
+   grew the section to 430svh and spent its first slot on the ticket
+   alone, so the reader travelled about a screen before anything
+   arrived. That was the operator's first fault, and the answer is not
+   a shorter track: the whole column scrolls normally now, and the
+   first narration box and the first screen sit right under the claim.
 
-   k runs 0 to 4. Stage 0 is the ticket alone, as it was opened. Each
-   of the four screens moves it one stage on, and the section carries k
-   as `data-k`, so the state word, the evolving line, the five-stop
-   track and the pill's colour are all CSS off one attribute.
+   So this script owns one number and nothing else: the stage k, 0 to
+   4. Stage 0 is the ticket as it was opened, and each of the four
+   screens moves it one on. The section carries k as `data-k`, and the
+   state word, the evolving line, the five-stop track and the pill's
+   colour are all CSS off that one attribute.
 
-   Two ways to drive k, and the composition picks one:
-
-   - FLOW (pin, rail, ghost). The page scrolls the way it always does.
-     An IntersectionObserver watches the screens, and the one crossing
-     the middle of the screen sets k. Nothing is pinned but the ticket.
-   - STAGE (stage, desk). The section is tall and holds one
-     screen-tall stage. Scroll POSITION inside that track picks the
-     slot, so the reader sets the pace and can hold anywhere.
-
-   The horizontal walk of #551 is gone and nothing replaces it: no
-   composition here moves anything sideways under the reader's finger.
-   With reduced motion or no script the section carries `still`, every
-   stage collapses to the flow, and all four screens stand at once.
+   An IntersectionObserver watches the screens and the one crossing the
+   middle of the viewport owns the stage. No wheel listener, no
+   scrollTo, no preventDefault: the scene reads the scroll and never
+   takes it. With reduced motion or no script every screen stands, the
+   docket sits at the end of the column instead of following the
+   reader, and every word still reads.
    ================================================================ */
 (function () {
   var sec = document.getElementById('run');
-  var track = document.getElementById('runtrack');
   var scrn = document.getElementById('scrn');
-  if (!sec || !track || !scrn) return;
+  if (!sec || !scrn) return;
 
-  var V = { '0': 'v-deal', '1': 'v-pin', '2': 'v-stage', '3': 'v-rail', '4': 'v-desk', '5': 'v-ghost' };
-  var HELD = { 'v-stage': 1, 'v-desk': 1 };
+  var V = { '1': 'v-step', '2': 'v-slab', '3': 'v-memo', '4': 'v-col', '5': 'v-num' };
+  /* Which compositions deal the screens into a pile rather than stand
+     them apart. The desk is the baseline, so most of them do. */
+  var PILED = { '2': 1, '3': 1, '5': 1 };
   var screens = [].slice.call(scrn.querySelectorAll('.sc'));
   var swb = [].slice.call(document.querySelectorAll('#rsw button'));
-  var rsw = document.getElementById('rsw');
   var v = '1';
   var k = 0;
   var io = null;
-  var raf = 0;
 
   function setK(next) {
     next = next < 0 ? 0 : next > screens.length ? screens.length : next;
     if (next === k) return;
     k = next;
     sec.setAttribute('data-k', String(k));
-    /* The desk keeps what has already passed: a screen the run is done
-       with stays in the pile rather than leaving it. */
-    screens.forEach(function (s, i) {
-      s.classList.toggle('on', i === k - 1);
-      s.classList.toggle('seen', i < k - 1);
-    });
     if (k >= 3) press();
   }
 
-  /* ---- the two drivers ---- */
-
-  function flowOn() {
+  function watch() {
     if (io || !window.IntersectionObserver) return;
     /* A screen owns the stage from the moment it crosses the middle of
-       the viewport. The bottom margin is what puts that line there. */
+       the viewport. The margins are what put that line there. */
     io = new IntersectionObserver(function (es) {
       es.forEach(function (e) {
         if (!e.isIntersecting) return;
         setK(parseInt(e.target.getAttribute('data-i'), 10) + 1);
       });
     }, { rootMargin: '-45% 0px -45% 0px', threshold: 0 });
-    screens.forEach(function (s) { io.observe(s); });
+    screens.forEach(function (n) { io.observe(n); });
   }
-  function flowOff() { if (io) { io.disconnect(); io = null; } }
-
-  function heldTick() {
-    raf = 0;
-    var r = track.getBoundingClientRect();
-    var travel = r.height - window.innerHeight;
-    if (travel <= 0) return;
-    var p = -r.top / travel;
-    p = p < 0 ? 0 : p > 1 ? 1 : p;
-    /* One slot per stage, the first of them the ticket on its own. */
-    var slot = Math.floor(p * (screens.length + 1));
-    setK(slot > screens.length ? screens.length : slot);
-  }
-  function heldQueue() { if (!raf) raf = requestAnimationFrame(heldTick); }
-  function heldOn() { window.addEventListener('scroll', heldQueue, { passive: true }); window.addEventListener('resize', heldQueue, { passive: true }); heldTick(); }
-  function heldOff() { window.removeEventListener('scroll', heldQueue); window.removeEventListener('resize', heldQueue); }
 
   /* ---- the press. It plays once, when the gate takes the stage. ---- */
   var gate = document.getElementById('rungate');
@@ -3809,39 +3552,22 @@ function clampNum(v, a, b) { return v < a ? a : v > b ? b : v; }
   if (approve) approve.addEventListener('click', press);
 
   /* ---- the composition ---- */
-
-  function fitSw() {
-    if (!rsw) return;
-    sec.style.setProperty('--rswh', rsw.offsetHeight + 'px');
-  }
-
   function setV(next) {
     next = String(next);
     if (!V[next]) next = '1';
     v = next;
     sec.setAttribute('data-v', v);
-    sec.className = 'scene run sL ' + V[v] + (prefersStill ? ' still' : '');
+    sec.className = 'scene run sL ' + V[v]
+      + (PILED[v] ? ' piled' : '')
+      + (prefersStill ? ' still' : '');
     swb.forEach(function (b) { b.setAttribute('aria-pressed', b.getAttribute('data-i') === v ? 'true' : 'false'); });
-    flowOff();
-    heldOff();
-    if (prefersStill || v === '0') {
-      /* Nothing drives the stage: every screen stands, and the ticket
-         reads as it was opened. */
-      screens.forEach(function (s) { s.classList.add('on'); s.classList.remove('seen'); });
-      press();
-      return;
-    }
-    k = -1;
-    setK(0);
-    screens.forEach(function (s) { s.classList.remove('on', 'seen'); });
-    sec.setAttribute('data-k', '0');
-    if (HELD[V[v]]) heldOn(); else flowOn();
+    if (prefersStill) { press(); return; }
+    watch();
   }
 
   swb.forEach(function (b) {
     b.addEventListener('click', function () {
       setV(b.getAttribute('data-i'));
-      fitSw();
       try {
         var u = new URL(window.location.href);
         u.searchParams.set('id', v);
@@ -3849,12 +3575,10 @@ function clampNum(v, a, b) { return v < a ? a : v > b ? b : v; }
       } catch (e) { /* a URL this browser will not parse costs the switcher nothing */ }
     });
   });
-  window.addEventListener('resize', fitSw, { passive: true });
 
   var id = '';
   try { id = new URL(window.location.href).searchParams.get('id') || ''; } catch (e) { id = ''; }
   setV(V[id] ? id : '1');
-  fitSw();
 })();
 
 /* ================================================================

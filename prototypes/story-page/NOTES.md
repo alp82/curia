@@ -1658,6 +1658,94 @@ checks were wrong before they were right:
   and no stage under it to hold. It is `.still.v-ghost` now. The distinctness break is what exposed
   it: the rule showed up as the ghost's one asymmetric declaration.
 
+**The operator's answer to round 2**, verbatim:
+
+> desk is the new baseline
+>
+> problems: i have to scroll quite a long time before i see something at the bottom, it should
+> appear right away. then we should have boxes like the section titles in the beginning of the page
+> that scroll normally and narrate each step with simple words
+>
+> 5 new distinct variations based on this
+
+**The desk is the baseline**, and two faults come with it.
+
+**Fault 1: the long lead-in.** Round 2's desk grew the section to `430svh` and spent its first slot
+on the ticket alone, so the reader travelled about a screen before anything arrived. The answer is
+not a shorter track. **Nothing in this scene is held any more.** The section is its own height, the
+whole column scrolls normally, and the first narration box and the first screen sit right under the
+claim. A build check refuses a height on the track and refuses a sticky full-height stage.
+
+**Fault 2: no narration.** Every step now carries a box built from the identity frame's own parts
+(#624): the numbered mono kicker, then the line. They scroll normally and they never pin.
+
+**The four lines are new words**, and that is the second time this file has authored copy
+[#587](https://github.com/alp82/curia/issues/587) did not lock. The first was the five condensed
+setup steps, which #587 left open. These four exist because the operator asked for them at round 3:
+
+| box | the line |
+|-----|----------|
+| 01 | You send it to an agent from Discord. |
+| 02 | The agent works and opens a pull request. |
+| 03 | It asks you before anything merges. |
+| 04 | You approve. It merges and closes the ticket. |
+
+A build check holds them to simple words: at most twelve words, no semicolon, no em-dash.
+
+**The constant still stays put, and now it does it without holding the page.** The docket is the
+LAST thing in the column and it sticks to the BOTTOM of the viewport. That ordering is what pins it:
+a bottom-sticky element whose own place is below the fold is pinned from the start, and it settles
+onto the desk when the column ends. A check asserts the order, because a docket moved to the head of
+the column would look identical in the source and never pin at all.
+
+**Round 3.** Five compositions on `?id=1..5`, all on the desk baseline, differing in what the
+narration box IS and how it meets its screen:
+
+1. **step** — the plainest reading. A hairline down the box, the screens standing well apart, the
+   docket an ordinary card at the near edge. No pile, no slab, no paper.
+2. **slab** — the box is a solid stage-coloured slab that bleeds off the edge, the way the scene's
+   own claim does (#624's one slab accent), alternating sides. The screens pile.
+3. **memo** — the box is paper, the same stock as the docket, clipped over the corner of its screen.
+   The whole scene is one desk. The screens pile.
+4. **column** — past 60rem the narration runs down one column and the screens down the other, both
+   scrolling normally, with the docket riding the top of the narration column. On a phone it is box,
+   screen, box, screen.
+5. **numeral** — megatype. The stage number stands behind the box at poster size and the docket is a
+   full-bleed strip at the bottom edge. The screens pile.
+
+**Round 1's deal set left the file with this round.** It is fully recorded here and in the round 1
+commit, and every composition of round 3 is the desk it started, so there is nothing left to compare
+it against.
+
+**Three marks left with it.** `oc-gh`, `oc-dc` and `oc-issue` lost their last reader when round 1's
+surface tags went. They were not put back in the browser bar or the Discord bar, because that would
+be LESS true than leaving them out: a browser omnibox shows no favicon, and the Discord title bar
+shows a status dot. A build check now refuses a sprite that carries a passenger, in either direction.
+
+**109 build checks** run against the file and all **54 breaks** that validate them land. Four of the
+checks were wrong before they were right, and two of the four are the same lesson from opposite
+sides:
+
+- **A check read a comment as code.** Round 3's own header says the scene "calls no `scrollTo`, and
+  calls `preventDefault` nowhere". The no-hijack check searched the script for those words and found
+  them in that sentence. It strips comments first now.
+- **A check read prose as code, the other way round.** The held-stage check searched for `v-desk`
+  and matched `pv-desk`, which is scene 5's own class, and matched `430svh` inside the paragraph
+  explaining that round 3 removed it. It reads `.v-desk` against comment-stripped source now.
+- **Two slices ran backwards.** Moving the docket to the end of the column inverted the range the
+  constant-chrome check read, and the claim-order check still compared against a container that had
+  left the file. Both use `find` and an explicit ordering test now, so a missing anchor fails the
+  check instead of raising.
+
+**One fault the checks found in the work, not in themselves.** `v-step` declared exactly one rule,
+which is not a composition. The distinctness test caught it as a near-duplicate of `v-col`. It is
+its own reading now: a hairline down the box, wider gaps, no pile.
+
+**One fault found by reading.** The splice that removed round 2's five compositions also swallowed
+the constant's own detail, the device chrome and the GitHub timeline, because the cut ran from a
+marker above them to a marker below. All three outlive the compositions that happened to sit between
+them, and they came back from the previous commit rather than being retyped.
+
 ## The verdict of the terminal scene ([#629](https://github.com/alp82/curia/issues/629))
 
 **Locked over ten operator rounds**, the longest run of any scene on this page. Every variation
