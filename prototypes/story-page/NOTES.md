@@ -1465,6 +1465,112 @@ ships `claude` and `codex` today, so [#604](https://github.com/alp82/curia/issue
 that line until the code lands. A build check asserts the file still ships two, and it goes red on
 the day it ships four, which is the day the line is safe.
 
+## The ticket run scene ([#630](https://github.com/alp82/curia/issues/630))
+
+Scene 8 — one ticket on GitHub, the "You are in charge" beat. The operator's note at #551 round 2,
+verbatim:
+
+> you are in charge horinzontal scroll hijacking is bad. the horizontal jouney might not work at
+> all, we need a better solution here. the tickets look really bad, also they mix github and
+> discord info/controls
+
+Three faults, and each one gets a rule rather than a touch-up.
+
+**1. The hijack is gone, and nothing replaces it.** The old scene grew to `300vh`, pinned a strip
+and read the page scroll to walk that strip sideways. That code and that height are out of the
+file. No composition offered here moves anything sideways under the reader's finger, and the
+`walk()` loop that did it is deleted rather than disabled.
+
+**2. One card carries one surface.** A GitHub card is a fragment of the GitHub page in GitHub's own
+dark palette and its own shapes: the state pill, the octicons, the commit list with real SHAs, the
+diffstat, and a label chip in the real hex of this repo's `wayfinder:prototype` label, `#fbca04`. A
+Discord card is a fragment of a thread in the token set the operator picked at
+[#626](https://github.com/alp82/curia/issues/626) round 4: the avatar, the name with its APP badge,
+the component row. A build check reads every card in the scene and refuses GitHub chrome inside a
+Discord card or the reverse.
+
+**3. The gate is a Discord card.** That is the mixing fault at its source: the old gate was a
+GitHub-chromed box carrying Discord buttons. It is now the shape `bridge.mjs` really sends for the
+review kind — the `**[esc-4]** \`curia-587\` asks for review:` head from `#escalationBody`, curia's
+own `Is alp82/curia#587 done?` question and the blocks under it from `reviewGateText`
+(`lifecycle.mjs:429`), the two small-print lines verbatim, and three buttons. **Reject is RED**:
+`bridge.mjs:1172` builds it with `ButtonStyle.Danger`, and the old card had it grey.
+
+**The run is real** ([#601](https://github.com/alp82/curia/issues/601)). Every value in the six
+events is read off the tracker: ticket #587 opened Aug 21 2026 with the `wayfinder:prototype`
+label, `config/routing.yaml` routing a prototype ticket to `opus` on the claude harness, the five
+commit SHAs and headlines on pull request #597, the branch `curia/587`, `3 files changed +757 −0`,
+the merge commit `a71e154`, and the first line of the real resolution comment. The thread glyph
+changes through the run the way `bridge.mjs` really changes it — 🎫 running, 🔎 holding a review
+gate open (`STATE_GLYPHS`, `bridge.mjs:96`).
+
+**Two invented values, and they are the only ones.** The two Discord timestamps. The tracker
+records when the ticket was opened (15:08 UTC) and when the first push landed (18:55 UTC), so the
+dispatch happened between them and nothing records the minute. The card says 18:41. The gate says
+21:10, against a merge at 19:13 UTC. Both are clock faces on a card that has to carry one.
+
+**Round 1.** Five readings of the same six events on `?id=1..5`. Four are vertical. The fifth keeps
+the horizontal reading but hands the control to the reader, because the operator left the journey
+itself on the table and the honest way to settle it is to show one that does not hijack:
+
+1. **timeline** — one spine down the page, GitHub's own issue-timeline shape, every card hanging
+   off its node with a surface tag above it.
+2. **lanes** — the split IS the layout. Past 62rem GitHub runs down one lane and Discord down the
+   other, with a hop crossing the spine wherever one surface moved the other. Below that width it
+   is one column with a lane-coloured edge on every card.
+3. **devices** — one surface per SCREEN. A browser window holds the GitHub page and only that, a
+   phone holds the thread and only that, so the two can never be read as one control surface.
+4. **deal** — no journey and no travel: the run is a paper trail, six documents dropped one on the
+   next, tabbed and slightly turned. Two kinds of paper, so the split is what the eye sorts first.
+5. **steps** — the horizontal reading survives as a step bar. One card at a time, advancing every
+   3.6 seconds while the scene is on screen, a tap takes it over, and the cycle returns ten seconds
+   later — the shape [#627](https://github.com/alp82/curia/issues/627) settled for the preview
+   round. Nothing here touches the page scroll.
+
+**The five are four layouts over ONE set of cards, plus one composition of its own.** That is
+deliberate. The operator is judging the reading, not the evidence, so the same six cards go into
+every layout and only the arrangement changes. Compositions 1, 2, 4 and 5 are `as-timeline`,
+`as-lanes`, `as-deal` and `as-steps` over `#runset`. Composition 3 needs a browser and a phone, so
+it is its own markup.
+
+**The step slot is measured to the tallest card.** A stepper that resizes on each advance moves the
+caption under it, which is the same fault as taking the scroll, in miniature.
+
+**The press is the true thing curia does.** The Approve button swells in place, and then curia
+edits the card and clears its components, so the button row collapses away and the receipt comes up
+as small print with an `(edited)` mark. That is the behaviour [#626](https://github.com/alp82/curia/issues/626)
+round 5 locked for scene 4, and this scene reuses it rather than inventing a second press.
+
+**Two marks are drawn**, because the page ships no image and no webfont: GitHub's mark and
+Discord's. Neither is fetched, and both are single paths. The six octicons are drawn from their
+shapes, not from a capture. #629's lesson applies in the other direction here — there is no capture
+of a GitHub page in this repo, so **round 1 asks the operator to judge the GitHub chrome by eye**,
+the way #629 round 1 asked them to judge terminal colour.
+
+**The devices composition does not press.** Its gate is a still, because a press on a screen inside
+a screen competes with the caption under it. If the operator picks it, the press comes back in the
+next round.
+
+**86 build checks** run against the file, and all **36 breaks** that validate them land. They cover
+the three faults of the ticket, the real values, the locked words, the identity frame, the five
+compositions and their distinctness, the six events and their order, the build rules, the
+no-script and reduced-motion paths, and balanced markup. Three were wrong before they were right,
+and each repeats a fault this file has already recorded once:
+
+- **A check asked whether a value appears in the SCENE, not in a CARD.** The Reject button, curia's
+  own question and the diffstat each appear twice — once in the main composition and once in the
+  devices phone. Breaking one of the two left every check green. They run per button and per card
+  now. This is the same fault #629 recorded about its TUI-marker checks, in a scene with two
+  instances instead of five.
+- **A mutation landed in a comment.** The break meant to prove the thread-glyph check hit the
+  `🎫 587 · prototype` in the scene's own HTML comment, not the one in the card. The value checks
+  read the markup with comments stripped now, and every mutation is confined to the three spans
+  scene 8 owns.
+- **The distinctness check compared prose, not rules.** A CSS comment sits in front of a selector,
+  so the parser was carrying the paragraph each layout was documented with into its selector text.
+  Two identical layouts read as different, because their comments differed. It strips comments
+  first now, which is #628's and #629's wrong-scope lesson a third time.
+
 ## The verdict of the terminal scene ([#629](https://github.com/alp82/curia/issues/629))
 
 **Locked over ten operator rounds**, the longest run of any scene on this page. Every variation
