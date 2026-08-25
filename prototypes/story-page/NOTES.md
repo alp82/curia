@@ -1351,6 +1351,29 @@ could, and it took a red rectangle to say which half.
 **The rail marks were never broken**, which the operator also said. They are drawn shapes, not
 captured ones, so they were never exposed to this fault.
 
+**The operator's answer to round 7**, verbatim, with a screenshot:
+
+> 1. i want to see the whole mark - not remove it
+> 2. yes but the opencode harness looks also broken because the cursor is inside the text and
+>    tehre is a scrollbar of some sort
+
+**Two faults in the opencode composer, both from the same slip: a dropped row.**
+
+- **The cursor sat inside the text.** The real composer is FOUR `┃` rows: the input row, then a
+  BLANK one, then the mode row. This file had three. Losing the blank row put the cursor hard
+  against `Build · gpt-5.6-sol · gravity`, which is what the operator read as the cursor being
+  inside it.
+- **The border read as a scrollbar.** The `╹▀▀▀…` under the composer was a run of `▀` glyphs, and
+  a browser drew it as a light bar the width of the pane, sitting over the line above. It is drawn
+  as one rectangle now, on its own row, in a much dimmer colour.
+
+**The whole mark is still not in this repo, and the operator wants it.** Every file was searched,
+not only the evidence directories: `prototypes/model-switch/evidence/opencode-1-spawn.txt` holds
+the only copy, and it is the incomplete one. Nothing else in the repository carries that banner.
+Round 8 asks the operator for a fresh capture of the opencode start screen, because that is the
+one thing this session cannot get for itself, and the alternative is inventing three letters of
+another project's wordmark.
+
 **The scene is one composition canvas.** The claim, the terminal and the fact line are grid items
 of `.tm`. The old scene 7 held the claim in a centred `.wrap` and the pane in a `.shot`, which is
 the pair that broke the preview scene at [#627](https://github.com/alp82/curia/issues/627) round 3
