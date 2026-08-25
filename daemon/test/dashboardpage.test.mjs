@@ -1057,6 +1057,21 @@ describe('the read screens (#264)', () => {
       assert.equal(page.location.hash, 'maps')
     })
 
+    // A pause is only ever ended by hand (github.mjs `mapCloseBlockers`), so the
+    // one surface that could start work on a paused map must not offer to.
+    test('a paused map is listed and says so, and hands out no start control', () => {
+      const p = payload()
+      p.overview.maps.maps[0].deferred = true
+      page.UI.maps = { repo: 'all', selected: { repo: 'alp82/curia', map: 244, group: 'takeable' }, open: false }
+      const html = page.screenMaps(p)
+      const t = text(html)
+      assert.match(t, /Curia gets a face/, 'the map stays listed')
+      assert.match(t, /The settings write/, 'its tickets stay listed')
+      assert.match(t, /paused/)
+      assert.match(t, /only ever ended by hand/)
+      assert.doesNotMatch(html, /startTicket/)
+    })
+
     test('the shell exposes every desktop page and the four-tab mobile bar with the Agents key', () => {
       page.payload = payload()
       const el = { innerHTML: '' }

@@ -2172,8 +2172,17 @@ function mapDetailRows(o, map, group) {
   }
   return items.map((item) => {
     const issue = `<a href="https://github.com/${esc(map.repo)}/issues/${esc(item.number)}">#${esc(item.number)}</a> ${esc(item.title)}`;
-    if (group === "takeable") return `<div class="map-detail-row">${issue}
-      <span class="sub">${esc(mapType(item))} · routed to ${esc(item.model ?? "unknown")}</span>${startRow(o, map.repo, item)}</div>`;
+    if (group === "takeable") {
+      /* A PAUSED MAP OFFERS NO START. `wayfinder:deferred` means the map is
+         paused, and a pause is only ever ended by hand (github.mjs
+         `mapCloseBlockers`). The tickets stay listed, because hiding a pause
+         is how a pause becomes a disappearance - it is the BUTTON that goes. */
+      const start = map.deferred
+        ? `<div class="act-row"><span class="dim-note">this map is paused (<span class="mono">wayfinder:deferred</span>), and a pause is only ever ended by hand</span></div>`
+        : startRow(o, map.repo, item);
+      return `<div class="map-detail-row">${issue}
+      <span class="sub">${esc(mapType(item))} · routed to ${esc(item.model ?? "unknown")}</span>${start}</div>`;
+    }
     if (group === "blocked") {
       /* EVERY blocker, never a count of them: the operator's next question is
          which ticket to take, and only the names answer it. */
@@ -2238,7 +2247,7 @@ function screenMaps(p) {
     const walked = map.counts?.walked ?? 0;
     return `<section class="map-card"><div class="map-head">
       <div class="map-fraction">${esc(walked)}<span class="total">/${esc(total)}</span>${map.counts?.fog ? `<span class="fog-count">+${esc(map.counts.fog)}</span>` : ""}</div>
-      <div class="map-title"><b>${esc(map.title)}</b><span class="meta">${esc(map.repo)} · ${esc(ago(map.latest_event_at))} · <a href="${esc(mapUrl(map))}">#${esc(map.number)}</a></span></div>
+      <div class="map-title"><b>${esc(map.title)}</b><span class="meta">${esc(map.repo)} · ${esc(ago(map.latest_event_at))} · <a href="${esc(mapUrl(map))}">#${esc(map.number)}</a>${map.deferred ? " · paused" : ""}</span></div>
       </div>${mapBand(o, map, selected)}</section>`;
   }).join("") || `<div class="empty">No open map matches this project.</div>`;
   return `${head(p, "Atlas \u00b7 Maps")} ${filters}${failed}<div class="map-layout"${

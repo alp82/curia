@@ -652,6 +652,8 @@ A dashboard screen whose facts all come from the overview: home, agents, frontie
 **Maps screen**:
 The dashboard screen for the open maps. Every fact on it comes from the **map snapshot** and from nowhere else, because two readings of one map drift. A map is a card: the walked fraction over the snapshot's own total, the fog counted beside it rather than inside it, and the five-group band - walked, in flight, takeable, blocked, fog - that selects the detail. Maps needing the operator lead the list, and calm maps follow by their latest event.
 
+A **paused map** - one labelled `wayfinder:deferred` - is listed like any other, because hiding a pause is how a pause becomes a disappearance. What the pause costs it is the **start control**: a pause is only ever ended by hand, so the one surface that could dispatch work on a paused map says why it will not.
+
 The detail half carries the cut decided in [#588](https://github.com/alp82/curia/issues/588): takeable rows under the frontier rule with the routed model and a start control, blocked rows in a red-dashed box that names **every** blocker, and fog on the grey striped strip. An empty frontier is a sentence saying where the way went, never a blank.
 
 **Map detail route**:

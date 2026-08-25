@@ -112,6 +112,12 @@ export async function readMapSnapshot({ watch, routing, github, journal }) {
         number: map.number,
         title: map.title ?? '',
         url: map.html_url ?? `https://github.com/${repo}/issues/${map.number}`,
+        // A PAUSED MAP IS STILL AN OPEN MAP (#700). This snapshot reads every
+        // open map, deferred ones included, because hiding a pause is how a
+        // pause becomes a disappearance. But a pause is only ever ended by
+        // hand, so the flag rides along and every surface that could START
+        // work on this map must honor it.
+        deferred: labelsOf(map).includes('wayfinder:deferred'),
         walked,
         in_flight: inFlight,
         takeable,
