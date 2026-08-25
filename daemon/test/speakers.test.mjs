@@ -46,7 +46,10 @@ describe('speaker-identity degradation (#143)', () => {
       },
       createWebhook: async () => { throw new Error('should not mint: the fixture already has one') },
     }
-    bridge.client = { channels: { fetch: async () => thread }, user: null }
+    bridge.client = {
+      channels: { fetch: async () => thread },
+      user: { displayAvatarURL: () => 'https://cdn.discord.test/curia.png' },
+    }
   })
 
   test('the boot probe announces the missing grant once, and /state carries it', async () => {
@@ -54,7 +57,7 @@ describe('speaker-identity degradation (#143)', () => {
     await bridge.probeSpeakers()
 
     assert.equal(announced.length, 1)
-    assert.match(announced[0], /Speaker identities are off/)
+    assert.match(announced[0], /Speaker identity is off/)
     assert.match(announced[0], /Manage Webhooks/)
     assert.equal(bridge.status().speakers.ok, false)
     assert.equal(bridge.status().speakers.reason, 'Missing Permissions')
@@ -72,28 +75,27 @@ describe('speaker-identity degradation (#143)', () => {
     assert.deepEqual(announced, [])
     assert.equal(bridge.status().speakers.ok, true)
 
-    await bridge.notify('85', 'hello', { as: 'curia-85' })
+    await bridge.notify('85', 'hello', { as: 'curia' })
     assert.equal(asBot.length, 0)
     assert.equal(asHook.length, 1)
-    assert.equal(asHook[0].username, 'curia-85')
+    assert.equal(asHook[0].username, 'curia')
     assert.equal(asHook[0].threadId, 't-1')
   })
 
-  test('the speaker avatar is a URL that exists, and one per agent (#143)', async () => {
+  test('the speaker avatar is a URL that exists, and one for curia (#143)', async () => {
     await bridge.probeSpeakers()
-    await bridge.notify('85', 'a', { as: 'curia-85' })
-    await bridge.notify('85', 'b', { as: 'curia-review-85' })
+    await bridge.notify('85', 'a', { as: 'curia' })
+    await bridge.notify('85', 'b', { as: 'curia' })
 
     // github.com/identicons/<name>.png answers for real accounts only, so the
     // old scheme 404ed for every agent and Discord drew the default face.
-    for (const send of asHook) assert.doesNotMatch(send.avatarURL, /github\.com\/identicons/)
-    for (const send of asHook) assert.match(send.avatarURL, /^https:\/\/www\.gravatar\.com\/avatar\/[0-9a-f]{32}\?d=identicon&f=y/)
-    assert.notEqual(asHook[0].avatarURL, asHook[1].avatarURL, 'the builder and its reviewer, two faces')
+    for (const send of asHook) assert.equal(send.avatarURL, 'https://cdn.discord.test/curia.png')
+    assert.equal(asHook[0].avatarURL, asHook[1].avatarURL, 'curia keeps one face')
 
     // One agent wears one face for its whole life. The name is the session
     // name and nothing else (#254), so nothing on the label can move it.
-    await bridge.notify('85', 'c', { as: 'curia-85' })
-    assert.equal(asHook[2].avatarURL, asHook[0].avatarURL, 'the session name seeds the face')
+    await bridge.notify('85', 'c', { as: 'curia' })
+    assert.equal(asHook[2].avatarURL, asHook[0].avatarURL, 'the curia name seeds the face')
   })
 
   test('a grant withdrawn while the daemon runs is caught at the send', async () => {
@@ -106,7 +108,7 @@ describe('speaker-identity degradation (#143)', () => {
 
     assert.deepEqual(asBot, ['after the loss'])
     assert.equal(announced.length, 1)
-    assert.match(announced[0], /Speaker identities are off/)
+    assert.match(announced[0], /Speaker identity is off/)
   })
 
   test('a grant that lands while the daemon runs heals with no restart, and says so', async () => {
@@ -119,7 +121,7 @@ describe('speaker-identity degradation (#143)', () => {
 
     assert.equal(asHook.length, 1, 'the send path is never disabled, so it simply works')
     assert.equal(announced.length, 2)
-    assert.match(announced[1], /Speaker identities are on/)
+    assert.match(announced[1], /Speaker identity is on/)
     assert.equal(bridge.status().speakers.ok, true)
 
     // and a second loss is announced again — the latch cleared with the recovery
@@ -127,7 +129,7 @@ describe('speaker-identity degradation (#143)', () => {
     webhookFault = missingPermissions()
     await bridge.notify('85', 'lost again', { as: 'curia-85' })
     assert.equal(announced.length, 3)
-    assert.match(announced[2], /Speaker identities are off/)
+    assert.match(announced[2], /Speaker identity is off/)
   })
 
   test('a webhook that fails for another reason is announced with its own words', async () => {

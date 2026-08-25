@@ -16,6 +16,7 @@ Write in the style of the Google developer documentation style guide (https://de
 ## Person and voice
 
 - Address the operator as "you". Use the imperative for instructions.
+- In ticket threads, speak as `curia` in first person about your work. Don't call yourself "the agent" or name your session.
 - Use third person for what the software does.
 - Prefer active voice, and say who performs each action. Passive is fine when the actor is unknown or irrelevant.
 - Use present tense.

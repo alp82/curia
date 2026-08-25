@@ -86,9 +86,11 @@ describe('a typed card renders as one message the operator can answer', () => {
     assert.deepEqual(idsOf(msg.components).filter((i) => i.includes('|idx|')), ['esc|esc-1|idx|0', 'esc|esc-1|idx|1'])
   })
 
-  test('the head leaves a blank line, so the headline is not glued to the id', async () => {
+  test('the question signal leads and the id sits in subtext', async () => {
     const msg = await render('choice', CHOICE)
-    assert.match(msg.content, /asks \(\*choice\*\):\n\n\*\*A restart/)
+    assert.match(msg.content, /^❓ \*\*A restart/)
+    assert.match(msg.content, /\n-# esc-1$/)
+    assert.doesNotMatch(msg.content, /curia-418|asks/)
   })
 
   test('the whole card fits one Discord message', async () => {
@@ -128,7 +130,7 @@ describe('a typed round', () => {
   test('every question recommended gives the ✅ button', async () => {
     const msg = await round([{ text: 'one?', recommendation: 'yes' }, { text: 'two?', recommendation: 'no' }])
     assert.deepEqual(idsOf(msg.components), [`esc|esc-1|opt|${ALL_AS_RECOMMENDED}`])
-    assert.match(msg.content, /comes back in the next round/)
+    assert.match(msg.content, /return in the next round/)
   })
 
   test('ONE question without a recommendation takes the button away', async () => {
@@ -202,11 +204,12 @@ describe('an untyped card is what a flagged send renders (#422)', () => {
     bridge.ensureThread = async () => thread
   })
 
-  test('the prompt still sits one newline under the head', async () => {
+  test('the prompt keeps the question signal and subtext id', async () => {
     await bridge.renderEscalation({
       id: 'esc-1', ticket: '418', agent: 'curia-418', kind: 'free-text', prompt: 'which port?',
     })
-    assert.match(sent.at(-1).content, /asks \(\*free-text\*\):\nwhich port\?/)
+    assert.match(sent.at(-1).content, /^❓ which port\?/)
+    assert.match(sent.at(-1).content, /\n-# esc-1$/)
   })
 
   test('an untyped long choice still prints its numbered fallback list', async () => {

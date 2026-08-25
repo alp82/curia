@@ -63,6 +63,8 @@ let agentNotes // session -> queued operator notes the exit sweep expires (#208)
 const dispatchers = [] // every Dispatcher a test built, so afterEach can end its watches
 let restoreCredential // #195: the model credential the container env file needs
 
+const lifecycleReceipt = () => events.filter((event) => event.type === 'lifecycle_closed').at(-1)?.receipt
+
 beforeEach(() => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-dispatch-test-'))
   fs.mkdirSync(path.join(tmp, 'data', 'results'), { recursive: true })
@@ -3673,10 +3675,10 @@ describe('a non-clean result resolves nothing AND hands the ticket back (#41)', 
 // section 3) found every ending narrated by three identities in up to four
 // messages inside twenty seconds. Two remain: the agent's report, in the
 // agent's voice, and this receipt, in CuriaBot's.
-describe('the ending is one CuriaBot message (#253)', () => {
+describe('the ending settles the status receipt (#690)', () => {
   const agent = () => ({ repo: 'o/r', ticket: '42', session: 'curia-42', wtPath: '/nope/42', cfgDir: '/c/curia-42', state: 'ready' })
 
-  test('the tracker step is silent; the receipt carries it, once, in small print', async () => {
+  test('the tracker step is silent and the lifecycle carries one receipt', async () => {
     const d = makeDispatcher({
       findPullRequest: async () => ({ url: 'https://github.com/o/r/pull/9', state: 'MERGED' }),
     })
@@ -3687,12 +3689,11 @@ describe('the ending is one CuriaBot message (#253)', () => {
 
     await d.onAgentDone('curia-42')
 
-    assert.equal(notifies.length, 1, 'one ending, one message')
-    const { message } = notifies[0]
-    assert.ok(message.split('\n').every((l) => l.startsWith('-# ')), 'the mechanics register is small print')
-    assert.match(message, /o\/r#42 resolved/, 'what the tracker step did')
-    assert.match(message, /session closed/, 'what the teardown did')
-    assert.ok(!/🏁/.test(message), 'the done line is gone with no replacement')
+    assert.equal(notifies.length, 0, 'the ending adds no separate message')
+    const receipt = lifecycleReceipt()
+    assert.match(receipt, /✅ resolved/, 'what the tracker step did')
+    assert.match(receipt, /session .* closed/, 'what the teardown did')
+    assert.ok(!/🏁/.test(receipt), 'the done line is gone with no replacement')
   })
 
   test('no bare link rides the receipt — the pull request unfurls in the report and nowhere else', async () => {
@@ -3705,9 +3706,9 @@ describe('the ending is one CuriaBot message (#253)', () => {
     await d.onResult('curia-42', { ticket: '42', status: 'resolved', summary: 'done' })
     await d.onAgentDone('curia-42')
 
-    const { message } = notifies[0]
-    assert.match(message, /pull\/9/, 'the link is still stated')
-    assert.ok(!/[^<]https:\/\//.test(message), 'every url is wrapped in <>, so Discord renders no embed')
+    const receipt = lifecycleReceipt()
+    assert.match(receipt, /pull\/9/, 'the link is still stated')
+    assert.ok(!/[^<]https:\/\//.test(receipt), 'every url is wrapped in <>, so Discord renders no embed')
   })
 
   test('a blocked result ends in the same one message', async () => {
@@ -3720,8 +3721,8 @@ describe('the ending is one CuriaBot message (#253)', () => {
     fs.writeFileSync(path.join(tmp, 'data', 'results', 'curia-42.json'), '{"status":"blocked"}')
     await d.onAgentDone('curia-42')
 
-    assert.equal(notifies.length, 1)
-    assert.match(notifies[0].message, /NOT resolved.*session closed/s)
+    assert.equal(notifies.length, 0)
+    assert.match(lifecycleReceipt(), /NOT resolved.*session .* closed/s)
   })
 
   test('the clause survives a restart between report_result and the Stop hook', async () => {
@@ -3735,7 +3736,7 @@ describe('the ending is one CuriaBot message (#253)', () => {
     fs.writeFileSync(path.join(tmp, 'data', 'results', 'curia-42.json'), '{"status":"resolved"}')
     await second.onAgentDone('curia-42')
 
-    assert.match(notifies.at(-1).message, /o\/r#42 resolved/)
+    assert.match(lifecycleReceipt(), /✅ resolved/)
   })
 
   test('a session whose ending touched no tracker still gets a receipt', async () => {
@@ -3745,8 +3746,8 @@ describe('the ending is one CuriaBot message (#253)', () => {
 
     await d.onAgentDone('curia-42')
 
-    assert.equal(notifies.length, 1)
-    assert.match(notifies[0].message, /finished with a recorded result/)
+    assert.equal(notifies.length, 0)
+    assert.match(lifecycleReceipt(), /result recorded/)
   })
 
   // The report is the ONE place the pull-request link is allowed to unfurl, so
@@ -3783,8 +3784,8 @@ describe('the ending is one CuriaBot message (#253)', () => {
 
     await d.onAgentDone('curia-42')
 
-    assert.match(notifies.at(-1).message, /finished with a recorded result/)
-    assert.ok(!/resolved —/.test(notifies.at(-1).message), 'the last run\'s sentence stays with the last run')
+    assert.match(lifecycleReceipt(), /result recorded/)
+    assert.ok(!/resolved - done/.test(lifecycleReceipt()), 'the last run\'s sentence stays with the last run')
   })
 })
 
@@ -4971,7 +4972,7 @@ describe('merge ends the workspace lease (#54 item 7)', () => {
 
     assert.deepEqual(done, ['rm:42', 'del:curia/42'])
     assert.ok(events.some((e) => e.type === 'lease_released' && e.merged === true))
-    assert.match(notifies.at(-1).message, /is merged — worktree removed, remote `curia\/42` deleted/)
+    assert.match(lifecycleReceipt(), /is merged — worktree removed, remote `curia\/42` deleted/)
   })
 
   test('an UNMERGED pull request keeps the worktree and the branch, loudly', async () => {
@@ -4987,7 +4988,7 @@ describe('merge ends the workspace lease (#54 item 7)', () => {
 
     assert.equal(removed, false, 'the worktree may hold the only copy of unlanded work')
     assert.ok(events.some((e) => e.type === 'lease_kept'))
-    assert.match(notifies.at(-1).message, /KEPT.*is \*\*OPEN\*\*, not merged/)
+    assert.match(lifecycleReceipt(), /KEPT.*is \*\*OPEN\*\*, not merged/)
   })
 
   test('an unreadable pull-request state keeps the workspace — "cannot tell" is not "merged"', async () => {
@@ -5035,7 +5036,7 @@ describe('merge ends the workspace lease (#54 item 7)', () => {
     await d.onAgentDone('curia-42')
 
     assert.equal(removed, false)
-    assert.match(notifies.at(-1).message, /cannot rule out unlanded commits/)
+    assert.match(lifecycleReceipt(), /cannot rule out unlanded commits/)
   })
 })
 
@@ -7177,7 +7178,7 @@ describe('teardown sees uncommitted work (#649)', () => {
       await d.onAgentDone('curia-42')
 
       assert.deepEqual(acts, ['salvage', 'rm'])
-      assert.match(notifies.at(-1).message, /captured on `curia\/42-salvage-2026-08-24T03-04-05Z` first/)
+      assert.match(lifecycleReceipt(), /captured on `curia\/42-salvage-2026-08-24T03-04-05Z` first/)
       assert.ok(events.some((e) => e.type === 'work_salvaged' && e.teardown === 'lease'))
       assert.ok(events.some((e) => e.type === 'lease_released' && e.salvage === 'curia/42-salvage-2026-08-24T03-04-05Z'))
     })
@@ -7196,7 +7197,7 @@ describe('teardown sees uncommitted work (#649)', () => {
 
       assert.equal(removed, false)
       assert.ok(events.some((e) => e.type === 'lease_kept' && /could not be captured.*wedged/.test(e.reason)))
-      assert.match(notifies.at(-1).message, /worktree KEPT/)
+      assert.match(lifecycleReceipt(), /worktree KEPT/)
     })
   })
 

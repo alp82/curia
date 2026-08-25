@@ -134,6 +134,8 @@ export class Reduction {
     this.lastThreadTickets = new Map() // thread id -> last ticket ever bound to it, the same way round (#257)
     this.mapCharters = new Map() // map number -> the chat handle that charted it (#241, read by #326)
     this.ticketRepos = new Map() // ticket -> repo of its last dispatch (#235)
+    this.ticketTitles = new Map() // ticket -> title of its last dispatch (#690)
+    this.agentOpenings = new Set() // sessions whose current dispatch opened its work story (#690)
     this.lastAgentEvents = new Map() // agent session -> last journal event about it (#236)
     this.notes = new Map() // note id -> every note ever queued, pending or not (#252)
     this.handoffNotes = new Map() // escalation id -> the note its recorded answer rides on (#369)
@@ -623,6 +625,7 @@ export class Reduction {
         break
       }
       case 'dispatch_claimed':
+      case 'agent_dispatching':
       case 'agent_spawned': {
         // The repo behind a ticket number (#235): the thread label's repo
         // field reads it lazily, and the lazy path outlives the dispatcher's
@@ -630,6 +633,12 @@ export class Reduction {
         // index. Last dispatch wins, the same rule the thread binding lives
         // under.
         if (ev.repo && ev.ticket != null) this.ticketRepos.set(String(ev.ticket), ev.repo)
+        if (ev.title && ev.ticket != null) this.ticketTitles.set(String(ev.ticket), ev.title)
+        if (ev.agent) this.agentOpenings.delete(ev.agent)
+        break
+      }
+      case 'agent_opening': {
+        if (ev.agent) this.agentOpenings.add(ev.agent)
         break
       }
       case 'overseer_session': {
@@ -1332,6 +1341,14 @@ export class Reduction {
   // daemon never dispatched — the label then keeps its two-field form.
   repoForTicket(ticket) {
     return this.ticketRepos.get(String(ticket))
+  }
+
+  titleForTicket(ticket) {
+    return this.ticketTitles.get(String(ticket))
+  }
+
+  hasAgentOpening(agent) {
+    return this.agentOpenings.has(agent)
   }
 
   boundTickets() {

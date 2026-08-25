@@ -429,14 +429,14 @@ export function stopReason(items, { attempt, budget }) {
 export function reviewGateText({ repo, ticket, title, summary, charting, links, mapDispatch = false, digestLine = null, body = '' }) {
   const parts = [
     mapDispatch
-      ? `**Approve the research findings charted on ${repo}#${ticket}?** — ${title}`
-      : `**Is ${repo}#${ticket} done?** — ${title}`,
+      ? `❓ **Approve the research findings charted on ${repo}#${ticket}?** - ${title}`
+      : `❓ **Is ${repo}#${ticket} done?** - ${title}`,
     ...(body.trim() ? ['', body.trim()] : []),
     '',
-    '**What the agent did**',
+    '**What changed**',
     summary.trim() || '(nothing said)',
     '',
-    '**Charting it proposes for the map**',
+    '**Charting**',
     charting.trim() || '(nothing said)',
     '',
     '**Look at**',
