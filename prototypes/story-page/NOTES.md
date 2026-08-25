@@ -2092,6 +2092,71 @@ green. It matches the selector exactly now. Rounds 4, 6, 7 and 9 have each recor
 is the strongest argument in this file for breaking every check you write: **it is never the check
 you doubt that is wrong.**
 
+**The operator's answer to round 9**, verbatim:
+
+> i think shell or device are going in the right direction. i like a lot the browser and phone
+> representations in the live previews section, so maybe we should build upon those here too
+>
+> then when we have those, we should fill those shells with actual simple spaced content. like curia
+> atlas should look like a simple website that shows the frontier with the start button inside
+> prominently
+>
+> also leave more gap between the fixed ticket and the screens
+
+**Round 10.** The frames are scene 5's, and the content is simple.
+
+**The frames are NOT new ones.** `.pv-win` and `.pv-wt` are the macOS browser window
+[#627](https://github.com/alp82/curia/issues/627) drew, and `.pv-phone`, `.pv-bezel`, `.pv-screen`,
+`.pv-island` and `.pv-btn` are its phone, down to the metal rail and the dynamic island. This scene
+REFERENCES them and never re-roots one: every rule here that touches a `.pv-` class is scoped
+`#run`, and a build check asserts it. That is the collision rule of round 6, applied on purpose
+instead of learned again.
+
+**The content is simple and spaced**, which is the other half of the answer and the harder half.
+Round 9's screens were each product's real chrome at full density, and density is exactly what does
+not survive being shrunk into a card on a desk. Every screen is now a few elements at a size that
+still reads:
+
+| screen | what it holds |
+|--------|---------------|
+| curia | the mark, the frontier rule, one ticket tile, and a full-width **Start** button |
+| Discord | three short messages, spaced, and at the gate the question and three buttons |
+| GitHub | the title, the state pill, `5 commits · 3 files · +757 −0`, one commit line |
+
+**That simplification cost real evidence, and the checks say so rather than hiding it.** The pull
+request showed all five commit SHAs and now shows one, `baa02ff`, beside the real counts. Every
+value that survives is still read off the tracker, and the ticket's own timeline still carries the
+whole run — but the check that used to demand five SHAs now demands one, and the reason is written
+beside it.
+
+**And the gate lost its two verbatim small-print lines.** They are the longest thing on that card
+and the first casualty of "simple". The meaning they carried is not lost: the scene's own fact line
+is the locked copy "just type your rejection reasons if you don't agree with the result".
+
+**Five stagings ride `?id=1..5`**: mix (browser for curia and GitHub, phone for the thread), win
+(one device kind, three sites), pocket (everything on a phone), desk (scene 5's tilted staging), and
+flat (no tilt, both screens at full width).
+
+**One thing the operator's own preview URL nearly shipped.** The curia screen's address bar was
+drawn from the tailnet host curia published this ticket's preview on, which is the operator's real
+tailnet identifier. It is `box.tailnet.ts.net` now, the generic host scene 5 already uses, and a
+build check refuses anything matching a real tailnet id anywhere in the file. **A page that ships
+publicly must not carry the host it was built on.**
+
+**137 build checks** run against the file and all **80 breaks** that validate them land.
+
+**The substring fault reached five rounds, so it stopped being a check bug and became a helper.**
+`'pv-bezel' in sec` is true of `class="pv-bezelx"`. Rounds 4, 6, 7, 9 and 10 have each recorded one
+instance of this, every time in a different check, and every time found only by breaking it. There
+is a `has_class()` now that matches a whole class value, and every check that asks whether a class
+is in the markup goes through it. **The fault was never in any one check. It was in reaching for
+`in` when the question is about a name.**
+
+**One cut went too far, and the checks caught it.** Removing the chrome round 10 made dead also
+removed the track, the held stage, the titles and the ticket, because the cut ran between two
+comment headers with live rules between them. Eleven checks went red at once. The same shortcut —
+cut from marker to marker — is what #628, #629 and this file's round 1 each recorded once.
+
 ## The verdict of the terminal scene ([#629](https://github.com/alp82/curia/issues/629))
 
 **Locked over ten operator rounds**, the longest run of any scene on this page. Every variation

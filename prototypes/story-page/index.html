@@ -1655,65 +1655,6 @@
   .gx-cm .b p { margin: 0; }
   .gx-cm .b p + p { margin-top: 0.35em; color: var(--gx-mute); font-size: 0.94em; }
 
-  /* ---- Discord chrome, scene 8's own frame. The tokens are the ones
-         the operator picked at #626 round 4 — Discord's default dark
-         theme, the one a stranger would recognise. The window chrome
-         belongs to scene 4; this scene shows the THREAD only. ---- */
-  .dcx {
-    --dc-chat: #313338;
-    --dc-ink: #dbdee1;
-    --dc-name: #f2f3f5;
-    --dc-mute: #949ba4;
-    --dc-link: #00a8fc;
-    --dc-blurple: #5865f2;
-    --dc-code: #2b2d31;
-    --dc-edge: #26282c;
-    --gg: "gg sans", "Noto Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
-    --dc-mono: ui-monospace, "Consolas", "Andale Mono WT", "Andale Mono", "Lucida Console", monospace;
-    font-family: var(--gg);
-    font-size: var(--dfs, 0.84rem);
-    line-height: 1.375;
-    color: var(--dc-ink);
-    background: var(--dc-chat);
-    border-radius: 8px;
-    overflow: hidden;
-  }
-  .dcx * { min-width: 0; }
-  .dcx b, .dcx strong { font-weight: 700; color: var(--dc-name); }
-  .dcx code {
-    background: var(--dc-code); border: 1px solid var(--dc-edge); border-radius: 4px;
-    padding: 0.05em 0.35em; font: 0.85em var(--dc-mono); color: var(--dc-ink);
-  }
-  .dcx a { color: var(--dc-link); text-decoration: none; }
-  .dcx .men { background: rgba(88, 101, 242, 0.3); color: #c9cdfb; border-radius: 3px; padding: 0 0.12em; font-weight: 500; }
-  .dcx-head {
-    display: flex; align-items: center; gap: 0.35em;
-    padding: 0.55em 0.9em; font-weight: 600; font-size: 0.95em; color: var(--dc-name);
-    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.3);
-  }
-  .dcx-head .hash { color: var(--dc-mute); font-weight: 400; font-size: 1.15em; }
-  .dcx-head .sep { color: var(--dc-mute); font-weight: 400; }
-  .dcx-head .tt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .dcx-log { padding: 0.5em 0 0.75em; }
-  .dcx .dc-msg { padding: 0.5em 0.9em 0.15em; }
-  .dcx .sub { display: block; color: var(--dc-ink); margin-top: 0.1em; }
-  .dcx .sub.dim { color: var(--dc-mute); }
-  .dc-btn.ok { background: #248046; }
-  .dc-btn.dgr { background: #da373c; }
-  /* The press, the true thing curia does: it EDITS the card and clears
-     its components, so the row collapses away and the mark comes up as
-     small print under it (#626 round 5). */
-  .dcx .dc-mark { display: none; margin-top: 0.55em; }
-  .dcx.pressed .dc-mark { display: block; }
-  .dcx.pressed .dc-card > .dc-row { max-height: 0; opacity: 0; margin-top: 0; overflow: hidden; }
-  .dcx.pressing .dc-btn.ok { animation: runpress 720ms var(--ease); }
-  @keyframes runpress {
-    0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(36, 128, 70, 0.8); }
-    38% { transform: scale(1.14); filter: brightness(1.5); box-shadow: 0 0 0 0.55em rgba(36, 128, 70, 0.42); }
-    72% { transform: scale(0.98); filter: brightness(1.15); box-shadow: 0 0 0 1.5em rgba(36, 128, 70, 0); }
-    100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(36, 128, 70, 0); }
-  }
-
   /* ================================================================
      The run itself. ONE set of six events, four layouts over it, and
      one composition of its own beside it.
@@ -1753,90 +1694,10 @@
     border-left: 2px solid var(--gx-soft); padding-left: 0.6em;
   }
 
-  /* ---- the screens. Each one is a DEVICE, never a bare card: the
-         Discord client, a browser, a phone. ---- */
-  .scrn { margin-top: 1.7rem; }
-  .win {
-    background: #0b0d12; border: 1px solid #ffffff1c; border-radius: 10px;
-    overflow: hidden; box-shadow: 0 22px 55px rgba(0, 0, 0, 0.6);
-  }
-  .win-bar {
-    display: flex; align-items: center; gap: 0.55rem;
-    padding: 0.42rem 0.7rem; background: #171b24; border-bottom: 1px solid #ffffff14;
-  }
-  .win-bar .dots { display: flex; gap: 0.3rem; flex: none; }
-  .win-bar .dots i { width: 0.5rem; height: 0.5rem; border-radius: 50%; background: #3a4150; }
-  .win-bar .url {
-    flex: 1; background: #0d1117; border-radius: 5px; padding: 0.2rem 0.6rem;
-    font: 0.64rem var(--mono); color: #8b93a4;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
-  .win-body { background: #0d1117; padding: 0.85rem; }
-  .win-body .gx { border: none; padding: 0; background: none; }
-  /* The Discord window wears its own client's title bar, the one scene
-     4 reads off the operator's client, not a browser's. */
-  .win.dcw .win-bar { background: #1e1f22; border-bottom-color: #00000045; }
-  .win.dcw .wn { display: inline-flex; align-items: center; gap: 0.42em; font: 600 0.7rem var(--sans); color: #b5bac1; }
-  .win.dcw .wn i { width: 0.52em; height: 0.52em; border-radius: 2px; background: #23a55a; flex: none; }
-  .win.dcw .winb { margin-left: auto; display: flex; gap: 0.7em; color: #b5bac1; font: 400 0.68rem var(--sans); }
-  .win.dcw .win-body { background: var(--dc-chat, #313338); padding: 0; }
-  .win.dcw .dcx { border-radius: 0; }
-  .ph {
-    width: min(16rem, 76%); margin: 0 auto; position: relative;
-    background: #14161c; border: 1px solid #ffffff24; border-radius: 22px;
-    padding: 0.45rem; box-shadow: 0 26px 62px rgba(0, 0, 0, 0.7);
-  }
-  .ph::before {
-    content: ''; position: absolute; left: 50%; top: 0.8rem; transform: translateX(-50%);
-    width: 3.2rem; height: 0.26rem; border-radius: 2px; background: #0a0b0f; z-index: 3;
-  }
-  .ph .ph-scr { background: #313338; border-radius: 17px; overflow: hidden; padding-top: 1.35rem; }
-  .ph .dcx { border-radius: 0; --dfs: 0.74rem; }
-
-
-  /* ================================================================
-     Round 7 (#630) — the desk is back, and the cards are dealt onto it.
-
-     The operator's answer to round 6, verbatim:
-
-       do not scroll the actual screens associated the story titles.
-       those are scrolling normally, but the cards with the discord and
-       browser and phone screens fade in and out in different ways
-
-       we had this in a previous prototype called "4 desk paper docket,
-       screens dealt" - bring that concept back combined with the
-       current setup and ideas and feedback
-
-     This corrects my reading of round 5. "The pinned element should be
-     just the ticket and the rest moves" was about the CLIPPING, not
-     about holding: the titles move, the cards do not. Round 6 took the
-     stage out entirely and made the cards scroll with their words,
-     which is the one thing this answer rules out.
-
-     So the desk of round 2 comes back, with everything the rounds since
-     have settled on it:
-
-     - THE TITLES SCROLL, on the docking side, one tall slot each.
-     - THE CARDS DO NOT. They are dealt onto a desk that is held, and
-       they fade in and out in place. The five variations are five ways
-       of doing that, which is what the answer asks for.
-     - THE TICKET LIES AT THE NEAR EDGE of that desk, and it is the
-       GitHub issue page of #587 growing a real timeline row per beat.
-     - THE THREAD AND THE PULL REQUEST are dealt TOGETHER for the last
-       two beats, which is the parallel of round 5.
-
-     Every class here is prefixed `r8-`. Round 5 called one of them
-     `.lane`, which scene 9's VPS box already owns and declares later in
-     this file, and that collision is what broke the operator's phone.
-     ================================================================ */
-
   .r8-track { position: relative; }
   /* The stage is held and the titles scroll past it. On a phone it
      takes the top of the screen and needs a ground of its own, because
      the titles scroll UNDER it. */
-  /* The ticket sits at the TOP of the stage and the cards hang off its
-     bottom with a little padding. Round 7 had it at the near edge of a
-     desk, which left the top of the screen empty on every beat. */
   .r8-stage {
     position: sticky; top: 0; z-index: 3;
     height: 62dvh; display: flex; flex-direction: column; gap: 0.75rem;
@@ -1861,21 +1722,7 @@
     display: block; margin-top: 0.55rem; text-wrap: balance;
   }
 
-  /* ---- the desk. Cards are dealt onto it, bottom first, so they lie
-         against the near edge the way paper on a desk does. ---- */
-  .r8-desk { position: relative; flex: 1 1 auto; min-height: 0; }
-  .r8-card {
-    position: absolute; inset: 0 0 auto; opacity: 0; pointer-events: none;
-    transition: opacity 0.5s var(--ease), transform 0.5s var(--ease), filter 0.5s var(--ease);
-  }
-  .r8-card.on { opacity: 1; pointer-events: auto; z-index: 4; }
-  .r8-card > * { display: grid; gap: 0.5rem; }
-  .r8-lane { min-width: 0; }
-  .r8-lane .win, .r8-lane .at-scr { overflow: hidden; }
-  .r8-lane .at-scr { max-height: none; }
-  .r8-lane .win-body, .r8-lane .at-body, .r8-lane .dcx-log { max-height: 34dvh; overflow: hidden; }
-
-  /* ---- the ticket, lying at the near edge ---- */
+  /* ---- the ticket, at the TOP ---- */
   .r8-tkt { flex: none; font-size: 0.72rem; z-index: 5; box-shadow: 0 10px 26px rgba(0, 0, 0, 0.55); }
   .r8-tkt .gx-h1 { font-size: 1.02em; }
   .r8-tl { margin-top: 0.45em; }
@@ -1892,26 +1739,188 @@
   #run[data-k="5"] .r8-tkt .gx-st.open { display: none; }
   #run[data-k="5"] .r8-tkt .gx-st.done { display: inline-flex; }
 
-  /* the dashboard card's frontier row and its Start button */
-  .r8-fcard {
-    display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 0.6rem;
-    background: #12141a; border: 1px solid #262b35; border-left: 3px solid #5ec8e5;
-    border-radius: 8px; padding: 0.55rem 0.65rem; margin-top: 0.45rem;
+  /* ---- the desk. The cards hang from its top, off the ticket, and
+         they turn in and out in place. ---- */
+  .r8-desk { position: relative; flex: 1 1 auto; min-height: 0; }
+  .r8-card {
+    position: absolute; inset: 0 0 auto; opacity: 0; pointer-events: none;
+    transition: opacity 0.5s var(--ease), transform 0.5s var(--ease), filter 0.5s var(--ease);
   }
-  .r8-fcard .fc-t { font-weight: 600; font-size: 0.78rem; line-height: 1.25; }
-  .r8-fcard .fc-m { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; margin-top: 0.3rem; }
-  .r8-fcard .fc-n { font: 700 0.62rem var(--mono); color: #8a93a3; }
-  .r8-fcard .fc-go {
-    border: none; border-radius: 6px; padding: 0.4rem 0.9rem;
-    font: 700 0.72rem var(--sans); color: #06231a; background: var(--st-merged);
+  .r8-card.on { opacity: 1; pointer-events: auto; z-index: 4; }
+  .r8-card > * { display: grid; gap: 0.5rem; }
+  .r8-lane { min-width: 0; }
+
+  /* ---- the settled transition: turn ---- */
+  .r8-desk { perspective: 1200px; }
+  .r8-card { transform-origin: 50% 0%; transform: rotateX(-22deg) translateY(-1.2rem); }
+  .r8-card.on { transform: none; }
+  .r8-card.seen { opacity: 0; transform: rotateX(14deg) translateY(1.4rem); }
+  .r8-lane > * { box-shadow: 0 20px 44px rgba(0, 0, 0, 0.65); }
+
+  /* ================================================================
+     Round 10 (#630) — real devices, simple content.
+
+     The operator's answer to round 9, verbatim:
+
+       i think shell or device are going in the right direction. i like
+       a lot the browser and phone representations in the live previews
+       section, so maybe we should build upon those here too
+
+       then when we have those, we should fill those shells with actual
+       simple spaced content. like curia atlas should look like a simple
+       website that shows the frontier with the start button inside
+       prominently
+
+       also leave more gap between the fixed ticket and the screens
+
+     THE FRAMES ARE SCENE 5's, not new ones. `.pv-win` and `.pv-wt` are
+     the macOS browser window #627 drew, and `.pv-phone`, `.pv-bezel`,
+     `.pv-screen`, `.pv-island` and `.pv-btn` are its phone. This scene
+     REFERENCES them and never re-roots them: every rule here that
+     touches one is scoped `#run`, which is what the collision check
+     asks for and what round 5 got wrong.
+
+     THE CONTENT IS SIMPLE AND SPACED, which is the other half of the
+     answer. Round 9's screens were the product's real chrome at full
+     density, and density is exactly what does not survive being shrunk
+     into a card on a desk. Every screen is a few elements at a size
+     that still reads: curia's is a page with the frontier and one big
+     Start button, the thread is three short messages, and the pull
+     request is a title, a state and one commit line.
+     ================================================================ */
+
+  /* ---- more gap between the fixed ticket and the screens ---- */
+  #run .r8-stage { gap: 1.7rem; }
+
+  /* ---- scene 5's frames, sized for this desk ---- */
+  #run .pv-win { border-radius: 10px; }
+  #run .pv-wt { padding: 0.45rem 0.6rem; }
+  #run .pv-wt .wu { font-size: 0.56rem; }
+  #run .pv-phone { width: 100%; aspect-ratio: 9 / 18; border-radius: 1.9rem; padding: 0.22rem; }
+  #run .pv-bezel { border-radius: 1.72rem; }
+  #run .pv-screen { border-radius: 1.6rem; background: #0d1117; }
+  #run .pv-island { top: 0.34rem; height: 0.72rem; width: 27%; }
+
+  /* ---- the page inside a shell. Dark, because all three products are,
+         and a light window around a dark page is what a browser is. --- */
+  .r10-page {
+    background: #0d1117; color: #e6edf3; padding: 0.7rem 0.75rem;
+    font: 0.66rem/1.5 var(--sans); display: grid; gap: 0.55rem; align-content: start;
   }
-  #run[data-k="2"] .r8-fcard .fc-go { animation: r8start 900ms var(--ease) 480ms; }
-  @keyframes r8start {
-    0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(125, 211, 160, 0.75); }
-    40% { transform: scale(1.12); filter: brightness(1.35); box-shadow: 0 0 0 0.5em rgba(125, 211, 160, 0.35); }
-    75% { transform: scale(0.99); box-shadow: 0 0 0 1.4em rgba(125, 211, 160, 0); }
-    100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(125, 211, 160, 0); }
+  .r10-page.dc { background: #313338; color: #dbdee1; padding: 1.5rem 0.55rem 0.6rem; }
+  .r10-scr { overflow: hidden; }
+  .r10-scr .r10-page { height: 100%; }
+  .r10-head { display: flex; align-items: center; gap: 0.4em; font-size: 0.92em; }
+  .r10-head b { font-weight: 700; color: #e6edf3; }
+  .r10-head.dc b { color: #f2f3f5; }
+  .r10-head i { font-style: normal; color: #8b93a4; font-size: 0.92em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* curia's page: the frontier, and the Start button prominently */
+  .r10-front { display: flex; align-items: center; gap: 0.45em; font: 700 0.58rem var(--mono); letter-spacing: 0.1em; text-transform: uppercase; color: #8a93a3; }
+  .r10-front s { flex: 1; height: 2px; background: #5ec8e5; box-shadow: 0 0 10px rgba(94, 200, 229, 0.45); }
+  .r10-front em { font-style: normal; color: #5ec8e5; }
+  .r10-tile { background: #12141a; border: 1px solid #262b35; border-left: 3px solid #5ec8e5; border-radius: 8px; padding: 0.6rem 0.7rem; }
+  .r10-tile .t { margin: 0; font-weight: 600; font-size: 1em; line-height: 1.3; }
+  .r10-tile .m { margin: 0.4rem 0 0; display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
+  .r10-tile .m .n { font: 700 0.58rem var(--mono); color: #8a93a3; }
+  .r10-go {
+    display: block; width: 100%; margin-top: 0.7rem; border: none; border-radius: 7px;
+    padding: 0.5rem 1rem; font: 800 0.8rem var(--sans); color: #06231a;
+    background: var(--st-merged); box-shadow: 0 6px 18px rgba(125, 211, 160, 0.24);
   }
+  #run[data-k="2"] .r10-go { animation: r8start 900ms var(--ease) 520ms; }
+
+  /* the pull request: a title, a state, one commit */
+  .r10-t { margin: 0; font-weight: 700; font-size: 1.08em; line-height: 1.3; }
+  .r10-t .n, .r10-tile .m .n { font-weight: 400; color: #8b93a4; }
+  .r10-m { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 0.45rem; color: #8b93a4; }
+  .r10-pill { border-radius: 2em; padding: 0.16em 0.7em; font-weight: 600; color: #fff; font-size: 0.94em; }
+  .r10-pill.open { background: #1f883d; }
+  .r10-pill.merged { background: #8250df; }
+  .r10-m .a { color: #3fb950; font-weight: 700; font-family: var(--mono); }
+  .r10-m .d { color: #f85149; font-weight: 700; font-family: var(--mono); }
+  .r10-c { margin: 0; color: #8b93a4; font-size: 0.94em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .r10-c code { font: 0.92em var(--mono); color: #4493f8; }
+
+  /* the thread: three short messages, spaced */
+  .r10-log { display: grid; gap: 0.6rem; align-content: start; }
+  .r10-msg .w { margin: 0 0 0.15rem; display: flex; align-items: center; gap: 0.35em; font-size: 0.9em; }
+  .r10-msg .w b { color: #f2f3f5; font-weight: 500; }
+  .r10-msg .w .ap { background: #5865f2; color: #fff; border-radius: 3px; padding: 0 0.3em; font: 700 0.72em var(--sans); }
+  .r10-msg .w .ts { color: #949ba4; font-size: 0.82em; }
+  .r10-msg .b { margin: 0.1rem 0 0; }
+  .r10-msg .b b { color: #f2f3f5; font-weight: 700; }
+  .r10-btns { display: flex; flex-wrap: wrap; gap: 0.32rem; margin-top: 0.5rem; }
+  .r10-b { border: none; border-radius: 7px; padding: 0.36rem 0.6rem; font: 500 0.92em var(--sans); color: #fff; background: #5865f2; }
+  .r10-b.ok { background: #248046; }
+  .r10-b.no { background: #da373c; }
+  .r10-b.sec { background: #4e5058; }
+  .r10-msg .mk { display: none; margin: 0.45rem 0 0; color: #949ba4; font-size: 0.88em; }
+  .r10-msg .mk .men { background: rgba(88, 101, 242, 0.3); color: #c9cdfb; border-radius: 3px; padding: 0 0.15em; }
+  /* The press: curia edits the card and clears its components, so the
+     row really does go and the mark really is small print (#626). */
+  .r10-log.pressed .r10-btns { display: none; }
+  .r10-log.pressed .mk { display: block; }
+  .r10-log.pressing .r10-b.ok { animation: r10press 700ms var(--ease); }
+  @keyframes r10press {
+    0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(36, 128, 70, 0.8); }
+    38% { transform: scale(1.14); filter: brightness(1.5); box-shadow: 0 0 0 0.5em rgba(36, 128, 70, 0.42); }
+    72% { transform: scale(0.98); box-shadow: 0 0 0 1.3em rgba(36, 128, 70, 0); }
+    100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(36, 128, 70, 0); }
+  }
+
+  /* ================================================================
+     The five stagings. Which device carries which screen, and how the
+     two of them stand when a beat deals both.
+     ================================================================ */
+
+  /* ---- 1 · mix. The device tells you the surface: curia and GitHub in
+         a browser, the thread on a phone. The thread is the one that
+         earns the hardware, because answering from the couch is this
+         scene's whole claim. ---- */
+  .v-mix .r8-card.two > * { grid-template-columns: 9.5rem 1fr; align-items: end; }
+  .v-mix .r8-lane[data-app="github"] { align-self: end; }
+
+  /* ---- 2 · win. One device kind, three sites. Every screen is a
+         browser window, and the phone frame goes: what tells you the
+         surface is the address bar and the mark on the page. ---- */
+  .v-win .pv-phone { aspect-ratio: auto; border-radius: 10px; padding: 0; background: none; box-shadow: none; }
+  .v-win .pv-btn, .v-win .pv-island { display: none; }
+  .v-win .pv-bezel { padding: 0; border-radius: 10px; background: none; box-shadow: none; }
+  .v-win .pv-screen { border-radius: 10px; box-shadow: 0 1.4rem 3rem -0.8rem rgba(0, 0, 0, 0.7); }
+  .v-win .r10-page.dc { padding: 0.7rem 0.75rem; }
+  .v-win .r8-card.two > * { grid-template-columns: 1fr 1fr; align-items: start; }
+
+  /* ---- 3 · pocket. Everything on the phone, because everything here
+         really can be done from one. The browser frame goes. ---- */
+  .v-pocket .pv-win { border-radius: 0; box-shadow: none; background: none; }
+  .v-pocket .pv-wt { display: none; }
+  .v-pocket .r8-lane[data-app="github"] .pv-win,
+  .v-pocket .r8-lane[data-app="curia"] .pv-win {
+    background: #14161c; border: 1px solid #ffffff24; border-radius: 1.9rem; padding: 1.2rem 0.22rem 0.6rem;
+    box-shadow: 0 1.7rem 3.2rem -0.9rem rgba(0, 0, 0, 0.78);
+  }
+  .v-pocket .r8-lane[data-app="github"] .r10-page,
+  .v-pocket .r8-lane[data-app="curia"] .r10-page { border-radius: 1.6rem; }
+  .v-pocket .r8-card.two > * { grid-template-columns: 1fr 1fr; align-items: start; }
+
+  /* ---- 4 · desk. Scene 5's own staging: the browser tilted back on a
+         desk and the phone standing in front of it, so the two read as
+         one workplace rather than two pictures. ---- */
+  .v-desk2 .r8-card.two > * { position: relative; display: block; }
+  .v-desk2 .r8-lane[data-app="github"] { transform: rotateX(11deg) rotateY(-13deg) rotate(-0.6deg); transform-origin: 62% 100%; }
+  .v-desk2 .r8-lane[data-app="discord"] {
+    position: absolute; right: 0; bottom: -0.6rem; width: 34%; z-index: 3;
+  }
+  .v-desk2 .r8-card.two { perspective: 1400px; }
+  .v-desk2 .r8-lane[data-app="curia"] { transform: rotateX(9deg) rotate(-0.4deg); transform-origin: 50% 100%; }
+
+  /* ---- 5 · flat. The same frames with no tilt and no overlap, laid
+         out as large as the beat allows. The plainest reading, and the
+         only one that gives both screens their full width. ---- */
+  .v-flat .r8-card.two > * { grid-auto-flow: row; gap: 0.6rem; }
+  .v-flat .pv-phone { aspect-ratio: 9 / 13; }
+  .v-flat .r8-lane > * { box-shadow: 0 12px 30px rgba(0, 0, 0, 0.55); }
 
   @media (min-width: 62rem) {
     /* The titles take the docking side and the desk the other, which is
@@ -1923,141 +1932,12 @@
       grid-column: 2; grid-row: 1; height: 100dvh; padding: 2vh 0 4vh;
       background: none; backdrop-filter: none; -webkit-backdrop-filter: none;
     }
-    .r8-lane .win-body, .r8-lane .at-body, .r8-lane .dcx-log { max-height: 46dvh; }
     .r8-nb { min-height: 90svh; }
     .r8-nb:last-child { min-height: 60svh; }
-    /* The last two beats deal BOTH cards, and side by side is what makes
-       them read as running at the same time. */
-    .r8-card.two > * { grid-auto-flow: column; grid-auto-columns: 1fr; align-items: end; }
+    .v-flat .r8-card.two > * { grid-auto-flow: column; grid-auto-columns: 1fr; align-items: end; }
+    .v-flat .pv-phone { aspect-ratio: 9 / 18; }
+    .v-mix .r8-card.two > * { grid-template-columns: 13rem 1fr; }
   }
-
-  /* ================================================================
-     Round 9 (#630) — every screen says what it is.
-
-     The operator's answer to round 8, verbatim:
-
-       we are getting in a better place here. lets pick turn
-
-       now lets make variations for clear identification of the
-       screens. we can use the application/product logos to make very
-       clear what is discord, github, use a mobile phone for screens,
-       etc. - also add browser shells or window borders and titles
-
-     THE TRANSITION IS SETTLED: turn. It leaves the variations and
-     becomes the base, and the cards swap on a turn from their top edge,
-     which is the edge they now hang from.
-
-     THE ROUND'S QUESTION is identification. Every screen carries its
-     product's own mark and a title, and the five variations are five
-     ways of framing that: a browser tab, full window chrome, the
-     hardware itself, a corner badge, or a labelled header in the page's
-     own type.
-
-     The GitHub and Discord marks came back with this round. Round 3
-     dropped them when round 1's surface tags left, and the build check
-     that refuses a sprite passenger is what kept them out until
-     something needed them again.
-     ================================================================ */
-
-  /* ---- the settled transition: turn ---- */
-  .r8-desk { perspective: 1200px; }
-  .r8-card { transform-origin: 50% 0%; transform: rotateX(-22deg) translateY(-1.2rem); }
-  .r8-card.on { transform: none; }
-  .r8-card.seen { opacity: 0; transform: rotateX(14deg) translateY(1.4rem); }
-  .r8-lane > * { box-shadow: 0 20px 44px rgba(0, 0, 0, 0.65); }
-
-  /* ---- what a screen says about itself ---- */
-  .r8-tab { display: flex; align-items: center; gap: 0.4em; min-width: 0; }
-  .r8-mk { width: 0.95em; height: 0.95em; flex: none; }
-  .r8-tab b { font: 700 0.68rem var(--sans); color: #e6edf3; flex: none; }
-  .r8-tab i {
-    font: 400 0.62rem var(--mono); color: #8b93a4; font-style: normal;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
-  }
-  .r8-lane[data-app="discord"] .r8-mk { color: #5865f2; }
-  .r8-lane[data-app="github"] .r8-mk { color: #e6edf3; }
-  /* The client's own status dot and word are what a real Discord title
-     bar shows, so the mark joins them rather than replacing them. */
-  .win.dcw .win-bar { gap: 0.6rem; }
-  /* SCOPED to this scene. `.at-ht` is scene 6's header strip, and a
-     bare rule on it here is the same collision that broke the phone at
-     round 5 — one round after the check that catches it went in. */
-  #run .at-ht .hide-lbl { display: none; }
-  #run .at-ht { align-items: center; }
-
-  /* ---- 1 · tab. Every browser screen gets a real tab strip: a tab
-         carrying the site's own mark and the page title, with the url
-         bar under it. Discord and curia get the same tab shape, so the
-         three read as three tabs of one reader. ---- */
-  .v-tab .win-bar, .v-tab .at-ht { flex-wrap: wrap; }
-  .v-tab .r8-tab {
-    order: -1; width: 100%;
-    background: #0d1117; border: 1px solid #ffffff14; border-bottom: none;
-    border-radius: 7px 7px 0 0; padding: 0.34rem 0.6rem; margin: -0.42rem -0.7rem 0.42rem;
-  }
-  .v-tab .win.dcw .r8-tab { background: #2b2d31; }
-  .v-tab .at-scr .r8-tab { background: #0b0c10; margin: -0.1rem 0 0.4rem; }
-  .v-tab .win-bar .dots { display: none; }
-
-  /* ---- 2 · shell. Full window chrome: the traffic lights, the app's
-         mark and name in a title bar of its own, and the address or the
-         channel under it. Every screen is a labelled window. ---- */
-  .v-shell .r8-lane > * { border: 1px solid #ffffff2e; border-radius: 12px; }
-  .v-shell .win-bar, .v-shell .at-ht {
-    background: #10131a; border-bottom: 1px solid #ffffff1a; padding: 0.5rem 0.7rem;
-  }
-  .v-shell .r8-tab b { font-size: 0.72rem; }
-  .v-shell .r8-tab { flex: 1; }
-  .v-shell .win-bar .url { flex: 0 1 14rem; }
-  .v-shell .win.dcw .wn { display: none; }
-
-  /* ---- 3 · device. Identification by HARDWARE. The thread is answered
-         on a phone, which is the whole claim of this scene, and the
-         GitHub screens sit in a browser on a desk. ---- */
-  .v-device .r8-lane[data-app="discord"] {
-    background: #14161c; border: 1px solid #ffffff24; border-radius: 22px;
-    padding: 1.5rem 0.45rem 0.7rem; position: relative;
-    box-shadow: 0 26px 62px rgba(0, 0, 0, 0.72);
-  }
-  .v-device .r8-lane[data-app="discord"]::before {
-    content: ''; position: absolute; left: 50%; top: 0.62rem; transform: translateX(-50%);
-    width: 3.2rem; height: 0.26rem; border-radius: 2px; background: #0a0b0f; z-index: 3;
-  }
-  .v-device .r8-lane[data-app="discord"]::after {
-    content: ''; position: absolute; left: 50%; bottom: 0.24rem; transform: translateX(-50%);
-    width: 4.4rem; height: 0.18rem; border-radius: 2px; background: #ffffff24;
-  }
-  .v-device .r8-lane[data-app="discord"] > * { border-radius: 15px; box-shadow: none; }
-  .v-device .r8-lane[data-app="discord"] .win-bar { border-radius: 15px 15px 0 0; }
-  .v-device .r8-lane[data-app="github"] > * { border: 1px solid #ffffff26; border-radius: 9px 9px 4px 4px; }
-  .v-device .r8-lane[data-app="curia"] > * { border: 1px solid #ffffff26; }
-
-  /* ---- 4 · badge. Almost no chrome. A product badge sits on the top
-         corner of each screen, like a sticker on the card, and the
-         window keeps only the thinnest edge. ---- */
-  .v-badge .win-bar, .v-badge .at-ht { background: none; border-bottom: 1px solid #ffffff12; }
-  .v-badge .win-bar .dots, .v-badge .win.dcw .wn, .v-badge .win.dcw .winb { display: none; }
-  .v-badge .r8-tab {
-    background: #08090c; border: 1px solid rgba(var(--scb), 0.5);
-    border-radius: 999px; padding: 0.2rem 0.7rem 0.2rem 0.55rem;
-  }
-  .v-badge .r8-tab i { display: none; }
-  .v-badge .r8-lane > * { border: 1px solid #ffffff1a; }
-
-  /* ---- 5 · header. The label is the PAGE's, not the product's: a
-         line in this page's own type above each screen, naming the
-         product and what you are looking at. ---- */
-  .v-header .r8-tab {
-    order: -1; width: 100%; margin: -0.42rem -0.7rem 0.5rem; padding: 0.3rem 0.7rem 0.4rem;
-    border-bottom: 2px solid rgba(var(--scb), 0.55); background: none;
-  }
-  .v-header .win-bar, .v-header .at-ht { flex-wrap: wrap; }
-  .v-header .r8-tab b {
-    font: 800 0.62rem var(--mono); letter-spacing: 0.12em; text-transform: uppercase;
-    color: var(--sc);
-  }
-  .v-header .r8-tab i { font-size: 0.6rem; letter-spacing: 0.04em; }
-  .v-header .at-scr .r8-tab { margin: -0.1rem 0 0.45rem; }
 
   /* ---- the fail-open path. With reduced motion or no script the desk
          lets go, every card stands in order, and the ticket shows its
@@ -2858,7 +2738,7 @@
 
        Round 1 offers five readings of the same six events on ?id=1..5:
        1 timeline, 2 lanes, 3 devices, 4 deal, 5 steps. -->
-  <section class="scene run sL v-tab" id="run" data-v="1" data-k="1" data-stage="gate" data-n="07" data-name="one ticket on GitHub" style="--g1:#141b33;--g2:#0c1020">
+  <section class="scene run sL v-mix" id="run" data-v="1" data-k="1" data-stage="gate" data-n="07" data-name="one ticket on GitHub" style="--g1:#141b33;--g2:#0c1020">
 
     <!-- The octicons and the two product marks. The page ships no
          image and no webfont, so every mark here is drawn (#629). -->
@@ -2870,7 +2750,6 @@
       <path id="oc-gh" fill="currentColor" d="M8 1a7 7 0 0 0-2.21 13.64c.35.07.48-.15.48-.34l-.01-1.2c-1.95.43-2.36-.94-2.36-.94-.32-.81-.78-1.03-.78-1.03-.64-.44.05-.43.05-.43.7.05 1.07.72 1.07.72.63 1.07 1.65.76 2.05.58.06-.45.25-.76.45-.94-1.57-.18-3.21-.78-3.21-3.48 0-.77.27-1.4.72-1.89-.07-.18-.31-.9.07-1.87 0 0 .59-.19 1.93.72a6.7 6.7 0 0 1 3.52 0c1.34-.91 1.93-.72 1.93-.72.38.97.14 1.69.07 1.87.45.49.72 1.12.72 1.89 0 2.71-1.65 3.3-3.22 3.47.25.22.48.66.48 1.33l-.01 1.97c0 .19.13.42.49.34A7 7 0 0 0 8 1Z"/>
       <path id="oc-dc" fill="currentColor" d="M13.1 3.6a11 11 0 0 0-2.7-.83l-.17.34c.83.2 1.6.5 2.32.87a8.6 8.6 0 0 0-8.11 0c.72-.38 1.5-.68 2.32-.87l-.17-.34c-.96.17-1.86.45-2.7.83C1.63 6.7 1.05 9.7 1.34 12.55A11.1 11.1 0 0 0 4.7 14l.72-1.01c-.4-.15-.78-.34-1.14-.56l.28-.22a7.9 7.9 0 0 0 6.87 0l.28.22c-.36.22-.74.41-1.14.56l.72 1.01a11.1 11.1 0 0 0 3.36-1.45c.35-3.3-.6-6.27-2.55-8.95ZM5.72 10.79c-.66 0-1.2-.6-1.2-1.35 0-.74.53-1.35 1.2-1.35s1.21.61 1.2 1.35c0 .75-.53 1.35-1.2 1.35Zm4.56 0c-.66 0-1.2-.6-1.2-1.35 0-.74.53-1.35 1.2-1.35s1.21.61 1.2 1.35c0 .75-.53 1.35-1.2 1.35Z"/>
       <g id="mk-curia"><circle cx="8" cy="8.4" r="5.2" fill="none" stroke="#7dd3a0" stroke-width="1.5"/><circle cx="8" cy="8.4" r="1.9" fill="#7dd3a0"/><circle cx="8" cy="2.6" r="1.5" fill="#e0ae4c"/></g>
-      <g id="mk-bot"><rect width="40" height="40" fill="#12161f"/><circle cx="20" cy="20" r="12.5" fill="none" stroke="#7dd3a0" stroke-width="2.4"/><circle cx="20" cy="20" r="4.6" fill="#7dd3a0"/><circle cx="20" cy="6.5" r="2.6" fill="#e0ae4c"/></g>
     </defs></svg>
 
     <div class="wrap">
@@ -2883,11 +2762,11 @@
     <!-- ROUND 1 DEVICE. It leaves the file with the round that settles
          this scene, the way #624's identity bar did. -->
     <div class="rsw" id="rsw" role="group" aria-label="composition">
-      <button type="button" data-i="1" aria-pressed="true">1 tab</button>
-      <button type="button" data-i="2" aria-pressed="false">2 shell</button>
-      <button type="button" data-i="3" aria-pressed="false">3 device</button>
-      <button type="button" data-i="4" aria-pressed="false">4 badge</button>
-      <button type="button" data-i="5" aria-pressed="false">5 header</button>
+      <button type="button" data-i="1" aria-pressed="true">1 mix</button>
+      <button type="button" data-i="2" aria-pressed="false">2 win</button>
+      <button type="button" data-i="3" aria-pressed="false">3 pocket</button>
+      <button type="button" data-i="4" aria-pressed="false">4 desk</button>
+      <button type="button" data-i="5" aria-pressed="false">5 flat</button>
     </div>
 
     <div class="runwrap">
@@ -2931,16 +2810,18 @@
         <div class="r8-card on" data-i="1" style="--rot:-0.9deg">
           <div>
             <div class="r8-lane" data-app="curia">
-              <div class="at-scr">
-                <div class="at-ht"><span class="r8-tab"><svg class="r8-mk" viewBox="0 0 16 16" aria-hidden="true"><use href="#mk-curia"/></svg><b>curia</b><i>atlas</i></span><span class="hide-lbl">curia · atlas</span><span class="needs">1 takeable</span></div>
-                <div class="at-body">
-                  <div class="front"><span class="frontlbl">the frontier</span><span class="frule"></span><span class="fcap">1 takeable</span></div>
-                  <div class="r8-fcard">
-                    <div>
-                      <div class="fc-t">Choose the words of every scene of the final page</div>
-                      <div class="fc-m"><span class="fc-n">alp82/curia#587</span><span class="tkt-chip">wayfinder:prototype</span></div>
-                    </div>
-                    <button class="fc-go" type="button" id="runstart">Start</button>
+              <div class="pv-win">
+                <div class="pv-wt">
+                  <s></s><s></s><s></s>
+                  <span class="wu"><b>box.tailnet.ts.net</b>/atlas</span>
+                </div>
+                <div class="r10-page">
+                  <div class="r10-head"><svg class="r8-mk" viewBox="0 0 16 16" aria-hidden="true"><use href="#mk-curia"/></svg><b>curia</b><i>atlas</i></div>
+                  <div class="r10-front"><span>The frontier</span><s></s><em>1 takeable</em></div>
+                  <div class="r10-tile">
+                    <p class="t">Choose the words of every scene of the final page</p>
+                    <p class="m"><span class="n">alp82/curia#587</span><span class="tkt-chip">wayfinder:prototype</span></p>
+                    <button class="r10-go" type="button" id="runstart">Start</button>
                   </div>
                 </div>
               </div>
@@ -2951,33 +2832,27 @@
         <div class="r8-card" data-i="2" style="--rot:1.1deg">
           <div>
             <div class="r8-lane" data-app="discord">
-              <div class="win dcw">
-                <div class="win-bar">
-                  <span class="r8-tab"><svg class="r8-mk" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-dc"/></svg><b>Discord</b><i>#curia</i></span>
-                  <span class="wn"><i></i>Discord</span>
-                  <span class="winb" aria-hidden="true"><b>—</b><b>▢</b><b>✕</b></span>
-                </div>
-                <div class="win-body">
-                  <article class="dcx">
-                    <div class="dcx-head"><span class="hash">#</span>curia <span class="sep">›</span> <span class="tt">🎫 587 · prototype</span></div>
-                    <div class="dcx-log">
-                      <div class="dc-msg">
-                        <span class="dc-av"><svg viewBox="0 0 40 40" aria-hidden="true"><use href="#mk-bot"/></svg></span>
-                        <div class="dc-body">
-                          <div class="dc-who"><span class="nm">CuriaBot</span><span class="badge">APP</span><span class="ts">18:41</span></div>
-                          <div class="dc-b">⚙️ dispatched on <b>claude-opus-5</b> — waiting for the composer</div>
-                        </div>
-                      </div>
-                      <div class="dc-msg">
-                        <span class="dc-av"><svg viewBox="0 0 40 40" aria-hidden="true"><use href="#mk-bot"/></svg></span>
-                        <div class="dc-body">
-                          <div class="dc-who"><span class="nm">CuriaBot</span><span class="badge">APP</span><span class="ts">09:18</span></div>
-                          <div class="dc-b">🔎 <b>round 2 of 4</b> — five candidates per slot, six headline directions</div>
-                          <div class="dc-b dc-sm">Preview is up. Reply with the picks, or ✅ to take every recommendation.</div>
-                        </div>
-                      </div>
+              <div class="pv-phone">
+                <span class="pv-btn b1"></span><span class="pv-btn b2"></span>
+                <span class="pv-btn b3"></span><span class="pv-btn b4"></span>
+                <div class="pv-bezel">
+                  <div class="pv-screen r10-scr">
+                    <span class="pv-island" aria-hidden="true"></span>
+                    <div class="r10-page dc">
+                  <div class="r10-head dc"><svg class="r8-mk" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-dc"/></svg><b>#curia</b><i>🎫 587 · prototype</i></div>
+                  <div class="r10-log">
+                    <div class="r10-msg">
+                      <p class="w"><b>CuriaBot</b><span class="ap">APP</span><span class="ts">18:41</span></p>
+                      <p class="b">⚙️ dispatched on <b>claude-opus-5</b></p>
                     </div>
-                  </article>
+                    <div class="r10-msg">
+                      <p class="w"><b>CuriaBot</b><span class="ap">APP</span><span class="ts">09:18</span></p>
+                      <p class="b">🔎 <b>round 2 of 4</b></p>
+                      <p class="b">five candidates per slot</p>
+                    </div>
+                  </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -2987,61 +2862,43 @@
         <div class="r8-card two" data-i="3" style="--rot:-0.7deg">
           <div>
             <div class="r8-lane" data-app="discord">
-              <div class="win dcw">
-                <div class="win-bar">
-                  <span class="r8-tab"><svg class="r8-mk" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-dc"/></svg><b>Discord</b><i>#curia</i></span>
-                  <span class="wn"><i></i>Discord</span>
-                  <span class="winb" aria-hidden="true"><b>—</b><b>▢</b><b>✕</b></span>
-                </div>
-                <div class="win-body">
-                  <article class="dcx" id="rungate">
-                    <div class="dcx-head"><span class="hash">#</span>curia <span class="sep">›</span> <span class="tt">🔎 587 · prototype</span></div>
-                    <div class="dcx-log">
-                      <div class="dc-msg">
-                        <span class="dc-av"><svg viewBox="0 0 40 40" aria-hidden="true"><use href="#mk-bot"/></svg></span>
-                        <div class="dc-body dc-card">
-                          <div class="dc-who"><span class="nm">CuriaBot</span><span class="badge">APP</span><span class="ts">21:10</span><span class="ed" id="runedited">(edited)</span></div>
-                          <div class="dc-b"><b>[esc-4]</b> <code>curia-587</code> asks for review:</div>
-                          <div class="dc-b lead"><b>Is alp82/curia#587 done?</b> — Choose the words of every scene of the final page</div>
-                          <div class="dc-b"><b>What the agent did</b><span class="sub">The words of all twelve scenes are locked, over four operator rounds.</span></div>
-                          <div class="dc-b"><b>Look at</b><span class="sub"><a href="https://github.com/alp82/curia/pull/597">the pull request #597</a></span><span class="sub"><a>the preview</a></span><span class="sub"><a href="https://github.com/alp82/curia/issues/587">the ticket #587</a></span></div>
-                          <div class="dc-b tight dc-sm"><i>✅ Approve to merge and resolve, or reply in this thread with what to change (that reply is a rejection and the agent gets your words).</i></div>
-                          <div class="dc-b tight dc-sm"><i>🔎 Cross-check answers neither: it spawns a reviewer on the other provider, and the agent waits for its verdict.</i></div>
-                          <div class="dc-row">
-                            <button class="dc-btn ok" type="button" id="runapprove">✅ Approve</button>
-                            <button class="dc-btn dgr" type="button">❌ Reject</button>
-                            <button class="dc-btn sec" type="button">🔎 Cross-check</button>
-                          </div>
-                          <div class="dc-mark" id="runreceipt">✅ <b>approved</b> by <span class="men">@Alper</span> via button</div>
-                        </div>
+              <div class="pv-phone">
+                <span class="pv-btn b1"></span><span class="pv-btn b2"></span>
+                <span class="pv-btn b3"></span><span class="pv-btn b4"></span>
+                <div class="pv-bezel">
+                  <div class="pv-screen r10-scr">
+                    <span class="pv-island" aria-hidden="true"></span>
+                    <div class="r10-page dc">
+                  <div class="r10-head dc"><svg class="r8-mk" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-dc"/></svg><b>#curia</b><i>🔎 587 · prototype</i></div>
+                  <div class="r10-log" id="rungate">
+                    <div class="r10-msg">
+                      <p class="w"><b>CuriaBot</b><span class="ap">APP</span><span class="ts">21:10</span></p>
+                      <p class="b"><b>Is alp82/curia#587 done?</b></p>
+                      <p class="b">The words of all twelve scenes are locked.</p>
+                      <div class="r10-btns">
+                        <button class="r10-b ok" type="button" id="runapprove">✅ Approve</button>
+                        <button class="r10-b no" type="button">❌ Reject</button>
+                        <button class="r10-b sec" type="button">🔎 Cross-check</button>
                       </div>
+                      <p class="mk" id="runreceipt">✅ <b>approved</b> by <span class="men">@Alper</span></p>
                     </div>
-                  </article>
+                  </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
             <div class="r8-lane" data-app="github">
-              <div class="win">
-                <div class="win-bar">
-                  <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
-                  <span class="r8-tab"><svg class="r8-mk" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-gh"/></svg><b>GitHub</b><i>alp82/curia · pull request #597</i></span>
-                  <span class="url">github.com/alp82/curia/pull/597</span>
+              <div class="pv-win">
+                <div class="pv-wt">
+                  <s></s><s></s><s></s>
+                  <span class="wu">github.com/alp82/curia/<b>pull/597</b></span>
                 </div>
-                <div class="win-body">
-                  <article class="gx">
-                    <h3 class="gx-h1">Choose the words of every scene of the final page <span class="num">#597</span></h3>
-                    <div class="gx-meta"><span class="gx-st open"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-pr"/></svg>Open</span><span class="gx-by"><b>curia-sh</b> into <code>main</code> from <code>curia/587</code></span></div>
-                    <div class="gx-cl">
-                      <div><span class="sha">b952921</span><span class="msg">The landing copy prototype: candidates for every scene, round 1 offered</span></div>
-                      <div><span class="sha">607fa84</span><span class="msg">Round 2: five candidates per slot, six headline directions, free-type rows</span></div>
-                      <div><span class="sha">72d09df</span><span class="msg">Round 3: the operator’s picks applied as an overlay, six findings</span></div>
-                      <div><span class="sha">8e1db06</span><span class="msg">Round 4: round 3 rulings applied, two locked-decision drifts on the table</span></div>
-                      <div><span class="sha">baa02ff</span><span class="msg">The words locked: verdict in NOTES, overrides recorded in positioning.md</span></div>
-                    </div>
-                    <div class="gx-meta">
-                      <span class="gx-diff">3 files changed<span class="a">+757</span><span class="d">−0</span><span class="sq"><i></i><i></i><i></i><i></i><i class="n"></i></span></span>
-                    </div>
-                  </article>
+                <div class="r10-page">
+                  <div class="r10-head"><svg class="r8-mk" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-gh"/></svg><b>alp82 / curia</b></div>
+                  <p class="r10-t">Choose the words of every scene of the final page <span class="n">#597</span></p>
+                  <p class="r10-m"><span class="r10-pill open">Open</span><span>5 commits · 3 files</span><span class="a">+757</span><span class="d">−0</span></p>
+                  <p class="r10-c"><code>baa02ff</code> The words locked: verdict in NOTES</p>
                 </div>
               </div>
             </div>
@@ -3051,58 +2908,42 @@
         <div class="r8-card two" data-i="4" style="--rot:1.2deg">
           <div>
             <div class="r8-lane" data-app="discord">
-              <div class="win dcw">
-                <div class="win-bar">
-                  <span class="r8-tab"><svg class="r8-mk" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-dc"/></svg><b>Discord</b><i>#curia</i></span>
-                  <span class="wn"><i></i>Discord</span>
-                  <span class="winb" aria-hidden="true"><b>—</b><b>▢</b><b>✕</b></span>
-                </div>
-                <div class="win-body">
-                  <article class="dcx">
-                    <div class="dcx-head"><span class="hash">#</span>curia <span class="sep">›</span> <span class="tt">✅ 587 · prototype</span></div>
-                    <div class="dcx-log">
-                      <div class="dc-msg">
-                        <span class="dc-av"><svg viewBox="0 0 40 40" aria-hidden="true"><use href="#mk-bot"/></svg></span>
-                        <div class="dc-body">
-                          <div class="dc-who"><span class="nm">CuriaBot</span><span class="badge">APP</span><span class="ts">21:13</span></div>
-                          <div class="dc-b">✅ reports <b>resolved</b></div>
-                          <div class="dc-b">The words of all twelve scenes are locked, over four operator rounds.</div>
-                          <div class="dc-b dc-sm">#597 merged · #587 closed · the map records the decision.</div>
-                        </div>
-                      </div>
+              <div class="pv-phone">
+                <span class="pv-btn b1"></span><span class="pv-btn b2"></span>
+                <span class="pv-btn b3"></span><span class="pv-btn b4"></span>
+                <div class="pv-bezel">
+                  <div class="pv-screen r10-scr">
+                    <span class="pv-island" aria-hidden="true"></span>
+                    <div class="r10-page dc">
+                  <div class="r10-head dc"><svg class="r8-mk" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-dc"/></svg><b>#curia</b><i>✅ 587 · prototype</i></div>
+                  <div class="r10-log">
+                    <div class="r10-msg">
+                      <p class="w"><b>CuriaBot</b><span class="ap">APP</span><span class="ts">21:13</span></p>
+                      <p class="b">✅ reports <b>resolved</b></p>
+                      <p class="b">#597 merged · #587 closed</p>
                     </div>
-                  </article>
+                  </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
             <div class="r8-lane" data-app="github">
-              <div class="win">
-                <div class="win-bar">
-                  <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
-                  <span class="r8-tab"><svg class="r8-mk" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-gh"/></svg><b>GitHub</b><i>alp82/curia · pull request #597</i></span>
-                  <span class="url">github.com/alp82/curia/pull/597</span>
+              <div class="pv-win">
+                <div class="pv-wt">
+                  <s></s><s></s><s></s>
+                  <span class="wu">github.com/alp82/curia/<b>pull/597</b></span>
                 </div>
-                <div class="win-body">
-                  <article class="gx">
-                    <h3 class="gx-h1">Choose the words of every scene of the final page <span class="num">#597</span></h3>
-                    <div class="gx-meta"><span class="gx-st merged"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-merge"/></svg>Merged</span><span class="gx-by">merged as <code>a71e154</code></span></div>
-                    <div class="gx-cl">
-                      <div><span class="sha">b952921</span><span class="msg">The landing copy prototype: candidates for every scene, round 1 offered</span></div>
-                      <div><span class="sha">607fa84</span><span class="msg">Round 2: five candidates per slot, six headline directions, free-type rows</span></div>
-                      <div><span class="sha">72d09df</span><span class="msg">Round 3: the operator’s picks applied as an overlay, six findings</span></div>
-                      <div><span class="sha">8e1db06</span><span class="msg">Round 4: round 3 rulings applied, two locked-decision drifts on the table</span></div>
-                      <div><span class="sha">baa02ff</span><span class="msg">The words locked: verdict in NOTES, overrides recorded in positioning.md</span></div>
-                    </div>
-                    <div class="gx-meta">
-                      <span class="gx-diff">3 files changed<span class="a">+757</span><span class="d">−0</span><span class="sq"><i></i><i></i><i></i><i></i><i class="n"></i></span></span>
-                    </div>
-                  </article>
+                <div class="r10-page">
+                  <div class="r10-head"><svg class="r8-mk" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-gh"/></svg><b>alp82 / curia</b></div>
+                  <p class="r10-t">Choose the words of every scene of the final page <span class="n">#597</span></p>
+                  <p class="r10-m"><span class="r10-pill merged">Merged</span><span>5 commits · 3 files</span><span class="a">+757</span><span class="d">−0</span></p>
+                  <p class="r10-c"><code>baa02ff</code> The words locked: verdict in NOTES</p>
                 </div>
               </div>
             </div>
           </div>
         </div>
-
         </div>
       </div>
 
@@ -3645,7 +3486,7 @@ function clampNum(v, a, b) { return v < a ? a : v > b ? b : v; }
   var cards = [].slice.call(document.querySelectorAll('#desk .r8-card'));
   if (!sec || !steps.length || !cards.length) return;
 
-  var V = { '1': 'v-tab', '2': 'v-shell', '3': 'v-device', '4': 'v-badge', '5': 'v-header' };
+  var V = { '1': 'v-mix', '2': 'v-win', '3': 'v-pocket', '4': 'v-desk2', '5': 'v-flat' };
   var swb = [].slice.call(document.querySelectorAll('#rsw button'));
   var v = '1';
   var k = 1;
