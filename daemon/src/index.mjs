@@ -1750,7 +1750,7 @@ function buildMcpServer(agent, ticket) {
   // differ, and the daemon composes every one of them from its own records.
   server.tool(
     'request_review',
-    'THE review gate: ask the human "is this done?" and BLOCK until they answer. curia shows them the pull request, the preview and the ticket — you do not pass links, it knows them. On approval you merge the pull request and then resolve the ticket. A rejection comes back as the human\'s own words: fix, commit, open_pull_request again, and call this again.',
+    'THE review gate: ask the human "is this done?" and BLOCK until they answer. curia shows them the pull request, the preview and the ticket — you do not pass links, it knows them. On approval you merge the pull request and then resolve the ticket. A rejection comes back as the human\'s own words: fix, commit, open_pull_request again, and call this again. If your diff changed a page — markup, styles, a component or a template — publish_preview FIRST: curia checks for one here, and a first call without it comes back asking for one.',
     {
       // #418, ADR-0019: `summary` and `charting` are Grade B block prose, and
       // the operator reads both on every ticket. Optional to zod for the same

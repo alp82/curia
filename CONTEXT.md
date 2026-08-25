@@ -442,6 +442,10 @@ _Avoid_: hook fallback.
 **Review gate**:
 The one approval before a merge, and its own escalation kind. Only the daemon opens it, and it composes every link from its own records. The ✅ press posts a real GitHub approval on the pull request (#391), under the host `gh` login, because an app cannot approve for a human and GitHub refuses a self-approval. What GitHub carries is what the journal calls approved: a press whose approval fails reads as not approved to the agent, to the Stop hook and to `/status`. Branch protection on the watched repo is what makes the press binding, and it is the operator's own optional act: curia requires no setting in a watched repo, and nothing in the daemon reads the rule.
 
+**Preview expectation**:
+What the review gate asks of a change that has a page to look at (#735). A task is applicable when its diff digest carries at least one **source** file that renders a page — markup, styles, a component or a template; tests, docs and generated files never count, and neither does server code, schema or config. Curia reads that off the digest it already measured, never off the agent's account of its own work. An applicable gate with no preview is bounced once, with the rule and two ways on: publish one, or say in the summary why there is nothing to see. The second call opens the gate either way and the card carries the absence in the link's place. A backend-only task never meets it, and a diff curia could not count never triggers it.
+_Avoid_: preview requirement, mandatory preview.
+
 **Cross-check**:
 The operator's third choice at the review gate. Curia spawns a reviewer on the other provider, and the verdict returns to the builder. The press answers neither way: nothing merges and nothing is rejected.
 

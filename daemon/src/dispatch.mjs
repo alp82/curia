@@ -53,6 +53,7 @@ import {
 } from './credentials.mjs'
 import { CREDENTIALS_HASH } from './dashboard.mjs'
 import { readDiffDigest, readFileHunks, digestLine, sliceFromPatch, capText } from './diffdigest.mjs'
+import { previewExpectation } from './previewgate.mjs'
 import { transcriptReset, holdVerdict, hottestPct, WARM_PCT } from './usage.mjs'
 import { transcriptActivity } from './transcript.mjs'
 // #698: the fog classifier the map snapshot already owns. The empty-map
@@ -4003,6 +4004,35 @@ export class Dispatcher {
     // opens after the agent has died) reads this one stored answer.
     const { digest, error: digestError } = await this.deps.readDiffDigest(wtPath)
     if (!digest) this.log(`review gate for ${repo}#${ticket}: the diff could not be counted (${digestError})`)
+
+    // #735: does this change have a page to look at? The rule and its words
+    // live in previewgate.mjs; the digest just read is the whole evidence, so
+    // nothing here asks the agent what its change was about. A first applicable
+    // call with no preview is bounced once — the agent publishes one, or says
+    // in its summary why there is nothing to see — and the second call opens
+    // the gate either way. Backend-only work never reaches any of this.
+    //
+    // NO WORKER RECORD, NO BOUNCE. The ask is remembered on the record, so a
+    // gate curia has nowhere to remember it on reads as already asked — one
+    // missing line on a card beats a loop an agent cannot leave.
+    const expectation = previewExpectation({ digest, preview, asked: w ? w.previewAsked === true : true })
+    if (expectation.bounce) {
+      if (w) w.previewAsked = true
+      this.reduction.journal('preview_expected', {
+        repo, ticket, agent: agentName, files: expectation.paths.slice(0, 10),
+      })
+      this.notify(ticket, `🖼️ \`${agentName}\` asked for the review gate on a change that touches a page with no preview published — bounced once, and the next call opens the gate either way`)
+      return { ok: false, text: expectation.bounce }
+    }
+    // The second call. The absence goes on the card where the link would have
+    // been, because an operator who cannot look at the page must at least know
+    // that curia asked and got nothing.
+    if (expectation.line) {
+      links.push(expectation.line)
+      this.reduction.journal('preview_missing', {
+        repo, ticket, agent: agentName, files: expectation.paths.slice(0, 10),
+      })
+    }
 
     const { text } = reviewGateText({
       repo, ticket: map ?? ticket, title, summary, charting, links, mapDispatch, body,
