@@ -44,7 +44,10 @@ export const CAPS = {
   // `summary`, `charting`, the notify `message` and a verdict finding all share
   // one block cap.
   block: 600,
+  phaseLabel: 20,
 }
+
+export const WORK_PHASES = ['explore', 'think', 'build', 'test', 'fix', 'ship']
 
 // The `visual` geometry (#414 measured both numbers on a phone). 42 by 20 is
 // under 900 characters, so a visual sits under CODE_BLOCK_LIMIT and never
@@ -352,9 +355,20 @@ export function lintResult(payload = {}) {
 // which layer refuses the call, never whether a silent send lands).
 export function notifyFloorFaults(payload = {}) {
   const faults = []
-  if (!present(payload.message) && !payload.phase) {
-    faults.push('message: missing. Add a message, or set a phase for the live status line.')
+  const opening = payload.opening
+  const hasOpening = opening !== undefined && opening !== null
+  const objectPhase = payload.phase !== null && typeof payload.phase === 'object'
+  const hasPhase = objectPhase || present(payload.phase)
+  const hasLabel = present(payload.label)
+  if (!present(payload.message) && !hasOpening && !hasPhase && !hasLabel) {
+    faults.push('message: missing. Send a milestone message, an opening, or a phase update.')
   }
+  if (hasOpening) {
+    if (!present(opening?.goal)) faults.push('opening.goal: missing. State the goal as you read it.')
+    if (!present(opening?.first_step)) faults.push('opening.first_step: missing. State your first step.')
+  }
+  if (hasPhase && !objectPhase && !hasLabel) faults.push('label: missing. A phase update needs a short label.')
+  if (hasLabel && !hasPhase) faults.push('phase: missing. A status label needs its phase.')
   return faults
 }
 
@@ -363,7 +377,10 @@ export function notifyFloorFaults(payload = {}) {
 // surface where a `message` is the field that goes missing. A visual or a
 // spoiler alone still says something, and an empty call says nothing.
 export function notifyHasText(payload = {}) {
-  return present(payload.message) || present(payload.detail) || present(payload.visual) || Boolean(payload.phase)
+  return present(payload.message) || present(payload.detail) || present(payload.visual)
+    || present(payload.opening?.goal) || present(payload.opening?.first_step)
+    || present(payload.label) || (payload.phase !== null && typeof payload.phase === 'object')
+    || present(payload.phase)
 }
 
 export function lintNotify(payload = {}) {
@@ -371,7 +388,9 @@ export function lintNotify(payload = {}) {
   if (present(payload.message)) faults.push(...gradeB('message', payload.message))
   if (present(payload.detail)) faults.push(...gradeA('detail', payload.detail, CAPS.detail))
   if (present(payload.visual)) faults.push(...lintVisual(payload.visual))
-  if (payload.phase) {
+  if (present(payload.opening?.goal)) faults.push(...gradeA('opening.goal', payload.opening.goal, CAPS.question))
+  if (present(payload.opening?.first_step)) faults.push(...gradeA('opening.first_step', payload.opening.first_step, CAPS.question))
+  if (payload.phase !== null && typeof payload.phase === 'object') {
     const icons = ['🧭', '💭', '🔨', '🚦', '🩹', '🚢']
     if (!icons.includes(payload.phase.icon)) {
       faults.push(`phase.icon: use one of ${icons.join(' ')}.`)
@@ -382,6 +401,11 @@ export function lintNotify(payload = {}) {
     const length = Array.from(label).length
     if (length > 20) faults.push(`phase.label: ${length} characters over the 20 characters cap. Shorten the label.`)
     if (/`/.test(label)) faults.push('phase.label: remove the code mark. Curia adds code marks around the label.')
+  } else {
+    if (present(payload.phase) && !WORK_PHASES.includes(payload.phase)) {
+      faults.push(`phase: "${payload.phase}" is not one of ${WORK_PHASES.join(', ')}.`)
+    }
+    if (present(payload.label)) faults.push(...gradeA('label', payload.label, CAPS.phaseLabel))
   }
   return faults
 }

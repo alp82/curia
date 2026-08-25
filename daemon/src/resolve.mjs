@@ -547,6 +547,6 @@ export function summariseOutcome(out) {
   else if (l.state === 'repaired') bits.push(`⚠️ curia opened <${l.url}> for you — unreviewed and unmerged`)
   else if (l.state === 'no-commits') bits.push('no code to land')
   else if (l.state === 'failed') bits.push(`landing check FAILED: ${l.error}`)
-  const warn = out.warnings.length ? `\n⚠️ ${out.warnings.join('\n⚠️ ')}` : ''
-  return bits.join('; ') + warn
+  const warn = out.warnings.length ? ` · ⚠️ ${out.warnings.join(' · ⚠️ ')}` : ''
+  return bits.join(' · ') + warn
 }

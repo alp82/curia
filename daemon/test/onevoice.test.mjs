@@ -120,14 +120,14 @@ describe('the card carries what the interaction reply used to add (#253)', () =>
   })
 })
 
-// Dispatch mechanics stay on the ticket's editable status line. The overseer
-// leaves that line to the daemon and states only its choice.
+// The overseer owns the choice. The ticket status owns dispatch progress, so
+// another announcement would repeat the same event.
 describe('the overseer never narrates a dispatch (#253)', () => {
   test('the system prompt forbids the announcement and keeps the choice', () => {
     // The shell posture is the one the overseer container runs (#315).
     const prompt = buildSystemPrompt({ shell: true, checkoutsRoot: '/work/overseer/repos', repos: ['alp82/curia'] })
     assert.match(prompt, /Never announce a dispatch/)
-    assert.match(prompt, /The daemon keeps dispatch mechanics on the ticket's editable status line/)
+    assert.match(prompt, /The daemon edits the ticket status during dispatch/, 'it says which surface already covers it')
     assert.match(prompt, /Say which ticket you picked and why/)
   })
 })

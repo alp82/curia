@@ -2099,7 +2099,10 @@ export function writePrompt(cfgDir, issue, {
   const tools = charting ? [
     '- `ask_human` — a decision you cannot make alone. Blocks until a human answers, for as long as it',
     '  takes. This is how you reach the operator who dispatched you.',
-    '- `notify` — a status line for the human. Returns at once. `kind` says what they must DO:',
+    '- `notify`: your opening, working phase, or milestone for the human. Returns at once. On your first',
+    '  call, send `opening.goal`, `opening.first_step`, `phase`, and `label`. The opening uses two lines.',
+    '  Later routine updates send `phase` and `label` without a message. Use a message for a milestone.',
+    '  `kind` says what they must DO:',
     '  `progress` (nothing), `look` (open a file or a page now), `ask` (reply when they can). An `ask`',
     '  blocks nothing, so use `ask_human` when you cannot go on without the answer.',
     '  Set `phase` for routine progress. Curia edits the live status line instead of posting another message.',
@@ -2127,7 +2130,10 @@ export function writePrompt(cfgDir, issue, {
   ] : [
     '- `ask_human` — a decision you cannot make alone. Blocks until a human answers, for as long as it',
     '  takes.',
-    '- `notify` — a status line for the human. Returns at once. `kind` says what they must DO:',
+    '- `notify`: your opening, working phase, or milestone for the human. Returns at once. On your first',
+    '  call, send `opening.goal`, `opening.first_step`, `phase`, and `label`. The opening uses two lines.',
+    '  Later routine updates send `phase` and `label` without a message. Use a message for a milestone.',
+    '  `kind` says what they must DO:',
     '  `progress` (nothing), `look` (open a file or a page now), `ask` (reply when they can). An `ask`',
     '  blocks nothing, so use `ask_human` when you cannot go on without the answer.',
     '  Set `phase` for routine progress. Curia edits the live status line instead of posting another message.',

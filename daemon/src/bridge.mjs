@@ -559,6 +559,7 @@ export class DiscordBridge {
       ? await this.client.guilds.fetch(this.guildId)
       : this.client.guilds.cache.first()
     if (!this.guild) throw new Error('bot is in no guild')
+    await this.#alignIdentity()
     this.channel = await this.#ensureChannel(this.channelName)
     await this.#registerSlashCommands()
     this.client.on('interactionCreate', (i) => this.handleInteraction(i).catch((e) => this.log('interaction error', e)))
@@ -649,6 +650,15 @@ export class DiscordBridge {
       Routes.applicationGuildCommands(this.client.user.id, this.guild.id),
       { body: SLASH_MANIFEST.map((c) => c.toJSON()) },
     )
+  }
+
+  async #alignIdentity() {
+    try {
+      const member = this.guild.members?.me ?? await this.guild.members?.fetchMe?.()
+      if (member?.displayName !== 'curia') await member?.setNickname?.('curia')
+    } catch (e) {
+      this.log(`speaker identity kept the current bot name: ${e.message}`)
+    }
   }
 
   // The ticket label as a thread rename (#93): `🎫 85 · curia · grilling`. The
@@ -844,6 +854,7 @@ export class DiscordBridge {
       }
     }
     await this.#addWatchers(thread)
+    await this.#postTicketTitle(thread, ticket, this.bindings?.titleOf?.(ticket) ?? '')
     return thread
   }
 
@@ -937,7 +948,7 @@ export class DiscordBridge {
         // the pending-name base again: skipping because Discord already shows
         // the label would let a deferred ✅ land on freshly re-opened work
         if (t && (this.renamer.desired(t.id) ?? t.name) !== name) await this.renamer.set(t.id, name)
-        if (t && !alreadyBound) await this.#postTicketGoal(t, ticket, title)
+        if (t && !alreadyBound) await this.#postTicketTitle(t, ticket, title)
         return r
       }
       // The ticket is bound to ANOTHER thread, and the operator is typing in
@@ -947,9 +958,9 @@ export class DiscordBridge {
       // talking into a thread nobody had open.
       if (r.reason === 'ticket-bound') return this.#moveTicket(ticket, type, repo, threadId, r.threadId)
       if (r.reason !== 'thread-bound') return r
-      return this.#bindFreshThread(ticket, type, repo, threadId, title)
+      return this.#bindFreshThread(ticket, type, repo, title, threadId)
     }
-    return this.#bindFreshThread(ticket, type, repo, null, title)
+    return this.#bindFreshThread(ticket, type, repo, title, null)
   }
 
   // #241: the thread of a NEW-map charting session is bound to a chat handle,
@@ -980,20 +991,20 @@ export class DiscordBridge {
     return { ok: true, threadId }
   }
 
-  async #bindFreshThread(ticket, type, repo, originThreadId, title = '') {
+  async #bindFreshThread(ticket, type, repo, title, originThreadId) {
     // The dispatch backstop (#140): an unbound ticket goes back to the thread
     // its journal last bound — that is where its history, breadcrumbs and
     // recorded answers live — and only opens a fresh thread when the old one
     // is gone from Discord or now carries another ticket.
     const revived = await this.#reviveLastThread(ticket, type, repo)
     let thread = revived
-    let created = false
     let r = revived ? { ok: true, threadId: revived.id } : null
+    let opened = false
     if (!thread) {
-      created = true
       thread = await this.channel.threads.create({
         name: DiscordBridge.labelName(ticket, type, repo), autoArchiveDuration: 10080,
       })
+      opened = true
       r = this.bindings.bind(ticket, thread.id)
       // the same lost-race cleanup ensureThread does (#257): an empty twin of
       // the thread that won is a duplicate, so it goes
@@ -1006,7 +1017,7 @@ export class DiscordBridge {
       }
       await this.#addWatchers(thread)
     }
-    if (r.ok && created) await this.#postTicketGoal(thread, ticket, title)
+    if (r.ok && opened) await this.#postTicketTitle(thread, ticket, title)
     if (r.ok && originThreadId) {
       const origin = await this.client.channels.fetch(originThreadId).catch(() => null)
       const originName = origin?.name ? `“${origin.name}”` : 'another thread'
@@ -1026,13 +1037,14 @@ export class DiscordBridge {
     return r
   }
 
-  async #postTicketGoal(thread, ticket, title) {
-    const goal = String(title ?? '').trim()
-    if (!goal) return
-    await thread.send(`**#${ticket} ${goal}**`).catch((e) => {
-      this.log(`ticket goal for #${ticket} failed: ${e.message}`)
-    })
-    this.#reportPost(thread)
+  async #postTicketTitle(thread, ticket, title) {
+    if (!title || !/^\d+$/.test(String(ticket))) return
+    try {
+      await thread.send(`🎫 **#${ticket} - ${title}**`)
+      this.#reportPost(thread)
+    } catch (e) {
+      this.log(`thread ${thread.id}: could not post ticket title: ${e.message}`)
+    }
   }
 
   // Carry a ticket from the thread it was bound to into the one the operator
@@ -1256,8 +1268,9 @@ export class DiscordBridge {
   #escalationBody(record, files = []) {
     if (record.kind === CONFIRM_KIND) {
       return [
-        `**[${record.id}]** ${record.prompt}`,
-        '-# ✅ executes, ❌ declines. No expiry — but this confirm lapses the moment its agent exits.',
+        `❓ ${record.prompt}`,
+        '-# ✅ executes, and ❌ declines. This confirm lapses when its agent exits.',
+        `-# ${record.id}`,
       ].join('\n')
     }
     // The review gate (#54) is the one kind whose prompt is a multi-line block
@@ -1267,10 +1280,9 @@ export class DiscordBridge {
       return [
         record.prompt,
         '',
-        smallPrint(`🔎 ${record.id} · review gate`),
-        '',
-        '_✅ Approve to merge and resolve, or reply in this thread with what to change (that reply is a rejection and the agent gets your words)._',
-        '_🔎 Cross-check answers neither: it spawns a reviewer on the other provider, and the agent waits for its verdict._',
+        '_✅ Approve to merge and resolve. A reply is a rejection, and I take your words as the change list._',
+        '_🔎 Cross-check answers neither. It starts a reviewer on the other provider, and I wait for its verdict._',
+        `-# ${record.id}`,
       ].join('\n')
     }
     // No blockquote (#95's markdown standard) — the prompt stands on its own line.
@@ -1282,7 +1294,8 @@ export class DiscordBridge {
     // this prints it as it stands. The bridge renders and never interprets
     // (ADR-0002), and the parts below are the ANSWER surface, not the question.
     const typed = Boolean(record.payload)
-    const parts = [record.prompt, smallPrint(`❓ ${record.id} · ${record.kind}`)]
+    const prompt = /^\s*❓/.test(record.prompt) ? record.prompt : `❓ ${record.prompt}`
+    const parts = [prompt]
     if (files.length) {
       parts.push(smallPrint(`Attached files: ${files.map((file) => `\`${file.attachment}\``).join(', ')}. Reply files return to this conversation as readable paths.`))
     }
@@ -1313,7 +1326,7 @@ export class DiscordBridge {
       // The second sentence is the load-bearing one: a question you do not
       // answer is NOT taken as recommended, it comes back in the next round.
       parts.push(record.recommended
-        ? '_✅ takes every recommendation above. Or reply in this thread — anything you leave unanswered comes back in the next round._'
+        ? '_✅ takes every recommendation above. Reply in this thread to name exceptions. Unanswered questions return in the next round._'
         : '_Reply in this thread to answer._')
     } else if (record.kind === 'preview-review') {
       parts.push(`Preview: ${record.preview_url}`, '_Approve/Reject, or reply in this thread with comments._')
@@ -1325,6 +1338,7 @@ export class DiscordBridge {
     if (record.lint_flags?.length) {
       parts.push(smallPrint([`⚠️ curia sent this after ${record.lint_flags.length} lint fault(s) the agent did not fix:`, ...record.lint_flags].join('\n')))
     }
+    parts.push(smallPrint(record.id))
     return parts.join('\n')
   }
 
@@ -1351,8 +1365,8 @@ export class DiscordBridge {
     return this.channel
   }
 
-  // Agent prose uses the channel webhook, while every send displays the same
-  // `curia` name and bot avatar. Session names remain routing identifiers.
+  // Speaker identity (#690): all agent prose posts under the `curia` webhook
+  // name and the bot avatar. One channel webhook serves that identity.
   // Interactive components require an
   // application-owned webhook, which createWebhook does not mint — so
   // escalation messages, the ones with buttons, stay bot-posted.
@@ -1392,10 +1406,10 @@ export class DiscordBridge {
     const why = missing
       ? 'the bot lacks **Manage Webhooks** on this channel'
       : `the channel webhook failed (${e?.message ?? e})`
-    return `⚠️ Agent prose transport is degraded: ${why}. Curia uses normal messages until the webhook returns.`
+    return `⚠️ Speaker identity is off: ${why}. Agent prose uses the bot identity. Grant the permission to the bot role or channel.`
   }
 
-  static SPEAKERS_BACK = '✅ Agent prose transport recovered. Curia uses its webhook again.'
+  static SPEAKERS_BACK = '✅ Speaker identity is on. Agent prose posts under the Curia name again.'
 
   async #speakerFault(e) {
     this.speakers = { ok: false, reason: e?.message ?? String(e) }
@@ -1426,7 +1440,7 @@ export class DiscordBridge {
     try {
       const hook = await this.#webhook()
       const chunks = chunkMessage(content)
-      const base = { username: 'curia', avatarURL: this.#avatarFor('curia'), threadId: thread.id }
+      const base = { username: 'curia', avatarURL: this.#avatarFor(), threadId: thread.id }
       for (const chunk of chunks.slice(0, -1)) await hook.send({ ...base, content: chunk })
       const msg = await hook.send({ ...base, content: chunks.at(-1), files })
       // The agent's own words buried the line too (#480). The fallback below
@@ -1566,35 +1580,34 @@ export class DiscordBridge {
   // edited in place. The daemon composes the text; this is transport only.
   // editStatus returns false when the message is gone, so the caller reposts
   // rather than losing the line.
-  async #statusLinks(ticket, { settled = false } = {}) {
-    const get = (fn) => Promise.resolve(fn?.(ticket)).catch(() => null)
-    const preview = settled ? null : await get(this.handlers.previewUrl)
-    const chat = await get(this.handlers.timelineLink)
-    const repo = this.#repoOf(ticket)
-    const issue = repo && /^\d+$/.test(String(ticket))
-      ? `https://github.com/${repo}/issues/${ticket}`
-      : null
-    return [
-      preview && { label: '🔗 preview', url: preview },
-      chat && { label: 'Chat', url: chat },
-      issue && { label: 'ticket', url: issue },
-    ].filter(Boolean)
+  async #statusComponents(ticket, settled) {
+    let links = []
+    try {
+      links = await this.handlers.statusLinks?.(ticket, { settled }) ?? []
+    } catch (e) {
+      this.log(`status links for ${ticket} failed: ${e.message}`)
+    }
+    return DiscordBridge.linkRow(links)
   }
 
   async postStatus(ticket, text, { settled = false } = {}) {
     const thread = await this.ensureThread(ticket)
-    const components = DiscordBridge.linkRow(await this.#statusLinks(ticket, { settled }))
-    const msg = await thread.send({ content: text.slice(0, 1900), components })
-    return { threadId: thread.id, messageId: msg.id, ticket: String(ticket) }
+    const msg = await thread.send({
+      content: text.slice(0, 1900),
+      components: await this.#statusComponents(ticket, settled),
+    })
+    return { threadId: thread.id, messageId: msg.id }
   }
 
-  async editStatus(ids, text, { settled = false } = {}) {
+  async editStatus(ids, text, { ticket = null, settled = false } = {}) {
     const thread = await this.client.channels.fetch(ids.threadId).catch(() => null)
     if (!thread) return false
     const msg = await thread.messages.fetch(ids.messageId).catch(() => null)
     if (!msg) return false
-    const components = DiscordBridge.linkRow(await this.#statusLinks(ids.ticket, { settled }))
-    await msg.edit({ content: text.slice(0, 1900), components })
+    await msg.edit({
+      content: text.slice(0, 1900),
+      components: await this.#statusComponents(ticket, settled),
+    })
     return true
   }
 

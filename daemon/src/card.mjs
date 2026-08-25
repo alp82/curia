@@ -11,11 +11,9 @@
 // It also keeps ADR-0002 whole. The daemon lints and structures, the bridge
 // renders, and neither one interprets.
 //
-// What is NOT in here: every link. curia composes the preview, timeline and
-// terminal links as buttons on the card (ADR-0013), so the `timeline` flag adds
-// a pointer line and never a URL. The buttons, the select menu and the answer
-// instructions stay in the bridge, because they are the answer surface rather
-// than the question.
+// What is NOT in here: every link. The status line owns the preview, Chat, and
+// ticket links. The decision buttons, select menu, and answer instructions stay
+// in the bridge because they are the answer surface.
 
 import { unfence, isTypedResult, verdictGrade, VERDICT_SEVERITIES } from './lint.mjs'
 import { SIGNALS, smallPrint } from './messaging.mjs'
@@ -26,6 +24,13 @@ const LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
 const marker = (i) => (i < LETTERS.length ? LETTERS[i] : String(i + 1))
 
 const has = (v) => v !== undefined && v !== null && String(v).trim() !== ''
+
+export function composeOpening(opening = {}) {
+  return [
+    `⚙️ ${String(opening.goal ?? '').trim()}`,
+    String(opening.first_step ?? '').trim(),
+  ].join('\n')
+}
 
 // The visual arrives as rows and leaves as a fenced block. curia writes the
 // fence, so an agent can never send a broken one (#432 reads it either way).
@@ -122,10 +127,13 @@ export function composeResultBody(payload = {}) {
 // one three times first. It still renders, because a flagged ending in the
 // thread beats an ending that reaches it never.
 export function composeResultReport(status, payload = {}) {
-  const headline = has(payload.headline) ? String(payload.headline).trim() : ''
-  const head = headline ? `✅ **${status}**: ${headline}` : `✅ reports **${status}**`
-  const bodyPayload = headline ? { ...payload, headline: null } : payload
-  const body = composeResultBody(bodyPayload)
+  const head = `✅ **${status}**`
+  if (isTypedResult(payload) && has(payload.headline)) {
+    const typedHead = `✅ **${status}** - **${String(payload.headline).trim()}**`
+    const body = composeResultBody({ ...payload, headline: undefined })
+    return body ? `${typedHead}\n\n${body}` : typedHead
+  }
+  const body = composeResultBody(payload)
   if (!body) return head
   return isTypedResult(payload) ? `${head}\n\n${body}` : `${head}: ${body}`
 }
@@ -229,7 +237,7 @@ export function composeVerdict(payload = {}) {
 // reports `blocked` could not read the diff at all, and that is the first thing
 // the operator needs. The grade of the diff sits under it, inside the verdict.
 export function composeVerdictReport(status, payload = {}) {
-  const head = `🔎 the cross-check reports **${status}**`
+  const head = `🔎 the cross-check found **${status}**`
   const body = composeVerdict(payload)
   return body ? `${head}\n\n${body}` : head
 }

@@ -245,14 +245,14 @@ describe('promptTitle', () => {
 })
 
 describe('speakerName (#108 item 15, narrowed by #254)', () => {
-  test('the session name, alone — builder and reviewer alike', () => {
-    assert.equal(speakerName('curia-9'), 'curia-9')
-    assert.equal(speakerName('curia-review-9'), 'curia-review-9')
+  test('one curia identity speaks for builders and reviewers', () => {
+    assert.equal(speakerName('curia-9'), 'curia')
+    assert.equal(speakerName('curia-review-9'), 'curia')
   })
 
   test('a ticket title never reaches the label, however long', () => {
     const long = 'A very long ticket title that goes on and on about the landing page charting effort and more'
-    assert.equal(speakerName('curia-121', long), 'curia-121')
+    assert.equal(speakerName('curia-121', long), 'curia')
   })
 
   test('no name ever truncates: every session name fits Discord\'s cap with room to spare', () => {
@@ -262,7 +262,7 @@ describe('speakerName (#108 item 15, narrowed by #254)', () => {
     for (const agent of ['curia-1', 'curia-9999', 'curia-review-1', 'curia-review-9999']) {
       const name = speakerName(agent)
       assert.ok(name.length <= SPEAKER_NAME_LIMIT, `${name} is ${name.length} chars`)
-      assert.ok(!name.includes('…'), `${name} carries an ellipsis`)
+      assert.equal(name, 'curia')
     }
   })
 })

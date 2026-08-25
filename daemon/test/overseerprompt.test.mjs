@@ -35,8 +35,8 @@ describe('the standing orders, with no shell (#328)', () => {
   // voice went from Simplified Technical English to the Google developer
   // documentation style. The fixture was regenerated for that and nothing
   // else, so every other line is still the pre-move text.
-  test('it matches the text the in-daemon host always sent', () => {
-    assert.equal(buildSystemPrompt(), fs.readFileSync(FIXTURE, 'utf8').replace(/\n$/, ''))
+  test('it is byte for byte the text the in-daemon host always sent', () => {
+    assert.equal(`${buildSystemPrompt()}\n`, fs.readFileSync(FIXTURE, 'utf8'))
   })
 
   test('the exported constant is that same text, so nothing downstream reads two prompts', () => {

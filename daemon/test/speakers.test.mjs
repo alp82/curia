@@ -46,7 +46,10 @@ describe('speaker-identity degradation (#143)', () => {
       },
       createWebhook: async () => { throw new Error('should not mint: the fixture already has one') },
     }
-    bridge.client = { channels: { fetch: async () => thread }, user: null }
+    bridge.client = {
+      channels: { fetch: async () => thread },
+      user: { displayAvatarURL: () => 'https://cdn.discord.test/curia.png' },
+    }
   })
 
   test('the boot probe announces the missing grant once, and /state carries it', async () => {
@@ -54,7 +57,7 @@ describe('speaker-identity degradation (#143)', () => {
     await bridge.probeSpeakers()
 
     assert.equal(announced.length, 1)
-    assert.match(announced[0], /Agent prose transport is degraded/)
+    assert.match(announced[0], /Speaker identity is off/)
     assert.match(announced[0], /Manage Webhooks/)
     assert.equal(bridge.status().speakers.ok, false)
     assert.equal(bridge.status().speakers.reason, 'Missing Permissions')
@@ -72,7 +75,7 @@ describe('speaker-identity degradation (#143)', () => {
     assert.deepEqual(announced, [])
     assert.equal(bridge.status().speakers.ok, true)
 
-    await bridge.notify('85', 'hello', { as: 'curia-85' })
+    await bridge.notify('85', 'hello', { as: 'curia' })
     assert.equal(asBot.length, 0)
     assert.equal(asHook.length, 1)
     assert.equal(asHook[0].username, 'curia')
@@ -80,14 +83,13 @@ describe('speaker-identity degradation (#143)', () => {
   })
 
   test('builder and reviewer prose use one curia identity', async () => {
-    bridge.client.user = { displayAvatarURL: () => 'https://example.test/curia.png' }
     await bridge.probeSpeakers()
     await bridge.notify('85', 'a', { as: 'curia-85' })
     await bridge.notify('85', 'b', { as: 'curia-review-85' })
 
     assert.deepEqual(asHook.map((send) => send.username), ['curia', 'curia'])
     assert.deepEqual(asHook.map((send) => send.avatarURL), [
-      'https://example.test/curia.png', 'https://example.test/curia.png',
+      'https://cdn.discord.test/curia.png', 'https://cdn.discord.test/curia.png',
     ])
   })
 
@@ -101,7 +103,7 @@ describe('speaker-identity degradation (#143)', () => {
 
     assert.deepEqual(asBot, ['after the loss'])
     assert.equal(announced.length, 1)
-    assert.match(announced[0], /Agent prose transport is degraded/)
+    assert.match(announced[0], /Speaker identity is off/)
   })
 
   test('a grant that lands while the daemon runs heals with no restart, and says so', async () => {
@@ -114,7 +116,7 @@ describe('speaker-identity degradation (#143)', () => {
 
     assert.equal(asHook.length, 1, 'the send path is never disabled, so it simply works')
     assert.equal(announced.length, 2)
-    assert.match(announced[1], /Agent prose transport recovered/)
+    assert.match(announced[1], /Speaker identity is on/)
     assert.equal(bridge.status().speakers.ok, true)
 
     // and a second loss is announced again — the latch cleared with the recovery
@@ -122,7 +124,7 @@ describe('speaker-identity degradation (#143)', () => {
     webhookFault = missingPermissions()
     await bridge.notify('85', 'lost again', { as: 'curia-85' })
     assert.equal(announced.length, 3)
-    assert.match(announced[2], /Agent prose transport is degraded/)
+    assert.match(announced[2], /Speaker identity is off/)
   })
 
   test('a webhook that fails for another reason is announced with its own words', async () => {

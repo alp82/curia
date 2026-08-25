@@ -79,7 +79,7 @@ import {
   lintVerdict, verdictFloorFaults, VERDICT_SEVERITIES,
 } from './lint.mjs'
 import {
-  composeCard, composeReviewBody, composeResultReport, optionLabels, derivedRecommended,
+  composeCard, composeReviewBody, composeResultReport, composeOpening, optionLabels, derivedRecommended,
   composeNotify, NOTIFY_KINDS, composeVerdictReport,
 } from './card.mjs'
 import { LintGate, flaggedResultText, flaggedNotifyText } from './lintgate.mjs'
@@ -472,8 +472,8 @@ const metersFor = (session, model) => agentMeters({
 })
 
 const statusLine = new StatusLine({
-  post: (ticket, text) => (bridge ? bridge.postStatus(ticket, text) : null),
-  edit: (ids, text) => (bridge ? bridge.editStatus(ids, text) : false),
+  post: (ticket, text, opts) => (bridge ? bridge.postStatus(ticket, text, opts) : null),
+  edit: (ids, text, opts) => (bridge ? bridge.editStatus(ids, text, opts) : false),
   remove: (ids) => (bridge ? bridge.deleteStatus(ids) : null),
   // The thread-name state glyph (#199): the status line derives the state,
   // the bridge renders it. With the bridge down the flag is dropped — the
@@ -951,9 +951,19 @@ const gate = {
   // #118 item 4 / #108 item 22: the surface links escalation messages carry as
   // buttons. Each throws or returns null on a dead surface; the bridge fails
   // soft per button.
-  timelineLink: (ticket) => attachApi.timelineLink(ticket),
-  terminalLink: (ticket) => attachApi.link(ticket),
-  previewUrl: (ticket) => previews.get(String(ticket))?.url ?? null,
+  async statusLinks(ticket, { settled = false } = {}) {
+    const links = []
+    const preview = previews.get(String(ticket))?.url ?? null
+    if (preview && !settled) links.push({ label: '🔗 preview', url: preview })
+    try {
+      links.push({ label: 'chat', url: await attachApi.timelineLink(ticket, { archive: settled }) })
+    } catch { /* unavailable while the session starts */ }
+    const repo = reduction.repoForTicket(ticket)
+    if (repo && /^\d+$/.test(String(ticket))) {
+      links.push({ label: 'ticket', url: `https://github.com/${repo}/issues/${ticket}` })
+    }
+    return links
+  },
   // #108 item 14, positive half: text in an agent-bound thread outside an open
   // escalation queues for the agent instead of being refused. Returns null
   // when no agent owns the thread — the bridge falls back to the overseer.
@@ -1356,9 +1366,9 @@ const attachApi = {
   },
   // The timeline half of /attach (#74): same liveness gate, then the surface
   // composes its own link — or refuses, independently of the terminal half.
-  async timelineLink(ticket, { session = `curia-${ticket}` } = {}) {
+  async timelineLink(ticket, { session = `curia-${ticket}`, archive = false } = {}) {
     if (!validSessionName(session)) throw new Error(`"${session}" is not a valid curia session name`)
-    if (!(await hasSession(session))) throw new Error(`no live session \`${session}\` — /status to see what runs`)
+    if (!archive && !(await hasSession(session))) throw new Error(`no live session \`${session}\`. Run \`/status\` to see what runs.`)
     // Same invariant the terminal half holds: never hand out a link to a
     // surface whose identity check does not yet know the names it serves, or
     // the operator opens it and gets a 403 from their own daemon.
@@ -1650,7 +1660,7 @@ function buildMcpServer(agent, ticket) {
   // `recommended` boolean over.
   server.tool(
     'notify',
-    'Fire-and-forget status update to the human. Returns immediately.'
+    'Fire-and-forget opening, working phase, or milestone for the human. Returns immediately.'
     + ' `kind` says what the operator must DO: `progress` needs nothing from them, `look` puts a file or a page in front of their eyes now, and `ask` wants a reply they can send whenever they get to it.'
     + ' An `ask` blocks nothing — use `ask_human` when you cannot go on without the answer.'
     + ' READ WHAT THIS CALL RETURNS. Curia lints your words and refuses the call when they break a rule. Rewrite the named field and call again. You get three attempts, and the fourth text goes out flagged.',
@@ -1662,13 +1672,24 @@ function buildMcpServer(agent, ticket) {
       kind: z.enum(NOTIFY_KINDS).optional().describe('What the operator must do: `progress` (nothing), `look` (open something now), `ask` (reply when they can). Defaults to `progress`.'),
       detail: z.string().optional().describe('Short FACTS, rendered as a spoiler. One line, 500 characters.'),
       visual: z.string().optional().describe('A table or an ASCII diagram, as rows. Curia writes the fence. At most 42 columns by 20 lines.'),
-      phase: z.object({
-        icon: z.string().describe('Use 🧭, 💭, 🔨, 🚦, 🩹, or 🚢.'),
-        label: z.string().describe('Current work in at most 20 characters. One line. Curia adds code marks.'),
-      }).optional().describe('Edit routine progress into the live status line without adding a thread message.'),
+      opening: z.object({
+        goal: z.string().optional().describe('Your reading of the ticket goal, in one line.'),
+        first_step: z.string().optional().describe('Your first step, in one line.'),
+      }).optional().describe('Your one work opening. Send it on the first notify call only.'),
+      phase: z.union([
+        z.object({
+          icon: z.string().describe('Use 🧭, 💭, 🔨, 🚦, 🩹, or 🚢.'),
+          label: z.string().describe('Current work in at most 20 characters. One line. Curia adds code marks.'),
+        }),
+        z.string().describe('Your working phase: explore, think, build, test, fix, or ship.'),
+      ]).optional().describe('Edit routine progress into the live status line without adding a thread message.'),
+      label: z.string().optional().describe('What you are doing now, in one line of at most 20 characters.'),
       images: z.array(z.string()).optional().describe(FILES_HINT),
     },
     async ({ images, ...raw }) => {
+      if (raw.opening && reduction.hasAgentOpening(agent)) {
+        return { content: [{ type: 'text', text: 'opening: already sent for this dispatch.' }] }
+      }
       // The same gate as the other surfaces, on its own key, so a rejected
       // status line and a rejected question never spend each other's attempts.
       const floor = notifyFloorFaults(raw)
@@ -1685,22 +1706,35 @@ function buildMcpServer(agent, ticket) {
         agent, ticket, ...raw, images: files.map((f) => f.attachment), refusals,
         ...(flags ? { lint_flags: flags } : {}),
       })
-      if (raw.phase) reduction.journal('agent_phase', { agent, ticket, phase: raw.phase })
+      if (raw.phase && typeof raw.phase === 'object') {
+        reduction.journal('agent_phase', { agent, ticket, phase: raw.phase })
+      } else if (raw.phase && raw.label) {
+        reduction.journal('agent_progress', { agent, ticket, phase: raw.phase, label: raw.label })
+      }
+      if (raw.opening) {
+        reduction.journal('agent_opening', { agent, ticket, ...raw.opening })
+      }
       // The body is never empty here: a call with no words at all fails the
       // floor, and one that reaches the cap with none is the dead end the gate
       // refuses for good rather than posts.
       if (bridge) {
+        let sends = raw.opening
+          ? statusLine.settle().then(() => bridge.notify(ticket, composeOpening(raw.opening), { as: speaker }))
+          : Promise.resolve()
         const body = composeNotify(raw)
-        if (body || files.length) bridge.notify(ticket, body, { files, as: speaker }).catch(() => {})
+        if (raw.message || raw.detail || raw.visual || files.length) {
+          sends = sends.then(() => bridge.notify(ticket, body, { files, as: speaker }))
+        }
         // A flagged send is CURIA's fact about the agent's text, so curia says
         // it in its own voice, under the line it is about (ADR-0013) — the same
         // shape the ending report's flagged send takes (#419).
         if (flags?.length) {
-          bridge.notify(ticket, smallPrint([
+          sends = sends.then(() => bridge.notify(ticket, smallPrint([
             `⚠️ curia sent this status line after ${flags.length} lint fault(s) the agent did not fix:`,
             ...flags,
-          ].join('\n'))).catch(() => {})
+          ].join('\n'))))
         }
+        sends.catch(() => {})
       }
       const said = refusals.length ? `ok (${refusals.length} file(s) refused)\n${refusals.join('\n')}` : 'ok'
       const flagNote = verdict.note ? [{ type: 'text', text: flaggedNotifyText(flags) }] : []
@@ -1750,11 +1784,6 @@ function buildMcpServer(agent, ticket) {
       // scroll-back hunt. Bot voice on purpose: link buttons are components,
       // which the speaker webhook cannot carry — and the composed link is
       // curia's record, not the agent's prose.
-      if (bridge) {
-        bridge.notify(ticket, `🔗 \`${agent}\` ${r.reused ? 'updated the' : 'published a'} preview (dev server on :${dev_port})`, {
-          links: [{ label: '🔗 open preview', url: r.url }],
-        }).catch(() => {})
-      }
       // #239: publish probed the page, and a status that is not a 2xx is worth
       // a sentence — the link works, but the page the agent named answered 404
       // or 500, and the agent is the one who can fix that before the human
@@ -3266,6 +3295,8 @@ if (process.env.DISCORD_BOT_TOKEN) {
           lastTicketOf: (threadId) => reduction.lastTicketForThread(threadId),
           // the label's repo field (#235), read lazily off the journal
           repoOf: (ticket) => reduction.repoForTicket(ticket),
+          // a lazy thread still opens with its tracker title (#690)
+          titleOf: (ticket) => reduction.titleForTicket(ticket),
         },
         log,
         onHealth: onBridgeHealth,

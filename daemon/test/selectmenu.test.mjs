@@ -59,9 +59,9 @@ describe('a choice card picks its surface by option count (#431)', () => {
     const msg = await render(opts(4))
     assert.equal(menusOf(msg.components).length, 0, 'the buttons fit on one row')
     assert.equal(buttonsOf(msg.components).length, 4)
-    assert.match(msg.content, /^Which one\?/)
+    assert.match(msg.content, /^❓ Which one\?/)
     assert.doesNotMatch(msg.content, /curia-431/, 'the session id is not a second speaker identity')
-    assert.match(msg.content, /-# ❓ esc-1 · choice/)
+    assert.match(msg.content, /-# esc-1/)
   })
 
   test('the fifth option turns the card into one menu', async () => {
@@ -103,6 +103,7 @@ describe('a choice card picks its surface by option count (#431)', () => {
     const msg = await render(opts(MAX_SELECT_OPTIONS))
     assert.equal(msg.components.length, 1, 'the menu is the card\'s only control row')
     assert.equal(buttonsOf(msg.components).length, 0, 'surface links belong on the status line')
+    assert.equal(rowsOf(msg.components)[0][0].type, 3, 'the menu remains')
   })
 
   test('past the menu cap the numbered list comes back whole', async () => {

@@ -201,6 +201,28 @@ describe('Reduction ticket-thread bindings', () => {
     assert.equal(reborn.repoForTicket('85'), 'getalfredo/landing-page')
     assert.equal(reborn.repoForTicket('90'), 'alp82/aistack')
   })
+
+  test('titleForTicket reads the dispatch title and survives a restart', () => {
+    const dir = tmp()
+    const reduction = new Reduction(dir)
+    reduction.journal('dispatch_claimed', {
+      repo: 'alp82/curia', ticket: '690', title: 'Tell one quiet ticket story in Discord',
+    })
+    assert.equal(reduction.titleForTicket('690'), 'Tell one quiet ticket story in Discord')
+    assert.equal(new Reduction(dir).titleForTicket('690'), 'Tell one quiet ticket story in Discord')
+  })
+
+  test('an opening survives restart and a new dispatch clears it', () => {
+    const dir = tmp()
+    const reduction = new Reduction(dir)
+    reduction.journal('agent_spawned', { agent: 'curia-690', ticket: '690' })
+    reduction.journal('agent_opening', { agent: 'curia-690', ticket: '690' })
+    const reborn = new Reduction(dir)
+    assert.equal(reborn.hasAgentOpening('curia-690'), true)
+
+    reborn.journal('agent_spawned', { agent: 'curia-690', ticket: '690' })
+    assert.equal(reborn.hasAgentOpening('curia-690'), false)
+  })
 })
 
 // ---- the display-only label (bridge.mjs) ------------------------------------
@@ -293,6 +315,7 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
         last: (t) => reduction.lastThreadForTicket(t),
         ticketOf: (id) => reduction.ticketForThread(id),
         lastTicketOf: (id) => reduction.lastTicketForThread(id),
+        titleOf: (t) => reduction.titleForTicket(t),
       },
     })
     bridge.guild = { id: 'G' }
@@ -332,6 +355,32 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
     assert.match(inOrigin.text, new RegExp(`discord\\.com/channels/G/${created[0].id}`))
   })
 
+  test('a fresh ticket thread opens with its title once, before later traffic', async () => {
+    const origin = makeThread('t-origin', '🎫 106 · charting')
+    bridge.registerThread(origin)
+    reduction.bindTicketThread('106', 't-origin')
+
+    const first = await bridge.bindTicket('107', {
+      threadId: 't-origin', type: 'task', title: 'Tell one quiet ticket story in Discord',
+    })
+    assert.equal(first.ok, true)
+    assert.deepEqual(
+      sentTo.filter((entry) => entry.id === first.threadId).map((entry) => entry.text),
+      [
+        '🎫 **#107 - Tell one quiet ticket story in Discord**',
+        '-# 🔗 dispatched from “🎫 106 · charting” — https://discord.com/channels/G/t-origin',
+      ],
+    )
+
+    await bridge.releaseTicket('107', 'interrupted')
+    sentTo.length = 0
+    const resumed = await bridge.bindTicket('107', {
+      type: 'task', title: 'Tell one quiet ticket story in Discord',
+    })
+    assert.equal(resumed.threadId, first.threadId)
+    assert.equal(sentTo.length, 0, 'a revived thread keeps its existing title line')
+  })
+
   test('an autonomous dispatch (no issuing thread) opens a fresh thread with no breadcrumb', async () => {
     const r = await bridge.bindTicket('108', { type: 'prototype' })
     assert.equal(r.ok, true)
@@ -340,14 +389,14 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
     assert.equal(sentTo.length, 0)
   })
 
-  test('a new ticket thread opens with its goal before dispatch mechanics', async () => {
+  test('a new ticket thread opens with its title before dispatch mechanics', async () => {
     const r = await bridge.bindTicket('690', {
       type: 'task', repo: 'alp82/curia', title: 'Tell one quiet ticket story in Discord',
     })
 
     assert.equal(r.ok, true)
     assert.equal(sentTo[0].id, created[0].id)
-    assert.equal(sentTo[0].text, '**#690 Tell one quiet ticket story in Discord**')
+    assert.equal(sentTo[0].text, '🎫 **#690 - Tell one quiet ticket story in Discord**')
   })
 
   test('a revived thread does not repeat the ticket goal', async () => {
@@ -420,6 +469,16 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
     const t = await bridge.ensureThread('130')
     assert.equal(t.name, '🎫 130 · curia')
     assert.equal(reduction.threadForTicket('130'), t.id)
+  })
+
+  test('the lazy path opens with the journaled ticket title', async () => {
+    reduction.journal('dispatch_claimed', {
+      repo: 'alp82/curia', ticket: '690', title: 'Tell one quiet ticket story in Discord',
+    })
+
+    await bridge.ensureThread('690')
+
+    assert.equal(sentTo[0].text, '🎫 **#690 - Tell one quiet ticket story in Discord**')
   })
 
   test('ensureThread for a ticket with no record keeps the bare-number name', async () => {
@@ -1116,13 +1175,17 @@ describe('Dispatcher thread binding (#93)', () => {
       fetchIssue: async () => ({ ...OPEN_ISSUE, labels: [{ name: 'wayfinder:grilling' }] }),
     })
     assert.match(await d.start('42', { repo: 'o/r', threadId: 't-7' }), /dispatched/)
-    assert.deepEqual(binds, [{ ticket: '42', threadId: 't-7', type: 'grilling', repo: 'o/r', title: 'a ticket' }])
+    assert.deepEqual(binds, [{
+      ticket: '42', threadId: 't-7', type: 'grilling', repo: 'o/r', title: 'a ticket',
+    }])
   })
 
   test('an untyped ticket binds with an empty type — the number names the thread', async () => {
     const d = makeDispatcher()
     await d.start('42', { repo: 'o/r', threadId: 't-7' })
-    assert.deepEqual(binds, [{ ticket: '42', threadId: 't-7', type: '', repo: 'o/r', title: 'a ticket' }])
+    assert.deepEqual(binds, [{
+      ticket: '42', threadId: 't-7', type: '', repo: 'o/r', title: 'a ticket',
+    }])
   })
 
   // #326: a new-map dispatch binds under its chat handle (#241), and it binds
@@ -1139,7 +1202,9 @@ describe('Dispatcher thread binding (#93)', () => {
   test('a dispatch with no issuing thread asks for a fresh bound thread (threadId null)', async () => {
     const d = makeDispatcher()
     await d.start('42', { repo: 'o/r', by: 'auto' })
-    assert.deepEqual(binds, [{ ticket: '42', threadId: null, type: '', repo: 'o/r', title: 'a ticket' }])
+    assert.deepEqual(binds, [{
+      ticket: '42', threadId: null, type: '', repo: 'o/r', title: 'a ticket',
+    }])
   })
 
   test('a prepare failure keeps the label — a claim release is not ticket-terminal (#140)', async () => {

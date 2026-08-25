@@ -69,7 +69,7 @@ describe('a round renders as one free-text card (#285)', () => {
       prompt: '❓ **Q1** — one?\n\n➡️ yes\n\n❓ **Q2** — two?\n\n➡️ no',
       recommended: true,
     })
-    assert.match(msg.content, /free-text/, 'the kind on the card is still one of the four')
+    assert.doesNotMatch(msg.content, /asks|curia-285/, 'the card head and agent attribution stay hidden')
     assert.match(msg.content, /Q1/)
     assert.match(msg.content, /Q2/, 'both questions ride one card, so both cost one wait')
   })
@@ -99,7 +99,7 @@ describe('a round renders as one free-text card (#285)', () => {
 
   test('the card says an unanswered question comes back — it is not taken as recommended', async () => {
     const msg = await render({ kind: 'free-text', prompt: 'Q1, Q2', recommended: true })
-    assert.match(msg.content, /comes back in the next round/)
+    assert.match(msg.content, /return in the next round/)
   })
 
   test('a plain free-text question is untouched — no button, and the old line', async () => {
