@@ -72,7 +72,12 @@ export const daemonPort = () => Number(process.env.PORT ?? DEFAULT_DAEMON_PORT)
 // POSTs `/api/reauth`, a route a proto-6 sidecar does not serve — so a screen
 // built for the 3am no-ssh recovery would answer 404 at the press it exists
 // for. It also reads two fields a proto-6 daemon's `/overview` does not carry.
-export const DASHBOARD_PROTO = 7
+// Bumped to 8 by #707: the Routing section draws a reasoning effort beside
+// every ticket type, off two `/api/settings` fields a proto-7 sidecar does not
+// carry — and its save posts `routing.effort`, which that sidecar's closed set
+// refuses by name. So an old server must refuse this page rather than draw a
+// depth picker whose every change is declined at the Save.
+export const DASHBOARD_PROTO = 8
 
 // The Credentials screen's own hash (#661). It is here rather than in the
 // daemon that links to it, because the page's screen names are this file's half

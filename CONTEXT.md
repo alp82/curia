@@ -120,6 +120,9 @@ A key under `models:` in `routing.yaml`. It is the dispatch vocabulary that `mod
 **Model name**:
 What curia tells a human is running. The status line uses the transcript model, then `models.<label>.id`, then the routing label. Cooling, fallback, and `status` keep the routing label.
 
+**Reasoning effort**:
+How deep an agent thinks, stated rather than inherited. A model states its own default in `models.<x>.reasoning_effort`, and a ticket type overrides it in the `effort:` table, keyed the way `defaults:` is. A `model:` label moves the model and leaves the type's depth alone, because the two are separate decisions. A depth holds only where the model has the word for it - its own `efforts` list, else its harness's - so a fallback that crosses to a shorter vocabulary keeps the type's depth where it exists there and takes that model's own default where it does not. Nothing invents one, and a routing with no `effort:` table leaves every model on its default. It is never a spawn flag: each harness is told through its config file or through the agent's environment, both of which every spawn and every resume rewrite, so a resumed agent runs at the depth it was dispatched at. All four harnesses in the image answer for it, and the codex row is the only one measured. See [#707](https://github.com/alp82/curia/issues/707).
+
 **Harness**:
 The program an agent runs under: claude or codex. It is a function of the model: `models.<x>.harness` states one value, and no command overrides it. A pin that disagreed with the model built `codex --model opus`, which is not a model.
 _Avoid_: backend, lane.

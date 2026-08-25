@@ -855,6 +855,19 @@ describe('agentMeters', () => {
     assert.deepEqual(m, { model: 'gpt-5.6-sol', effort: 'high', ctxPct: null, ctxOver: false, windows: null })
   })
 
+  // #707: the meter says the depth this agent was DISPATCHED at. A ticket type
+  // can move it off the model's own default, and reading the config today would
+  // say the wrong thing about an agent spawned before an operator changed it.
+  test('the depth an agent was spawned at beats the model default it did not run at', () => {
+    const m = agentMeters({ harness: 'codex', cfgDir: cfgDir(), model: 'gpt', effort: 'xhigh', routing, account: null, now: NOW })
+    assert.equal(m.effort, 'xhigh')
+  })
+
+  test('no dispatch record leaves the model default, which is the only evidence left', () => {
+    const m = agentMeters({ harness: 'codex', cfgDir: cfgDir(), model: 'gpt', effort: null, routing, account: null, now: NOW })
+    assert.equal(m.effort, 'high')
+  })
+
   // #332, building ADR-0016: the meter is the ONE signal that a conversation is
   // getting long, so it has to read the conversation it was asked about. Every
   // overseer conversation writes into one config dir, where newest-by-mtime is

@@ -26,6 +26,7 @@ import {
 } from './github.mjs'
 import {
   resolveModel, candidates, buildSpawnCmd, buildResumeCmd, spawnModelId, parseUsageLimit, parseCreditGate,
+  resolveEffort, routingType,
   carriesLimitPhrase, resolveReviewer, isActive, Cooling, SAME_PROVIDER_STAMP, namedModel,
 } from './routing.mjs'
 import { hasSession, listSessions, newSession, capturePane, killSession, sendText, sendKey, paneShowsActiveTurn } from './tmux.mjs'
@@ -34,7 +35,7 @@ import {
   removeConfigDir, removeCredentials, createReviewCheckout, reviewPathFor, writeReviewPrompt,
   seedConfigDir, writeConnectionSettings, writePrompt, worktreePathFor, cfgDirFor,
   branchFor, defaultBranchOf, commitsOnBranch, changedFilesOnBranch, uncommittedFiles,
-  pushBranch, hasUnpushedCommits, hasUncommittedChanges, salvageLocalOnlyWork, agentEnv, setGitIdentity,
+  pushBranch, hasUnpushedCommits, hasUncommittedChanges, salvageLocalOnlyWork, agentEnv, effortEnv, setGitIdentity,
   untrustedProjectConfig, plantedSkills,
 } from './workspace.mjs'
 // the agent's minted GitHub credential (#389, ADR-0018)
@@ -1374,6 +1375,10 @@ export class Dispatcher {
     if (charting && typeLabel !== MAP_LABEL) {
       return `❌ ${repo}#${n} is not a \`${MAP_LABEL}\` issue — curia dispatches no charting agent on it`
     }
+    // The ticket type, in the routing vocabulary, read once here (#707): it
+    // picks the effort row now and it re-picks it on every fallback and every
+    // resume, so it rides on the agent record beside the model.
+    const type = routingType(labels)
     const modelName = resolveModel(this.routing, labels, model)
     if (!this.routing.models[modelName]) {
       return `❌ unknown model \`${modelName}\` — configured models: ${Object.keys(this.routing.models).join(', ')}`
@@ -1425,6 +1430,10 @@ export class Dispatcher {
     // always the model typed. `review` reads its harness the same way.
     const useModel = cands[0]
     const harnessName = this.routing.models[useModel].harness
+    // Resolved against the model actually being spawned (#707), which is not
+    // always the one asked for: a cooled model's chain can cross harnesses, and
+    // the depth follows the model that runs rather than the one that did not.
+    const effort = this.#effortFor(useModel, type)
     if (!this.routing.harnesses[harnessName]) {
       return `❌ unknown harness \`${harnessName}\` — configured harnesses: ${Object.keys(this.routing.harnesses).join(', ')}`
     }
@@ -1492,7 +1501,7 @@ export class Dispatcher {
       const mapNumber = charting ? (newMap ? null : Number(n)) : await this.#mapNumberFor(repo, full)
       this.#assertTracker(repo, n, session, wtPath, mapNumber, { charting })
       this.#assertNoPlantedConfig(wtPath, harnessName)
-      this.#armAgent({ session, ticket: n, harness: harnessName, model: useModel, wtPath, cfgDir })
+      this.#armAgent({ session, ticket: n, harness: harnessName, model: useModel, wtPath, cfgDir, effort })
       // #157: the prompt NAMES the published ports, so they are allocated before
       // it is written and handed to the container after. The allocation is a
       // bind probe, a set lookup and an in-memory reservation — docker binds
@@ -1519,7 +1528,7 @@ export class Dispatcher {
 
       const plan = await this.#spawnPlan({
         session, ticket: n, repo, harness: harnessName, model: useModel,
-        wtPath, cfgDir, promptFile, ports, resume: conversationResume,
+        wtPath, cfgDir, promptFile, ports, effort, resume: conversationResume,
       })
       const container = plan.container
       const exitMarker = newExitMarker()
@@ -1538,6 +1547,7 @@ export class Dispatcher {
         // new-map agent would be sent to `chart new`, and `chart` refuses a
         // handle no issue answers to.
         ...(newMap ? { newMap: true } : {}),
+        effort, routing_type: type,
         // The journal is the state home for what a restart cannot re-derive
         // from tmux: which image this agent runs and which ports it published.
         sandbox: 'docker', image: container.image, ports: container.ports,
@@ -1548,6 +1558,11 @@ export class Dispatcher {
         repo, ticket: n, title: full.title, session, instance, wtPath, cfgDir, promptFile,
         model: useModel, requestedModel: modelName, harness: harnessName,
         provider: this.routing.models[useModel].provider,
+        // The depth this agent runs at, and the type that picked it (#707).
+        // Both ride the record because both outlive the labels: a fallback and
+        // a resume re-resolve the effort from the type, and the status line
+        // reads the effort rather than guessing it off the model's own default.
+        effort, routingType: type,
         // #156: the published loopback ports. #157 hands them to
         // `publish_preview` as its port bound.
         ports: container.ports,
@@ -1629,11 +1644,20 @@ export class Dispatcher {
     }
   }
 
+  // HOW DEEP THIS AGENT THINKS (#707), resolved once per spawn and read
+  // everywhere after. The type is the ticket's, the model is the one actually
+  // being spawned — so a fallback re-asks this question rather than carrying
+  // the cooled model's answer, and lands on the type's effort where the new
+  // model accepts it and on that model's own default where it does not.
+  #effortFor(model, type) {
+    return resolveEffort(this.routing, model, type)
+  }
+
   // Seed the config dir and write the connection settings, in the agent's own
   // view of the paths — the container's mount points, which is the only view
   // there is since #195. Shared by the first dispatch and by the cross-harness
   // respawn a usage limit forces.
-  #armAgent({ session, ticket, harness, model, wtPath, cfgDir }) {
+  #armAgent({ session, ticket, harness, model, wtPath, cfgDir, effort = null }) {
     this.deps.seedConfigDir(cfgDir, GUEST_WT, this.config.skills, harness, { sandboxed: true })
     // A FRESH secret per arm (#159), minted before the connection settings that carry it.
     // The cross-harness respawn arms again, so the pane a usage limit killed
@@ -1642,7 +1666,11 @@ export class Dispatcher {
     this.deps.writeConnectionSettings({
       wtPath: GUEST_WT, hostWtPath: wtPath, cfgDir, agent: session, ticket,
       daemonPort: this.daemonPort, daemonHost: GUEST_DAEMON_HOST, token,
-      harness, reasoningEffort: this.routing.models[model].reasoning_effort ?? null,
+      // The RESOLVED effort (#707), not the model's own default: the ticket
+      // type's row beats it wherever this model accepts the word, and the
+      // resolution ran once, at the caller, so the depth the status line says
+      // and the depth the harness is told are the same fact.
+      harness, reasoningEffort: effort,
       // The codex harness turns this into its skill deny list (#171); the
       // claude harness does not read it.
       skills: this.config.skills,
@@ -1653,13 +1681,13 @@ export class Dispatcher {
   // line and an EMPTY pane environment: the container carries its own through
   // `--env-file`, and a pane env would put every value of it in `ps` — the cost
   // #155 measured and asked #156 not to repeat.
-  async #spawnPlan({ session, ticket, repo, harness, model, wtPath, cfgDir, promptFile, ports, reviewer = false, resume = false }) {
+  async #spawnPlan({ session, ticket, repo, harness, model, wtPath, cfgDir, promptFile, ports, effort = null, reviewer = false, resume = false }) {
     const harnessCmd = resume
       ? buildResumeCmd(this.routing, harness, model)
       : buildSpawnCmd(this.routing, harness, model, path.join(GUEST_CFG, path.basename(promptFile)))
     const container = await this.#prepareContainer({
       session, ticket, repo, harness, model, wtPath, cfgDir, spawnCmd: harnessCmd,
-      sandbox: this.config.sandbox, ports, reviewer,
+      sandbox: this.config.sandbox, ports, effort, reviewer,
     })
     return { container, shellCmd: container.shellCmd, env: {} }
   }
@@ -2258,7 +2286,7 @@ export class Dispatcher {
   // names them and is written first (#157). Every step here can fail, and all of
   // them run inside #dispatch's try — so a failure unclaims the ticket rather
   // than leaving it assigned to an agent that never ran.
-  async #prepareContainer({ session, ticket, repo, harness, model, wtPath, cfgDir, spawnCmd, sandbox, ports, reviewer = false }) {
+  async #prepareContainer({ session, ticket, repo, harness, model, wtPath, cfgDir, spawnCmd, sandbox, ports, effort = null, reviewer = false }) {
     // Built on demand rather than at boot: the tag is a content address, so a
     // pinned version bump or a Dockerfile edit names an image the box does not
     // have, and this is the first place that matters (#154).
@@ -2367,6 +2395,12 @@ export class Dispatcher {
     this.#writeModelCredential(harness, cfgDir, ticket)
     const envFile = writeEnvFile(path.join(cfgDir, ENV_FILE), {
       ...agentEnv(GUEST_CFG, harness, { sandboxed: true }),
+      // The reasoning effort, for a harness whose route is its environment
+      // (#707) — nothing for one that states it in its config file, and nothing
+      // when routing states no effort at all. It is written into the env file
+      // every container is built with, so a resume inherits the depth its first
+      // turn ran at rather than dropping back to the model's own default.
+      ...effortEnv(harness, effort),
       // The PATH to the credential above, and no credential in it (#389). It is
       // set here rather than inside `agentEnv`, because this is where the file
       // it names gets written.
@@ -2738,7 +2772,13 @@ export class Dispatcher {
     try {
       checkout = await this.deps.createReviewCheckout(this.root, repo, ticket)
       this.#assertNoPlantedConfig(checkout.path, harnessName)
-      this.#armAgent({ session, ticket, harness: harnessName, model, wtPath: checkout.path, cfgDir })
+      // A cross-check is a spawn like any other, so it takes the ticket type's
+      // depth too (#707) — a reading of a diff on a `wayfinder:task` ticket is
+      // task-depth work, and the reviewer's own model default answers where the
+      // pairing crossed to a model that has no word for it.
+      const type = routingType((issue.labels ?? []).map((l) => (typeof l === 'string' ? l : l.name)))
+      const effort = this.#effortFor(model, type)
+      this.#armAgent({ session, ticket, harness: harnessName, model, wtPath: checkout.path, cfgDir, effort })
       // No published ports: a reviewer starts no dev server, and
       // `publish_preview` is one of the four tools curia refuses it. Three
       // ports per reviewer would be three ports a builder could not have.
@@ -2752,7 +2792,7 @@ export class Dispatcher {
 
       const plan = await this.#spawnPlan({
         session, ticket, repo, harness: harnessName, model,
-        wtPath: checkout.path, cfgDir, promptFile, ports: [], reviewer: true,
+        wtPath: checkout.path, cfgDir, promptFile, ports: [], effort, reviewer: true,
       })
       const exitMarker = newExitMarker()
       await this.deps.newSession({ name: session, cwd: checkout.path, env: plan.env, shellCmd: plan.shellCmd, exitMarker })
@@ -2772,7 +2812,7 @@ export class Dispatcher {
       this.reduction.journal('agent_spawned', {
         repo, ticket, agent: session, model, requested_model: model,
         prompt_carries_limit_text: textCarriesLimitPhrase(issue.title, issue.body),
-        harness: harnessName, kind: spawnKind({ reviewer: true }),
+        harness: harnessName, kind: spawnKind({ reviewer: true }), effort, routing_type: type,
       })
 
       const agent = {
@@ -2780,6 +2820,7 @@ export class Dispatcher {
         wtPath: checkout.path, cfgDir, promptFile,
         model, requestedModel: model, harness: harnessName,
         provider: this.routing.models[model].provider,
+        effort, routingType: type,
         ports: null, sandbox: 'docker',
         promptHarness: harnessName,
         spawnedAt: Date.now(), state: 'spawning', resultReceived: false,
@@ -3430,9 +3471,15 @@ export class Dispatcher {
     const allocated = !agent.reviewer && (freshPorts || !agent.ports)
     const ports = agent.reviewer ? [] : (allocated ? await this.#allocatePorts() : agent.ports)
     try {
+      // THE FALLBACK RULE, applied (#707): re-resolved against the model
+      // being spawned now, so the ticket type's effort survives a chain that
+      // keeps the word and gives way to the next model's own default where it
+      // does not. Carrying the dead model's effort would state a depth the new
+      // harness may not have.
+      const effort = this.#effortFor(next, agent.routingType ?? 'untyped')
       this.#armAgent({
         session: agent.session, ticket: agent.ticket, harness: nextHarness,
-        model: next, wtPath: agent.wtPath, cfgDir: agent.cfgDir,
+        model: next, wtPath: agent.wtPath, cfgDir: agent.cfgDir, effort,
       })
       // Fresh numbers force the rewrite whatever the harness did: the prompt on
       // disk names the ports (#157), and keeping it would hand the agent three
@@ -3444,7 +3491,7 @@ export class Dispatcher {
       const plan = await this.#spawnPlan({
         session: agent.session, ticket: agent.ticket, repo: agent.repo,
         harness: nextHarness, model: next, wtPath: agent.wtPath, cfgDir: agent.cfgDir,
-        promptFile: agent.promptFile, ports, reviewer: Boolean(agent.reviewer), resume,
+        promptFile: agent.promptFile, ports, effort, reviewer: Boolean(agent.reviewer), resume,
       })
       // A fresh marker per spawn: the old session is dead, and reusing its nonce
       // would let the previous life's exit line — still on screen for a moment —
@@ -3465,6 +3512,7 @@ export class Dispatcher {
       agent.sandbox = 'docker'
       agent.exitMarker = exitMarker
       agent.model = next
+      agent.effort = effort
       agent.harness = nextHarness
       agent.provider = this.routing.models[next].provider
       agent.spawnedAt = Date.now()

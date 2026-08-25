@@ -36,6 +36,58 @@ export function namedModel(labels, override) {
   return l ? l.slice('model:'.length) : null
 }
 
+// ---- reasoning effort (#707) ------------------------------------------------
+//
+// THE MODEL SAYS HOW DEEP IT THINKS BY DEFAULT, AND THE TICKET TYPE OVERRIDES
+// IT. Two tables, because the two answer different questions and one table
+// would force a choice between them: `models.<name>.reasoning_effort` is what
+// this model is worth running at when nothing else is said, and `effort.<type>`
+// is how deep THIS KIND OF WORK is, whatever model it lands on.
+//
+// The type table is why effort survives a model label. `model:gpt` picks the
+// model and says nothing about depth, so the type's effort still applies —
+// resolveModel and resolveEffort resolve two facts, and neither reads the
+// other's answer.
+//
+// A type effort holds only where the model ACCEPTS it. Otherwise the model's
+// own default stands, which is the fallback rule in one place: a chain that
+// crosses to a model with a shorter vocabulary keeps the type's depth when that
+// model has the word for it, and takes that model's configured default when it
+// does not. Nothing here invents an effort.
+
+// The ticket type routing keys off, in the vocabulary both tables use.
+// `untyped` is a row name rather than an absence, exactly as `defaults` has it.
+export function routingType(labels) {
+  const l = (labels ?? []).find((x) => x.startsWith('wayfinder:'))
+  return l ? l.slice('wayfinder:'.length) : 'untyped'
+}
+
+// Which efforts a model accepts, most specific answer first: the model's own
+// list, else its harness's, else null — which is not the empty set but the
+// absence of a bound, and reads as accepting whatever it is given.
+export function effortAccepts(routing, model) {
+  const spec = routing?.models?.[model]
+  if (!spec) return null
+  if (Array.isArray(spec.efforts)) return spec.efforts
+  const harness = routing?.harnesses?.[spec.harness]
+  return Array.isArray(harness?.efforts) ? harness.efforts : null
+}
+
+export function acceptsEffort(routing, model, effort) {
+  const accepts = effortAccepts(routing, model)
+  return !accepts || accepts.includes(effort)
+}
+
+// The effort one model runs one ticket type at, or null for "state none" — the
+// answer for a routing carrying no effort table at all, which is how a config
+// written before this key existed goes on behaving.
+export function resolveEffort(routing, model, type = 'untyped') {
+  const own = routing?.models?.[model]?.reasoning_effort ?? null
+  const wanted = routing?.effort?.[type] ?? routing?.effort?.untyped ?? null
+  if (wanted && acceptsEffort(routing, model, wanted)) return wanted
+  return own
+}
+
 // The live index, seeded at boot from the journal (#377). Settled answer 6 made
 // this in-memory only, and a 5-hour window outlives a deploy: a restart inside
 // one forgot every entry, and the next `start` spawned a container straight into

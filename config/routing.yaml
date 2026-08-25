@@ -33,6 +33,33 @@ defaults:
   # A `model:<x>` label on the map still beats this row (resolveModel).
   map: fable
 
+# HOW DEEP EACH KIND OF WORK THINKS (#707). `defaults` above says WHICH model a
+# ticket type gets; this says how hard that model is asked to think on it. Two
+# tables because they answer two questions: a `model:` label on a ticket moves
+# the first and leaves this one alone, so naming a model never quietly changes
+# the depth the work was meant to run at.
+#
+# A row holds only where the model accepts the word (`efforts` under `models`
+# and `harnesses` below). Where it does not, that model's own
+# `reasoning_effort` stands — which is also what a fallback lands on when the
+# chain crosses to a model with a shorter vocabulary.
+#
+# `untyped` is the row for a ticket with no `wayfinder:` label AND the answer
+# for a type with no row of its own, so this table needs no entry per label
+# curia might meet.
+#
+# The values below are the depths the operator asked for, not measured
+# optimums: research is the bulk lane #13 sends to spread quota, so it thinks
+# shallow; charting is the one job worth the strongest model at the highest
+# depth, for the reason `defaults.map` names fable.
+effort:
+  grilling: high
+  prototype: high
+  research: low
+  task: high
+  untyped: high
+  map: max
+
 # `context_window` feeds the status line's context % (#146), and it is the LAST
 # resort for it since #178. It used to say 200000 for the three anthropic models
 # here; the real window is 1000000, so every context figure the claude harness ever
@@ -126,6 +153,11 @@ harnesses:
     template: 'claude --model {model} --permission-mode bypassPermissions "$(cat {prompt_file})"'
     resume_template: 'claude --model {model} --permission-mode bypassPermissions --continue "Continue the interrupted work."'
     ready: '⏵⏵|bypass permissions'
+    # The effort words this CLI takes (#707). It bounds the `effort` table
+    # above: a ticket type asking for a word missing here leaves the model on
+    # its own `reasoning_effort` rather than being handed one the CLI would
+    # reject. A harness that states no list accepts whatever it is given.
+    efforts: [low, medium, high, xhigh, max]
     # MEASURED on the box, two live dispatches, 2026-08-04 (#194,
     # docs/live-checks/194): the client's MCP handshake landed 3.7 s and 3.2 s
     # after spawn, and the composer marker 6.0 s after it both times — so the
@@ -150,6 +182,10 @@ harnesses:
     template: 'codex --model {model} --dangerously-bypass-approvals-and-sandbox --dangerously-bypass-hook-trust "$(cat {prompt_file})"'
     resume_template: 'codex resume --last --model {model} --dangerously-bypass-approvals-and-sandbox --dangerously-bypass-hook-trust "Continue the interrupted work."'
     ready: '·\s[~/]'
+    # See the claude row. `max` and `ultra` are gpt-5.6 words that gpt-5.5 does
+    # not have, so a model here narrows this list with an `efforts` list of its
+    # own the day a 5.5 model is configured beside the 5.6 one.
+    efforts: [low, medium, high, xhigh, max, ultra]
     # MEASURED on the box, three live dispatches, 2026-08-04 (#158,
     # docs/live-checks/158). This harness does NOT behave like the claude one. Its
     # handshake and its composer marker land within ~100 ms of each other and in

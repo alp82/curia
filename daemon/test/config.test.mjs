@@ -476,6 +476,102 @@ describe('reasoning effort is stated, not inherited (#39)', () => {
   })
 })
 
+// Load a routing file with one whole section replaced, so a test can state the
+// section it is about and inherit the rest (#707).
+function loadWith(dir, replacement) {
+  const head = replacement[0]
+  const base = [
+    'defaults:',
+    '  untyped: gpt',
+    'models:',
+    '  gpt: { provider: openai, harness: codex, id: gpt-5.6-sol, reasoning_effort: high }',
+    'harnesses:',
+    "  codex: { template: 'codex --model {model} \"$(cat {prompt_file})\"', resume_template: 'resume --model {model}', ready: 'x', tool_channel_grace_s: 15 }",
+  ]
+  const out = []
+  let skipping = false
+  for (const line of base) {
+    if (line === head) { skipping = true; out.push(...replacement); continue }
+    if (skipping && !line.startsWith(' ')) skipping = false
+    if (!skipping) out.push(line)
+  }
+  const file = path.join(dir, 'routing.yaml')
+  fs.writeFileSync(file, out.join('\n'))
+  return loadRoutingConfig(file)
+}
+
+describe('the ticket type states a depth of its own (#707)', () => {
+  let dir
+  before(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-effort-table-')) })
+  after(() => { fs.rmSync(dir, { recursive: true, force: true }) })
+
+  const lines = (extra = []) => [
+    'defaults:',
+    '  untyped: gpt',
+    'models:',
+    '  gpt: { provider: openai, harness: codex, id: gpt-5.6-sol, reasoning_effort: high }',
+    'harnesses:',
+    "  codex: { template: 'codex --model {model} \"$(cat {prompt_file})\"', resume_template: 'resume --model {model}', ready: 'x', tool_channel_grace_s: 15 }",
+    ...extra,
+  ]
+
+  function load(extra) {
+    const file = path.join(dir, 'routing.yaml')
+    fs.writeFileSync(file, lines(extra).join('\n'))
+    return loadRoutingConfig(file)
+  }
+
+  test('an absent table loads as an empty one, so a config written before this key behaves the same', () => {
+    assert.deepEqual(load([]).effort, {})
+  })
+
+  test('the rows load as written', () => {
+    assert.deepEqual(load(['effort:', '  task: xhigh', '  untyped: low']).effort, { task: 'xhigh', untyped: 'low' })
+  })
+
+  // The two tables are keyed the same way and answer different questions, so a
+  // depth for a type no `defaults` row names is a config, not a mistake.
+  test('a row for a type `defaults` does not carry is not a refusal', () => {
+    assert.deepEqual(load(['effort:', '  grilling: max']).effort, { grilling: 'max' })
+  })
+
+  test('a misspelled effort refuses the boot and names the ladder', () => {
+    assert.throws(() => load(['effort:', '  task: deep']), /effort\.task must be one of low\|medium\|high/)
+  })
+
+  test("a model's own list of accepted efforts loads, and a word outside the ladder refuses", () => {
+    assert.deepEqual(load([]).models.gpt.efforts, undefined)
+    const withList = [
+      'models:',
+      '  gpt: { provider: openai, harness: codex, id: gpt-5.6-sol, reasoning_effort: high, efforts: [low, high] }',
+    ]
+    assert.deepEqual(loadWith(dir, withList).models.gpt.efforts, ['low', 'high'])
+    assert.throws(() => loadWith(dir, [
+      'models:',
+      '  gpt: { provider: openai, harness: codex, efforts: [deep] }',
+    ]), /models\.gpt\.efforts names "deep"/)
+  })
+
+  test('a model whose own default is outside its own list refuses the boot', () => {
+    assert.throws(() => loadWith(dir, [
+      'models:',
+      '  gpt: { provider: openai, harness: codex, reasoning_effort: max, efforts: [low, high] }',
+    ]), /reasoning_effort is "max", which its own `efforts` list does not carry/)
+  })
+
+  test("a harness's own list loads, and an empty one refuses", () => {
+    const ok = loadWith(dir, [
+      'harnesses:',
+      "  codex: { template: 'codex --model {model} \"$(cat {prompt_file})\"', resume_template: 'resume --model {model}', ready: 'x', tool_channel_grace_s: 15, efforts: [low, high] }",
+    ])
+    assert.deepEqual(ok.harnesses.codex.efforts, ['low', 'high'])
+    assert.throws(() => loadWith(dir, [
+      'harnesses:',
+      "  codex: { template: 'codex --model {model} \"$(cat {prompt_file})\"', resume_template: 'resume --model {model}', ready: 'x', tool_channel_grace_s: 15, efforts: [] }",
+    ]), /harnesses\.codex\.efforts must be a non-empty list/)
+  })
+})
+
 // #70. The attach page is an owned, built asset; the config states where it
 // is. The one thing this must never do is resolve to a file that is not there
 // — a ttyd spawned with a `-I` pointing at nothing serves no attach surface at

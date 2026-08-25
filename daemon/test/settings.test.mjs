@@ -81,6 +81,9 @@ function writeRouting(extra = []) {
     '  # opus until the credits arrive',
     '  untyped: opus',
     '  research: gpt # spread the quota',
+    'effort:',
+    '  untyped: high',
+    '  research: low # the bulk lane thinks shallow',
     'models:',
     '  opus:',
     '    provider: anthropic',
@@ -105,11 +108,13 @@ function writeRouting(extra = []) {
     '    resume_template: claude --model {model} --continue "Continue the interrupted work."',
     "    ready: 'bypass permissions'",
     '    tool_channel_grace_s: 15',
+    '    efforts: [low, medium, high, xhigh]',
     '  codex:',
     '    template: codex --model {model} "$(cat {prompt_file})"',
     '    resume_template: codex resume --last --model {model} "Continue the interrupted work."',
     "    ready: '. [~/]'",
     '    tool_channel_grace_s: 20',
+    '    efforts: [low, medium, high]',
     '',
   ].join('\n'))
 }
@@ -134,6 +139,13 @@ describe('the read the settings screen draws', () => {
     })
     assert.deepEqual(s.watch, [{ repo: 'o/first', mode: 'auto' }, { repo: 'o/second', mode: 'auto' }])
     assert.deepEqual(s.routing.defaults, [{ type: 'untyped', model: 'opus' }, { type: 'research', model: 'gpt' }])
+    // #707: the depth beside the model, in file order like the models above,
+    // and the words a picker may offer — every word ANY harness on this box
+    // accepts, because a row is legal wherever one lane can run it and the
+    // lanes that cannot keep their own default. `ultra` is offered by neither
+    // harness here, so it is not on the list.
+    assert.deepEqual(s.routing.effort, [{ type: 'untyped', effort: 'high' }, { type: 'research', effort: 'low' }])
+    assert.deepEqual(s.routing.efforts, ['low', 'medium', 'high', 'xhigh'])
     assert.deepEqual(s.routing.models.map((m) => m.name), ['opus', 'sonnet', 'gpt'])
     assert.equal(s.routing.models.find((m) => m.name === 'gpt').id, 'gpt-5.6-sol')
   })
@@ -320,6 +332,27 @@ describe('the save lands beside the tracked file, never on it', () => {
   })
 })
 
+describe('the depth each ticket type thinks at (#707)', () => {
+  test('a changed effort lands in the override and the tracked file never moves', () => {
+    const before = fs.readFileSync(routingFile, 'utf8')
+    saveSettings({ ...files(), patch: { routing: { effort: { research: 'medium' } } } })
+    assert.equal(fs.readFileSync(routingFile, 'utf8'), before)
+    assert.equal(loadRoutingConfig(routingFile).effort.research, 'medium')
+    // the row it did not touch still says what the tracked file says
+    assert.equal(loadRoutingConfig(routingFile).effort.untyped, 'high')
+    // and the comment beside the tracked row survived, because the override
+    // holds the answer rather than a rewrite of the file
+    assert.match(before, /research: low # the bulk lane thinks shallow/)
+  })
+
+  test('an effort that comes back to the tracked answer leaves no override behind', () => {
+    saveSettings({ ...files(), patch: { routing: { effort: { research: 'medium' } } } })
+    assert.ok(fs.existsSync(overRouting()))
+    saveSettings({ ...files(), patch: { routing: { effort: { research: 'low' } } } })
+    assert.equal(fs.existsSync(overRouting()), false)
+  })
+})
+
 describe('the daemon\'s own loaders judge the candidate first', () => {
   const refusal = (patch) => {
     const before = {
@@ -405,6 +438,15 @@ describe('the patch is a closed set', () => {
 
   test('a row routing.yaml does not have is not created', () => {
     refused({ routing: { defaults: { grilling: 'opus' } } }, /has no `defaults.grilling` row/)
+    refused({ routing: { effort: { grilling: 'high' } } }, /has no `effort.grilling` row/)
+  })
+
+  test('an effort must name a word, and the loader is what judges which words exist', () => {
+    refused({ routing: { effort: { untyped: '' } } }, /effort.untyped must name a reasoning effort/)
+    // shape passes here and the loader refuses it, which is rule 4: one
+    // validator for the vocabulary, and it is the one the daemon boots on
+    assert.throws(() => saveSettings({ ...files(), patch: { routing: { effort: { untyped: 'deep' } } } }),
+      /effort.untyped must be one of/)
   })
 
   test('a model routing.yaml does not have is not created', () => {
@@ -545,6 +587,7 @@ describe('the closed set a reload applies (#362)', () => {
     ['the prototype count', () => overCuriaFile(['dispatch:', '  prototype_variations: 7']), ['dispatch.prototype_variations']],
     ['the watch list', () => overCuriaFile(['watch:', '  - repo: o/first', '  - repo: o/third']), ['watch']],
     ['a routing default', () => overRoutingFile(['defaults:', '  untyped: sonnet']), ['routing.defaults.untyped']],
+    ['a routing effort', () => overRoutingFile(['effort:', '  untyped: low']), ['routing.effort.untyped']],
     ['a model switch', () => overRoutingFile(['models:', '  sonnet:', '    active: false']), ['routing.models.sonnet.active']],
   ]) {
     test(`${what} is inside the set, and the reload names it`, () => {

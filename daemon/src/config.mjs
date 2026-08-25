@@ -7,7 +7,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { parse } from 'yaml'
 import { DEFAULT_RANGE as DEFAULT_PREVIEW_RANGE, DEFAULT_PROXY_FROM } from './preview.mjs'
-import { DEFAULT_SKILLS, defaultSkillsRoot, HARNESS_NAMES, harnessProvider } from './workspace.mjs'
+import { DEFAULT_SKILLS, defaultSkillsRoot, EFFORT_HARNESSES, effortRouteFor, HARNESS_NAMES, harnessProvider } from './workspace.mjs'
 import { LIMIT_PATTERNS, SAFE_SUBSTITUTION } from './routing.mjs'
 import { DEFAULT_INDEX, REBUILD_CMD } from './attach.mjs'
 import { PROBE_MODEL } from './usage.mjs'
@@ -25,7 +25,7 @@ import { CONSUMER_NAMES, consumerContractFault, providerContractFault } from './
 export const WATCH_MODES = ['auto', 'map', 'ready-for-agent']
 
 // Every reasoning effort any configured model accepts, unioned.
-const REASONING_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra']
+export const REASONING_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra']
 
 // A GitHub login as GitHub itself allows one: letters, digits and single
 // hyphens, no hyphen at either end, 39 characters at most. The whole point of
@@ -544,6 +544,25 @@ export function loadRoutingConfig(file, { localFile } = {}) {
     if (m.reasoning_effort !== undefined && !REASONING_EFFORTS.includes(m.reasoning_effort)) {
       fail(src, `models.${name}.reasoning_effort must be one of ${REASONING_EFFORTS.join('|')} (got ${JSON.stringify(m.reasoning_effort)})`)
     }
+    // Which efforts this model accepts (#707). Optional, and its absence is not
+    // an empty set: a model that states no list takes whatever effort routing
+    // hands it. The list is what makes the FALLBACK rule decidable — a chain
+    // that crosses to a model with a shorter vocabulary keeps the ticket type's
+    // effort only where the word exists there — so it is stated per model or,
+    // one level up, per harness.
+    if (m.efforts !== undefined) {
+      if (!Array.isArray(m.efforts) || !m.efforts.length) {
+        fail(src, `models.${name}.efforts must be a non-empty list of efforts`)
+      }
+      for (const e of m.efforts) {
+        if (!REASONING_EFFORTS.includes(e)) {
+          fail(src, `models.${name}.efforts names "${e}", which is not one of ${REASONING_EFFORTS.join('|')}`)
+        }
+      }
+      if (m.reasoning_effort !== undefined && !m.efforts.includes(m.reasoning_effort)) {
+        fail(src, `models.${name}.reasoning_effort is ${JSON.stringify(m.reasoning_effort)}, which its own \`efforts\` list does not carry`)
+      }
+    }
     // Optional (#146), and since #178 the LAST resort for the status line's
     // context %: the transcript's own window wins, then the live
     // `GET /v1/models/<id>` lookup, then this. Omitting it everywhere is the
@@ -634,6 +653,28 @@ export function loadRoutingConfig(file, { localFile } = {}) {
     if (!HARNESS_NAMES.includes(name)) {
       fail(src, `harnesses.${name} has no entry in the HARNESS table in workspace.mjs — an agent under it would get no config dir, no curia tools and no Stop hook. Known harnesses: ${HARNESS_NAMES.join(', ')}`)
     }
+    // The harness's own effort vocabulary (#707), and the route by which it is
+    // told one. The list is optional — a harness that states none accepts
+    // whatever a model on it accepts — and the ROUTE is not: every harness the
+    // worker image carries has a row in EFFORT_ROUTE, and a configured harness
+    // with no row would spawn agents whose depth nothing states, which is the
+    // quiet downgrade #707 exists to end. Code rather than config, so it is
+    // asserted here instead of trusted.
+    if (b.efforts !== undefined) {
+      if (!Array.isArray(b.efforts) || !b.efforts.length) {
+        fail(src, `harnesses.${name}.efforts must be a non-empty list of efforts`)
+      }
+      for (const e of b.efforts) {
+        if (!REASONING_EFFORTS.includes(e)) {
+          fail(src, `harnesses.${name}.efforts names "${e}", which is not one of ${REASONING_EFFORTS.join('|')}`)
+        }
+      }
+    }
+    try {
+      effortRouteFor(name)
+    } catch {
+      fail(src, `harnesses.${name} has no reasoning-effort route in the EFFORT_ROUTE table in workspace.mjs — an agent under it would run at whatever depth its model happens to default to. Known harnesses: ${EFFORT_HARNESSES.join(', ')}`)
+    }
     // The credential half of that same question (#648). A harness whose provider
     // has no contract row would spawn agents curia cannot give a credential to,
     // cannot say an expiry for, and cannot sign back in — the shape ADR-0027
@@ -683,6 +724,21 @@ export function loadRoutingConfig(file, { localFile } = {}) {
   }
   for (const [name, m] of Object.entries(cfg.models)) {
     if (!cfg.harnesses[m.harness]) fail(src, `models.${name}.harness names unknown harness "${m.harness}"`)
+  }
+
+  // THE TICKET-TYPE EFFORT TABLE (#707). Optional whole: a routing.yaml written
+  // before this key existed states no type effort, and every model then runs at
+  // its own `reasoning_effort` the way it always did.
+  //
+  // The rows are NOT checked against `defaults`. The two tables are keyed the
+  // same way and answer different questions, and a type that routes to a model
+  // by inheritance still deserves a depth of its own.
+  cfg.effort = cfg.effort ?? {}
+  if (typeof cfg.effort !== 'object' || Array.isArray(cfg.effort)) fail(src, '`effort` must be a mapping of ticket type to effort')
+  for (const [type, effort] of Object.entries(cfg.effort)) {
+    if (!REASONING_EFFORTS.includes(effort)) {
+      fail(src, `effort.${type} must be one of ${REASONING_EFFORTS.join('|')} (got ${JSON.stringify(effort)})`)
+    }
   }
 
   // The consumer contract, checked at the same boot (#648). This table is code

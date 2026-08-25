@@ -977,6 +977,11 @@ const SETTINGS = () => ({
   watch_modes: ['auto', 'map', 'ready-for-agent'],
   routing: {
     defaults: [{ type: 'grilling', model: 'opus' }, { type: 'research', model: 'gpt' }, { type: 'untyped', model: 'opus' }],
+    // #707: a depth per ticket type, and the words a picker may offer. Only two
+    // of the three types carry one here, which is the ordinary state of a file
+    // an operator has written some rows into and not others.
+    effort: [{ type: 'grilling', effort: 'high' }, { type: 'research', effort: 'low' }],
+    efforts: ['low', 'medium', 'high', 'xhigh'],
     models: [
       { name: 'fable', provider: 'anthropic', harness: 'claude', id: null, active: false },
       { name: 'opus', provider: 'anthropic', harness: 'claude', id: null, active: true },
@@ -1074,6 +1079,33 @@ describe('the settings screen (#265)', () => {
     assert.match(open, /gpt gpt-5\.6-sol runs on openai · codex/, 'the CLI name rides beside the routing label')
   })
 
+  // #707. One ticket type is one decision with two halves, so the depth sits on
+  // the row with the model rather than in a second list somewhere else.
+  test('a ticket type carries its depth beside its model', () => {
+    const html = screen('routing')
+    const selects = [...html.matchAll(/<select[^>]*>[\s\S]*?<\/select>/g)].map((m) => m[0])
+    // three type rows, and the two that state a depth carry a second picker
+    assert.equal(selects.filter((x) => x.includes('setDefault')).length, 3)
+    assert.equal(selects.filter((x) => x.includes('setEffort')).length, 2)
+    const depth = selects.find((x) => x.includes('setEffort(0'))
+    assert.match(depth, /<option selected>high<\/option>/)
+    assert.match(depth, /<option >xhigh<\/option>/, 'the whole vocabulary is on offer, not only the answer')
+  })
+
+  // The screen edits the rows that are there and adds none — the same rule the
+  // model column keeps, and the same one the daemon refuses a save on.
+  test('a type with no effort row gets no picker rather than an invented one', () => {
+    const html = screen('routing')
+    assert.equal(/setEffort\(2/.test(html), false)
+    page.setDefault(2, 'gpt')
+    assert.deepEqual(plain(page.settingsPatch()), { routing: { defaults: { untyped: 'gpt' } } })
+  })
+
+  test('a depth the vocabulary does not carry is still shown rather than silently swapped', () => {
+    page.draft.routing.effort[0].effort = 'ultra'
+    assert.match(screen('routing'), /<option selected>ultra<\/option>/)
+  })
+
   test('a default may only be pointed at a model that is ON', () => {
     const html = screen('routing')
     const options = [...html.matchAll(/<option[^>]*>([^<]+)<\/option>/g)].map((m) => m[1])
@@ -1142,12 +1174,14 @@ describe('the settings screen (#265)', () => {
     assert.deepEqual(plain(page.settingsPatch()), {})
     page.setDispatchField('max_concurrent', '4')
     page.setDefault(1, 'opus')
+    page.setEffort(1, 'medium')
     page.setModelActive(0, true)
     assert.deepEqual(plain(page.settingsPatch()), {
       dispatch: { max_concurrent: 4 },
-      routing: { defaults: { research: 'opus' }, models: { fable: { active: true } } },
+      routing: { defaults: { research: 'opus' }, effort: { research: 'medium' }, models: { fable: { active: true } } },
     })
-    assert.equal(page.changeCount(), 3)
+    // the depth is a change in the operator's own units, like the model beside it
+    assert.equal(page.changeCount(), 4)
   })
 
   test('a number field posts a number, never the string the input holds', () => {

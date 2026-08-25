@@ -187,6 +187,10 @@ describe('POST /reload (index.mjs, real boot)', () => {
     ])
     assert.deepEqual(after.config.routing, {
       defaults: [{ type: 'untyped', model: 'opus' }],
+      // The fixture states no `effort` table, so the live shape carries the
+      // empty list rather than nothing: an absent table and one nobody has
+      // written a row into are the same fact (#707).
+      effort: [],
       models: [{ name: 'sonnet', active: false }, { name: 'opus', active: true }],
     })
     // The older spelling of the same two values moves with them: one daemon,

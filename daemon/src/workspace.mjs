@@ -562,6 +562,60 @@ export function configRootEnvFor(harness = 'claude') {
   return CONFIG_ROOT_ENV[harness]
 }
 
+// HOW EACH HARNESS IS TOLD ITS REASONING EFFORT (#707), for all four harnesses
+// the worker image carries since #696 — not only the two the router can select
+// today. The codex row states `model_reasoning_effort` in the config file the
+// daemon already writes for it, and the comment on that line is the rule this
+// table generalizes: a model's own default is not a constant across models, so
+// stating the effort makes the model and the depth two separate visible
+// decisions instead of one that moves under the other.
+//
+// THE ROUTE IS NEVER A SPAWN FLAG, and that is the whole reason this is a table
+// rather than an addition to the harness template. A flag lives on the spawn
+// line only, and a resume runs a DIFFERENT line (`codex resume --last`,
+// `claude --continue`) — so an effort carried by a flag would be the depth the
+// first turn ran at and nothing the resumed agent inherits. Both routes here
+// are re-stated by every arm: the config file lives in the config dir the
+// container mounts, and the environment is written into the env file each
+// container is built with. Spawn and resume read the same answer.
+//
+// `env` is the environment variable the CLI reads; `config` is the key the
+// harness's own config file carries. One or the other, never both.
+//
+// VERIFIED: the codex row, live since #39 and measured on the box. The other
+// three are NOT verified against a running CLI — #696 put the four commands in
+// the image and nothing has dispatched on opencode or pi yet. An environment
+// variable a CLI does not read is a no-op rather than a broken spawn, which is
+// why every unverified row is an `env` row: the wrong answer here costs the
+// depth, not the agent. Correct a row against a live check, not against a
+// reading of these names.
+export const EFFORT_ROUTE = Object.freeze({
+  claude: Object.freeze({ env: 'CLAUDE_CODE_EFFORT' }),
+  codex: Object.freeze({ config: 'model_reasoning_effort' }),
+  opencode: Object.freeze({ env: 'OPENCODE_REASONING_EFFORT' }),
+  pi: Object.freeze({ env: 'PI_REASONING_EFFORT' }),
+})
+
+// Every harness that can be told an effort — the four in the image, which is a
+// longer list than HARNESS_NAMES above (the harnesses the router can select).
+export const EFFORT_HARNESSES = Object.freeze(Object.keys(EFFORT_ROUTE))
+
+export function effortRouteFor(harness) {
+  const route = EFFORT_ROUTE[harness]
+  if (!route) {
+    throw new Error(`no reasoning-effort route for harness "${harness}" — known harnesses: ${EFFORT_HARNESSES.join(', ')}`)
+  }
+  return route
+}
+
+// The part of the agent's environment that carries the effort, or nothing. Two
+// cases write nothing and they are the same case here: a harness whose route is
+// its config file, and an agent routing states no effort for.
+export function effortEnv(harness, effort) {
+  const route = effortRouteFor(harness)
+  return route.env && effort ? { [route.env]: String(effort) } : {}
+}
+
 function harnessDef(harness) {
   const h = HARNESS[harness]
   if (!h) {
@@ -982,7 +1036,7 @@ const HARNESS = {
         // gpt-5.6-sol to low, so changing `models.<name>.id` alone would move
         // the effort underneath the harness without saying so. Stating it makes the
         // model and the depth two separate, visible decisions.
-        ...(reasoningEffort ? [`model_reasoning_effort = ${toml(reasoningEffort)}`, ''] : []),
+        ...(reasoningEffort ? [`${EFFORT_ROUTE.codex.config} = ${toml(reasoningEffort)}`, ''] : []),
         '[features]',
         'hooks = true',
         // The tool set is bounded HERE (#172), and this table is the whole lever:

@@ -5257,6 +5257,103 @@ const TWO_LANE = {
   },
 }
 
+// The same two lanes, with depth stated (#707). The two harnesses accept
+// DIFFERENT effort words on purpose: `xhigh` exists on the claude lane and not
+// on the codex one, which is the whole fallback rule in one fixture.
+const EFFORT_LANE = {
+  ...TWO_LANE,
+  effort: { untyped: 'high', research: 'xhigh' },
+  models: {
+    sonnet: { provider: 'anthropic', harness: 'claude', reasoning_effort: 'medium' },
+    gpt: { provider: 'openai', harness: 'codex', id: 'gpt-5.5', reasoning_effort: 'low' },
+  },
+  harnesses: {
+    claude: { ...TWO_LANE.harnesses.claude, efforts: ['low', 'medium', 'high', 'xhigh'] },
+    codex: { ...TWO_LANE.harnesses.codex, efforts: ['low', 'medium', 'high'] },
+  },
+}
+
+describe('reasoning effort across the harnesses (#707)', () => {
+  const envOf = (session) => fs.readFileSync(path.join(tmp, 'work', 'cfg', session, ENV_FILE), 'utf8')
+  const effortEnvOf = (session) => (/^CLAUDE_CODE_EFFORT=(.*)$/m.exec(envOf(session)) ?? [])[1] ?? null
+
+  // The claude lane is told its depth in the container environment, which is
+  // written once per spawn — so this is also the proof that a resume, which
+  // rewrites the same file, carries it.
+  test('the ticket type\'s effort reaches the claude harness, and beats the model default', async () => {
+    const d = makeDispatcher({ fetchIssue: async () => ({ ...OPEN_ISSUE, labels: [] }) }, { routing: EFFORT_LANE })
+    await d.start('42', { repo: 'o/r', by: 'test' })
+    // untyped is `high`; sonnet's own default is `medium` and does not win
+    assert.equal(effortEnvOf('curia-42'), 'high')
+    assert.equal(d.agents.get('curia-42').effort, 'high')
+  })
+
+  // The codex lane states it in the config file its own harness row writes, so
+  // there is no variable in the environment at all — one route per harness.
+  test('the codex harness is told through its config, never through the environment', async () => {
+    const arms = []
+    const d = makeDispatcher({
+      fetchIssue: async () => ({ ...OPEN_ISSUE, labels: [{ name: 'wayfinder:research' }] }),
+      writeConnectionSettings: (opts) => arms.push(opts),
+    }, { routing: EFFORT_LANE })
+    await d.start('42', { repo: 'o/r', by: 'test' })
+    // research asks for `xhigh`, which this harness has no word for, so gpt's
+    // own configured default stands rather than a word the CLI would refuse
+    assert.deepEqual(arms.map((a) => [a.harness, a.reasoningEffort]), [['codex', 'low']])
+    assert.equal(/CLAUDE_CODE_EFFORT|OPENCODE_REASONING_EFFORT/.test(envOf('curia-42')), false)
+  })
+
+  test('a model label moves the model and leaves the type effort alone', async () => {
+    const arms = []
+    const d = makeDispatcher({
+      fetchIssue: async () => ({ ...OPEN_ISSUE, labels: [{ name: 'model:gpt' }] }),
+      writeConnectionSettings: (opts) => arms.push(opts),
+    }, { routing: EFFORT_LANE })
+    await d.start('42', { repo: 'o/r', by: 'test' })
+    // the label picked codex; `untyped: high` still decides the depth, and gpt's
+    // own `low` default is not what a labelled dispatch quietly falls back to
+    assert.deepEqual(arms.map((a) => [a.harness, a.reasoningEffort]), [['codex', 'high']])
+  })
+
+  test('a fallback keeps the type effort where the next model accepts it', async () => {
+    const d = makeDispatcher({ fetchIssue: async () => ({ ...OPEN_ISSUE, labels: [{ name: 'wayfinder:research' }] }) },
+      { routing: EFFORT_LANE })
+    // research routes to gpt (codex); openai is cooling, so the chain crosses
+    // to sonnet (claude) — which HAS the word `xhigh` that codex lacked
+    d.cooling.coolProvider('openai', new Date(Date.now() + 3600_000))
+    await d.start('42', { repo: 'o/r', by: 'test' })
+    assert.equal(effortEnvOf('curia-42'), 'xhigh')
+  })
+
+  test('a cross-harness respawn re-resolves the depth for the model it lands on', async () => {
+    const arms = []
+    const d = makeDispatcher({
+      fetchIssue: async () => ({ ...OPEN_ISSUE, labels: [{ name: 'wayfinder:research' }] }),
+      writeConnectionSettings: (opts) => arms.push(opts),
+      capturePane: async () => "You've hit your usage limit. Upgrade to Plus to continue using Codex\n",
+    }, { routing: EFFORT_LANE, readyTimeoutS: 6 })
+
+    await d.start('42', { repo: 'o/r', by: 'test' })
+    await new Promise((r) => setTimeout(r, 2600))
+
+    // codex ran at its own default because `xhigh` is not its word; the claude
+    // successor runs at the ticket type's `xhigh`, and the agent record says so
+    assert.deepEqual(arms.map((a) => [a.harness, a.reasoningEffort]), [['codex', 'low'], ['claude', 'xhigh']])
+    assert.equal(effortEnvOf('curia-42'), 'xhigh')
+    assert.equal(d.agents.get('curia-42').effort, 'xhigh')
+  })
+
+  test('a routing with no effort table leaves every model on its own default', async () => {
+    const arms = []
+    const d = makeDispatcher({
+      fetchIssue: async () => ({ ...OPEN_ISSUE, labels: [{ name: 'wayfinder:research' }] }),
+      writeConnectionSettings: (opts) => arms.push(opts),
+    }, { routing: { ...EFFORT_LANE, effort: {} } })
+    await d.start('42', { repo: 'o/r', by: 'test' })
+    assert.deepEqual(arms.map((a) => a.reasoningEffort), ['low'])
+  })
+})
+
 describe('dispatching across two harnesses (#39)', () => {
   test('a research ticket seeds and spawns the codex harness end to end', async () => {
     const seeded = []

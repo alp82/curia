@@ -53,7 +53,7 @@
 
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { Cooling, resolveModel, namedModel, candidates, buildSpawnCmd, buildResumeCmd, parseUsageLimit, parseCreditGate, carriesLimitPhrase, providerOf } from '../src/routing.mjs'
+import { Cooling, resolveEffort, routingType, effortAccepts, acceptsEffort, resolveModel, namedModel, candidates, buildSpawnCmd, buildResumeCmd, parseUsageLimit, parseCreditGate, carriesLimitPhrase, providerOf } from '../src/routing.mjs'
 import { OPENAI_CREDIT_GATE_PANE } from './fixtures/panes.mjs'
 
 const routing = {
@@ -678,5 +678,76 @@ describe('parseUsageLimit is per provider (#39)', () => {
     assert.equal(carriesLimitPhrase('the banner says "usage limit reached" wrongly'), true)
     assert.equal(carriesLimitPhrase("the banner says \"You've hit your usage limit\" wrongly"), true)
     assert.equal(carriesLimitPhrase('show the weekly usage limit in the header'), false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// reasoning effort (#707)
+// ---------------------------------------------------------------------------
+
+const EFFORT_ROUTING = {
+  defaults: { research: 'gpt', task: 'opus', untyped: 'opus' },
+  effort: { research: 'xhigh', task: 'high', untyped: 'medium' },
+  models: {
+    opus: { provider: 'anthropic', harness: 'claude', reasoning_effort: 'medium' },
+    gpt: { provider: 'openai', harness: 'codex', reasoning_effort: 'low' },
+    // a model that narrows its own harness's list
+    terse: { provider: 'openai', harness: 'codex', reasoning_effort: 'low', efforts: ['low'] },
+  },
+  harnesses: {
+    claude: { efforts: ['low', 'medium', 'high', 'xhigh'] },
+    codex: { efforts: ['low', 'medium', 'high'] },
+  },
+}
+
+describe('the ticket type and the model each say something about depth (#707)', () => {
+  test('the type names the row, and a ticket with no type label reads `untyped`', () => {
+    assert.equal(routingType(['wayfinder:research', 'ready-for-agent']), 'research')
+    assert.equal(routingType(['ready-for-agent']), 'untyped')
+    assert.equal(routingType([]), 'untyped')
+    assert.equal(routingType(undefined), 'untyped')
+  })
+
+  test("the type's effort beats the model's own default", () => {
+    assert.equal(EFFORT_ROUTING.models.opus.reasoning_effort, 'medium')
+    assert.equal(resolveEffort(EFFORT_ROUTING, 'opus', 'task'), 'high')
+  })
+
+  test('a type with no row of its own falls to `untyped`, not to the model default', () => {
+    assert.equal(resolveEffort(EFFORT_ROUTING, 'gpt', 'grilling'), 'medium')
+  })
+
+  test('a model default stands where the model has no word for the type effort', () => {
+    // research asks for xhigh; the codex harness's list stops at high
+    assert.equal(resolveEffort(EFFORT_ROUTING, 'gpt', 'research'), 'low')
+    // and the same type on the claude lane keeps it — this is the fallback rule
+    assert.equal(resolveEffort(EFFORT_ROUTING, 'opus', 'research'), 'xhigh')
+  })
+
+  test('a model narrows its harness, and its own list is the one that counts', () => {
+    assert.deepEqual(effortAccepts(EFFORT_ROUTING, 'terse'), ['low'])
+    assert.deepEqual(effortAccepts(EFFORT_ROUTING, 'gpt'), ['low', 'medium', 'high'])
+    assert.equal(resolveEffort(EFFORT_ROUTING, 'terse', 'task'), 'low')
+  })
+
+  test('a stated list is a bound and no list is no bound — the two are not the same absence', () => {
+    const loose = { models: { any: { provider: 'anthropic', harness: 'claude' } }, harnesses: { claude: {} }, effort: { task: 'ultra' } }
+    assert.equal(effortAccepts(loose, 'any'), null)
+    assert.equal(acceptsEffort(loose, 'any', 'ultra'), true)
+    assert.equal(resolveEffort(loose, 'any', 'task'), 'ultra')
+  })
+
+  test('a routing with no effort table at all states nothing, and every model keeps its default', () => {
+    const bare = { models: { opus: { provider: 'anthropic', harness: 'claude' }, gpt: { provider: 'openai', harness: 'codex', reasoning_effort: 'high' } }, harnesses: {} }
+    assert.equal(resolveEffort(bare, 'opus', 'task'), null)
+    assert.equal(resolveEffort(bare, 'gpt', 'task'), 'high')
+  })
+
+  // A model routing does not carry never reaches a spawn — dispatch refuses it
+  // by name first — so this asks only that the resolution stays total: no throw,
+  // no default invented on a model nothing knows.
+  test('a model routing does not carry bounds nothing and defaults nothing', () => {
+    assert.equal(effortAccepts(EFFORT_ROUTING, 'nosuch'), null)
+    assert.equal(resolveEffort(EFFORT_ROUTING, 'nosuch', 'task'), 'high')
   })
 })

@@ -13,6 +13,8 @@ import {
   checkoutTicketBranch, remoteBranchExists, defaultBranchOf,
   // #649, ADR-0028
   hasUncommittedChanges, hasUnpushedCommits, salvageBranchFor, salvageLocalOnlyWork,
+  // #707
+  EFFORT_ROUTE, EFFORT_HARNESSES, effortEnv, effortRouteFor,
 } from '../src/workspace.mjs'
 
 describe('per-agent config dir (#53)', () => {
@@ -1049,5 +1051,41 @@ describe('local-only work and its salvage (#649)', () => {
   test('a clone whose repo curia cannot name has nowhere to push, and says so', async () => {
     fs.writeFileSync(path.join(wt, 'findings.md'), 'six hours of it\n')
     await assert.rejects(() => salvageLocalOnlyWork(wt, null, '42'), /nowhere to push/)
+  })
+})
+
+describe('every harness in the image has a route for its reasoning effort (#707)', () => {
+  // #696 put four commands in the worker image. Each one has to be tellable how
+  // deep to think, or routing's answer stops at the two harnesses that were
+  // here first.
+  test('all four harnesses have a row, and each row states exactly one route', () => {
+    assert.deepEqual([...EFFORT_HARNESSES].sort(), ['claude', 'codex', 'opencode', 'pi'])
+    for (const [harness, route] of Object.entries(EFFORT_ROUTE)) {
+      const stated = ['env', 'config'].filter((k) => route[k])
+      assert.deepEqual(stated.length, 1, `${harness} states ${stated.length} routes`)
+    }
+  })
+
+  test('a harness with no row is named rather than silently left at whatever it defaults to', () => {
+    assert.throws(() => effortRouteFor('gemini'), /no reasoning-effort route for harness "gemini"/)
+  })
+
+  // The environment is written once per container, and a resume builds a
+  // container the same way — so an env route is a route both a spawn and a
+  // resume read. That is why no row is a spawn flag.
+  test('an env-route harness carries the effort as a variable', () => {
+    assert.deepEqual(effortEnv('claude', 'xhigh'), { CLAUDE_CODE_EFFORT: 'xhigh' })
+    assert.deepEqual(effortEnv('opencode', 'high'), { OPENCODE_REASONING_EFFORT: 'high' })
+    assert.deepEqual(effortEnv('pi', 'low'), { PI_REASONING_EFFORT: 'low' })
+  })
+
+  test('a config-route harness carries nothing in the environment', () => {
+    assert.deepEqual(effortEnv('codex', 'high'), {})
+    assert.equal(EFFORT_ROUTE.codex.config, 'model_reasoning_effort')
+  })
+
+  test('an unstated effort writes no variable at all', () => {
+    assert.deepEqual(effortEnv('claude', null), {})
+    assert.deepEqual(effortEnv('claude', undefined), {})
   })
 })

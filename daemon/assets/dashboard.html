@@ -38,7 +38,7 @@
      2. Null is not empty. An unreadable fleet is not an idle box, and a frontier
         nobody has computed is not an empty frontier. Every section that can fail
         on its own says which of the two it is. -->
-<meta name="curia-dashboard" content="proto=7">
+<meta name="curia-dashboard" content="proto=8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark light">
 <title>Atlas · Curia</title>
@@ -2028,7 +2028,7 @@ function drillIn(page, p) {
 const SET_SECTIONS = [
   {
     key: "routing", title: "Routing", gist: gistRouting, body: setRouting,
-    hint: "The model each ticket type gets when no label on the ticket says otherwise.",
+    hint: "The model each ticket type gets when no label on the ticket says otherwise, and how deep it thinks on it. A model: label moves the model and leaves the depth alone.",
     patch: patchRouting, count: countRouting,
   },
   {
@@ -2088,13 +2088,18 @@ function patchRouting(out) {
   draft.routing.defaults.forEach((row, i) => {
     if (row.model !== settings.routing.defaults[i]?.model) defaults[row.type] = row.model;
   });
+  const effort = {};
+  (draft.routing.effort ?? []).forEach((row, i) => {
+    if (row.effort !== settings.routing.effort?.[i]?.effort) effort[row.type] = row.effort;
+  });
   const models = {};
   draft.routing.models.forEach((m, i) => {
     if (m.active !== settings.routing.models[i]?.active) models[m.name] = { active: m.active };
   });
-  if (Object.keys(defaults).length || Object.keys(models).length) {
+  if (Object.keys(defaults).length || Object.keys(effort).length || Object.keys(models).length) {
     out.routing = {};
     if (Object.keys(defaults).length) out.routing.defaults = defaults;
+    if (Object.keys(effort).length) out.routing.effort = effort;
     if (Object.keys(models).length) out.routing.models = models;
   }
 }
@@ -2104,7 +2109,10 @@ function patchRouting(out) {
    change however many repos moved inside it. */
 function countDispatch(p) { return Object.keys(p.dispatch ?? {}).length; }
 function countWatch(p) { return p.watch ? 1 : 0; }
-function countRouting(p) { return Object.keys(p.routing?.defaults ?? {}).length + Object.keys(p.routing?.models ?? {}).length; }
+function countRouting(p) {
+  return Object.keys(p.routing?.defaults ?? {}).length + Object.keys(p.routing?.effort ?? {}).length
+    + Object.keys(p.routing?.models ?? {}).length;
+}
 
 function changeCount() {
   const p = settingsPatch();
@@ -2255,7 +2263,7 @@ function setRouting() {
       <select onchange="setDefault(${i}, this.value)">
         ${active.map((m) => `<option ${m.name === row.model ? "selected" : ""}>${esc(m.name)}</option>`).join("")}
         ${known ? "" : `<option selected>${esc(row.model)}</option>`}
-      </select>${known ? "" : `<span class="dim-note">switched off \u2014 the daemon refuses this config</span>`}</div>`;
+      </select>${effortPick(row.type)}${known ? "" : `<span class="dim-note">switched off \u2014 the daemon refuses this config</span>`}</div>`;
   }).join("");
   const mgr = `<div class="row"><span class="grow"><a href="#settings"
       onclick="UI.set.models=!UI.set.models;render();return false">${
@@ -2270,6 +2278,27 @@ function setRouting() {
         <span class="key dim-note">runs on ${esc(m.provider ?? "?")} \u00b7 ${esc(m.harness ?? "?")}</span></div>`).join("")}</div>`
     : "";
   return `<div class="rows">${rows}${mgr}</div>${table}`;
+}
+
+/* The depth beside the model (#707). One ticket type is one decision made of
+   two halves — which model, and how hard it thinks — so they sit on one row
+   rather than in two lists an operator would have to read together.
+
+   A type with no `effort` row in routing.yaml gets no picker: the screen edits
+   the rows that are there and adds none, which is the same rule the model
+   column and the daemon's own refusal already keep. */
+function effortRow(type) {
+  return (draft.routing.effort ?? []).findIndex((r) => r.type === type);
+}
+function effortPick(type) {
+  const i = effortRow(type);
+  if (i < 0) return "";
+  const row = draft.routing.effort[i];
+  const words = settings.routing.efforts ?? [];
+  const known = words.includes(row.effort);
+  return `<select title="reasoning effort" onchange="setEffort(${i}, this.value)">
+    ${words.map((e) => `<option ${e === row.effort ? "selected" : ""}>${esc(e)}</option>`).join("")}
+    ${known ? "" : `<option selected>${esc(row.effort)}</option>`}</select>`;
 }
 
 function gistProjects() { return esc(`${draft.watch.length} repo${draft.watch.length === 1 ? "" : "s"} watched`); }
@@ -2715,6 +2744,7 @@ function discardEdits() {
   render();
 }
 function setDefault(i, model) { draft.routing.defaults[i].model = model; dirty(); }
+function setEffort(i, effort) { draft.routing.effort[i].effort = effort; dirty(); }
 function setModelActive(i, on) { draft.routing.models[i].active = on; dirty(); }
 function setDispatchField(key, value) {
   draft.dispatch[key] = typeof value === "boolean" ? value : Number(value);

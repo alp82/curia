@@ -448,6 +448,10 @@ const metersFor = (session, model) => agentMeters({
   harness: harnessFor(session),
   cfgDir: cfgDirFor(session),
   model: model ?? dispatcher?.agents.get(session)?.model ?? null,
+  // The depth this agent was spawned at (#707), from the same record the model
+  // comes from. Absent for a session the dispatcher does not hold, and
+  // `agentMeters` falls back to the model's configured default there.
+  effort: dispatcher?.agents.get(session)?.effort ?? null,
   routing: routingConfig,
   account: accountUsage,
   models: modelWindows,

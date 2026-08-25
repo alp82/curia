@@ -1096,10 +1096,17 @@ export function modelName(model, spec, stated = null) {
 // conversation's percent is the defect this argument exists to end, not a
 // fallback. ADR-0016 makes this meter the one signal that a conversation is
 // getting long, so a number about another conversation cannot carry the job.
-export function agentMeters({ harness, cfgDir, model, routing, account, models, transcript, now = Date.now() }) {
+export function agentMeters({ harness, cfgDir, model, effort, routing, account, models, transcript, now = Date.now() }) {
   const spec = routing?.models?.[model] ?? null
   const out = {
-    model: modelName(model, spec), effort: spec?.reasoning_effort ?? null, ctxPct: null, ctxOver: false, windows: null,
+    // The effort meter says the depth this agent was DISPATCHED at (#707), and
+    // the model's own default only where the caller has no such record — a lab
+    // session, or an agent whose spawn predates the field. Those are two
+    // different facts and the caller is the only one that can tell them apart,
+    // which is why this argument exists rather than a second resolution here:
+    // routing's answer today is not what a running agent was told at its spawn.
+    model: modelName(model, spec), effort: effort ?? spec?.reasoning_effort ?? null,
+    ctxPct: null, ctxOver: false, windows: null,
   }
   if (!harness || !cfgDir) return out
 

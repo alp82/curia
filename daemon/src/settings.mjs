@@ -25,10 +25,11 @@
 //    more than it saves. So `parseDocument` in, node edits, `toString` out.
 //
 // 3. THE PATCH IS A CLOSED SET. The screen writes named dispatch values, the
-//    watch list, the routing defaults, and the model switch. Every value is
-//    named in code here and mapped onto an explicit key path. There is
-//    no generic "set this key" route, because a browser that could set any key
-//    could set `dispatch.workspace_root` or `sandbox.image`.
+//    watch list, the routing defaults, the per-type reasoning effort, and the
+//    model switch. Every value is named in code here and mapped onto an
+//    explicit key path. There is no generic "set this key" route, because a
+//    browser that could set any key could set `dispatch.workspace_root` or
+//    `sandbox.image`.
 //
 // 4. THE DAEMON'S OWN LOADERS SAY YES FIRST. The candidate is validated by
 //    `loadCuriaConfig`/`loadRoutingConfig` — the same functions that decide
@@ -51,7 +52,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { parse, parseDocument } from 'yaml'
-import { loadCuriaConfig, loadRoutingConfig, localConfigFile, readLayered, WATCH_MODES } from './config.mjs'
+import { loadCuriaConfig, loadRoutingConfig, localConfigFile, readLayered, REASONING_EFFORTS, WATCH_MODES } from './config.mjs'
 
 // What a new override file says about itself, above the first key. It is the
 // one place the two-file rule is written where the operator meets it: on the
@@ -105,6 +106,21 @@ const REPO_RE = /^[\w.-]+\/[\w.-]+$/
 // the read
 // ---------------------------------------------------------------------------
 
+// Every effort word any configured harness accepts, in ladder order. A harness
+// that states no `efforts` list bounds nothing, so the whole ladder stands —
+// which is the same reading `effortAccepts` makes in routing.mjs, and the
+// reason the two must not be two lists: a screen offering a word the daemon
+// would refuse is a save that fails at the press.
+// The ladder itself is the loader's list, imported rather than repeated: it is
+// the same order a refusal names, and a second copy here would be free to drift
+// the day a word is added to it.
+function effortVocabulary(routing) {
+  const rows = Object.values(routing?.harnesses ?? {})
+  if (!rows.length || rows.some((h) => !Array.isArray(h?.efforts))) return [...REASONING_EFFORTS]
+  const seen = new Set(rows.flatMap((h) => h.efforts))
+  return REASONING_EFFORTS.filter((e) => seen.has(e))
+}
+
 // What the settings screen draws: both layers, merged the way the daemon reads
 // them. Read with a plain parse rather than through the loaders, and
 // deliberately: a config the loaders REFUSE is exactly when the operator most
@@ -128,6 +144,12 @@ export function readSettings({ curiaFile, routingFile }) {
       // An ordered list, not a map: the table draws the rows in the order
       // routing.yaml states them, and `untyped` reads last there for a reason.
       defaults: Object.entries(routing.defaults ?? {}).map(([type, model]) => ({ type, model: String(model ?? '') })),
+      // How deep each ticket type thinks (#707). One row per type the table
+      // states, in file order like `defaults` above — and the vocabulary the
+      // screen may offer, which is the union across the harnesses in play
+      // rather than a list the page could hold a stale copy of.
+      effort: Object.entries(routing.effort ?? {}).map(([type, effort]) => ({ type, effort: String(effort ?? '') })),
+      efforts: effortVocabulary(routing),
       models: Object.entries(routing.models ?? {}).map(([name, m]) => ({
         name,
         provider: m?.provider ?? null,
@@ -165,7 +187,7 @@ export const LIVE_PATHS = {
     'dispatch.auto_dispatch', 'dispatch.max_concurrent', 'dispatch.poll_interval_s',
     'dispatch.prototype_variations', 'watch',
   ],
-  routing: ['defaults.*', 'models.*.active'],
+  routing: ['defaults.*', 'effort.*', 'models.*.active'],
 }
 
 // The six values, out of two loaded configs, in the shape `readSettings` gives
@@ -179,6 +201,7 @@ export function liveSettings({ curia, routing }) {
     watch: (curia?.watch ?? []).map((w) => ({ repo: w?.repo ?? '', mode: w?.mode ?? 'auto' })),
     routing: {
       defaults: Object.entries(routing?.defaults ?? {}).map(([type, model]) => ({ type, model: String(model ?? '') })),
+      effort: Object.entries(routing?.effort ?? {}).map(([type, effort]) => ({ type, effort: String(effort ?? '') })),
       // `active` and the name, because they are what the switch moves. Provider
       // and harness are on the screen's own read and are not reloadable.
       models: Object.entries(routing?.models ?? {}).map(([name, m]) => ({ name, active: m?.active !== false })),
@@ -201,6 +224,11 @@ export function liveDiff(before, after) {
   const [rb, ra] = [rows(before), rows(after)]
   for (const type of new Set([...rb.keys(), ...ra.keys()])) {
     if (!same(rb.get(type), ra.get(type))) out.push(`routing.defaults.${type}`)
+  }
+  const efforts = (s) => new Map((s.routing?.effort ?? []).map((r) => [r.type, r.effort]))
+  const [eb, ea] = [efforts(before), efforts(after)]
+  for (const type of new Set([...eb.keys(), ...ea.keys()])) {
+    if (!same(eb.get(type), ea.get(type))) out.push(`routing.effort.${type}`)
   }
   const switches = (s) => new Map((s.routing?.models ?? []).map((m) => [m.name, m.active !== false]))
   const [sb, sa] = [switches(before), switches(after)]
@@ -289,10 +317,16 @@ function checkPatch(patch) {
   if (r !== undefined) {
     if (!r || typeof r !== 'object' || Array.isArray(r)) refuse('`routing` must be a mapping')
     for (const key of Object.keys(r)) {
-      if (!['defaults', 'models'].includes(key)) refuse(`the settings screen does not write \`routing.${key}\``)
+      if (!['defaults', 'effort', 'models'].includes(key)) refuse(`the settings screen does not write \`routing.${key}\``)
     }
     for (const [type, model] of Object.entries(r.defaults ?? {})) {
       if (typeof model !== 'string' || !model.trim()) refuse(`defaults.${type} must name a model`)
+    }
+    // Shape only, per rule 3 above: which words this box's harnesses accept is
+    // the loader's judgement, and running a second copy of that list here is
+    // how two validators start to disagree.
+    for (const [type, effort] of Object.entries(r.effort ?? {})) {
+      if (typeof effort !== 'string' || !effort.trim()) refuse(`effort.${type} must name a reasoning effort`)
     }
     for (const [name, m] of Object.entries(r.models ?? {})) {
       if (!m || typeof m !== 'object' || typeof m.active !== 'boolean') {
@@ -385,6 +419,12 @@ function editRouting(doc, patch, base) {
       refuse(`routing.yaml has no \`defaults.${type}\` row — the settings screen edits the rows that are there and adds none`)
     }
     settle(doc, ['defaults', type], model, base.defaults[type])
+  }
+  for (const [type, effort] of Object.entries(patch.routing.effort ?? {})) {
+    if (base.effort?.[type] === undefined) {
+      refuse(`routing.yaml has no \`effort.${type}\` row — the settings screen edits the rows that are there and adds none`)
+    }
+    settle(doc, ['effort', type], effort, base.effort[type])
   }
   for (const [name, m] of Object.entries(patch.routing.models ?? {})) {
     if (!base.models?.[name]) refuse(`routing.yaml has no \`models.${name}\` entry — a model is added by hand, not by a checkbox`)

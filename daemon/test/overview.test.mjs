@@ -183,6 +183,7 @@ describe('GET /overview (index.mjs, real boot)', () => {
     assert.deepEqual(o.daemon.config.watch, [{ repo: 'example/fixture', mode: 'ready-for-agent' }])
     assert.deepEqual(o.daemon.config.routing, {
       defaults: [{ type: 'untyped', model: 'sonnet' }],
+      effort: [], // the fixture states no effort table, so there is no row to carry (#707)
       models: [{ name: 'sonnet', active: true }],
     })
     for (const key of ['agents', 'untracked', 'recent', 'escalations', 'review_gate', 'usage', 'pre_cooling', 'events']) {
