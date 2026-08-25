@@ -585,6 +585,12 @@ _Avoid_: browser thread (there is no Discord thread behind it, and there is more
 **Spent number**:
 A browser conversation number that is used up. The daemon journals every key it mints, and it never mints one twice, so a delete spends that number for good. This is the one rule that separates a conversation number from a **Chat handle**: an agent is torn down whole and its index comes back, and a conversation is memory, so a reused number would wake the deleted conversation's own transcript. A delete forgets the key and leaves the file on disk. See [#333](https://github.com/alp82/curia/issues/333).
 
+**Global search**:
+One query over the four indexed sources: the GitHub facts, the decisions a map records under `## Decisions so far`, the journal, and the local chat transcripts. Discord thread bodies stay out of the first index, because Discord is the alert surface and its text is a copy of what the journal and the transcripts already hold. The lens button in every screen header opens it. See [#589](https://github.com/alp82/curia/issues/589) and `daemon/src/search.mjs`.
+
+**Landing target**:
+Where a search result opens, as typed data rather than a URL. A ticket hit and a chat hit land on `chat`, a map hit on `maps`, a journal hit on `feed`, and a decision hit on `github`, at its resolution comment. The query names the surface and its key, and the screen does the routing.
+
 **Preview**:
 A tailnet HTTPS link to an agent's running dev server. The daemon allocates the public port and composes the link.
 
