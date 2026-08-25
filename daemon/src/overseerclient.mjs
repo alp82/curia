@@ -38,6 +38,7 @@ import crypto from 'node:crypto'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import { verbHandlers } from './overseerverbs.mjs'
 import { TOKEN_HEADER, tokensEqual } from './agenttoken.mjs'
+import { conversationTokenMatches, isOverseerKey, overseerRoute } from './overseeridentity.mjs'
 import { SIGNALS, smallPrint } from './messaging.mjs'
 import {
   TURN_PATH, OVERSEER_MCP_PATH, MCP_SERVER_NAME, TURN_EVENTS,
@@ -425,6 +426,37 @@ export async function serveVerbMcp({ turns, id, presented, log = console.log, re
     return refuse(`no live curia overseer turn "${id}" — the daemon mints one secret per turn and hands it to the container in the turn request`)
   }
   return serve(buildVerbMcpServer(turn.command))
+}
+
+// The same route, for a conversation that lives in a pane (#701, ADR-0024).
+//
+// THE DIFFERENCE FROM `serveVerbMcp` IS WHERE THE ROUTE COMES FROM. A turn
+// carries its own registry entry, which the daemon built moments earlier and
+// which already knows the thread. A pane outlives every turn it ever takes, so
+// there is no registry entry to read: the daemon authenticates the conversation
+// with its durable token and then loads the destination from `overseerRoute`, a
+// pure function of that key. Nothing the pane sends reaches the route.
+//
+// The seam is the one the turn path uses, argument for argument, so a verb call
+// from a pane is journalled, confirmed, and executed exactly like a verb call
+// from a turn. The token proves the conversation. It never widens what the
+// conversation may do.
+export async function serveConversationMcp({
+  dataDir, key, presented, command, narrate = async () => {},
+  log = console.log, refuse, serve,
+}) {
+  if (!isOverseerKey(key) || !conversationTokenMatches(dataDir, key, presented)) {
+    log(`refused ${OVERSEER_MCP_PATH} for conversation "${key}" - ${presented ? 'the secret does not match the one curia minted for that conversation' : 'no conversation secret on the request'}`)
+    return refuse(`no curia overseer conversation "${key}" holds that token - the daemon mints one token per conversation and writes it into the pane's own connection settings`)
+  }
+  const route = overseerRoute(key)
+  const seam = async (text) => {
+    try {
+      await narrate(text)
+    } catch { /* the status line is not the effect */ }
+    return command(text, { threadId: route.routeThreadId, interpreted: true, overseerKey: route.key })
+  }
+  return serve(buildVerbMcpServer(seam), route)
 }
 
 export { MCP_SERVER_NAME }

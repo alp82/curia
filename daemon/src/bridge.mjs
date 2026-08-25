@@ -24,10 +24,12 @@ import {
   StringSelectMenuBuilder,
 } from 'discord.js'
 import { isChatHandle } from './attach.mjs'
-import { normalizeInboundMessage, safeLeaf } from './attachments.mjs'
 import { parseCommand } from './commands.mjs'
+import { safeLeaf } from './attachments.mjs'
+import { readInboundText } from './inbound.mjs'
 import { REVIEW_KIND, CROSS_CHECK_ANSWER, ALL_AS_RECOMMENDED } from './lifecycle.mjs'
 import { CONFIRM_KIND } from './reduction.mjs'
+import { MAP_CLOSE_VERB } from './github.mjs'
 import { chunkMessage, smallPrint, elapsedLabel } from './messaging.mjs'
 import { ThreadRenamer } from './threadname.mjs'
 
@@ -503,6 +505,7 @@ export class DiscordBridge {
     token, allowedUsers, guildId, channelName = 'curia', dataDir, handlers, bindings = null,
     log = console.log, onHealth = () => {},
     clearDelayMs = CLEAR_DELAY_MS, timers = { set: setTimeout, clear: clearTimeout },
+    loadInboundText,
   }) {
     this.token = token
     this.allowedUsers = allowedUsers // array of user-id strings; the auth gate
@@ -518,6 +521,9 @@ export class DiscordBridge {
     this.clearDelayMs = clearDelayMs
     this.timers = timers
     this.flagClears = new Map() // ticket -> the held 🎫 clear (#277), ephemeral
+    // How an inbound text attachment's bytes are read (#697). Undefined means
+    // the module's own fetch; a test hands its own reader.
+    this.loadInboundText = loadInboundText
     // Bridge health (#56). Ephemeral like every other cache here: the journal
     // holds the transitions, this holds only what is true right now.
     this.health = { state: 'down', since: Date.now(), last_error: null }
@@ -1267,9 +1273,16 @@ export class DiscordBridge {
 
   #escalationBody(record, files = []) {
     if (record.kind === CONFIRM_KIND) {
+      // Every confirm but one is about a live agent and lapses with it. The
+      // empty-map verdict (#698) is about a map, so it lapses with nothing and
+      // waits — including across a restart — and its footer must not promise
+      // an expiry it does not have.
+      const footer = record.action?.verb === MAP_CLOSE_VERB
+        ? '-# ✅ closes the map, and ❌ leaves it open. This question waits until you answer it.'
+        : '-# ✅ executes, and ❌ declines. This confirm lapses when its agent exits.'
       return [
         `❓ ${record.prompt}`,
-        '-# ✅ executes, and ❌ declines. This confirm lapses when its agent exits.',
+        footer,
         `-# ${record.id}`,
       ].join('\n')
     }
@@ -1856,15 +1869,17 @@ export class DiscordBridge {
   async handleMessage(m) {
     if (m.author.bot) return
     if (!this.authorized(m.author.id)) return
-    const inbound = await normalizeInboundMessage(m)
-    if (!inbound.ok) {
-      await m.react?.('⚠️').catch(() => {})
-      const content = smallPrint(`curia did not send this message: ${inbound.refusal}`)
-      if (m.reply) await m.reply({ content }).catch(() => {})
-      else await m.channel?.send?.({ content }).catch(() => {})
-      return
-    }
-    const inboundText = inbound.text
+    // Nothing outside #curia and its threads is curia's message, and reading
+    // one costs a download (#697) — so the shape check runs before the read.
+    const inCuria = m.channel.id === this.channel.id
+      || (m.channel.isThread?.() && m.channel.parentId === this.channel.id)
+    if (!inCuria) return
+    // What the operator SAID, not what Discord kept in the message (#697).
+    // A body past 2000 characters arrives as a short message plus a
+    // `message.txt`, so every path below reads the composed text and none of
+    // them reads `m.content`. Refusals ride inside it, which is why a bad file
+    // costs a line and never the message. See `inbound.mjs`.
+    const { text: said } = await readInboundText(m, { load: this.loadInboundText })
     // Top-level prose in #curia always opens a fresh conversation thread (#89).
     if (m.channel.id === this.channel.id) {
       // #692, ADR-0022: a typed verb runs BEFORE a model turn. When the whole
@@ -1878,7 +1893,7 @@ export class DiscordBridge {
       //
       // The whole line has to parse. A partial match is prose that starts with
       // a verb ("status of the landing page map?"), and that is a question.
-      const typed = inboundText
+      const typed = said.trim()
       if (typed && this.handlers.command && parseCommand(typed)) {
         const reply = await this.handlers.command(typed, m.author.id, { threadId: null })
         const payload = { content: String(reply ?? `relayed: \`${typed}\``) }
@@ -1887,9 +1902,9 @@ export class DiscordBridge {
         return
       }
       if (!this.handlers.overseerTurn) return
-      const thread = await m.startThread({ name: inboundText.slice(0, 80) || 'overseer', autoArchiveDuration: 10080 })
+      const thread = await m.startThread({ name: said.slice(0, 80) || 'overseer', autoArchiveDuration: 10080 })
       await this.#addWatchers(thread)
-      return this.#overseerTurn(thread, inboundText)
+      return this.#overseerTurn(thread, said)
     }
     if (!m.channel.isThread() || m.channel.parentId !== this.channel.id) return
     // A reply in a thread feeds an open escalation first, otherwise the
@@ -1905,7 +1920,7 @@ export class DiscordBridge {
       // round-one refusal notice is gone.
       const owner = this.handlers.agentForThread?.(m.channel.id)
       if (owner) {
-        const q = this.handlers.queueAgentNote?.(m.channel.id, inboundText, m.author.id)
+        const q = this.handlers.queueAgentNote?.(m.channel.id, said, m.author.id)
         if (q) {
           // 📨 means the words are in a queue. A dead agent queues nothing
           // (#208), so the reaction says the same thing the reply does.
@@ -1916,7 +1931,7 @@ export class DiscordBridge {
           // The receipt carries the interrupt button, the operator's pick of
           // the other delivery mode (#252). A dead agent queued nothing, so its
           // receipt gets none.
-          await m.channel.send(noteReceipt({ owner, q, text: inboundText, channelId: this.channel.id })).catch(() => {})
+          await m.channel.send(noteReceipt({ owner, q, text: said, channelId: this.channel.id })).catch(() => {})
         } else {
           await m.react('⚠️').catch(() => {})
           await m.channel.send(smallPrint(
@@ -1928,10 +1943,10 @@ export class DiscordBridge {
         this.#reportPost(m.channel)
         return
       }
-      if (this.handlers.overseerTurn && inboundText) return this.#overseerTurn(m.channel, inboundText)
+      if (this.handlers.overseerTurn && said.trim()) return this.#overseerTurn(m.channel, said)
       return
     }
-    let answer = inboundText
+    let answer = said.trim()
     // numbered reply against a degraded long choice list
     if (open.kind === 'choice' && /^\d+$/.test(answer)) {
       const picked = open.options?.[Number(answer) - 1]
@@ -1945,8 +1960,13 @@ export class DiscordBridge {
       const picked = open.options?.[answer.toUpperCase().charCodeAt(0) - 65]
       if (picked) answer = picked
     }
+    // Discord's own overflow file is message content, not a second file path.
+    // Keep ordinary text attachments on the existing attachment path.
     const fileAttachments = new Map(
-      [...m.attachments.entries()].filter(([id]) => !inbound.textAttachments.includes(String(id))),
+      [...m.attachments.entries()].filter(([, attachment]) => {
+        const type = String(attachment?.contentType ?? '').toLowerCase()
+        return !(attachment?.name === 'message.txt' && type.startsWith('text/plain'))
+      }),
     )
     const attachments = fileAttachments.size
       ? await this.#downloadAttachments(open.id, fileAttachments)

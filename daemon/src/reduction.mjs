@@ -163,6 +163,8 @@ export class Reduction {
     this.turnStarts = new Map() // conversation key -> when its last turn started (#388)
     this.lintRejects = new Map() // `<agent>|<kind>` -> the rejections the lint gate still holds (#418)
     this.backupAlarm = null // the journal-backup failure that still stands, or null (#436)
+    this.aistackAlarm = null // the aistack-sync failure that still stands, or null (#695)
+    this.aistackAt = null // when the last aistack sync attempt finished, or null (#695)
     this.mapAlarms = new Map() // "repo#map" -> the stranded-map alarm that still stands (#485)
     this.transcriptLandings = new Map() // session -> rewind landing and transcript tail (#689)
     this.conversationTurns = new Map() // session -> sent operator turns and the queued notes each one carried (#702)
@@ -425,6 +427,19 @@ export class Reduction {
     if (ev.type === 'journal_backup_failed') this.backupAlarm = { ...ev, at: ev.ts ?? null }
     if (ev.type === 'journal_backup') this.backupAlarm = null
 
+    // The aistack sync (#695). Two facts, both reduced for the reason the
+    // backup's alarm is: a deploy happens between a failure and the operator
+    // acting on it, and the daemon must not re-say the alarm or re-spawn the
+    // command line interface on every boot. So the alarm survives a restart, and
+    // so does the instant of the last attempt, which is what the check interval
+    // measures from.
+    if (ev.type === 'aistack_sync_failed') this.aistackAlarm = { ...ev, at: ev.ts ?? null }
+    if (ev.type === 'aistack_sync') this.aistackAlarm = null
+    if (ev.type === 'aistack_sync' || ev.type === 'aistack_sync_failed') {
+      const at = ev.ts ? Date.parse(ev.ts) : NaN
+      if (Number.isFinite(at)) this.aistackAt = at
+    }
+
     // The stranded-map alarm (#485). A reduction for the reason the backup's is
     // one: it must not be re-said at every boot or every frontier pass. The
     // clearing event is explicit, because the fact that ends it — the map
@@ -432,6 +447,19 @@ export class Reduction {
     // frontier read is what observes it.
     if (ev.type === 'map_stranded') this.mapAlarms.set(`${ev.repo}#${ev.map}`, { ...ev, at: ev.ts ?? null })
     if (ev.type === 'map_stranded_cleared') this.mapAlarms.delete(`${ev.repo}#${ev.map}`)
+    // The empty-map verdict (#698) stands on the same entry, because it is the
+    // same fact carried further: #485 raised an alarm about a map, and #698
+    // asks a question about it. Both `asked` and `answered` are merged onto
+    // whatever stands, so a boot rebuilds a question already out and an answer
+    // already given — the two things a restart must not lose. Only the same
+    // `map_stranded_cleared` erases it, and only when the fact itself is gone.
+    if (ev.type === 'map_verdict_asked' || ev.type === 'map_verdict_answered') {
+      const key = `${ev.repo}#${ev.map}`
+      const prior = this.mapAlarms.get(key) ?? { repo: ev.repo, map: ev.map, title: ev.title ?? null }
+      this.mapAlarms.set(key, ev.type === 'map_verdict_asked'
+        ? { ...prior, asked: ev.id, at: ev.ts ?? prior.at ?? null }
+        : { ...prior, answered: ev.answer ?? null, closed: ev.closed ?? false })
+    }
 
     // The active transcript head during the gap between a rewind and its next
     // message (#689). The receipt records both the chosen parent and the old
@@ -1552,6 +1580,19 @@ export class Reduction {
   // reads this to decide whether a failure is news, and a boot inherits it.
   standingBackupAlarm() {
     return this.backupAlarm ? { ...this.backupAlarm } : null
+  }
+
+  // The aistack-sync failure that still stands, or null (#695).
+  standingAistackAlarm() {
+    return this.aistackAlarm ? { ...this.aistackAlarm } : null
+  }
+
+  // When the last aistack sync attempt finished, in milliseconds, or null on a
+  // box that has never attempted one (#695). A failed attempt counts, so a
+  // failing sync backs off to the check interval instead of running on every
+  // tick.
+  lastAistackSyncAt() {
+    return this.aistackAt
   }
 
   // Every stranded-map alarm that still stands (#485). The frontier read

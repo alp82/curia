@@ -109,13 +109,16 @@ export const ENDING = [
         // The map-close is curia-side context, not skill doctrine: manual
         // wayfinder sessions close an emptied map by judgment, and a checklist
         // session exercises none past its steps — so the checklist says it.
-        'If your close left the map with no open child and nothing under Not yet specified, close the',
-        'map itself with a verdict comment: the way is walked, and no one else is dispatched to say so.',
-        // The other emptied ending (#485): no open child, but the fog still
-        // holds patches. The agent must not close then, and it must not stay
-        // silent either — #316 stranded exactly there.
-        'If no open child remains but Not yet specified still holds patches, leave the map open and say',
-        'so in your report_result summary: the map cannot close until that fog is graduated or ruled.',
+        //
+        // The agent no longer closes it (#698). Curia asks the operator whether
+        // the way is walked, and closes on their answer — so an agent closing
+        // the map itself would be answering a question addressed to a person.
+        // What the agent owes is the sentence that tells them what they are
+        // answering, which is the same sentence #485 wanted for the fog case.
+        'Never close the map itself. If your close left it with no open child, say so in your',
+        'report_result summary — curia asks the operator whether the way is walked, and closes the map',
+        'on their answer. Name anything still standing under Not yet specified, because that fog is what',
+        'holds the close and it has to be graduated or ruled before the map can end.',
         ...FOLLOW_UP_RECORD,
       ]
       : [

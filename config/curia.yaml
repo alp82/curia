@@ -122,6 +122,26 @@ usage:
   # another only if a plan stops serving this one.
   probe_model: claude-haiku-4-5-20251001
 
+aistack:
+  # #695: the recurring publish of this box's harness usage to the operator's
+  # measured layer on aistack.to.
+  #
+  # There is no `enabled` key here on purpose. The switch is the machine
+  # credential at `<workspace_root>/home/.config/aistack/credentials.json`, which
+  # the operator's one-time registration writes and `settings/machines` on
+  # aistack.to revokes. A box that never registered runs nothing and says
+  # nothing.
+  #
+  # A PIN, like every version in the `sandbox:` block. The aistack hook the CLI
+  # installs runs `@latest`, which is a behavior change on a box nobody touched.
+  # Read the current version with `npm view @use-aistack/cli version` before
+  # bumping, and check the sync still publishes afterwards.
+  cli_version: 0.7.2
+  # How long one run stays fresh. This bounds spawned processes, not published
+  # snapshots: the stack's own auto-sync frequency defaults to 24 hours, and the
+  # CLI holds a run back until that window is open.
+  interval_hours: 1
+
 sandbox:
   # #154, building the decision at #148: one shared
   # agent image, one container per agent.

@@ -44,13 +44,15 @@ import { REVIEW_KIND, RESULT_KIND, NOTIFY_KIND } from './lifecycle.mjs'
 import { sameDigest } from './diffdigest.mjs'
 import { CommandRouter } from './commands.mjs'
 import { SelfDeploy } from './deploy.mjs'
-import { OverseerClient, OverseerTurns, serveVerbMcp } from './overseerclient.mjs'
+import { OverseerClient, OverseerTurns, serveConversationMcp, serveVerbMcp } from './overseerclient.mjs'
+import { OVERSEER_CONVERSATION_PARAM, revokeConversationToken } from './overseeridentity.mjs'
 import { OVERSEER_MCP_PATH } from './overseerturn.mjs'
 import { OverseerPaneHost } from './overseerpane.mjs'
 import { ConversationRuntime } from './conversationruntime.mjs'
 import { hasSession } from './tmux.mjs'
 import { retiredAgentTokenKeys } from './workspace.mjs'
 import { APP_ID_KEY, APP_KEY_FILE_KEY, GitHubAppSetup, minterFrom } from './githubapp.mjs'
+import { AppSetup, minterForAdopted } from './appsetup.mjs'
 import { CodexCredentialBroker, AnthropicCredentialStore, anthropicStoreFile } from './credentials.mjs'
 import {
   OVERSEER_ENV_FILE, overseerEnvPath, loadOverseerEnv, daemonOnlyKeys, retiredTokenKeys,
@@ -61,6 +63,7 @@ import { MapSnapshot, readMapSnapshot } from './mapsnapshot.mjs'
 import { setDaemonTokenSource } from './daemongh.mjs'
 import { TokenWatch } from './tokenwatch.mjs'
 import { JournalBackup } from './backup.mjs'
+import { AistackSync } from './aistack.mjs'
 import {
   probeTtyd, serveOff, attachBase, atlasTerminalUrl, validSessionName,
   isConsoleKey, consoleKeyForSession, sessionForConsoleKey,
@@ -86,7 +89,6 @@ import { LintGate, flaggedResultText, flaggedNotifyText } from './lintgate.mjs'
 import { StatusLine } from './statusline.mjs'
 import { remainingRenderRetries } from './renderretry.mjs'
 import { MAP_FOG_VERB } from './mapfog.mjs'
-import { AistackSync } from './aistack.mjs'
 import { GlobalSearch } from './search.mjs'
 import { githubSearchSource, journalSearchSource, transcriptSearchSource } from './searchsources.mjs'
 import {
@@ -270,6 +272,8 @@ function checkWatchedCredentials() {
 // nobody can place. NO app is a different thing and stays legal: a box can watch
 // and read before its operator finishes the checklist, and the refusal it gets
 // at the first dispatch names the step that was missed.
+// `let`, because #694 adopts a converted app in process: the setup flow puts a
+// new minter here and hands it to the dispatcher without a restart.
 let appMinter = minterFrom({ daemonRoot: ROOT, log })
 if (!appMinter) {
   log(`no GitHub App configured — set ${APP_ID_KEY} and ${APP_KEY_FILE_KEY} in daemon/.env.daemon (docs/github-app.md). No agent can be dispatched until it is`)
@@ -1169,8 +1173,26 @@ const threads = {
   },
 }
 
+// The recurring aistack sync (#695). It is built here, beside the credential
+// watch and the journal backup, because it needs the same two things they do:
+// the reduction, which remembers the alarm that still stands and when the last
+// attempt finished, and the bridge, which is where the operator reads. `bridge`
+// is read per call for the reason theirs is, and the dispatcher runs it on the
+// tick it already has.
+const aistackSync = new AistackSync({
+  root: curiaConfig.dispatch.workspace_root,
+  version: curiaConfig.aistack.cli_version,
+  intervalHours: curiaConfig.aistack.interval_hours,
+  journal: (type, detail) => reduction.journal(type, detail),
+  announce: (text) => (bridge ? bridge.announce(text).then(() => true) : false),
+  standing: () => reduction.standingAistackAlarm(),
+  lastAt: () => reduction.lastAistackSyncAt(),
+  log: (line) => log(line),
+})
+
 const dispatcher = new Dispatcher({
   config: curiaConfig,
+  aistack: aistackSync,
   routing: routingConfig,
   reduction,
   notify: notifyThread,
@@ -1423,6 +1445,10 @@ dispatcher.previews = previews // constructed after the dispatcher; teardown + s
 const overseerPanes = new OverseerPaneHost({
   reduction,
   repoRoot: path.dirname(ROOT),
+  workspaceRoot: curiaConfig.dispatch.workspace_root,
+  dataDir: DATA,
+  daemonPort: PORT,
+  daemonHost: GUEST_DAEMON_HOST,
   livePaneCap: curiaConfig.overseer.live_pane_cap,
 })
 
@@ -2628,6 +2654,25 @@ function atlasSearch() {
   })
 }
 
+// The GitHub App setup (#694, building the spec at #684).
+//
+// The daemon owns the conversion because the conversion response carries the
+// private key, and neither the sidecar nor the browser may hold it. Adoption is
+// in process: the minter this file holds is replaced, the dispatcher is handed
+// the new one, and the installation read runs again — so the operator's next
+// act is installing the app rather than restarting the box.
+const appSetup = new AppSetup({
+  daemonRoot: ROOT,
+  log,
+  adopt: ({ appId, key, keyFile }) => {
+    appMinter = minterForAdopted({ appId, key, keyFile, log })
+    dispatcher.minter = appMinter
+    reduction.journal('github_app_adopted', { app_id: appId })
+    log(`GitHub App ${appId} adopted in process — key at ${keyFile}`)
+    checkAppInstallations()
+  },
+})
+
 async function handleRequest(req, res, { fromContainer = false } = {}) {
   const url = new URL(req.url, `http://127.0.0.1:${PORT}`)
   const json = (code, obj) => {
@@ -2679,6 +2724,33 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
     if (req.method !== 'POST') return json(405, { error: 'stateless server: POST only' })
     const id = url.searchParams.get('turn') ?? ''
     const body = await readBody(req)
+    // A hosted conversation pane (#701). It carries no turn, because a pane
+    // outlives every turn it takes: it names its conversation and proves the
+    // name with the durable token the daemon wrote into its own connection
+    // settings. The destination comes from that conversation and from nothing
+    // on the request.
+    const conversation = url.searchParams.get(OVERSEER_CONVERSATION_PARAM) ?? ''
+    if (!id && conversation) {
+      return serveConversationMcp({
+        dataDir: DATA,
+        key: conversation,
+        presented: req.headers[TOKEN_HEADER],
+        command: (text, ctx) => gate.command(text, 'overseer', ctx),
+        log,
+        refuse: (error) => {
+          reduction.journal('overseer_conversation_refused', {
+            key: conversation, from: fromContainer ? 'container' : 'loopback', presented: Boolean(req.headers[TOKEN_HEADER]),
+          })
+          return json(403, { error })
+        },
+        serve: async (mcp) => {
+          const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined })
+          res.on('close', () => { transport.close() })
+          await mcp.connect(transport)
+          await transport.handleRequest(req, res, body)
+        },
+      })
+    }
     return serveVerbMcp({
       turns: overseerTurns,
       id,
@@ -2864,6 +2936,10 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
     if (!reduction.deleteConsoleConversation(key)) {
       return json(409, { ok: false, error: `there is no conversation \`${key}\` — it may already be deleted` })
     }
+    // The tool identity goes with the conversation (#701). A pane still
+    // running on the old token loses the verbs on its next call, which is what
+    // a spent number should mean at the transport too.
+    revokeConversationToken(DATA, key)
     log(`console: deleted browser conversation ${key} — its number is spent`)
     return json(200, { ok: true, key })
   }
@@ -3020,6 +3096,34 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
   // live object reference — `this.config.dispatch`, `this.config.watch`,
   // `resolveModel(this.routing, …)`, `isActive(this.routing, …)`. Only
   // `poll_interval_s` is captured, by the interval `startAutoLoop` arms.
+  // ---- the GitHub App setup (#694) ---------------------------------------
+  //
+  // Two routes, and between them the browser learns a manifest and a state and
+  // nothing else. The conversion response never crosses back: what the second
+  // route answers is the set of facts already public on the app's own settings
+  // page, plus where to install it.
+  if (url.pathname === '/app/setup' && req.method === 'POST') {
+    const body = await readBody(req).catch(() => ({}))
+    try {
+      return json(200, appSetup.begin({ name: body?.name, redirectUrl: body?.redirect_url }))
+    } catch (e) {
+      if (e?.refusal) return json(409, { ok: false, error: e.message })
+      throw e
+    }
+  }
+  if (url.pathname === '/app/convert' && req.method === 'POST') {
+    const body = await readBody(req).catch(() => ({}))
+    try {
+      return json(200, await appSetup.convert({ code: body?.code, state: body?.state }))
+    } catch (e) {
+      reduction.journal('github_app_setup_failed', { error: e.message, refusal: Boolean(e?.refusal) })
+      log(`the GitHub App setup failed: ${e.message}`)
+      // A refusal is the operator's own to fix and reads as one; anything else
+      // is this box failing, and it answers 500 so the two never read the same.
+      return json(e?.refusal ? 409 : 500, { ok: false, error: e.message })
+    }
+  }
+
   if (url.pathname === '/reload' && req.method === 'POST') {
     const body = await readBody(req).catch(() => ({}))
     const by = named(body?.by)

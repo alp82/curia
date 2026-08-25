@@ -11,13 +11,18 @@ import {
   capturePane, hasSession, listSessions, newSession, sendText, killSession,
 } from './tmux.mjs'
 import {
-  OVERSEER_CONTAINER_MODEL, overseerConfigDirFor,
-  overseerHomeFor, overseerProcessEnv,
+  MCP_SERVER_NAME, OVERSEER_CONTAINER_MODEL, OVERSEER_MCP_PATH,
+  overseerConfigDirFor, overseerHomeFor, overseerProcessEnv,
 } from './overseerturn.mjs'
 import {
   AnthropicCredentialStore, anthropicStoreFile, writeClaudeCredentials,
 } from './credentials.mjs'
 import { isConsoleKey, sessionForConsoleKey } from './attach.mjs'
+import {
+  carryOverseerTranscript, conversationHomeFor, conversationMcpUrl,
+  ensureConversationToken, writeConversationConnection,
+} from './overseeridentity.mjs'
+import { TOKEN_HEADER } from './agenttoken.mjs'
 import { agentEnv, seedConfigDir } from './workspace.mjs'
 import { buildSystemPrompt } from './overseerprompt.mjs'
 import { SIGNALS } from './messaging.mjs'
@@ -103,7 +108,11 @@ export function prepareOverseerPane({ cfg, sessionId, resume = false, deps = {} 
   if (!sessionId || typeof sessionId !== 'string') throw new Error('the overseer pane needs a durable session id')
   const root = cfg.dispatch.workspace_root
   const configDir = overseerConfigDirFor(root)
-  const home = overseerHomeFor(root)
+  // The conversation's own project directory (#701). The daemon has already
+  // written this pane's `.mcp.json` file here, under the session id both sides
+  // hold, so the pane picks up its tool identity without ever being told which
+  // conversation it is.
+  const home = conversationHomeFor(overseerHomeFor(root), sessionId)
   const seed = deps.seed ?? seedConfigDir
   const systemPrompt = deps.systemPrompt ?? buildSystemPrompt
   const installCredential = deps.installCredential ?? installOverseerPaneCredential
@@ -154,18 +163,33 @@ export async function runOverseerPane(options, { spawnProcess = spawn } = {}) {
 export class OverseerPaneHost {
   constructor({
     reduction,
+    workspaceRoot,
     repoRoot,
+    dataDir,
+    daemonPort = 0,
+    daemonHost = 'host.docker.internal',
     pane = defaultPane,
     containerId = () => runningOverseerContainer({ repoRoot }),
     newSessionId = crypto.randomUUID,
     livePaneCap = 3,
+    deps = {},
   }) {
     this.reduction = reduction
+    this.workspaceRoot = workspaceRoot
     this.repoRoot = repoRoot
+    this.dataDir = dataDir
+    this.daemonPort = daemonPort
+    this.daemonHost = daemonHost
     this.pane = pane
     this.containerId = containerId
     this.newSessionId = newSessionId
     this.livePaneCap = livePaneCap
+    this.identity = {
+      ensureToken: ensureConversationToken,
+      writeConnection: writeConversationConnection,
+      carryTranscript: carryOverseerTranscript,
+      ...deps,
+    }
     this.live = new Map()
     this.lanes = new Map()
     this.capacityLane = Promise.resolve()
@@ -174,6 +198,39 @@ export class OverseerPaneHost {
   send(key, text) {
     const identity = String(key)
     return this.#queue(identity, () => this.#withCapacity(() => this.#send(identity, text)))
+  }
+
+  // The conversation's tool identity, ready before the process that uses it
+  // (#701, ADR-0024).
+  //
+  // MINTED ONCE AND READ BACK AFTER THAT. A rehydrated pane gets the same token
+  // its predecessor held, because the conversation is the durable thing and the
+  // pane is a cache in front of it. So a restart, a park, and a deploy all leave
+  // the identity where it was, and none of them widens it: the token opens the
+  // overseer verb catalogue and the route it reaches is the conversation's own.
+  //
+  // The pane never carries the key, so its connection settings land in the
+  // project directory named by the session id, which is the one handle both
+  // sides hold.
+  #arm(key, sessionId) {
+    const home = conversationHomeFor(overseerHomeFor(this.workspaceRoot), sessionId)
+    const token = this.identity.ensureToken(this.dataDir, key)
+    this.identity.writeConnection({
+      home,
+      url: conversationMcpUrl({
+        host: this.daemonHost, port: this.daemonPort, key, mcpPath: OVERSEER_MCP_PATH,
+      }),
+      token,
+      serverName: MCP_SERVER_NAME,
+      header: TOKEN_HEADER,
+    })
+    // A conversation bound before #701 recorded its transcript in the one
+    // shared overseer home, and a resume only finds a session under the project
+    // directory it was recorded in.
+    this.identity.carryTranscript({
+      configDir: overseerConfigDirFor(this.workspaceRoot), sessionId, home,
+    })
+    return home
   }
 
   ensure(key) {
@@ -232,10 +289,11 @@ export class OverseerPaneHost {
     }
     if (!this.live.has(name)) await this.#makeRoom(name)
     if (!present || created) {
+      const home = this.#arm(key, session)
       const container = await this.containerId()
       await this.pane.start({
         name,
-        cwd: this.repoRoot,
+        cwd: home,
         role: 'overseer',
         authority: 'overseer',
         keepOpen: false,

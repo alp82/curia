@@ -19,6 +19,8 @@ import { seedSkillsRoot, skillsYaml, withSeededHome } from './fixtures/skills.mj
 import { sandboxYaml } from './fixtures/sandbox.mjs'
 import { providerContractFault, consumerContractFault, CONSUMER_NAMES } from '../src/credentials.mjs'
 import { harnessProvider } from '../src/workspace.mjs'
+import { parse } from 'yaml'
+import { DEFAULT_CLI_VERSION, DEFAULT_INTERVAL_HOURS } from '../src/aistack.mjs'
 
 const DIRNAME = path.dirname(fileURLToPath(import.meta.url))
 
@@ -771,5 +773,62 @@ describe('git ignores the override and tracks the base (#292)', () => {
 
   test('the atomic write’s candidate is ignored too, so a crash leaves no untracked file', () => {
     assert.equal(ignored('config/.curia.local.yaml.candidate'), true)
+  })
+})
+
+// The recurring aistack sync (#695). The section is optional, because the switch
+// that turns the sync on is the machine credential under curia's HOME and not a
+// config key. The version is a pin, for the reason every pin in `sandbox:` is.
+describe('the aistack section (#695)', () => {
+  before(() => { tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-aistack-cfg-')) })
+  after(() => { fs.rmSync(tmp, { recursive: true, force: true }) })
+
+  test('a config that is silent about it still reads a pinned command', () => {
+    const cfg = loadCuriaConfig(writeConfig())
+    assert.equal(cfg.aistack.cli_version, DEFAULT_CLI_VERSION)
+    assert.equal(cfg.aistack.interval_hours, DEFAULT_INTERVAL_HOURS)
+  })
+
+  test('the box names its own version and interval', () => {
+    const cfg = loadCuriaConfig(writeConfig(['aistack:', '  cli_version: 1.2.3', '  interval_hours: 6'].join('\n')))
+    assert.equal(cfg.aistack.cli_version, '1.2.3')
+    assert.equal(cfg.aistack.interval_hours, 6)
+  })
+
+  test('an unpinned version is refused by name, which is what the pin exists for', () => {
+    assert.throws(
+      () => loadCuriaConfig(writeConfig(['aistack:', '  cli_version: latest'].join('\n'))),
+      /aistack\.cli_version must be a pinned version/,
+    )
+    assert.throws(
+      () => loadCuriaConfig(writeConfig(['aistack:', '  cli_version: "^0.7"'].join('\n'))),
+      /aistack\.cli_version must be a pinned version/,
+    )
+  })
+
+  test('an interval that is not a positive number of hours is refused', () => {
+    assert.throws(
+      () => loadCuriaConfig(writeConfig(['aistack:', '  interval_hours: 0'].join('\n'))),
+      /aistack\.interval_hours must be a positive number/,
+    )
+    assert.throws(
+      () => loadCuriaConfig(writeConfig(['aistack:', '  interval_hours: soon'].join('\n'))),
+      /aistack\.interval_hours must be a positive number/,
+    )
+  })
+
+  test('the section must be a mapping', () => {
+    assert.throws(
+      () => loadCuriaConfig(writeConfig(['aistack:', '  - 0.7.2'].join('\n'))),
+      /`aistack` must be a mapping/,
+    )
+  })
+
+  test('the shipped config pins a version the sync can run', () => {
+    const shipped = parse(fs.readFileSync(path.join(DIRNAME, '..', '..', 'config', 'curia.yaml'), 'utf8'))
+    assert.match(String(shipped.aistack.cli_version), /^\d+\.\d+\.\d+$/)
+    assert.ok(shipped.aistack.interval_hours > 0)
+    assert.equal('enabled' in shipped.aistack, false,
+      'the switch is the machine credential under curia\'s HOME, not a config key')
   })
 })
