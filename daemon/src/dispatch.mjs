@@ -1370,7 +1370,9 @@ export class Dispatcher {
     // every epoch reader takes either event.
     if (!charting) {
       await this.deps.claim(repo, n, login)
-      this.reduction.journal('dispatch_claimed', { repo, ticket: n, agent: session, by: by ?? 'unknown', kind: 'ticket' })
+      this.reduction.journal('dispatch_claimed', {
+        repo, ticket: n, title: issue.title, agent: session, by: by ?? 'unknown', kind: 'ticket',
+      })
     }
 
     // The ticket label goes on at the claim (#93): `start` binds the thread it
@@ -1378,10 +1380,16 @@ export class Dispatcher {
     // notify from here on lands in the labeled thread. Never fatal: with the
     // bridge down the first notify binds lazily instead.
     try {
-      await this.threads.bind(n, { threadId, type: typeLabel?.slice('wayfinder:'.length) ?? '', repo })
+      await this.threads.bind(n, {
+        threadId, type: typeLabel?.slice('wayfinder:'.length) ?? '', repo, title: issue.title,
+      })
     } catch (e) {
       this.log(`thread bind for ${repo}#${n} failed (${e.message}) — the first notify will bind lazily`)
     }
+
+    this.reduction.journal('agent_dispatching', {
+      repo, ticket: n, title: issue.title, agent: session, model: useModel, harness: harnessName,
+    })
 
     const cfgDir = cfgDirFor(this.root, session)
     // Declared outside the try so the finally can release the pending
@@ -1573,7 +1581,7 @@ export class Dispatcher {
       ? buildResumeCmd(this.routing, harness, model)
       : buildSpawnCmd(this.routing, harness, model, path.join(GUEST_CFG, path.basename(promptFile)))
     const container = await this.#prepareContainer({
-      session, ticket, repo, harness, wtPath, cfgDir, spawnCmd: harnessCmd,
+      session, ticket, repo, harness, model, wtPath, cfgDir, spawnCmd: harnessCmd,
       sandbox: this.config.sandbox, ports, reviewer,
     })
     return { container, shellCmd: container.shellCmd, env: {} }
@@ -2173,7 +2181,7 @@ export class Dispatcher {
   // names them and is written first (#157). Every step here can fail, and all of
   // them run inside #dispatch's try — so a failure unclaims the ticket rather
   // than leaving it assigned to an agent that never ran.
-  async #prepareContainer({ session, ticket, repo, harness, wtPath, cfgDir, spawnCmd, sandbox, ports, reviewer = false }) {
+  async #prepareContainer({ session, ticket, repo, harness, model, wtPath, cfgDir, spawnCmd, sandbox, ports, reviewer = false }) {
     // Built on demand rather than at boot: the tag is a content address, so a
     // pinned version bump or a Dockerfile edit names an image the box does not
     // have, and this is the first place that matters (#154).
@@ -2187,7 +2195,7 @@ export class Dispatcher {
       onLine: (line) => {
         if (!said) {
           said = true
-          this.notify(ticket, `🧱 building the agent image — the first dispatch after a pin or Dockerfile change waits for it (about four minutes)`)
+          this.reduction.journal('agent_image_building', { agent: session, ticket, model })
         }
         this.log(`[image ${session}] ${line}`)
       },
@@ -2682,10 +2690,8 @@ export class Dispatcher {
         checkout: checkout.path, base_branch: checkout.baseBranch, by: by ?? 'unknown',
         sandbox: 'docker', image: plan.container.image,
       })
-      // `agent_spawned` too, and deliberately: the status line, the timeline and
-      // every surface that draws an agent read that event. A reviewer with its
-      // own status line in the ticket thread is what ADR-0010 asks for, and this
-      // is the one event that gives it one.
+      // `agent_spawned` too, because the timeline and lifecycle surfaces read
+      // that event. The status line projects reviewer work through the builder.
       this.reduction.journal('agent_spawned', {
         repo, ticket, agent: session, model, requested_model: model,
         prompt_carries_limit_text: textCarriesLimitPhrase(issue.title, issue.body),
@@ -3025,19 +3031,6 @@ export class Dispatcher {
         // The anchor the tool-channel grace window is measured from (#194).
         agent.readyAt = Date.now()
         this.reduction.journal('agent_ready', { repo: agent.repo, ticket: agent.ticket, agent: agent.session, model: agent.model })
-        // #118 item 7 / #108 item 22: both links land with readiness as
-        // buttons — /attach stays as the retrieve-later verb. Fail-soft: a
-        // link that cannot compose right now (surface still asserting) falls
-        // back to naming the verb.
-        const links = this.attachLinks
-          ? await Promise.resolve(this.attachLinks(agent.ticket)).catch(() => null)
-          : null
-        // The MODEL, not the routing label (#179). `agent.model` is the key in
-        // `routing.yaml`, so this message said `gpt` about a `gpt-5.6-sol`
-        // agent. There is no transcript yet, so the name the CLI was asked for
-        // is the best evidence there is.
-        const named = spawnModelId(this.routing, agent.model)
-        this.notify(agent.ticket, `✅ \`${agent.session}\` is at the composer on **${named}**${links ? '' : ` — \`/attach ${agent.ticket}\` to watch`}`, links ? { links } : {})
         // At the composer is not the same as able to speak (#194). The readiness
         // watch ends here and the tool-channel watch starts, on the same agent
         // record and with the marker as its anchor.
@@ -4974,7 +4967,7 @@ export class Dispatcher {
       repo, ticket, agent: agentName,
       comment: out.comment, close: out.close, map: out.map.state, land: out.land.state,
       pr: out.land.url ?? null, repaired: out.repaired,
-      summary: `✅ ${repo}#${ticket} resolved — ${text}`,
+      summary: `✅ resolved - ${text}`,
     })
     return text
   }
@@ -5310,8 +5303,8 @@ export class Dispatcher {
   // event this sentence opens with (statusline.mjs, #retire).
   #endingReceipt(agentName, lease) {
     const clause = this.#endingClause(agentName)
-    const head = clause ?? `✅ \`${agentName}\` finished with a recorded result`
-    return smallPrint(`${head} · \`${agentName}\` session closed; ${lease}`)
+    const head = clause ?? '✅ resolved - result recorded'
+    return `${head} · session \`${agentName}\` closed · ${lease}`
   }
 
   // What the tracker step made of this result, composed by whichever path ran
@@ -5385,7 +5378,6 @@ export class Dispatcher {
     // thing publish() refuses to create in the first place.
     await this.#withdrawPreview(ticket, hasResult ? 'agent finished' : 'agent exited without a result')
     if (hasResult) {
-      this.reduction.journal('lifecycle_closed', { agent: agentName, ticket, repo: w?.repo })
       await this.deps.killSession(agentName).catch(() => {})
       this.agents.delete(agentName)
       // the OAuth credential copy never survives (a pre-#53 leftover collector)
@@ -5394,7 +5386,10 @@ export class Dispatcher {
       // already happened, so "kept for review" no longer means anything; what
       // decides now is whether the code is in.
       const lease = await this.#endWorkspaceLease(agentName, ticket, w?.repo ?? this.#epochRepo(ticket))
-      this.notify(ticket, this.#endingReceipt(agentName, lease))
+      this.reduction.journal('lifecycle_closed', {
+        agent: agentName, ticket, repo: w?.repo,
+        receipt: this.#endingReceipt(agentName, lease),
+      })
       this.lapseConfirmsFor(agentName, `\`${agentName}\` finished`)
       this.expireNotesFor(agentName, ticket, 'finished')
       // terminal state ⇒ the ticket label comes off the thread (#93)

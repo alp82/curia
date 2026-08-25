@@ -230,6 +230,18 @@ describe('resolveAndLand: the agent did everything right', () => {
     assert.match(summariseOutcome(out), /code merged/)
   })
 
+  test('receipt warnings stay on the first line before final meters', async () => {
+    const out = {
+      close: 'present', comment: 'present',
+      map: { state: 'present', number: 1 },
+      land: { state: 'no-commits' },
+      warnings: ['first warning', 'second warning'],
+    }
+
+    assert.doesNotMatch(summariseOutcome(out), /\n/)
+    assert.match(summariseOutcome(out), /⚠️ first warning · ⚠️ second warning/)
+  })
+
   test("curia's own link comment does not pass for the agent's resolution", async () => {
     const h = fixture({
       issues: { 42: { ...TICKET } },

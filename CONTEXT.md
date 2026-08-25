@@ -115,7 +115,7 @@ The label-based model choice. A `model:<x>` label wins, else the `wayfinder:<typ
 A key under `models:` in `routing.yaml`. It is the dispatch vocabulary that `model:<x>` and `/start <ticket> <label>` speak. It is not a model: the label `gpt` names the model `gpt-5.6-sol`.
 
 **Model name**:
-What curia tells a human is running. Best evidence first: the model the transcript states, then `models.<label>.id`, then the routing label. The status line and the composer-ready message say this. Cooling, fallback and the `status` list keep the routing label, because they speak about dispatch.
+What curia tells a human is running. The status line uses the transcript model, then `models.<label>.id`, then the routing label. Cooling, fallback, and `status` keep the routing label.
 
 **Harness**:
 The program an agent runs under: claude or codex. It is a function of the model: `models.<x>.harness` states one value, and no command overrides it. A pin that disagreed with the model built `codex --model opus`, which is not a model.
@@ -272,7 +272,7 @@ One harness process, spawned per ticket, that works the ticket to its ending. It
 _Avoid_: worker (the old name, swept in #184).
 
 **Session**:
-The tmux session `curia-<n>`. The session name is the agent's identity everywhere.
+The tmux session `curia-<n>`. The session name is an internal routing identifier. Discord messages use the `curia` identity.
 
 **Chat handle**:
 The name of an agent no issue answers for: `chat-1`, `chat-2`, the lowest free index at dispatch. It stands where a ticket number stands — the session `curia-chat-1`, the worktree, the thread, and the argument `attach`, `cancel` and `resume` take. Today one kind of agent uses it: the new-map dispatch. It names agents only. A browser conversation is keyed `console-<n>`, so the two never collide.
@@ -485,17 +485,17 @@ The wait before a thread name goes back to 🎫 (#277). Discord answers every re
 Putting the terminal glyph on a thread whose ticket has ended (#257). A rename rides a budget of 2 per thread per 10 minutes, so a ✅ can wait, and the gate that holds it dies with the daemon. Two passes catch what is dropped. A release settles the ticket's last thread even when the binding is already gone. Every bridge start settles each active thread curia once labeled that is bound to nothing and still wears a live glyph.
 
 **Voice ownership**:
-The rule that divides the thread's speakers. CuriaBot states mechanics, the agent voice states meaning, and no fact is said twice in one thread. See [ADR-0013](docs/adr/0013-one-voice-per-fact.md).
+The rule that gives a ticket thread one `curia` identity. Work prose uses first person. Mechanics use small print. No fact appears twice. See [ADR-0021](docs/adr/0021-the-thread-formatting-and-the-one-voice.md).
 
 **Failure line**:
 The daemon's own message about a failure it hit. It is one sentence of prose, and the thread hears it once (#256). The raw error stays in the journal and in the reply the failing agent reads. A retry loop inside the repeat window adds nothing to the thread. A loop that outlasts the window says the line again with a count.
 _Avoid_: error message (that names the raw text, which never reaches the thread).
 
 **Speaker name**:
-The webhook username an agent speaks under: its session name, and nothing else. Discord caps the username at 80 characters, so a name that carries more can truncate, and a truncated identity is a mangled one (#254). The label says who speaks. The thread says which ticket.
+The webhook username for every ticket-thread message: `curia`. Builders and reviewers share the bot avatar. Session names remain internal routing identifiers (#690).
 
 **Notify**:
-A fire-and-forget line of agent prose into the ticket thread.
+A fire-and-forget opening, working phase, or milestone for the ticket thread. Routine phase updates edit the status line.
 _Avoid_: status line (that names the daemon's own line, below).
 
 **Operator note**:
@@ -521,7 +521,7 @@ The whole verdict, posted into the thread when no agent is left to read it. It n
 The ordered close-out of a ticket: commit, pull request, preview, review gate, merge, resolve, result. One structure drives both the prompt and the Stop hook checklist.
 
 **Ending receipt**:
-The one CuriaBot message that ends a ticket thread. In small print, it merges what the tracker step did with what the session teardown did. It carries no bare link. The agent's own report is the message before it, and that report is where the pull request unfurls. See [ADR-0013](docs/adr/0013-one-voice-per-fact.md).
+The status line's final edit. Small print joins the tracker result, session teardown, and final meters. Chat and ticket links remain. See [ADR-0020](docs/adr/0020-the-thread-story.md).
 
 **Charting ending**:
 The ending of a map dispatch. It forks on one fact: did the session write a file? A session that wrote none ends on two steps. It edits the map, then it reports the result. A session whose research subagents wrote findings takes the ordinary ending for them: commit, pull request, review gate, merge, then close those research tickets. The Stop hook holds a session whose findings sit uncommitted under `docs/research/`, because an uncommitted file dies with the workspace. Curia posts the summary on the map either way. That comment states whether the findings reached the default branch. No unassign, and the map itself never closes.

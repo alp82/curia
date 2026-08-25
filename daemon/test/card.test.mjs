@@ -4,7 +4,7 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  composeCard, composeReviewBody, composeResultBody, composeResultReport, composeNotify, NOTIFY_KINDS,
+  composeCard, composeReviewBody, composeResultBody, composeResultReport, composeNotify, composeOpening, NOTIFY_KINDS,
   visualBlock, optionLabels, composeVerdict, composeVerdictReport,
 } from '../src/card.mjs'
 import { lintReply, CHUNK_LIMIT } from '../src/messaging.mjs'
@@ -168,19 +168,20 @@ describe('composeResultReport: the ending report (#419)', () => {
     ].join('\n\n'))
   })
 
-  test('the status leads, because it is what the operator reads this message for', () => {
+  test('the typed headline leads beside the resolved status', () => {
     const post = composeResultReport('resolved', REPORT)
-    assert.equal(post.split('\n')[0], '✅ reports **resolved**')
-    assert.ok(post.includes(composeResultBody(REPORT)))
+    assert.equal(post.split('\n')[0], '✅ **resolved** - **The ending report is typed, and curia lays it out.**')
+    assert.equal(post.match(/The ending report is typed/g).length, 1, 'the headline appears once')
+    assert.ok(post.includes(REPORT.summary))
   })
 
   test('a report with no headline keeps the one line the thread has read since #253', () => {
     assert.equal(composeResultReport('blocked', { summary: 'the token was missing' }),
-      '✅ reports **blocked**: the token was missing')
+      '✅ **blocked**: the token was missing')
   })
 
   test('a report with no prose at all is still a status', () => {
-    assert.equal(composeResultReport('aborted', {}), '✅ reports **aborted**')
+    assert.equal(composeResultReport('aborted', {}), '✅ **aborted**')
   })
 
   test('curia writes the fence, so an agent that fenced its visual is not fenced twice', () => {
@@ -243,6 +244,18 @@ describe('composeNotify: the status line (#420)', () => {
   })
 })
 
+describe('composeOpening: the ticket story (#690)', () => {
+  test('the goal and first step render as one two-line work message', () => {
+    assert.equal(composeOpening({
+      goal: 'I’ll make each ticket thread tell one quiet story.',
+      first_step: 'I’ll trace the dispatch events into the status line first.',
+    }), [
+      '⚙️ I’ll make each ticket thread tell one quiet story.',
+      'I’ll trace the dispatch events into the status line first.',
+    ].join('\n'))
+  })
+})
+
 describe('composeVerdict: the cross-check verdict (#421)', () => {
   const VERDICT = {
     headline: 'One blocker and one note: the retry loop never exits.',
@@ -292,11 +305,11 @@ describe('composeVerdict: the cross-check verdict (#421)', () => {
 
   test('the reviewer ending post wears the cross-check signal, not an ending tick', () => {
     const post = composeVerdictReport('resolved', VERDICT)
-    assert.equal(post.split('\n')[0], '🔎 the cross-check reports **resolved**')
+    assert.equal(post.split('\n')[0], '🔎 the cross-check found **resolved**')
     assert.ok(post.includes(composeVerdict(VERDICT)), 'no finding is dropped from the thread')
   })
 
   test('a reviewer that could not read the diff still leads with its status', () => {
-    assert.equal(composeVerdictReport('blocked', {}), '🔎 the cross-check reports **blocked**')
+    assert.equal(composeVerdictReport('blocked', {}), '🔎 the cross-check found **blocked**')
   })
 })

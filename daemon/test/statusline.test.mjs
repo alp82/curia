@@ -22,12 +22,12 @@ describe('StatusLine', () => {
     meters = { effort: null, ctxPct: null, windows: null }
     let n = 0
     line = new StatusLine({
-      post: async (ticket, text) => {
-        posts.push({ ticket, text })
+      post: async (ticket, text, opts) => {
+        posts.push({ ticket, text, opts })
         return { threadId: 't1', messageId: `m${++n}` }
       },
-      edit: async (ids, text) => {
-        edits.push({ ids, text })
+      edit: async (ids, text, opts) => {
+        edits.push({ ids, text, opts })
         return true
       },
       remove: async (ids) => { removals.push(ids.messageId) },
@@ -46,6 +46,92 @@ describe('StatusLine', () => {
 
   const drain = () => line.settle()
 
+  test('an agent phase edits the working line with the accepted icon and label', async () => {
+    meters = { effort: 'high', ctxPct: 41, windows: [{ label: '5h', pct: 62, elapsedPct: 30 }] }
+    line.onEvent({ type: 'agent_ready', agent: 'curia-690', ticket: '690', model: 'gpt', ts: 'T' })
+    await drain()
+    assert.match(posts[0].text, /🧭 `reads the ticket`/)
+
+    line.onEvent({
+      type: 'agent_progress', agent: 'curia-690', ticket: '690', phase: 'build', label: 'writes the status',
+    })
+    await drain()
+
+    assert.equal(posts.length, 1, 'routine progress keeps one status message')
+    assert.equal(removals.length, 0, 'routine progress never repositions the line')
+    assert.match(edits.at(-1).text, /🔨 `writes the status`/)
+    assert.match(edits.at(-1).text, /\*\*gpt\*\* high/)
+    assert.match(edits.at(-1).text, /ctx 41%/)
+    assert.match(edits.at(-1).text, /5h/)
+  })
+
+  test('dispatch, image build, and composer arrival use the one status line', async () => {
+    line.onEvent({ type: 'agent_dispatching', agent: 'curia-690', ticket: '690', model: 'gpt' })
+    await drain()
+    assert.match(posts.at(-1).text, /dispatched on \*\*gpt\*\*/)
+
+    line.onEvent({ type: 'agent_image_building', agent: 'curia-690', ticket: '690', model: 'gpt' })
+    await drain()
+    assert.equal(posts.length, 1)
+    assert.match(edits.at(-1).text, /building the agent image/)
+
+    line.onEvent({ type: 'agent_spawned', agent: 'curia-690', ticket: '690', model: 'gpt' })
+    await drain()
+    assert.equal(posts.length, 1)
+    assert.match(edits.at(-1).text, /waiting for the composer/)
+
+    line.onEvent({ type: 'agent_ready', agent: 'curia-690', ticket: '690', model: 'gpt', ts: 'T' })
+    await drain()
+    assert.equal(posts.length, 2, 'composer arrival moves the same semantic line to the bottom')
+    assert.deepEqual(removals, ['m1'])
+    assert.match(posts.at(-1).text, /🧭 `reads the ticket`/)
+  })
+
+  test('the lifecycle receipt is the status line last edit and keeps final meters', async () => {
+    meters = { effort: 'high', ctxPct: 63, windows: [{ label: '5h', pct: 72, elapsedPct: 50 }] }
+    line.onEvent({ type: 'agent_ready', agent: 'curia-690', ticket: '690', model: 'gpt', ts: 'T' })
+    await drain()
+
+    line.onEvent({
+      type: 'lifecycle_closed', agent: 'curia-690', ticket: '690',
+      receipt: '✅ resolved - ticket closed · map #685 updated · code merged · session `curia-690` closed, worktree removed',
+    })
+    await drain()
+
+    assert.equal(posts.length, 1)
+    assert.equal(removals.length, 0, 'the receipt never deletes the status message')
+    assert.match(edits.at(-1).text, /^-# ✅ resolved - ticket closed/)
+    assert.match(edits.at(-1).text, /\n-# \*\*gpt\*\* high.*ctx 63%.*5h/)
+    assert.equal(edits.at(-1).opts.settled, true)
+    assert.equal(line.stateOf('curia-690'), null, 'the settled session no longer refreshes')
+  })
+
+  test('a lifecycle first seen after restart still posts its receipt', async () => {
+    line.onEvent({
+      type: 'lifecycle_closed', agent: 'curia-42', ticket: '42',
+      receipt: '✅ resolved - ticket closed',
+    })
+    await drain()
+
+    assert.equal(posts.length, 1)
+    assert.equal(posts[0].ticket, '42')
+    assert.equal(posts[0].text, '-# ✅ resolved - ticket closed')
+    assert.equal(posts[0].opts.settled, true)
+  })
+
+  test('a cross-check reviewer does not create a second status line', async () => {
+    line.onEvent({
+      type: 'agent_spawned', agent: 'curia-review-42', ticket: '42',
+      model: 'sonnet', kind: 'reviewer',
+    })
+    line.onEvent({
+      type: 'agent_ready', agent: 'curia-review-42', ticket: '42', model: 'sonnet',
+    })
+    await drain()
+
+    assert.equal(posts.length, 0)
+  })
+
   test('every state change repositions: delete + repost at the bottom (#108 item 17)', async () => {
     line.onEvent({ type: 'agent_spawned', agent: 'curia-9', ticket: '9', model: 'opus' })
     line.onEvent({ type: 'agent_ready', agent: 'curia-9', ticket: '9', model: 'opus', ts: 'T' })
@@ -62,9 +148,9 @@ describe('StatusLine', () => {
     const texts = posts.map((p) => p.text)
     assert.equal(posts.length, 7, 'one post per LIVE state change')
     assert.match(texts[0], /dispatched on \*\*opus\*\*/)
-    assert.equal(texts[1], `▶️${GROUP_SEP}**opus**`, 'working is the icon and the meters, nothing else (#480)')
+    assert.equal(texts[1], `-# 🧭 \`reads the ticket\`${GROUP_SEP}**opus**`, 'working is the phase, label, and meters')
     assert.match(texts[2], /waiting on \*\*\[esc-1\]\*\* — Which shade of blue\?/)
-    assert.match(texts[3], /^▶️/)
+    assert.match(texts[3], /^-# 🧭 `reads the ticket`/)
     assert.match(texts[4], /awaiting review — \*\*\[esc-2\]\*\*/)
     assert.match(texts[5], /executing approved writes/)
     assert.match(texts[6], /result received \(\*\*resolved\*\*\)/)
@@ -268,7 +354,7 @@ describe('StatusLine', () => {
     l2.onEvent({ type: 'agent_ready', agent: 'curia-7', ticket: '7', model: 'opus', ts: 'T' })
     await l2.settle()
     assert.equal(posts.length, 2, 'the dead message is replaced by a fresh post')
-    assert.match(posts[1].text, /^▶️/)
+    assert.match(posts[1].text, /^-# 🧭 `reads the ticket`/)
   })
 
   // #240, observed live: curia-98 opened esc-133 (question 1 of 3 on a
@@ -359,7 +445,7 @@ describe('StatusLine', () => {
     await drain()
     assert.equal(
       posts.at(-1).text,
-      ['▶️', '**gpt** high', 'ctx 41%',
+      ['-# 🧭 `reads the ticket`', '**gpt** high', 'ctx 41%',
         '**5h** 🟥 ▓▓▓┃███░░░░ 62%', '**7d** 🟩 ▓▓▓▓░░░░┃░░ 41%'].join(GROUP_SEP),
     )
     // dispatched already names the model in its own sentence — it must not
@@ -372,7 +458,7 @@ describe('StatusLine', () => {
     line.onEvent({ type: 'agent_spawned', agent: 'curia-5', ticket: '5', model: 'opus' })
     line.onEvent({ type: 'agent_ready', agent: 'curia-5', ticket: '5', model: 'opus', ts: 'T' })
     await drain()
-    assert.equal(posts.at(-1).text, `▶️${GROUP_SEP}**opus**`)
+    assert.equal(posts.at(-1).text, `-# 🧭 \`reads the ticket\`${GROUP_SEP}**opus**`)
   })
 
   test('a meter source that throws costs the meters, not the status line', async () => {
@@ -385,7 +471,7 @@ describe('StatusLine', () => {
     })
     l.onEvent({ type: 'agent_ready', agent: 'curia-6', ticket: '6', model: 'opus', ts: 'T' })
     await l.settle()
-    assert.equal(posts.at(-1).text, '▶️')
+    assert.equal(posts.at(-1).text, '-# 🧭 `reads the ticket`')
   })
 
   test('the base sentence names the MODEL the meters state, not the routing label (#179)', async () => {
@@ -408,7 +494,7 @@ describe('StatusLine', () => {
 
     l.onEvent({ type: 'agent_ready', agent: 'curia-4', ticket: '4', model: 'gpt', ts: 'T' })
     await l.settle()
-    assert.equal(posts.at(-1).text, `▶️${GROUP_SEP}**gpt-5.6-sol** high${GROUP_SEP}ctx 12%`)
+    assert.equal(posts.at(-1).text, `-# 🧭 \`reads the ticket\`${GROUP_SEP}**gpt-5.6-sol** high${GROUP_SEP}ctx 12%`)
   })
 
   test('the escalation title yields columns to the model, never the other way round (#179)', async () => {
@@ -517,6 +603,7 @@ describe('StatusLine', () => {
     assert.equal(visibleWidth('`curia-9`'), 7)
     assert.equal(visibleWidth('🟥'), 2)
     assert.equal(visibleWidth('▶️'), 2, 'a variation selector promotes its char to emoji width')
+    assert.equal(visibleWidth('-# 🧭 work'), 7, 'the small-print marker renders no columns')
     assert.equal(visibleWidth('▓▓▓┃███░░░░'), 11, 'block glyphs are single width')
   })
 

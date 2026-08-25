@@ -94,11 +94,10 @@ describe('a choice card picks its surface by option count (#431)', () => {
     assert.equal(menus[0].options.length, 25)
   })
 
-  test('the link row rides beside the menu', async () => {
-    bridge.handlers.previewUrl = () => 'https://example.test/p'
+  test('the card keeps only its decision row', async () => {
     const msg = await render(opts(MAX_SELECT_OPTIONS))
-    assert.equal(msg.components.length, 2, 'the menu row and the link row')
-    assert.deepEqual(rowsOf(msg.components).at(-1).map((c) => c.label), ['🔗 preview'])
+    assert.equal(msg.components.length, 1, 'the status line owns every link')
+    assert.equal(rowsOf(msg.components)[0][0].type, 3, 'the menu remains')
   })
 
   test('past the menu cap the numbered list comes back whole', async () => {

@@ -436,6 +436,30 @@ describe('the status line (#420)', () => {
     assert.equal(notifyHasText({ visual: 'a  b' }), true, 'a visual alone still says something')
     assert.equal(notifyHasText({ images: ['a.png'] }), false, 'a file is not prose, so it is the dead end')
   })
+
+  test('an opening and a phase update pass without a milestone message', () => {
+    const opening = {
+      opening: {
+        goal: 'I’ll make each ticket thread tell one quiet story.',
+        first_step: 'I’ll trace dispatch events into the status line first.',
+      },
+      phase: 'explore',
+      label: 'reads the events',
+    }
+    assert.deepEqual(notifyFloorFaults(opening), [])
+    assert.deepEqual(lintNotify(opening), [])
+    assert.equal(notifyHasText(opening), true)
+    assert.deepEqual(notifyFloorFaults({ phase: 'build', label: 'writes the status' }), [])
+  })
+
+  test('the opening, phase, and label faults name their fields', () => {
+    assert.match(names(notifyFloorFaults({ opening: { goal: 'I read the goal.' } })), /opening.first_step: missing/)
+    assert.match(names(notifyFloorFaults({ phase: 'build' })), /label: missing/)
+    assert.match(names(notifyFloorFaults({ label: 'writes the status' })), /phase: missing/)
+    assert.match(names(lintNotify({ phase: 'guess', label: 'reads' })), /phase: "guess"/)
+    assert.match(names(lintNotify({ phase: 'think', label: 'x'.repeat(21) })), /label: 21 characters over the 20 cap/)
+    assert.match(names(lintNotify({ opening: { goal: 'one\ntwo', first_step: 'reads' } })), /opening.goal: a newline/)
+  })
 })
 
 describe('the cross-check verdict (#421)', () => {

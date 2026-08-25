@@ -84,7 +84,7 @@ The catalogue grew on #91. A repo argument is fuzzy everywhere it appears: any u
 
 **The chat handle (#241).** An agent that no issue answers for is named `chat-1`, `chat-2` — the lowest index free **on the box**, because a restarted daemon holds no agents map and tmux is the authority the dispatch locks already ask. The handle stands wherever a ticket number stands: the session `curia-chat-<i>`, the worktree, the thread, and the argument `attach`, `cancel` and `resume` take. `status` takes no argument and lists the handle beside the ticket numbers. A `resume` keeps the same handle, because the thread, the worktree and the journal epoch all answer to it — but a chat that already adopted a map refuses the resume and points at `map <that number> …`, which is the verb for a map that now exists. There is no lock on a handle, so several of these run at once, each in its own thread. Today the new-map dispatch is the only kind of agent that gets one.
 
-- `review <n>` (`model=x` optional) — the cross-check (#164, [ADR-0010](../docs/adr/0010-the-cross-check.md)): spawn a reviewer on the OTHER provider, let it read the pushed diff, and capture its verdict. The pairing comes from `review:` in `routing.yaml` — an anthropic builder gets `gpt`, an openai builder gets `opus` — and a `review-model:<name>` label on the ticket beats it. With every model on the other provider cooling it runs on the builder's own and stamps the verdict "same provider — cross-provider was cooling". The reviewer is a full agent: its own tmux session `curia-review-<n>`, its own status line in the ticket thread, attachable through `attach <n>`, sandboxed like any agent. It writes nothing — curia refuses `open_pull_request`, `request_review`, `publish_preview` and `ask_human` for it by name — and its `report_result` summary lands as `data/verdicts/<n>.json`. This verb is the daemon-side entry point over `POST /command`; the operator's own surface is the third button below.
+- `review <n>` (`model=x` optional) starts the cross-check (#164). The reviewer uses the other provider and reads the pushed diff. The ticket status shows the cross-check through the builder. The reviewer keeps its own `curia-review-<n>` session and sandbox. Curia refuses every reviewer write. The verdict lands in `data/verdicts/<n>.json`.
 
 ## The dashboard sidecar (#263, per [#249](https://github.com/alp82/curia/issues/249))
 
@@ -164,14 +164,14 @@ It sends the message again only for a turn that crossed the seam zero times. Thr
 
 ## The per-agent status line (#108 item 8, #146)
 
-Each agent gets one Discord message in its ticket thread that says what it is doing now: dispatched, working, waiting on an escalation, awaiting review, cross-checking, executing approved writes, or resolving. `statusline.mjs` builds it from the journal's own events through the reduction's append hook, so no transition needs a callback threaded through the dispatcher. The daemon composes every string. Agent text never lands here as it was written. A state change deletes the message and reposts it at the thread bottom (item 17). Everything else edits it in place.
+Each ticket gets one Discord status message. The status line carries dispatch, image build, composer, work, waits, review, and resolution. `statusline.mjs` builds the status from journal events. A state change moves the message to the thread bottom. Other changes edit the message in place.
 
-The line carries LIVE state only (#253, [ADR-0013](../docs/adr/0013-one-voice-per-fact.md)). A terminal event deletes the line. It does not draw a last state onto it. The terminal events are the ending, an abnormal exit, a death, a cancel, and a watchdog failure. Each one already carries its own CuriaBot message, and a 🏁 beside that message narrated one event twice.
+Successful completion settles the status line into the receipt (#690). The last edit keeps final meters, Chat, and ticket links. Abnormal exits, deaths, cancellations, and watchdog failures retire the status line.
 
 Since #146 the line also carries **meters** beside the state:
 
 ```
-▶️ `curia-49` · working · **opus** · ctx 88% · **5h** 🟥 ▓▓▓┃███░░░░ 62% · **7d** 🟩 ▓▓▓▓░░░░┃░░ 41%
+🧭 `reads call sites` · **opus** · ctx 88% · **5h** 🟥 ▓▓▓┃███░░░░ 62% · **7d** 🟩 ▓▓▓▓░░░░┃░░ 41%
 ```
 
 | Meter | Source |
@@ -208,8 +208,8 @@ A meter tick refreshes the live lines once a minute and edits only when a number
 
 Three events used to speak twice or more. The cold read of 131 threads counted them in `docs/research/discord-thread-surprises.md`, sections 3 and 4. Each one collapses to one voice.
 
-- **The ending is two messages, in this order.** First comes the agent's report, in the `curia-<n>` webhook voice. It says what the work came to. The daemon appends the pull-request link to it, because that report is the one place the link unfurls. Then comes one CuriaBot receipt, in small print. It merges the old resolved, done and finished lines into one sentence: what the tracker step did, then what the session teardown did. Every url in it is wrapped in `<>`, so the same GitHub embed never renders twice. The tracker sentence rides its own journal event (`ticket_resolved.summary` and its siblings). A restart between `report_result` and the Stop hook does not silence the ending.
-- **The spawn is CuriaBot's line alone.** The composer-ready message announces the dispatch. The overseer never narrates a dispatch it triggered. The overseer owns the CHOICE, so it may say which ticket it picked and why. It says nothing about the agent's state.
+- **The ending uses a report and the status line.** The `curia` report leads with the typed headline. The status line then settles into the receipt. The receipt keeps the final meters and durable links.
+- **The status line carries the spawn.** Dispatch, image build, composer arrival, and working phases edit one message. No separate composer message posts.
 - **A button answer is the card.** The bridge acknowledges the press silently and edits the card in place. No interaction reply follows it. The mark on the card carries what the reply used to add. That includes the dead ids a routed answer came through.
 
 ## Preview links (#40, implementing #8)
