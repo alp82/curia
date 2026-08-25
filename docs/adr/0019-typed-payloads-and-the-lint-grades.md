@@ -3,6 +3,8 @@
 **Status**: accepted (2026-08)
 **Provenance**: [Typed HITL payloads (#413)](https://github.com/alp82/curia/issues/413), [What Discord renders well (#414)](https://github.com/alp82/curia/issues/414), [The card (#415)](https://github.com/alp82/curia/issues/415), [Reject-on-lint live check (#416)](https://github.com/alp82/curia/issues/416), [ADR: typed payloads and the lint contract (#417)](https://github.com/alp82/curia/issues/417), [The select menu, built and judged (#431)](https://github.com/alp82/curia/issues/431), [The chunker breaks a code fence (#432)](https://github.com/alp82/curia/issues/432), [Reject-on-lint on the codex harness (#438)](https://github.com/alp82/curia/issues/438), [Typed notify (#420)](https://github.com/alp82/curia/issues/420), [Typed verdict carriage (#421)](https://github.com/alp82/curia/issues/421), [The flip (#422)](https://github.com/alp82/curia/issues/422)
 
+> **Amended by [ADR-0026](0026-the-composite-send.md) (#640).** The `visual` FIELD below retires, and `picture`, `table` and `diagram` replace it. `images` is renamed `attachments`. The never-stacked small-print rule gains one named exception, the question background. The prose cap of a composite send is 1600, and a question background is Grade B at 600. Everything else on this page stands.
+
 ## Context
 
 Agent prose reaches the operator on five surfaces: `ask_human`, the review gate, `report_result`, `notify` and the cross-check verdict. Every one of them takes a free string today.

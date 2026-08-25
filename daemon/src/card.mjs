@@ -32,11 +32,21 @@ export function composeOpening(opening = {}) {
   ].join('\n')
 }
 
-// The visual arrives as rows and leaves as a fenced block. curia writes the
-// fence, so an agent can never send a broken one (#432 reads it either way).
+// A table or a diagram arrives as rows and leaves as a fenced block. curia
+// writes the fence, so an agent can never send a broken one (#432 reads it
+// either way).
 export function visualBlock(visual) {
   const body = unfence(visual)
   return `\`\`\`\n${body}\n\`\`\``
+}
+
+// The two geometry fields ADR-0026 (#640) split the retired `visual` field
+// into, in the order the operator reads them: the table states, the diagram
+// shows. `picture` is the third of the trio and it is not a block — it is a
+// file the reader looks at, so it rides the message's files rather than its
+// text.
+function visualBlocks(payload = {}) {
+  return ['table', 'diagram'].filter((f) => has(payload[f])).map((f) => visualBlock(payload[f]))
 }
 
 // The consequence and the example, under the thing they belong to. `↳` is the
@@ -56,7 +66,7 @@ const APPROVE_REJECT = ['✅ Approve', '❌ Reject']
 export function composeCard(kind, payload = {}) {
   const parts = []
   if (has(payload.headline)) parts.push(`**${String(payload.headline).trim()}**`)
-  if (has(payload.visual)) parts.push(visualBlock(payload.visual))
+  parts.push(...visualBlocks(payload))
 
   if (kind === 'free-text') {
     // A round is typed now (#285 wrote the numbers by hand inside one prose
@@ -96,7 +106,7 @@ export function composeCard(kind, payload = {}) {
 export function composeReviewBody(payload = {}) {
   const parts = []
   if (has(payload.headline)) parts.push(`**${String(payload.headline).trim()}**`)
-  if (has(payload.visual)) parts.push(visualBlock(payload.visual))
+  parts.push(...visualBlocks(payload))
   if (has(payload.detail)) parts.push(`Details: ||${String(payload.detail).trim()}||`)
   return parts.join('\n\n')
 }
@@ -111,7 +121,7 @@ export function composeReviewBody(payload = {}) {
 export function composeResultBody(payload = {}) {
   const parts = []
   if (has(payload.headline)) parts.push(`**${String(payload.headline).trim()}**`)
-  if (has(payload.visual)) parts.push(visualBlock(payload.visual))
+  parts.push(...visualBlocks(payload))
   if (has(payload.summary)) parts.push(String(payload.summary).trim())
   if (has(payload.detail)) parts.push(`Details: ||${String(payload.detail).trim()}||`)
   return parts.join('\n\n')
@@ -175,7 +185,7 @@ export function composeNotify(payload = {}) {
   const kind = NOTIFY_KINDS.includes(payload.kind) ? payload.kind : DEFAULT_NOTIFY_KIND
   const parts = []
   if (has(payload.message)) parts.push(`${NOTIFY_SIGNAL[kind]} ${String(payload.message).trim()}`)
-  if (has(payload.visual)) parts.push(visualBlock(payload.visual))
+  parts.push(...visualBlocks(payload))
   if (has(payload.detail)) parts.push(`Details: ||${String(payload.detail).trim()}||`)
   if (kind === 'ask' && parts.length) parts.push(smallPrint(ASK_LINE))
   return parts.join('\n\n')
@@ -217,7 +227,7 @@ export function composeVerdict(payload = {}) {
   if (has(payload.headline)) parts.push(`**${String(payload.headline).trim()}**`)
   const grade = verdictGrade(findings)
   if (grade) parts.push(`${VERDICT_SIGNAL[grade]} **${grade}** — ${findingCounts(findings)}`)
-  if (has(payload.visual)) parts.push(visualBlock(payload.visual))
+  parts.push(...visualBlocks(payload))
   if (has(payload.summary)) parts.push(String(payload.summary).trim())
   for (const [i, f] of (findings ?? []).entries()) {
     const severity = String(f?.severity ?? '').trim().toLowerCase()

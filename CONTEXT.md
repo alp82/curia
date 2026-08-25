@@ -427,11 +427,11 @@ What the operator said, as against what Discord kept in the message ([#697](http
 _Avoid_: message content (that names the Discord field, which is only one of the segments).
 
 **Ending report**:
-What `report_result` puts in the thread, in the agent's own voice, as the first of the ending's two messages (#253, #419). It is typed: `headline` says what the work came to in one line, `summary` says what changed, and a `visual` and a `detail` are the agent's judgment. curia lays the parts out and appends the pull-request link. The same headline leads the resolution comment curia writes, and it becomes the gist of the map pointer. A cross-check reviewer's report is a **verdict** instead: it is typed on its own fields (#421), and it wears the 🔎 signal rather than the ✅ of an ending.
+What `report_result` puts in the thread, in the agent's own voice, as the first of the ending's two messages (#253, #419). It is typed: `headline` says what the work came to in one line, `summary` says what changed, and a `table`, a `diagram` and a `detail` are the agent's judgment. curia lays the parts out and appends the pull-request link. The same headline leads the resolution comment curia writes, and it becomes the gist of the map pointer. A cross-check reviewer's report is a **verdict** instead: it is typed on its own fields (#421), and it wears the 🔎 signal rather than the ✅ of an ending.
 _Avoid_: final summary, result message.
 
 **Status line**:
-What `notify` puts in the thread, in the agent's own voice, while the work goes on (#420). It is typed: `message` says what happened, and a `visual` and a `detail` are the agent's judgment. Its `kind` says what the operator must DO, never how the agent rates its own news. `progress` needs nothing from them, `look` puts a file or a page in front of their eyes now, and `ask` wants a reply nothing is blocked on. A status line asks for no decision, so an agent that cannot go on without the answer calls `ask_human` instead.
+What `notify` puts in the thread, in the agent's own voice, while the work goes on (#420). It is typed: `message` says what happened, and a `table`, a `diagram` and a `detail` are the agent's judgment. Its `kind` says what the operator must DO, never how the agent rates its own news. `progress` needs nothing from them, `look` puts a file or a page in front of their eyes now, and `ask` wants a reply nothing is blocked on. A status line asks for no decision, so an agent that cannot go on without the answer calls `ask_human` instead.
 _Avoid_: status update, progress ping.
 
 **Lint gate**:
