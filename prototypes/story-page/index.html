@@ -1932,45 +1932,132 @@
   }
 
   /* ================================================================
-     The five ways a card comes and goes. This is the round's question.
+     Round 9 (#630) — every screen says what it is.
+
+     The operator's answer to round 8, verbatim:
+
+       we are getting in a better place here. lets pick turn
+
+       now lets make variations for clear identification of the
+       screens. we can use the application/product logos to make very
+       clear what is discord, github, use a mobile phone for screens,
+       etc. - also add browser shells or window borders and titles
+
+     THE TRANSITION IS SETTLED: turn. It leaves the variations and
+     becomes the base, and the cards swap on a turn from their top edge,
+     which is the edge they now hang from.
+
+     THE ROUND'S QUESTION is identification. Every screen carries its
+     product's own mark and a title, and the five variations are five
+     ways of framing that: a browser tab, full window chrome, the
+     hardware itself, a corner badge, or a labelled header in the page's
+     own type.
+
+     The GitHub and Discord marks came back with this round. Round 3
+     dropped them when round 1's surface tags left, and the build check
+     that refuses a sprite passenger is what kept them out until
+     something needed them again.
      ================================================================ */
 
-  /* ---- 1 · deal. Round 2's desk: a card lands from below, turned a
-         little, and STAYS in the pile as the next lands on it. ---- */
-  .v-deal .r8-card { transform: translateY(2.2rem) rotate(-2.6deg); }
-  .v-deal .r8-card.on { transform: rotate(var(--rot, -0.9deg)); }
-  .v-deal .r8-card.seen { opacity: 0.26; transform: translateY(0.9rem) rotate(var(--rot, -0.9deg)) scale(0.96); }
-  .v-deal .r8-lane > * { box-shadow: 0 18px 40px rgba(0, 0, 0, 0.62); }
+  /* ---- the settled transition: turn ---- */
+  .r8-desk { perspective: 1200px; }
+  .r8-card { transform-origin: 50% 0%; transform: rotateX(-22deg) translateY(-1.2rem); }
+  .r8-card.on { transform: none; }
+  .r8-card.seen { opacity: 0; transform: rotateX(14deg) translateY(1.4rem); }
+  .r8-lane > * { box-shadow: 0 20px 44px rgba(0, 0, 0, 0.65); }
 
-  /* ---- 2 · dissolve. No travel at all. The card that is leaving fades
-         where it lies and the next one comes up through it. ---- */
-  .v-dissolve .r8-card { transform: none; }
-  .v-dissolve .r8-card.on { transform: none; }
-  .v-dissolve .r8-lane > * { box-shadow: 0 14px 34px rgba(0, 0, 0, 0.55); }
-  .v-dissolve .r8-card { transition-duration: 0.7s; }
+  /* ---- what a screen says about itself ---- */
+  .r8-tab { display: flex; align-items: center; gap: 0.4em; min-width: 0; }
+  .r8-mk { width: 0.95em; height: 0.95em; flex: none; }
+  .r8-tab b { font: 700 0.68rem var(--sans); color: #e6edf3; flex: none; }
+  .r8-tab i {
+    font: 400 0.62rem var(--mono); color: #8b93a4; font-style: normal;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+  }
+  .r8-lane[data-app="discord"] .r8-mk { color: #5865f2; }
+  .r8-lane[data-app="github"] .r8-mk { color: #e6edf3; }
+  /* The client's own status dot and word are what a real Discord title
+     bar shows, so the mark joins them rather than replacing them. */
+  .win.dcw .win-bar { gap: 0.6rem; }
+  /* SCOPED to this scene. `.at-ht` is scene 6's header strip, and a
+     bare rule on it here is the same collision that broke the phone at
+     round 5 — one round after the check that catches it went in. */
+  #run .at-ht .hide-lbl { display: none; }
+  #run .at-ht { align-items: center; }
 
-  /* ---- 3 · lift. The card that is done lifts off the desk and blurs
-         out of focus, and the next one rises into focus behind it. ---- */
-  .v-lift .r8-card { transform: translateY(1.8rem) scale(0.97); filter: blur(5px); }
-  .v-lift .r8-card.on { transform: none; filter: none; }
-  .v-lift .r8-card.seen { opacity: 0; transform: translateY(-2.4rem) scale(1.03); filter: blur(7px); }
-  .v-lift .r8-lane > * { box-shadow: 0 16px 38px rgba(0, 0, 0, 0.6); }
+  /* ---- 1 · tab. Every browser screen gets a real tab strip: a tab
+         carrying the site's own mark and the page title, with the url
+         bar under it. Discord and curia get the same tab shape, so the
+         three read as three tabs of one reader. ---- */
+  .v-tab .win-bar, .v-tab .at-ht { flex-wrap: wrap; }
+  .v-tab .r8-tab {
+    order: -1; width: 100%;
+    background: #0d1117; border: 1px solid #ffffff14; border-bottom: none;
+    border-radius: 7px 7px 0 0; padding: 0.34rem 0.6rem; margin: -0.42rem -0.7rem 0.42rem;
+  }
+  .v-tab .win.dcw .r8-tab { background: #2b2d31; }
+  .v-tab .at-scr .r8-tab { background: #0b0c10; margin: -0.1rem 0 0.4rem; }
+  .v-tab .win-bar .dots { display: none; }
 
-  /* ---- 4 · turn. The cards swap on a turn, as if the top of the pile
-         were being turned over onto the desk. ---- */
-  .v-turn .r8-desk { perspective: 1200px; }
-  .v-turn .r8-card { transform-origin: 50% 100%; transform: rotateX(24deg) translateY(1.4rem); }
-  .v-turn .r8-card.on { transform: none; }
-  .v-turn .r8-card.seen { opacity: 0; transform: rotateX(-16deg) translateY(-1.6rem); }
-  .v-turn .r8-lane > * { box-shadow: 0 20px 44px rgba(0, 0, 0, 0.65); }
+  /* ---- 2 · shell. Full window chrome: the traffic lights, the app's
+         mark and name in a title bar of its own, and the address or the
+         channel under it. Every screen is a labelled window. ---- */
+  .v-shell .r8-lane > * { border: 1px solid #ffffff2e; border-radius: 12px; }
+  .v-shell .win-bar, .v-shell .at-ht {
+    background: #10131a; border-bottom: 1px solid #ffffff1a; padding: 0.5rem 0.7rem;
+  }
+  .v-shell .r8-tab b { font-size: 0.72rem; }
+  .v-shell .r8-tab { flex: 1; }
+  .v-shell .win-bar .url { flex: 0 1 14rem; }
+  .v-shell .win.dcw .wn { display: none; }
 
-  /* ---- 5 · slide. The card is dealt ACROSS the desk: it comes in from
-         the docking side and the last one leaves to the other. ---- */
-  .v-slide .r8-card { transform: translateX(-14%); }
-  .v-slide .r8-card.on { transform: none; }
-  .v-slide .r8-card.seen { opacity: 0; transform: translateX(14%); }
-  .v-slide .r8-desk { overflow: hidden; }
-  .v-slide .r8-lane > * { box-shadow: 0 14px 34px rgba(0, 0, 0, 0.58); }
+  /* ---- 3 · device. Identification by HARDWARE. The thread is answered
+         on a phone, which is the whole claim of this scene, and the
+         GitHub screens sit in a browser on a desk. ---- */
+  .v-device .r8-lane[data-app="discord"] {
+    background: #14161c; border: 1px solid #ffffff24; border-radius: 22px;
+    padding: 1.5rem 0.45rem 0.7rem; position: relative;
+    box-shadow: 0 26px 62px rgba(0, 0, 0, 0.72);
+  }
+  .v-device .r8-lane[data-app="discord"]::before {
+    content: ''; position: absolute; left: 50%; top: 0.62rem; transform: translateX(-50%);
+    width: 3.2rem; height: 0.26rem; border-radius: 2px; background: #0a0b0f; z-index: 3;
+  }
+  .v-device .r8-lane[data-app="discord"]::after {
+    content: ''; position: absolute; left: 50%; bottom: 0.24rem; transform: translateX(-50%);
+    width: 4.4rem; height: 0.18rem; border-radius: 2px; background: #ffffff24;
+  }
+  .v-device .r8-lane[data-app="discord"] > * { border-radius: 15px; box-shadow: none; }
+  .v-device .r8-lane[data-app="discord"] .win-bar { border-radius: 15px 15px 0 0; }
+  .v-device .r8-lane[data-app="github"] > * { border: 1px solid #ffffff26; border-radius: 9px 9px 4px 4px; }
+  .v-device .r8-lane[data-app="curia"] > * { border: 1px solid #ffffff26; }
+
+  /* ---- 4 · badge. Almost no chrome. A product badge sits on the top
+         corner of each screen, like a sticker on the card, and the
+         window keeps only the thinnest edge. ---- */
+  .v-badge .win-bar, .v-badge .at-ht { background: none; border-bottom: 1px solid #ffffff12; }
+  .v-badge .win-bar .dots, .v-badge .win.dcw .wn, .v-badge .win.dcw .winb { display: none; }
+  .v-badge .r8-tab {
+    background: #08090c; border: 1px solid rgba(var(--scb), 0.5);
+    border-radius: 999px; padding: 0.2rem 0.7rem 0.2rem 0.55rem;
+  }
+  .v-badge .r8-tab i { display: none; }
+  .v-badge .r8-lane > * { border: 1px solid #ffffff1a; }
+
+  /* ---- 5 · header. The label is the PAGE's, not the product's: a
+         line in this page's own type above each screen, naming the
+         product and what you are looking at. ---- */
+  .v-header .r8-tab {
+    order: -1; width: 100%; margin: -0.42rem -0.7rem 0.5rem; padding: 0.3rem 0.7rem 0.4rem;
+    border-bottom: 2px solid rgba(var(--scb), 0.55); background: none;
+  }
+  .v-header .win-bar, .v-header .at-ht { flex-wrap: wrap; }
+  .v-header .r8-tab b {
+    font: 800 0.62rem var(--mono); letter-spacing: 0.12em; text-transform: uppercase;
+    color: var(--sc);
+  }
+  .v-header .r8-tab i { font-size: 0.6rem; letter-spacing: 0.04em; }
+  .v-header .at-scr .r8-tab { margin: -0.1rem 0 0.45rem; }
 
   /* ---- the fail-open path. With reduced motion or no script the desk
          lets go, every card stands in order, and the ticket shows its
@@ -2771,7 +2858,7 @@
 
        Round 1 offers five readings of the same six events on ?id=1..5:
        1 timeline, 2 lanes, 3 devices, 4 deal, 5 steps. -->
-  <section class="scene run sL v-deal" id="run" data-v="1" data-k="1" data-stage="gate" data-n="07" data-name="one ticket on GitHub" style="--g1:#141b33;--g2:#0c1020">
+  <section class="scene run sL v-tab" id="run" data-v="1" data-k="1" data-stage="gate" data-n="07" data-name="one ticket on GitHub" style="--g1:#141b33;--g2:#0c1020">
 
     <!-- The octicons and the two product marks. The page ships no
          image and no webfont, so every mark here is drawn (#629). -->
@@ -2780,6 +2867,9 @@
       <g id="oc-pr" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="4.3" cy="3.6" r="1.8"/><circle cx="4.3" cy="12.4" r="1.8"/><path d="M4.3 5.4v5.2" stroke-linecap="round"/><circle cx="11.7" cy="12.4" r="1.8"/><path d="M11.7 10.6V6.4A2.1 2.1 0 0 0 9.6 4.3H7.6" stroke-linecap="round"/><path d="M9 2.7 7.5 4.3 9 5.9" stroke-linecap="round" stroke-linejoin="round"/></g>
       <g id="oc-merge" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="4.3" cy="3.6" r="1.8"/><circle cx="4.3" cy="12.4" r="1.8"/><path d="M4.3 5.4v5.2" stroke-linecap="round"/><circle cx="11.7" cy="5.4" r="1.8"/><path d="M9.9 5.8H8.6a4 4 0 0 0-4 4v0.8" stroke-linecap="round"/></g>
       <g id="oc-commit" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="2.4"/><path d="M1.2 8h4.4M10.4 8h4.4" stroke-linecap="round"/></g>
+      <path id="oc-gh" fill="currentColor" d="M8 1a7 7 0 0 0-2.21 13.64c.35.07.48-.15.48-.34l-.01-1.2c-1.95.43-2.36-.94-2.36-.94-.32-.81-.78-1.03-.78-1.03-.64-.44.05-.43.05-.43.7.05 1.07.72 1.07.72.63 1.07 1.65.76 2.05.58.06-.45.25-.76.45-.94-1.57-.18-3.21-.78-3.21-3.48 0-.77.27-1.4.72-1.89-.07-.18-.31-.9.07-1.87 0 0 .59-.19 1.93.72a6.7 6.7 0 0 1 3.52 0c1.34-.91 1.93-.72 1.93-.72.38.97.14 1.69.07 1.87.45.49.72 1.12.72 1.89 0 2.71-1.65 3.3-3.22 3.47.25.22.48.66.48 1.33l-.01 1.97c0 .19.13.42.49.34A7 7 0 0 0 8 1Z"/>
+      <path id="oc-dc" fill="currentColor" d="M13.1 3.6a11 11 0 0 0-2.7-.83l-.17.34c.83.2 1.6.5 2.32.87a8.6 8.6 0 0 0-8.11 0c.72-.38 1.5-.68 2.32-.87l-.17-.34c-.96.17-1.86.45-2.7.83C1.63 6.7 1.05 9.7 1.34 12.55A11.1 11.1 0 0 0 4.7 14l.72-1.01c-.4-.15-.78-.34-1.14-.56l.28-.22a7.9 7.9 0 0 0 6.87 0l.28.22c-.36.22-.74.41-1.14.56l.72 1.01a11.1 11.1 0 0 0 3.36-1.45c.35-3.3-.6-6.27-2.55-8.95ZM5.72 10.79c-.66 0-1.2-.6-1.2-1.35 0-.74.53-1.35 1.2-1.35s1.21.61 1.2 1.35c0 .75-.53 1.35-1.2 1.35Zm4.56 0c-.66 0-1.2-.6-1.2-1.35 0-.74.53-1.35 1.2-1.35s1.21.61 1.2 1.35c0 .75-.53 1.35-1.2 1.35Z"/>
+      <g id="mk-curia"><circle cx="8" cy="8.4" r="5.2" fill="none" stroke="#7dd3a0" stroke-width="1.5"/><circle cx="8" cy="8.4" r="1.9" fill="#7dd3a0"/><circle cx="8" cy="2.6" r="1.5" fill="#e0ae4c"/></g>
       <g id="mk-bot"><rect width="40" height="40" fill="#12161f"/><circle cx="20" cy="20" r="12.5" fill="none" stroke="#7dd3a0" stroke-width="2.4"/><circle cx="20" cy="20" r="4.6" fill="#7dd3a0"/><circle cx="20" cy="6.5" r="2.6" fill="#e0ae4c"/></g>
     </defs></svg>
 
@@ -2793,11 +2883,11 @@
     <!-- ROUND 1 DEVICE. It leaves the file with the round that settles
          this scene, the way #624's identity bar did. -->
     <div class="rsw" id="rsw" role="group" aria-label="composition">
-      <button type="button" data-i="1" aria-pressed="true">1 deal</button>
-      <button type="button" data-i="2" aria-pressed="false">2 dissolve</button>
-      <button type="button" data-i="3" aria-pressed="false">3 lift</button>
-      <button type="button" data-i="4" aria-pressed="false">4 turn</button>
-      <button type="button" data-i="5" aria-pressed="false">5 slide</button>
+      <button type="button" data-i="1" aria-pressed="true">1 tab</button>
+      <button type="button" data-i="2" aria-pressed="false">2 shell</button>
+      <button type="button" data-i="3" aria-pressed="false">3 device</button>
+      <button type="button" data-i="4" aria-pressed="false">4 badge</button>
+      <button type="button" data-i="5" aria-pressed="false">5 header</button>
     </div>
 
     <div class="runwrap">
@@ -2840,9 +2930,9 @@
         <div class="r8-desk" id="desk">
         <div class="r8-card on" data-i="1" style="--rot:-0.9deg">
           <div>
-            <div class="r8-lane">
+            <div class="r8-lane" data-app="curia">
               <div class="at-scr">
-                <div class="at-ht"><span>curia · atlas</span><span class="needs">1 takeable</span></div>
+                <div class="at-ht"><span class="r8-tab"><svg class="r8-mk" viewBox="0 0 16 16" aria-hidden="true"><use href="#mk-curia"/></svg><b>curia</b><i>atlas</i></span><span class="hide-lbl">curia · atlas</span><span class="needs">1 takeable</span></div>
                 <div class="at-body">
                   <div class="front"><span class="frontlbl">the frontier</span><span class="frule"></span><span class="fcap">1 takeable</span></div>
                   <div class="r8-fcard">
@@ -2860,9 +2950,10 @@
 
         <div class="r8-card" data-i="2" style="--rot:1.1deg">
           <div>
-            <div class="r8-lane">
+            <div class="r8-lane" data-app="discord">
               <div class="win dcw">
                 <div class="win-bar">
+                  <span class="r8-tab"><svg class="r8-mk" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-dc"/></svg><b>Discord</b><i>#curia</i></span>
                   <span class="wn"><i></i>Discord</span>
                   <span class="winb" aria-hidden="true"><b>—</b><b>▢</b><b>✕</b></span>
                 </div>
@@ -2895,9 +2986,10 @@
 
         <div class="r8-card two" data-i="3" style="--rot:-0.7deg">
           <div>
-            <div class="r8-lane">
+            <div class="r8-lane" data-app="discord">
               <div class="win dcw">
                 <div class="win-bar">
+                  <span class="r8-tab"><svg class="r8-mk" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-dc"/></svg><b>Discord</b><i>#curia</i></span>
                   <span class="wn"><i></i>Discord</span>
                   <span class="winb" aria-hidden="true"><b>—</b><b>▢</b><b>✕</b></span>
                 </div>
@@ -2928,10 +3020,11 @@
                 </div>
               </div>
             </div>
-            <div class="r8-lane">
+            <div class="r8-lane" data-app="github">
               <div class="win">
                 <div class="win-bar">
                   <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
+                  <span class="r8-tab"><svg class="r8-mk" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-gh"/></svg><b>GitHub</b><i>alp82/curia · pull request #597</i></span>
                   <span class="url">github.com/alp82/curia/pull/597</span>
                 </div>
                 <div class="win-body">
@@ -2957,9 +3050,10 @@
 
         <div class="r8-card two" data-i="4" style="--rot:1.2deg">
           <div>
-            <div class="r8-lane">
+            <div class="r8-lane" data-app="discord">
               <div class="win dcw">
                 <div class="win-bar">
+                  <span class="r8-tab"><svg class="r8-mk" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-dc"/></svg><b>Discord</b><i>#curia</i></span>
                   <span class="wn"><i></i>Discord</span>
                   <span class="winb" aria-hidden="true"><b>—</b><b>▢</b><b>✕</b></span>
                 </div>
@@ -2981,10 +3075,11 @@
                 </div>
               </div>
             </div>
-            <div class="r8-lane">
+            <div class="r8-lane" data-app="github">
               <div class="win">
                 <div class="win-bar">
                   <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
+                  <span class="r8-tab"><svg class="r8-mk" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-gh"/></svg><b>GitHub</b><i>alp82/curia · pull request #597</i></span>
                   <span class="url">github.com/alp82/curia/pull/597</span>
                 </div>
                 <div class="win-body">
@@ -3534,10 +3629,11 @@ function clampNum(v, a, b) { return v < a ? a : v > b ? b : v; }
    deals no card, so the ticket stands alone, and beats 4 and 5 deal the
    thread and the pull request together.
 
-   `seen` is what makes the deal a PILE rather than a swap: a card the
-   run is done with stays on the desk under the next one. The four
-   other compositions read it too, each taking the leaving card away a
-   different way.
+   The transition is settled at TURN: the cards swap on a turn from the
+   top edge, which is the edge they hang from. `seen` is what takes the
+   leaving card away, and every composition reads it the same way now —
+   this round's five differ in how a screen SAYS WHAT IT IS, not in how
+   it arrives.
 
    No wheel listener, no scrollTo, no preventDefault. With reduced
    motion or no script the desk lets go, every card stands in order and
@@ -3549,7 +3645,7 @@ function clampNum(v, a, b) { return v < a ? a : v > b ? b : v; }
   var cards = [].slice.call(document.querySelectorAll('#desk .r8-card'));
   if (!sec || !steps.length || !cards.length) return;
 
-  var V = { '1': 'v-deal', '2': 'v-dissolve', '3': 'v-lift', '4': 'v-turn', '5': 'v-slide' };
+  var V = { '1': 'v-tab', '2': 'v-shell', '3': 'v-device', '4': 'v-badge', '5': 'v-header' };
   var swb = [].slice.call(document.querySelectorAll('#rsw button'));
   var v = '1';
   var k = 1;

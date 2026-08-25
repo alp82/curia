@@ -2046,6 +2046,52 @@ new ones test the correction itself, and the one worth naming asserts the ORDER 
 in the stage: a ticket moved back under the cards is valid CSS and valid markup, and only its
 position in the source says which way up the desk is.
 
+**The operator's answer to round 8**, verbatim:
+
+> we are getting in a better place here. lets pick turn
+>
+> now lets make variations for clear identification of the screens. we can use the
+> application/product logos to make very clear what is discord, github, use a mobile phone for
+> screens, etc. - also add browser shells or window borders and titles
+
+**The transition is settled: turn.** It leaves the variations and becomes the base. The cards swap
+on a turn from their TOP edge, which is the edge they hang from since round 8, and a build check
+refuses a composition that redefines it — a variation quietly unpicking a decision the operator
+already made is the one thing a switcher must not be able to do.
+
+**Round 9.** Every screen says what it is. Each carries its product's own mark and a title, and the
+five variations are five ways of framing that:
+
+1. **tab** — a real browser tab strip: the site's mark and the page title in a tab, with the address
+   under it. All three screens take the same tab shape, so they read as three tabs of one reader.
+2. **shell** — full window chrome: the traffic lights, the app's mark and name in a title bar of its
+   own, and the address or the channel under it.
+3. **device** — identification by HARDWARE. The thread is answered on a phone, which is the whole
+   claim of this scene, and the GitHub screens sit in a browser.
+4. **badge** — almost no chrome. A product badge sits on the top corner of each screen, and the
+   window keeps only the thinnest edge.
+5. **header** — the label is the PAGE's, not the product's: a line in this page's own type naming
+   the product and what you are looking at.
+
+**The GitHub and Discord marks came back with this round**, and the way they left is why they came
+back cleanly. Round 3 dropped them when round 1's surface tags went, and the check that refuses a
+sprite passenger is what kept them out until something needed them again. A third mark joins them:
+curia's own, the ring and the two dots, drawn rather than fetched like every other mark on this page.
+
+**141 build checks** run against the file and all **77 breaks** that validate them land.
+
+**The collision check caught ME, one round after it went in.** Round 9 wrote `.at-ht { align-items:
+center; }` at the scene's root to line up the dashboard's header strip. `.at-ht` is scene 6's class.
+That is the same fault that broke the operator's phone at round 5, made again by the same instinct —
+reach for the class that is already there — and the check turned it red before the file was ever
+served. Both rules are scoped `#run .at-ht` now.
+
+**And a check matched a name as a substring for the fourth time in this ticket.** `.v-badge .r8-tab`
+is a substring of `.v-badge .r8-tab i`, so renaming the rule that frames the badge left the check
+green. It matches the selector exactly now. Rounds 4, 6, 7 and 9 have each recorded this once, which
+is the strongest argument in this file for breaking every check you write: **it is never the check
+you doubt that is wrong.**
+
 ## The verdict of the terminal scene ([#629](https://github.com/alp82/curia/issues/629))
 
 **Locked over ten operator rounds**, the longest run of any scene on this page. Every variation
