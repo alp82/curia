@@ -784,6 +784,7 @@ describe('the operator verbs (#266)', () => {
         fetchOverview: async () => ({ daemon: { port: 4271 } }),
         assertServe: async () => {},
         serveOff: async () => {},
+        attachBase: async () => 'box.tail1234.ts.net',
         tailnetSelf: async () => ({ dnsName: 'box.tail1234.ts.net', ips: ['100.98.118.33'] }),
       },
     })
@@ -845,6 +846,9 @@ describe('the operator verbs (#266)', () => {
   test('GitHub App setup keeps conversion inside the daemon', async () => {
     const started = await press('/api/github-app/start', { name: 'curia-box' })
     assert.equal(started.status, 200)
+    // The redirect is composed from curia's own records - `attachBase()` and
+    // the serve port - not from anything the caller sent.
+    assert.equal(await surface.link(), 'https://box.tail1234.ts.net:8445/')
     assert.deepEqual(sent('/github-app/start').body, {
       name: 'curia-box',
       redirect_url: 'https://box.tail1234.ts.net:8445/api/github-app/complete',
@@ -853,6 +857,23 @@ describe('the operator verbs (#266)', () => {
     const completed = await req(surface.port, '/api/github-app/complete?code=one-use&state=expected', { headers: served() })
     assert.equal(completed.status, 303)
     assert.equal(completed.text.includes('PRIVATE KEY'), false)
+  })
+
+  // GitHub sends the one-use conversion code to the redirect URL, so a caller
+  // who could name the redirect could name where that code lands. `Host` is
+  // caller-written text, and it does not move this URL. The first press uses a
+  // name this box does answer to, because that is the one the identity gate
+  // lets through - the gate refuses the rest, which the second press shows.
+  test('a caller-written Host header does not move the setup redirect', async () => {
+    await press('/api/github-app/start', { name: 'curia-box' }, { host: '100.98.118.33:8445' })
+    assert.equal(
+      sent('/github-app/start').body.redirect_url,
+      'https://box.tail1234.ts.net:8445/api/github-app/complete',
+    )
+    calls = []
+    const outside = await press('/api/github-app/start', { name: 'curia-box' }, { host: 'evil.example.com' })
+    assert.equal(outside.status, 403)
+    assert.equal(sent('/github-app/start'), undefined, 'nothing reached the daemon at all')
   })
 
   // The Credentials screen's one press (#661), and the reason that screen
