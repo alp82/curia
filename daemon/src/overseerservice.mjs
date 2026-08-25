@@ -26,7 +26,7 @@ import { TURN_PATH } from './overseerturn.mjs'
 // joins the collision check and the preview reserved list for the reason #263
 // gave the sidecar's ports: a surface that shadowed another would be found as
 // an outage instead of as a config error.
-export const DEFAULT_OVERSEER = { port: 4274 }
+export const DEFAULT_OVERSEER = { port: 4274, live_pane_cap: 3 }
 
 // What answers "is it up". A plain marker, not JSON: the same shape #188 gave
 // the side-channel probe, and for the same reason — something answering is not
@@ -39,9 +39,15 @@ export const PING_MARK = 'curia-overseer'
 export function readOverseer(cfg, fail) {
   const over = cfg.overseer ?? {}
   if (typeof over !== 'object' || Array.isArray(over)) fail('`overseer` must be a mapping')
-  const out = { port: over.port ?? DEFAULT_OVERSEER.port }
+  const out = {
+    port: over.port ?? DEFAULT_OVERSEER.port,
+    live_pane_cap: over.live_pane_cap ?? DEFAULT_OVERSEER.live_pane_cap,
+  }
   if (!(Number.isInteger(out.port) && out.port > 0 && out.port < 65536)) {
     fail('overseer.port must be a port number — it is the loopback port compose publishes the overseer container on')
+  }
+  if (!(Number.isInteger(out.live_pane_cap) && out.live_pane_cap > 0)) {
+    fail('overseer.live_pane_cap must be a positive integer')
   }
   return out
 }

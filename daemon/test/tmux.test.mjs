@@ -12,7 +12,10 @@ import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { hasSession, listSessions, newSession, capturePane, killSession, wrapShellCmd, sendText, sendKey, paneShowsActiveTurn, PANE_WRITE_GAP_MS } from '../src/tmux.mjs'
+import {
+  hasSession, listSessions, newSession, capturePane, killSession, wrapShellCmd,
+  sendText, sendKey, sendDialogOption, paneShowsActiveTurn, PANE_WRITE_GAP_MS,
+} from '../src/tmux.mjs'
 import { paneTail, parseExitMarker, paneExcerpt } from '../src/dispatch.mjs'
 
 // Inside any tmux pane — every curia agent runs there — tmux exports $TMUX,
@@ -360,5 +363,10 @@ if (args[0] === 'capture-pane') {
 
     assert.equal(calls().length, 2)
     assert.ok(Date.now() - started < PANE_WRITE_GAP_MS, 'the gap is per pane; one agent must not delay another')
+  })
+
+  test('a native dialog option is one atomic navigation and confirmation write', async () => {
+    await sendDialogOption('curia-715', { currentIndex: 1, targetIndex: 3 })
+    assert.equal(calls().at(-1).args, 'send-keys -t =curia-715: Down Down Enter')
   })
 })

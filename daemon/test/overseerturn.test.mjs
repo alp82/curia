@@ -114,8 +114,8 @@ function storeDouble({ sessions = {}, notes = [], conversations = ['console-1'] 
 }
 
 describe('the verb catalogue serves both transports (#314)', () => {
-  test('one catalogue, eight verbs, in one order', () => {
-    assert.deepEqual(VERB_TOOLS, ['tickets', 'next', 'status', 'start', 'map', 'cancel', 'resume', 'attach'])
+  test('one catalogue, nine verbs, in one order', () => {
+    assert.deepEqual(VERB_TOOLS, ['tickets', 'next', 'status', 'skill', 'start', 'map', 'cancel', 'resume', 'attach'])
     for (const spec of VERB_SPECS) {
       assert.ok(spec.description.length > 40, `${spec.verb} needs a description the model can act on`)
       assert.equal(typeof spec.args, 'object')
@@ -126,7 +126,7 @@ describe('the verb catalogue serves both transports (#314)', () => {
     assert.equal(canonicalFor('start', { ticket: '314', repo: 'curia' }), 'start curia#314')
   })
 
-  test('the HTTP transport publishes the same eight, with the same schemas', async () => {
+  test('the HTTP transport publishes the same nine, with the same schemas', async () => {
     const posted = []
     const mcp = buildVerbMcpServer(async (text) => { posted.push(text); return `ran ${text}` })
     const client = new Client({ name: 'test', version: '0' })

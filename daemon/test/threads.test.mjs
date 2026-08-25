@@ -340,6 +340,28 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
     assert.equal(sentTo.length, 0)
   })
 
+  test('a new ticket thread opens with its goal before dispatch mechanics', async () => {
+    const r = await bridge.bindTicket('690', {
+      type: 'task', repo: 'alp82/curia', title: 'Tell one quiet ticket story in Discord',
+    })
+
+    assert.equal(r.ok, true)
+    assert.equal(sentTo[0].id, created[0].id)
+    assert.equal(sentTo[0].text, '**#690 Tell one quiet ticket story in Discord**')
+  })
+
+  test('a revived thread does not repeat the ticket goal', async () => {
+    const old = makeThread('t-old-goal', '✅ 690 · curia · task')
+    bridge.registerThread(old)
+    reduction.bindTicketThread('690', old.id)
+    reduction.releaseTicketThread('690', 'finished')
+
+    await bridge.bindTicket('690', {
+      type: 'task', repo: 'alp82/curia', title: 'Tell one quiet ticket story in Discord',
+    })
+    assert.equal(sentTo.length, 0, 'the existing thread already carries its opening')
+  })
+
   // ---- watchers on a fresh thread --------------------------------------------
 
   test('a fresh thread adds every allowed user as a member, with no ping', async () => {
@@ -1094,13 +1116,13 @@ describe('Dispatcher thread binding (#93)', () => {
       fetchIssue: async () => ({ ...OPEN_ISSUE, labels: [{ name: 'wayfinder:grilling' }] }),
     })
     assert.match(await d.start('42', { repo: 'o/r', threadId: 't-7' }), /dispatched/)
-    assert.deepEqual(binds, [{ ticket: '42', threadId: 't-7', type: 'grilling', repo: 'o/r' }])
+    assert.deepEqual(binds, [{ ticket: '42', threadId: 't-7', type: 'grilling', repo: 'o/r', title: 'a ticket' }])
   })
 
   test('an untyped ticket binds with an empty type — the number names the thread', async () => {
     const d = makeDispatcher()
     await d.start('42', { repo: 'o/r', threadId: 't-7' })
-    assert.deepEqual(binds, [{ ticket: '42', threadId: 't-7', type: '', repo: 'o/r' }])
+    assert.deepEqual(binds, [{ ticket: '42', threadId: 't-7', type: '', repo: 'o/r', title: 'a ticket' }])
   })
 
   // #326: a new-map dispatch binds under its chat handle (#241), and it binds
@@ -1108,13 +1130,16 @@ describe('Dispatcher thread binding (#93)', () => {
   test('a new-map dispatch binds the conversation thread it was typed in', async () => {
     const d = makeDispatcher()
     await d.chartNew({ repo: 'o/r', instruction: 'chart the next feature', by: 'u1', threadId: 't-conv' })
-    assert.deepEqual(binds, [{ ticket: 'chat-1', threadId: 't-conv', type: 'map', repo: 'o/r' }])
+    assert.deepEqual(binds, [{
+      ticket: 'chat-1', threadId: 't-conv', type: 'map', repo: 'o/r',
+      title: 'new map: chart the next feature',
+    }])
   })
 
   test('a dispatch with no issuing thread asks for a fresh bound thread (threadId null)', async () => {
     const d = makeDispatcher()
     await d.start('42', { repo: 'o/r', by: 'auto' })
-    assert.deepEqual(binds, [{ ticket: '42', threadId: null, type: '', repo: 'o/r' }])
+    assert.deepEqual(binds, [{ ticket: '42', threadId: null, type: '', repo: 'o/r', title: 'a ticket' }])
   })
 
   test('a prepare failure keeps the label — a claim release is not ticket-terminal (#140)', async () => {

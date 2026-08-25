@@ -27,7 +27,7 @@ const CONFIG = process.env.CURIA_CONFIG ?? path.resolve(DIR, '..', '..', 'config
 
 const log = (...a) => console.log(`[${new Date().toISOString()}]`, ...a)
 
-const { dashboard, allow, timelinePort } = loadDashboardConfig(CONFIG)
+const { dashboard, allow, timelinePort, terminalPort } = loadDashboardConfig(CONFIG)
 
 const surface = new DashboardSurface({
   port: dashboard.port,
@@ -40,6 +40,7 @@ const surface = new DashboardSurface({
   // address. Both containers share the host network, so the port is the same
   // number the daemon binds.
   timelinePort,
+  terminalPort,
   // The two files the settings screen writes (#265). `routing.yaml` sits beside
   // `curia.yaml` by construction — the daemon reads both out of one directory
   // (CURIA_CONFIG_DIR), so naming a second path here would be a second way to

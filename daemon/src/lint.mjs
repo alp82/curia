@@ -264,6 +264,7 @@ export function lintAskHuman(kind, payload = {}) {
   ;(payload.options ?? []).forEach((o, i) => {
     if (typeof o !== 'object' || o === null) return
     if (present(o.label)) faults.push(...gradeA(`options[${i}].label`, o.label, CAPS.option))
+    if (present(o.handle)) faults.push(...gradeA(`options[${i}].handle`, o.handle, 20))
     if (present(o.consequence)) faults.push(...gradeA(`options[${i}].consequence`, o.consequence, CAPS.consequence))
     if (present(o.example)) faults.push(...gradeB(`options[${i}].example`, o.example, CAPS.example))
   })
@@ -351,7 +352,9 @@ export function lintResult(payload = {}) {
 // which layer refuses the call, never whether a silent send lands).
 export function notifyFloorFaults(payload = {}) {
   const faults = []
-  if (!present(payload.message)) faults.push('message: missing. A status line says what happened, in plain words.')
+  if (!present(payload.message) && !payload.phase) {
+    faults.push('message: missing. Add a message, or set a phase for the live status line.')
+  }
   return faults
 }
 
@@ -360,7 +363,7 @@ export function notifyFloorFaults(payload = {}) {
 // surface where a `message` is the field that goes missing. A visual or a
 // spoiler alone still says something, and an empty call says nothing.
 export function notifyHasText(payload = {}) {
-  return present(payload.message) || present(payload.detail) || present(payload.visual)
+  return present(payload.message) || present(payload.detail) || present(payload.visual) || Boolean(payload.phase)
 }
 
 export function lintNotify(payload = {}) {
@@ -368,6 +371,18 @@ export function lintNotify(payload = {}) {
   if (present(payload.message)) faults.push(...gradeB('message', payload.message))
   if (present(payload.detail)) faults.push(...gradeA('detail', payload.detail, CAPS.detail))
   if (present(payload.visual)) faults.push(...lintVisual(payload.visual))
+  if (payload.phase) {
+    const icons = ['🧭', '💭', '🔨', '🚦', '🩹', '🚢']
+    if (!icons.includes(payload.phase.icon)) {
+      faults.push(`phase.icon: use one of ${icons.join(' ')}.`)
+    }
+    const label = String(payload.phase.label ?? '').trim()
+    if (!label) faults.push('phase.label: missing.')
+    if (/\r|\n/.test(label)) faults.push('phase.label: one line only.')
+    const length = Array.from(label).length
+    if (length > 20) faults.push(`phase.label: ${length} characters over the 20 characters cap. Shorten the label.`)
+    if (/`/.test(label)) faults.push('phase.label: remove the code mark. Curia adds code marks around the label.')
+  }
   return faults
 }
 

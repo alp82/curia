@@ -29,6 +29,8 @@ FROM node:${NODE_VERSION}-bookworm-slim
 
 ARG CLAUDE_VERSION
 ARG CODEX_VERSION
+ARG OPENCODE_VERSION
+ARG PI_VERSION
 ARG GH_VERSION
 ARG PLAYWRIGHT_VERSION
 ARG TTYD_VERSION
@@ -93,13 +95,15 @@ RUN set -eux; \
     ttyd --version
 ENV TTYD_BIN=/usr/local/bin/ttyd
 
-# Both harnesses, at the exact versions the box runs. The npm cache from this
+# All supported harnesses, at the exact versions the box runs. The npm cache from this
 # layer is dropped rather than left in the image: the run-time cache is a
 # mounted volume, and a stale copy baked at build time only costs size.
 RUN set -eux; \
     npm install -g --no-fund --no-audit \
       "@anthropic-ai/claude-code@${CLAUDE_VERSION}" \
-      "@openai/codex@${CODEX_VERSION}"; \
+      "@openai/codex@${CODEX_VERSION}" \
+      "opencode-ai@${OPENCODE_VERSION}" \
+      "@earendil-works/pi-coding-agent@${PI_VERSION}"; \
     npm cache clean --force
 
 # Chromium's OS libraries, but not chromium. #148 keeps browsers out of the
@@ -148,7 +152,7 @@ RUN printf '%s\n' \
       'if [ -x /cfg/bin/kill ]; then kill() { /cfg/bin/kill "$@"; }; fi' \
       > /etc/profile.d/curia-kill-guard.sh
 
-# Both CLIs check for a newer self on start. The image IS the pin, and an
+# The harness CLIs check for a newer self on start. The image IS the pin, and an
 # updated CLI inside a container that dies with its ticket is a download the
 # next agent repeats.
 ENV DISABLE_AUTOUPDATER=1
@@ -157,6 +161,8 @@ LABEL org.opencontainers.image.title="curia agent" \
       org.opencontainers.image.source="https://github.com/alp82/curia" \
       curia.claude-version="${CLAUDE_VERSION}" \
       curia.codex-version="${CODEX_VERSION}" \
+      curia.opencode-version="${OPENCODE_VERSION}" \
+      curia.pi-version="${PI_VERSION}" \
       curia.gh-version="${GH_VERSION}" \
       curia.ttyd-version="${TTYD_VERSION}" \
       curia.playwright-version="${PLAYWRIGHT_VERSION}" \
@@ -166,4 +172,9 @@ LABEL org.opencontainers.image.title="curia agent" \
 
 USER agent
 WORKDIR /workspace
+RUN set -eux; \
+    claude --version; \
+    codex --version; \
+    opencode --version; \
+    pi --version
 CMD ["bash"]

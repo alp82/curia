@@ -7,8 +7,8 @@
 // the two CLI versions so a human reading `docker images` sees what an agent
 // runs, and a hash over every build input so nothing else can drift silently:
 //
-//     curia-agent:2.1.220-0.146.0-3f8a1c2d
-//                  ^claude ^codex  ^sha256(Dockerfile + all build args)
+//     curia-agent:2.1.220-0.146.0-1.18.18-0.84.2-3f8a1c2d
+//                  ^claude ^codex  ^opencode ^pi    ^sha256(inputs)
 //
 // That is what makes "the daemon rebuilds the image when a CLI version bumps"
 // a fact rather than a promise. A bump in config/curia.yaml names a tag that
@@ -41,7 +41,7 @@ export const BUILD_CONTEXT = path.dirname(DOCKERFILE)
 export const DOCKER_BIN = process.env.DOCKER_BIN ?? 'docker'
 export const BUILD_CMD = 'npm run build-agent-image --prefix daemon'
 
-// A build pulls a base image, fetches gh, and installs two CLIs that are
+// A build pulls a base image, fetches gh, and installs four CLIs that are
 // ~600 MB of native binary between them. Measured at ~4 minutes cold on the
 // box; ten leaves room for a slow mirror without leaving a dispatch hanging
 // on a wedged builder forever.
@@ -50,7 +50,10 @@ export const BUILD_TIMEOUT_MS = 10 * 60_000
 // Every ARG the Dockerfile declares, in the order it declares them. Kept as
 // one list because it is the contract between the two files: an ARG added
 // there and missed here would build with the empty string and pin nothing.
-const BUILD_ARGS = ['NODE_VERSION', 'CLAUDE_VERSION', 'CODEX_VERSION', 'GH_VERSION', 'PLAYWRIGHT_VERSION', 'TTYD_VERSION', 'AGENT_UID']
+const BUILD_ARGS = [
+  'NODE_VERSION', 'CLAUDE_VERSION', 'CODEX_VERSION', 'OPENCODE_VERSION',
+  'PI_VERSION', 'GH_VERSION', 'PLAYWRIGHT_VERSION', 'TTYD_VERSION', 'AGENT_UID',
+]
 
 // The pins as they are named in config/curia.yaml, mapped to the ARG each one
 // feeds. `agent_uid` is the one that is not a version: it must match the host
@@ -63,6 +66,8 @@ export const SANDBOX_KEYS = {
   node_version: 'NODE_VERSION',
   claude_version: 'CLAUDE_VERSION',
   codex_version: 'CODEX_VERSION',
+  opencode_version: 'OPENCODE_VERSION',
+  pi_version: 'PI_VERSION',
   gh_version: 'GH_VERSION',
   playwright_version: 'PLAYWRIGHT_VERSION',
   ttyd_version: 'TTYD_VERSION',
@@ -100,7 +105,13 @@ export function imageDigest(sandbox, dockerfile = DOCKERFILE) {
 export function agentImageRef(sandbox, dockerfile = DOCKERFILE) {
   const repo = sandbox.image ?? DEFAULT_IMAGE
   const digest = imageDigest(sandbox, dockerfile)
-  const tag = `${tagSafe(sandbox.claude_version)}-${tagSafe(sandbox.codex_version)}-${digest.slice(0, 8)}`
+  const tag = [
+    sandbox.claude_version,
+    sandbox.codex_version,
+    sandbox.opencode_version,
+    sandbox.pi_version,
+    digest.slice(0, 8),
+  ].map(tagSafe).join('-')
   return { repo, tag, ref: `${repo}:${tag}`, digest, args: buildArgs(sandbox) }
 }
 

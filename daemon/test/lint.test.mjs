@@ -429,11 +429,22 @@ describe('the status line (#420)', () => {
   test('the floor is the message, because the schema required it before this ticket', () => {
     assert.deepEqual(notifyFloorFaults(LINE), [])
     assert.match(names(notifyFloorFaults({ detail: 'facts' })), /message: missing/)
+    assert.deepEqual(notifyFloorFaults({ phase: { icon: '🧭', label: 'reads the call sites' } }), [],
+      'a phase-only update edits the live status line')
+  })
+
+  test('the phase uses the curated icons and a 20-character inline label', () => {
+    assert.deepEqual(lintNotify({ phase: { icon: '🧭', label: 'reads the call sites' } }), [])
+    assert.match(names(lintNotify({ phase: { icon: '🧭', label: 'this label is more than twenty characters' } })),
+      /phase.label: .*20 characters cap/)
+    assert.match(names(lintNotify({ phase: { icon: '🏁', label: 'ships' } })), /phase.icon: use one of/)
+    assert.match(names(lintNotify({ phase: { icon: '🚢', label: 'ships\nnow' } })), /phase.label: one line/)
   })
 
   test('a status line with words has text, so its cap ends in a flagged send', () => {
     assert.equal(notifyHasText(LINE), true)
     assert.equal(notifyHasText({ visual: 'a  b' }), true, 'a visual alone still says something')
+    assert.equal(notifyHasText({ phase: { icon: '🚦', label: 'runs daemon tests' } }), true)
     assert.equal(notifyHasText({ images: ['a.png'] }), false, 'a file is not prose, so it is the dead end')
   })
 })

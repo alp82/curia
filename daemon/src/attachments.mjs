@@ -30,6 +30,10 @@ export const MAX_TEXT_BYTES = 1 * 1024 * 1024
 // Inbound rides into the model's context as base64 — the API's own per-image
 // ceiling is the binding constraint, not Discord's.
 export const MAX_INBOUND_BYTES = 5 * 1024 * 1024
+// Discord turns messages beyond its composer limit into text attachments.
+// Reading those files as operator text must stay bounded before the content
+// reaches an overseer or an agent transcript.
+export const MAX_INBOUND_TEXT_BYTES = 256 * 1024
 // One count for the whole call, images and text together (#430).
 export const MAX_FILES = 4
 
@@ -67,6 +71,89 @@ export function imageMimeFor(file) {
 export function attachmentMimeFor(file) {
   const ext = path.extname(file).toLowerCase()
   return IMAGE_MIME_BY_EXT[ext] ?? TEXT_MIME_BY_EXT[ext] ?? null
+}
+
+function inboundTextAttachment(attachment) {
+  const ext = path.extname(String(attachment?.name ?? '')).toLowerCase()
+  return String(attachment?.contentType ?? '').toLowerCase().startsWith('text/')
+    || Object.hasOwn(TEXT_MIME_BY_EXT, ext)
+}
+
+// One Discord message becomes one operator text value before any routing
+// decision. Discord's ordinary content leads, followed by supported text
+// attachments in collection order. Exact duplicate segments appear once.
+//
+// A failed attachment refuses the turn while retaining ordinary text in the
+// result. Callers can show the refusal without losing words the operator typed.
+export async function normalizeInboundMessage(message, { fetchImpl = globalThis.fetch } = {}) {
+  const segments = []
+  const seen = new Set()
+  const textAttachments = []
+  const add = (raw) => {
+    const text = String(raw ?? '').trim()
+    if (!text || seen.has(text)) return
+    seen.add(text)
+    segments.push(text)
+  }
+  add(message?.content)
+
+  for (const [id, attachment] of message?.attachments?.entries?.() ?? []) {
+    if (!inboundTextAttachment(attachment)) continue
+    const name = String(attachment?.name ?? 'text attachment')
+    if (Number(attachment?.size) > MAX_INBOUND_TEXT_BYTES) {
+      return {
+        ok: false,
+        text: segments.join('\n\n'),
+        textAttachments,
+        refusal: `${name} exceeds the ${MAX_INBOUND_TEXT_BYTES / 1024} KB inbound text limit`,
+      }
+    }
+
+    let response
+    try {
+      response = await fetchImpl(attachment.url)
+    } catch (error) {
+      return {
+        ok: false,
+        text: segments.join('\n\n'),
+        textAttachments,
+        refusal: `${name} could not be downloaded (${error?.message ?? error})`,
+      }
+    }
+    if (!response?.ok) {
+      return {
+        ok: false,
+        text: segments.join('\n\n'),
+        textAttachments,
+        refusal: `${name} could not be downloaded (HTTP ${response?.status ?? 'unknown'})`,
+      }
+    }
+
+    const bytes = new Uint8Array(await response.arrayBuffer())
+    if (bytes.byteLength > MAX_INBOUND_TEXT_BYTES) {
+      return {
+        ok: false,
+        text: segments.join('\n\n'),
+        textAttachments,
+        refusal: `${name} exceeds the ${MAX_INBOUND_TEXT_BYTES / 1024} KB inbound text limit`,
+      }
+    }
+    let text
+    try {
+      text = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+    } catch {
+      return {
+        ok: false,
+        text: segments.join('\n\n'),
+        textAttachments,
+        refusal: `${name} isn't valid UTF-8 text`,
+      }
+    }
+    add(text)
+    textAttachments.push(String(id))
+  }
+
+  return { ok: true, text: segments.join('\n\n'), textAttachments }
 }
 
 // Resolve `p` and assert it really sits inside one of `roots`. realpath on both

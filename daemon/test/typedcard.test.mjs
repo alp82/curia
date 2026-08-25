@@ -86,9 +86,9 @@ describe('a typed card renders as one message the operator can answer', () => {
     assert.deepEqual(idsOf(msg.components).filter((i) => i.includes('|idx|')), ['esc|esc-1|idx|0', 'esc|esc-1|idx|1'])
   })
 
-  test('the head leaves a blank line, so the headline is not glued to the id', async () => {
+  test('the headline leaves a blank line before the visual', async () => {
     const msg = await render('choice', CHOICE)
-    assert.match(msg.content, /asks \(\*choice\*\):\n\n\*\*A restart/)
+    assert.match(msg.content, /^\*\*A restart[^\n]+\*\*\n\n```/)
   })
 
   test('the whole card fits one Discord message', async () => {
@@ -202,11 +202,11 @@ describe('an untyped card is what a flagged send renders (#422)', () => {
     bridge.ensureThread = async () => thread
   })
 
-  test('the prompt still sits one newline under the head', async () => {
+  test('the prompt starts the card', async () => {
     await bridge.renderEscalation({
       id: 'esc-1', ticket: '418', agent: 'curia-418', kind: 'free-text', prompt: 'which port?',
     })
-    assert.match(sent.at(-1).content, /asks \(\*free-text\*\):\nwhich port\?/)
+    assert.match(sent.at(-1).content, /^which port\?\n-# ❓ esc-1 · free-text/)
   })
 
   test('an untyped long choice still prints its numbered fallback list', async () => {

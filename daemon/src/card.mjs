@@ -59,6 +59,7 @@ export function composeCard(kind, payload = {}) {
     // so curia prints it rather than trusting the prose to carry it.
     for (const [i, q] of (payload.questions ?? []).entries()) {
       const lines = [`**${i + 1}.** ${String(q?.text ?? '').trim()}`]
+      if (has(q?.background)) lines.push(smallPrint(`💡 ${String(q.background).trim()}`))
       if (has(q?.recommendation)) lines.push(`↳ ${String(q.recommendation).trim()}`)
       parts.push(lines.join('\n'))
     }
@@ -121,8 +122,10 @@ export function composeResultBody(payload = {}) {
 // one three times first. It still renders, because a flagged ending in the
 // thread beats an ending that reaches it never.
 export function composeResultReport(status, payload = {}) {
-  const head = `✅ reports **${status}**`
-  const body = composeResultBody(payload)
+  const headline = has(payload.headline) ? String(payload.headline).trim() : ''
+  const head = headline ? `✅ **${status}**: ${headline}` : `✅ reports **${status}**`
+  const bodyPayload = headline ? { ...payload, headline: null } : payload
+  const body = composeResultBody(bodyPayload)
   if (!body) return head
   return isTypedResult(payload) ? `${head}\n\n${body}` : `${head}: ${body}`
 }

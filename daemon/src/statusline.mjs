@@ -18,14 +18,12 @@
 // (no transcript yet, no configured window, an account reading the daemon may
 // not refresh) drops that one meter and never the line.
 //
-// #253, ADR-0013: the line carries LIVE state only. A terminal state retires
-// it — see #retire. The dispatcher already posts one message for every ending
-// (the ending receipt, the abnormal-exit line, the death line, the watchdog
-// line, the cancel line), and a 🏁 beside each one said the same fact twice.
+// Normal completion edits the live line into its final receipt. Abnormal
+// endings still retire the line because their separate warning is the record.
 
 import { REVIEW_KIND } from './lifecycle.mjs'
 import { CONFIRM_KIND } from './reduction.mjs'
-import { promptTitle, elapsedLabel } from './messaging.mjs'
+import { promptTitle, elapsedLabel, smallPrint } from './messaging.mjs'
 import { meterParts } from './usage.mjs'
 
 // The gap between groups on the line (#146). U+2003 EM SPACE, not two plain
@@ -73,11 +71,9 @@ export function visibleWidth(text) {
 // live state with no live context to meter.
 const METERED = new Set(['dispatched', 'working', 'waiting', 'awaiting-review', 'cross-checking', 'executing'])
 
-// The events that END a session. Each one already carries its own CuriaBot
-// message from the dispatcher, so the line retires instead of drawing a
-// terminal state beside it (#253).
+// Abnormal endings already carry a warning from the dispatcher. The line
+// retires instead of drawing another terminal state beside that warning.
 const TERMINAL = new Set([
-  'lifecycle_closed',
   'agent_abnormal_exit',
   'reviewer_abnormal_exit',
   'agent_died',
@@ -85,6 +81,15 @@ const TERMINAL = new Set([
   'agent_ready_timeout',
   'agent_exited_early',
 ])
+
+const PHASE_ICONS = new Set(['🧭', '💭', '🔨', '🚦', '🩹', '🚢'])
+
+function validPhase(phase) {
+  const label = String(phase?.label ?? '').trim()
+  if (!PHASE_ICONS.has(phase?.icon) || !label || Array.from(label).length > 20) return null
+  if (/\r|\n|`/.test(label)) return null
+  return { icon: phase.icon, label }
+}
 
 // The literal the 🔎 button sends (#165). Matched here rather than imported as
 // the regex, because this file reads the ANSWER off a journal event and an
@@ -218,17 +223,35 @@ export class StatusLine {
   }
 
   onEvent(ev) {
-    // Every ending is the dispatcher's own message (#253) — this line adds
-    // nothing to it and steps out of the way. Checked before the switch so one
-    // rule covers every terminal event, whatever it is called.
+    // Abnormal endings carry their own warning. Normal completion waits for
+    // `thread_settled`, which edits this line into the final receipt.
     if (TERMINAL.has(ev.type)) return this.#retire(ev.agent)
+    if (ev.type === 'lifecycle_closed') {
+      if (ev.kind === 'reviewer') return this.#retire(ev.agent)
+      return
+    }
     switch (ev.type) {
       case 'agent_spawned':
+        if (this.agents.get(ev.agent)?.detail?.phase) {
+          return this.#set(ev.agent, ev.ticket, 'working', {
+            ...this.agents.get(ev.agent).detail, model: ev.model,
+          })
+        }
+        return this.#set(ev.agent, ev.ticket, 'dispatched', { model: ev.model })
+      case 'dispatch_status':
         return this.#set(ev.agent, ev.ticket, 'dispatched', { model: ev.model })
       case 'agent_ready':
         // The spawn command carries the prompt, so the composer marker means
         // the agent is already at work — ready and working are one state.
         return this.#set(ev.agent, ev.ticket, 'working', { model: ev.model, at: ev.ts })
+      case 'agent_phase': {
+        const phase = validPhase(ev.phase)
+        const w = this.agents.get(ev.agent)
+        if (!phase || !w || !['dispatched', 'working'].includes(w.state)) return
+        return this.#set(ev.agent, w.ticket, 'working', { ...w.detail, phase })
+      }
+      case 'thread_settled':
+        return this.#settleLine(ev)
       case 'esc_open': {
         if (ev.kind === CONFIRM_KIND) return
         const state = ev.kind === REVIEW_KIND ? 'awaiting-review' : 'waiting'
@@ -311,13 +334,8 @@ export class StatusLine {
     }
   }
 
-  // A terminal state is not a status (#253, ADR-0013). The line answers "what
-  // is this agent doing now", and when the answer is "nothing" the
-  // dispatcher's own message is the record — the ending receipt, the
-  // abnormal-exit line, the death line, the watchdog line, the cancel line.
-  // Each of those is already one CuriaBot message, so a 🏁 or a ⚰️ drawn here
-  // beside it narrated one event twice. The #107 ending spoke four times in
-  // eighteen seconds and this line was one of the four.
+  // An abnormal ending is not a status. Its warning already records the fault,
+  // so another terminal line would narrate one event twice.
   //
   // The live message is DELETED and the session forgotten. Nothing is lost:
   // the journal holds the history, the ending message stands in the thread,
@@ -332,6 +350,34 @@ export class StatusLine {
     const done = w.chain.then(() => (w.ids ? this.remove(w.ids) : null)).catch((e) => {
       this.log(`status line retire for ${session} failed: ${e.message}`)
     })
+    this.retiring.add(done)
+    done.then(() => this.retiring.delete(done))
+    return done
+  }
+
+  #settleLine(ev) {
+    let w = this.agents.get(ev.agent)
+    if (!w) {
+      w = {
+        ticket: ev.ticket, model: ev.model ?? null, state: 'settled', detail: {},
+        text: null, ids: null, flag: null, bumping: false, chain: Promise.resolve(),
+      }
+    } else {
+      this.agents.delete(ev.agent)
+    }
+    let meters = []
+    try {
+      meters = meterParts(this.meters(ev.agent, w.model))
+    } catch (e) {
+      this.log(`status line final meters for ${ev.agent} failed: ${e.message}`)
+    }
+    const text = [smallPrint(ev.receipt), meters.length ? smallPrint(meters.join(GROUP_SEP)) : null]
+      .filter(Boolean).join('\n')
+    const done = w.chain.then(async () => {
+      w.text = text
+      if (w.ids && await this.edit(w.ids, text, { settled: true })) return
+      w.ids = (await this.post(w.ticket, text, { settled: true })) ?? null
+    }).catch((e) => this.log(`status line settlement for ${ev.agent} failed: ${e.message}`))
     this.retiring.add(done)
     done.then(() => this.retiring.delete(done))
     return done
@@ -356,7 +402,7 @@ export class StatusLine {
       case 'dispatched':
         return `⚙️ dispatched on **${model}** — waiting for the composer`
       case 'working':
-        return '▶️'
+        return detail.phase ? `${detail.phase.icon} \`${detail.phase.label}\`` : '▶️'
       case 'waiting': {
         const waited = elapsedLabel(detail.esc.opened_at, this.now())
         return `⏳ waiting on **[${detail.esc.id}]** — ${detail.esc.title}${waited ? ` — ${waited}` : ''}`

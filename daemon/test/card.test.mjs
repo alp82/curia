@@ -170,8 +170,10 @@ describe('composeResultReport: the ending report (#419)', () => {
 
   test('the status leads, because it is what the operator reads this message for', () => {
     const post = composeResultReport('resolved', REPORT)
-    assert.equal(post.split('\n')[0], '✅ reports **resolved**')
-    assert.ok(post.includes(composeResultBody(REPORT)))
+    assert.equal(post.split('\n')[0], '✅ **resolved**: The ending report is typed, and curia lays it out.')
+    assert.equal(post.match(/The ending report is typed, and curia lays it out\./g)?.length, 1,
+      'the typed headline leads once')
+    assert.match(post, /The report takes a headline, a summary, a detail and a visual\./)
   })
 
   test('a report with no headline keeps the one line the thread has read since #253', () => {

@@ -22,6 +22,7 @@ import crypto from 'node:crypto'
 import { nextConsoleKey } from './attach.mjs'
 import { openJournal, normalizeEvent } from './journal.mjs'
 import { Questions } from './questions.mjs'
+import { MAP_FOG_VERB } from './mapfog.mjs'
 
 // The button-confirm kind (#94, per #89's messaging discipline). Its own kind
 // because a confirm behaves unlike every other escalation: no reminder, no
@@ -88,11 +89,16 @@ export function noteDisposition(agent) {
 // draws four of them, so a pair per chat message would push every dispatch,
 // death and gate off the screen. What the operator DOES read about a killed
 // turn is `overseer_turn_dropped`, which the feed carries.
-const FEED_SILENT = new Set(['overseer_turn_started', 'overseer_turn_ended'])
+const FEED_SILENT = new Set([
+  'overseer_turn_started', 'overseer_turn_ended',
+  'conversation_turn_recorded', 'conversation_turn_taken_back', 'agent_notes_requeued',
+])
 
 // The events lastAgentEvent must not count (#236) — see _apply.
 const NOTE_EVENTS = new Set([
   'agent_note', 'agent_notes_drained', 'agent_notes_expired', 'agent_note_refused', 'agent_note_interrupted',
+  'agent_note_taken_back', 'agent_notes_requeued',
+  'conversation_turn_recorded', 'conversation_turn_taken_back',
 ])
 
 // The label a cross-check verdict rides under on the note queue (#165). It is
@@ -105,6 +111,8 @@ export const VERDICT_LABEL = 'cross-check verdict'
 // words are curia's own mechanics, and a builder that read them as an operator
 // note would answer them instead of obeying them (ADR-0013).
 export const CROSS_CHECK_LABEL = 'cross-check started'
+
+const conversationTurnHash = (text) => crypto.createHash('sha256').update(String(text)).digest('hex')
 
 export class Reduction {
   constructor(dataDir, { log = () => {} } = {}) {
@@ -135,6 +143,7 @@ export class Reduction {
     this.handoffNotes = new Map() // escalation id -> the note its recorded answer rides on (#369)
     this.recent = [] // the last RECENT_EVENTS journal lines, oldest first (#262)
     this.outcomes = { cancelled: [], finished: [], died: [] } // the last RECENT_OUTCOMES of each (#289)
+    this.agentConversations = new Map() // every retained agent transcript, keyed by its real session name (#684)
     this.pullRequests = new Map() // agent session -> the pull request its CURRENT dispatch pushed (#289)
     this.limitResumes = new Map() // ticket -> the limit resume curia still owes it (#346)
     this.spawnFailures = new Map() // ticket -> its consecutive failed spawns (#444)
@@ -151,8 +160,11 @@ export class Reduction {
     this.lintRejects = new Map() // `<agent>|<kind>` -> the rejections the lint gate still holds (#418)
     this.backupAlarm = null // the journal-backup failure that still stands, or null (#436)
     this.mapAlarms = new Map() // "repo#map" -> the stranded-map alarm that still stands (#485)
+    this.transcriptLandings = new Map() // session -> rewind landing and transcript tail (#689)
+    this.conversationTurns = new Map() // session -> sent operator turns and the queued notes each one carried (#702)
     this.seq = 0
     this.noteSeq = 0
+    this.turnSeq = 0
     this.rebuild()
   }
 
@@ -232,6 +244,34 @@ export class Reduction {
       const list = this.outcomes[outcome]
       list.push({ kind: outcome, repo: ev.repo ?? null, ticket: String(ev.ticket ?? '') })
       if (list.length > RECENT_OUTCOMES) list.shift()
+    }
+    if (ev.type === 'agent_spawned' && ev.agent) {
+      const previous = this.agentConversations.get(ev.agent) ?? {}
+      this.agentConversations.set(ev.agent, {
+        ...previous,
+        session: ev.agent,
+        repo: ev.repo ?? previous.repo ?? null,
+        ticket: String(ev.ticket ?? previous.ticket ?? ''),
+        model: ev.model ?? previous.model ?? null,
+        harness: ev.harness ?? previous.harness ?? null,
+        reviewer: ev.kind === 'reviewer' || previous.reviewer === true,
+        state: 'active',
+        updated_at: ev.ts ?? previous.updated_at ?? null,
+      })
+    }
+    if (outcome || ev.type === 'agent_abnormal_exit') {
+      const session = ev.agent ?? (ev.ticket == null ? null : `curia-${ev.ticket}`)
+      if (session) {
+        const previous = this.agentConversations.get(session) ?? {}
+        this.agentConversations.set(session, {
+          ...previous,
+          session,
+          repo: ev.repo ?? previous.repo ?? null,
+          ticket: String(ev.ticket ?? previous.ticket ?? ''),
+          state: outcome ?? 'failed',
+          updated_at: ev.ts ?? previous.updated_at ?? null,
+        })
+      }
     }
     // A spawn CLEARS the pull request (#253): the session name is reused by
     // every dispatch of a ticket, so a fresh agent must not inherit the link
@@ -389,6 +429,20 @@ export class Reduction {
     if (ev.type === 'map_stranded') this.mapAlarms.set(`${ev.repo}#${ev.map}`, { ...ev, at: ev.ts ?? null })
     if (ev.type === 'map_stranded_cleared') this.mapAlarms.delete(`${ev.repo}#${ev.map}`)
 
+    // The active transcript head during the gap between a rewind and its next
+    // message (#689). The receipt records both the chosen parent and the old
+    // transcript tail. The reader stops using the landing when a new tail
+    // appears, so no cleanup event has to race the harness write.
+    if (ev.type === 'transcript_landed' && ev.session && ev.landing_uuid) {
+      this.transcriptLandings.set(ev.session, {
+        uuid: ev.landing_uuid,
+        tailUuid: ev.tail_uuid ?? null,
+      })
+    }
+    if (ev.type === 'transcript_landing_cleared' && ev.session) {
+      this.transcriptLandings.delete(ev.session)
+    }
+
     if (ev.type === 'token_warned' || ev.type === 'token_cleared') {
       const key = ev.fault === 'expiring'
         ? `${ev.holder}:${ev.key}`
@@ -442,6 +496,26 @@ export class Reduction {
         // record too, and clearing there is right: the question reached the
         // operator, which is the only thing the count was protecting.
         this.lintRejects.delete(`${ev.agent}|${ev.kind}`)
+        break
+      }
+      case 'map_fog_verdict_posted': {
+        const r = this.escalations.get(ev.id)
+        if (r) r.verdict_posted_at = ev.ts
+        break
+      }
+      case 'map_fog_cleared': {
+        const r = this.escalations.get(ev.id)
+        if (r) r.fog_cleared_at = ev.ts
+        break
+      }
+      case 'map_fog_closed': {
+        const r = this.escalations.get(ev.id)
+        if (r) r.map_closed_at = ev.ts
+        break
+      }
+      case 'map_fog_reset': {
+        const r = this.escalations.get(ev.id)
+        if (r) r.workflow_reset_at = ev.ts
         break
       }
       // The lint gate's ledger (#418, ADR-0005). The daemon counts, because an
@@ -574,9 +648,42 @@ export class Reduction {
         this.agentNotes.set(ev.agent, arr)
         break
       }
+      case 'conversation_turn_recorded': {
+        const turns = this.conversationTurns.get(ev.agent) ?? []
+        const turn = {
+          id: ev.id, agent: ev.agent,
+          text_hash: ev.text_hash ?? conversationTurnHash(ev.text ?? ''),
+          note_ids: [], taken_back: false,
+        }
+        turns.push(turn)
+        this.conversationTurns.set(ev.agent, turns)
+        const n = Number(String(ev.id).split('-').at(-1))
+        if (Number.isFinite(n) && n >= this.turnSeq) this.turnSeq = n
+        break
+      }
+      case 'conversation_turn_taken_back': {
+        const turn = (this.conversationTurns.get(ev.agent) ?? []).find((item) => item.id === ev.id)
+        if (turn) turn.taken_back = true
+        break
+      }
       case 'agent_notes_drained': {
         const arr = this.agentNotes.get(ev.agent) ?? []
-        for (const n of arr.splice(0, ev.count)) n.pending = false
+        const drained = arr.splice(0, ev.count)
+        for (const n of drained) n.pending = false
+        const turn = (this.conversationTurns.get(ev.agent) ?? []).find((item) => item.id === ev.turn)
+        if (turn) turn.note_ids.push(...(ev.note_ids ?? drained.map((note) => note.id)).filter(Boolean))
+        break
+      }
+      case 'agent_notes_requeued': {
+        const arr = this.agentNotes.get(ev.agent) ?? []
+        const restored = []
+        for (const id of ev.note_ids ?? []) {
+          const note = this.notes.get(id)
+          if (!note || note.pending) continue
+          note.pending = true
+          restored.push(note)
+        }
+        this.agentNotes.set(ev.agent, [...restored, ...arr])
         break
       }
       case 'agent_notes_expired': {
@@ -594,6 +701,13 @@ export class Reduction {
       // the pane as a user turn. The note is no longer pending, so it can never
       // also ride a tool result — one fact, one delivery.
       case 'agent_note_interrupted': {
+        const arr = this.agentNotes.get(ev.agent) ?? []
+        const note = this.notes.get(ev.id)
+        if (note) note.pending = false
+        this.agentNotes.set(ev.agent, arr.filter((n) => n.id !== ev.id))
+        break
+      }
+      case 'agent_note_taken_back': {
         const arr = this.agentNotes.get(ev.agent) ?? []
         const note = this.notes.get(ev.id)
         if (note) note.pending = false
@@ -788,8 +902,14 @@ export class Reduction {
     // records of one kind, but a journal written before this rule can carry
     // several, and a corpse this call walks past stays on the Needs-You list
     // forever.
+    const mapFogAction = action?.verb === MAP_FOG_VERB
+    const sameMapFogAction = (r) => r.action?.verb === MAP_FOG_VERB
+      && r.action?.repo === action?.repo
+      && Number(r.action?.map) === Number(action?.map)
     const superseded_all = [...this.escalations.values()].filter((r) => {
       if (r.status !== 'open') return false
+      if (mapFogAction) return r.kind === kind && sameMapFogAction(r)
+      if (r.action?.verb === MAP_FOG_VERB) return false
       return kind === CONFIRM_KIND
         ? r.kind === CONFIRM_KIND && sharesInstance(r)
         : r.kind === kind && r.agent === agent
@@ -1110,6 +1230,13 @@ export class Reduction {
     return note
   }
 
+  takeBackAgentNote(id, { by = null } = {}) {
+    const note = this.notes.get(id)
+    if (!note?.pending) return null
+    this._append({ type: 'agent_note_taken_back', id, agent: note.agent, by })
+    return note
+  }
+
   // The hand-off half of #139: an answer that settled an escalation nothing
   // was waiting on (the resolver died with a previous daemon process, or the
   // agent itself is gone) re-queues as an agent note, so the next agent on
@@ -1198,10 +1325,42 @@ export class Reduction {
     return stale
   }
 
+  recordConversationTurn(agent, text) {
+    const id = `conversation-turn-${++this.turnSeq}`
+    this._append({ type: 'conversation_turn_recorded', id, agent, text_hash: conversationTurnHash(text) })
+    return this.conversationTurns.get(agent)?.at(-1) ?? null
+  }
+
+  takeBackConversationTurn(agent, text) {
+    const turn = [...(this.conversationTurns.get(agent) ?? [])]
+      .reverse()
+      .find((item) => !item.taken_back && item.text_hash === conversationTurnHash(text))
+    if (!turn) return []
+    const notes = turn.note_ids
+      .map((id) => this.notes.get(id))
+      .filter((note) => note && !note.pending)
+    if (notes.length) {
+      this._append({
+        type: 'agent_notes_requeued', agent, turn: turn.id,
+        note_ids: notes.map((note) => note.id),
+      })
+    }
+    this._append({ type: 'conversation_turn_taken_back', id: turn.id, agent })
+    return notes
+  }
+
   takeAgentNotes(agent, instance = null) {
     this.expireAgentNotes(agent, instance, 'is running as a fresh instance')
     const notes = [...(this.agentNotes.get(agent) ?? [])]
-    if (notes.length) this._append({ type: 'agent_notes_drained', agent, count: notes.length })
+    if (notes.length) {
+      const turn = [...(this.conversationTurns.get(agent) ?? [])]
+        .reverse()
+        .find((item) => !item.taken_back)
+      this._append({
+        type: 'agent_notes_drained', agent, count: notes.length,
+        note_ids: notes.map((note) => note.id), turn: turn?.id ?? null,
+      })
+    }
     return notes
   }
 
@@ -1326,6 +1485,10 @@ export class Reduction {
     return [...this.outcomes.cancelled, ...this.outcomes.finished, ...this.outcomes.died]
   }
 
+  retainedAgentConversations() {
+    return [...this.agentConversations.values()].map((conversation) => ({ ...conversation }))
+  }
+
   // Every credential warning still standing, oldest first (#380). A copy, for
   // the reason `recentEvents` hands out one: the route serializes it while the
   // watch keeps appending.
@@ -1357,6 +1520,33 @@ export class Reduction {
   strandedMap(repo, map) {
     const a = this.mapAlarms.get(`${repo}#${map}`)
     return a ? { ...a } : null
+  }
+
+  transcriptLanding(session) {
+    const landing = this.transcriptLandings.get(session)
+    return landing ? { ...landing } : null
+  }
+
+  // The newest durable empty-map question for one map. The question, answer,
+  // and completed GitHub effects all rebuild from the journal, so a restart
+  // resumes the first incomplete effect instead of asking or acting twice.
+  mapFogQuestion(repo, map) {
+    const record = [...this.escalations.values()]
+      .filter((r) => r.action?.verb === MAP_FOG_VERB)
+      .filter((r) => r.action?.repo === repo && Number(r.action?.map) === Number(map))
+      .at(-1)
+    return record && !record.workflow_reset_at ? { ...record } : null
+  }
+
+  standingMapFogQuestions() {
+    const latest = new Map()
+    for (const r of this.escalations.values()) {
+      if (r.action?.verb !== MAP_FOG_VERB) continue
+      latest.set(`${r.action.repo}#${r.action.map}`, r)
+    }
+    return [...latest.values()]
+      .filter((r) => !r.workflow_reset_at)
+      .map((r) => ({ ...r }))
   }
 
   // The pull request an agent's CURRENT dispatch pushed, or null (#289). This

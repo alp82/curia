@@ -11,12 +11,13 @@ import { test, describe, before, after, beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import http from 'node:http'
+import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 
 import {
   DashboardSurface, DEFAULT_DASHBOARD, DEFAULT_DASHBOARD_INDEX, DASHBOARD_PROTO,
-  loadDashboardConfig, pageRefusal, readDashboard, daemonPort, ANSWER_REFUSAL, MAX_WORDS, CHAT_PAGE,
+  loadDashboardConfig, pageRefusal, readDashboard, daemonPort, ANSWER_REFUSAL, MAX_WORDS, CHAT_PAGE, TERMINAL_PAGE,
 } from '../src/dashboard.mjs'
 import { loadCuriaConfig } from '../src/config.mjs'
 import { serveHosts, LOGIN_HEADER, FUNNEL_HEADER } from '../src/identity.mjs'
@@ -120,13 +121,14 @@ describe('the `dashboard:` block (#263)', () => {
   // ---- the sidecar's own read of the same file ------------------------------
 
   test('the sidecar reads its block and the allowlist out of the one config file', () => {
-    const { dashboard, allow } = loadDashboardConfig(writeConfig('dashboard:\n  port: 4273\n  poll_interval_s: 5'))
+    const { dashboard, allow, terminalPort } = loadDashboardConfig(writeConfig('dashboard:\n  port: 4273\n  poll_interval_s: 5'))
     assert.equal(dashboard.port, 4273)
     assert.equal(dashboard.serve_port, DEFAULT_DASHBOARD.serve_port)
     assert.equal(dashboard.poll_interval_s, 5)
     // Normalized by the same rule the daemon applies, in the same module: the
     // two processes must admit exactly the same people.
     assert.deepEqual(allow, ['tester@example.com'])
+    assert.equal(terminalPort, 7681)
   })
 
   test('an empty allowlist refuses the sidecar too — a surface that admits nobody must not start', () => {
@@ -297,6 +299,7 @@ describe('the sidecar surface (#263)', () => {
     assert.equal(body.poll_interval_s, 5)
     assert.equal(body.overview.daemon.max_concurrent, 6)
     assert.ok(body.read_at, 'the page states the age of the reading, so the reading is stamped')
+    assert.equal(body.operator, 'alp@example.com', 'the browser keys its durable Feed marker to this login')
   })
 
   test('many tabs inside one interval cost the daemon ONE journal read', async () => {
@@ -754,6 +757,8 @@ describe('the operator verbs (#266)', () => {
       '/command': [200, { reply: '⚙️ `curia-266` spawned on claude-opus-5' }],
       '/answer': [200, { ok: true, record: { id: 'esc-7' } }],
       '/note': [200, { ok: true, agent: 'curia-266', id: 'note-3', after: null, mode: 'queue' }],
+      '/github-app/start': [200, { action: 'https://github.com/settings/apps/new', manifest: { name: 'curia-box' } }],
+      '/github-app/complete?code=one-use&state=expected': [200, { ok: true, app: { id: '42', slug: 'curia-box' } }],
     }
     daemon = http.createServer((r, res) => {
       let buf = ''
@@ -837,6 +842,19 @@ describe('the operator verbs (#266)', () => {
     assert.equal(sent('/note').body.mode, 'queue', 'anything that is not the second mode is the default')
   })
 
+  test('GitHub App setup keeps conversion inside the daemon', async () => {
+    const started = await press('/api/github-app/start', { name: 'curia-box' })
+    assert.equal(started.status, 200)
+    assert.deepEqual(sent('/github-app/start').body, {
+      name: 'curia-box',
+      redirect_url: 'https://box.tail1234.ts.net:8445/api/github-app/complete',
+    })
+
+    const completed = await req(surface.port, '/api/github-app/complete?code=one-use&state=expected', { headers: served() })
+    assert.equal(completed.status, 303)
+    assert.equal(completed.text.includes('PRIVATE KEY'), false)
+  })
+
   // ---- what may not cross it -----------------------------------------------
 
   test('a field the daemon would parse as something else is refused HERE, before the wire', async () => {
@@ -878,6 +896,25 @@ describe('the operator verbs (#266)', () => {
     assert.equal(res.status, 200)
     assert.ok(sent('/diff?agent=curia-355&file=3'), 'the sidecar composed the query itself')
     assert.ok(!calls.some((c) => c.url.includes('passwd')), 'a field this surface does not name must not travel')
+  })
+
+  test('global search forwards one bounded query and returns typed landing targets', async () => {
+    reply['/search?q=atlas'] = [200, {
+      query: 'atlas', errors: [], results: [{
+        kind: 'map', id: 'o/r#9', title: 'Atlas map', snippet: 'The map frontier', age_s: 60,
+        attention: null, landing: { surface: 'maps', map: 9 },
+      }],
+    }]
+
+    const res = await read('/api/search?q=%20atlas%20')
+
+    assert.equal(res.status, 200)
+    assert.equal(JSON.parse(res.text).results[0].landing.surface, 'maps')
+    assert.ok(sent('/search?q=atlas'))
+    calls = []
+    assert.equal((await read('/api/search?q=')).status, 400)
+    assert.equal((await read('/api/search?q=' + 'x'.repeat(201))).status, 400)
+    assert.deepEqual(calls, [])
   })
 
   test('a field the daemon would read as something else is refused here, before the wire', async () => {
@@ -1120,10 +1157,10 @@ describe('the chat (#267)', () => {
     assert.equal(seen.at(-1).url, '/', 'the page is one page; the session rides the browser\'s own query')
   })
 
-  test('the four routes the page speaks reach the timeline with their query intact', async () => {
+  test('the six routes the page speaks reach the timeline with their query intact', async () => {
     await req(surface.port, '/events?session=curia-console-2&client=ab12', { headers: served() })
     assert.equal(seen.at(-1).url, '/events?session=curia-console-2&client=ab12')
-    for (const route of ['/send', '/draft', '/key']) {
+    for (const route of ['/send', '/draft', '/key', '/take-back', '/dialog-answer']) {
       await req(surface.port, route, {
         method: 'POST',
         headers: served({ origin: ORIGIN, 'content-type': 'application/json' }),
@@ -1182,5 +1219,78 @@ describe('the chat (#267)', () => {
   test('the page and the sidecar agree on the address the Chat screen opens', () => {
     const page = fs.readFileSync(DEFAULT_DASHBOARD_INDEX, 'utf8')
     assert.match(page, new RegExp(`const CHAT_PAGE = "${CHAT_PAGE}"`))
+  })
+})
+
+describe('the embedded terminal (#714)', () => {
+  let surface
+  let terminal
+  const seen = []
+  const served = (extra = {}) => ({ host: 'box.tail1234.ts.net:8445', [LOGIN_HEADER]: 'alp@example.com', ...extra })
+
+  beforeEach(async () => {
+    seen.length = 0
+    terminal = http.createServer((req, res) => {
+      seen.push({ type: 'http', url: req.url, headers: req.headers })
+      res.end('<title>ttyd</title>')
+    })
+    terminal.on('upgrade', (req, socket) => {
+      seen.push({ type: 'upgrade', url: req.url, headers: req.headers })
+      socket.end('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n')
+    })
+    await new Promise((done) => terminal.listen(0, '127.0.0.1', done))
+    surface = new DashboardSurface({
+      port: 0, servePort: 8445, index: DEFAULT_DASHBOARD_INDEX,
+      allow: ['alp@example.com'], terminalPort: terminal.address().port,
+      pollIntervalS: 5, log: () => {},
+      deps: {
+        fetchOverview: async () => ({}), assertServe: async () => {}, serveOff: async () => {},
+        tailnetSelf: async () => ({ dnsName: 'box.tail1234.ts.net', ips: [] }),
+      },
+    })
+    await surface.start()
+    await surface.resolveHosts()
+  })
+
+  afterEach(() => {
+    surface?.stop()
+    terminal?.close()
+  })
+
+  test('Atlas serves ttyd under one same-origin terminal path', async () => {
+    const response = await req(surface.port, TERMINAL_PAGE, { headers: served() })
+    assert.equal(response.status, 200)
+    assert.match(response.text, /ttyd/)
+    assert.equal(seen[0].url, '/')
+    assert.equal(seen[0].headers.host, `127.0.0.1:${terminal.address().port}`)
+    assert.equal(seen[0].headers.origin, `http://127.0.0.1:${terminal.address().port}`)
+  })
+
+  test('the same path carries ttyd WebSocket upgrades after identity and Origin checks', async () => {
+    const response = await new Promise((resolve, reject) => {
+      const socket = net.connect(surface.port, '127.0.0.1', () => {
+        socket.write([
+          'GET /terminal/ws HTTP/1.1',
+          'Host: box.tail1234.ts.net:8445',
+          'Tailscale-User-Login: alp@example.com',
+          'Origin: https://box.tail1234.ts.net:8445',
+          'Connection: Upgrade',
+          'Upgrade: websocket',
+          '', '',
+        ].join('\r\n'))
+      })
+      let text = ''
+      socket.on('data', (chunk) => { text += chunk })
+      socket.on('end', () => resolve(text))
+      socket.on('error', reject)
+    })
+    assert.match(response, /^HTTP\/1\.1 101 Switching Protocols/)
+    assert.equal(seen.at(-1).type, 'upgrade')
+    assert.equal(seen.at(-1).url, '/ws')
+  })
+
+  test('an unknown operator cannot reach the terminal or its WebSocket', async () => {
+    assert.equal((await req(surface.port, TERMINAL_PAGE, { headers: { host: 'box.tail1234.ts.net:8445' } })).status, 403)
+    assert.equal(seen.length, 0)
   })
 })

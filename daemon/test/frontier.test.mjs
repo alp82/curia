@@ -290,9 +290,8 @@ describe('agentOnlyChainCount', () => {
     assert.equal(agentOnlyChainCount({ items, edges: {} }), 0)
   })
 })
-// The stranded map (#485): open, not deferred, at least one child, every child
-// closed. #316 sat that way for days — all fifteen tickets closed, the map
-// open, and no dispatch left to notice.
+// The stranded map (#485, widened by #698): open, not deferred, and no open
+// child. Empty maps now enter the same edge-triggered watch for a fog verdict.
 describe('strandedMaps (#485)', () => {
   const map = (n, { state = 'open', labels = [] } = {}) => ({
     number: n, state, title: `Map ${n}`,
@@ -309,9 +308,10 @@ describe('strandedMaps (#485)', () => {
     assert.deepEqual(strandedMaps([map(316)], { 316: [child('closed'), child('open')] }), [])
   })
 
-  test('a map with no children yet is not stranded — the new-map window must not alarm', () => {
-    assert.deepEqual(strandedMaps([map(316)], { 316: [] }), [])
-    assert.deepEqual(strandedMaps([map(316)], {}), [])
+  test('a map with no children is stranded so its fog gets a durable verdict', () => {
+    const expected = [{ number: 316, title: 'Map 316' }]
+    assert.deepEqual(strandedMaps([map(316)], { 316: [] }), expected)
+    assert.deepEqual(strandedMaps([map(316)], {}), expected)
   })
 
   test('closed and deferred maps are never stranded', () => {

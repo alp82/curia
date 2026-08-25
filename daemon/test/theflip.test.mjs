@@ -196,6 +196,63 @@ describe('an untyped ask_human is refused since the flip (#422, real boot)', () 
     await c.close().catch(() => {})
   })
 
+  test('request_review owns tracker writes and sends their edges through the wave composer', async () => {
+    const c = await client('curia-422-writes', '422')
+    try {
+      const listed = await c.listTools()
+      const review = listed.tools.find((tool) => tool.name === 'request_review')
+      const notify = listed.tools.find((tool) => tool.name === 'notify')
+      assert.ok(review.inputSchema.properties.tracker_writes)
+      assert.equal(notify.inputSchema.properties.tracker_writes, undefined)
+
+      const result = await c.callTool({
+        name: 'request_review',
+        arguments: {
+          headline: 'The build proposal is ready.',
+          summary: 'The run prepared two tracker items.',
+          charting: 'Publish the approved items.',
+          tracker_writes: [
+            { id: 'schema', title: 'Define the retry schema', labels: ['ready-for-agent'] },
+            { id: 'worker', title: 'Drain the retry queue', labels: ['ready-for-agent'], after: ['missing'] },
+          ],
+        },
+      }, undefined, { timeout: 30_000 })
+      assert.equal(result.isError, true)
+      assert.match(result.content.map((part) => part.text ?? '').join('\n'), /unknown item "missing"/)
+    } finally {
+      await c.close().catch(() => {})
+    }
+  })
+
+  test('a composite ask keeps its order and opens only its last decision', async () => {
+    const c = await client('curia-422-composite', '422')
+    const messages = [
+      { format: 'prose', label: 'answer', text: 'The shared contract is ready.', attachments: [] },
+      {
+        format: 'choice', label: 'decision', headline: 'Which surface should answer?', attachments: [],
+        options: [
+          { label: 'Use Atlas.', handle: 'Atlas', consequence: 'The browser records the answer.' },
+          { label: 'Use Discord.', handle: 'Discord', consequence: 'The thread records the answer.' },
+        ],
+      },
+    ]
+    const call = c.callTool({ name: 'ask_human', arguments: { messages } }, undefined, { timeout: 30_000 })
+
+    const open = await until(async () => (await openEscalations(port)).find((e) => e.agent === 'curia-422-composite'), 'the composite card')
+    assert.match(open.prompt, /^-# 2 of 2 · decision\n\*\*Which surface should answer\?\*\*/)
+    assert.deepEqual(open.options, ['Use Atlas.', 'Use Discord.'])
+    assert.equal(open.payload.options[0].handle, 'Atlas')
+
+    const send = journalEvents(path.join(tmp, 'data')).find((event) => event.type === 'composite_send' && event.agent === 'curia-422-composite')
+    assert.deepEqual(send.messages, messages)
+    await request(port, 'POST', '/answer', {
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: open.id, answer: 'Use Atlas.' }),
+    })
+    assert.match((await call).content.map((part) => part.text ?? '').join('\n'), /Use Atlas\./)
+    await c.close().catch(() => {})
+  })
+
   test('a bare string option is refused, and it is named once rather than per field', async () => {
     const text = await ask('curia-422-c', '422', {
       kind: 'choice',

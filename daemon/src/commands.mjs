@@ -185,6 +185,8 @@ function parseNewMap(rest) {
 // | 'map <n>|<owner/repo#n> [model=x] [<instruction>]'
 // | 'map [repo] [model=x] <instruction>'
 // | 'cancel <n>|all' | 'resume <n> [model=x]' | 'resume all' | 'attach <n>'
+// | 'model <n> <target>'
+// | 'skill <name> <n>|<owner/repo#n>'
 // — anything else ⇒ null.
 export function parseCommand(text) {
   const parts = (text ?? '').trim().split(/\s+/).filter(Boolean)
@@ -253,6 +255,15 @@ export function parseCommand(text) {
       if (rest.length === 1 && AGENT_RE.test(rest[0])) return { verb, ticket: rest[0] }
       return null
     }
+    case 'model': {
+      if (rest.length !== 2 || !/^\d+$/.test(rest[0]) || !/^[\w.-]+$/.test(rest[1])) return null
+      return { verb, ticket: rest[0], model: rest[1] }
+    }
+    case 'skill': {
+      if (rest.length !== 2 || !/^[a-z0-9][a-z0-9-]*$/.test(rest[0])) return null
+      if (!/^(?:\d+|[\w.-]+\/[\w.-]+#\d+)$/.test(rest[1])) return null
+      return { verb, name: rest[0], target: rest[1] }
+    }
     // The cross-check's daemon-side entry point (#164, ADR-0010). The operator
     // surface is a third button on the review gate (#165); this verb is what
     // proves the engine without it, and it takes the same `model=` override
@@ -284,6 +295,8 @@ const USAGE = [
   '`map [repo] <instruction>` — dispatch a charting agent with NO map: it settles the destination with you and creates the `wayfinder:map` issue itself. The first word is the repo only when it names a watched one',
   '`cancel <n>|all` — immediate teardown (the overseer\'s interpreted cancel posts a ✅/❌ confirm instead)',
   '`resume <n> [model=x]|resume all` — fresh agent on a ticket, inheriting its surviving worktree, the model it last ran on, and every question you already answered on it',
+  '`model <n> <target>` - switch a live ticket to a configured routing model and keep its conversation',
+  '`skill <name> <n>|owner/repo#<n>` - run a configured skill against a target with a durable record and review gate',
   '`attach <n>` — timeline + browser-terminal links for a live agent',
   '`cancel chat-1` / `resume chat-1` / `attach chat-1` — the same three verbs on an agent no ticket answers for, such as one charting a NEW map. `status` lists its handle',
   '`review <n> [model=x]` — cross-check: a reviewer on the other provider reads the pushed diff and returns a verdict',
@@ -371,6 +384,10 @@ export class CommandRouter {
         case 'resume':
           if (cmd.all) return await this.dispatcher.resumeAll({ by: userId })
           return await this.dispatcher.resume(cmd.ticket, { model: cmd.model, by: userId, threadId })
+        case 'model':
+          return await this.dispatcher.switchModel(cmd.ticket, { model: cmd.model, by: userId })
+        case 'skill':
+          return await this.dispatcher.skill(cmd.name, cmd.target, { by: userId, threadId })
         case 'attach':
           return await this.#attachReply(cmd.ticket)
         case 'review':

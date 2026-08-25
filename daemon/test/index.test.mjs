@@ -511,6 +511,8 @@ describe('the per-agent token on the agent routes (#159, real boot, both listene
       '  node_version: 1.0.0',
       '  claude_version: 1.0.0',
       '  codex_version: 1.0.0',
+      '  opencode_version: 1.0.0',
+      '  pi_version: 1.0.0',
       '  gh_version: 1.0.0',
       '  playwright_version: 1.0.0',
       '  ttyd_version: 1.0.0',

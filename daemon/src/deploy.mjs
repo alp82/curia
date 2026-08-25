@@ -79,7 +79,7 @@ export class SelfDeploy {
   // `home` is curia's own HOME, and compose is what states it: `home/` inside
   // the workspace root (#473). The fallback repeats that rule for a run outside
   // compose, where nothing sets HOME — it names no box's home directory.
-  constructor({ repoRoot, dataDir, workRoot, reduction, log = console.log, exec = execFileP, port = 4271, home = process.env.HOME ?? path.join(workRoot, 'home'), env = process.env, dockerSocket = '/var/run/docker.sock' }) {
+  constructor({ repoRoot, dataDir, workRoot, reduction, log = console.log, exec = execFileP, port = 4271, home = process.env.HOME ?? path.join(workRoot, 'home'), env = process.env, dockerSocket = '/var/run/docker.sock', parkOverseerPanes = async () => {} }) {
     this.repoRoot = repoRoot
     this.dataDir = dataDir
     this.workRoot = workRoot
@@ -90,6 +90,7 @@ export class SelfDeploy {
     this.home = home
     this.env = env
     this.dockerSocket = dockerSocket
+    this.parkOverseerPanes = parkOverseerPanes
     this.markerPath = path.join(dataDir, 'deploy.json')
     this.logPath = path.join(dataDir, 'deploy.log')
     // The last resolved outcome, kept for the dashboard (#562): the marker is
@@ -248,6 +249,15 @@ export class SelfDeploy {
       gid = fs.statSync(this.dockerSocket).gid
     } catch {
       return '❌ no docker socket — this daemon cannot deploy itself; use bin/deploy.sh'
+    }
+    // The shared overseer container owns the processes, while tmux owns their
+    // panes. End those panes before compose recreates the container. Their
+    // durable session ids stay in the journal and resume on the next message.
+    try {
+      await this.parkOverseerPanes()
+    } catch (e) {
+      const why = String(e.message ?? e).split('\n')[0]
+      return `❌ deploy refused: overseer panes could not park (${why})`
     }
     fs.writeFileSync(this.markerPath, JSON.stringify({
       state: 'handed-off', prev, next, by, ts: new Date().toISOString(),

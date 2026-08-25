@@ -54,7 +54,7 @@ export function clampList(lines, max = 10) {
 // truncated: a long composed message becomes consecutive chunks, split at
 // paragraph boundaries first, then lines, then a hard slice as the last
 // resort (a single 1600-char line is code, not prose).
-export const CHUNK_LIMIT = 1600
+export const CHUNK_LIMIT = 1700
 
 // ---- fenced code blocks (#432) ----------------------------------------------
 //

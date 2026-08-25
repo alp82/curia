@@ -25,6 +25,8 @@ const PINS = {
   node_version: '24.19.0',
   claude_version: '2.1.220',
   codex_version: '0.146.0',
+  opencode_version: '1.18.18',
+  pi_version: '0.84.2',
   gh_version: '2.97.0',
   playwright_version: '1.62.1',
   ttyd_version: '1.7.7',
@@ -54,9 +56,9 @@ describe('the image tag (#154)', () => {
     assert.equal(agentImageRef(PINS).ref, agentImageRef({ ...PINS }).ref)
   })
 
-  test('the legible half names both CLI versions', () => {
+  test('the legible half names all four harness versions', () => {
     const { ref } = agentImageRef(PINS)
-    assert.match(ref, /^curia-agent:2\.1\.220-0\.146\.0-[0-9a-f]{8}$/)
+    assert.match(ref, /^curia-agent:2\.1\.220-0\.146\.0-1\.18\.18-0\.84\.2-[0-9a-f]{8}$/)
   })
 
   test('a bump in ANY pin changes the tag — that is what triggers the rebuild', () => {
@@ -85,6 +87,8 @@ describe('the image tag (#154)', () => {
       NODE_VERSION: '24.19.0',
       CLAUDE_VERSION: '2.1.220',
       CODEX_VERSION: '0.146.0',
+      OPENCODE_VERSION: '1.18.18',
+      PI_VERSION: '0.84.2',
       GH_VERSION: '2.97.0',
       PLAYWRIGHT_VERSION: '1.62.1',
       TTYD_VERSION: '1.7.7',
@@ -108,6 +112,14 @@ describe('the image tag (#154)', () => {
   test('the Dockerfile stays on the classic builder — the box runs docker 20.10', () => {
     assert.doesNotMatch(instructions(), /RUN\s+--mount/)
     assert.doesNotMatch(instructions(), /<<[A-Z]/)
+  })
+
+  test('the worker user verifies every supported harness at build time', () => {
+    const dockerfile = fs.readFileSync(DOCKERFILE, 'utf8')
+    const worker = dockerfile.slice(dockerfile.indexOf('USER agent'))
+    for (const command of ['claude --version', 'codex --version', 'opencode --version', 'pi --version']) {
+      assert.match(worker, new RegExp(command.replaceAll(' ', '\\s+')), `${command} does not run as the worker user`)
+    }
   })
 })
 
@@ -284,6 +296,8 @@ describe('sandbox config (#154)', () => {
     '  node_version: 24.19.0',
     '  claude_version: 2.1.220',
     '  codex_version: 0.146.0',
+    '  opencode_version: 1.18.18',
+    '  pi_version: 0.84.2',
     '  gh_version: 2.97.0',
     '  playwright_version: 1.62.1',
     '  ttyd_version: 1.7.7',
@@ -304,11 +318,12 @@ describe('sandbox config (#154)', () => {
     const cfg = loadCuriaConfig(writeConfig(FULL))
     assert.equal(cfg.sandbox.image, DEFAULT_IMAGE)
     assert.equal(cfg.sandbox.claude_version, '2.1.220')
+    assert.equal(cfg.sandbox.opencode_version, '1.18.18')
     assert.equal(cfg.sandbox.agent_uid, 1000)
   })
 
   test('a missing pin is refused, naming the key', () => {
-    for (const key of ['node_version', 'claude_version', 'codex_version', 'gh_version', 'playwright_version', 'ttyd_version']) {
+    for (const key of ['node_version', 'claude_version', 'codex_version', 'opencode_version', 'pi_version', 'gh_version', 'playwright_version', 'ttyd_version']) {
       const lines = FULL.filter((l) => !l.trim().startsWith(`${key}:`))
       assert.throws(() => loadCuriaConfig(writeConfig(lines)), new RegExp(`sandbox\\.${key}`))
     }
@@ -349,7 +364,7 @@ describe('the shipped config (#154)', () => {
     const cfg = withSeededHome(() => loadCuriaConfig(file), installs)
     assert.ok(cfg.sandbox, 'the shipped config has no sandbox section')
     const ref = agentImageRef(cfg.sandbox)
-    assert.match(ref.ref, /^curia-agent:\d[\w.]*-\d[\w.]*-[0-9a-f]{8}$/)
+    assert.match(ref.ref, /^curia-agent:(?:\d[\w.]*-){4}[0-9a-f]{8}$/)
   })
 
   // #268: the tree is vendored, so a missing skill is a missing DIRECTORY in

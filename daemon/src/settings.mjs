@@ -52,6 +52,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { parse, parseDocument } from 'yaml'
 import { loadCuriaConfig, loadRoutingConfig, localConfigFile, readLayered, WATCH_MODES } from './config.mjs'
+import { REASONING_EFFORTS } from './routing.mjs'
+import { DEFAULT_OVERSEER } from './overseerservice.mjs'
 
 // What a new override file says about itself, above the first key. It is the
 // one place the two-file rule is written where the operator meets it: on the
@@ -96,10 +98,16 @@ const refuse = (msg) => { throw new SettingsRefusal(msg) }
 // The `dispatch:` keys the screen carries. The remaining keys stay off the
 // screen. They describe the box or tune internal dispatch behavior.
 export const DISPATCH_KEYS = [
-  'auto_dispatch', 'max_concurrent', 'poll_interval_s', 'prototype_variations',
+  'auto_dispatch', 'max_concurrent', 'poll_interval_s', 'prototype_variations', 'messages_per_send',
 ]
 
 const REPO_RE = /^[\w.-]+\/[\w.-]+$/
+
+const routeRow = (type, route) => ({
+  type,
+  model: String(typeof route === 'string' ? route : route?.model ?? ''),
+  ...(typeof route === 'object' && route?.effort != null ? { effort: String(route.effort) } : {}),
+})
 
 // ---------------------------------------------------------------------------
 // the read
@@ -114,7 +122,9 @@ export function readSettings({ curiaFile, routingFile }) {
   const curia = readLayered(curiaFile).data ?? {}
   const routing = readLayered(routingFile).data ?? {}
   const dispatch = {}
-  for (const key of DISPATCH_KEYS) dispatch[key] = curia.dispatch?.[key] ?? null
+  for (const key of DISPATCH_KEYS) {
+    dispatch[key] = curia.dispatch?.[key] ?? (key === 'messages_per_send' ? 4 : null)
+  }
   return {
     files: { curia: curiaFile, routing: routingFile },
     // Where a save lands, which is not where the screen read from. The page
@@ -122,12 +132,13 @@ export function readSettings({ curiaFile, routingFile }) {
     // a surprise the operator has to work out.
     writes: { curia: localConfigFile(curiaFile), routing: localConfigFile(routingFile) },
     dispatch,
+    overseer: { live_pane_cap: curia.overseer?.live_pane_cap ?? DEFAULT_OVERSEER.live_pane_cap },
     watch: (curia.watch ?? []).map((w) => ({ repo: w?.repo ?? '', mode: w?.mode ?? 'auto' })),
     watch_modes: WATCH_MODES,
     routing: {
       // An ordered list, not a map: the table draws the rows in the order
       // routing.yaml states them, and `untyped` reads last there for a reason.
-      defaults: Object.entries(routing.defaults ?? {}).map(([type, model]) => ({ type, model: String(model ?? '') })),
+      defaults: Object.entries(routing.defaults ?? {}).map(([type, route]) => routeRow(type, route)),
       models: Object.entries(routing.models ?? {}).map(([name, m]) => ({
         name,
         provider: m?.provider ?? null,
@@ -163,7 +174,7 @@ const same = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null)
 export const LIVE_PATHS = {
   curia: [
     'dispatch.auto_dispatch', 'dispatch.max_concurrent', 'dispatch.poll_interval_s',
-    'dispatch.prototype_variations', 'watch',
+    'dispatch.prototype_variations', 'dispatch.messages_per_send', 'overseer.live_pane_cap', 'watch',
   ],
   routing: ['defaults.*', 'models.*.active'],
 }
@@ -176,9 +187,10 @@ export function liveSettings({ curia, routing }) {
   for (const key of DISPATCH_KEYS) dispatch[key] = curia?.dispatch?.[key] ?? null
   return {
     dispatch,
+    overseer: { live_pane_cap: curia?.overseer?.live_pane_cap ?? DEFAULT_OVERSEER.live_pane_cap },
     watch: (curia?.watch ?? []).map((w) => ({ repo: w?.repo ?? '', mode: w?.mode ?? 'auto' })),
     routing: {
-      defaults: Object.entries(routing?.defaults ?? {}).map(([type, model]) => ({ type, model: String(model ?? '') })),
+      defaults: Object.entries(routing?.defaults ?? {}).map(([type, route]) => routeRow(type, route)),
       // `active` and the name, because they are what the switch moves. Provider
       // and harness are on the screen's own read and are not reloadable.
       models: Object.entries(routing?.models ?? {}).map(([name, m]) => ({ name, active: m?.active !== false })),
@@ -197,7 +209,11 @@ export function liveDiff(before, after) {
   // The list replaces whole (config.mjs states that rule), so it moves as one
   // key rather than as one key per repo.
   if (!same(before.watch, after.watch)) out.push('watch')
-  const rows = (s) => new Map((s.routing?.defaults ?? []).map((r) => [r.type, r.model]))
+  if (!same(before.overseer?.live_pane_cap, after.overseer?.live_pane_cap)) out.push('overseer.live_pane_cap')
+  const rows = (s) => new Map((s.routing?.defaults ?? []).map((r) => [r.type, {
+    model: r.model,
+    effort: r.effort ?? null,
+  }]))
   const [rb, ra] = [rows(before), rows(after)]
   for (const type of new Set([...rb.keys(), ...ra.keys()])) {
     if (!same(rb.get(type), ra.get(type))) out.push(`routing.defaults.${type}`)
@@ -252,7 +268,7 @@ export function frozenDifference(before, after, paths, parts = []) {
 function checkPatch(patch) {
   if (!patch || typeof patch !== 'object' || Array.isArray(patch)) refuse('the save carried no settings')
   for (const key of Object.keys(patch)) {
-    if (!['dispatch', 'watch', 'routing'].includes(key)) refuse(`the settings screen does not write \`${key}\``)
+    if (!['dispatch', 'overseer', 'watch', 'routing'].includes(key)) refuse(`the settings screen does not write \`${key}\``)
   }
   const d = patch.dispatch
   if (d !== undefined) {
@@ -264,10 +280,24 @@ function checkPatch(patch) {
     if (d.prototype_variations !== undefined && (!Number.isInteger(d.prototype_variations) || d.prototype_variations <= 0)) {
       refuse('dispatch.prototype_variations must be a positive integer')
     }
+    if (d.messages_per_send !== undefined
+      && (!Number.isInteger(d.messages_per_send) || d.messages_per_send < 1 || d.messages_per_send > 4)) {
+      refuse('dispatch.messages_per_send must be an integer from 1 through 4')
+    }
     for (const key of ['max_concurrent', 'poll_interval_s']) {
       if (d[key] !== undefined && !(typeof d[key] === 'number' && Number.isFinite(d[key]) && d[key] > 0)) {
         refuse(`dispatch.${key} must be a positive number`)
       }
+    }
+  }
+  if (patch.overseer !== undefined) {
+    const over = patch.overseer
+    if (!over || typeof over !== 'object' || Array.isArray(over)) refuse('`overseer` must be a mapping')
+    for (const key of Object.keys(over)) {
+      if (key !== 'live_pane_cap') refuse(`the settings screen does not write \`overseer.${key}\``)
+    }
+    if (!(Number.isInteger(over.live_pane_cap) && over.live_pane_cap > 0)) {
+      refuse('overseer.live_pane_cap must be a positive integer')
     }
   }
   if (patch.watch !== undefined) {
@@ -291,8 +321,21 @@ function checkPatch(patch) {
     for (const key of Object.keys(r)) {
       if (!['defaults', 'models'].includes(key)) refuse(`the settings screen does not write \`routing.${key}\``)
     }
-    for (const [type, model] of Object.entries(r.defaults ?? {})) {
-      if (typeof model !== 'string' || !model.trim()) refuse(`defaults.${type} must name a model`)
+    for (const [type, route] of Object.entries(r.defaults ?? {})) {
+      if (typeof route === 'string') {
+        if (!route.trim()) refuse(`defaults.${type} must name a model`)
+        continue
+      }
+      if (!route || typeof route !== 'object' || Array.isArray(route)) {
+        refuse(`defaults.${type} must name a model or carry a model and effort`)
+      }
+      for (const key of Object.keys(route)) {
+        if (!['model', 'effort'].includes(key)) refuse(`defaults.${type}.${key} is not a routing field`)
+      }
+      if (typeof route.model !== 'string' || !route.model.trim()) refuse(`defaults.${type}.model must name a model`)
+      if (route.effort !== undefined && !REASONING_EFFORTS.includes(route.effort)) {
+        refuse(`defaults.${type}.effort must be one of ${REASONING_EFFORTS.join('|')}`)
+      }
     }
     for (const [name, m] of Object.entries(r.models ?? {})) {
       if (!m || typeof m !== 'object' || typeof m.active !== 'boolean') {
@@ -333,8 +376,13 @@ function settle(doc, keyPath, value, baseValue) {
 
 function editCuria(doc, patch, base) {
   for (const [key, value] of Object.entries(patch.dispatch ?? {})) {
-    if (base.dispatch?.[key] === undefined) refuse(`curia.yaml has no \`dispatch.${key}\` line to edit`)
-    settle(doc, ['dispatch', key], value, base.dispatch[key])
+    const baseValue = base.dispatch?.[key] ?? (key === 'messages_per_send' ? 4 : undefined)
+    if (baseValue === undefined) refuse(`curia.yaml has no \`dispatch.${key}\` line to edit`)
+    settle(doc, ['dispatch', key], value, baseValue)
+  }
+  if (patch.overseer) {
+    settle(doc, ['overseer', 'live_pane_cap'], patch.overseer.live_pane_cap,
+      base.overseer?.live_pane_cap ?? DEFAULT_OVERSEER.live_pane_cap)
   }
   if (patch.watch) editWatch(doc, patch.watch, base)
 }
@@ -380,11 +428,11 @@ function editWatch(doc, watch, base) {
 }
 
 function editRouting(doc, patch, base) {
-  for (const [type, model] of Object.entries(patch.routing.defaults ?? {})) {
+  for (const [type, route] of Object.entries(patch.routing.defaults ?? {})) {
     if (base.defaults?.[type] === undefined) {
       refuse(`routing.yaml has no \`defaults.${type}\` row — the settings screen edits the rows that are there and adds none`)
     }
-    settle(doc, ['defaults', type], model, base.defaults[type])
+    settle(doc, ['defaults', type], route, base.defaults[type])
   }
   for (const [name, m] of Object.entries(patch.routing.models ?? {})) {
     if (!base.models?.[name]) refuse(`routing.yaml has no \`models.${name}\` entry — a model is added by hand, not by a checkbox`)

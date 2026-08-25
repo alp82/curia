@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url'
 import { composeConfig, DEFAULT_REPO_ROOT } from './fixtures/compose.mjs'
 import {
   probeTtyd, WRAPPER_PATH, validSessionName,
-  attachUrl, serveOff, DEFAULT_INDEX, CHROME_BASENAME, indexRefusal, readIndexStamp,
+  attachUrl, atlasTerminalUrl, serveOff, DEFAULT_INDEX, CHROME_BASENAME, indexRefusal, readIndexStamp,
   stampMeta, sha256, isChatHandle, nextChatHandle,
   isConsoleKey, nextConsoleKey, consoleSession, consoleKeyForSession, sessionForConsoleKey,
 } from '../src/attach.mjs'
@@ -210,6 +210,14 @@ describe('session-name gate', () => {
     assert.ok(!isChatHandle('chat'))
     assert.ok(!isChatHandle('chat-1; rm -rf /'))
     assert.equal(attachUrl('host.ts.net', 8443, 'chat-2'), 'https://host.ts.net:8443/?arg=curia-chat-2')
+  })
+
+  test('Atlas owns the same-origin terminal route', () => {
+    assert.equal(
+      atlasTerminalUrl('host.ts.net', 9443, 'curia-42'),
+      'https://host.ts.net:9443/terminal/?arg=curia-42',
+    )
+    assert.throws(() => atlasTerminalUrl('host.ts.net', 9443, '42; x'))
   })
 })
 

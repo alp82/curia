@@ -661,6 +661,19 @@ function curiaMcpUrl(daemonPort, agent, ticket, host = LOOPBACK) {
 // SIGKILL, and this deadline is still the only bound there.
 const CODEX_TOOL_TIMEOUT_S = 86_400
 
+// Claude Code stores only the final 20 characters when the operator approves
+// a custom API key. Keep that upstream storage shape here, rather than writing
+// the complete secret into a durable config file.
+export const CLAUDE_API_KEY_TAIL_LENGTH = 20
+
+export function claudeApiKeyApproval(apiKey) {
+  if (!apiKey) return null
+  if (apiKey.length < CLAUDE_API_KEY_TAIL_LENGTH) {
+    throw new Error(`the deployed Claude API key is shorter than ${CLAUDE_API_KEY_TAIL_LENGTH} characters`)
+  }
+  return apiKey.slice(-CLAUDE_API_KEY_TAIL_LENGTH)
+}
+
 // The Stop hook, identical on both harnesses: POST the hook's own stdin payload to
 // the daemon, which answers `{decision:"block", reason}` while a step of the
 // ending is outstanding (#54).
@@ -751,7 +764,8 @@ const HARNESS = {
     // Exact prototype.md §1 shape, verified live: no first-spawn dialog ever
     // appears. The projects key MUST be the absolute worktree path (matched
     // exactly).
-    seed: (cfgDir, wtPath) => {
+    seed: (cfgDir, wtPath, { apiKey = null } = {}) => {
+      const approvedApiKey = claudeApiKeyApproval(apiKey)
       fs.writeFileSync(path.join(cfgDir, '.claude.json'), JSON.stringify({
         hasCompletedOnboarding: true,
         installMethod: 'native',
@@ -766,6 +780,9 @@ const HARNESS = {
             hasClaudeMdExternalIncludesWarningShown: true,
           },
         },
+        ...(approvedApiKey ? {
+          customApiKeyResponses: { approved: [approvedApiKey], rejected: [] },
+        } : {}),
       }, null, 2))
       // The MCP namespace is bounded HERE, in the two settings keys below
       // (#180), because nothing else reaches it. `CLAUDE_CONFIG_DIR` holds the
@@ -801,6 +818,7 @@ const HARNESS = {
         skipDangerousModePermissionPrompt: true,
         disableClaudeAiConnectors: true,
         allowedMcpServers: [{ serverName: MCP_SERVER_NAME }],
+        cleanupPeriodDays: 36500,
       }, null, 2))
     },
 
@@ -808,7 +826,7 @@ const HARNESS = {
     // MCP on, bypass permissions, Stop hook → /agent_done) — spike #29 shapes
     // with per-agent substitution. Both land in the worktree and are hidden from
     // git by the base clone's info/exclude (see ensureBaseClone).
-    connectionSettings: ({ wtPath, agent, ticket, daemonPort, daemonHost, token }) => {
+    connectionSettings: ({ wtPath, agent, ticket, daemonPort, daemonHost, reasoningEffort, token }) => {
       writeSecretFile(path.join(wtPath, '.mcp.json'), JSON.stringify({
         mcpServers: {
           [MCP_SERVER_NAME]: {
@@ -826,6 +844,7 @@ const HARNESS = {
       writeSecretFile(path.join(dotClaude, 'settings.json'), JSON.stringify({
         enableAllProjectMcpServers: true,
         permissions: { defaultMode: 'bypassPermissions' },
+        ...(reasoningEffort ? { env: { CLAUDE_CODE_EFFORT_LEVEL: reasoningEffort } } : {}),
         hooks: { Stop: [{ hooks: [{ type: 'command', command: stopHookCommand(daemonPort, agent, daemonHost, token) }] }] },
       }, null, 2))
     },
@@ -1427,7 +1446,7 @@ export function composeMemoryFile(cfgDir, harness) {
 // it as a `projects` key, which Claude Code matches against its own cwd — and a
 // container's cwd is the mount point, not the host path. Everything this
 // function WRITES goes to `cfgDir`, which is always the host path.
-export function seedConfigDir(cfgDir, wtPath, skills = null, harness = 'claude', { sandboxed = false } = {}) {
+export function seedConfigDir(cfgDir, wtPath, skills = null, harness = 'claude', { sandboxed = false, apiKey = null } = {}) {
   const h = harnessDef(harness)
   fs.mkdirSync(cfgDir, { recursive: true })
   // No credential is COPIED here — every harness shares the host's own store
@@ -1439,7 +1458,7 @@ export function seedConfigDir(cfgDir, wtPath, skills = null, harness = 'claude',
   // The seed needs the boundary too (#158): the codex harness shares the host's
   // credential file through a symlink on the bare path and cannot share it at
   // all across a mount, so it copies instead.
-  h.seed(cfgDir, wtPath, { sandboxed })
+  h.seed(cfgDir, wtPath, { sandboxed, apiKey })
   // The one deliberate narrowing of the no-host-config stance below (#133):
   // the operator's communication rules are mandatory for every agent, so a
   // curia-owned copy lands as the CLI's global-memory file. `CLAUDE.md` for
@@ -1726,7 +1745,7 @@ function deferredCuriaOrder(harness) {
 export function writePrompt(cfgDir, issue, {
   repo, wtPath, mapNumber = null, type = null, charting = false, newMap = false,
   instruction = null, ports = null, harness = 'claude', exchange = [], handoff = false,
-  prototypeVariations,
+  prototypeVariations, skill = null, skillTarget = null,
 }) {
   if (type === 'wayfinder:prototype' && (!Number.isInteger(prototypeVariations) || prototypeVariations <= 0)) {
     throw new Error('prototypeVariations must be a positive integer for a prototype dispatch')
@@ -1783,11 +1802,13 @@ export function writePrompt(cfgDir, issue, {
   // below rather than the invocation line — the line is one line, and this one
   // is a paragraph the operator wrote.
   const sigil = harness === 'codex' ? null : '/wayfinder'
-  const invocation = !sigil || !(newMap || mapNumber)
-    ? []
-    : newMap
-      ? [sigil, '']
-      : [`${sigil} ${mapUrl}${charting ? '' : ` ticket #${n}`}`, '']
+  const invocation = skill
+    ? [`${harness === 'codex' ? '$' : '/'}${skill}${skillTarget ? ` ${skillTarget}` : ''}`, '']
+    : !sigil || !(newMap || mapNumber)
+      ? []
+      : newMap
+        ? [sigil, '']
+        : [`${sigil} ${mapUrl}${charting ? '' : ` ticket #${n}`}`, '']
 
   // The params of a NEW-map dispatch (#241). The difference from a map dispatch
   // is one fact with consequences everywhere: the map does not exist. So this
@@ -1840,7 +1861,15 @@ export function writePrompt(cfgDir, issue, {
     ...researchParams({ repo, branch }),
   ]
 
-  const params = newMap ? newMapParams : charting ? chartingParams : [
+  const skillParams = [
+    '- **This is a TICKETLESS SKILL RUN.** This issue is the durable record that owns the run and its review gate.',
+    `- Run the \`${skill}\` skill against ${skillTarget}. The invocation is the first line of this prompt.`,
+    '- The product is tracker writes. Before publication, pass every proposed title, label, and native',
+    '  dependency edge in `tracker_writes` to `request_review`. Grouping into dispatch waves is done by curia.',
+    '- Nothing in `tracker_writes` exists on GitHub before approval. Publish only what the operator approved.',
+  ]
+
+  const params = skill ? skillParams : newMap ? newMapParams : charting ? chartingParams : [
     ...(mapNumber
       ? [`- The map is ${repo}#${mapNumber} — ${mapUrl}. curia has loaded it for you.`]
       : ['- This ticket belongs to no map, so there is no map to work through and no map line to append.']),
@@ -1896,7 +1925,15 @@ export function writePrompt(cfgDir, issue, {
     // request on this branch is what holds them off the default branch until a
     // human approves. Everything else on disk stays out of bounds, and curia
     // refuses the push rather than trusting the sentence.
-    ...(newMap
+    ...(skill
+      ? [
+        `- **Write only:** files inside ${wtPath}, and this record issue.`,
+        '- After gate approval, write only the approved tracker items and the approved merge.',
+        '- Write nothing else on the tracker or outside the worktree on disk.',
+        '- Before gate approval, the record issue is the only tracker issue you may write.',
+        '- Leave the assignee alone, and do not rewrite anyone else\'s text.',
+      ]
+      : newMap
       ? [
         `- **Write only:** the ONE \`wayfinder:map\` issue you create in ${repo}, and its child tickets;`,
         `  the research findings under \`${wtPath}/docs/research/\`; and the one merge a human has just`,
@@ -2065,6 +2102,8 @@ export function writePrompt(cfgDir, issue, {
     '- `notify` — a status line for the human. Returns at once. `kind` says what they must DO:',
     '  `progress` (nothing), `look` (open a file or a page now), `ask` (reply when they can). An `ask`',
     '  blocks nothing, so use `ask_human` when you cannot go on without the answer.',
+    '  Set `phase` for routine progress. Curia edits the live status line instead of posting another message.',
+    '- Start with one `notify` message. Put your goal first, then your first step. Use at most two lines.',
     ...(newMap ? [
       '- `map_created` — tell curia the number of the map you created, the moment it exists. curia checks',
       '  the issue is really an open `wayfinder:map` in this repo, then takes it as this session\'s map:',
@@ -2091,6 +2130,8 @@ export function writePrompt(cfgDir, issue, {
     '- `notify` — a status line for the human. Returns at once. `kind` says what they must DO:',
     '  `progress` (nothing), `look` (open a file or a page now), `ask` (reply when they can). An `ask`',
     '  blocks nothing, so use `ask_human` when you cannot go on without the answer.',
+    '  Set `phase` for routine progress. Curia edits the live status line instead of posting another message.',
+    '- Start with one `notify` message. Put your goal first, then your first step. Use at most two lines.',
     ...(portLines.length ? [
       '- `publish_preview` — publish a dev server you have started as an HTTPS link. Start the server FIRST,',
       `  bound to \`0.0.0.0\` on one of your three ports (${ports.join(', ')}), then call this with that port`,
@@ -2102,6 +2143,10 @@ export function writePrompt(cfgDir, issue, {
     '- `open_pull_request` — curia pushes your branch and opens or updates the pull request. You never push.',
     '- `request_review` — the one gate. curia shows the human the pull request, the preview, the ticket and',
     '  your proposed charting, and blocks until they approve or reject. **You never write a link yourself.**',
+    ...(skill ? [
+      '  Put every proposed tracker title, label, and native edge in `tracker_writes`. Curia numbers the',
+      '  items and groups them by dispatch wave before the operator sees the gate.',
+    ] : []),
     '  curia composes all three from its own records, which is what makes them evidence rather than your',
     '  account of your own work. If the preview link points at the wrong page, fix it where it is made —',
     '  call `publish_preview` again with the right path — not by pasting a URL into your summary.',
