@@ -9,6 +9,7 @@ import {
   prepareOverseerPane,
 } from '../src/overseerpane.mjs'
 import { PASTE_START, PASTE_END, bracketedPaste } from '../src/tmux.mjs'
+import { Reduction } from '../src/reduction.mjs'
 
 const UUID = '11111111-2222-4333-8444-555555555555'
 const ROOT = '/work'
@@ -489,5 +490,298 @@ describe('one complete pane message (#708)', () => {
 
     assert.equal(signal.ok, false)
     assert.match(signal.why, /never started a turn/)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// the cap's idle rule, the forced park and the turn a restart can find (#710)
+// ---------------------------------------------------------------------------
+//
+// A live pane is a CACHE in front of a durable conversation. Everything below
+// tests one promise: capacity management may stop a process, and it may not
+// change the conversation. So the assertions are as much about what parking
+// leaves alone — the resume id, the token, the notes — as about what it stops.
+
+const IDLE = 'bypass permissions'
+const BUSY = '✻ Thinking… (esc to interrupt)'
+
+// `paneDouble` with a capture that can say a named pane is mid-message, which
+// is the one fact the idle rule turns on.
+function capturingPane(busy = new Set()) {
+  const pane = paneDouble()
+  pane.capture = async (name) => (busy.has(name) ? BUSY : IDLE)
+  pane.busy = busy
+  return pane
+}
+
+function capStore() {
+  const store = storeDouble()
+  store.turns = []
+  store.parked = []
+  store.livePanes = new Map()
+  store.touch = 0
+  const journal = store.journal.bind(store)
+  store.journal = function (type, detail) {
+    journal(type, detail)
+    if (['overseer_pane_started', 'overseer_pane_resumed', 'overseer_pane_message'].includes(type)) {
+      if (detail.key) this.livePanes.set(detail.key, ++this.touch)
+    }
+  }
+  store.livePaneKeys = function () {
+    return [...this.livePanes.entries()].sort((a, b) => a[1] - b[1]).map(([key]) => key)
+  }
+  store.parkOverseerPane = function (record) {
+    this.livePanes.delete(record.key)
+    this.parked.push(record)
+    this.events.push({ type: 'overseer_pane_parked', ...record })
+  }
+  store.takeOverseerNotes = () => []
+  store.addOverseerNote = () => {}
+  store.beginOverseerTurn = function (t) { this.turns.push({ type: 'started', ...t }) }
+  store.endOverseerTurn = function (t) { this.turns.push({ type: 'ended', ...t }) }
+  return store
+}
+
+function capHost({ cap = 2, reduction = capStore(), pane = capturingPane(), ...rest } = {}) {
+  let seq = 0
+  return hosted({
+    reduction,
+    pane,
+    livePaneCap: cap,
+    newSessionId: () => '11111111-2222-4333-8444-' + String(++seq).padStart(12, '0'),
+    settlePollMs: 0,
+    startTimeoutMs: 0,
+    messageTimeoutMs: 0,
+    log: () => {},
+    ...rest,
+  })
+}
+
+describe('the live-pane cap parks an IDLE pane (#710, ADR-0024)', () => {
+  test('a pane mid-message is skipped, and the next-oldest parks instead', async () => {
+    // Parking the pane the operator is waiting on would kill one turn to make
+    // room for another, and neither would get an answer.
+    const pane = capturingPane()
+    const { host, reduction } = capHost({ cap: 2, pane })
+
+    await host.send('console-1', 'one')
+    await host.send('console-2', 'two')
+    pane.busy.add('curia-console-1')
+    await host.send('console-3', 'three')
+
+    assert.deepEqual(pane.parks, ['curia-console-2'], 'the oldest IDLE one, not the oldest one')
+    assert.deepEqual(reduction.parked.map((p) => p.key), ['console-2'])
+    assert.equal(reduction.parked[0].reason, 'capacity')
+  })
+
+  test('a cap where every pane is working parks nothing rather than cutting an answer off', async () => {
+    const pane = capturingPane()
+    const { host, reduction } = capHost({ cap: 2, pane })
+
+    await host.send('console-1', 'one')
+    await host.send('console-2', 'two')
+    pane.busy.add('curia-console-1')
+    pane.busy.add('curia-console-2')
+    await host.send('console-3', 'three')
+
+    assert.deepEqual(pane.parks, [], 'one pane over the cap beats an answer cut in half')
+    assert.deepEqual(reduction.parked, [])
+    assert.equal(host.live.size, 3)
+  })
+
+  test('a conversation that already holds its pane costs nobody else theirs', async () => {
+    const { host, pane } = capHost({ cap: 2 })
+
+    await host.send('console-1', 'one')
+    await host.send('console-2', 'two')
+    await host.send('console-1', 'one again')
+
+    assert.deepEqual(pane.parks, [], 'the cap is asked where a pane comes into existence, and nowhere else')
+  })
+
+  test('the cap is read per decision, so a reload moves it under a running daemon', async () => {
+    let cap = 3
+    const { host, pane } = capHost({ cap: () => cap })
+
+    await host.send('console-1', 'one')
+    await host.send('console-2', 'two')
+    await host.send('console-3', 'three')
+    assert.deepEqual(pane.parks, [])
+
+    cap = 2
+    await host.send('console-4', 'four')
+    assert.equal(pane.parks.length, 2, 'the save took effect without a restart')
+  })
+
+  test('a cap that reads as nonsense falls back to the default rather than parking everything', async () => {
+    const { host, pane } = capHost({ cap: () => 0 })
+
+    await host.send('console-1', 'one')
+    await host.send('console-2', 'two')
+    await host.send('console-3', 'three')
+
+    assert.deepEqual(pane.parks, [], 'zero is refused by the loader; here it must not mean "park every time"')
+  })
+
+  test('parking stops a process and changes nothing durable', async () => {
+    const state = capHost({ cap: 1 })
+
+    await state.host.send('console-1', 'one')
+    const first = state.identity.calls.armed.at(-1)
+    await state.host.send('console-2', 'two')
+    assert.deepEqual(state.pane.parks, ['curia-console-1'])
+
+    // The rehydration happens inside `ensure`, before any model work, on the
+    // identity #701 minted once.
+    await state.host.send('console-1', 'one again')
+    const back = state.identity.calls.armed.at(-1)
+    assert.equal(back.token, first.token, 'the durable token was never revoked')
+    assert.equal(back.home, first.home)
+    assert.match(state.pane.starts.at(-1).shellCmd, /--resume /, 'the resume id survived the park')
+  })
+})
+
+describe('the forced park a restart already took (#710)', () => {
+  test('a conversation the journal calls live whose pane is gone is parked as forced', async () => {
+    const reduction = capStore()
+    const pane = capturingPane()
+    const { host } = capHost({ reduction, pane })
+
+    await host.send('console-1', 'one')
+    // Whatever recreated the overseer service killed the pane without this
+    // process getting to write it down.
+    await pane.park('curia-console-1')
+    pane.parks.length = 0
+
+    const parked = await host.reconcile()
+
+    assert.deepEqual(parked, ['console-1'])
+    assert.equal(reduction.parked.at(-1).reason, 'restart')
+    assert.deepEqual(reduction.livePaneKeys(), [], 'the cap counts panes that exist')
+  })
+
+  test('a pane that survived the restart is counted again rather than forgotten', async () => {
+    const reduction = capStore()
+    const pane = capturingPane()
+    const { host } = capHost({ reduction, pane, cap: 1 })
+
+    await host.send('console-1', 'one')
+    host.live.clear() // a fresh process, with the journal and the tmux server both intact
+
+    const parked = await host.reconcile()
+
+    assert.deepEqual(parked, [])
+    assert.equal(host.live.size, 1, 'a boot that forgot it would park nothing until it spoke again')
+  })
+})
+
+describe('a pane message opens a turn a restart can find (#710, closing #708)', () => {
+  test('the turn opens before the write and closes on the completion signal', async () => {
+    const reduction = capStore()
+    const { host } = capHost({ reduction })
+
+    const out = await host.deliver('console-4', 'what is on the frontier?')
+    await out.completion
+
+    const [started, ended] = reduction.turns
+    assert.equal(started.type, 'started')
+    assert.equal(started.prompt, 'what is on the frontier?',
+      'the operator\'s words, not the composed paste — a replay re-runs the checkout pass')
+    assert.equal(started.replay, false)
+    assert.equal(ended.type, 'ended')
+    assert.equal(ended.turn, started.turn)
+  })
+
+  test('a message curia refused to send still closes its turn', async () => {
+    const reduction = capStore()
+    const pane = capturingPane()
+    pane.send = async () => ({ status: 'not-sent' })
+    const { host } = capHost({ reduction, pane })
+
+    await host.deliver('console-4', 'anything I missed?')
+
+    assert.deepEqual(reduction.turns.map((t) => t.type), ['started', 'ended'],
+      'a turn left open is one the next boot reads as killed and sends again')
+    assert.equal(reduction.turns[1].ok, false)
+  })
+
+  test('a replayed message says so, so it is never sent a third time', async () => {
+    const reduction = capStore()
+    const { host } = capHost({ reduction })
+
+    await (await host.deliver('console-4', 'stop the agent', { replay: true })).completion
+
+    assert.equal(reduction.turns[0].replay, true)
+  })
+
+  test('a conversation with a message in flight reports busy, and stops when the signal lands', async () => {
+    // The pane shows a turn, so the message is still open when `deliver`
+    // returns — which is the whole point: the surface does not hold an HTTP
+    // request for the length of a model's work.
+    const pane = capturingPane(new Set(['curia-console-4']))
+    const { host } = capHost({ pane, messageTimeoutMs: 60_000 })
+
+    const out = await host.deliver('console-4', 'read the map')
+    assert.equal(host.busy('console-4'), true, 'the replay must not land an older message behind these words')
+
+    pane.busy.delete('curia-console-4')
+    await out.completion
+    assert.equal(host.busy('console-4'), false)
+  })
+})
+
+// The cache's own bookkeeping, on the REAL journal. The order matters more than
+// it looks: `Map.set` on a key that is already there keeps its original
+// position, so plain insertion order would report a conversation speaking for
+// the second time as the oldest one there. The reduction counts instead.
+describe('which conversations hold a live pane (#710)', () => {
+  const fresh = () => new Reduction(fs.mkdtempSync(path.join(os.tmpdir(), 'curia-livepanes-')))
+
+  test('the order is least recently used, and it survives a restart', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-livepanes-'))
+    const r = new Reduction(dir)
+    r.journal('overseer_pane_started', { key: 'console-1' })
+    r.journal('overseer_pane_started', { key: 'console-2' })
+    r.journal('overseer_pane_message', { key: 'console-1' })
+    assert.deepEqual(r.livePaneKeys(), ['console-2', 'console-1'],
+      'console-1 spoke last, so console-2 is the one to park')
+
+    const back = new Reduction(dir)
+    assert.deepEqual(back.livePaneKeys(), ['console-2', 'console-1'])
+    assert.equal(back.hasLivePane('console-1'), true)
+  })
+
+  test('a park takes the pane off the list and leaves the conversation whole', () => {
+    const r = fresh()
+    r.journal('console_conversation_opened', { key: 'console-1' })
+    r.bindOverseerSession('console-1', 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa')
+    r.addOverseerNote('console-1', 'curia started 704')
+    r.journal('overseer_pane_started', { key: 'console-1' })
+
+    r.parkOverseerPane({ key: 'console-1', pane: 'curia-console-1', reason: 'capacity' })
+
+    assert.deepEqual(r.livePaneKeys(), [])
+    assert.equal(r.overseerSession('console-1'), 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      'the resume id is the conversation, and parking stops a process')
+    assert.equal(r.hasConsoleConversation('console-1'), true)
+    assert.deepEqual(r.takeOverseerNotes('console-1'), ['curia started 704'],
+      'the notes waited through the park')
+  })
+
+  test('a deleted conversation takes its pane record with it', () => {
+    const r = fresh()
+    r.journal('console_conversation_opened', { key: 'console-1' })
+    r.journal('overseer_pane_started', { key: 'console-1' })
+    r.journal('console_conversation_deleted', { key: 'console-1' })
+    assert.deepEqual(r.livePaneKeys(), [])
+  })
+
+  test('the operator never reads about a park', () => {
+    // The spec hides it: "parked conversations hidden as a runtime detail, so
+    // that capacity management doesn't change the conversation model".
+    const r = fresh()
+    r.journal('overseer_pane_started', { key: 'console-1' })
+    r.parkOverseerPane({ key: 'console-1', pane: 'curia-console-1', reason: 'capacity' })
+    assert.ok(!r.recent.some((e) => e.type === 'overseer_pane_parked'))
   })
 })

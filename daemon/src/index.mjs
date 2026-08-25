@@ -1451,7 +1451,11 @@ const overseerPanes = new OverseerPaneHost({
   dataDir: DATA,
   daemonPort: PORT,
   daemonHost: GUEST_DAEMON_HOST,
-  livePaneCap: curiaConfig.overseer.live_pane_cap,
+  // Read PER PARKING DECISION, the same way and for the same reason as the
+  // watch list below: `overseer.live_pane_cap` is in the reload's live set, so
+  // a save moves it under a daemon that keeps running. A number captured here
+  // would leave the screen reporting a cap nothing enforces.
+  livePaneCap: () => curiaConfig.overseer.live_pane_cap,
   watchRepos: () => curiaConfig.watch.map((entry) => entry.repo),
   log,
 })
@@ -1579,12 +1583,13 @@ const overseerContainer = new OverseerClient({
 // deleted-key refusal is the same one the turn lane carried: a key whose
 // conversation is gone must never reach tmux, or the operator reads a tmux
 // error about their own deleted chat.
-async function overseerPaneMessage(key, text) {
+async function overseerPaneMessage(key, text, { replay = false } = {}) {
   if (!reduction.hasConsoleConversation(key)) {
     throw new Error(`there is no conversation \`${key}\` — it was deleted, and its number is spent; open a new one from the Chat screen`)
   }
   const out = await overseerPanes.deliver(key, text, {
     onNote: (note) => log(`[overseer] ${key}: ${note}`),
+    replay,
   })
   if (out.delivery?.status === 'not-sent') {
     throw new Error('curia is still on your last message — one message at a time in a conversation')
@@ -3228,6 +3233,7 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
     // the process reading the old one.
     for (const key of DISPATCH_KEYS) curiaConfig.dispatch[key] = nextCuria.dispatch[key]
     curiaConfig.watch = nextCuria.watch
+    curiaConfig.overseer.live_pane_cap = nextCuria.overseer.live_pane_cap
     for (const [type, model] of Object.entries(nextRouting.defaults)) routingConfig.defaults[type] = model
     for (const [name, m] of Object.entries(nextRouting.models)) routingConfig.models[name].active = m.active
     configLoadedAt = new Date().toISOString()
@@ -3351,23 +3357,38 @@ selfDeploy.resolvePending({ announce: selfDeploy.announce })
 // takes down beside this process. It runs off the boot rather than inside it:
 // nothing else waits for it, and a conversation with nothing pending costs one
 // journal read.
-replayKilledTurns({
-  killed: killedTurns,
-  reduction,
-  bootAt,
-  probe: () => probeOverseer({ port: curiaConfig.overseer.port }),
-  // A turn already in flight on this key means the operator got here first.
-  live: (key) => overseerContainer.busy.has(key),
-  discord: {
-    ready: () => Boolean(bridge),
-    // Optional on purpose: the wedge watchdog throws the bridge away and builds
-    // a new one, so a bridge that was up when the wait ended can be gone here.
-    say: (threadId, text) => bridge?.sayInThread(threadId, text) ?? false,
-    replay: (threadId, prompt) => bridge?.replayOverseerTurn(threadId, prompt, replayLine()) ?? false,
-  },
-  browser: { replay: (key, prompt) => overseerPanes.send(key, prompt) },
-  log,
-}).catch((e) => log(`the killed-turn replay failed: ${e.message}`))
+// #710, ADR-0024: whatever killed this daemon killed every pane with it, and a
+// routine deploy recreates the overseer service on purpose. That is a FORCED
+// PARK, and the journal has to be told: a conversation the cap still counts as
+// live holds a pane that no longer exists. Recorded before the replay below,
+// because a replay rehydrates a pane and the count has to be honest first.
+overseerPanes.reconcile()
+  .catch((e) => log(`the pane reconcile failed: ${e.message}`))
+  .then(() => replayKilledTurns({
+    killed: killedTurns,
+    reduction,
+    bootAt,
+    probe: () => probeOverseer({ port: curiaConfig.overseer.port }),
+    // A turn already in flight on this key means the operator got here first —
+    // on either lane. #710 put the browser conversation in a pane, and this pass
+    // runs off the boot for up to two minutes while it waits for the container,
+    // so a message sent during that wait must not have an older one land behind
+    // it.
+    live: (key) => overseerContainer.busy.has(key) || overseerPanes.busy(key),
+    discord: {
+      ready: () => Boolean(bridge),
+      // Optional on purpose: the wedge watchdog throws the bridge away and builds
+      // a new one, so a bridge that was up when the wait ended can be gone here.
+      say: (threadId, text) => bridge?.sayInThread(threadId, text) ?? false,
+      replay: (threadId, prompt) => bridge?.replayOverseerTurn(threadId, prompt, replayLine()) ?? false,
+    },
+    // #710: the browser conversation is a pane, so the message goes back in the
+    // way every other one does — the same door, the same deleted-key refusal, the
+    // same completion signal. It carries `replay` so the drop rules can see that
+    // curia has already sent this message again once and never do it twice.
+    browser: { replay: (key, prompt) => overseerPaneMessage(key, prompt, { replay: true }) },
+    log,
+  })).catch((e) => log(`the killed-turn replay failed: ${e.message}`))
 
 // #56 bridge health. The outage clock lives HERE rather than on the bridge
 // object, because a wedge recovery throws the bridge away and builds a new one —

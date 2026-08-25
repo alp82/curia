@@ -27,6 +27,7 @@ import { agentEnv, seedConfigDir } from './workspace.mjs'
 import { buildSystemPrompt, checkoutReport } from './overseerprompt.mjs'
 import { execFileP } from './exec.mjs'
 import { SIGNALS } from './messaging.mjs'
+import { DEFAULT_OVERSEER } from './overseerservice.mjs'
 
 export const OVERSEER_CONTAINER = 'curia-overseer-1'
 const OVERSEER_PANE_PREFIX = 'curia-overseer-'
@@ -292,6 +293,25 @@ export class OverseerPaneHost {
     this.live = new Map()
     this.lanes = new Map()
     this.capacityLane = Promise.resolve()
+    // The conversations with a message in flight RIGHT NOW. The killed-turn
+    // replay reads it: a conversation the operator is already talking to must
+    // not have an older message landed behind their words (#388's rule, on the
+    // pane lane).
+    this.inFlight = new Set()
+  }
+
+  busy(key) {
+    return this.inFlight.has(String(key))
+  }
+
+  // `livePaneCap` may be a number or a function, and index.mjs passes a
+  // function: `overseer.live_pane_cap` is in the reload's live set, so the
+  // number a park is taken against has to be the one configured NOW. A cap that
+  // reads as anything but a positive whole number falls back to the default
+  // rather than parking everything or nothing.
+  #cap() {
+    const n = Number(typeof this.livePaneCap === 'function' ? this.livePaneCap() : this.livePaneCap)
+    return Number.isInteger(n) && n > 0 ? n : DEFAULT_OVERSEER.live_pane_cap
   }
 
   send(key, text) {
@@ -411,18 +431,90 @@ export class OverseerPaneHost {
     return { name, session }
   }
 
+  // Room for one more pane, taken from the least recently used IDLE one.
+  //
+  // The order is `this.live`, which is re-inserted on every ensure and so is a
+  // monotonic use order rather than a clock. That matters: these events land
+  // inside one millisecond often enough that a timestamp would tie, and a tie
+  // falls back to insertion order — the one order that is wrong, because a
+  // conversation speaking for the second time would read as the oldest pane
+  // there.
+  //
+  // IDLE IS THE WHOLE RULE (#710). Parking a pane mid-message would kill a turn
+  // the operator is waiting on to make room for one they just sent, and neither
+  // would get an answer. So a working pane is skipped and the next-oldest parks
+  // instead, and a cap where EVERY pane is working parks nothing: one pane over
+  // the cap for the length of a message is a smaller failure than a
+  // conversation cut off mid-answer.
   async #makeRoom(nextName) {
-    while (this.live.size >= this.livePaneCap) {
-      const [name, conversation] = this.live.entries().next().value ?? []
-      if (!name || name === nextName) return
-      if (await this.pane.has(name)) await this.pane.park(name)
-      this.live.delete(name)
-      this.reduction.journal?.('overseer_pane_parked', {
-        key: conversation.key,
-        pane: name,
-        reason: 'capacity',
-      })
+    const cap = this.#cap()
+    while (this.live.size >= cap) {
+      const victim = await this.#oldestIdle(nextName)
+      if (!victim) {
+        this.log(`[overseer] ${this.live.size} panes are live at a cap of ${cap}, and every one of them is mid-message — the next conversation starts anyway`)
+        return
+      }
+      const conversation = this.live.get(victim)
+      if (await this.pane.has(victim)) await this.pane.park(victim)
+      this.live.delete(victim)
+      this.#park({ key: conversation?.key ?? null, pane: victim, reason: 'capacity' })
     }
+  }
+
+  // The least recently used pane that is not working, or null. Oldest first,
+  // because `this.live` is least-recently-used first and that order IS the
+  // decision.
+  async #oldestIdle(nextName) {
+    for (const [name] of this.live) {
+      if (name === nextName) continue
+      if (this.inFlight.has(this.live.get(name)?.key)) continue
+      if (!(await this.#active(name))) return name
+    }
+    return null
+  }
+
+  // The park is a RECORD as well as a kill. The journal is what makes the cap
+  // count panes that exist: a boot reads it to learn which conversations the
+  // last process left live (see `reconcile`).
+  #park({ key, pane, reason }) {
+    if (this.reduction.parkOverseerPane) this.reduction.parkOverseerPane({ key, pane, reason })
+    else this.reduction.journal?.('overseer_pane_parked', { key, pane, reason })
+  }
+
+  // THE FORCED PARK A RESTART ALREADY TOOK (#710, ADR-0024).
+  //
+  // "A routine deploy recreates the overseer service and kills every pane inside
+  // it, and that is a forced park." A deploy curia itself orders is recorded by
+  // `parkForDeploy` on the way out, but nothing records a crash, a kill, or a
+  // restart that came from outside — the same deploy recreates the daemon, so
+  // this process dies with the panes it would have written down.
+  //
+  // It is recorded on the way back instead. Every conversation the journal still
+  // calls live is asked whether its pane is really there: one that is gone is
+  // parked as forced, and one that survived is taken back into this process's
+  // count in the order the journal remembers, so a restart does not reset the
+  // cap to zero in front of panes that are still running.
+  //
+  // Run at boot BEFORE the killed-turn replay: a replay rehydrates a pane, and
+  // the count has to be honest first.
+  async reconcile() {
+    const parked = []
+    for (const key of (this.reduction.livePaneKeys?.() ?? [])) {
+      const name = overseerPaneName(key)
+      let alive = false
+      try { alive = await this.pane.has(name) } catch { alive = false }
+      if (alive) {
+        this.live.delete(name)
+        this.live.set(name, { key, session: this.reduction.overseerSession(key) ?? null, touchedAt: Date.now() })
+        continue
+      }
+      this.#park({ key, pane: name, reason: 'restart' })
+      parked.push(key)
+    }
+    if (parked.length) {
+      this.log(`[overseer] ${parked.length} conversation(s) were parked by the restart — each returns on its next message`)
+    }
+    return parked
   }
 
   async parkForDeploy() {
@@ -436,11 +528,7 @@ export class OverseerPaneHost {
     }
     for (const [name, conversation] of known) {
       if (await this.pane.has(name)) await this.pane.park(name)
-      this.reduction.journal?.('overseer_pane_parked', {
-        key: conversation.key,
-        pane: name,
-        reason: 'deploy',
-      })
+      this.#park({ key: conversation.key, pane: name, reason: 'deploy' })
     }
     this.live.clear()
   }
@@ -501,14 +589,24 @@ export class OverseerPaneHost {
   // happened by then, and notes dropped on a failed send would be words the
   // operator is never told about — ADR-0024's "curia returns queued notes to
   // its queue", on the delivery path rather than the rewind.
-  deliver(key, prompt, { onNote = () => {} } = {}) {
+  //
+  // AND IT OPENS A TURN THE RESTART CAN FIND (#710, closing what #708 left).
+  // ADR-0015 promises that a turn a restart kills is sent again, never retyped,
+  // and the boot finds those turns by reading the journal for one the daemon
+  // started and never ended. A pane message journalled no such pair, so a deploy
+  // taken while the operator was waiting lost their words silently. It writes
+  // the pair now, around the whole message: the prompt recorded is the
+  // OPERATOR'S WORDS and not the composed paste, because a replay re-runs the
+  // checkout pass and re-drains the notes rather than sending an hour-old
+  // verdict a second time.
+  deliver(key, prompt, { onNote = () => {}, replay = false } = {}) {
     const identity = String(key)
     return this.#queue(identity, () => (
-      this.#withCapacity(() => this.#deliver(identity, prompt, { onNote }))
+      this.#withCapacity(() => this.#deliver(identity, prompt, { onNote, replay }))
     ))
   }
 
-  async #deliver(key, prompt, { onNote }) {
+  async #deliver(key, prompt, { onNote, replay }) {
     const repos = this.watchRepos()
     const checkouts = await this.checkoutPass({
       repoRoot: this.repoRoot, repos, now: this.now,
@@ -518,13 +616,18 @@ export class OverseerPaneHost {
     const text = paneMessageText({ checkouts, notes, prompt, now: this.now })
     const resumed = Boolean(this.reduction.overseerSession(key))
     const { name: session, session: sessionId } = await this.#ensure(key)
+    // The turn opens BEFORE the write, because a message the pane took and this
+    // process never saw finish is exactly the turn the boot has to find.
+    const turn = crypto.randomUUID()
+    this.reduction.beginOverseerTurn?.({ key, turn, prompt: String(prompt), replay })
+    this.inFlight.add(key)
     const delivery = await this.pane.send(session, text, { paste: true })
     const current = this.live.get(session)
     if (current) current.touchedAt = Date.now()
     if (delivery?.status === 'not-sent') {
       for (const note of notes) this.reduction.addOverseerNote?.(key, note)
       const why = `${session} was still working, so curia did not send the message`
-      const signal = await this.#signal({ key, session, sessionId, ok: false, why })
+      const signal = await this.#signal({ key, session, sessionId, turn, ok: false, why })
       return { session, sessionId, resumed, checkouts, notes, delivery, completion: Promise.resolve(signal) }
     }
     this.reduction.journal?.('overseer_pane_message', {
@@ -534,14 +637,19 @@ export class OverseerPaneHost {
     // HTTP request open for the length of a model's work. The promise is
     // returned so a caller that DOES want to wait — a test, a replay — can.
     const completion = this.#settle(session)
-      .then((out) => this.#signal({ key, session, sessionId, ...out }))
+      .then((out) => this.#signal({ key, session, sessionId, turn, ...out }))
     completion.catch(() => {})
     return { session, sessionId, resumed, checkouts, notes, delivery, completion }
   }
 
   // The one signal, emitted once per message and nowhere else.
-  async #signal({ key, session, sessionId, ok, why }) {
+  async #signal({ key, session, sessionId, turn = null, ok, why }) {
     const signal = { key, session, sessionId, ok, why: why ?? null, at: this.now().toISOString() }
+    this.inFlight.delete(key)
+    // And the turn closes with the signal, on every ending including the two
+    // failures. A turn left open is one the NEXT boot reads as killed and sends
+    // again.
+    if (turn) this.reduction.endOverseerTurn?.({ key, turn, ok, why: signal.why })
     this.reduction.journal?.('overseer_pane_message_ended', {
       key, session, session_id: sessionId, ok, why: signal.why,
     })
