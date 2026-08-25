@@ -157,8 +157,12 @@ const OVERVIEW = () => ({
       { label: '5h', pct: 58, elapsed_pct: 48, resets_at: ahead(90), fresh: true },
       { label: '7d', pct: 22, elapsed_pct: 41, resets_at: ahead(4000), fresh: true },
     ] },
+    // TWO windows on openai, the spent one rolling LATER than the other (#677).
+    // The strip's note used to be marked hot by one window and worded by
+    // another, and one window could not show that.
     { provider: 'openai', from: 'transcript', session: 'curia-255', windows: [
-      { label: '5h', pct: 97, elapsed_pct: 48, resets_at: ahead(30), fresh: true },
+      { label: '5h', pct: 97, elapsed_pct: 48, resets_at: ahead(240), fresh: true },
+      { label: '7d', pct: 12, elapsed_pct: 30, resets_at: ahead(20), fresh: true },
     ] },
   ],
   // The credential warnings still standing (#380). The ordinary state is none:
@@ -345,7 +349,9 @@ describe('the read screens (#264)', () => {
       assert.match(t, /2 needs you/)
       assert.match(t, /3 agents live/)
       assert.match(t, /1 review gate/)
-      assert.match(t, /Needs you \(3\)/, 'the list adds the spent window the count does not')
+      // The header, the tile and the list are one number since #677: the spent
+      // window is a banner now, and the count is the list's own length.
+      assert.match(t, /Needs you \(2\)/)
       assert.match(t, /Two notes race the same expiry line/, 'the question is shown whole, not summarized')
       // #266 turned the options from named text into the buttons that send
       // them. The labels are still the whole set — that is what this pins.
@@ -426,10 +432,63 @@ describe('the read screens (#264)', () => {
       assert.equal(/<td[^>]*>[^<]*7d/.test(html), false)
     })
 
-    test('a spent window joins the attention list and says when it rolls', () => {
-      const t = text(page.screenHome(payload()))
+    // The hot note names the SPENT window (#677). openai's 5h is spent and rolls
+    // in four hours; its 7d rolls in twenty minutes. The note used to be marked
+    // hot by the first and worded by the second.
+    test("a spent provider's note names that window's own roll, not the soonest", () => {
+      const html = page.screenHome(payload())
+      const hot = /<span class="pnote hot">([^<]*)<\/span>/.exec(html)?.[1]
+      assert.ok(hot, 'the spent provider carries a hot note')
+      assert.match(hot, /^5h rolls /, 'the 7d rolling sooner must not take the note')
+      // anthropic has nothing spent, so its note is the ordinary soonest one.
+      assert.match(html, /<span class="pnote ">5h rolls /)
+      // A spent window whose instant has already passed keeps its note, where
+      // `nextReset` dropped it.
+      const stale = page.screenHome(payload({
+        usage: [{ provider: 'openai', from: 'account', session: null, windows: [
+          { label: '5h', pct: 99, elapsed_pct: 100, resets_at: at(60), fresh: false },
+        ] }],
+      }))
+      assert.match(stale, /<span class="pnote hot">5h rolls /)
+    })
+
+    // The spent window's promotion (#677). It left the answer surface, where it
+    // was never answerable, for the top of Home beside the pre-emptive hold —
+    // and it is the harder of the two failures, so it is the louder banner.
+    test('a spent window is a banner at the top of Home, not an attention item', () => {
+      const html = page.screenHome(payload())
+      const t = text(html)
+      assert.match(html, /class="hold-banner spent-banner"/)
       assert.match(t, /openai the 5h window is spent at 97%/)
       assert.match(t, /it rolls at \d\d:\d\d/)
+      assert.match(t, /Nothing you can press ends this/, 'the reason it is not on the answer surface')
+      // The banner sits above the tiles, where the hold does.
+      assert.ok(html.indexOf('spent-banner') < html.indexOf('stat-tiles'))
+      // And it is off the list, which is what the count already knew.
+      assert.equal(page.attentionItems(payload().overview).length, 2)
+      assert.equal(text(page.screenHome(payload({ usage: [] }))).includes('window is spent'), false,
+        'a box with no spent window banners nothing')
+    })
+
+    // THE INVARIANT #670 could not state and the old shape could not hold: the
+    // header number and `needsYou` are the same number, whatever the payload
+    // carries. Both read `attentionItems`, so a new item class cannot reach one
+    // surface alone.
+    test('the Needs-you header and the count are one number, on every payload', () => {
+      const cases = [
+        payload(),
+        payload({ escalations: [], review_gate: [] }),
+        payload({ usage: [{ provider: 'openai', from: 'account', session: null, windows: [{ label: '5h', pct: 100, elapsed_pct: 20, resets_at: ahead(60), fresh: true }] }] }),
+        payload({ dispatch_holds: [{ ticket: '444', repo: 'alp82/curia', failures: 2, kind: 'failed-spawn' }] }),
+        payload({ token_warnings: [{ holder: 'app', key: 'alp82', repo: 'alp82/curia', fault: 'unreachable', message: 'm', said: true, refusal: 'r', fix: 'f' }] }),
+        payload({ credentials: HELD_CREDENTIALS() }),
+      ]
+      for (const one of cases) {
+        const n = page.needsYou(one.overview)
+        assert.match(text(page.screenHome(one)), new RegExp(`Needs you \\(${n}\\)`),
+          `the header must say ${n}`)
+        assert.match(text(page.screenHome(one)), new RegExp(`${n} needs you`), 'and so must the tile')
+      }
     })
 
     // The credential watch (#380). The warning used to be a boot log line, so
