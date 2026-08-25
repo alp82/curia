@@ -1743,66 +1743,6 @@
   }
   .ev[data-s="dc"] .nd { background: #2f3455; color: #c3c9f8; }
   .ev.is-gate .nd { background: var(--st-gate); color: #08090c; }
-  .runset .lhead { display: none; }
-  .runset .stepbar { display: none; }
-
-  /* ---- 1 · timeline. One spine down the page, GitHub's own issue
-         timeline shape, every card hanging off its node. ---- */
-  .runset.as-timeline { padding-left: 2.6rem; }
-  .runset.as-timeline::before {
-    content: ''; position: absolute; left: 0.94rem; top: 0.85rem; bottom: 1.6rem;
-    width: 2px; background: linear-gradient(#2a3352, #2a3352 70%, transparent);
-  }
-  .as-timeline .ev { margin-bottom: 1.5rem; }
-  .as-timeline .ev:last-of-type { margin-bottom: 0; }
-  .as-timeline .nd { position: absolute; left: -2.45rem; top: -0.15rem; }
-  .as-timeline .tag { margin-bottom: 0.45rem; }
-  .as-timeline .ev.is-gate .card { box-shadow: 0 0 0 1px rgba(var(--scb), 0.55), 0 14px 40px rgba(0, 0, 0, 0.5); }
-
-  /* ---- 2 · lanes. The split IS the layout: GitHub runs down one
-         lane, Discord down the other, and a hop crosses the spine
-         wherever one surface made the other move. ---- */
-  .runset.as-lanes { padding-left: 1.5rem; }
-  .runset.as-lanes::before {
-    content: ''; position: absolute; left: 0.64rem; top: 0.6rem; bottom: 1.2rem;
-    width: 2px; background: linear-gradient(#2a3352, #2a3352 70%, transparent);
-  }
-  .as-lanes .ev { margin-bottom: 1.4rem; }
-  .as-lanes .ev:last-of-type { margin-bottom: 0; }
-  .as-lanes .nd { position: absolute; left: -1.35rem; top: -0.15rem; width: 1.1rem; height: 1.1rem; box-shadow: 0 0 0 3px #0e1224; }
-  .as-lanes .nd .oc { width: 0.7em; height: 0.7em; }
-  .as-lanes .tag { margin-bottom: 0.4rem; }
-  .as-lanes .ev[data-s="gh"] .card { border-left: 3px solid #7f8ea3; border-radius: 6px; }
-  .as-lanes .ev[data-s="dc"] .card { border-left: 3px solid var(--dc-blurple, #5865f2); border-radius: 8px; }
-  @media (min-width: 62rem) {
-    .runset.as-lanes {
-      display: grid; grid-template-columns: 1fr 1fr; column-gap: 4.6rem; padding-left: 0;
-      max-width: 62rem; margin: 0 auto;
-    }
-    .runset.as-lanes::before { left: 50%; margin-left: -1px; top: 2.6rem; }
-    .as-lanes .lhead {
-      display: flex; align-items: center; gap: 0.45em; margin-bottom: 0.4rem;
-      font: 700 0.66rem var(--mono); letter-spacing: 0.1em; text-transform: uppercase;
-      grid-column: 1; grid-row: 1;
-    }
-    .as-lanes .lhead.gh { color: #a9b4c2; justify-content: flex-end; }
-    .as-lanes .lhead.dc { color: #a3abf5; grid-column: 2; grid-row: 1; }
-    .as-lanes .ev[data-s="gh"] { grid-column: 1; text-align: right; }
-    .as-lanes .ev[data-s="dc"] { grid-column: 2; }
-    .as-lanes .ev { margin-bottom: 1.6rem; }
-    .as-lanes .ev .tag { display: none; }
-    .as-lanes .ev .card { text-align: left; }
-    .as-lanes .ev[data-s="gh"] .nd { left: auto; right: -2.9rem; }
-    .as-lanes .ev[data-s="dc"] .nd { left: -2.9rem; right: auto; }
-    .as-lanes .ev[data-s="gh"] .card { border-left: none; border-right: 3px solid #7f8ea3; }
-    /* the hop: a hairline from the card out to the spine */
-    .as-lanes .ev::after {
-      content: ''; position: absolute; top: 0.4rem; height: 1px; width: 2.35rem;
-      background: #2a3352;
-    }
-    .as-lanes .ev[data-s="gh"]::after { right: -2.35rem; }
-    .as-lanes .ev[data-s="dc"]::after { left: -2.35rem; }
-  }
 
   /* ---- 4 · deal. No journey and no travel: the run is a paper
          trail, six documents dropped one on the next. Two kinds of
@@ -1839,95 +1779,250 @@
   .as-deal .ev:nth-of-type(6) { z-index: 6; }
   .js .runset.as-deal .ev.tw:not(.in) { transform: translateY(1.6rem) rotate(-3deg); }
 
-  /* ---- 5 · steps. The horizontal reading survives, but the reader
-         owns the control: a step bar, one card at a time, and the run
-         walks itself only while the scene is on screen. Nothing here
-         touches the page scroll. ---- */
-  .runset.as-steps { padding: 0; }
-  .as-steps .stepbar {
-    display: flex; gap: 0.3rem; margin: 0 0 1.1rem; padding: 0 0.1rem;
-    overflow-x: auto; scrollbar-width: none;
-  }
-  .as-steps .stepbar::-webkit-scrollbar { display: none; }
-  .as-steps .stepbar button {
-    flex: 1 1 0; min-width: 3.4rem;
-    border: none; background: none; padding: 0 0 0.5rem; cursor: pointer;
-    font: 700 0.6rem var(--mono); letter-spacing: 0.06em; text-transform: uppercase;
-    color: #7d879b; text-align: left; border-top: 2px solid #262f4a;
-    padding-top: 0.45rem;
-  }
-  .as-steps .stepbar button .sn { display: block; color: inherit; }
-  .as-steps .stepbar button[aria-current="true"] { color: var(--sc); border-top-color: var(--sc); }
-  /* One card at a time, on `display`, not on opacity: the reveal's
-     own `.js .tw.in { opacity: 1 }` would beat an opacity rule here
-     and show all six at once. The card slot takes the height of the
-     TALLEST card, so an advance never moves the caption under it —
-     that is the same fault as taking the scroll, in miniature. */
-  .as-steps .ev { display: none; }
-  .as-steps .ev.on { display: block; min-height: var(--stepH, 0px); animation: runstep 0.4s var(--ease); }
-  .as-steps.measuring .ev { display: block; position: absolute; top: 0; left: 0; right: 0; visibility: hidden; }
-  @keyframes runstep {
-    from { opacity: 0; transform: translateX(1.4rem); }
-    to { opacity: 1; transform: none; }
-  }
-  .as-steps .nd { display: none; }
-  .as-steps .tag { margin-bottom: 0.45rem; }
-  .as-steps .ev.is-gate .card { box-shadow: 0 0 0 1px rgba(var(--scb), 0.55), 0 14px 40px rgba(0, 0, 0, 0.5); }
-
-  /* ---- 3 · devices. One surface per SCREEN, which is the split a
-         reader cannot misread: the browser holds GitHub and only
-         GitHub, the phone holds the thread and only the thread. ---- */
-  .rundev { display: none; }
-  #run[data-v="3"] .rundev { display: block; }
-  #run[data-v="3"] .runset { display: none; }
-  .rundev-in { position: relative; max-width: 62rem; margin: 0 auto; }
-  .rundev .mon {
-    background: #0b0d12; border: 1px solid #ffffff1c; border-radius: 10px;
-    overflow: hidden; box-shadow: 0 26px 60px rgba(0, 0, 0, 0.6);
-  }
-  .rundev .mon-bar {
-    display: flex; align-items: center; gap: 0.5rem;
-    background: #171b24; padding: 0.45rem 0.7rem; border-bottom: 1px solid #ffffff14;
-  }
-  .rundev .mon-bar .dots { display: flex; gap: 0.32rem; }
-  .rundev .mon-bar .dots i { width: 0.55rem; height: 0.55rem; border-radius: 50%; background: #3a4150; }
-  .rundev .mon-bar .url {
-    flex: 1; background: #0d1117; border-radius: 5px; padding: 0.22rem 0.6rem;
-    font: 0.66rem var(--mono); color: #8b93a4; overflow: hidden;
-    text-overflow: ellipsis; white-space: nowrap;
-  }
-  .rundev .mon-screen { padding: 0.9rem; background: #0d1117; }
-  .rundev .mon-screen .gx { border: none; padding: 0; background: none; }
-  .rundev .gx-tl { list-style: none; margin: 0.9em 0 0; padding: 0 0 0 2rem; position: relative; }
-  .rundev .gx-tl::before { content: ''; position: absolute; left: 0.72rem; top: 0.3rem; bottom: 0.3rem; width: 2px; background: #21262d; }
-  .rundev .gx-tl li { position: relative; margin-bottom: 0.85em; font-size: 0.9em; color: var(--gx-mute); }
-  .rundev .gx-tl li:last-child { margin-bottom: 0; }
-  .rundev .gx-tl li b { color: var(--gx-ink); font-weight: 600; }
-  .rundev .gx-tl .nd2 {
+  /* The GitHub issue timeline. It outlived the devices composition of
+     round 1: round 2's fourth screen is that same page. */
+  .gx-tl { list-style: none; margin: 0.9em 0 0; padding: 0 0 0 2rem; position: relative; }
+  .gx-tl::before { content: ''; position: absolute; left: 0.72rem; top: 0.3rem; bottom: 0.3rem; width: 2px; background: #21262d; }
+  .gx-tl li { position: relative; margin-bottom: 0.85em; font-size: 0.9em; color: var(--gx-mute); }
+  .gx-tl li:last-child { margin-bottom: 0; }
+  .gx-tl li b { color: var(--gx-ink); font-weight: 600; }
+  .gx-tl .nd2 {
     position: absolute; left: -2rem; top: -0.05rem; width: 1.45rem; height: 1.45rem;
     border-radius: 50%; display: grid; place-items: center;
     background: #21262d; color: var(--gx-mute); box-shadow: 0 0 0 4px #0d1117;
   }
-  .rundev .gx-tl .nd2.open { background: var(--gx-open); color: #fff; }
-  .rundev .gx-tl .nd2.done, .rundev .gx-tl .nd2.merged { background: var(--gx-done); color: #fff; }
-  /* On a phone the two screens STACK. They used to overlap, and the
-     phone landed on the last two rows of the timeline behind it, which
-     are the merge and the close — the payoff of the whole scene. */
-  .rundev .phone {
-    margin: 0.9rem 0 0 auto; width: min(14rem, 58%); position: relative; z-index: 2;
-    background: #14161c; border: 1px solid #ffffff24; border-radius: 20px;
-    padding: 0.42rem; box-shadow: 0 26px 60px rgba(0, 0, 0, 0.68);
+  .gx-tl .nd2.open { background: var(--gx-open); color: #fff; }
+  .gx-tl .nd2.done, .gx-tl .nd2.merged { background: var(--gx-done); color: #fff; }
+
+  /* ================================================================
+     Round 2 (#630) — the constant ticket, and the screens that pass it.
+
+     The operator's answer to round 1, verbatim:
+
+       Deals is a nice start
+
+       The vertical telling is nice. I think while we scroll through the
+       series of screens that should all look either like discord or a
+       phone or the browser, there is one constant element on the screen
+       that evolves but stays on place. The ticket
+
+     So the scene has a PROTAGONIST now, and it is the ticket. It comes
+     up alone, it stays put, and it evolves through the four stages of
+     curia's own pipeline while four screens pass it: a Discord window,
+     the browser, a phone, the browser again.
+
+     The ticket is the one thing here that wears NEITHER product's
+     chrome. It is curia's object, drawn in this page's own identity,
+     which is what lets it stand against a GitHub screen and a Discord
+     screen without reading as either. It carries no control of either
+     product, so the one-card-one-surface rule of round 1 still holds.
+
+     The five variations differ in where the constant sits and how the
+     screens pass it: top, top over a held stage, the side, the desk
+     under a dealt pile, and behind everything as type.
+     ================================================================ */
+
+  /* ---- the constant ---- */
+  .tkt {
+    position: relative; z-index: 6;
+    --kc: var(--st-take); --kb: 139, 155, 176;
+    background: linear-gradient(180deg, #161c33, #10142a);
+    border: 1px solid #ffffff1f; border-radius: 12px;
+    padding: 0.7rem 0.85rem 0.75rem;
+    box-shadow: 0 14px 40px rgba(0, 0, 0, 0.5);
   }
-  .rundev .phone .scr { background: #313338; border-radius: 15px; overflow: hidden; }
-  .rundev .phone .dcx { border-radius: 0; --dfs: 0.72rem; }
-  .rundev .phone::before {
-    content: ''; position: absolute; left: 50%; top: 0.72rem; transform: translateX(-50%);
-    width: 3.4rem; height: 0.28rem; border-radius: 2px; background: #0a0b0f; z-index: 3;
+  #run[data-k="1"] .tkt, #run[data-k="2"] .tkt { --kc: var(--st-agent); --kb: 224, 174, 76; }
+  #run[data-k="3"] .tkt { --kc: var(--st-gate); --kb: 121, 166, 242; }
+  #run[data-k="4"] .tkt { --kc: var(--st-merged); --kb: 125, 211, 160; }
+  .tkt-top { display: flex; align-items: center; gap: 0.5rem; }
+  .tkt-n { font: 800 0.76rem var(--mono); letter-spacing: 0.04em; color: #cdd6e4; flex: none; }
+  .tkt-st {
+    margin-left: auto; display: inline-flex; align-items: center; gap: 0.4em; flex: none;
+    border-radius: 999px; padding: 0.14rem 0.6rem;
+    font: 700 0.64rem var(--mono); letter-spacing: 0.07em; text-transform: uppercase;
+    color: var(--kc); background: rgba(var(--kb), 0.14); border: 1px solid rgba(var(--kb), 0.55);
+    transition: color 0.45s var(--ease), background 0.45s var(--ease), border-color 0.45s var(--ease);
   }
+  .tkt-st i { width: 0.48em; height: 0.48em; border-radius: 50%; background: var(--kc); flex: none; }
+  .tkt-t { margin: 0.4rem 0 0; font-size: 0.92rem; font-weight: 600; line-height: 1.3; color: var(--text); text-wrap: pretty; }
+  .tkt-lbl { margin-top: 0.5rem; }
+  .tkt-track { display: flex; gap: 0.26rem; margin-top: 0.65rem; }
+  .tkt-track i { flex: 1; height: 3px; border-radius: 2px; background: #ffffff1a; transition: background 0.45s var(--ease); }
+  #run[data-k="0"] .tkt-track i:nth-child(-n+1),
+  #run[data-k="1"] .tkt-track i:nth-child(-n+2),
+  #run[data-k="2"] .tkt-track i:nth-child(-n+3),
+  #run[data-k="3"] .tkt-track i:nth-child(-n+4),
+  #run[data-k="4"] .tkt-track i { background: var(--kc); }
+  .tkt-lines { margin-top: 0.5rem; min-height: 1.15rem; }
+  /* One word and one line per stage. The static HTML stands at stage 0,
+     so a reader with no script gets the ticket as it was opened. */
+  .tkt .w, .tkt .tl { display: none; font: 0.72rem/1.6 var(--mono); color: var(--dim); }
+  .tkt .w { font-size: inherit; line-height: inherit; color: inherit; }
+  #run[data-k="0"] .tkt .w[data-k="0"], #run[data-k="0"] .tkt .tl[data-k="0"],
+  #run[data-k="1"] .tkt .w[data-k="1"], #run[data-k="1"] .tkt .tl[data-k="1"],
+  #run[data-k="2"] .tkt .w[data-k="2"], #run[data-k="2"] .tkt .tl[data-k="2"],
+  #run[data-k="3"] .tkt .w[data-k="3"], #run[data-k="3"] .tkt .tl[data-k="3"],
+  #run[data-k="4"] .tkt .w[data-k="4"], #run[data-k="4"] .tkt .tl[data-k="4"] { display: inline; }
+  .tkt .tl b { color: var(--body); font-weight: 700; }
+
+  /* ---- the screens. Each one is a DEVICE, never a bare card: the
+         Discord client, a browser, a phone. ---- */
+  .scrn { display: grid; gap: 2.4rem; margin-top: 1.7rem; }
+  .sc { position: relative; }
+  .win {
+    background: #0b0d12; border: 1px solid #ffffff1c; border-radius: 10px;
+    overflow: hidden; box-shadow: 0 22px 55px rgba(0, 0, 0, 0.6);
+  }
+  .win-bar {
+    display: flex; align-items: center; gap: 0.55rem;
+    padding: 0.42rem 0.7rem; background: #171b24; border-bottom: 1px solid #ffffff14;
+  }
+  .win-bar .dots { display: flex; gap: 0.3rem; flex: none; }
+  .win-bar .dots i { width: 0.5rem; height: 0.5rem; border-radius: 50%; background: #3a4150; }
+  .win-bar .url {
+    flex: 1; background: #0d1117; border-radius: 5px; padding: 0.2rem 0.6rem;
+    font: 0.64rem var(--mono); color: #8b93a4;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .win-body { background: #0d1117; padding: 0.85rem; }
+  .win-body .gx { border: none; padding: 0; background: none; }
+  /* The Discord window wears its own client's title bar, the one scene
+     4 reads off the operator's client, not a browser's. */
+  .win.dcw .win-bar { background: #1e1f22; border-bottom-color: #00000045; }
+  .win.dcw .wn { display: inline-flex; align-items: center; gap: 0.42em; font: 600 0.7rem var(--sans); color: #b5bac1; }
+  .win.dcw .wn i { width: 0.52em; height: 0.52em; border-radius: 2px; background: #23a55a; flex: none; }
+  .win.dcw .winb { margin-left: auto; display: flex; gap: 0.7em; color: #b5bac1; font: 400 0.68rem var(--sans); }
+  .win.dcw .win-body { background: var(--dc-chat, #313338); padding: 0; }
+  .win.dcw .dcx { border-radius: 0; }
+  .ph {
+    width: min(16rem, 76%); margin: 0 auto; position: relative;
+    background: #14161c; border: 1px solid #ffffff24; border-radius: 22px;
+    padding: 0.45rem; box-shadow: 0 26px 62px rgba(0, 0, 0, 0.7);
+  }
+  .ph::before {
+    content: ''; position: absolute; left: 50%; top: 0.8rem; transform: translateX(-50%);
+    width: 3.2rem; height: 0.26rem; border-radius: 2px; background: #0a0b0f; z-index: 3;
+  }
+  .ph .ph-scr { background: #313338; border-radius: 17px; overflow: hidden; padding-top: 1.35rem; }
+  .ph .dcx { border-radius: 0; --dfs: 0.74rem; }
+
+  /* ---- 1 · pin. The constant sticks at the top of the scene and the
+         screens scroll under it. The page scrolls exactly as it always
+         does: nothing is pinned but the ticket itself. ---- */
+  .v-pin .tkt { position: sticky; top: calc(var(--rswh, 0px) + 0.5rem); }
+
+  /* ---- 2 · stage. The scene holds one screen-tall stage. The ticket
+         sits at the top of it and the screens cross-fade in the space
+         below, one at a time, so the constant never moves at all. ---- */
+  .v-stage .runtrack { height: 430svh; }
+  .v-stage .runstage {
+    position: sticky; top: 0; height: 100dvh; overflow: hidden;
+    display: flex; flex-direction: column; gap: 0.9rem;
+    padding: calc(var(--rswh, 0px) + 0.7rem) 0 1.1rem;
+  }
+  .v-stage .scrn { position: relative; flex: 1 1 auto; min-height: 0; margin: 0; display: block; }
+  .v-stage .sc {
+    position: absolute; inset: 0; display: grid; place-items: center;
+    opacity: 0; transform: translateY(1.3rem) scale(0.985); pointer-events: none;
+    transition: opacity 0.5s var(--ease), transform 0.5s var(--ease);
+  }
+  .v-stage .sc.on { opacity: 1; transform: none; pointer-events: auto; }
+  .v-stage .sc > * { width: 100%; max-height: 100%; }
+  .v-stage .win-body, .v-stage .ph-scr { max-height: 62svh; overflow: hidden; }
+
+  /* ---- 3 · rail. The constant is a rail, not a card. On a phone it
+         is one thin status line at the top. Past 62rem it stands down
+         the docking side and the screens run past it. ---- */
+  .v-rail .tkt { position: sticky; top: calc(var(--rswh, 0px) + 0.5rem); padding: 0.5rem 0.7rem; }
+  .v-rail .tkt-t, .v-rail .tkt-lbl, .v-rail .tkt-lines { display: none; }
+  .v-rail .tkt-track { margin-top: 0.5rem; }
   @media (min-width: 62rem) {
-    .rundev-in { display: grid; grid-template-columns: 1fr 17rem; align-items: end; column-gap: 2rem; }
-    .rundev .phone { margin: 0 0 1.5rem; width: 100%; }
+    .v-rail .runstage { display: grid; grid-template-columns: 15.5rem 1fr; column-gap: 2.8rem; align-items: start; }
+    .v-rail .tkt { top: 18vh; padding: 0.85rem 0.95rem 0.9rem; }
+    .v-rail .tkt-t, .v-rail .tkt-lbl, .v-rail .tkt-lines { display: block; }
+    .v-rail .scrn { margin-top: 0; }
   }
+
+  /* ---- 4 · desk. The pile of round 1, which the operator called a
+         nice start, with the constant under it. The ticket is a paper
+         docket lying on the desk, and the screens are dealt above it,
+         each one staying in the pile as the next lands. ---- */
+  .v-desk .runtrack { height: 430svh; }
+  .v-desk .runstage {
+    position: sticky; top: 0; height: 100dvh; overflow: hidden;
+    display: flex; flex-direction: column-reverse; justify-content: flex-start; gap: 1rem;
+    padding: calc(var(--rswh, 0px) + 0.7rem) 0 1.3rem;
+  }
+  .v-desk .scrn { position: relative; flex: 1 1 auto; min-height: 0; margin: 0; display: block; }
+  .v-desk .sc {
+    position: absolute; inset: auto 0 0; opacity: 0;
+    transform: translateY(2.2rem) rotate(-3deg);
+    transition: opacity 0.5s var(--ease), transform 0.5s var(--ease);
+  }
+  .v-desk .sc.seen { opacity: 0.3; transform: translateY(-0.7rem) rotate(var(--rot, -1deg)) scale(0.965); }
+  .v-desk .sc.on { opacity: 1; transform: rotate(var(--rot, -1deg)); z-index: 4; }
+  .v-desk .win-body, .v-desk .ph-scr { max-height: 54svh; overflow: hidden; }
+  /* The docket is PAPER, so it takes ink, not light. */
+  .v-desk .tkt {
+    background: linear-gradient(178deg, #f6f3ea, #e8e3d5);
+    border: none; border-radius: 3px; transform: rotate(-0.6deg);
+    box-shadow: 0 -6px 26px rgba(0, 0, 0, 0.5), 0 2px 0 #ffffff40 inset;
+  }
+  .v-desk .tkt-n { color: #6a6f7a; }
+  .v-desk .tkt-t { color: #191b21; }
+  .v-desk .tkt-track i { background: #00000018; }
+  .v-desk .tkt .tl { color: #5c626d; }
+  .v-desk .tkt .tl b { color: #191b21; }
+  /* The state is a rubber stamp on that paper. */
+  .v-desk .tkt-st {
+    border: 2px solid var(--kc); color: var(--kc); background: none;
+    transform: rotate(-5deg); font-weight: 800; padding: 0.16rem 0.55rem;
+  }
+  .v-desk .tkt-st i { display: none; }
+
+  /* ---- 5 · ghost. The constant is behind everything, at poster size,
+         and the screens scroll over it. The ticket takes no room in the
+         flow, so nothing here moves the screens off their column. ---- */
+  .v-ghost .tkt {
+    position: sticky; top: 0; height: 0; z-index: 0;
+    background: none; border: none; box-shadow: none; padding: 0;
+  }
+  .v-ghost .tkt-in { position: absolute; top: 24vh; left: 0; right: 0; text-align: center; pointer-events: none; }
+  .v-ghost .tkt-top { display: block; }
+  .v-ghost .tkt-n {
+    display: block; font: 900 clamp(4.5rem, 26vw, 11rem)/0.85 var(--mono);
+    letter-spacing: -0.06em; color: rgba(var(--kb), 0.16);
+    transition: color 0.5s var(--ease);
+  }
+  .v-ghost .tkt-st {
+    margin: 0.7rem auto 0; background: none; border: none; color: var(--kc);
+    font-size: 0.9rem; letter-spacing: 0.24em;
+  }
+  .v-ghost .tkt-t, .v-ghost .tkt-lbl, .v-ghost .tkt-lines { display: none; }
+  .v-ghost .tkt-track { width: 9rem; margin: 0.8rem auto 0; }
+  .v-ghost .scrn { position: relative; z-index: 1; margin-top: 0; }
+
+  /* ---- 0 · the deal set of round 1, kept reachable for reference.
+         It is the six cards without a constant, which is what the
+         operator called a nice start. ---- */
+  .runset { display: none; }
+  #run[data-v="0"] .runset { display: block; }
+  #run[data-v="0"] .runtrack { display: none; }
+
+  /* ---- the fail-open path. With reduced motion or no script the
+         stage variations collapse to the flow the others use, so every
+         screen stands on its own and every word still reads. ---- */
+  .still .runtrack { height: auto; }
+  .still .runstage { position: static; height: auto; overflow: visible; display: block; padding: 0; }
+  .still .scrn { position: static; display: grid; gap: 2.4rem; margin-top: 1.7rem; }
+  .still .sc { position: relative; inset: auto; opacity: 1; transform: none; pointer-events: auto; }
+  .still .win-body, .still .ph-scr { max-height: none; }
+  .still .tkt { position: static; height: auto; }
+  /* `.still` and `.v-ghost` both sit on the SECTION, so this is one
+     element and not a descendant of one. Written as `.still .v-ghost`
+     it matched nothing, and the ghost kept its 24vh offset with no
+     stage under it to hold. */
+  .still.v-ghost .tkt-in { position: static; }
 
   /* ---- the round switcher. It leaves the file with the round that
          settles this scene, the way #624's identity bar did. ---- */
@@ -2715,7 +2810,7 @@
 
        Round 1 offers five readings of the same six events on ?id=1..5:
        1 timeline, 2 lanes, 3 devices, 4 deal, 5 steps. -->
-  <section class="scene run sL" id="run" data-v="1" data-stage="gate" data-n="07" data-name="one ticket on GitHub" style="--g1:#141b33;--g2:#0c1020">
+  <section class="scene run sL v-pin" id="run" data-v="1" data-k="0" data-stage="gate" data-n="07" data-name="one ticket on GitHub" style="--g1:#141b33;--g2:#0c1020">
 
     <!-- The octicons and the two product marks. The page ships no
          image and no webfont, so every mark here is drawn (#629). -->
@@ -2740,11 +2835,12 @@
     <!-- ROUND 1 DEVICE. It leaves the file with the round that settles
          this scene, the way #624's identity bar did. -->
     <div class="rsw" id="rsw" role="group" aria-label="composition">
-      <button type="button" data-i="1" aria-pressed="true">1 timeline</button>
-      <button type="button" data-i="2" aria-pressed="false">2 lanes</button>
-      <button type="button" data-i="3" aria-pressed="false">3 devices</button>
-      <button type="button" data-i="4" aria-pressed="false">4 deal</button>
-      <button type="button" data-i="5" aria-pressed="false">5 steps</button>
+      <button type="button" data-i="1" aria-pressed="true">1 pin</button>
+      <button type="button" data-i="2" aria-pressed="false">2 stage</button>
+      <button type="button" data-i="3" aria-pressed="false">3 rail</button>
+      <button type="button" data-i="4" aria-pressed="false">4 desk</button>
+      <button type="button" data-i="5" aria-pressed="false">5 ghost</button>
+      <button type="button" data-i="0" aria-pressed="false">r1 deal</button>
     </div>
 
     <div class="runwrap">
@@ -2752,19 +2848,179 @@
       <!-- The six events. ONE set of cards; compositions 1, 2, 4 and 5
            are four layouts over it, so the same evidence is judged
            every time and only the reading changes. -->
-      <div class="runset as-timeline stagger" id="runset">
+    <!-- ROUND 2. The constant ticket, and the four screens that pass
+         it. The ticket comes up alone at stage 0, then each screen
+         moves it one stage on: running, running with a pull request,
+         in review, merged. The stage colours are the page's own four
+         (#624), so the ticket walks the pipeline this whole page is
+         coloured by. -->
+    <div class="runtrack" id="runtrack">
+      <div class="runstage" id="runstage">
 
-        <div class="lhead gh"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-gh"/></svg>GitHub</div>
-        <div class="lhead dc"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-dc"/></svg>Discord</div>
-
-        <div class="stepbar" id="runbar" role="group" aria-label="the run, step by step">
-          <button type="button" data-i="0" aria-current="true"><span class="sn">01</span>ticket</button>
-          <button type="button" data-i="1" aria-current="false"><span class="sn">02</span>dispatch</button>
-          <button type="button" data-i="2" aria-current="false"><span class="sn">03</span>work</button>
-          <button type="button" data-i="3" aria-current="false"><span class="sn">04</span>gate</button>
-          <button type="button" data-i="4" aria-current="false"><span class="sn">05</span>merge</button>
-          <button type="button" data-i="5" aria-current="false"><span class="sn">06</span>closed</button>
+        <div class="tkt" id="tkt">
+          <div class="tkt-in">
+            <div class="tkt-top">
+              <span class="tkt-n">alp82/curia#587</span>
+              <span class="tkt-st"><i></i><span class="w" data-k="0">Open</span><span class="w" data-k="1">running</span><span class="w" data-k="2">running</span><span class="w" data-k="3">in review</span><span class="w" data-k="4">Merged</span></span>
+            </div>
+            <p class="tkt-t">Choose the words of every scene of the final page</p>
+            <div class="tkt-lbl"><span class="gx-lbl">wayfinder:prototype</span></div>
+            <div class="tkt-track" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+            <div class="tkt-lines">
+              <span class="tl" data-k="0">opened by <b>you</b> on Aug 21, 2026</span>
+              <span class="tl" data-k="1">dispatched to <b>curia-587</b> on <b>claude-opus-5</b></span>
+              <span class="tl" data-k="2">pull request <b>#597</b> · 5 commits · <b>+757</b> in 3 files</span>
+              <span class="tl" data-k="3">the gate is open · waiting on <b>you</b></span>
+              <span class="tl" data-k="4"><b>#597</b> merged · <b>#587</b> closed as completed</span>
+            </div>
+          </div>
         </div>
+
+        <div class="scrn" id="scrn">
+
+          <!-- Screen 1 · Discord, the client's own window. The dispatch
+               and the status line the daemon writes
+               (statusline.mjs:357), with the thread bound under the
+               live glyph bridge.mjs:96 gives a running ticket. -->
+          <div class="sc" data-i="0" style="--rot:-1.4deg">
+            <div class="win dcw">
+              <div class="win-bar">
+                <span class="wn"><i></i>Discord</span>
+                <span class="winb" aria-hidden="true"><b>—</b><b>▢</b><b>✕</b></span>
+              </div>
+              <div class="win-body">
+                <article class="dcx">
+                  <div class="dcx-head"><span class="hash">#</span>curia</div>
+                  <div class="dcx-log">
+                    <div class="dc-msg">
+                      <span class="dc-av op" aria-hidden="true">A</span>
+                      <div class="dc-body">
+                        <div class="dc-who"><span class="nm">Alper</span><span class="ts">Yesterday at 18:41</span></div>
+                        <div class="dc-b"><code>start curia#587</code></div>
+                      </div>
+                    </div>
+                    <div class="dc-msg">
+                      <span class="dc-av"><svg viewBox="0 0 40 40" aria-hidden="true"><use href="#mk-bot"/></svg></span>
+                      <div class="dc-body">
+                        <div class="dc-who"><span class="nm">CuriaBot</span><span class="badge">APP</span><span class="ts">Yesterday at 18:41</span></div>
+                        <div class="dc-b">⚙️ dispatched on <b>claude-opus-5</b> — waiting for the composer</div>
+                        <div class="dc-b dc-sm">Thread <b>🎫 587 · prototype</b> is bound to this ticket.</div>
+                      </div>
+                    </div>
+                  </div>
+                </article>
+              </div>
+            </div>
+          </div>
+
+          <!-- Screen 2 · the browser. The pull request, with the five
+               real SHAs and headlines of alp82/curia#597. -->
+          <div class="sc" data-i="1" style="--rot:1.1deg">
+            <div class="win">
+              <div class="win-bar">
+                <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
+                <span class="url">github.com/alp82/curia/pull/597</span>
+              </div>
+              <div class="win-body">
+                <article class="gx">
+                  <div class="gx-crumb">alp82 / <b>curia</b></div>
+                  <h3 class="gx-h1">Choose the words of every scene of the final page <span class="num">#597</span></h3>
+                  <div class="gx-meta">
+                    <span class="gx-st open"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-pr"/></svg>Open</span>
+                    <span class="gx-by"><b>curia-sh</b> wants to merge 5 commits into <code>main</code> from <code>curia/587</code></span>
+                  </div>
+                  <div class="gx-cl">
+                    <div><span class="sha">b952921</span><span class="msg">The landing copy prototype: candidates for every scene, round 1 offered</span></div>
+                    <div><span class="sha">607fa84</span><span class="msg">Round 2: five candidates per slot, six headline directions, free-type rows</span></div>
+                    <div><span class="sha">72d09df</span><span class="msg">Round 3: the operator’s picks applied as an overlay, six findings</span></div>
+                    <div><span class="sha">8e1db06</span><span class="msg">Round 4: round 3 rulings applied, two locked-decision drifts on the table</span></div>
+                    <div><span class="sha">baa02ff</span><span class="msg">The words locked: verdict in NOTES, overrides recorded in positioning.md</span></div>
+                  </div>
+                  <div class="gx-meta">
+                    <span class="gx-diff">3 files changed<span class="a">+757</span><span class="d">−0</span><span class="sq"><i></i><i></i><i></i><i></i><i class="n"></i></span></span>
+                  </div>
+                </article>
+              </div>
+            </div>
+          </div>
+
+          <!-- Screen 3 · the phone. THE CLIMAX. The review gate in the
+               shape bridge.mjs really sends it, on the device the whole
+               page is about. Approve is Success green, Reject is Danger
+               RED and Cross-check is Secondary grey
+               (bridge.mjs:1171-1181). The press is the true thing curia
+               does: it edits the card and clears its components. -->
+          <div class="sc" data-i="2" style="--rot:-0.7deg">
+            <div class="ph">
+              <div class="ph-scr">
+                <article class="dcx" id="rungate">
+                  <div class="dcx-head"><span class="hash">#</span>curia <span class="sep">›</span> <span class="tt">🔎 587 · prototype</span></div>
+                  <div class="dcx-log">
+                    <div class="dc-msg">
+                      <span class="dc-av"><svg viewBox="0 0 40 40" aria-hidden="true"><use href="#mk-bot"/></svg></span>
+                      <div class="dc-body dc-card">
+                        <div class="dc-who"><span class="nm">CuriaBot</span><span class="badge">APP</span><span class="ts">21:10</span><span class="ed" id="runedited">(edited)</span></div>
+                        <div class="dc-b"><b>[esc-4]</b> <code>curia-587</code> asks for review:</div>
+                        <div class="dc-b lead"><b>Is alp82/curia#587 done?</b> — Choose the words of every scene of the final page</div>
+                        <div class="dc-b"><b>What the agent did</b><span class="sub">The words of all twelve scenes are locked, over four operator rounds.</span></div>
+                        <div class="dc-b"><b>Charting it proposes for the map</b><span class="sub">1. Close #587 and record its verdict in Decisions so far.</span></div>
+                        <div class="dc-b"><b>Look at</b><span class="sub"><a href="https://github.com/alp82/curia/pull/597">the pull request #597</a></span><span class="sub"><a>the preview</a></span><span class="sub"><a href="https://github.com/alp82/curia/issues/587">the ticket #587</a></span></div>
+                        <div class="dc-b tight dc-sm"><i>✅ Approve to merge and resolve, or reply in this thread with what to change (that reply is a rejection and the agent gets your words).</i></div>
+                        <div class="dc-b tight dc-sm"><i>🔎 Cross-check answers neither: it spawns a reviewer on the other provider, and the agent waits for its verdict.</i></div>
+                        <div class="dc-row">
+                          <button class="dc-btn ok" type="button" id="runapprove">✅ Approve</button>
+                          <button class="dc-btn dgr" type="button">❌ Reject</button>
+                        </div>
+                        <div class="dc-row"><button class="dc-btn sec" type="button">🔎 Cross-check</button></div>
+                        <div class="dc-mark" id="runreceipt">✅ <b>approved</b> by <span class="men">@Alper</span> via button</div>
+                      </div>
+                    </div>
+                  </div>
+                </article>
+              </div>
+            </div>
+          </div>
+
+          <!-- Screen 4 · the browser. The press lands on GitHub, and
+               nowhere else. The comment is the first line of the real
+               resolution of alp82/curia#587. -->
+          <div class="sc" data-i="3" style="--rot:1.3deg">
+            <div class="win">
+              <div class="win-bar">
+                <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
+                <span class="url">github.com/alp82/curia/issues/587</span>
+              </div>
+              <div class="win-body">
+                <article class="gx">
+                  <div class="gx-crumb">alp82 / <b>curia</b></div>
+                  <div class="gx-meta" style="margin-top:0">
+                    <span class="gx-st done"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-closed"/></svg>Closed as completed</span>
+                    <span class="gx-lbl">wayfinder:prototype</span>
+                  </div>
+                  <ol class="gx-tl">
+                    <li><span class="nd2 merged"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-merge"/></svg></span><b>curia-sh</b> merged <a href="https://github.com/alp82/curia/pull/597">#597</a> into <code>main</code> · <code>a71e154</code> · Aug 22, 2026</li>
+                    <li><span class="nd2"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-commit"/></svg></span>branch <code>curia/587</code> deleted</li>
+                    <li><span class="nd2 done"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-closed"/></svg></span><b>curia-sh</b> closed this as completed</li>
+                  </ol>
+                  <div class="gx-cm">
+                    <div class="h"><b>curia-sh</b> commented on Aug 22, 2026</div>
+                    <div class="b">
+                      <p><b>The words of all twelve scenes are locked, over four operator rounds.</b></p>
+                      <p>The verdict list, slot by slot, is in NOTES.md. The final build ships these lines and no others.</p>
+                    </div>
+                  </div>
+                </article>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+      <!-- Round 1's deal set, kept reachable at ?id=0. The operator
+           called it a nice start, and round 2 builds the desk on it. -->
+      <div class="runset as-deal stagger" id="runset">
 
           <!-- 01 · GitHub. The ticket, as GitHub draws one. -->
           <div class="ev tw on" data-s="gh" data-i="0">
@@ -2861,13 +3117,13 @@
             <span class="nd"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-dc"/></svg></span>
             <span class="tag"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-dc"/></svg>Discord · the gate</span>
             <div class="card">
-              <article class="dcx" id="rungate">
+              <article class="dcx">
                 <div class="dcx-head"><span class="hash">#</span>curia <span class="sep">›</span> <span class="tt" id="runthread">🔎 587 · prototype</span></div>
                 <div class="dcx-log">
                   <div class="dc-msg">
                     <span class="dc-av"><svg viewBox="0 0 40 40" aria-hidden="true"><use href="#mk-bot"/></svg></span>
                     <div class="dc-body dc-card">
-                      <div class="dc-who"><span class="nm">CuriaBot</span><span class="badge">APP</span><span class="ts">Today at 21:10</span><span class="ed" id="runedited">(edited)</span></div>
+                      <div class="dc-who"><span class="nm">CuriaBot</span><span class="badge">APP</span><span class="ts">Today at 21:10</span><span class="ed">(edited)</span></div>
                       <div class="dc-b"><b>[esc-4]</b> <code>curia-587</code> asks for review:</div>
                       <div class="dc-b lead"><b>Is alp82/curia#587 done?</b> — Choose the words of every scene of the final page</div>
                       <div class="dc-b"><b>What the agent did</b><span class="sub">The words of all twelve scenes are locked, over four operator rounds.</span></div>
@@ -2876,11 +3132,11 @@
                       <div class="dc-b tight dc-sm"><i>✅ Approve to merge and resolve, or reply in this thread with what to change (that reply is a rejection and the agent gets your words).</i></div>
                       <div class="dc-b tight dc-sm"><i>🔎 Cross-check answers neither: it spawns a reviewer on the other provider, and the agent waits for its verdict.</i></div>
                       <div class="dc-row">
-                        <button class="dc-btn ok" type="button" id="runapprove">✅ Approve</button>
+                        <button class="dc-btn ok" type="button">✅ Approve</button>
                         <button class="dc-btn dgr" type="button">❌ Reject</button>
                         <button class="dc-btn sec" type="button">🔎 Cross-check</button>
                       </div>
-                      <div class="dc-mark" id="runreceipt">✅ <b>approved</b> by <span class="men">@Alper</span> via button</div>
+                      <div class="dc-mark">✅ <b>approved</b> by <span class="men">@Alper</span> via button</div>
                     </div>
                   </div>
                 </div>
@@ -2927,62 +3183,6 @@
             </div>
           </div>
 
-      </div>
-
-      <!-- 3 · devices. One surface per SCREEN. The browser holds the
-           GitHub page and only that; the phone holds the thread and
-           only that, so the two can never be read as one control
-           surface. -->
-      <div class="rundev">
-        <div class="rundev-in">
-          <div class="mon">
-            <div class="mon-bar">
-              <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
-              <span class="url">github.com/alp82/curia/issues/587</span>
-            </div>
-            <div class="mon-screen">
-              <article class="gx">
-                <div class="gx-crumb">alp82 / <b>curia</b></div>
-                <h3 class="gx-h1">Choose the words of every scene of the final page <span class="num">#587</span></h3>
-                <div class="gx-meta">
-                  <span class="gx-st done"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-closed"/></svg>Closed as completed</span>
-                  <span class="gx-by"><b>alp82</b> opened this issue on Aug 21, 2026 · 7 comments</span>
-                  <span class="gx-lbl">wayfinder:prototype</span>
-                </div>
-                <ol class="gx-tl">
-                  <li><span class="nd2 open"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-issue"/></svg></span><b>alp82</b> opened this issue on Aug 21, 2026</li>
-                  <li><span class="nd2"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-pr"/></svg></span><b>curia-sh</b> pushed <code>curia/587</code> and opened <a href="https://github.com/alp82/curia/pull/597">#597</a> — 5 commits, 3 files, <b>+757</b> −0</li>
-                  <li><span class="nd2 merged"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-merge"/></svg></span><b>curia-sh</b> merged <a href="https://github.com/alp82/curia/pull/597">#597</a> into <code>main</code> on Aug 22, 2026</li>
-                  <li><span class="nd2 done"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-closed"/></svg></span><b>curia-sh</b> closed this as completed on Aug 22, 2026</li>
-                </ol>
-              </article>
-            </div>
-          </div>
-          <div class="phone">
-            <div class="scr">
-              <article class="dcx">
-                <div class="dcx-head"><span class="hash">#</span>curia <span class="sep">›</span> <span class="tt">🔎 587 · prototype</span></div>
-                <div class="dcx-log">
-                  <div class="dc-msg">
-                    <span class="dc-av"><svg viewBox="0 0 40 40" aria-hidden="true"><use href="#mk-bot"/></svg></span>
-                    <div class="dc-body dc-card">
-                      <div class="dc-who"><span class="nm">CuriaBot</span><span class="badge">APP</span><span class="ts">21:10</span></div>
-                      <div class="dc-b"><b>[esc-4]</b> <code>curia-587</code> asks for review:</div>
-                      <div class="dc-b lead"><b>Is alp82/curia#587 done?</b></div>
-                      <div class="dc-b"><b>What the agent did</b><span class="sub">The words of all twelve scenes are locked, over four operator rounds.</span></div>
-                      <div class="dc-b"><b>Look at</b><span class="sub"><a href="https://github.com/alp82/curia/pull/597">the pull request #597</a></span><span class="sub"><a href="https://github.com/alp82/curia/issues/587">the ticket #587</a></span></div>
-                      <div class="dc-row">
-                        <button class="dc-btn ok" type="button">✅ Approve</button>
-                        <button class="dc-btn dgr" type="button">❌ Reject</button>
-                      </div>
-                      <div class="dc-row"><button class="dc-btn sec" type="button">🔎 Cross-check</button></div>
-                    </div>
-                  </div>
-                </div>
-              </article>
-            </div>
-          </div>
-        </div>
       </div>
 
       <p class="caption rv">Your approval merges the pull request and closes the ticket</p>
@@ -3091,6 +3291,10 @@
    everything (#508: nobody working this ticket has eyes on a phone). */
 
 document.body.classList.add('js');
+if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+  var runSec = document.getElementById('run');
+  if (runSec) runSec.classList.add('still');
+}
 
 var prefersStill = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
@@ -3485,96 +3689,147 @@ if (!prefersStill) {
 function clampNum(v, a, b) { return v < a ? a : v > b ? b : v; }
 
 /* ================================================================
-   Scene 8 (#630) — one ticket on GitHub.
+   Scene 8 (#630) — the constant ticket, and the screens that pass it.
 
-   The horizontal walk of #551 is gone, and with it the only place on
-   this page that read the page scroll to move something sideways. This
-   script does three things and touches the scroll for none of them:
+   Round 2's shape, from the operator's own words: one element stays in
+   place and evolves while a series of device screens scrolls by, and
+   that element is the ticket. So this script owns exactly one number,
+   the stage k, and everything else reads it.
 
-   1. It picks a composition. Round 1 offers five, ?id=1..5, and the
-      switcher leaves the file with the round that settles the scene.
-   2. It runs the step composition's own clock. The run advances only
-      while the scene is on screen, a tap takes it over, and the cycle
-      comes back ten seconds later — the shape #627 settled for the
-      preview round.
-   3. It plays the press. The gate button swells in place, and then
-      curia does the true thing: it edits the card and clears its
-      components, so the button row collapses and the receipt comes up
-      as small print (#626 round 5).
+   k runs 0 to 4. Stage 0 is the ticket alone, as it was opened. Each
+   of the four screens moves it one stage on, and the section carries k
+   as `data-k`, so the state word, the evolving line, the five-stop
+   track and the pill's colour are all CSS off one attribute.
 
-   Every word is in the static HTML. With scripts off the page shows
-   composition 1 with all six events standing, which is the whole run.
+   Two ways to drive k, and the composition picks one:
+
+   - FLOW (pin, rail, ghost). The page scrolls the way it always does.
+     An IntersectionObserver watches the screens, and the one crossing
+     the middle of the screen sets k. Nothing is pinned but the ticket.
+   - STAGE (stage, desk). The section is tall and holds one
+     screen-tall stage. Scroll POSITION inside that track picks the
+     slot, so the reader sets the pace and can hold anywhere.
+
+   The horizontal walk of #551 is gone and nothing replaces it: no
+   composition here moves anything sideways under the reader's finger.
+   With reduced motion or no script the section carries `still`, every
+   stage collapses to the flow, and all four screens stand at once.
    ================================================================ */
 (function () {
   var sec = document.getElementById('run');
-  var set = document.getElementById('runset');
-  if (!sec || !set) return;
+  var track = document.getElementById('runtrack');
+  var scrn = document.getElementById('scrn');
+  if (!sec || !track || !scrn) return;
 
-  var LAY = { '1': 'as-timeline', '2': 'as-lanes', '3': 'as-timeline', '4': 'as-deal', '5': 'as-steps' };
+  var V = { '0': 'v-deal', '1': 'v-pin', '2': 'v-stage', '3': 'v-rail', '4': 'v-desk', '5': 'v-ghost' };
+  var HELD = { 'v-stage': 1, 'v-desk': 1 };
+  var screens = [].slice.call(scrn.querySelectorAll('.sc'));
   var swb = [].slice.call(document.querySelectorAll('#rsw button'));
-  var bar = [].slice.call(document.querySelectorAll('#runbar button'));
-  var steps = [].slice.call(set.querySelectorAll('.ev'));
+  var rsw = document.getElementById('rsw');
   var v = '1';
-  var at = 0;
-  var timer = 0;
-  var resume = 0;
-  var onScreen = false;
-  var taken = false;
+  var k = 0;
+  var io = null;
+  var raf = 0;
 
-  function show(i) {
-    at = (i + steps.length) % steps.length;
-    steps.forEach(function (e, k) { e.classList.toggle('on', k === at); });
-    bar.forEach(function (b, k) { b.setAttribute('aria-current', k === at ? 'true' : 'false'); });
+  function setK(next) {
+    next = next < 0 ? 0 : next > screens.length ? screens.length : next;
+    if (next === k) return;
+    k = next;
+    sec.setAttribute('data-k', String(k));
+    /* The desk keeps what has already passed: a screen the run is done
+       with stays in the pile rather than leaving it. */
+    screens.forEach(function (s, i) {
+      s.classList.toggle('on', i === k - 1);
+      s.classList.toggle('seen', i < k - 1);
+    });
+    if (k >= 3) press();
   }
 
-  /* The card slot takes the height of the TALLEST card, measured with
-     all six laid out at the live width. A stepper that resizes on each
-     advance moves the caption under it, which is the same fault as
-     taking the scroll, in miniature. */
-  function fitWin() {
-    set.style.removeProperty('--stepH');
-    if (v !== '5') return;
-    /* The property is cleared FIRST. The active card carries it as a
-       min-height, so measuring with the old value still set can only
-       ever ratchet the slot upward, and a phone turned back to portrait
-       keeps the landscape height for ever. */
-    set.classList.add('measuring');
-    var tall = 0;
-    steps.forEach(function (e) { tall = Math.max(tall, e.offsetHeight); });
-    set.classList.remove('measuring');
-    if (tall) set.style.setProperty('--stepH', tall + 'px');
-  }
+  /* ---- the two drivers ---- */
 
-  function stop() { if (timer) { clearInterval(timer); timer = 0; } }
-  function start() {
-    stop();
-    if (v !== '5' || !onScreen || taken || prefersStill) return;
-    timer = setInterval(function () { show(at + 1); }, 3600);
+  function flowOn() {
+    if (io || !window.IntersectionObserver) return;
+    /* A screen owns the stage from the moment it crosses the middle of
+       the viewport. The bottom margin is what puts that line there. */
+    io = new IntersectionObserver(function (es) {
+      es.forEach(function (e) {
+        if (!e.isIntersecting) return;
+        setK(parseInt(e.target.getAttribute('data-i'), 10) + 1);
+      });
+    }, { rootMargin: '-45% 0px -45% 0px', threshold: 0 });
+    screens.forEach(function (s) { io.observe(s); });
   }
+  function flowOff() { if (io) { io.disconnect(); io = null; } }
 
-  function take(i) {
-    taken = true;
-    stop();
-    show(i);
-    clearTimeout(resume);
-    resume = setTimeout(function () { taken = false; start(); }, 10000);
+  function heldTick() {
+    raf = 0;
+    var r = track.getBoundingClientRect();
+    var travel = r.height - window.innerHeight;
+    if (travel <= 0) return;
+    var p = -r.top / travel;
+    p = p < 0 ? 0 : p > 1 ? 1 : p;
+    /* One slot per stage, the first of them the ticket on its own. */
+    var slot = Math.floor(p * (screens.length + 1));
+    setK(slot > screens.length ? screens.length : slot);
+  }
+  function heldQueue() { if (!raf) raf = requestAnimationFrame(heldTick); }
+  function heldOn() { window.addEventListener('scroll', heldQueue, { passive: true }); window.addEventListener('resize', heldQueue, { passive: true }); heldTick(); }
+  function heldOff() { window.removeEventListener('scroll', heldQueue); window.removeEventListener('resize', heldQueue); }
+
+  /* ---- the press. It plays once, when the gate takes the stage. ---- */
+  var gate = document.getElementById('rungate');
+  var pressed = false;
+  function press() {
+    if (pressed || !gate) return;
+    pressed = true;
+    if (prefersStill) { gate.classList.add('pressed'); return; }
+    setTimeout(function () {
+      gate.classList.add('pressing');
+      setTimeout(function () {
+        gate.classList.remove('pressing');
+        gate.classList.add('pressed');
+        var ed = document.getElementById('runedited');
+        if (ed) ed.classList.add('up');
+      }, 720);
+    }, 520);
+  }
+  var approve = document.getElementById('runapprove');
+  if (approve) approve.addEventListener('click', press);
+
+  /* ---- the composition ---- */
+
+  function fitSw() {
+    if (!rsw) return;
+    sec.style.setProperty('--rswh', rsw.offsetHeight + 'px');
   }
 
   function setV(next) {
     next = String(next);
-    if (!LAY[next]) next = '1';
+    if (!V[next]) next = '1';
     v = next;
     sec.setAttribute('data-v', v);
-    set.className = 'runset stagger ' + LAY[v];
+    sec.className = 'scene run sL ' + V[v] + (prefersStill ? ' still' : '');
     swb.forEach(function (b) { b.setAttribute('aria-pressed', b.getAttribute('data-i') === v ? 'true' : 'false'); });
-    if (v === '5') { show(0); fitWin(); } else { set.style.removeProperty('--stepH'); }
-    taken = false;
-    start();
+    flowOff();
+    heldOff();
+    if (prefersStill || v === '0') {
+      /* Nothing drives the stage: every screen stands, and the ticket
+         reads as it was opened. */
+      screens.forEach(function (s) { s.classList.add('on'); s.classList.remove('seen'); });
+      press();
+      return;
+    }
+    k = -1;
+    setK(0);
+    screens.forEach(function (s) { s.classList.remove('on', 'seen'); });
+    sec.setAttribute('data-k', '0');
+    if (HELD[V[v]]) heldOn(); else flowOn();
   }
 
   swb.forEach(function (b) {
     b.addEventListener('click', function () {
       setV(b.getAttribute('data-i'));
+      fitSw();
       try {
         var u = new URL(window.location.href);
         u.searchParams.set('id', v);
@@ -3582,52 +3837,12 @@ function clampNum(v, a, b) { return v < a ? a : v > b ? b : v; }
       } catch (e) { /* a URL this browser will not parse costs the switcher nothing */ }
     });
   });
-  bar.forEach(function (b, k) { b.addEventListener('click', function () { take(k); }); });
-  window.addEventListener('resize', fitWin, { passive: true });
-
-  /* ---- the press ---- */
-  var gate = document.getElementById('rungate');
-  var pressed = false;
-  function press() {
-    if (pressed || !gate) return;
-    pressed = true;
-    if (prefersStill) { gate.classList.add('pressed'); return; }
-    gate.classList.add('pressing');
-    setTimeout(function () {
-      gate.classList.remove('pressing');
-      gate.classList.add('pressed');
-      var ed = document.getElementById('runedited');
-      if (ed) ed.classList.add('up');
-    }, 760);
-  }
-  var approve = document.getElementById('runapprove');
-  if (approve) approve.addEventListener('click', press);
-
-  if (prefersStill || !window.IntersectionObserver) {
-    press();
-  } else {
-    /* The gate presses a beat after it is really on screen, and the
-       run's clock runs only while the scene is. A display:none card
-       intersects nothing, so the step composition presses when the
-       gate becomes its own step, which is where the beat belongs. */
-    var gio = new IntersectionObserver(function (es) {
-      es.forEach(function (e) {
-        if (!e.isIntersecting) return;
-        gio.unobserve(e.target);
-        setTimeout(press, 620);
-      });
-    }, { threshold: 0.45 });
-    if (gate) gio.observe(gate);
-
-    new IntersectionObserver(function (es) {
-      es.forEach(function (e) { onScreen = e.isIntersecting; });
-      if (onScreen) start(); else stop();
-    }, { threshold: 0.06 }).observe(sec);
-  }
+  window.addEventListener('resize', fitSw, { passive: true });
 
   var id = '';
   try { id = new URL(window.location.href).searchParams.get('id') || ''; } catch (e) { id = ''; }
-  setV(LAY[id] ? id : '1');
+  setV(V[id] ? id : '1');
+  fitSw();
 })();
 
 /* ================================================================

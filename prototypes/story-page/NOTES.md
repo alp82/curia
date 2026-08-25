@@ -1551,25 +1551,102 @@ the way #629 round 1 asked them to judge terminal colour.
 a screen competes with the caption under it. If the operator picks it, the press comes back in the
 next round.
 
-**86 build checks** run against the file, and all **36 breaks** that validate them land. They cover
-the three faults of the ticket, the real values, the locked words, the identity frame, the five
-compositions and their distinctness, the six events and their order, the build rules, the
-no-script and reduced-motion paths, and balanced markup. Three were wrong before they were right,
-and each repeats a fault this file has already recorded once:
+**86 build checks** ran against round 1, and all **36 breaks** that validate them landed. Three were
+wrong before they were right, and each repeats a fault this file has already recorded once:
 
 - **A check asked whether a value appears in the SCENE, not in a CARD.** The Reject button, curia's
-  own question and the diffstat each appear twice — once in the main composition and once in the
-  devices phone. Breaking one of the two left every check green. They run per button and per card
-  now. This is the same fault #629 recorded about its TUI-marker checks, in a scene with two
-  instances instead of five.
+  own question and the diffstat each appear twice. Breaking one of the two left every check green.
+  They run per button and per card now. Same fault #629 recorded about its TUI-marker checks.
 - **A mutation landed in a comment.** The break meant to prove the thread-glyph check hit the
   `🎫 587 · prototype` in the scene's own HTML comment, not the one in the card. The value checks
-  read the markup with comments stripped now, and every mutation is confined to the three spans
-  scene 8 owns.
+  read the markup with comments stripped now, and every mutation is confined to the spans scene 8
+  owns.
 - **The distinctness check compared prose, not rules.** A CSS comment sits in front of a selector,
-  so the parser was carrying the paragraph each layout was documented with into its selector text.
-  Two identical layouts read as different, because their comments differed. It strips comments
-  first now, which is #628's and #629's wrong-scope lesson a third time.
+  so the parser carried the paragraph each layout was documented with into its selector text. Two
+  identical layouts read as different. It strips comments first now.
+
+**Five faults found by reading the spliced result**, none of which a check could have named:
+
+| what it was | why |
+|-------------|-----|
+| the deal pile hid the last row of every card | a tab is 1.35rem tall and sits ABOVE its own card, so tab plus pull is what covers the one below |
+| the step slot could only grow | the active card carried the measured height as a `min-height`, so measuring without clearing it first ratchets upward for ever |
+| the devices phone sat on the merge and close rows | the two screens overlapped, and the payoff of the scene was under the phone |
+| every gate link pointed back at the scene | `href="#run"` on all six, so tapping the pull request landed where you already were |
+| the old gate's lookalike buttons were still there | `.d-btn` and `.d-receipt` resembled Discord's shapes. The gate wears the real ones now |
+
+**The operator's answer to round 1**, verbatim:
+
+> Deals is a nice start
+>
+> The vertical telling is nice. I think while we scroll through the series of screens that should
+> all look either like discord or a phone or the browser, there is one constant element on the
+> screen that evolves but stays on place. The ticket
+
+Three things settled with that reply, and they hold for every later round:
+
+1. **The telling is vertical**, and the horizontal journey is off the table for good.
+2. **Every beat is a DEVICE**, never a bare card: the Discord client, a browser, or a phone.
+3. **The scene has a protagonist, and it is the ticket.** One element stays in place and evolves
+   while the screens pass it.
+
+Three of round 1's five left the file with that answer. The deal set stays, reachable at `?id=0`,
+because it is what the operator called a nice start and round 2's desk is built on it.
+
+**Round 2.** The constant ticket, and four screens that pass it.
+
+**The ticket is the one thing here that wears NEITHER product's chrome.** It is curia's own object,
+drawn in this page's identity, which is what lets it stand against a GitHub screen and a Discord
+screen without reading as either. It carries no control of either product, so the
+one-card-one-surface rule of round 1 still holds, and a build check asserts it.
+
+**It walks the four stages this whole page is coloured by** ([#624](https://github.com/alp82/curia/issues/624)).
+Five stages, one per beat, and the section carries the stage as `data-k`, so the state word, the
+evolving line, the five-stop track and the pill's colour are all CSS off one attribute:
+
+| stage | the ticket says | the screen |
+|-------|-----------------|------------|
+| 0 take | Open · opened by you on Aug 21, 2026 | the ticket, alone |
+| 1 agent | running · dispatched to curia-587 on claude-opus-5 | Discord, the client's own window |
+| 2 agent | running · pull request #597, 5 commits, +757 | the browser |
+| 3 gate | in review · waiting on you | a phone, and the press |
+| 4 merged | Merged · #597 merged, #587 closed as completed | the browser |
+
+**The gate is on a phone**, which is the one placement this page has to earn: scene 8's claim is
+"You are in charge", and the whole promise is that you answer from the couch. The four screens are
+Discord, the browser, the phone, the browser.
+
+**Five compositions ride `?id=1..5`**, differing in where the constant sits and how the screens
+pass it. Two of them hold a screen-tall stage, and three let the page scroll the way it always
+does:
+
+1. **pin** (flow) — the ticket sticks at the top of the scene, the screens scroll under it. Nothing
+   is pinned but the ticket.
+2. **stage** (held) — one screen-tall stage. The ticket sits at the top and the screens cross-fade
+   in the space below, so the constant never moves at all.
+3. **rail** (flow) — the constant is a rail, not a card: one thin status line on a phone, and a
+   full side rail past 60rem, with the screens running past it.
+4. **desk** (held) — round 1's pile, with the constant under it. The ticket is a paper docket on
+   the desk and the screens are dealt above it, each staying in the pile as the next lands. The
+   state is a rubber stamp on that paper.
+5. **ghost** (flow) — the constant is behind everything at poster size, and the screens scroll over
+   it. The ticket takes no room in the flow, so nothing moves the screens off their column.
+
+**Nothing here takes the scroll.** A held stage is a sticky element the page scrolls past, which is
+what scenes 1 to 3 and scene 4 already do, and it is what the operator asked for. A build check
+asserts the scene's script binds no `wheel` or `touchmove` listener, calls no `scrollTo`, and calls
+`preventDefault` nowhere.
+
+**108 build checks** run against the file and all **44 breaks** that validate them land. Two of the
+checks were wrong before they were right:
+
+- **The distinctness check accepted a stray rule as a difference.** A composition copied wholesale,
+  with one leftover declaration from the block it replaced, is the same composition wearing a second
+  name. It needs three declarations of difference now.
+- **A fail-open rule matched nothing.** `.still .v-ghost .tkt-in` reads as a descendant, and both
+  classes sit on the SAME element, the section. With reduced motion the ghost kept its 24vh offset
+  and no stage under it to hold. It is `.still.v-ghost` now. The distinctness break is what exposed
+  it: the rule showed up as the ghost's one asymmetric declaration.
 
 ## The verdict of the terminal scene ([#629](https://github.com/alp82/curia/issues/629))
 
