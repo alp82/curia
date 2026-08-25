@@ -14,7 +14,7 @@
 //
 // WHY THE VERBS TAKE THE MCP SIDE CHANNEL. See `overseerverbs.mjs`: a route
 // that took canonical text would hand the container the whole router, and a
-// tool call hands it eight verbs with validated arguments. The daemon composes
+// tool call hands it the verb catalogue with validated arguments. The daemon composes
 // the canonical text on its own side, so `/command` still receives text the
 // daemon wrote. Every effect crosses that seam, the daemon executes it, and the
 // ✅/❌ confirm on `cancel` survives untouched.
@@ -62,7 +62,7 @@ export const OVERSEER_MCP_PATH = '/overseer/mcp'
 export const MCP_SERVER_NAME = 'curia'
 
 // Sonnet 5, as ADR-0014 decides. Haiku answered the in-daemon host's mapping
-// from prose to eight verbs, and this posture reads code and diffs.
+// from prose to the verbs, and this posture reads code and diffs.
 export const OVERSEER_CONTAINER_MODEL = 'claude-sonnet-5'
 
 // The in-daemon host capped a turn at 12 assistant turns, and that was sized

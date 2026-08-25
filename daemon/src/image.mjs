@@ -4,11 +4,14 @@
 // cleanup from deleting it overnight (#337, built by #350).
 //
 // The tag is a CONTENT ADDRESS, not a name someone bumps by hand. It carries
-// the two CLI versions so a human reading `docker images` sees what an agent
-// runs, and a hash over every build input so nothing else can drift silently:
+// the claude and codex versions so a human reading `docker images` sees what
+// most agents run, and a hash over every build input so nothing else can drift
+// silently. The other two harness pins (#696) ride the hash alone: a tag long
+// enough to name four versions stops being readable, and correctness lives in
+// the hash either way.
 //
-//     curia-agent:2.1.220-0.146.0-1.18.18-0.84.2-3f8a1c2d
-//                  ^claude ^codex  ^opencode ^pi    ^sha256(inputs)
+//     curia-agent:2.1.220-0.146.0-3f8a1c2d
+//                  ^claude ^codex  ^sha256(Dockerfile + all build args)
 //
 // That is what makes "the daemon rebuilds the image when a CLI version bumps"
 // a fact rather than a promise. A bump in config/curia.yaml names a tag that
@@ -41,8 +44,8 @@ export const BUILD_CONTEXT = path.dirname(DOCKERFILE)
 export const DOCKER_BIN = process.env.DOCKER_BIN ?? 'docker'
 export const BUILD_CMD = 'npm run build-agent-image --prefix daemon'
 
-// A build pulls a base image, fetches gh, and installs four CLIs that are
-// ~600 MB of native binary between them. Measured at ~4 minutes cold on the
+// A build pulls a base image, fetches gh, and installs four harness CLIs that
+// are ~700 MB of native binary between them. Measured at ~4 minutes cold on the
 // box; ten leaves room for a slow mirror without leaving a dispatch hanging
 // on a wedged builder forever.
 export const BUILD_TIMEOUT_MS = 10 * 60_000
@@ -105,13 +108,7 @@ export function imageDigest(sandbox, dockerfile = DOCKERFILE) {
 export function agentImageRef(sandbox, dockerfile = DOCKERFILE) {
   const repo = sandbox.image ?? DEFAULT_IMAGE
   const digest = imageDigest(sandbox, dockerfile)
-  const tag = [
-    sandbox.claude_version,
-    sandbox.codex_version,
-    sandbox.opencode_version,
-    sandbox.pi_version,
-    digest.slice(0, 8),
-  ].map(tagSafe).join('-')
+  const tag = `${tagSafe(sandbox.claude_version)}-${tagSafe(sandbox.codex_version)}-${digest.slice(0, 8)}`
   return { repo, tag, ref: `${repo}:${tag}`, digest, args: buildArgs(sandbox) }
 }
 

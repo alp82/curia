@@ -259,6 +259,13 @@ The expiry half is a PAT-only fact and it dies holder by holder as [ADR-0018](do
 `tickets`, `next`, `status`, `start`, `map`, `cancel`, `resume`, `attach`, `review`. The whole command surface, identical over Discord and REST. Each verb has one meaning. `start` works a thing, and `map` updates a map.
 _Avoid_: the five verbs (the pre-#81 count, wrong since `next`, `resume` and `review` joined).
 
+**Typed command**:
+A top-level message in the command channel that the parser accepts as a whole line. It runs on the router before any model turn: no conversation thread, and no overseer session. A line the parser refuses, and a line that only starts with a verb, are both prose, and prose opens a conversation. See [ADR-0022](docs/adr/0022-the-overseers-command-understanding.md) and [#692](https://github.com/alp82/curia/issues/692).
+_Avoid_: slash command (that names the Discord manifest, which is another transport onto the same router).
+
+**The map tools**:
+The two tools the overseer reaches the `map` verb through. `map_update` requires an existing map's number. `map_new` has no number field at all and requires the operator's brief. Both compose the same `map` router text, so the grammar, the slash surface and the operator's usage catalogue don't change. The test of which shape to use is a schema rather than prompt prose, so the wrong shape is not a call the model can make. See [ADR-0022](docs/adr/0022-the-overseers-command-understanding.md) and [#692](https://github.com/alp82/curia/issues/692).
+
 **Resume**:
 A fresh agent on a ticket whose agent is gone. It inherits the surviving worktree, the model of the last spawn, which the journal states, and the inherited exchange (#374). It never inherits the conversation. A live agent refuses it: `cancel <n>` is the way to end one.
 
@@ -323,7 +330,7 @@ The boundary around an agent: one Docker container per agent, holding its own cl
 `harnesses.<name>.sandbox` in `routing.yaml`: `docker` or `none`. Per harness. The claude harness is on and soaking, the codex harness follows.
 
 **Agent image**:
-The one image every agent container runs. It carries both harnesses at pinned versions and nothing per-ticket. Its tag is a content address over the Dockerfile and the pins, so a bump names an image the box does not have and the daemon rebuilds.
+The one image every agent container runs. It carries every harness at a pinned version and nothing per-ticket: claude, codex, opencode, and pi ([#696](https://github.com/alp82/curia/issues/696)). The build asks each one for its version as the worker user and fails when the answer isn't the pin, so routing can never select a command line interface the container lacks. Its tag is a content address over the Dockerfile and the pins, so a bump names an image the box does not have and the daemon rebuilds.
 
 **Image pin**:
 A container named `curia-agent-pin`, created against the live agent image and never started. The box's nightly docker cleanup deletes every image no container references, and no label protects one, so the reference is what keeps the image alive overnight. The daemon checks the pin on every dispatch. A new tag moves the pin and then removes every superseded tag of the same repository. See [#337](https://github.com/alp82/curia/issues/337) and [#350](https://github.com/alp82/curia/issues/350).
@@ -584,6 +591,12 @@ _Avoid_: browser thread (there is no Discord thread behind it, and there is more
 
 **Spent number**:
 A browser conversation number that is used up. The daemon journals every key it mints, and it never mints one twice, so a delete spends that number for good. This is the one rule that separates a conversation number from a **Chat handle**: an agent is torn down whole and its index comes back, and a conversation is memory, so a reused number would wake the deleted conversation's own transcript. A delete forgets the key and leaves the file on disk. See [#333](https://github.com/alp82/curia/issues/333).
+
+**Global search**:
+One query over the four indexed sources: the GitHub facts, the decisions a map records under `## Decisions so far`, the journal, and the local chat transcripts. Discord thread bodies stay out of the first index, because Discord is the alert surface and its text is a copy of what the journal and the transcripts already hold. The lens button in every screen header opens it. See [#589](https://github.com/alp82/curia/issues/589) and `daemon/src/search.mjs`.
+
+**Landing target**:
+Where a search result opens, as typed data rather than a URL. A ticket hit and a chat hit land on `chat`, a map hit on `maps`, a journal hit on `feed`, and a decision hit on `github`, at its resolution comment. The query names the surface and its key, and the screen does the routing.
 
 **Preview**:
 A tailnet HTTPS link to an agent's running dev server. The daemon allocates the public port and composes the link.

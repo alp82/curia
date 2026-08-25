@@ -25,8 +25,8 @@ const PINS = {
   node_version: '24.19.0',
   claude_version: '2.1.220',
   codex_version: '0.146.0',
-  opencode_version: '1.18.18',
-  pi_version: '0.84.2',
+  opencode_version: '1.18.23',
+  pi_version: '0.84.3',
   gh_version: '2.97.0',
   playwright_version: '1.62.1',
   ttyd_version: '1.7.7',
@@ -56,9 +56,9 @@ describe('the image tag (#154)', () => {
     assert.equal(agentImageRef(PINS).ref, agentImageRef({ ...PINS }).ref)
   })
 
-  test('the legible half names all four harness versions', () => {
+  test('the legible half names the two primary harness versions', () => {
     const { ref } = agentImageRef(PINS)
-    assert.match(ref, /^curia-agent:2\.1\.220-0\.146\.0-1\.18\.18-0\.84\.2-[0-9a-f]{8}$/)
+    assert.match(ref, /^curia-agent:2\.1\.220-0\.146\.0-[0-9a-f]{8}$/)
   })
 
   test('a bump in ANY pin changes the tag — that is what triggers the rebuild', () => {
@@ -87,8 +87,8 @@ describe('the image tag (#154)', () => {
       NODE_VERSION: '24.19.0',
       CLAUDE_VERSION: '2.1.220',
       CODEX_VERSION: '0.146.0',
-      OPENCODE_VERSION: '1.18.18',
-      PI_VERSION: '0.84.2',
+      OPENCODE_VERSION: '1.18.23',
+      PI_VERSION: '0.84.3',
       GH_VERSION: '2.97.0',
       PLAYWRIGHT_VERSION: '1.62.1',
       TTYD_VERSION: '1.7.7',
@@ -114,11 +114,60 @@ describe('the image tag (#154)', () => {
     assert.doesNotMatch(instructions(), /<<[A-Z]/)
   })
 
-  test('the worker user verifies every supported harness at build time', () => {
-    const dockerfile = fs.readFileSync(DOCKERFILE, 'utf8')
-    const worker = dockerfile.slice(dockerfile.indexOf('USER agent'))
-    for (const command of ['claude --version', 'codex --version', 'opencode --version', 'pi --version']) {
-      assert.match(worker, new RegExp(command.replaceAll(' ', '\\s+')), `${command} does not run as the worker user`)
+})
+
+// The harness set the image carries (#696). Routing can pick any of the four,
+// so a container missing one turns a routing decision into a dead pane. The
+// build itself proves the install - the `--version` loop in the Dockerfile is
+// what fails a bad build - and these checks prove the Dockerfile still asks
+// for that proof, for every harness, at the pinned version.
+const HARNESSES = [
+  { cli: 'claude', pkg: '@anthropic-ai/claude-code', arg: 'CLAUDE_VERSION' },
+  { cli: 'codex', pkg: '@openai/codex', arg: 'CODEX_VERSION' },
+  { cli: 'opencode', pkg: 'opencode-ai', arg: 'OPENCODE_VERSION' },
+  { cli: 'pi', pkg: '@earendil-works/pi-coding-agent', arg: 'PI_VERSION' },
+]
+
+describe('the harnesses in the image (#696)', () => {
+  test('every harness installs from npm at the version its ARG pins', () => {
+    const text = instructions()
+    for (const { pkg, arg } of HARNESSES) {
+      assert.ok(
+        text.includes(`"${pkg}@\${${arg}}"`),
+        `the Dockerfile does not install ${pkg} at \${${arg}}`,
+      )
+    }
+  })
+
+  test('no harness installs unpinned — a floating spec is the failure the pins prevent', () => {
+    const text = instructions()
+    for (const { pkg } of HARNESSES) {
+      for (const bad of [`"${pkg}"`, `${pkg}@latest`, `${pkg}@next`]) {
+        assert.ok(!text.includes(bad), `the Dockerfile installs ${bad}`)
+      }
+    }
+  })
+
+  test('the build verifies every harness against its pin', () => {
+    const text = instructions()
+    for (const { cli, arg } of HARNESSES) {
+      assert.ok(
+        text.includes(`"${cli} \${${arg}}"`),
+        `the build never checks that \`${cli}\` reports \${${arg}}`,
+      )
+    }
+    assert.match(text, /--version/, 'the build asks no harness for its version')
+  })
+
+  test('the version check runs as the worker user, under its own home', () => {
+    assert.match(instructions(), /su agent -s \/bin\/bash -c "\$cli --version"/)
+  })
+
+  test('a harness the router can pick is a harness the pins name', () => {
+    for (const { cli } of HARNESSES) {
+      const key = `${cli}_version`
+      assert.ok(PINS[key], `no sandbox pin names ${cli}`)
+      assert.ok(SANDBOX_KEYS[key], `${key} is not a build arg`)
     }
   })
 })
@@ -296,8 +345,8 @@ describe('sandbox config (#154)', () => {
     '  node_version: 24.19.0',
     '  claude_version: 2.1.220',
     '  codex_version: 0.146.0',
-    '  opencode_version: 1.18.18',
-    '  pi_version: 0.84.2',
+    '  opencode_version: 1.18.23',
+    '  pi_version: 0.84.3',
     '  gh_version: 2.97.0',
     '  playwright_version: 1.62.1',
     '  ttyd_version: 1.7.7',
@@ -318,7 +367,7 @@ describe('sandbox config (#154)', () => {
     const cfg = loadCuriaConfig(writeConfig(FULL))
     assert.equal(cfg.sandbox.image, DEFAULT_IMAGE)
     assert.equal(cfg.sandbox.claude_version, '2.1.220')
-    assert.equal(cfg.sandbox.opencode_version, '1.18.18')
+    assert.equal(cfg.sandbox.opencode_version, '1.18.23')
     assert.equal(cfg.sandbox.agent_uid, 1000)
   })
 
@@ -364,7 +413,7 @@ describe('the shipped config (#154)', () => {
     const cfg = withSeededHome(() => loadCuriaConfig(file), installs)
     assert.ok(cfg.sandbox, 'the shipped config has no sandbox section')
     const ref = agentImageRef(cfg.sandbox)
-    assert.match(ref.ref, /^curia-agent:(?:\d[\w.]*-){4}[0-9a-f]{8}$/)
+    assert.match(ref.ref, /^curia-agent:\d[\w.]*-\d[\w.]*-[0-9a-f]{8}$/)
   })
 
   // #268: the tree is vendored, so a missing skill is a missing DIRECTORY in

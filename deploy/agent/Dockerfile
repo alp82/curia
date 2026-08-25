@@ -40,7 +40,7 @@ ARG TTYD_VERSION
 ARG AGENT_UID=1000
 
 # TUIs draw box characters. A container with no LANG lays them out as question
-# marks, and both harnesses are TUIs.
+# marks, and every harness is a TUI.
 ENV LANG=C.UTF-8 \
     LC_ALL=C.UTF-8 \
     DEBIAN_FRONTEND=noninteractive
@@ -95,9 +95,13 @@ RUN set -eux; \
     ttyd --version
 ENV TTYD_BIN=/usr/local/bin/ttyd
 
-# All supported harnesses, at the exact versions the box runs. The npm cache from this
-# layer is dropped rather than left in the image: the run-time cache is a
-# mounted volume, and a stale copy baked at build time only costs size.
+# Every harness the router can pick, at the exact versions the box runs (#696).
+# Claude and codex were the first two; opencode and pi joined them so routing
+# can never select a command line interface the container doesn't carry. All
+# four are plain npm globals, so they land in /usr/local/bin and every user in
+# the image reaches them. The npm cache from this layer is dropped rather than
+# left in the image: the run-time cache is a mounted volume, and a stale copy
+# baked at build time only costs size.
 RUN set -eux; \
     npm install -g --no-fund --no-audit \
       "@anthropic-ai/claude-code@${CLAUDE_VERSION}" \
@@ -152,10 +156,38 @@ RUN printf '%s\n' \
       'if [ -x /cfg/bin/kill ]; then kill() { /cfg/bin/kill "$@"; }; fi' \
       > /etc/profile.d/curia-kill-guard.sh
 
-# The harness CLIs check for a newer self on start. The image IS the pin, and an
+# Every harness checks for a newer self on start. The image IS the pin, and an
 # updated CLI inside a container that dies with its ticket is a download the
 # next agent repeats.
 ENV DISABLE_AUTOUPDATER=1
+
+# The build's own proof that every harness is there and is the pinned one
+# (#696). A `npm install -g` that resolved something else, or a package whose
+# binary needs a library this image lacks, is a build failure here instead of a
+# dispatch failure four minutes into an agent's first turn.
+#
+# The check runs as `agent`, not as root, and `su` sets HOME to /home/agent —
+# so it exercises the user and the home layout an agent actually gets. Several
+# of these command line interfaces write into HOME on first run, and a check
+# that ran as root would create those files owned by the wrong user.
+#
+# The pin list stays in the image, so a hand session in a container can read
+# what the image claims to carry without a `docker inspect` on the host.
+RUN set -eux; \
+    printf '%s\n' \
+      "claude ${CLAUDE_VERSION}" \
+      "codex ${CODEX_VERSION}" \
+      "opencode ${OPENCODE_VERSION}" \
+      "pi ${PI_VERSION}" \
+      > /usr/local/share/curia-harness-pins; \
+    chmod 0444 /usr/local/share/curia-harness-pins; \
+    while read -r cli want; do \
+      got="$(su agent -s /bin/bash -c "$cli --version" < /dev/null 2>&1 | tr -d '\r')"; \
+      case "${got}" in \
+        *"${want}"*) echo "ok: ${cli} ${want}" ;; \
+        *) echo "${cli}: wanted ${want}, got: ${got}" >&2; exit 1 ;; \
+      esac; \
+    done < /usr/local/share/curia-harness-pins
 
 LABEL org.opencontainers.image.title="curia agent" \
       org.opencontainers.image.source="https://github.com/alp82/curia" \
@@ -172,9 +204,4 @@ LABEL org.opencontainers.image.title="curia agent" \
 
 USER agent
 WORKDIR /workspace
-RUN set -eux; \
-    claude --version; \
-    codex --version; \
-    opencode --version; \
-    pi --version
 CMD ["bash"]

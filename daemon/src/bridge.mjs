@@ -25,11 +25,11 @@ import {
 } from 'discord.js'
 import { isChatHandle } from './attach.mjs'
 import { normalizeInboundMessage, safeLeaf } from './attachments.mjs'
+import { parseCommand } from './commands.mjs'
 import { REVIEW_KIND, CROSS_CHECK_ANSWER, ALL_AS_RECOMMENDED } from './lifecycle.mjs'
 import { CONFIRM_KIND } from './reduction.mjs'
 import { chunkMessage, smallPrint, elapsedLabel } from './messaging.mjs'
 import { ThreadRenamer } from './threadname.mjs'
-import { parseCommand } from './commands.mjs'
 
 // The `choice` surface, in three bands (#431, on the #413 map).
 //
@@ -1867,9 +1867,23 @@ export class DiscordBridge {
     const inboundText = inbound.text
     // Top-level prose in #curia always opens a fresh conversation thread (#89).
     if (m.channel.id === this.channel.id) {
-      if (parseCommand(inboundText) && this.handlers.command) {
-        const reply = await this.handlers.command(inboundText, m.author.id, { threadId: null })
-        await m.reply?.({ content: String(reply ?? `relayed: \`${inboundText}\``) })
+      // #692, ADR-0022: a typed verb runs BEFORE a model turn. When the whole
+      // trimmed line parses, it is a command the operator wrote, not prose for
+      // the overseer to interpret. It runs on the router, in the channel, with
+      // no thread and no session behind it.
+      //
+      // The reference incident is three `status` lines in four minutes: three
+      // threads named "status", three model sessions, and three paraphrases of
+      // an answer the router already had. Interpretation is for prose.
+      //
+      // The whole line has to parse. A partial match is prose that starts with
+      // a verb ("status of the landing page map?"), and that is a question.
+      const typed = inboundText
+      if (typed && this.handlers.command && parseCommand(typed)) {
+        const reply = await this.handlers.command(typed, m.author.id, { threadId: null })
+        const payload = { content: String(reply ?? `relayed: \`${typed}\``) }
+        if (typeof m.channel?.send === 'function') await this.#sendChunked(m.channel, payload)
+        else await m.reply?.(payload)
         return
       }
       if (!this.handlers.overseerTurn) return

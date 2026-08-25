@@ -147,8 +147,8 @@ sandbox:
   # from the matching command before you change a pin.
   claude_version: 2.1.220
   codex_version: 0.146.0
-  opencode_version: 1.18.18
-  pi_version: 0.84.2
+  opencode_version: 1.18.23
+  pi_version: 0.84.3
   # Debian 12 ships gh 2.23 (2023). Pinned from the upstream release instead,
   # for the same reason: one tracker CLI, one version of it.
   gh_version: 2.97.0
