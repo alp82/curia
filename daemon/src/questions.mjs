@@ -234,6 +234,7 @@ export class Questions {
   constructor(db) {
     this.db = db
     this.stmts = {}
+    this.mapSnapshotStmts = new Map()
     for (const [name, sql] of Object.entries(SQL)) this.stmts[name] = db.prepare(sql)
   }
 
@@ -320,6 +321,55 @@ export class Questions {
   // above: that one takes the last dispatch that carries a repo at all.
   epochs() {
     return new Map(this.#ask('epochs').map((r) => [String(r.ticket), { repo: r.repo ?? null }]))
+  }
+
+  // The latest event and current agent for each ticket in one map. The caller
+  // supplies the map and child numbers, so this reads only indexed ticket
+  // histories. `id` decides latest, never `ts`, because journal stamps can tie
+  // or arrive out of clock order.
+  mapSnapshotFacts(repo, tickets) {
+    const keys = [...new Set(tickets.map(String))]
+    if (!keys.length) return new Map()
+    let stmt = this.mapSnapshotStmts.get(keys.length)
+    if (!stmt) {
+      const wanted = keys.map((_, index) => `(:t${index})`).join(', ')
+      stmt = this.db.prepare(`
+with wanted(ticket) as (values ${wanted}),
+scoped as (
+  select e.* from events e
+  join wanted w on w.ticket = e.ticket
+  where e.repo = :repo
+     or exists(select 1 from events origin where origin.id = e.epoch and origin.repo = :repo)
+)
+select w.ticket,
+       (select id from scoped e where e.ticket = w.ticket order by id desc limit 1) as latest_id,
+       (select body from scoped e where e.ticket = w.ticket order by id desc limit 1) as latest_body,
+       (select body from scoped e where e.ticket = w.ticket and type = 'agent_spawned'
+          and e.id = (select max(epoch) from scoped current where current.ticket = w.ticket)
+         order by id desc limit 1) as spawn_body
+  from wanted w`)
+      this.mapSnapshotStmts.set(keys.length, stmt)
+    }
+    const params = { repo }
+    keys.forEach((ticket, index) => { params[`t${index}`] = ticket })
+    try {
+      return new Map(stmt.all(params).map((row) => {
+        const latest = row.latest_body ? normalizeEvent(JSON.parse(row.latest_body)) : null
+        const spawn = row.spawn_body ? normalizeEvent(JSON.parse(row.spawn_body)) : null
+        return [String(row.ticket), {
+          latest_event_id: row.latest_id ?? null,
+          latest_event_at: latest?.ts ?? null,
+          agent: spawn ? {
+            session: spawn.agent ?? null,
+            model: spawn.model ?? null,
+            harness: spawn.harness ?? null,
+            started_at: spawn.ts ?? null,
+          } : null,
+        }]
+      }))
+    } catch (e) {
+      throw new Error(`events journal is unreadable: ${e.message}`)
+    }
   }
 
   reportedAfterEpoch(ticket, agent) {
