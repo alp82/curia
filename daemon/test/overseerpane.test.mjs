@@ -1,287 +1,282 @@
-// The overseer pane host (#688). These tests drive the service seam that owns
-// process hosting. The tmux adapter stays injected, so the test observes the
-// same start and write calls without needing a live Docker service.
-
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import path from 'node:path'
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
+import path from 'node:path'
 import {
-  OverseerPaneHost, containerCheckoutPass, overseerPaneSession, prepareOverseerPane,
+  OverseerPaneHost, containerCheckoutPass, overseerPaneName, overseerPaneSession,
+  prepareOverseerPane,
 } from '../src/overseerpane.mjs'
 import { PASTE_START, PASTE_END, bracketedPaste } from '../src/tmux.mjs'
-import { TimelineSurface, DEFAULT_TIMELINE_INDEX } from '../src/timeline.mjs'
 
+const UUID = '11111111-2222-4333-8444-555555555555'
 const ROOT = '/work'
-const REPO = '/repo'
+const REPO = '/srv/curia'
 const DATA = '/data'
 const HOME = path.join(ROOT, 'cfg', 'curia-overseer', 'home')
 
-function build({ sessions = {}, pending = {}, live = [], ready = () => 'bypass permissions' } = {}) {
-  const bound = { ...sessions }
-  const reserved = { ...pending }
-  const calls = { started: [], sent: [], journal: [], armed: [], carried: [] }
-  const minted = {}
-  const liveSessions = new Set(live)
-  const reduction = {
-    overseerSession: (key) => bound[key] ?? null,
-    pendingOverseerSession: (key) => reserved[key] ?? null,
-    reserveOverseerSession: (key, id) => { reserved[key] = id },
-    bindOverseerSession: (key, id) => {
-      bound[key] = id
-      delete reserved[key]
+function storeDouble() {
+  const sessions = new Map()
+  const pending = new Map()
+  return {
+    events: [],
+    overseerSession: (key) => sessions.get(key),
+    pendingOverseerSession: (key) => pending.get(key),
+    reserveOverseerSession(key, session) { pending.set(key, session) },
+    bindOverseerSession(key, session) {
+      sessions.set(key, session)
+      pending.delete(key)
     },
-    journal: (type, detail) => calls.journal.push({ type, ...detail }),
+    journal(type, detail) { this.events.push({ type, ...detail }) },
   }
+}
+
+function paneDouble() {
+  const sessions = new Set()
+  return {
+    starts: [],
+    readies: [],
+    sends: [],
+    parks: [],
+    async has(name) { return sessions.has(name) },
+    async start(spec) { this.starts.push(spec); sessions.add(spec.name) },
+    async ready(name) { this.readies.push(name) },
+    async send(name, text) {
+      this.sends.push({ name, text })
+      return { status: 'confirmed' }
+    },
+    async park(name) { this.parks.push(name); sessions.delete(name) },
+  }
+}
+
+function identityDouble() {
+  const tokens = new Map()
+  const calls = { armed: [], carried: [] }
+  return {
+    calls,
+    tokenFor: (key) => tokens.get(key),
+    deps: {
+      ensureToken(dataDir, key) {
+        if (!tokens.has(key)) tokens.set(key, `token-${key}-${tokens.size}`)
+        assert.equal(dataDir, DATA)
+        return tokens.get(key)
+      },
+      writeConnection(settings) { calls.armed.push(settings) },
+      carryTranscript(options) { calls.carried.push(options) },
+    },
+  }
+}
+
+function hosted({ reduction = storeDouble(), pane = paneDouble(), identity = identityDouble(), ...options } = {}) {
   const host = new OverseerPaneHost({
     reduction,
     workspaceRoot: ROOT,
     repoRoot: REPO,
     dataDir: DATA,
     daemonPort: 8177,
-    readyTimeoutMs: 0,
-    deps: {
-      ensureDir: () => {},
-      ensureToken: (dataDir, key) => {
-        minted[key] ??= `token-${key}-${Object.keys(minted).length}`
-        return minted[key]
-      },
-      writeConnection: (settings) => { calls.armed.push(settings) },
-      carryTranscript: (opts) => { calls.carried.push(opts) },
-      hasSession: async (name) => liveSessions.has(name),
-      newSession: async (opts) => { calls.started.push(opts); liveSessions.add(opts.name) },
-      capturePane: async () => ready(),
-      sendText: async (name, text) => {
-        calls.sent.push({ name, text })
-        return { status: 'confirmed' }
-      },
-    },
+    pane,
+    containerId: async () => 'overseer-container',
+    newSessionId: () => UUID,
+    deps: identity.deps,
+    ...options,
   })
-  return { host, calls, bound, reserved, liveSessions, minted }
+  return { host, reduction, pane, identity }
 }
 
-describe('the hosted overseer pane (#688)', () => {
-  test('one operator message starts a pane under its durable conversation identity', async () => {
-    const { host, calls, bound } = build()
+describe('overseer conversations use the pane host (#688, #701)', () => {
+  test('one hosted message starts an armed pane with durable overseer identity', async () => {
+    const { host, reduction, pane, identity } = hosted()
 
-    const out = await host.send('console-4', 'what is on the frontier?')
+    const sent = await host.send('console-7', 'Show active agents.')
 
-    assert.equal(out.session, 'curia-console-4')
-    assert.match(bound['console-4'], /^[0-9a-f-]{36}$/)
-    assert.deepEqual(calls.sent, [{ name: 'curia-console-4', text: 'what is on the frontier?' }])
-    assert.equal(calls.started.length, 1)
-    assert.equal(calls.started[0].name, 'curia-console-4')
-    assert.equal(calls.started[0].cwd, path.join(HOME, bound['console-4']))
-    assert.equal(calls.started[0].keepOpen, false, 'an exited docker exec is a parked conversation, not a shell')
-    assert.match(calls.started[0].shellCmd, /docker exec -it curia-overseer-1/)
-    assert.doesNotMatch(calls.started[0].shellCmd, /--key/)
-    assert.match(calls.started[0].shellCmd, new RegExp(`--session-id ${bound['console-4']}`))
-    assert.ok(calls.journal.some((e) => e.type === 'overseer_pane_started' && e.key === 'console-4'))
+    assert.deepEqual(sent, { status: 'confirmed' })
+    assert.equal(reduction.overseerSession('console-7'), UUID)
+    assert.equal(pane.starts[0].name, 'curia-console-7')
+    assert.equal(pane.starts[0].cwd, path.join(HOME, UUID))
+    assert.equal(pane.starts[0].keepOpen, false)
+    assert.match(pane.starts[0].shellCmd, /docker exec -it overseer-container/)
+    assert.match(pane.starts[0].shellCmd, new RegExp('--session-id ' + UUID + '$'))
+    assert.doesNotMatch(pane.starts[0].shellCmd, /console-7|conversation=/)
+    assert.deepEqual(pane.sends, [{ name: 'curia-console-7', text: 'Show active agents.' }])
+    assert.ok(reduction.events.some((event) => (
+      event.type === 'overseer_pane_started' && event.session_id === UUID
+    )))
+    assert.deepEqual(identity.calls.armed, [{
+      home: path.join(HOME, UUID),
+      url: 'http://host.docker.internal:8177/overseer/mcp?conversation=console-7',
+      token: identity.tokenFor('console-7'),
+      serverName: 'curia',
+      header: 'x-curia-agent-token',
+    }])
+    assert.deepEqual(identity.calls.carried, [{
+      configDir: path.join(ROOT, 'cfg', 'curia-overseer'),
+      sessionId: UUID,
+      home: path.join(HOME, UUID),
+    }])
   })
 
-  test('one timeline message crosses the conversation driver into the hosted pane', async () => {
-    const state = build()
-    const surface = new TimelineSurface({
-      port: 0,
-      servePort: 8444,
-      index: DEFAULT_TIMELINE_INDEX,
-      workspaceRoot: ROOT,
-      log: () => {},
-      deps: {
-        identityCheck: () => null,
-        journal: () => {},
-        escalationsFor: () => [],
-        escalationHistoryFor: () => [],
-        driverFor: (session) => (session === 'curia-console-5'
-          ? {
-            cfgDir: path.join(ROOT, 'cfg', 'curia-overseer'),
-            sessionId: state.bound['console-5'] ?? null,
-            harness: 'claude',
-            send: (text) => state.host.send('console-5', text),
-          }
-          : null),
-      },
-    })
-    await surface.start()
-    try {
-      const response = await fetch(`http://127.0.0.1:${surface.port}/send`, {
-        method: 'POST',
-        body: JSON.stringify({ session: 'curia-console-5', text: 'show the current map' }),
-      })
+  test('a deploy parks the pane and rehydrates the same conversation identity', async () => {
+    const state = hosted()
 
-      assert.equal(response.status, 200)
-      assert.deepEqual(state.calls.sent, [{
-        name: 'curia-console-5', text: 'show the current map',
-      }])
-      assert.match(state.bound['console-5'], /^[0-9a-f-]{36}$/)
-    } finally {
-      surface.stop()
-    }
+    await state.host.send('console-7', 'First message.')
+    const first = state.identity.calls.armed.at(-1)
+    await state.host.parkForDeploy()
+    await state.host.send('console-7', 'Second message.')
+
+    const second = state.identity.calls.armed.at(-1)
+    assert.deepEqual(state.pane.parks, ['curia-console-7'])
+    assert.equal(state.reduction.overseerSession('console-7'), UUID)
+    assert.match(state.pane.starts[1].shellCmd, new RegExp('--resume ' + UUID + '$'))
+    assert.equal(second.token, first.token)
+    assert.equal(second.url, first.url)
+    assert.equal(second.home, first.home)
   })
 
-  test('a routine deploy rehydrates the missing pane with the same identity', async () => {
-    const id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
-    const { host, calls, liveSessions } = build({ sessions: { '981234567890': id } })
+  test('take back can rehydrate a parked pane without sending a message', async () => {
+    const reduction = storeDouble()
+    reduction.bindOverseerSession('console-7', UUID)
+    const state = hosted({ reduction })
 
-    await host.send('981234567890', 'first message after deploy')
-    liveSessions.delete('curia-overseer-981234567890')
-    await host.send('981234567890', 'second message after deploy')
-
-    assert.equal(calls.started.length, 2)
-    for (const start of calls.started) assert.match(start.shellCmd, new RegExp(`--resume ${id}`))
-    assert.deepEqual(calls.sent.map((c) => c.text), ['first message after deploy', 'second message after deploy'])
-    assert.equal(calls.journal.filter((e) => e.type === 'overseer_pane_resumed').length, 2)
+    assert.equal(await state.host.ensure('console-7'), 'curia-console-7')
+    assert.match(state.pane.starts[0].shellCmd, new RegExp('--resume ' + UUID + '$'))
+    assert.deepEqual(state.pane.sends, [])
   })
 
-  test('a failed first launch retries the reserved identity as a new session', async () => {
-    let composer = ''
-    const state = build({ ready: () => composer })
+  test('pane names preserve Atlas routes and isolate other identities', () => {
+    assert.equal(overseerPaneName('console-12'), 'curia-console-12')
+    assert.equal(overseerPaneName('688'), 'curia-overseer-688')
+    assert.match(overseerPaneName('discord/thread:12'), /^curia-overseer-[a-f0-9]{16}$/)
+    assert.equal(overseerPaneSession('console-8'), 'curia-console-8')
+    assert.equal(overseerPaneSession('688'), 'curia-overseer-688')
+    assert.throws(() => overseerPaneSession('ticket-688'), /conversation key/)
+  })
 
-    await assert.rejects(state.host.send('console-3', 'first try'), /did not reach/)
-    const id = state.reserved['console-3']
-    assert.match(id, /^[0-9a-f-]{36}$/)
-    assert.equal(state.bound['console-3'], undefined)
+  test('a deleted Atlas conversation cannot create or arm a pane', async () => {
+    const reduction = { ...storeDouble(), hasConsoleConversation: () => false }
+    const state = hosted({ reduction })
 
-    state.liveSessions.delete('curia-console-3')
-    composer = 'bypass permissions'
-    await state.host.send('console-3', 'second try')
+    await assert.rejects(state.host.send('console-7', 'Do not send.'), /there is no conversation/)
+    assert.equal(state.pane.starts.length, 0)
+    assert.equal(state.identity.calls.armed.length, 0)
+  })
 
-    assert.equal(state.bound['console-3'], id)
-    assert.equal(state.reserved['console-3'], undefined)
-    assert.equal(state.calls.started.length, 2)
-    for (const start of state.calls.started) {
-      assert.match(start.shellCmd, new RegExp(`--session-id ${id}`))
+  test('a failed first launch retries the reserved identity and token', async () => {
+    const pane = paneDouble()
+    pane.ready = async () => { throw new Error('composer timeout') }
+    const state = hosted({ pane })
+
+    await assert.rejects(state.host.send('console-7', 'First try.'), /composer timeout/)
+    assert.equal(state.reduction.overseerSession('console-7'), undefined)
+    assert.equal(state.reduction.pendingOverseerSession('console-7'), UUID)
+    const first = state.identity.calls.armed.at(-1)
+    await pane.park('curia-console-7')
+    pane.ready = async (name) => { pane.readies.push(name) }
+    await state.host.send('console-7', 'Second try.')
+
+    const second = state.identity.calls.armed.at(-1)
+    assert.equal(state.reduction.overseerSession('console-7'), UUID)
+    assert.equal(state.reduction.pendingOverseerSession('console-7'), undefined)
+    assert.equal(pane.starts.length, 2)
+    assert.equal(second.token, first.token)
+    for (const start of pane.starts) {
+      assert.match(start.shellCmd, new RegExp('--session-id ' + UUID + '$'))
       assert.doesNotMatch(start.shellCmd, /--resume/)
     }
   })
 
-  test('a live conversation reuses its pane without starting another process', async () => {
-    const { host, calls } = build({
-      sessions: { 'console-2': 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' },
-      live: ['curia-console-2'],
+  test('the live pane cap parks the least recently used conversation', async () => {
+    let seq = 0
+    const state = hosted({
+      livePaneCap: 2,
+      newSessionId: () => (
+        '11111111-2222-4333-8444-' + String(++seq).padStart(12, '0')
+      ),
     })
 
-    await host.send('console-2', 'resume here')
+    await state.host.send('console-1', 'One.')
+    await state.host.send('console-2', 'Two.')
+    await state.host.send('console-1', 'One again.')
+    await state.host.send('console-3', 'Three.')
 
-    assert.deepEqual(calls.started, [])
-    assert.deepEqual(calls.sent, [{ name: 'curia-console-2', text: 'resume here' }])
+    assert.deepEqual(state.pane.parks, ['curia-console-2'])
+    await state.host.send('console-2', 'Resume two.')
+    assert.match(state.pane.starts.at(-1).shellCmd, /--resume 11111111-2222-4333-8444-000000000002$/)
+    assert.equal(state.host.live.size, 2)
   })
 
-  test('two first messages share one pane launch', async () => {
-    const { host, calls } = build()
+  test('concurrent conversation opens share one capacity decision', async () => {
+    const state = hosted({
+      livePaneCap: 2,
+      newSessionId: () => crypto.randomUUID(),
+    })
 
     await Promise.all([
-      host.send('console-6', 'first'),
-      host.send('console-6', 'second'),
+      state.host.ensure('console-1'),
+      state.host.ensure('console-2'),
+      state.host.ensure('console-3'),
     ])
 
-    assert.equal(calls.started.length, 1)
-    assert.deepEqual(calls.sent.map((call) => call.text), ['first', 'second'])
-  })
-
-  test('a pane is armed with its conversation\'s token before the process starts', async () => {
-    const { host, calls, bound, minted } = build()
-
-    await host.send('console-4', 'what is on the frontier?')
-
-    assert.deepEqual(calls.armed, [{
-      home: path.join(HOME, bound['console-4']),
-      url: 'http://host.docker.internal:8177/overseer/mcp?conversation=console-4',
-      token: minted['console-4'],
-      serverName: 'curia',
-      header: 'x-curia-agent-token',
-    }])
-    assert.deepEqual(calls.carried, [{
-      configDir: path.join(ROOT, 'cfg', 'curia-overseer'),
-      sessionId: bound['console-4'],
-      home: path.join(HOME, bound['console-4']),
-    }])
-  })
-
-  test('the conversation key never rides the pane command line', async () => {
-    const { host, calls } = build()
-
-    await host.send('981234567890', 'who is running?')
-
-    const [start] = calls.started
-    assert.doesNotMatch(start.shellCmd, /981234567890/, 'the pane learns its session id, never its destination')
-    assert.doesNotMatch(start.shellCmd, /conversation=/)
-  })
-
-  test('a rehydrated pane keeps the identity it had, and gains nothing', async () => {
-    const id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
-    const { host, calls, minted } = build({ sessions: { '981234567890': id } })
-
-    await host.send('981234567890', 'before the deploy')
-    const first = calls.armed.at(-1)
-    // The deploy killed the pane. The next message rehydrates it.
-    host.deps.hasSession = async () => false
-    await host.send('981234567890', 'after the deploy')
-
-    const second = calls.armed.at(-1)
-    assert.equal(second.token, first.token)
-    assert.equal(second.token, minted['981234567890'])
-    assert.equal(second.url, first.url)
-    assert.equal(second.home, path.join(HOME, id), 'the project directory follows the durable session id')
+    assert.equal(state.host.live.size, 2)
+    assert.equal(state.pane.parks.length, 1)
   })
 
   test('two conversations never share one tool identity', async () => {
-    const { host, calls } = build()
+    const state = hosted({ newSessionId: () => crypto.randomUUID() })
 
-    await host.send('console-4', 'first')
-    await host.send('console-5', 'second')
+    await state.host.send('console-4', 'First.')
+    await state.host.send('console-5', 'Second.')
 
-    const [one, two] = calls.armed
+    const [one, two] = state.identity.calls.armed
     assert.notEqual(one.token, two.token)
     assert.notEqual(one.home, two.home)
     assert.match(one.url, /conversation=console-4$/)
     assert.match(two.url, /conversation=console-5$/)
   })
 
-  test('conversation sessions cannot collide with ticket agents', () => {
-    assert.equal(overseerPaneSession('console-8'), 'curia-console-8')
-    assert.equal(overseerPaneSession('688'), 'curia-overseer-688')
-    assert.throws(() => overseerPaneSession('ticket-688'), /conversation key/)
-  })
-
-  test('the hosted process keeps overseer authority inside the shared container', () => {
+  test('the hosted process keeps overseer authority inside its conversation home', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-overseer-pane-'))
-    const cfg = { dispatch: { workspace_root: root }, watch: [{ repo: 'alp82/curia' }] }
-    const seeded = []
-    let credentialInstalled = false
-    const launch = prepareOverseerPane({
-      cfg,
-      sessionId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
-      resume: true,
-      deps: {
-        seed: (...args) => seeded.push(args),
-        systemPrompt: () => 'overseer orders',
-        installCredential: (workspaceRoot, configDir) => {
-          credentialInstalled = true
-          assert.equal(workspaceRoot, root)
-          assert.equal(configDir, path.join(root, 'cfg', 'curia-overseer'))
-          return null
+    try {
+      const cfg = { dispatch: { workspace_root: root }, watch: [{ repo: 'alp82/curia' }] }
+      const seeded = []
+      let credentialInstalled = false
+      const launch = prepareOverseerPane({
+        cfg,
+        sessionId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+        resume: true,
+        deps: {
+          seed: (...args) => seeded.push(args),
+          systemPrompt: () => 'overseer orders',
+          installCredential: (workspaceRoot, configDir) => {
+            credentialInstalled = true
+            assert.equal(workspaceRoot, root)
+            assert.equal(configDir, path.join(root, 'cfg', 'curia-overseer'))
+            return null
+          },
+          processEnv: () => ({ PATH: '/usr/bin' }),
         },
-        processEnv: () => ({ PATH: '/usr/bin' }),
-      },
-    })
+      })
 
-    const home = path.join(root, 'cfg', 'curia-overseer', 'home', 'cccccccc-cccc-4ccc-8ccc-cccccccccccc')
-    assert.deepEqual(seeded, [[
-      path.join(root, 'cfg', 'curia-overseer'),
-      home,
-      null,
-      'claude',
-      { sandboxed: true },
-    ]])
-    assert.equal(launch.cwd, home, 'the pane runs in its conversation\'s own project directory (#701)')
-    assert.equal(launch.env.CLAUDE_CONFIG_DIR, path.join(root, 'cfg', 'curia-overseer'))
-    assert.equal(launch.env.CLAUDE_CODE_OAUTH_TOKEN, undefined)
-    assert.equal(credentialInstalled, true)
-    assert.deepEqual(launch.args.slice(-2), ['--resume', 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'])
-    assert.ok(launch.args.includes('overseer orders'))
-    assert.ok(launch.args.includes('--dangerously-skip-permissions'))
+      const home = path.join(
+        root, 'cfg', 'curia-overseer', 'home', 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+      )
+      assert.deepEqual(seeded, [[
+        path.join(root, 'cfg', 'curia-overseer'),
+        home,
+        null,
+        'claude',
+        { sandboxed: true },
+      ]])
+      assert.equal(launch.cwd, home)
+      assert.equal(launch.env.CLAUDE_CONFIG_DIR, path.join(root, 'cfg', 'curia-overseer'))
+      assert.equal(launch.env.CLAUDE_CODE_OAUTH_TOKEN, undefined)
+      assert.equal(credentialInstalled, true)
+      assert.deepEqual(launch.args.slice(-2), ['--resume', 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'])
+      assert.ok(launch.args.includes('overseer orders'))
+      assert.ok(launch.args.includes('--dangerously-skip-permissions'))
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
   })
 })
 

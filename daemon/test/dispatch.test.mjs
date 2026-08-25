@@ -23,6 +23,7 @@ import { GH_DIR, readGhCredentials, writeGhCredentials } from '../src/agentgh.mj
 import { readOverseerToken } from '../src/overseertoken.mjs'
 import { removeCredentials, writePrompt as writeWorkspacePrompt } from '../src/workspace.mjs'
 import { CodexCredentialBroker } from '../src/credentials.mjs'
+import { CLEAR_MAP_FOG, KEEP_MAP_OPEN, MAP_FOG_VERB } from '../src/mapfog.mjs'
 import { OPENAI_CREDIT_GATE_PANE } from './fixtures/panes.mjs'
 import { workingAnthropicStore, TEST_ANTHROPIC_TOKEN } from './fixtures/credentials.mjs'
 
@@ -56,6 +57,8 @@ let events
 let escalations // open escalation records the reduction double reports (#47)
 let cancelled // ids the dispatcher cancelled through the injected gate
 let confirms // confirm records opened through the injected openConfirm (#94)
+let mapQuestions // durable empty-map choice records (#698)
+let answerMapQuestion // answers through the real reduction used by the dispatcher
 let lapses // {id, reason} lapsed through the injected lapseEscalation (#94)
 let confirmNotes // {id, text} posted next to a confirm's buttons (#94)
 let overseerNotes // {threadId, text} synthetic session lines (#94)
@@ -73,6 +76,8 @@ beforeEach(() => {
   escalations = []
   cancelled = []
   confirms = []
+  mapQuestions = []
+  answerMapQuestion = () => null
   lapses = []
   confirmNotes = []
   overseerNotes = []
@@ -149,6 +154,7 @@ function makeDispatcher(deps = {}, {
   // than reach the box's own `~/.codex`.
   credentials = null,
   anthropicHealth = null,
+  maintenance = null,
   // #695: the recurring aistack sync. NULL by default and on purpose - a real
   // one spawns `npx`, and a test that forgot to pass one must run nothing rather
   // than reach the network.
@@ -218,6 +224,8 @@ function makeDispatcher(deps = {}, {
     // backup's is — it must stand across passes and across a deploy.
     standingStrandedMaps: () => journal.standingStrandedMaps(),
     strandedMap: (repo, map) => journal.strandedMap(repo, map),
+    standingMapFogQuestions: () => journal.standingMapFogQuestions(),
+    mapFogQuestion: (repo, map) => journal.mapFogQuestion(repo, map),
     openEscalations: () => escalations.filter((r) => r.status === 'open'),
     // #374: the real reduction over the real journal. A test seeds `esc_open`
     // and `esc_answer` through `journal` above, and the exchange the prompt
@@ -284,6 +292,7 @@ function makeDispatcher(deps = {}, {
     closeIssue: async () => {},
     setIssueBody: async () => {},
     issueComments: async () => [],
+    createIssue: async () => ({ number: 99, title: 'record', body: '', state: 'open', assignees: [], labels: [] }),
     findPullRequest: async () => null,
     createPullRequest: async () => 'https://github.com/o/r/pull/1',
     // #391: the gate press posts a real approval. Stubbed everywhere but its
@@ -316,6 +325,14 @@ function makeDispatcher(deps = {}, {
       escalations.push(rec)
       return rec
     },
+    openMapQuestion: ({ ticket, kind, prompt, options, payload, action }) => {
+      const { record } = journal.open({
+        agent: 'overseer', ticket, kind, prompt, options, payload, action, awaited: false,
+      })
+      mapQuestions.push(record)
+      escalations.push(record)
+      return record
+    },
     lapseEscalation: (id, reason) => {
       lapses.push({ id, reason })
       const r = escalations.find((x) => x.id === id)
@@ -325,7 +342,11 @@ function makeDispatcher(deps = {}, {
     confirmNote: (record, text) => confirmNotes.push({ id: record.id, text }),
     overseerNote: (threadId, text) => overseerNotes.push({ threadId, text }),
     askReview,
-    cancelEscalation: (id, opts) => { cancelled.push({ id, ...opts }); return { ok: true } },
+    cancelEscalation: (id, opts) => {
+      cancelled.push({ id, ...opts })
+      journal.cancel(id, opts)
+      return { ok: true }
+    },
     log,
     readings,
     dataDir: path.join(tmp, 'data'),
@@ -334,6 +355,7 @@ function makeDispatcher(deps = {}, {
     credentials,
     anthropic,
     anthropicHealth,
+    maintenance,
     aistack,
     deps: { ...base, ...deps },
   })
@@ -344,11 +366,78 @@ function makeDispatcher(deps = {}, {
   // #252: index.mjs wires the reduction's expiry hook to the dispatcher's one
   // announcer, so every expiry — exit, adoption, drain — says so exactly once.
   reduction.onNotesExpired = (ev) => d.announceExpiredNotes(ev)
+  answerMapQuestion = (record, answer) => journal.answer(record.id, {
+    answer, by: 'operator', via: 'test',
+  }).record
   dispatchers.push(d)
   return d
 }
 
 const typesOf = () => events.map((e) => e.type)
+
+describe('ticketless skill dispatch (#684)', () => {
+  test('creates one durable record and binds the intended skill to its prompt', async () => {
+    const writes = []
+    let promptOptions = null
+    let gateBinding = null
+    const d = makeDispatcher({
+      fetchIssue: async (_repo, number) => ({
+        ...OPEN_ISSUE, number: Number(number), title: number === '42' ? 'Payments map' : 'skill record',
+      }),
+      createIssue: async (repo, proposal) => {
+        writes.push({ repo, proposal })
+        return {
+          number: 91, title: proposal.title, body: proposal.body,
+          state: 'open', assignees: [], labels: [], html_url: 'https://github.com/o/r/issues/91',
+        }
+      },
+      writePrompt: (cfgDir, _issue, options) => {
+        promptOptions = options
+        return path.join(cfgDir, 'prompt.md')
+      },
+    }, {
+      skills: { root: '/skills', install: ['to-tickets'] },
+      askReview: async (agent, ticket) => {
+        gateBinding = { agent, ticket }
+        return { text: 'reject: revise the proposal', status: 'answered' }
+      },
+    })
+
+    const reply = await d.skill('to-tickets', 'o/r#42', { by: 'operator-1', threadId: 'thread-1' })
+
+    assert.match(reply, /dispatched o\/r#91/)
+    assert.equal(writes.length, 1)
+    assert.match(writes[0].proposal.title, /to-tickets on o\/r#42/)
+    assert.match(writes[0].proposal.body, /durable record/)
+    assert.match(writes[0].proposal.body, /publishes no proposed tracker write before/)
+    assert.equal(promptOptions.skill, 'to-tickets')
+    assert.equal(promptOptions.skillTarget, 'o/r#42')
+    assert.ok(events.some((event) => event.type === 'skill_run_recorded' && event.ticket === '91'))
+    assert.ok(events.some((event) => event.type === 'agent_spawned' && event.skill === 'to-tickets'))
+
+    const refused = await d.requestReview('curia-91', { summary: 'proposal ready', charting: 'three issues' })
+    assert.match(refused.text, /must pass every proposed title, label, and native edge/)
+    assert.equal(gateBinding, null)
+
+    await d.requestReview('curia-91', {
+      summary: 'proposal ready', charting: 'three issues',
+      trackerWrites: [{ id: 'one', title: 'First issue' }],
+    })
+    assert.deepEqual(gateBinding, { agent: 'curia-91', ticket: '91' })
+  })
+
+  test('refuses an unconfigured skill before creating a record', async () => {
+    let writes = 0
+    const d = makeDispatcher({ createIssue: async () => { writes += 1 } }, {
+      skills: { root: '/skills', install: ['to-spec'] },
+    })
+
+    const reply = await d.skill('to-tickets', 'o/r#42')
+
+    assert.match(reply, /not configured/)
+    assert.equal(writes, 0)
+  })
+})
 
 describe('in-flight admission guard (criterion 3)', () => {
   test('a second start() interleaving with the first is refused, and the ticket is claimed exactly once', async () => {
@@ -1233,10 +1322,10 @@ describe('a docker port collision is retried on fresh ports', () => {
     assert.equal(spawns[1].retry_after_port_collision, true)
     assert.deepEqual(spawns[1].ports, [9003, 9004, 9005], 'the respawn abandons the numbers that failed')
     assert.deepEqual(d.agents.get('curia-42').ports, [9003, 9004, 9005])
-    const msg = notifies.find((n) => /lost host port/.test(n.message))?.message
-    assert.ok(msg, 'the thread hears what happened')
-    assert.match(msg, /9000\/9001\/9002/, 'named by the ports that were lost')
-    assert.match(msg, /respawned on 9003\/9004\/9005/)
+    const phase = events.findLast((event) => event.type === 'agent_phase')
+    assert.deepEqual(phase.phase, { icon: '🔨', label: 'respawns on ports' })
+    assert.ok(!notifies.some((notify) => /lost host port/.test(notify.message)),
+      'routine retry mechanics stay on the editable status line')
   })
 
   test('a second collision falls through to the report — one retry, never a loop', async () => {
@@ -1348,7 +1437,7 @@ describe('the tool channel is recorded, not assumed (#194)', () => {
     d.agents.delete('curia-42')
   })
 
-  test('a mute agent is respawned ONCE, on the same model, and the cause reaches the operator', async () => {
+  test('a mute agent is respawned once on the same model and updates its phase', async () => {
     const killed = []
     const spawns = []
     const d = makeDispatcher({
@@ -1371,9 +1460,9 @@ describe('the tool channel is recorded, not assumed (#194)', () => {
     assert.equal(respawn.retry_after_mute, true)
     assert.equal(spawns.length, 2)
 
-    const msg = notifies.find((n) => /no curia tools/.test(n.message)).message
-    assert.match(msg, /MCP client never connected/, 'the operator gets the cause, not just the symptom')
-    assert.match(msg, /same model/)
+    const phase = events.findLast((event) => event.type === 'agent_phase')
+    assert.deepEqual(phase.phase, { icon: '🩹', label: 'restarts tools' })
+    assert.ok(!notifies.some((notify) => /no curia tools/.test(notify.message)))
     assert.ok(!notifies.some((n) => /usage limit/.test(n.message)), 'this is not a cap hit and must not read as one')
 
     // the respawned agent's own window is still open, and `events` is shared
@@ -1642,7 +1731,8 @@ describe('the usage-credits dialog gates the model (#126, #108 item 12)', () => 
     const cooled = events.find((e) => e.type === 'model_cooling')
     assert.equal(cooled.model, 'fable')
     assert.ok(events.some((e) => e.type === 'agent_spawned' && e.model === 'opus' && e.retry_after_limit))
-    assert.ok(notifies.some((n) => /usage-credits dialog/.test(n.message) && /respawned on \*\*opus\*\*/.test(n.message)))
+    assert.deepEqual(events.findLast((event) => event.type === 'agent_phase').phase,
+      { icon: '💭', label: 'switches model' })
 
     d.agents.delete('curia-42') // retire the watchdog
   })
@@ -2527,6 +2617,18 @@ describe('the limit resume: the window rolls and curia puts the agent back (#346
     clearInterval(d.autoTimer)
 
     assert.ok(!started.includes('42'), 'the armed ticket is the resume\'s, and a start would recreate its worktree')
+  })
+
+  test('the existing tick runs recurring publishers with auto-dispatch off', async () => {
+    let runs = 0
+    const d = makeDispatcher({}, { maintenance: async () => { runs += 1 } })
+    d.config.dispatch.poll_interval_s = 0.05
+
+    d.startAutoLoop()
+    await waitFor(() => runs > 0)
+    d.stopAutoLoop()
+
+    assert.ok(runs > 0)
   })
 
   // #376: #346 closed ONE instance of this and not the class. A ticket whose
@@ -3489,24 +3591,21 @@ describe('#resolveRepo refuses on failed reads instead of narrowing (F2 — the 
   })
 })
 
-describe('an unverified ttyd listener is never published (F3)', () => {
-  test('verified:false ⇒ assertServe is skipped AND the persisted serve rule is withdrawn', async () => {
-    // `tailscale serve --bg` config persists in tailscaled across daemon
-    // restarts — skipping assertServe alone leaves a prior run\'s rule live,
-    // still publishing the unverified listener tailnet-wide
+describe('the standalone terminal address is retired', () => {
+  test('reconcile withdraws the persisted rule without probing ttyd', async () => {
     const calls = []
     const d = makeDispatcher({
-      probeTtyd: async () => ({ verified: false }),
+      probeTtyd: async () => { calls.push('probe') },
       assertServe: async () => { calls.push('serve') },
       serveOff: async ({ servePort }) => { calls.push(`off:${servePort}`) },
     })
 
     await d.reconcile({ boot: false })
 
-    assert.deepEqual(calls, ['off:8443'], 'no publish, and the stale rule is actively withdrawn')
+    assert.deepEqual(calls, ['off:8443'])
   })
 
-  test('verified:true ⇒ assertServe runs and nothing is withdrawn', async () => {
+  test('a live ttyd listener does not restore the standalone address', async () => {
     const calls = []
     const d = makeDispatcher({
       probeTtyd: async () => ({ verified: true }),
@@ -3516,10 +3615,10 @@ describe('an unverified ttyd listener is never published (F3)', () => {
 
     await d.reconcile({ boot: false })
 
-    assert.deepEqual(calls, ['serve'])
+    assert.deepEqual(calls, ['off:8443'])
   })
 
-  test('a failing withdrawal is non-fatal to reconcile and still never publishes', async () => {
+  test('a failing withdrawal is non-fatal and names the retired rule', async () => {
     const calls = []
     const logs = []
     const d = makeDispatcher({
@@ -3532,7 +3631,7 @@ describe('an unverified ttyd listener is never published (F3)', () => {
     await d.reconcile({ boot: false })
 
     assert.deepEqual(calls, [], 'assertServe must not run even when serveOff fails')
-    assert.ok(logs.some((l) => /REMAINS PUBLISHED/.test(l)), 'the warning states plainly that the surface may still be published')
+    assert.ok(logs.some((l) => /retired standalone terminal rule/.test(l)))
   })
 })
 
@@ -3674,7 +3773,7 @@ describe('a non-clean result resolves nothing AND hands the ticket back (#41)', 
   })
 })
 
-// ---- #253, ADR-0013: the ending speaks once --------------------------------
+// ---- #690, ADR-0020: the ending settles the live status line ----------------
 //
 // The cold read of 131 threads (docs/research/discord-thread-surprises.md,
 // section 3) found every ending narrated by three identities in up to four
@@ -5257,6 +5356,134 @@ const TWO_LANE = {
   },
 }
 
+describe('live model switching (#717)', () => {
+  const SWITCH_ROUTING = {
+    defaults: {
+      untyped: { model: 'sonnet', effort: 'high' },
+      task: { model: 'sonnet', effort: 'xhigh' },
+    },
+    models: {
+      sonnet: { provider: 'anthropic', harness: 'claude' },
+      opus: { provider: 'anthropic', harness: 'claude' },
+      gpt: { provider: 'openai', harness: 'codex', id: 'gpt-5.6-sol', reasoning_effort: 'low' },
+    },
+    fallbacks: {},
+    harnesses: {
+      claude: {
+        template: 'claude --model {model} "$(cat {prompt_file})"',
+        resumeTemplate: 'claude --model {model} --continue "Continue the interrupted work."',
+        ready: '⏵⏵', readyRe: /⏵⏵/, toolChannelGraceS: 15,
+      },
+      codex: {
+        template: 'codex --model {model} "$(cat {prompt_file})"',
+        resumeTemplate: 'codex resume --last --model {model} "Continue the interrupted work."',
+        ready: '·\\s[~/]', readyRe: /·\s[~/]/, toolChannelGraceS: 15,
+      },
+    },
+  }
+
+  test('a live ticket clears its composer and resumes on the target model with routed effort', async () => {
+    const steps = []
+    const d = makeDispatcher({
+      fetchIssue: async () => ({
+        ...OPEN_ISSUE,
+        labels: [{ name: 'wayfinder:task' }],
+      }),
+      sendKey: async (session, key) => { steps.push({ act: 'key', session, key }) },
+      killSession: async (session) => { steps.push({ act: 'kill', session }) },
+      newSession: async (opts) => { steps.push({ act: 'spawn', ...opts }) },
+    }, { routing: SWITCH_ROUTING })
+    await d.start('42', { repo: 'o/r', by: 'operator-1' })
+    steps.length = 0
+
+    const reply = await d.switchModel('42', { model: 'opus', by: 'operator-1' })
+
+    assert.deepEqual(steps.slice(0, 2), [
+      { act: 'key', session: 'curia-42', key: 'C-u' },
+      { act: 'kill', session: 'curia-42' },
+    ])
+    assert.equal(steps[2].act, 'spawn')
+    assert.match(steps[2].shellCmd, /claude --model opus --continue/)
+    assert.match(reply, /opus/)
+    assert.match(reply, /xhigh.*effort/)
+    assert.equal(d.agents.get('curia-42').harness, 'claude')
+    const switched = events.find((event) => event.operator_model_switch)
+    assert.equal(switched.model, 'opus')
+    assert.equal(switched.harness, 'claude')
+    assert.equal(switched.reasoning_effort, 'xhigh')
+    assert.equal(switched.switched_from, 'sonnet')
+  })
+
+  test('a target on another harness is refused before the live pane changes', async () => {
+    const steps = []
+    const d = makeDispatcher({
+      fetchIssue: async () => ({ ...OPEN_ISSUE, labels: [{ name: 'wayfinder:task' }] }),
+      sendKey: async (...args) => { steps.push(['key', ...args]) },
+      killSession: async (...args) => { steps.push(['kill', ...args]) },
+    }, { routing: SWITCH_ROUTING })
+    await d.start('42', { repo: 'o/r', by: 'operator-1' })
+    steps.length = 0
+
+    const reply = await d.switchModel('42', { model: 'gpt', by: 'operator-1' })
+
+    assert.match(reply, /saved conversation belongs to the claude harness/)
+    assert.deepEqual(steps, [])
+    assert.equal(d.agents.get('curia-42').model, 'sonnet')
+  })
+
+  test('a cooled target is refused by model and hold name before the pane changes', async () => {
+    const steps = []
+    const d = makeDispatcher({
+      fetchIssue: async () => ({
+        ...OPEN_ISSUE,
+        labels: [{ name: 'wayfinder:task' }],
+      }),
+      sendKey: async (session, key) => { steps.push({ act: 'key', session, key }) },
+      killSession: async (session) => { steps.push({ act: 'kill', session }) },
+      newSession: async (opts) => { steps.push({ act: 'spawn', ...opts }) },
+    }, { routing: SWITCH_ROUTING })
+    await d.start('42', { repo: 'o/r', by: 'operator-1' })
+    steps.length = 0
+    d.cooling.coolModel('gpt', new Date(Date.now() + 60_000))
+
+    const reply = await d.switchModel('42', { model: 'gpt', by: 'operator-1' })
+
+    assert.match(reply, /gpt/)
+    assert.match(reply, /hold/)
+    assert.deepEqual(steps, [])
+    assert.equal(d.agents.get('curia-42').model, 'sonnet')
+  })
+
+  test('a restart-adopted ticket keeps its type effort when it switches', async () => {
+    const spawns = []
+    const d = makeDispatcher({
+      listSessions: async () => ['curia-42'],
+      fetchIssue: async () => ({
+        ...OPEN_ISSUE,
+        assignees: [{ login: 'me' }],
+        labels: [{ name: 'wayfinder:task' }],
+      }),
+      containerPorts: async () => [9000, 9001, 9002],
+      sendKey: async () => {},
+      killSession: async () => {},
+      newSession: async (opts) => { spawns.push(opts) },
+    }, { routing: SWITCH_ROUTING })
+    d.reduction.journal('agent_spawned', {
+      repo: 'o/r', ticket: '42', agent: 'curia-42',
+      model: 'sonnet', requested_model: 'sonnet', harness: 'claude',
+      reasoning_effort: 'xhigh', kind: 'ticket',
+    })
+    fakePrivateClone(d.root, 'o/r', '42')
+
+    await d.reconcile({ boot: false })
+    const reply = await d.switchModel('42', { model: 'opus', by: 'operator-1' })
+
+    assert.equal(spawns.length, 1)
+    assert.match(reply, /xhigh.*effort/)
+    assert.equal(d.agents.get('curia-42').reasoningEffort, 'xhigh')
+  })
+})
+
 describe('dispatching across two harnesses (#39)', () => {
   test('a research ticket seeds and spawns the codex harness end to end', async () => {
     const seeded = []
@@ -6589,14 +6816,15 @@ describe('a dead harness under a live pane is a death (#386)', () => {
   })
 })
 
-// The empty-map question (#485, asked rather than announced by #698). An open,
-// non-deferred map whose children are all closed gets no dispatch ever again,
-// so the frontier read is the one place that can notice it. #485 said a line
-// about it. #698 asks the operator a durable question instead, and their answer
-// is what posts the verdict and closes the map.
-describe('the empty-map question (#485, #698)', () => {
-  const map = (n, { state = 'open', labels = [], body = null } = {}) => ({
-    number: n, state, body, title: 'The journal becomes a queryable store',
+// The stranded-map watch (#485). An open, non-deferred map whose children are
+// all closed gets no dispatch ever again, so the frontier read is the one place
+// that can say so. The alarm is edge-triggered off the journal like the backup
+// alarm (#436): said once, standing until the map closes, defers, or gains an
+// open child.
+describe('the stranded-map watch (#485)', () => {
+  const map = (n, { state = 'open', labels = [], body = '## Not yet specified\n' } = {}) => ({
+    number: n, state, title: 'The journal becomes a queryable store',
+    body,
     labels: [{ name: 'wayfinder:map' }, ...labels.map((name) => ({ name }))],
   })
   const closedChild = (n) => ({ number: n, state: 'closed', assignees: [], labels: [{ name: 'wayfinder:task' }] })
@@ -6604,227 +6832,206 @@ describe('the empty-map question (#485, #698)', () => {
     number: n, state: 'open', assignees: [], labels: [{ name: 'wayfinder:task' }],
     issue_dependencies_summary: { blocked_by: 0 },
   })
-  const answered = (record, answer) => {
-    Object.assign(record, { status: 'answered', answer, answered_by: 'alp' })
-    return record
-  }
-  const verdicts = () => confirms.filter((r) => r.action?.verb === 'map_close')
 
-  test('an all-closed map is asked once, journalled, and the second pass is quiet', async () => {
+  test('an all-closed map opens one durable choice, and the second pass is quiet', async () => {
     const d = makeDispatcher({
       repoMaps: async () => [map(316)],
       mapFrontier: async () => [closedChild(1), closedChild(2)],
+      fetchIssue: async () => map(316),
     })
 
     await d.frontier()
-    assert.equal(verdicts().length, 1)
-    assert.match(verdicts()[0].prompt, /o\/r#316/)
-    assert.match(verdicts()[0].prompt, /no open ticket left/)
-    assert.deepEqual(verdicts()[0].action, {
-      verb: 'map_close', repo: 'o/r', map: 316, title: 'The journal becomes a queryable store', fog: [],
-    })
-    const ev = events.find((e) => e.type === 'map_verdict_asked')
+    assert.equal(mapQuestions.length, 1)
+    assert.equal(mapQuestions[0].action.verb, MAP_FOG_VERB)
+    assert.equal(mapQuestions[0].action.map, 316)
+    assert.deepEqual(mapQuestions[0].options, [CLEAR_MAP_FOG, KEEP_MAP_OPEN])
+    const ev = events.find((e) => e.type === 'map_stranded')
     assert.equal(ev.repo, 'o/r')
     assert.equal(ev.map, 316)
+    assert.equal(ev.said, true)
 
     await d.frontier()
-    assert.equal(verdicts().length, 1, 'a question already asked is not asked again')
-    assert.equal(events.filter((e) => e.type === 'map_verdict_asked').length, 1)
+    assert.equal(mapQuestions.length, 1, 'a standing question is not re-opened')
+    assert.equal(events.filter((e) => e.type === 'map_stranded').length, 1)
   })
 
-  test('the question carries the fog, ignoring headings, blank lines and HTML comments', async () => {
-    const body = [
-      '## Not yet specified',
-      '',
-      '### The retention questions',
-      '',
-      '<!-- charting note, not a fog fact -->',
-      '- Pick the retention period',
-      '',
-      '## Out of scope',
-      '- something else entirely',
-    ].join('\n')
-    const d = makeDispatcher({
-      repoMaps: async () => [map(316, { body })],
-      mapFrontier: async () => [closedChild(1)],
-    })
-
-    await d.frontier()
-    assert.deepEqual(verdicts()[0].action.fog, ['Pick the retention period'])
-    assert.match(verdicts()[0].prompt, /Still under Not yet specified \(1\)/)
-    assert.match(verdicts()[0].prompt, /• Pick the retention period/)
-  })
-
-  test('a map with no fog is still asked — the question is durable either way', async () => {
-    const d = makeDispatcher({
-      repoMaps: async () => [map(316, { body: '## Not yet specified\n\nNone. The child set covers it.\n' })],
-      mapFrontier: async () => [closedChild(1)],
-    })
-
-    await d.frontier()
-    assert.equal(verdicts().length, 1)
-    assert.deepEqual(verdicts()[0].action.fog, [])
-    assert.match(verdicts()[0].prompt, /Nothing stands under Not yet specified/)
-  })
-
-  test('an open child, an empty map, and a deferred map ask nothing', async () => {
+  test('an empty map asks even when no meaningful fog remains', async () => {
     let maps = [map(316)]
     let children = [closedChild(1), openChild(2)]
     const d = makeDispatcher({
       repoMaps: async () => maps,
       mapFrontier: async () => children,
     })
-
     await d.frontier()
+    assert.equal(mapQuestions.length, 0)
     children = []
     await d.frontier()
+    assert.equal(mapQuestions.length, 1)
+    assert.match(mapQuestions[0].payload.detail, /No meaningful fog remains/)
+
     maps = [map(316, { labels: ['wayfinder:deferred'] })]
     children = [closedChild(1)]
     await d.frontier()
 
-    assert.equal(verdicts().length, 0)
-    assert.ok(!events.some((e) => e.type === 'map_verdict_asked'))
+    assert.equal(mapQuestions.length, 1)
+    assert.ok(events.some((e) => e.type === 'map_stranded_cleared'))
   })
 
-  test('a child reopening lapses the standing question, and an emptying asks again', async () => {
+  test('the alarm clears when a child reopens, and again when the map closes', async () => {
     let maps = [map(316)]
     let children = [closedChild(1)]
     const d = makeDispatcher({
       repoMaps: async () => maps,
       mapFrontier: async () => children,
     })
-
     await d.frontier()
-    assert.equal(verdicts().length, 1)
+    assert.equal(mapQuestions.length, 1)
 
     children = [closedChild(1), openChild(2)]
     await d.frontier()
     assert.ok(events.some((e) => e.type === 'map_stranded_cleared' && e.map === 316))
-    assert.ok(lapses.some((l) => l.id === verdicts()[0].id && /no longer empty/.test(l.reason)))
 
+    // it re-strands and is news again
     children = [closedChild(1), closedChild(2)]
     await d.frontier()
-    assert.equal(verdicts().length, 2, 'a map that empties again is a new question')
+    assert.equal(mapQuestions.length, 2)
 
     maps = [map(316, { state: 'closed' })]
     await d.frontier()
     assert.equal(events.filter((e) => e.type === 'map_stranded_cleared').length, 2)
   })
 
-  test('approve posts the verdict and closes the map — comment first, close after', async () => {
-    const acts = []
-    const d = makeDispatcher({
-      repoMaps: async () => [map(316)],
-      mapFrontier: async () => [closedChild(1)],
-      fetchIssue: async () => ({ number: 316, state: 'open', labels: [], body: '## Not yet specified\n\nNone.\n' }),
-      commentIssue: async (repo, n, body) => acts.push(`comment:${repo}#${n}:${body.split('\n')[0]}`),
-      closeIssue: async (repo, n) => acts.push(`close:${repo}#${n}`),
-    })
-
-    await d.frontier()
-    await d.onConfirmAnswered(answered(verdicts()[0], 'approve'))
-
-    assert.equal(acts.length, 2)
-    assert.match(acts[0], /^comment:o\/r#316:✅ \*\*Closed on the operator/)
-    assert.equal(acts[1], 'close:o/r#316')
-    const ev = events.find((e) => e.type === 'map_verdict_answered')
-    assert.deepEqual([ev.answer, ev.closed], ['approve', true])
-  })
-
-  test('decline leaves the map open, says why on the map, and never asks again', async () => {
-    const acts = []
-    const d = makeDispatcher({
-      repoMaps: async () => [map(316)],
-      mapFrontier: async () => [closedChild(1)],
-      commentIssue: async (repo, n, body) => acts.push({ n, body }),
-      closeIssue: async () => acts.push({ closed: true }),
-    })
-
-    await d.frontier()
-    await d.onConfirmAnswered(answered(verdicts()[0], 'reject'))
-
-    assert.equal(acts.length, 1)
-    assert.match(acts[0].body, /stays open/)
-    assert.match(acts[0].body, /work remains/)
-    const ev = events.find((e) => e.type === 'map_verdict_answered')
-    assert.deepEqual([ev.answer, ev.closed], ['reject', false])
-
-    await d.frontier()
-    assert.equal(verdicts().length, 1, 'an answered question is never re-asked')
-  })
-
-  // The question can sit for days, so the approval it comes back with is an
-  // approval of what the CARD said. Everything below changed between the two.
-  const refusedClose = async (issue, children) => {
-    const acts = []
-    let asked = false
-    const d = makeDispatcher({
-      repoMaps: async () => [map(316)],
-      mapFrontier: async () => (asked ? children : [closedChild(1)]),
-      fetchIssue: async () => ({ number: 316, ...issue }),
-      commentIssue: async (repo, n, body) => acts.push({ body }),
-      closeIssue: async () => acts.push({ closed: true }),
-    })
-    await d.frontier()
-    asked = true
-    await d.onConfirmAnswered(answered(verdicts()[0], 'approve'))
-    assert.ok(!acts.some((a) => a.closed), 'the close is held')
-    assert.match(acts.at(-1).body, /stays open/)
-    assert.equal(events.filter((e) => e.type === 'map_verdict_answered').at(-1).closed, false)
-    return acts.at(-1).body
-  }
-
-  test('fog written since the question was asked refuses the approved close', async () => {
-    const body = await refusedClose(
-      { state: 'open', labels: [], body: '## Not yet specified\n\n- Pick the retention period\n' }, [])
-    assert.match(body, /still stand under Not yet specified: Pick the retention period/)
-  })
-
-  test('a child that reopened since the question was asked refuses the approved close', async () => {
-    const body = await refusedClose({ state: 'open', labels: [], body: '' }, [openChild(2)])
-    assert.match(body, /child ticket\(s\) reopened or arrived: #2/)
-  })
-
-  test('a map paused since the question was asked is never closed by the answer', async () => {
-    const body = await refusedClose({ state: 'open', labels: [{ name: 'wayfinder:deferred' }], body: '' }, [])
-    assert.match(body, /paused/)
-  })
-
-  test('a failed write leaves the map open, and no pass retries the close', async () => {
-    const d = makeDispatcher({
-      repoMaps: async () => [map(316)],
-      mapFrontier: async () => [closedChild(1)],
-      fetchIssue: async () => ({ number: 316, state: 'open', labels: [], body: '' }),
-      commentIssue: async () => { throw new Error('gh: 502') },
-      closeIssue: async () => { throw new Error('the close must never be reached') },
-    })
-
-    await d.frontier()
-    await d.onConfirmAnswered(answered(verdicts()[0], 'approve'))
-
-    assert.match(events.find((e) => e.type === 'map_verdict_failed').error, /502/)
-    await d.frontier()
-    assert.equal(verdicts().length, 1)
-  })
-
-  test('a restart keeps the question standing — boot lapses every confirm but this one', async () => {
+  test('a failed durable question open stays unsaid and retries', async () => {
     const d = makeDispatcher({
       repoMaps: async () => [map(316)],
       mapFrontier: async () => [closedChild(1)],
     })
-    await d.frontier()
-    const asked = verdicts()[0]
+    d.openMapQuestion = async () => null
 
+    await d.frontier()
+    assert.equal(events.find((e) => e.type === 'map_stranded').said, false)
+
+    await d.frontier()
+    assert.equal(events.filter((e) => e.type === 'map_stranded').length, 1,
+      'a standing unsaid alarm does not journal every pass')
+
+    d.openMapQuestion = ({ ticket, kind, prompt, options, payload, action }) => {
+      const record = {
+        id: 'esc-retry', agent: 'overseer', ticket, kind, prompt, options, payload, action, status: 'open',
+      }
+      mapQuestions.push(record)
+      return record
+    }
+    await d.frontier()
+    assert.equal(mapQuestions.length, 1)
+    assert.equal(events.filter((e) => e.type === 'map_stranded').at(-1).said, true)
+  })
+
+  test('a close verdict comments before clearing and closes only after fresh checks', async () => {
+    let issue = map(316, { body: '## Not yet specified\n\n- retained work\n\n## Out of scope\n\n- none' })
+    const effects = []
+    const comments = []
+    const d = makeDispatcher({
+      repoMaps: async () => [issue],
+      mapFrontier: async () => [closedChild(1)],
+      fetchIssue: async () => ({ ...issue }),
+      issueComments: async () => comments.map((body) => ({ body })),
+      commentIssue: async (_repo, _map, body) => { effects.push('comment'); comments.push(body) },
+      setIssueBody: async (_repo, _map, body) => { effects.push('clear'); issue = { ...issue, body } },
+      closeIssue: async () => { effects.push('close'); issue = { ...issue, state: 'closed' } },
+    })
+
+    await d.frontier()
+    const answered = answerMapQuestion(mapQuestions[0], CLEAR_MAP_FOG)
+    await d.onMapFogAnswered(answered)
+
+    assert.deepEqual(effects, ['comment', 'clear', 'close'])
+    assert.match(comments[0], /Operator verdict: Clear fog and close/)
+    assert.ok(events.some((e) => e.type === 'map_fog_verdict_posted'))
+    assert.ok(events.some((e) => e.type === 'map_fog_cleared'))
+    assert.ok(events.some((e) => e.type === 'map_fog_closed'))
+
+    await d.onMapFogAnswered(answered)
+    assert.deepEqual(effects, ['comment', 'clear', 'close'], 'a repeated reconcile performs no effect twice')
+  })
+
+  test('an answered close verdict does not close while a child is open', async () => {
+    const comments = []
+    let children = []
+    let closes = 0
+    const issue = map(316, { body: '## Not yet specified\n' })
+    const d = makeDispatcher({
+      repoMaps: async () => [issue],
+      mapFrontier: async () => children,
+      fetchIssue: async () => ({ ...issue }),
+      issueComments: async () => comments.map((body) => ({ body })),
+      commentIssue: async (_repo, _map, body) => comments.push(body),
+      closeIssue: async () => { closes += 1 },
+    })
+
+    await d.frontier()
+    const answered = answerMapQuestion(mapQuestions[0], CLEAR_MAP_FOG)
+    children = [openChild(2)]
+    await d.onMapFogAnswered(answered)
+
+    assert.equal(comments.length, 1, 'the operator verdict is durable even when the route changed')
+    assert.equal(closes, 0)
+    assert.ok(events.some((e) => e.type === 'map_fog_reset'))
+  })
+
+  test('the verdict marker prevents a duplicate comment after an interrupted journal step', async () => {
+    let issue = map(316)
+    let comments = 0
+    const d = makeDispatcher({
+      repoMaps: async () => [issue],
+      mapFrontier: async () => [],
+      fetchIssue: async () => ({ ...issue }),
+      issueComments: async () => [{ body: `already posted <!-- curia:empty-map-verdict ${mapQuestions[0].id} -->` }],
+      commentIssue: async () => { comments += 1 },
+      closeIssue: async () => { issue = { ...issue, state: 'closed' } },
+    })
+
+    await d.frontier()
+    const answered = answerMapQuestion(mapQuestions[0], CLEAR_MAP_FOG)
+    await d.onMapFogAnswered(answered)
+
+    assert.equal(comments, 0)
+    assert.ok(events.some((e) => e.type === 'map_fog_verdict_posted'))
+  })
+
+  test('reconcile resumes an answered verdict from durable state', async () => {
+    let issue = map(316, { body: '## Not yet specified\n\n- retained work' })
+    const effects = []
+    const d = makeDispatcher({
+      repoMaps: async () => [issue],
+      mapFrontier: async () => [],
+      fetchIssue: async () => ({ ...issue }),
+      issueComments: async () => [],
+      commentIssue: async () => effects.push('comment'),
+      setIssueBody: async (_repo, _map, body) => { effects.push('clear'); issue = { ...issue, body } },
+      closeIssue: async () => { effects.push('close'); issue = { ...issue, state: 'closed' } },
+    })
+
+    await d.frontier()
+    answerMapQuestion(mapQuestions[0], CLEAR_MAP_FOG)
+    await d.reconcile({ boot: false })
+
+    assert.deepEqual(effects, ['comment', 'clear', 'close'])
+  })
+
+  test('boot reconcile keeps an unanswered empty-map question open', async () => {
+    const issue = map(316)
+    const d = makeDispatcher({
+      repoMaps: async () => [issue],
+      mapFrontier: async () => [],
+      fetchIssue: async () => ({ ...issue }),
+    })
+
+    await d.frontier()
     await d.reconcile({ boot: true })
 
-    assert.equal(asked.status, 'open', 'the map question outlives the process that asked it')
-    assert.ok(!lapses.some((l) => l.id === asked.id))
-    await d.frontier()
-    assert.equal(verdicts().length, 1, 'and a boot does not ask it a second time')
-
-    // the answer still executes after the restart
-    await d.onConfirmAnswered(answered(asked, 'approve'))
-    assert.ok(events.some((e) => e.type === 'map_verdict_answered'))
+    assert.equal(mapQuestions[0].status, 'open')
+    assert.ok(!cancelled.some((entry) => entry.id === mapQuestions[0].id))
   })
 })
 

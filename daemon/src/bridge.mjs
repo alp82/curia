@@ -14,7 +14,6 @@
 // The daemon hands in a `handlers` object and calls back into the bridge to
 // render; answers flow bridge → handlers.answer → reduction (first-valid-wins).
 
-import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { Readable } from 'node:stream'
@@ -71,13 +70,16 @@ export const selectClips = (options) => options.some((o) => String(o).length > S
 
 // The option payload. `value` is the index into `record.options`, the same key
 // the `idx` buttons use, so every answer path resolves a pick the one way.
-export function selectOption(text, idx) {
+export function selectOption(text, idx, handle = null) {
   const s = String(text)
-  const option = { label: s.slice(0, SELECT_LABEL), value: String(idx) }
+  const shown = String(handle ?? text)
+  const option = { label: shown.slice(0, SELECT_LABEL), value: String(idx) }
   const tail = s.slice(SELECT_LABEL)
   if (tail) option.description = tail.length > SELECT_DESC ? `${tail.slice(0, SELECT_DESC - 1)}…` : tail
   return option
 }
+
+const optionHandle = (record, idx) => String(record.payload?.options?.[idx]?.handle ?? record.options?.[idx] ?? '')
 
 // The round's one-tap answer (#285, ADR-0005). It rides `free-text` and it is
 // pure capture: the press records this word, the agent reads it, and the agent
@@ -332,6 +334,9 @@ const SLASH_MANIFEST = [
   new SlashCommandBuilder().setName('next').setDescription('Dispatch the next takeable ticket')
     .addStringOption((o) => o.setName('repo').setDescription('Limit to one repo (any unambiguous part of the name)')),
   new SlashCommandBuilder().setName('status').setDescription('Agents running, waiting on input, and recent endings'),
+  new SlashCommandBuilder().setName('skill').setDescription('Run a configured skill with a durable record and review gate')
+    .addStringOption((o) => o.setName('name').setDescription('Configured skill name').setRequired(true))
+    .addStringOption((o) => o.setName('target').setDescription('Target issue number or owner/repo#number').setRequired(true)),
   new SlashCommandBuilder().setName('start').setDescription('Dispatch an agent on a ticket, or on a map\'s next takeable ticket')
     .addStringOption((o) => o.setName('ticket').setDescription('Ticket number, or a map number for its next ticket').setRequired(true))
     // #177 removed the `harness` option: the harness follows the model, so the
@@ -359,6 +364,9 @@ const SLASH_MANIFEST = [
     // #177: resume inherits the model of the dead agent, and this is the way
     // out. `resume all` ignores it — see parseCommand.
     .addStringOption((o) => o.setName('model').setDescription('Model override — otherwise the model the dead agent ran on')),
+  new SlashCommandBuilder().setName('model').setDescription('Switch a live ticket to another configured model')
+    .addStringOption((o) => o.setName('ticket').setDescription('Active ticket number').setRequired(true))
+    .addStringOption((o) => o.setName('model').setDescription('Target routing model').setRequired(true)),
   new SlashCommandBuilder().setName('attach').setDescription('Get the attach handle for a live session')
     .addStringOption((o) => o.setName('ticket').setDescription('Ticket number').setRequired(true)),
   // #270: self-deploy. Typed-only — the overseer composes no `deploy`, so the
@@ -396,6 +404,12 @@ export function expandCommand(i) {
     case 'tickets': return `tickets${opt('repo') ? ' ' + opt('repo') : ''}`
     case 'next': return `next${opt('repo') ? ' ' + opt('repo') : ''}`
     case 'status': return 'status'
+    case 'skill': {
+      const name = need('name')
+      const target = need('target')
+      if (!name || !target) return { error: 'missing' }
+      return `skill ${name} ${target}`
+    }
     case 'deploy': return 'deploy'
     case 'reauth': return 'reauth'
     // #221: `start` takes no instruction any more. A stale client-side manifest
@@ -436,6 +450,12 @@ export function expandCommand(i) {
       if (!ticket) return { error: 'missing' }
       const model = ticket === 'all' ? null : opt('model')
       return `resume ${ticket}${model ? ' model=' + model : ''}`
+    }
+    case 'model': {
+      const ticket = need('ticket')
+      const model = need('model')
+      if (!ticket || !model) return { error: 'missing' }
+      return `model ${ticket} ${model}`
     }
     case 'cancel':
     case 'attach': {
@@ -508,7 +528,7 @@ export class DiscordBridge {
     // holds the transitions, this holds only what is true right now.
     this.health = { state: 'down', since: Date.now(), last_error: null }
     this.unhealthySince = null
-    // Speaker identities (#143): `ok` is null until the start probe answers.
+    // Agent prose transport: `ok` is null until the start probe answers.
     this.speakers = { ok: null, reason: null }
     this.speakerNoticed = false
     this.client = new Client({
@@ -1216,7 +1236,7 @@ export class DiscordBridge {
     if (record.kind === 'choice' && (record.options ?? []).length <= MAX_BUTTON_OPTIONS) {
       record.options.forEach((label, idx) => {
         push(new ButtonBuilder().setCustomId(`esc|${record.id}|idx|${idx}`)
-          .setLabel(label.slice(0, 80)).setStyle(ButtonStyle.Primary))
+          .setLabel(optionHandle(record, idx).slice(0, 80)).setStyle(ButtonStyle.Primary))
       })
     }
     // Above the button cap the same options ride one select menu (#431).
@@ -1229,7 +1249,7 @@ export class DiscordBridge {
         new StringSelectMenuBuilder()
           .setCustomId(`esc|${record.id}|sel`)
           .setPlaceholder('Pick one')
-          .addOptions(record.options.map(selectOption)),
+          .addOptions(record.options.map((label, idx) => selectOption(label, idx, optionHandle(record, idx)))),
       ))
     }
     // The round's one tap (#285). It is the ONLY button a free-text card ever
@@ -1251,7 +1271,7 @@ export class DiscordBridge {
     return rows
   }
 
-  #escalationBody(record) {
+  #escalationBody(record, files = []) {
     if (record.kind === CONFIRM_KIND) {
       // Every confirm but one is about a live agent and lapses with it. The
       // empty-map verdict (#698) is about a map, so it lapses with nothing and
@@ -1289,6 +1309,9 @@ export class DiscordBridge {
     const typed = Boolean(record.payload)
     const prompt = /^\s*❓/.test(record.prompt) ? record.prompt : `❓ ${record.prompt}`
     const parts = [prompt]
+    if (files.length) {
+      parts.push(smallPrint(`Attached files: ${files.map((file) => `\`${file.attachment}\``).join(', ')}. Reply files return to this conversation as readable paths.`))
+    }
     if (record.kind === 'choice' && typed) {
       // The typed body already carries every option with its cost, so the
       // numbered list would say the whole card twice. Only the instruction is
@@ -1357,8 +1380,7 @@ export class DiscordBridge {
 
   // Speaker identity (#690): all agent prose posts under the `curia` webhook
   // name and the bot avatar. One channel webhook serves that identity.
-  // CONSTRAINT, verified
-  // against Discord's API: interactive components require an
+  // Interactive components require an
   // application-owned webhook, which createWebhook does not mint — so
   // escalation messages, the ones with buttons, stay bot-posted.
   async #webhook() {
@@ -1415,21 +1437,14 @@ export class DiscordBridge {
     this.speakers = { ok: true, reason: null }
     if (!this.speakerNoticed) return
     this.speakerNoticed = false
-    this.log('[bridge] speaker identities are back')
+    this.log('[bridge] agent prose transport is back')
     await this.announce(DiscordBridge.SPEAKERS_BACK).catch((err) => this.log(`speaker notice failed: ${err.message}`))
   }
 
-  // The Curia identity uses the bot avatar. Compatibility callers with another
-  // name retain the generated avatar that older sessions used.
-  #avatarFor(as) {
-    if (as === 'curia') return this.client.user?.displayAvatarURL?.() ?? undefined
-    const seed = createHash('md5').update(String(as)).digest('hex')
-    return `https://www.gravatar.com/avatar/${seed}?d=identicon&f=y&s=128`
-  }
-
-  #speakerNameFor(as) {
-    if (as !== 'curia') return as
-    return this.guild?.members?.me?.displayName ?? this.client.user?.username ?? as
+  // The webhook copies the bot avatar. Bot messages and prose messages then
+  // present one visual identity.
+  #avatarFor() {
+    return this.client.user?.displayAvatarURL?.() ?? undefined
   }
 
   // Chunked like every composed send; files ride the last chunk. Any webhook
@@ -1438,9 +1453,7 @@ export class DiscordBridge {
     try {
       const hook = await this.#webhook()
       const chunks = chunkMessage(content)
-      const base = {
-        username: this.#speakerNameFor(as), avatarURL: this.#avatarFor(as), threadId: thread.id,
-      }
+      const base = { username: 'curia', avatarURL: this.#avatarFor(), threadId: thread.id }
       for (const chunk of chunks.slice(0, -1)) await hook.send({ ...base, content: chunk })
       const msg = await hook.send({ ...base, content: chunks.at(-1), files })
       // The agent's own words buried the line too (#480). The fallback below
@@ -1480,7 +1493,7 @@ export class DiscordBridge {
     const thread = await this.#threadFor(record)
     const rows = this.#buttons(record)
     const msg = await this.#sendChunked(thread, {
-      content: this.#escalationBody(record),
+      content: this.#escalationBody(record, files),
       components: rows,
       files,
     })
@@ -1778,6 +1791,14 @@ export class DiscordBridge {
         // second time, and on an old card it landed screens below the mark it
         // repeated, reading as news about something already answered.
         await i.deferUpdate().catch(() => {})
+        if (result.next_needs?.length && i.followUp) {
+          const lines = result.next_needs.map((need, index) =>
+            `${index + 1}. **${need.headline}** · ${need.agent} · ticket ${need.ticket}`)
+          await i.followUp({
+            content: smallPrint(`Next ${result.next_needs.length} needs:\n${lines.join('\n')}`),
+            ephemeral: true,
+          }).catch(() => {})
+        }
       } else {
         await i.reply({ content: `⚠️ not open — ${result.reason}${result.record?.answer ? ` (answer was \`${result.record.answer}\`)` : ''}`, ephemeral: true })
       }
@@ -1875,7 +1896,9 @@ export class DiscordBridge {
       const typed = said.trim()
       if (typed && this.handlers.command && parseCommand(typed)) {
         const reply = await this.handlers.command(typed, m.author.id, { threadId: null })
-        await this.#sendChunked(m.channel, { content: reply ?? `relayed: \`${typed}\`` })
+        const payload = { content: String(reply ?? `relayed: \`${typed}\``) }
+        if (typeof m.channel?.send === 'function') await this.#sendChunked(m.channel, payload)
+        else await m.reply?.(payload)
         return
       }
       if (!this.handlers.overseerTurn) return
@@ -1937,8 +1960,16 @@ export class DiscordBridge {
       const picked = open.options?.[answer.toUpperCase().charCodeAt(0) - 65]
       if (picked) answer = picked
     }
-    const attachments = m.attachments.size
-      ? await this.#downloadAttachments(open.id, m.attachments)
+    // Discord's own overflow file is message content, not a second file path.
+    // Keep ordinary text attachments on the existing attachment path.
+    const fileAttachments = new Map(
+      [...m.attachments.entries()].filter(([, attachment]) => {
+        const type = String(attachment?.contentType ?? '').toLowerCase()
+        return !(attachment?.name === 'message.txt' && type.startsWith('text/plain'))
+      }),
+    )
+    const attachments = fileAttachments.size
+      ? await this.#downloadAttachments(open.id, fileAttachments)
       : []
     if (!answer && !attachments.length) return
     if (attachments.length) {

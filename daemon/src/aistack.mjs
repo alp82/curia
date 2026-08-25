@@ -47,8 +47,11 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
-import { spawn } from 'node:child_process'
+import { execFile as execFileCallback, spawn } from 'node:child_process'
+import { promisify } from 'node:util'
 import { CFG_DIR, configRootEnvFor } from './workspace.mjs'
+
+const execFile = promisify(execFileCallback)
 
 // Rule 4. The npm package, its binary, and the runner that fetches it.
 export const CLI_PACKAGE = '@use-aistack/cli'
@@ -58,6 +61,10 @@ export const CLI_RUNNER = 'npx'
 // for `aistack.cli_version`, so a box whose config predates this section still
 // runs a pinned command rather than `@latest`.
 export const DEFAULT_CLI_VERSION = '0.7.2'
+export const AISTACK_VERSION = DEFAULT_CLI_VERSION
+export const AISTACK_PACKAGE = `${CLI_PACKAGE}@${AISTACK_VERSION}`
+export const AISTACK_SYNC_TIMEOUT_MS = 2 * 60 * 1000
+export const AISTACK_ERROR_LIMIT = 240
 
 // Rule 3. How long a run stays fresh. The stack's own auto-sync frequency
 // defaults to 24 hours and the CLI honors it, so this number bounds spawned
@@ -71,6 +78,38 @@ export const SYNC_TIMEOUT_MS = 10 * 60 * 1000
 
 // Rule 1. Where the CLI keeps the bearer, relative to curia's HOME.
 export const CREDENTIAL_REL = path.join('.config', 'aistack', 'credentials.json')
+
+// The Atlas status adapter includes the durable Codex root and every current
+// Claude root. It rebuilds the list for each tick because agent cleanup changes
+// the config tree.
+export function aistackEnvironment(workspaceRoot, {
+  codexRoot: configuredCodexRoot = path.join(workspaceRoot, 'home', '.codex'),
+} = {}) {
+  const cfgRoot = path.join(workspaceRoot, CFG_DIR)
+  let names = []
+  try {
+    names = fs.readdirSync(cfgRoot, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .sort()
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error
+  }
+  const claude = names
+    .map((name) => path.join(cfgRoot, name))
+    .filter((entry) => fs.existsSync(path.join(entry, 'projects')))
+  return {
+    HOME: path.join(workspaceRoot, 'home'),
+    CLAUDE_CONFIG_DIR: claude.join(','),
+    CODEX_HOME: configuredCodexRoot,
+  }
+}
+
+async function defaultRunProcess(command, args, options) {
+  return execFile(command, args, options)
+}
+
+const clipped = (value) => String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, AISTACK_ERROR_LIMIT)
 
 // Rule 1. Curia's own HOME, `home/` inside the workspace root (deploy/compose.yaml).
 // It is derived from the configured root rather than read off `process.env.HOME`,
@@ -256,12 +295,24 @@ export class AistackSync {
   // `standing` reads the alarm the reduction remembers, so a deploy inherits it.
   // `lastAt` reads the instant of the last attempt, for the same reason: a
   // deploy must not turn the check interval into a per-boot spawn.
-  constructor({
-    root, journal, announce, standing = () => null, lastAt = () => null,
-    log = () => {}, now = () => Date.now(),
-    version = DEFAULT_CLI_VERSION, intervalHours = DEFAULT_INTERVAL_HOURS,
-    bin = CLI_RUNNER, env = process.env, run = runSync,
-  }) {
+  constructor(options = {}) {
+    if (options.workspaceRoot) {
+      this.compatibility = true
+      this.workspaceRoot = options.workspaceRoot
+      this.configuredCodexRoot = options.codexRoot ?? null
+      this.runProcess = options.runProcess ?? defaultRunProcess
+      this.now = options.now ?? Date.now
+      this.log = options.log ?? (() => {})
+      this.credentialFile = credentialFile(this.workspaceRoot)
+      this.reading = { state: 'unregistered', last_attempt_at: null }
+      return
+    }
+    const {
+      root, journal, announce, standing = () => null, lastAt = () => null,
+      log = () => {}, now = () => Date.now(),
+      version = DEFAULT_CLI_VERSION, intervalHours = DEFAULT_INTERVAL_HOURS,
+      bin = CLI_RUNNER, env = process.env, run = runSync,
+    } = options
     this.root = root
     this.journal = journal
     this.announce = announce
@@ -277,6 +328,52 @@ export class AistackSync {
     // The in-process half of rule 3. `lastAt` reads the journal, which only
     // records finished attempts, so a run still in flight is held here.
     this.busy = false
+  }
+
+  status() {
+    return { ...this.reading }
+  }
+
+  async tick() {
+    if (!hasCredential(this.workspaceRoot)) {
+      this.reading = { state: 'unregistered', last_attempt_at: null }
+      return this.status()
+    }
+    const attempted = new Date(this.now()).toISOString()
+    const previousFailures = this.reading.consecutive_failures ?? 0
+    try {
+      const env = {
+        ...process.env,
+        ...aistackEnvironment(this.workspaceRoot, this.configuredCodexRoot
+          ? { codexRoot: this.configuredCodexRoot }
+          : {}),
+      }
+      await this.runProcess(CLI_RUNNER, syncArgs(AISTACK_VERSION), {
+        env,
+        timeout: AISTACK_SYNC_TIMEOUT_MS,
+        maxBuffer: 1024 * 1024,
+      })
+      this.reading = {
+        state: 'ok',
+        last_attempt_at: attempted,
+        last_success_at: attempted,
+        consecutive_failures: 0,
+      }
+      if (previousFailures) this.log('aistack sync recovered')
+    } catch (error) {
+      const failure = clipped(error?.stderr || error?.message || error)
+      const consecutive = previousFailures + 1
+      this.reading = {
+        state: 'failed',
+        last_attempt_at: attempted,
+        last_success_at: this.reading.last_success_at ?? null,
+        consecutive_failures: consecutive,
+        error: failure,
+        recovery: 'Check the aistack machine grant. If the grant expired, register the machine again in Atlas Settings.',
+      }
+      if (consecutive === 1 || consecutive % 10 === 0) this.log(`aistack sync failed: ${failure}`)
+    }
+    return this.status()
   }
 
   home() {

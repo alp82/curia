@@ -1,13 +1,15 @@
-// The overseer pane host (#688). The conversation remains durable in the
-// journal. A tmux pane is one live process for that conversation, hosted by
-// docker exec inside the shared overseer container.
+// A live overseer conversation uses the same tmux pane boundary as an agent.
+// The pane is only a cache. The reduction keeps the durable Claude session,
+// while this host owns the overseer lifecycle and authority policy.
 
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
-import { setTimeout as sleep } from 'node:timers/promises'
-import { hasSession, newSession, capturePane, sendText, paneShowsActiveTurn } from './tmux.mjs'
+import {
+  capturePane, hasSession, listSessions, newSession, sendText, killSession,
+  paneShowsActiveTurn,
+} from './tmux.mjs'
 import {
   MCP_SERVER_NAME, OVERSEER_CONTAINER_MODEL, OVERSEER_MCP_PATH,
   checkoutNote, overseerConfigDirFor, overseerHomeFor, overseerProcessEnv,
@@ -18,7 +20,7 @@ import {
 import { isConsoleKey, sessionForConsoleKey } from './attach.mjs'
 import {
   carryOverseerTranscript, conversationHomeFor, conversationMcpUrl,
-  ensureConversationToken, revokeConversationToken, writeConversationConnection,
+  ensureConversationToken, writeConversationConnection,
 } from './overseeridentity.mjs'
 import { TOKEN_HEADER } from './agenttoken.mjs'
 import { agentEnv, seedConfigDir } from './workspace.mjs'
@@ -27,29 +29,73 @@ import { execFileP } from './exec.mjs'
 import { SIGNALS } from './messaging.mjs'
 
 export const OVERSEER_CONTAINER = 'curia-overseer-1'
-const DISCORD_KEY_RE = /^\d+$/
-const CLAUDE_READY_RE = /(?:⏵⏵|bypass permissions)/
+const OVERSEER_PANE_PREFIX = 'curia-overseer-'
+const CONSOLE_KEY_RE = /^console-[1-9][0-9]*$/
+const CLAUDE_READY_RE = /(?:⏵⏵|bypass permissions)/i
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+async function waitForClaudePane(name, { timeoutMs = 30_000 } = {}) {
+  const deadline = Date.now() + timeoutMs
+  let pane = ''
+  while (Date.now() < deadline) {
+    pane = await capturePane(name)
+    if (CLAUDE_READY_RE.test(pane)) return pane
+    await sleep(250)
+  }
+  throw new Error(`overseer pane ${name} did not reach its composer`)
+}
+
+const defaultPane = {
+  has: hasSession,
+  list: listSessions,
+  start: newSession,
+  ready: waitForClaudePane,
+  send: sendText,
+  park: killSession,
+  capture: capturePane,
+}
+
+function shellWord(value) {
+  const word = String(value)
+  if (/^[A-Za-z0-9_./:@%+=,-]+$/.test(word)) return word
+  return `'${word.replaceAll("'", `'"'"'`)}'`
+}
+
+export function overseerPaneName(key) {
+  const identity = String(key)
+  if (CONSOLE_KEY_RE.test(identity)) return `curia-${identity}`
+  if (/^\d+$/.test(identity)) return `curia-overseer-${identity}`
+  const digest = crypto.createHash('sha256').update(identity).digest('hex').slice(0, 16)
+  return `${OVERSEER_PANE_PREFIX}${digest}`
+}
 
 export function overseerPaneSession(key) {
-  const value = String(key ?? '')
-  if (isConsoleKey(value)) return sessionForConsoleKey(value)
-  if (DISCORD_KEY_RE.test(value)) return `curia-overseer-${value}`
-  throw new Error(`"${value}" is not an overseer conversation key`)
+  const identity = String(key ?? '')
+  if (isConsoleKey(identity)) return sessionForConsoleKey(identity)
+  if (/^\d+$/.test(identity)) return `curia-overseer-${identity}`
+  throw new Error(`"${identity}" is not an overseer conversation key`)
 }
 
-function shellArg(value) {
-  const text = String(value)
-  if (/^[A-Za-z0-9_./:@+-]+$/.test(text)) return text
-  return `'${text.replace(/'/g, `'"'"'`)}'`
-}
-
-export function overseerPaneCommand({ repoRoot, sessionId, resume }) {
+export function overseerPaneCommand({ repoRoot, container, session, sessionId, resume }) {
   const runner = path.join(repoRoot, 'daemon', 'bin', 'curia-overseer-pane.mjs')
   const identityFlag = resume ? '--resume' : '--session-id'
+  const identity = sessionId ?? session
   return [
-    'docker', 'exec', '-it', OVERSEER_CONTAINER,
-    'node', shellArg(runner), identityFlag, shellArg(sessionId),
+    'docker', 'exec', '-it', shellWord(container),
+    'node', shellWord(runner), identityFlag, shellWord(identity),
   ].join(' ')
+}
+
+export async function runningOverseerContainer({ repoRoot, exec = execFileP }) {
+  const compose = path.join(repoRoot, 'deploy', 'compose.yaml')
+  const { stdout } = await exec('docker', ['compose', '-f', compose, 'ps', '-q', 'overseer'], {
+    cwd: repoRoot,
+    timeout: 10_000,
+  })
+  const container = stdout.trim()
+  if (!container) throw new Error('the shared overseer container is not running')
+  return container
 }
 
 export function installOverseerPaneCredential(workspaceRoot, configDir) {
@@ -195,9 +241,17 @@ export function paneMessageText({ checkouts, notes = [], prompt, now = () => new
 
 export class OverseerPaneHost {
   constructor({
-    reduction, workspaceRoot, repoRoot, dataDir, log = console.log,
-    daemonPort = 0, daemonHost = 'host.docker.internal',
-    readyTimeoutMs = 45_000, readyPollMs = 250,
+    reduction,
+    workspaceRoot,
+    repoRoot,
+    dataDir,
+    log = console.log,
+    daemonPort = 0,
+    daemonHost = 'host.docker.internal',
+    pane = defaultPane,
+    containerId = () => runningOverseerContainer({ repoRoot }),
+    newSessionId = crypto.randomUUID,
+    livePaneCap = 3,
     watchRepos = () => [],
     startTimeoutMs = 90_000, messageTimeoutMs = 30 * 60_000, settlePollMs = 1_000,
     now = () => new Date(),
@@ -206,54 +260,43 @@ export class OverseerPaneHost {
     this.reduction = reduction
     this.workspaceRoot = workspaceRoot
     this.repoRoot = repoRoot
-    // Where the conversation tokens live (#701). Daemon-owned, and no container
-    // mounts it: the daemon writes each token straight into its own pane's
-    // connection settings.
     this.dataDir = dataDir
     this.daemonPort = daemonPort
     this.daemonHost = daemonHost
     this.log = log
-    this.readyTimeoutMs = readyTimeoutMs
-    this.readyPollMs = readyPollMs
-    // The watch list is read PER MESSAGE, not held from boot: the settings
-    // screen rewrites it, and a message must be told about the repos that are
-    // watched NOW (#361's rule, on the pane lane).
+    const paneOverrides = [deps.hasSession, deps.newSession, deps.capturePane, deps.sendText]
+      .some(Boolean)
+    this.pane = paneOverrides ? Object.create(pane) : pane
+    if (deps.hasSession) this.pane.has = deps.hasSession
+    if (deps.newSession) this.pane.start = deps.newSession
+    if (deps.capturePane) this.pane.capture = deps.capturePane
+    if (deps.sendText) this.pane.send = deps.sendText
+    this.containerId = containerId
+    this.newSessionId = newSessionId
+    this.livePaneCap = livePaneCap
+    // Read the watch list for each message. Atlas can change the list while the
+    // daemon and a pane remain live.
     this.watchRepos = watchRepos
-    // How long a message may take. `startTimeoutMs` is how long the pane has to
-    // pick the message up at all; `messageTimeoutMs` is how long the harness may
-    // then work. Both end in a completion signal that says what happened —
-    // silence is the one outcome an adapter cannot render.
     this.startTimeoutMs = startTimeoutMs
     this.messageTimeoutMs = messageTimeoutMs
     this.settlePollMs = settlePollMs
     this.now = now
-    this.deps = {
-      hasSession, newSession, capturePane, sendText,
-      checkoutPass: containerCheckoutPass,
-      // ONE completion signal per message, and this is where it leaves (#708).
-      // The adapters — Discord's status line, Atlas's chat — hang their
-      // "finished" off this and nothing else.
-      onComplete: async () => {},
-      ensureDir: (dir) => fs.mkdirSync(dir, { recursive: true }),
+    this.identity = {
       ensureToken: ensureConversationToken,
       writeConnection: writeConversationConnection,
       carryTranscript: carryOverseerTranscript,
       ...deps,
     }
-    this.starting = new Map()
+    this.checkoutPass = deps.checkoutPass ?? containerCheckoutPass
+    this.onComplete = deps.onComplete ?? (async () => {})
+    this.live = new Map()
+    this.lanes = new Map()
+    this.capacityLane = Promise.resolve()
   }
 
-  async #waitForComposer(session) {
-    const deadline = Date.now() + this.readyTimeoutMs
-    do {
-      try {
-        const pane = await this.deps.capturePane(session)
-        if (CLAUDE_READY_RE.test(pane)) return
-      } catch { /* the pane can appear after tmux returns */ }
-      if (Date.now() >= deadline) break
-      await sleep(Math.min(this.readyPollMs, deadline - Date.now()))
-    } while (true)
-    throw new Error(`${session} did not reach the overseer composer within ${this.readyTimeoutMs}ms`)
+  send(key, text) {
+    const identity = String(key)
+    return this.#queue(identity, () => this.#withCapacity(() => this.#send(identity, text)))
   }
 
   // The conversation's tool identity, ready before the process that uses it
@@ -270,8 +313,8 @@ export class OverseerPaneHost {
   // sides hold.
   #arm(key, sessionId) {
     const home = conversationHomeFor(overseerHomeFor(this.workspaceRoot), sessionId)
-    const token = this.deps.ensureToken(this.dataDir, key)
-    this.deps.writeConnection({
+    const token = this.identity.ensureToken(this.dataDir, key)
+    this.identity.writeConnection({
       home,
       url: conversationMcpUrl({
         host: this.daemonHost, port: this.daemonPort, key, mcpPath: OVERSEER_MCP_PATH,
@@ -283,70 +326,123 @@ export class OverseerPaneHost {
     // A conversation bound before #701 recorded its transcript in the one
     // shared overseer home, and a resume only finds a session under the project
     // directory it was recorded in.
-    this.deps.carryTranscript({
+    this.identity.carryTranscript({
       configDir: overseerConfigDirFor(this.workspaceRoot), sessionId, home,
     })
     return home
   }
 
-  async #start(key, session) {
-    let sessionId = this.reduction.overseerSession(key)
-    const resume = Boolean(sessionId)
-    if (!sessionId) {
-      sessionId = this.reduction.pendingOverseerSession(key)
-      if (!sessionId) {
-        sessionId = crypto.randomUUID()
-        this.reduction.reserveOverseerSession(key, sessionId)
-      }
-    }
-    const home = this.#arm(key, sessionId)
-    this.deps.ensureDir(home)
-    await this.deps.newSession({
-      name: session,
-      cwd: home,
-      shellCmd: overseerPaneCommand({ repoRoot: this.repoRoot, sessionId, resume }),
-      keepOpen: false,
-    })
-    await this.#waitForComposer(session)
-    if (!resume) this.reduction.bindOverseerSession(key, sessionId)
-    this.reduction.journal(resume ? 'overseer_pane_resumed' : 'overseer_pane_started', {
-      key, session, session_id: sessionId,
-    })
-    this.log(`[overseer] ${resume ? 'resumed' : 'started'} pane ${session} for ${key}`)
-    return { session, sessionId, resumed: resume }
+  ensure(key) {
+    const identity = String(key)
+    return this.#queue(identity, () => this.#withCapacity(() => this.#ensure(identity).then(({ name }) => name)))
   }
 
-  async #ensure(key, session) {
-    if (await this.deps.hasSession(session)) {
-      let sessionId = this.reduction.overseerSession(key)
-      if (!sessionId) {
-        sessionId = this.reduction.pendingOverseerSession(key)
-        if (sessionId) {
-          await this.#waitForComposer(session)
-          this.reduction.bindOverseerSession(key, sessionId)
-          this.reduction.journal('overseer_pane_started', { key, session, session_id: sessionId })
-          return { session, sessionId, resumed: false }
+  #withCapacity(operation) {
+    const pending = this.capacityLane.catch(() => {}).then(operation)
+    this.capacityLane = pending
+    return pending
+  }
+
+  #queue(identity, operation) {
+    const previous = this.lanes.get(identity) ?? Promise.resolve()
+    const pending = previous.catch(() => {}).then(operation)
+    this.lanes.set(identity, pending)
+    pending.finally(() => {
+      if (this.lanes.get(identity) === pending) this.lanes.delete(identity)
+    }).catch(() => {})
+    return pending
+  }
+
+  async #send(key, text) {
+    const { name } = await this.#ensure(key)
+    const result = await this.pane.send(name, text)
+    const current = this.live.get(name)
+    if (current) current.touchedAt = Date.now()
+    return result
+  }
+
+  async #ensure(key) {
+    if (CONSOLE_KEY_RE.test(key) && this.reduction.hasConsoleConversation?.(key) === false) {
+      throw new Error(`there is no conversation \`${key}\`. Open a new one from Chat`)
+    }
+    const name = overseerPaneName(key)
+    let session = this.reduction.overseerSession(key)
+    const resume = Boolean(session)
+    const created = !session
+    if (!session) {
+      session = this.reduction.pendingOverseerSession?.(key)
+      if (!session) {
+        session = this.newSessionId()
+        this.reduction.reserveOverseerSession?.(key, session)
+      }
+    }
+
+    let present = await this.pane.has(name)
+    if (present && created) {
+      if (this.reduction.pendingOverseerSession?.(key)) {
+        await this.pane.ready?.(name)
+      } else {
+        await this.pane.park(name)
+        present = false
+      }
+    }
+    if (!this.live.has(name)) await this.#makeRoom(name)
+    if (!present || created) {
+      const home = this.#arm(key, session)
+      const container = await this.containerId()
+      await this.pane.start({
+        name,
+        cwd: home,
+        role: 'overseer',
+        authority: 'overseer',
+        keepOpen: false,
+        shellCmd: overseerPaneCommand({ repoRoot: this.repoRoot, container, session, resume }),
+      })
+      await this.pane.ready?.(name)
+    }
+    if (created) this.reduction.bindOverseerSession(key, session)
+    if (!present) {
+      this.reduction.journal?.(resume ? 'overseer_pane_resumed' : 'overseer_pane_started', {
+        key, session: name, session_id: session,
+      })
+    }
+    this.live.delete(name)
+    this.live.set(name, { key, session, touchedAt: Date.now() })
+    return { name, session }
+  }
+
+  async #makeRoom(nextName) {
+    while (this.live.size >= this.livePaneCap) {
+      const [name, conversation] = this.live.entries().next().value ?? []
+      if (!name || name === nextName) return
+      if (await this.pane.has(name)) await this.pane.park(name)
+      this.live.delete(name)
+      this.reduction.journal?.('overseer_pane_parked', {
+        key: conversation.key,
+        pane: name,
+        reason: 'capacity',
+      })
+    }
+  }
+
+  async parkForDeploy() {
+    const known = new Map(this.live)
+    if (this.pane.list) {
+      for (const name of await this.pane.list()) {
+        if (name.startsWith(OVERSEER_PANE_PREFIX) || /^curia-console-[1-9][0-9]*$/.test(name)) {
+          if (!known.has(name)) known.set(name, { key: null, session: null })
         }
       }
-      if (!sessionId) throw new Error(`${session} has no durable overseer conversation identity`)
-      return { session, sessionId, resumed: false }
     }
-    return this.#start(key, session)
-  }
-
-  ensure(key) {
-    const session = overseerPaneSession(key)
-    if (!this.starting.has(key)) {
-      const start = this.#ensure(key, session).finally(() => this.starting.delete(key))
-      this.starting.set(key, start)
+    for (const [name, conversation] of known) {
+      if (await this.pane.has(name)) await this.pane.park(name)
+      this.reduction.journal?.('overseer_pane_parked', {
+        key: conversation.key,
+        pane: name,
+        reason: 'deploy',
+      })
     }
-    return this.starting.get(key)
-  }
-
-  async send(key, text) {
-    const { session, sessionId, resumed } = await this.ensure(key)
-    const delivery = await this.deps.sendText(session, text)
-    return { session, sessionId, resumed, delivery }
+    this.live.clear()
   }
 
   // WHEN THE HARNESS IS DONE WITH THIS MESSAGE. The pane is the only witness:
@@ -379,7 +475,7 @@ export class OverseerPaneHost {
 
   async #active(session) {
     try {
-      return paneShowsActiveTurn(await this.deps.capturePane(session))
+      return paneShowsActiveTurn(await this.pane.capture(session))
     } catch {
       // A pane that cannot be captured is a pane that is gone — a deploy, a
       // park, a killed session. The message is over either way, and the caller
@@ -405,23 +501,33 @@ export class OverseerPaneHost {
   // happened by then, and notes dropped on a failed send would be words the
   // operator is never told about — ADR-0024's "curia returns queued notes to
   // its queue", on the delivery path rather than the rewind.
-  async deliver(key, prompt, { onNote = () => {} } = {}) {
+  deliver(key, prompt, { onNote = () => {} } = {}) {
+    const identity = String(key)
+    return this.#queue(identity, () => (
+      this.#withCapacity(() => this.#deliver(identity, prompt, { onNote }))
+    ))
+  }
+
+  async #deliver(key, prompt, { onNote }) {
     const repos = this.watchRepos()
-    const checkouts = await this.deps.checkoutPass({
+    const checkouts = await this.checkoutPass({
       repoRoot: this.repoRoot, repos, now: this.now,
     })
     await onNote(checkoutNote(checkouts))
     const notes = this.reduction.takeOverseerNotes?.(key) ?? []
     const text = paneMessageText({ checkouts, notes, prompt, now: this.now })
-    const { session, sessionId, resumed } = await this.ensure(key)
-    const delivery = await this.deps.sendText(session, text, { paste: true })
+    const resumed = Boolean(this.reduction.overseerSession(key))
+    const { name: session, session: sessionId } = await this.#ensure(key)
+    const delivery = await this.pane.send(session, text, { paste: true })
+    const current = this.live.get(session)
+    if (current) current.touchedAt = Date.now()
     if (delivery?.status === 'not-sent') {
       for (const note of notes) this.reduction.addOverseerNote?.(key, note)
       const why = `${session} was still working, so curia did not send the message`
       const signal = await this.#signal({ key, session, sessionId, ok: false, why })
       return { session, sessionId, resumed, checkouts, notes, delivery, completion: Promise.resolve(signal) }
     }
-    this.reduction.journal('overseer_pane_message', {
+    this.reduction.journal?.('overseer_pane_message', {
       key, session, session_id: sessionId, notes: notes.length, stale: checkouts.repos.filter((r) => !r.ok).length,
     })
     // Detached on purpose: the surface that sent the message must not hold an
@@ -436,12 +542,12 @@ export class OverseerPaneHost {
   // The one signal, emitted once per message and nowhere else.
   async #signal({ key, session, sessionId, ok, why }) {
     const signal = { key, session, sessionId, ok, why: why ?? null, at: this.now().toISOString() }
-    this.reduction.journal('overseer_pane_message_ended', {
+    this.reduction.journal?.('overseer_pane_message_ended', {
       key, session, session_id: sessionId, ok, why: signal.why,
     })
     if (!ok) this.log(`[overseer] pane message on ${key} did not finish: ${signal.why}`)
     try {
-      await this.deps.onComplete(signal)
+      await this.onComplete(signal)
     } catch (e) {
       this.log(`[overseer] the completion signal for ${key} was not delivered: ${e.message}`)
     }

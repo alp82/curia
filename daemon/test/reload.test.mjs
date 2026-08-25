@@ -146,6 +146,7 @@ describe('POST /reload (index.mjs, real boot)', () => {
       max_concurrent: 2,
       poll_interval_s: 60,
       prototype_variations: 5,
+      messages_per_send: 4,
     })
 
     write(overCuria(), [
@@ -181,6 +182,7 @@ describe('POST /reload (index.mjs, real boot)', () => {
       max_concurrent: 4,
       poll_interval_s: 15,
       prototype_variations: 7,
+      messages_per_send: 4,
     })
     assert.deepEqual(after.config.watch, [
       { repo: 'example/fixture', mode: 'auto' }, { repo: 'example/second', mode: 'map' },

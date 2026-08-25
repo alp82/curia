@@ -224,6 +224,35 @@ describe('the prototype variation default (#636)', () => {
   })
 })
 
+describe('the composite message limit', () => {
+  before(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-config-messages-'))
+  })
+  after(() => { fs.rmSync(tmp, { recursive: true, force: true }) })
+
+  test('an omitted limit defaults to four', () => {
+    assert.equal(loadCuriaConfig(writeConfig()).dispatch.messages_per_send, 4)
+  })
+
+  test('the limit accepts one through four messages', () => {
+    for (const value of [1, 4]) {
+      const file = writeConfig()
+      fs.writeFileSync(file, fs.readFileSync(file, 'utf8')
+        .replace('  auto_dispatch: false', `  auto_dispatch: false\n  messages_per_send: ${value}`))
+      assert.equal(loadCuriaConfig(file).dispatch.messages_per_send, value)
+    }
+  })
+
+  test('the limit refuses zero, fractions, and values over four', () => {
+    for (const value of ['0', '2.5', '5']) {
+      const file = writeConfig()
+      fs.writeFileSync(file, fs.readFileSync(file, 'utf8')
+        .replace('  auto_dispatch: false', `  auto_dispatch: false\n  messages_per_send: ${value}`))
+      assert.throws(() => loadCuriaConfig(file), /messages_per_send must be an integer from 1 through 4/)
+    }
+  })
+})
+
 // ---- the workspace root is written down twice (#473) --------------------------
 //
 // `dispatch.workspace_root` says where the daemon writes its worktrees, and

@@ -143,6 +143,7 @@ describe('StatusLine', () => {
     line.onEvent({ type: 'esc_answer', id: 'esc-2', answer: 'approve' })
     line.onEvent({ type: 'result', agent: 'curia-9', ticket: '9', status: 'resolved' })
     line.onEvent({ type: 'lifecycle_closed', agent: 'curia-9', ticket: '9' })
+    line.onEvent({ type: 'thread_settled', agent: 'curia-9', ticket: '9', receipt: '✅ alp82/curia#9 resolved. Ticket closed.' })
     await drain()
 
     const texts = posts.map((p) => p.text)
@@ -154,18 +155,46 @@ describe('StatusLine', () => {
     assert.match(texts[4], /awaiting review — \*\*\[esc-2\]\*\*/)
     assert.match(texts[5], /executing approved writes/)
     assert.match(texts[6], /result received \(\*\*resolved\*\*\)/)
-    assert.equal(edits.length, 0, 'a state change never edits in place')
-    // #253: the ending is not a state — the last delete has no repost behind
-    // it, because the dispatcher's own receipt is the record of the ending.
-    assert.deepEqual(removals, ['m1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7'], 'each repost deletes its predecessor, and the ending deletes the last one')
+    assert.deepEqual(removals, ['m1', 'm2', 'm3', 'm4', 'm5', 'm6'],
+      'settlement keeps the final live message and edits it in place')
+    assert.equal(edits.length, 1)
+    assert.match(edits[0].text, /^-# ✅ alp82\/curia#9 resolved/)
+    assert.match(edits[0].text, /\n-# \*\*opus\*\*$/, 'the final meter reading stays with the receipt')
     assert.ok(!texts.some((t) => t.includes('🏁')), 'no line ever says done')
+  })
+
+  test('an accepted phase replaces routine progress in place', async () => {
+    line.onEvent({ type: 'agent_ready', agent: 'curia-9', ticket: '9', model: 'opus', ts: 'T' })
+    await drain()
+    line.onEvent({
+      type: 'agent_phase', agent: 'curia-9', ticket: '9',
+      phase: { icon: '🧭', label: 'reads the call sites' },
+    })
+    await drain()
+
+    assert.equal(posts.length, 1, 'routine progress doesn\'t add a thread message')
+    assert.equal(edits.length, 1, 'the existing status line changes in place')
+    assert.match(edits[0].text, /^🧭 `reads the call sites`/)
+  })
+
+  test('an invalid phase keeps the prior status', async () => {
+    line.onEvent({ type: 'agent_ready', agent: 'curia-9', ticket: '9', model: 'opus', ts: 'T' })
+    await drain()
+    line.onEvent({
+      type: 'agent_phase', agent: 'curia-9', ticket: '9',
+      phase: { icon: '🧭', label: 'this label is more than twenty characters' },
+    })
+    await drain()
+
+    assert.equal(edits.length, 0)
+    assert.equal(posts.length, 1)
   })
 
   // #253, ADR-0013: the ending used to speak four times in twenty seconds, and
   // this line was one of the four. Every terminal event now retires it.
   describe('a terminal event retires the line (#253)', () => {
     for (const ev of [
-      { type: 'lifecycle_closed', agent: 'curia-4', ticket: '4' },
+      { type: 'lifecycle_closed', agent: 'curia-4', ticket: '4', kind: 'reviewer' },
       { type: 'agent_abnormal_exit', agent: 'curia-4', ticket: '4' },
       { type: 'reviewer_abnormal_exit', agent: 'curia-4', ticket: '4' },
       { type: 'agent_died', agent: 'curia-4', ticket: '4' },
@@ -385,11 +414,12 @@ describe('StatusLine', () => {
   test('a respawn after an ending draws a fresh line at the bottom', async () => {
     line.onEvent({ type: 'agent_spawned', agent: 'curia-2', ticket: '2', model: 'opus' })
     line.onEvent({ type: 'lifecycle_closed', agent: 'curia-2', ticket: '2' })
+    line.onEvent({ type: 'thread_settled', agent: 'curia-2', ticket: '2', receipt: '✅ resolved' })
     line.onEvent({ type: 'agent_spawned', agent: 'curia-2', ticket: '2', model: 'sonnet' })
     await drain()
     assert.equal(posts.length, 2)
     assert.match(posts[1].text, /dispatched on \*\*sonnet\*\*/)
-    assert.deepEqual(removals, ['m1'], 'the ended run took its own line with it')
+    assert.deepEqual(removals, [], 'the settled receipt stays in the thread')
   })
 
   test('a result event never steers the line out of the thread it is already in (#202)', async () => {

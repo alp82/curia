@@ -261,3 +261,18 @@ export function sendText(name, text, { readbackMs = PANE_READBACK_MS, paste = fa
 export function sendKey(name, key) {
   return paneJob(name, (write) => write(['send-keys', '-t', `=${name}:`, key]))
 }
+
+// A native dialog answer is one pane job. The daemon parses the visible
+// selected index and the tapped target index. Sending the complete navigation
+// sequence in one tmux call prevents another device from changing the
+// selection between a cursor key and Enter.
+export function sendDialogOption(name, { currentIndex, targetIndex }) {
+  if (!Number.isInteger(currentIndex) || currentIndex < 1
+      || !Number.isInteger(targetIndex) || targetIndex < 1) {
+    throw new Error('native dialog option indexes must be positive integers')
+  }
+  const direction = targetIndex >= currentIndex ? 'Down' : 'Up'
+  const keys = Array(Math.abs(targetIndex - currentIndex)).fill(direction)
+  keys.push('Enter')
+  return paneJob(name, (write) => write(['send-keys', '-t', `=${name}:`, ...keys]))
+}

@@ -56,7 +56,7 @@ describe('the image tag (#154)', () => {
     assert.equal(agentImageRef(PINS).ref, agentImageRef({ ...PINS }).ref)
   })
 
-  test('the legible half names both CLI versions', () => {
+  test('the legible half names the two primary harness versions', () => {
     const { ref } = agentImageRef(PINS)
     assert.match(ref, /^curia-agent:2\.1\.220-0\.146\.0-[0-9a-f]{8}$/)
   })
@@ -113,6 +113,7 @@ describe('the image tag (#154)', () => {
     assert.doesNotMatch(instructions(), /RUN\s+--mount/)
     assert.doesNotMatch(instructions(), /<<[A-Z]/)
   })
+
 })
 
 // The harness set the image carries (#696). Routing can pick any of the four,
@@ -366,6 +367,7 @@ describe('sandbox config (#154)', () => {
     const cfg = loadCuriaConfig(writeConfig(FULL))
     assert.equal(cfg.sandbox.image, DEFAULT_IMAGE)
     assert.equal(cfg.sandbox.claude_version, '2.1.220')
+    assert.equal(cfg.sandbox.opencode_version, '1.18.23')
     assert.equal(cfg.sandbox.agent_uid, 1000)
   })
 

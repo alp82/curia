@@ -131,7 +131,9 @@ describe('the read the settings screen draws', () => {
       max_concurrent: 2,
       poll_interval_s: 60,
       prototype_variations: 5,
+      messages_per_send: 4,
     })
+    assert.deepEqual(s.overseer, { live_pane_cap: 3 })
     assert.deepEqual(s.watch, [{ repo: 'o/first', mode: 'auto' }, { repo: 'o/second', mode: 'auto' }])
     assert.deepEqual(s.routing.defaults, [{ type: 'untyped', model: 'opus' }, { type: 'research', model: 'gpt' }])
     assert.deepEqual(s.routing.models.map((m) => m.name), ['opus', 'sonnet', 'gpt'])
@@ -140,6 +142,15 @@ describe('the read the settings screen draws', () => {
 
   test('a model with no `active` key reads as on — a file written before the key routes as it always did', () => {
     assert.ok(readSettings(files()).routing.models.every((m) => m.active))
+  })
+
+  test('an object routing default keeps its model and ticket-type effort', () => {
+    fs.writeFileSync(routingFile, fs.readFileSync(routingFile, 'utf8')
+      .replace('  research: gpt # spread the quota', '  research: { model: gpt, effort: high } # spread the quota'))
+    assert.deepEqual(readSettings(files()).routing.defaults, [
+      { type: 'untyped', model: 'opus' },
+      { type: 'research', model: 'gpt', effort: 'high' },
+    ])
   })
 
   // The screen is most needed exactly when the daemon will not boot on this
@@ -308,6 +319,32 @@ describe('the save lands beside the tracked file, never on it', () => {
     assert.deepEqual(out.written.sort(), ['curia.local.yaml', 'routing.local.yaml'])
     assert.equal(loadCuriaConfig(curiaFile, { checkPaths: false }).dispatch.max_concurrent, 3)
     assert.equal(loadRoutingConfig(routingFile).defaults.untyped, 'sonnet')
+  })
+
+  test('a routing save preserves the model and ticket-type effort together', () => {
+    saveSettings({
+      ...files(),
+      patch: { routing: { defaults: { research: { model: 'opus', effort: 'max' } } } },
+    })
+    assert.deepEqual(parse(readOr(overRouting())), {
+      defaults: { research: { model: 'opus', effort: 'max' } },
+    })
+    assert.deepEqual(readSettings(files()).routing.defaults[1], {
+      type: 'research', model: 'opus', effort: 'max',
+    })
+  })
+
+  test('conversation limits save through the same dock patch', () => {
+    saveSettings({
+      ...files(),
+      patch: { dispatch: { messages_per_send: 3 }, overseer: { live_pane_cap: 5 } },
+    })
+    assert.deepEqual(parse(readOr(overCuria())), {
+      dispatch: { messages_per_send: 3 }, overseer: { live_pane_cap: 5 },
+    })
+    const read = readSettings(files())
+    assert.equal(read.dispatch.messages_per_send, 3)
+    assert.equal(read.overseer.live_pane_cap, 5)
   })
 
   test('the screen reads the two layers merged, and says where a save lands', () => {
@@ -519,7 +556,9 @@ describe('the closed set a reload applies (#362)', () => {
       max_concurrent: 2,
       poll_interval_s: 60,
       prototype_variations: 5,
+      messages_per_send: 4,
     })
+    assert.deepEqual(live.overseer, { live_pane_cap: 3 })
     assert.deepEqual(live.watch, [{ repo: 'o/first', mode: 'auto' }, { repo: 'o/second', mode: 'auto' }])
     assert.deepEqual(live.routing.defaults, [{ type: 'untyped', model: 'opus' }, { type: 'research', model: 'gpt' }])
     assert.deepEqual(live.routing.models, [
@@ -543,6 +582,8 @@ describe('the closed set a reload applies (#362)', () => {
     ['the switch', () => overCuriaFile(['dispatch:', '  auto_dispatch: true']), ['dispatch.auto_dispatch']],
     ['the tick', () => overCuriaFile(['dispatch:', '  poll_interval_s: 15']), ['dispatch.poll_interval_s']],
     ['the prototype count', () => overCuriaFile(['dispatch:', '  prototype_variations: 7']), ['dispatch.prototype_variations']],
+    ['the message limit', () => overCuriaFile(['dispatch:', '  messages_per_send: 3']), ['dispatch.messages_per_send']],
+    ['the live pane cap', () => overCuriaFile(['overseer:', '  live_pane_cap: 5']), ['overseer.live_pane_cap']],
     ['the watch list', () => overCuriaFile(['watch:', '  - repo: o/first', '  - repo: o/third']), ['watch']],
     ['a routing default', () => overRoutingFile(['defaults:', '  untyped: sonnet']), ['routing.defaults.untyped']],
     ['a model switch', () => overRoutingFile(['models:', '  sonnet:', '    active: false']), ['routing.models.sonnet.active']],

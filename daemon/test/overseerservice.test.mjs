@@ -116,13 +116,20 @@ describe('the `overseer:` config block', () => {
   const fail = (msg) => { throw new Error(msg) }
 
   test('it defaults, so a config predating the container still boots', () => {
-    assert.deepEqual(readOverseer({}, fail), { port: DEFAULT_OVERSEER.port })
+    assert.deepEqual(readOverseer({}, fail), DEFAULT_OVERSEER)
   })
 
   test('a bad shape refuses rather than defaulting quietly', () => {
     assert.throws(() => readOverseer({ overseer: [] }, fail), /must be a mapping/)
     assert.throws(() => readOverseer({ overseer: { port: 'x' } }, fail), /must be a port number/)
     assert.throws(() => readOverseer({ overseer: { port: 99999 } }, fail), /must be a port number/)
+    assert.throws(() => readOverseer({ overseer: { live_pane_cap: 0 } }, fail), /live_pane_cap must be a positive integer/)
+    assert.throws(() => readOverseer({ overseer: { live_pane_cap: 2.5 } }, fail), /live_pane_cap must be a positive integer/)
+  })
+
+  test('the live pane cap defaults to three and accepts a stated positive integer', () => {
+    assert.equal(readOverseer({}, fail).live_pane_cap, 3)
+    assert.equal(readOverseer({ overseer: { live_pane_cap: 5 } }, fail).live_pane_cap, 5)
   })
 
   test('the shipped config names it, and it collides with nothing', () => {

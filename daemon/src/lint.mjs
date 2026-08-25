@@ -189,6 +189,12 @@ export function lintGeometry(field, value) {
   return faults
 }
 
+// Composite sends still accept the ADR-0026 `visual` field. Keep its lint
+// entry point as a named wrapper around the shared geometry rules.
+export function lintVisual(value) {
+  return lintGeometry('visual', value)
+}
+
 // ---- the table: geometry, and the columns line up ----------------------------
 //
 // This check is WHY ADR-0026 split `table` from `diagram`. One combined field
@@ -382,6 +388,7 @@ export function lintAskHuman(kind, payload = {}) {
   ;(payload.options ?? []).forEach((o, i) => {
     if (typeof o !== 'object' || o === null) return
     if (present(o.label)) faults.push(...gradeA(`options[${i}].label`, o.label, CAPS.option))
+    if (present(o.handle)) faults.push(...gradeA(`options[${i}].handle`, o.handle, 20))
     if (present(o.consequence)) faults.push(...gradeA(`options[${i}].consequence`, o.consequence, CAPS.consequence))
     if (present(o.example)) faults.push(...gradeB(`options[${i}].example`, o.example, CAPS.example))
   })
@@ -471,7 +478,8 @@ export function notifyFloorFaults(payload = {}) {
   const faults = retiredFieldFaults(payload)
   const opening = payload.opening
   const hasOpening = opening !== undefined && opening !== null
-  const hasPhase = present(payload.phase)
+  const objectPhase = payload.phase !== null && typeof payload.phase === 'object'
+  const hasPhase = objectPhase || present(payload.phase)
   const hasLabel = present(payload.label)
   if (!present(payload.message) && !hasOpening && !hasPhase && !hasLabel) {
     faults.push('message: missing. Send a milestone message, an opening, or a phase update.')
@@ -480,7 +488,7 @@ export function notifyFloorFaults(payload = {}) {
     if (!present(opening?.goal)) faults.push('opening.goal: missing. State the goal as you read it.')
     if (!present(opening?.first_step)) faults.push('opening.first_step: missing. State your first step.')
   }
-  if (hasPhase && !hasLabel) faults.push('label: missing. A phase update needs a short label.')
+  if (hasPhase && !objectPhase && !hasLabel) faults.push('label: missing. A phase update needs a short label.')
   if (hasLabel && !hasPhase) faults.push('phase: missing. A status label needs its phase.')
   return faults
 }
@@ -491,7 +499,9 @@ export function notifyFloorFaults(payload = {}) {
 // spoiler alone still says something, and an empty call says nothing.
 export function notifyHasText(payload = {}) {
   return present(payload.message) || present(payload.detail) || hasVisualField(payload)
-    || present(payload.opening?.goal) || present(payload.opening?.first_step) || present(payload.label)
+    || present(payload.opening?.goal) || present(payload.opening?.first_step)
+    || present(payload.label) || (payload.phase !== null && typeof payload.phase === 'object')
+    || present(payload.phase)
 }
 
 export function lintNotify(payload = {}) {
@@ -501,10 +511,23 @@ export function lintNotify(payload = {}) {
   faults.push(...lintVisualFields(payload))
   if (present(payload.opening?.goal)) faults.push(...gradeA('opening.goal', payload.opening.goal, CAPS.question))
   if (present(payload.opening?.first_step)) faults.push(...gradeA('opening.first_step', payload.opening.first_step, CAPS.question))
-  if (present(payload.phase) && !WORK_PHASES.includes(payload.phase)) {
-    faults.push(`phase: "${payload.phase}" is not one of ${WORK_PHASES.join(', ')}.`)
+  if (payload.phase !== null && typeof payload.phase === 'object') {
+    const icons = ['🧭', '💭', '🔨', '🚦', '🩹', '🚢']
+    if (!icons.includes(payload.phase.icon)) {
+      faults.push(`phase.icon: use one of ${icons.join(' ')}.`)
+    }
+    const label = String(payload.phase.label ?? '').trim()
+    if (!label) faults.push('phase.label: missing.')
+    if (/\r|\n/.test(label)) faults.push('phase.label: one line only.')
+    const length = Array.from(label).length
+    if (length > 20) faults.push(`phase.label: ${length} characters over the 20 characters cap. Shorten the label.`)
+    if (/`/.test(label)) faults.push('phase.label: remove the code mark. Curia adds code marks around the label.')
+  } else {
+    if (present(payload.phase) && !WORK_PHASES.includes(payload.phase)) {
+      faults.push(`phase: "${payload.phase}" is not one of ${WORK_PHASES.join(', ')}.`)
+    }
+    if (present(payload.label)) faults.push(...gradeA('label', payload.label, CAPS.phaseLabel))
   }
-  if (present(payload.label)) faults.push(...gradeA('label', payload.label, CAPS.phaseLabel))
   return faults
 }
 

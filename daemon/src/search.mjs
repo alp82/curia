@@ -39,6 +39,12 @@ export const SEARCH_KINDS = ['ticket', 'map', 'decision', 'journal', 'chat']
 // The four sources of the first index. Discord is deliberately absent.
 export const SEARCH_SOURCES = ['github', 'decisions', 'journal', 'transcripts']
 
+// The shared query interface groups GitHub facts and decisions behind one
+// adapter. The detailed search above still names decisions as their own source
+// when it reports a partial failure.
+const QUERY_SOURCES = ['github', 'journal', 'transcripts']
+export const MAX_SEARCH_QUERY = 200
+
 // The three attention states a row can carry. `needs_you` is the amber word the
 // row shows instead of its kind.
 export const ATTENTION_STATES = ['needs_you', 'open', 'closed']
@@ -62,6 +68,81 @@ const CHAT_SPEAKERS = { prompt: 'operator', queued: 'operator', note: 'curia', s
 // the searchable text so that a query for "result" doesn't match every row's
 // own type twice.
 const JOURNAL_SKIP_KEYS = new Set(['ts', 'type', 'epoch'])
+
+function wireLandingFor(row) {
+  switch (row.kind) {
+    case 'ticket':
+    case 'chat':
+      return { surface: 'chat', conversation: String(row.conversation ?? row.id) }
+    case 'map':
+      return { surface: 'maps', map: Number(row.map ?? String(row.id).match(/#(\d+)$/)?.[1]) }
+    case 'decision':
+      return { surface: 'github', url: String(row.url) }
+    case 'journal':
+      return { surface: 'feed', event: String(row.id) }
+    default:
+      throw new Error(`unsupported search result kind "${row.kind}"`)
+  }
+}
+
+function resultOnWire(row, now) {
+  const stamp = Date.parse(row.at ?? row.updated_at ?? '')
+  return {
+    kind: String(row.kind),
+    id: String(row.id),
+    title: String(row.title ?? ''),
+    snippet: String(row.snippet ?? ''),
+    age_s: Number.isFinite(stamp) ? Math.max(0, Math.floor((now - stamp) / 1000)) : null,
+    attention: row.attention == null ? null : String(row.attention),
+    landing: wireLandingFor(row),
+  }
+}
+
+// Atlas calls one checked interface while its source adapters own retrieval.
+// Discord thread bodies remain outside this source set.
+export class GlobalSearch {
+  constructor({ now = Date.now, ...sources }) {
+    for (const name of Object.keys(sources)) {
+      if (!QUERY_SOURCES.includes(name)) throw new Error(`unsupported search source "${name}"`)
+    }
+    for (const name of QUERY_SOURCES) {
+      if (typeof sources[name]?.search !== 'function') throw new Error(`search source "${name}" has no search interface`)
+    }
+    this.sources = sources
+    this.now = now
+  }
+
+  async query(raw, { limit = 50 } = {}) {
+    const query = String(raw ?? '').trim()
+    if (!query) throw new Error('search query has no words')
+    if (query.length > MAX_SEARCH_QUERY) {
+      throw new Error(`search queries may not exceed ${MAX_SEARCH_QUERY} characters`)
+    }
+
+    const settled = await Promise.all(QUERY_SOURCES.map(async (source) => {
+      try {
+        const rows = await this.sources[source].search(query)
+        return { source, rows: Array.isArray(rows) ? rows : [] }
+      } catch (error) {
+        return { source, error: error?.message ?? String(error) }
+      }
+    }))
+    const results = []
+    const errors = []
+    const now = this.now()
+    for (const part of settled) {
+      if (part.error) {
+        errors.push({ source: part.source, error: part.error })
+        continue
+      }
+      for (const row of part.rows) {
+        if (results.length >= limit) break
+        results.push(resultOnWire(row, now))
+      }
+    }
+    return { query, results, errors }
+  }
+}
 
 // The terms a query means: every whitespace-separated word, lowercased. A row
 // matches when its text holds all of them, in any order and any position.

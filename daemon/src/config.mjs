@@ -8,7 +8,9 @@ import path from 'node:path'
 import { parse } from 'yaml'
 import { DEFAULT_RANGE as DEFAULT_PREVIEW_RANGE, DEFAULT_PROXY_FROM } from './preview.mjs'
 import { DEFAULT_SKILLS, defaultSkillsRoot, HARNESS_NAMES, harnessProvider } from './workspace.mjs'
-import { LIMIT_PATTERNS, SAFE_SUBSTITUTION } from './routing.mjs'
+import {
+  LIMIT_PATTERNS, REASONING_EFFORTS, SAFE_SUBSTITUTION, harnessReasoningEffort,
+} from './routing.mjs'
 import { DEFAULT_INDEX, REBUILD_CMD } from './attach.mjs'
 import { PROBE_MODEL } from './usage.mjs'
 import { DEFAULT_CLI_VERSION, DEFAULT_INTERVAL_HOURS } from './aistack.mjs'
@@ -23,9 +25,6 @@ import { CONSUMER_NAMES, consumerContractFault, providerContractFault } from './
 // Exported because the settings screen writes this key (#265), and a second
 // list of the legal modes would be a second answer to one question.
 export const WATCH_MODES = ['auto', 'map', 'ready-for-agent']
-
-// Every reasoning effort any configured model accepts, unioned.
-const REASONING_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra']
 
 // A GitHub login as GitHub itself allows one: letters, digits and single
 // hyphens, no hyphen at either end, 39 characters at most. The whole point of
@@ -172,6 +171,10 @@ export function loadCuriaConfig(file, { checkPaths = true, localFile, env = proc
   d.prototype_variations = d.prototype_variations ?? 5
   if (!Number.isInteger(d.prototype_variations) || d.prototype_variations <= 0) {
     fail(src, 'dispatch.prototype_variations must be a positive integer')
+  }
+  d.messages_per_send = d.messages_per_send ?? 4
+  if (!Number.isInteger(d.messages_per_send) || d.messages_per_send < 1 || d.messages_per_send > 4) {
+    fail(src, 'dispatch.messages_per_send must be an integer from 1 through 4')
   }
   // stop_nudge_budget (#54 item 4) is optional with a default so a config
   // predating the merge-gated ending still boots. It must be > 0: a budget of
@@ -514,7 +517,7 @@ export function loadRoutingConfig(file, { localFile } = {}) {
   if (!cfg || typeof cfg !== 'object') fail(src, 'not a mapping')
 
   if (!cfg.defaults || typeof cfg.defaults !== 'object') fail(src, '`defaults` section missing')
-  if (typeof cfg.defaults.untyped !== 'string') fail(src, 'defaults.untyped is required')
+  if (cfg.defaults.untyped === undefined) fail(src, 'defaults.untyped is required')
 
   if (!cfg.models || typeof cfg.models !== 'object' || !Object.keys(cfg.models).length) {
     fail(src, '`models` must be a non-empty map')
@@ -537,12 +540,14 @@ export function loadRoutingConfig(file, { localFile } = {}) {
     if (m.id !== undefined && (typeof m.id !== 'string' || !SAFE_SUBSTITUTION.test(m.id))) {
       fail(src, `models.${name}.id must be a quote-free model name (got ${JSON.stringify(m.id)})`)
     }
-    // Checked against the union across models, not per model: which efforts a
-    // model accepts is the model's business (gpt-5.6 adds `max` and `ultra`,
-    // gpt-5.5 has neither) and a stale list here would refuse a valid config.
-    // This catches the typo, which is the failure worth catching at boot.
+    // The shared union catches spelling mistakes. The harness map then catches
+    // an effort the target CLI cannot state, such as `ultra` on pi.
     if (m.reasoning_effort !== undefined && !REASONING_EFFORTS.includes(m.reasoning_effort)) {
       fail(src, `models.${name}.reasoning_effort must be one of ${REASONING_EFFORTS.join('|')} (got ${JSON.stringify(m.reasoning_effort)})`)
+    }
+    if (m.reasoning_effort !== undefined
+      && !harnessReasoningEffort(m.harness, m.reasoning_effort)) {
+      fail(src, `models.${name}.reasoning_effort "${m.reasoning_effort}" is not supported by the ${m.harness} harness`)
     }
     // Optional (#146), and since #178 the LAST resort for the status line's
     // context %: the transcript's own window wins, then the live
@@ -573,10 +578,29 @@ export function loadRoutingConfig(file, { localFile } = {}) {
   if (!Object.values(cfg.models).some((m) => m.active)) {
     fail(src, 'every model is `active: false` — curia would have nothing to dispatch on; turn at least one back on')
   }
-  for (const [type, model] of Object.entries(cfg.defaults)) {
+  for (const [type, route] of Object.entries(cfg.defaults)) {
+    if (typeof route !== 'string' && (!route || typeof route !== 'object' || Array.isArray(route))) {
+      fail(src, `defaults.${type} must be a model label or { model, effort }`)
+    }
+    const model = typeof route === 'string' ? route : route.model
+    if (typeof model !== 'string' || !model) {
+      fail(src, `defaults.${type}.model is required`)
+    }
+    if (typeof route === 'object') {
+      for (const key of Object.keys(route)) {
+        if (!['model', 'effort'].includes(key)) fail(src, `defaults.${type}.${key} is not a routing field`)
+      }
+      if (route.effort !== undefined && !REASONING_EFFORTS.includes(route.effort)) {
+        fail(src, `defaults.${type}.effort must be one of ${REASONING_EFFORTS.join('|')} (got ${JSON.stringify(route.effort)})`)
+      }
+    }
     if (!cfg.models[model]) fail(src, `defaults.${type} names unknown model "${model}"`)
     if (!cfg.models[model].active) {
       fail(src, `defaults.${type} names "${model}", which is \`active: false\` — either turn that model on or point this row at an active one`)
+    }
+    if (typeof route === 'object' && route.effort
+      && !harnessReasoningEffort(cfg.models[model].harness, route.effort)) {
+      fail(src, `defaults.${type}.effort "${route.effort}" is not supported by the ${cfg.models[model].harness} harness`)
     }
   }
 

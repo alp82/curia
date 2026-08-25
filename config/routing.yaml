@@ -9,11 +9,11 @@ defaults:
   # var or cached state beats it, so opus stands. The daemon no longer stalls
   # on it: the pane classifier cools fable and respawns down the chain (#126).
   # Flip these back to fable once the account holds fable usage credits.
-  grilling: opus
-  prototype: opus
-  research: gpt # #13: spread quota — research is the bulk lane
-  task: opus
-  untyped: opus
+  grilling: {model: opus, effort: high}
+  prototype: {model: opus, effort: medium}
+  research: {model: gpt, effort: high} # #13: spread quota on the bulk lane
+  task: {model: opus, effort: high}
+  untyped: {model: opus, effort: high}
   # A map dispatch (#160): `start curia#<map>` on a `wayfinder:map` issue spawns
   # a CHARTING agent, which rewrites the map every later agent reads. #149
   # pinned it to the strongest claude-harness model, because no gate checks a
@@ -31,7 +31,7 @@ defaults:
   # what `fallbacks` below already gives, transitively, with sonnet at the tail.
   #
   # A `model:<x>` label on the map still beats this row (resolveModel).
-  map: fable
+  map: {model: fable, effort: max}
 
 # `context_window` feeds the status line's context % (#146), and it is the LAST
 # resort for it since #178. It used to say 200000 for the three anthropic models

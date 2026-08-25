@@ -389,6 +389,28 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
     assert.equal(sentTo.length, 0)
   })
 
+  test('a new ticket thread opens with its title before dispatch mechanics', async () => {
+    const r = await bridge.bindTicket('690', {
+      type: 'task', repo: 'alp82/curia', title: 'Tell one quiet ticket story in Discord',
+    })
+
+    assert.equal(r.ok, true)
+    assert.equal(sentTo[0].id, created[0].id)
+    assert.equal(sentTo[0].text, '🎫 **#690 - Tell one quiet ticket story in Discord**')
+  })
+
+  test('a revived thread does not repeat the ticket goal', async () => {
+    const old = makeThread('t-old-goal', '✅ 690 · curia · task')
+    bridge.registerThread(old)
+    reduction.bindTicketThread('690', old.id)
+    reduction.releaseTicketThread('690', 'finished')
+
+    await bridge.bindTicket('690', {
+      type: 'task', repo: 'alp82/curia', title: 'Tell one quiet ticket story in Discord',
+    })
+    assert.equal(sentTo.length, 0, 'the existing thread already carries its opening')
+  })
+
   // ---- watchers on a fresh thread --------------------------------------------
 
   test('a fresh thread adds every allowed user as a member, with no ping', async () => {

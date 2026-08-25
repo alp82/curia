@@ -153,6 +153,28 @@ describe('notify carries the typed fields and the lint gate (#420, real boot)', 
     assert.match(line.table, /look   open it now/)
   })
 
+  test('a phase-only update reaches the editable status line', async () => {
+    const text = await call('curia-420-phase', '420', {
+      phase: { icon: '🚦', label: 'runs daemon tests' },
+    })
+
+    assert.match(text, /^ok/m)
+    const events = journalEvents(path.join(tmp, 'data'))
+    const phase = events.findLast((event) => event.type === 'agent_phase' && event.agent === 'curia-420-phase')
+    assert.deepEqual(phase.phase, { icon: '🚦', label: 'runs daemon tests' })
+  })
+
+  test('an unrecognized phase icon reaches the lint refusal', async () => {
+    const text = await call('curia-420-bad-phase', '420', {
+      phase: { icon: '🏁', label: 'done' },
+    })
+
+    assert.match(text, /curia refused this call/)
+    assert.match(text, /phase\.icon: use one of/)
+    const events = journalEvents(path.join(tmp, 'data'))
+    assert.ok(!events.some((event) => event.type === 'agent_phase' && event.agent === 'curia-420-bad-phase'))
+  })
+
   test('an opening and phase update travel through the notify tool', async () => {
     const text = await call('curia-420-opening', '420', {
       opening: {

@@ -73,6 +73,7 @@ describe('every post into a ticket thread reports itself (#480)', () => {
         release: (t, r) => reduction.releaseTicketThread(t, r),
         last: (t) => reduction.lastThreadForTicket(t),
         ticketOf: (id) => reduction.ticketForThread(id),
+        repoOf: () => 'alp82/curia',
       },
     })
     bridge.guild = { id: 'G' }

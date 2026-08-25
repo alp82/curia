@@ -74,6 +74,7 @@ export function composeCard(kind, payload = {}) {
     // so curia prints it rather than trusting the prose to carry it.
     for (const [i, q] of (payload.questions ?? []).entries()) {
       const lines = [`**${i + 1}.** ${String(q?.text ?? '').trim()}`]
+      if (has(q?.background)) lines.push(smallPrint(`💡 ${String(q.background).trim()}`))
       if (has(q?.recommendation)) lines.push(`↳ ${String(q.recommendation).trim()}`)
       parts.push(lines.join('\n'))
     }

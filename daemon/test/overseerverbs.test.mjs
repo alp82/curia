@@ -172,6 +172,8 @@ describe('the command round trip, generated (#692)', () => {
     repo: 'alp82/curia',
     model: 'opus',
     instruction: 'chart the fog -- all of it',
+    name: 'research',
+    target: 'alp82/curia#147',
   }
 
   // The verbs whose ticket field also takes "all". Both shapes are a separate
@@ -216,8 +218,8 @@ describe('the command round trip, generated (#692)', () => {
   test('every verb in the catalogue gets generated cases', () => {
     assert.deepEqual([...new Set(cases.map((c) => c.verb))], [...VERB_TOOLS])
     // The count is stated so a silently emptied powerset cannot pass as
-    // coverage: 9 verbs, 28 argument combinations.
-    assert.equal(cases.length, 28)
+    // coverage: 10 verbs, 29 argument combinations.
+    assert.equal(cases.length, 29)
   })
 
   for (const { verb, args } of cases) {
@@ -243,9 +245,11 @@ describe('the command round trip, generated (#692)', () => {
         repo: plan ? plan.repo : (cmd.repo ?? cmd.repoArg),
         model: cmd.model,
         instruction: plan ? plan.instruction : cmd.instruction,
+        name: cmd.name,
+        target: cmd.target,
       }
       const gone = dropped(verb, args)
-      for (const field of ['ticket', 'repo', 'model', 'instruction']) {
+      for (const field of ['ticket', 'repo', 'model', 'instruction', 'name', 'target']) {
         // `map_new` composes no number, so the ticket field is absent by
         // design and the powerset never offers it one.
         const want = gone.includes(field) ? undefined : args[field]

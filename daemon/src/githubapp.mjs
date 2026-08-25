@@ -168,10 +168,204 @@ export const READ_PERMISSIONS = Object.freeze({
 
 export const ROLES = Object.freeze({ write: WRITE_PERMISSIONS, read: READ_PERMISSIONS })
 
+// The App itself holds the union needed by the two scoped token roles. Commit
+// statuses are read-only for the overseer, while the other write permissions
+// serve agents. No workflow, organization, or account permission is present.
+export const MANIFEST_PERMISSIONS = Object.freeze({
+  contents: 'write',
+  issues: 'write',
+  pull_requests: 'write',
+  statuses: 'read',
+  metadata: 'read',
+})
+
 export function permissionsFor(role) {
   const set = ROLES[role]
   if (!set) throw new Error(`no such token role "${role}" — curia mints ${Object.keys(ROLES).join(' and ')}`)
   return set
+}
+
+// ---- manifest setup --------------------------------------------------------
+
+export const APP_SETUP_TTL_MS = 60 * 60 * 1000
+
+function atomicWrite(file, text, mode = 0o600) {
+  fs.mkdirSync(path.dirname(file), { recursive: true })
+  const temporary = `${file}.tmp-${process.pid}-${crypto.randomBytes(6).toString('hex')}`
+  fs.writeFileSync(temporary, text, { mode })
+  fs.chmodSync(temporary, mode)
+  fs.renameSync(temporary, file)
+}
+
+function readJson(file) {
+  return JSON.parse(fs.readFileSync(file, 'utf8'))
+}
+
+function envWith(existing, values) {
+  const pending = new Map(Object.entries(values))
+  const lines = String(existing ?? '').split('\n').map((line) => {
+    const match = line.match(/^([A-Z][A-Z0-9_]*)=/)
+    if (!match || !pending.has(match[1])) return line
+    const value = pending.get(match[1])
+    pending.delete(match[1])
+    return `${match[1]}=${value}`
+  })
+  while (lines.length && lines[lines.length - 1] === '') lines.pop()
+  for (const [key, value] of pending) lines.push(`${key}=${value}`)
+  return `${lines.join('\n')}\n`
+}
+
+function samePermissions(actual) {
+  const wanted = Object.entries(MANIFEST_PERMISSIONS).sort()
+  const got = Object.entries(actual ?? {}).sort()
+  return JSON.stringify(got) === JSON.stringify(wanted)
+}
+
+export class GitHubAppSetup {
+  constructor({
+    daemonRoot = '.',
+    stateFile = path.join(daemonRoot, '.github-app-setup.json'),
+    envFile = path.join(daemonRoot, '.env.daemon'),
+    keyFile = path.join(daemonRoot, DEFAULT_KEY_FILE),
+    fetchImpl = globalThis.fetch,
+    now = Date.now,
+    randomBytes = crypto.randomBytes,
+    adopt = () => {},
+    store = null,
+  } = {}) {
+    this.daemonRoot = daemonRoot
+    this.stateFile = stateFile
+    this.secretFile = `${stateFile}.conversion`
+    this.envFile = envFile
+    this.keyFile = keyFile
+    this.fetchImpl = fetchImpl
+    this.now = now
+    this.randomBytes = randomBytes
+    this.adopt = adopt
+    this.store = store ?? ((payload) => this.storeApp(payload))
+  }
+
+  #writeState(record) {
+    atomicWrite(this.stateFile, `${JSON.stringify(record)}\n`)
+  }
+
+  #readState() {
+    try {
+      return readJson(this.stateFile)
+    } catch (error) {
+      if (error?.code === 'ENOENT') throw new Error('there is no GitHub App setup in progress')
+      throw error
+    }
+  }
+
+  status() {
+    try {
+      const record = this.#readState()
+      if (record.status === 'complete') return { status: 'complete', app: record.app }
+      return {
+        status: this.now() > record.expires_at ? 'expired' : record.status,
+        expires_at: new Date(record.expires_at).toISOString(),
+      }
+    } catch (error) {
+      if (/no GitHub App setup/.test(error?.message ?? '')) return { status: 'unconfigured' }
+      throw error
+    }
+  }
+
+  start({ name, redirectUrl, organization = null } = {}) {
+    const appName = String(name ?? '').trim()
+    if (!appName || appName.length > 34) throw new Error('the GitHub App name must contain 1 to 34 characters')
+    let redirect
+    try {
+      redirect = new URL(String(redirectUrl))
+    } catch {
+      throw new Error('the GitHub App redirect URL is not a URL')
+    }
+    if (redirect.protocol !== 'https:') throw new Error('the GitHub App redirect URL must use HTTPS')
+    const state = Buffer.from(this.randomBytes(32)).toString('hex')
+    const expires = this.now() + APP_SETUP_TTL_MS
+    this.#writeState({ state, expires_at: expires, status: 'pending' })
+    const ownerPath = organization
+      ? `/organizations/${encodeURIComponent(String(organization))}/settings/apps/new`
+      : '/settings/apps/new'
+    return {
+      state,
+      expires_at: new Date(expires).toISOString(),
+      action: `https://github.com${ownerPath}?state=${state}`,
+      manifest: {
+        name: appName,
+        url: redirect.origin,
+        redirect_url: redirect.toString(),
+        public: true,
+        default_permissions: { ...MANIFEST_PERMISSIONS },
+        default_events: [],
+        hook_attributes: { active: false },
+      },
+    }
+  }
+
+  async #convert(code) {
+    const route = `/app-manifests/${encodeURIComponent(code)}/conversions`
+    const response = await this.fetchImpl(`${API}${route}`, {
+      method: 'POST',
+      headers: {
+        accept: 'application/vnd.github+json',
+        'x-github-api-version': API_VERSION,
+        'user-agent': 'curia',
+      },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    })
+    const text = await response.text()
+    let payload
+    try { payload = text ? JSON.parse(text) : null } catch { payload = null }
+    if (!response.ok) throw new Error(`GitHub answered HTTP ${response.status} while converting the App manifest${payload?.message ? `: ${payload.message}` : ''}`)
+    if (!payload?.id || !payload?.slug || !payload?.pem) throw new Error('GitHub converted the App manifest without an id, slug, or private key')
+    if (!samePermissions(payload.permissions)) throw new Error('GitHub converted the App with permissions that differ from Curia\'s requested five')
+    if (!Array.isArray(payload.events) || payload.events.length) throw new Error('GitHub converted the App with webhook events, but Curia requests none')
+    return { id: String(payload.id), slug: String(payload.slug), pem: String(payload.pem) }
+  }
+
+  storeApp(payload) {
+    const temporaryKey = `${this.keyFile}.candidate`
+    fs.mkdirSync(path.dirname(this.keyFile), { recursive: true })
+    fs.writeFileSync(temporaryKey, payload.pem, { mode: 0o600 })
+    fs.chmodSync(temporaryKey, 0o600)
+    readPrivateKey(temporaryKey)
+    fs.renameSync(temporaryKey, this.keyFile)
+    let existing = ''
+    try { existing = fs.readFileSync(this.envFile, 'utf8') } catch (error) { if (error?.code !== 'ENOENT') throw error }
+    atomicWrite(this.envFile, envWith(existing, {
+      [APP_ID_KEY]: payload.id,
+      [APP_KEY_FILE_KEY]: path.relative(this.daemonRoot, this.keyFile) || path.basename(this.keyFile),
+    }))
+  }
+
+  async complete({ code, state } = {}) {
+    const record = this.#readState()
+    if (String(state ?? '') !== record.state) throw new Error('the GitHub App setup state does not match')
+    if (record.status === 'complete') {
+      return { ok: false, reason: 'already completed', app: record.app }
+    }
+    if (this.now() > record.expires_at) throw new Error('the GitHub App setup state expired after one hour')
+
+    let converted
+    if (record.status === 'converted') {
+      converted = readJson(this.secretFile)
+    } else {
+      const temporaryCode = String(code ?? '').trim()
+      if (!temporaryCode) throw new Error('the GitHub App setup returned no temporary code')
+      converted = await this.#convert(temporaryCode)
+      atomicWrite(this.secretFile, `${JSON.stringify(converted)}\n`)
+      this.#writeState({ ...record, status: 'converted' })
+    }
+
+    await this.store(converted)
+    await this.adopt({ appId: converted.id, keyFile: this.keyFile })
+    const app = { id: converted.id, slug: converted.slug }
+    this.#writeState({ ...record, status: 'complete', app, completed_at: this.now() })
+    try { fs.unlinkSync(this.secretFile) } catch (error) { if (error?.code !== 'ENOENT') throw error }
+    return { ok: true, app }
+  }
 }
 
 // ---- the API ---------------------------------------------------------------

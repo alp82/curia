@@ -82,20 +82,15 @@ describe('speaker-identity degradation (#143)', () => {
     assert.equal(asHook[0].threadId, 't-1')
   })
 
-  test('the speaker avatar is a URL that exists, and one for curia (#143)', async () => {
+  test('builder and reviewer prose use one curia identity', async () => {
     await bridge.probeSpeakers()
-    await bridge.notify('85', 'a', { as: 'curia' })
-    await bridge.notify('85', 'b', { as: 'curia' })
+    await bridge.notify('85', 'a', { as: 'curia-85' })
+    await bridge.notify('85', 'b', { as: 'curia-review-85' })
 
-    // github.com/identicons/<name>.png answers for real accounts only, so the
-    // old scheme 404ed for every agent and Discord drew the default face.
-    for (const send of asHook) assert.equal(send.avatarURL, 'https://cdn.discord.test/curia.png')
-    assert.equal(asHook[0].avatarURL, asHook[1].avatarURL, 'curia keeps one face')
-
-    // One agent wears one face for its whole life. The name is the session
-    // name and nothing else (#254), so nothing on the label can move it.
-    await bridge.notify('85', 'c', { as: 'curia' })
-    assert.equal(asHook[2].avatarURL, asHook[0].avatarURL, 'the curia name seeds the face')
+    assert.deepEqual(asHook.map((send) => send.username), ['curia', 'curia'])
+    assert.deepEqual(asHook.map((send) => send.avatarURL), [
+      'https://cdn.discord.test/curia.png', 'https://cdn.discord.test/curia.png',
+    ])
   })
 
   test('a grant withdrawn while the daemon runs is caught at the send', async () => {

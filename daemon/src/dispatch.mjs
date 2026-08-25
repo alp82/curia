@@ -19,7 +19,7 @@ import crypto from 'node:crypto'
 import { setTimeout as sleepFor } from 'node:timers/promises'
 import {
   repoMaps, mapFrontier, flatFrontier, fetchIssue, claim, unclaim, blockedByOf,
-  selectLane, frontierForRepo, filterTakeable, agentOnlyChainCount, directUnblocks, commentIssue, closeIssue, setIssueBody, issueComments,
+  selectLane, frontierForRepo, filterTakeable, agentOnlyChainCount, directUnblocks, commentIssue, closeIssue, setIssueBody, issueComments, createIssue,
   strandedMaps, emptyMapVerdictPrompt, mapCloseBlockers, mapClosedComment, mapHeldComment, MAP_CLOSE_VERB,
   parentNumberOf, hasLabel, findPullRequest, createPullRequest, setPullRequestBody,
   deleteRemoteBranch, pullRequestDiff, approvePullRequest,
@@ -27,6 +27,7 @@ import {
 import {
   resolveModel, candidates, buildSpawnCmd, buildResumeCmd, spawnModelId, parseUsageLimit, parseCreditGate,
   carriesLimitPhrase, resolveReviewer, isActive, Cooling, SAME_PROVIDER_STAMP, namedModel,
+  reasoningEffortFor, harnessReasoningEffort,
 } from './routing.mjs'
 import { hasSession, listSessions, newSession, capturePane, killSession, sendText, sendKey, paneShowsActiveTurn } from './tmux.mjs'
 import {
@@ -80,6 +81,11 @@ import {
   probeTtyd, assertServe, serveOff, CHAT_HANDLE_RE, isChatHandle, nextChatHandle,
 } from './attach.mjs'
 import { failureProse, FailureLines } from './messaging.mjs'
+import { completeMaps } from './overview.mjs'
+import {
+  CLEAR_MAP_FOG, KEEP_MAP_OPEN, MAP_FOG_VERB,
+  clearMapFog, mapFog, mapFogQuestion,
+} from './mapfog.mjs'
 
 // A ticket session's name. Chat handles are in here since #241: an agent no
 // issue answers for — today, the one charting a map that does not exist yet —
@@ -236,7 +242,7 @@ const DEFAULT_DEPS = {
   // the per-agent token on the loopback surface (#159)
   mintAgentToken, forgetAgentToken, sweepAgentTokens,
   // resolve + land (#41), merge-gated (#54)
-  commentIssue, closeIssue, setIssueBody, issueComments, findPullRequest, createPullRequest,
+  commentIssue, closeIssue, setIssueBody, issueComments, createIssue, findPullRequest, createPullRequest,
   setPullRequestBody, deleteRemoteBranch, pullRequestDiff,
   // the gate press as a real GitHub approval (#391) — the one call here that
   // keeps the operator's own login
@@ -394,7 +400,7 @@ export class Dispatcher {
   // escalation and returns its record; lapseEscalation closes one as lapsed
   // (journal + message edit); confirmNote posts a line next to a record's
   // buttons; overseerNote journals a synthetic line for a thread's session.
-  constructor({ config, routing, reduction, notify, announce, openConfirm, lapseEscalation, confirmNote, overseerNote, askReview, cancelEscalation, threads, log = console.log, cooling, readings, dataDir, daemonPort, previews, attachLinks, attachSessionLink, dashboardLink, channelName, minter, credentials, anthropic, anthropicHealth, aistack, deps }) {
+  constructor({ config, routing, reduction, notify, announce, openConfirm, openMapQuestion, lapseEscalation, confirmNote, overseerNote, askReview, cancelEscalation, threads, log = console.log, cooling, readings, dataDir, daemonPort, previews, attachLinks, attachSessionLink, dashboardLink, channelName, minter, credentials, anthropic, anthropicHealth, maintenance, aistack, deps }) {
     this.config = config
     this.routing = routing
     this.reduction = reduction
@@ -405,6 +411,7 @@ export class Dispatcher {
     // until #698 turned that alarm into a question with buttons.
     this.announce = announce ?? (async () => false)
     this.openConfirm = openConfirm ?? (() => null)
+    this.openMapQuestion = openMapQuestion ?? (() => null)
     this.lapseEscalation = lapseEscalation ?? ((id, reason) => this.reduction.lapse?.(id, reason))
     this.confirmNote = confirmNote ?? (() => {})
     this.overseerNote = overseerNote ?? (() => {})
@@ -472,7 +479,7 @@ export class Dispatcher {
     // files no ticket, so it belongs beside the liveness sweep rather than
     // behind a second timer. NULL is legal: the suite builds dispatchers that
     // have no business spawning a command line interface.
-    this.aistack = aistack ?? null
+    this.aistack = maintenance ? null : (aistack ?? null)
     this.deps = { ...DEFAULT_DEPS, ...deps }
     this.root = config.dispatch.workspace_root
     this.agents = new Map() // session -> agent record (disposable cache)
@@ -553,6 +560,9 @@ export class Dispatcher {
     // account bars are disabled and no agent is running. It reports terminal
     // evidence through `holdCredentialLane`, so this field owns only scheduling.
     this.anthropicHealth = anthropicHealth ?? null
+    // Recurring publishers share the daemon's existing tick. A publisher owns
+    // no second timer, and a failure cannot stop liveness or dispatch work.
+    this.maintenance = maintenance ?? null
     // The re-authentication flow (#642). It takes the RAW tmux calls above, for
     // the reason the refusal states, and its image is filled in by
     // `startReauth` — an image ref is a per-dispatch build, not a constant.
@@ -816,6 +826,16 @@ export class Dispatcher {
       lane,
       numbers,
       agentOnly: this.#agentOnlyCount(lane, pool, edges, numbers),
+      maps: completeMaps({
+        repo: entry.repo,
+        maps,
+        activeMapNumbers: activeMaps,
+        mapItems,
+        edges,
+        routing: this.routing,
+        resolveModel,
+        events: this.reduction.recentEvents?.() ?? [],
+      }),
       items: numbers.map((n) => {
         const e = index.get(n)
         const labels = (e?.item?.labels ?? []).map((l) => l.name)
@@ -855,7 +875,6 @@ export class Dispatcher {
   async #watchStrandedMaps(repo, maps, mapItems) {
     try {
       const stranded = strandedMaps(maps, mapItems)
-      const bodies = new Map(maps.map((m) => [m.number, m.body]))
       const now = new Set(stranded.map((m) => m.number))
       for (const s of this.reduction.standingStrandedMaps?.() ?? []) {
         if (s.repo === repo && !now.has(s.map)) {
@@ -864,32 +883,109 @@ export class Dispatcher {
           // lapses with the entry rather than outliving it.
           this.#lapseMapVerdict(repo, s, 'the map is no longer empty')
           this.reduction.journal('map_stranded_cleared', { repo, map: s.map })
+          const question = this.reduction.mapFogQuestion?.(repo, s.map)
+          if (question && !question.workflow_reset_at) {
+            if (question.status === 'open') this.cancelEscalation(question.id, { by: 'map changed' })
+            this.reduction.journal('map_fog_reset', { id: question.id, repo, map: s.map })
+          }
         }
       }
       for (const m of stranded) {
-        // One question per emptying, and the entry is what says so (#698). It
-        // is journalled, so neither a second pass nor a restart asks twice —
-        // and an entry that was already ANSWERED stays quiet for good, because
-        // an operator who said "work remains" has answered this question.
-        const entry = this.reduction.strandedMap?.(repo, m.number)
-        if (entry?.asked || entry?.answered) continue
-        const fog = fogFacts(bodies.get(m.number))
-        const record = this.openConfirm({
-          ticket: String(m.number),
-          prompt: emptyMapVerdictPrompt(repo, m, fog),
-          action: { verb: MAP_CLOSE_VERB, repo, map: m.number, title: m.title, fog: fog.map((f) => f.text) },
-          originThreadId: null,
-        })
-        if (!record) {
-          this.log(`the empty-map question for ${repo}#${m.number} could not be opened — the next pass asks again`)
+        // A question from the adopted confirm workflow may outlive an older
+        // process. Don't open a second typed question beside it.
+        const legacy = this.reduction.strandedMap?.(repo, m.number)
+        if (legacy?.asked || legacy?.answered) continue
+        const held = this.reduction.mapFogQuestion?.(repo, m.number)
+        if (held) {
+          if (held.status === 'answered') await this.onMapFogAnswered(held)
           continue
         }
-        this.reduction.journal('map_verdict_asked', {
-          repo, map: m.number, title: m.title, id: record.id, fog: fog.map((f) => f.text),
+        const entry = this.reduction.strandedMap?.(repo, m.number)
+        let issue = m
+        if (!issue.body) issue = { ...await this.deps.fetchIssue(repo, m.number), number: m.number, title: m.title }
+        const record = await this.openMapQuestion({
+          ticket: String(m.number),
+          ...mapFogQuestion(repo, issue),
         })
+        const said = Boolean(record)
+        // First sighting journals whatever happened. After that, only the say
+        // that finally lands journals — the standing entry already states the
+        // fact, and a tick is too often to restate it.
+        if (!entry || said) this.reduction.journal('map_stranded', { repo, map: m.number, title: m.title, said })
       }
     } catch (e) {
       this.log(`the stranded-map watch failed (${e.message}) — the frontier read stands`)
+    }
+  }
+
+  // Finish one durable empty-map verdict. Every GitHub effect has a journaled
+  // completion step, and the verdict comment also carries a stable marker.
+  // A restart can therefore resume the first incomplete step without asking,
+  // commenting, clearing, or closing twice.
+  async onMapFogAnswered(record) {
+    if (record?.action?.verb !== MAP_FOG_VERB || record.status !== 'answered') return false
+    const repo = record.action.repo
+    const map = Number(record.action.map)
+    if (![CLEAR_MAP_FOG, KEEP_MAP_OPEN].includes(record.answer)) {
+      this.reduction.journal('map_fog_reset', { id: record.id, repo, map, reason: 'invalid answer' })
+      return false
+    }
+    record = this.reduction.mapFogQuestion?.(repo, map) ?? record
+    if (record.map_closed_at) return true
+    if (record.answer === KEEP_MAP_OPEN && record.verdict_posted_at) return true
+
+    let current = await this.deps.fetchIssue(repo, map)
+    if (current.state !== 'open') {
+      if (!record.workflow_reset_at) this.reduction.journal('map_fog_reset', { id: record.id, repo, map })
+      return false
+    }
+
+    const marker = `<!-- curia:empty-map-verdict ${record.id} -->`
+    if (!record.verdict_posted_at) {
+      const comments = await this.deps.issueComments(repo, map)
+      const alreadyCommented = comments.some((comment) => String(comment?.body ?? '').includes(marker))
+      if (!alreadyCommented) {
+        const effect = record.answer === CLEAR_MAP_FOG
+          ? 'Curia will clear retained fog, check the map again, and close it when no child remains open.'
+          : 'Curia will keep the map open with its current fog.'
+        await this.deps.commentIssue(repo, map, `Operator verdict: ${record.answer}.\n\n${effect}\n\n${marker}`)
+      }
+      this.reduction.journal('map_fog_verdict_posted', { id: record.id, repo, map, answer: record.answer })
+      record = this.reduction.mapFogQuestion?.(repo, map) ?? record
+    }
+    if (record.answer === KEEP_MAP_OPEN) return true
+
+    let children = await this.deps.mapFrontier(repo, map)
+    if (children.some((child) => child.state === 'open')) {
+      this.reduction.journal('map_fog_reset', { id: record.id, repo, map })
+      return false
+    }
+
+    if (!record.fog_cleared_at) {
+      const cleared = clearMapFog(current.body)
+      if (cleared !== String(current.body ?? '')) await this.deps.setIssueBody(repo, map, cleared)
+      this.reduction.journal('map_fog_cleared', { id: record.id, repo, map })
+    }
+
+    current = await this.deps.fetchIssue(repo, map)
+    children = await this.deps.mapFrontier(repo, map)
+    if (current.state !== 'open') {
+      if (!record.map_closed_at) this.reduction.journal('map_fog_closed', { id: record.id, repo, map })
+      return true
+    }
+    if (children.some((child) => child.state === 'open') || mapFog(current.body).text) return false
+    if (!record.map_closed_at) {
+      await this.deps.closeIssue(repo, map)
+      this.reduction.journal('map_fog_closed', { id: record.id, repo, map })
+    }
+    return true
+  }
+
+  async #reconcileMapFogQuestions() {
+    for (const record of this.reduction.standingMapFogQuestions?.() ?? []) {
+      if (record.status !== 'answered' || record.map_closed_at) continue
+      await this.onMapFogAnswered(record)
+        .catch((e) => this.log(`reconcile: empty-map verdict ${record.id} failed (${e.message}). The next pass retries.`))
     }
   }
 
@@ -954,7 +1050,7 @@ export class Dispatcher {
   }
 
   // The dependency edges of every open blocked ticket in the pool:
-  // { [number]: [{number, state}] }. Null when a read failed — an unreadable
+  // { [number]: [{number, title, state}] }. Null when a read failed — an unreadable
   // edge is not an open way, and both readers below treat null as "no answer"
   // rather than "no edges".
   //
@@ -970,7 +1066,7 @@ export class Dispatcher {
         if (i.state !== 'open' || i.pull_request) continue
         if ((i.issue_dependencies_summary?.blocked_by ?? 0) === 0) continue
         edges[i.number] = (await this.deps.blockedByOf(repo, i.number))
-          .map((b) => ({ number: b.number, state: b.state }))
+          .map((b) => ({ number: b.number, title: b.title ?? '', state: b.state }))
       }
       return edges
     } catch (e) {
@@ -1017,6 +1113,51 @@ export class Dispatcher {
   }
 
   // ---- start -----------------------------------------------------------------
+
+  // A ticketless skill request starts from a target issue, then creates one
+  // record issue that owns the run. Product issues remain proposals until the
+  // operator approves the bound review gate on this record.
+  async skill(name, target, { by, threadId = null } = {}) {
+    const installed = this.config.skills?.install ?? []
+    if (!installed.includes(name)) {
+      return `❌ skill \`${name}\` is not configured - installed: ${installed.map((item) => `\`${item}\``).join(', ') || 'none'}`
+    }
+
+    const ref = parseTicketRef(target)
+    if (!ref.number) return `❌ \`${target}\` is not an issue target`
+    const resolved = await this.#resolveRepo(ref.number, ref.repo)
+    if (resolved.error) return resolved.error
+    const { repo, issue: targetIssue } = resolved
+    const targetRef = `${repo}#${targetIssue.number}`
+    const recordBody = [
+      '# Skill run record',
+      '',
+      `Skill: \`/${name}\``,
+      `Target: ${targetRef} - ${targetIssue.title}`,
+      `Requested by: ${by ?? 'unknown'}`,
+      '',
+      'This issue is the durable record for a run that had no originating ticket.',
+      'The run must show every proposed title, label, and native dependency edge at its review gate.',
+      'The run publishes no proposed tracker write before the operator approves that gate.',
+    ].join('\n')
+    let record
+    try {
+      record = await this.deps.createIssue(repo, {
+        title: `Skill run: ${name} on ${targetRef}`,
+        body: recordBody,
+      })
+    } catch (error) {
+      return `❌ could not create the durable skill-run record in ${repo}: ${error.message}`
+    }
+    this.reduction.journal('skill_run_recorded', {
+      repo, ticket: String(record.number), agent: `curia-${record.number}`,
+      skill: name, target: targetRef, by: by ?? 'unknown', url: record.html_url ?? null,
+    })
+    const reply = await this.#dispatch(repo, String(record.number), record, {
+      by, threadId, skill: name, skillTarget: targetRef,
+    })
+    return reply ?? this.#exhaustedReply()
+  }
 
   // `start` has ONE meaning (#221): work the thing. On a ticket it dispatches
   // that ticket. On a map it dispatches the map's next takeable ticket, which
@@ -1346,7 +1487,7 @@ export class Dispatcher {
   // recreated from origin; absent one, resume degrades to an ordinary dispatch.
   async #dispatch(repo, n, issue, {
     model, instruction = null, by, reuse = false, conversationResume = false,
-    threadId = null, charting = false,
+    threadId = null, charting = false, skill = null, skillTarget = null,
   }) {
     const session = `curia-${n}`
     // #241: a new-map dispatch is charting with no map, so there is no number to
@@ -1425,6 +1566,7 @@ export class Dispatcher {
     // always the model typed. `review` reads its harness the same way.
     const useModel = cands[0]
     const harnessName = this.routing.models[useModel].harness
+    const reasoningEffort = reasoningEffortFor(this.routing, labels, useModel)
     if (!this.routing.harnesses[harnessName]) {
       return `❌ unknown harness \`${harnessName}\` — configured harnesses: ${Object.keys(this.routing.harnesses).join(', ')}`
     }
@@ -1463,6 +1605,7 @@ export class Dispatcher {
     } catch (e) {
       this.log(`thread bind for ${repo}#${n} failed (${e.message}) — the first notify will bind lazily`)
     }
+    this.reduction.journal('dispatch_status', { repo, ticket: n, agent: session, model: useModel })
 
     this.reduction.journal('agent_dispatching', {
       repo, ticket: n, title: issue.title, agent: session, model: useModel, harness: harnessName,
@@ -1492,7 +1635,7 @@ export class Dispatcher {
       const mapNumber = charting ? (newMap ? null : Number(n)) : await this.#mapNumberFor(repo, full)
       this.#assertTracker(repo, n, session, wtPath, mapNumber, { charting })
       this.#assertNoPlantedConfig(wtPath, harnessName)
-      this.#armAgent({ session, ticket: n, harness: harnessName, model: useModel, wtPath, cfgDir })
+      this.#armAgent({ session, ticket: n, harness: harnessName, model: useModel, reasoningEffort, wtPath, cfgDir })
       // #157: the prompt NAMES the published ports, so they are allocated before
       // it is written and handed to the container after. The allocation is a
       // bind probe, a set lookup and an in-memory reservation — docker binds
@@ -1505,6 +1648,7 @@ export class Dispatcher {
       // the human's side of its own ticket.
       const promptFile = this.deps.writePrompt(cfgDir, full, {
         repo, wtPath: GUEST_WT, mapNumber, type: typeLabel, charting, newMap, instruction, ports,
+        skill, skillTarget,
         prototypeVariations: this.config.dispatch.prototype_variations,
         // #173: the wayfinder invocation is spelled per harness, so the prompt
         // is no longer harness-blind.
@@ -1530,9 +1674,10 @@ export class Dispatcher {
       const instance = `${session}@${Date.now()}`
       this.reduction.journal('agent_spawned', {
         repo, ticket: n, agent: session, instance,
-        model: useModel, requested_model: modelName, harness: harnessName,
+        model: useModel, requested_model: modelName, harness: harnessName, reasoning_effort: reasoningEffort,
         prompt_carries_limit_text: textCarriesLimitPhrase(full.title, full.body),
         kind: spawnKind({ charting }), instruction: charting ? instruction : null,
+        ...(skill ? { skill, skill_target: skillTarget } : {}),
         // #241: which of the two charting shapes this is. A restarted daemon
         // reads it back the same way it reads the kind — without it, a resumed
         // new-map agent would be sent to `chart new`, and `chart` refuses a
@@ -1546,7 +1691,7 @@ export class Dispatcher {
 
       const agent = {
         repo, ticket: n, title: full.title, session, instance, wtPath, cfgDir, promptFile,
-        model: useModel, requestedModel: modelName, harness: harnessName,
+        model: useModel, requestedModel: modelName, harness: harnessName, reasoningEffort, labels,
         provider: this.routing.models[useModel].provider,
         // #156: the published loopback ports. #157 hands them to
         // `publish_preview` as its port bound.
@@ -1561,6 +1706,7 @@ export class Dispatcher {
         // asked for. Journalled beside it (agent_spawned above) so a daemon
         // restart re-derives both — see #epochCharting.
         charting, instruction: charting ? instruction : null,
+        skillName: skill, skillTarget,
         // #241: a new-map agent, and the map number it has created so far. The
         // number arrives on the side channel (see adoptMap) rather than at the
         // spawn, because nothing knows it yet.
@@ -1633,7 +1779,7 @@ export class Dispatcher {
   // view of the paths — the container's mount points, which is the only view
   // there is since #195. Shared by the first dispatch and by the cross-harness
   // respawn a usage limit forces.
-  #armAgent({ session, ticket, harness, model, wtPath, cfgDir }) {
+  #armAgent({ session, ticket, harness, model, reasoningEffort = null, wtPath, cfgDir }) {
     this.deps.seedConfigDir(cfgDir, GUEST_WT, this.config.skills, harness, { sandboxed: true })
     // A FRESH secret per arm (#159), minted before the connection settings that carry it.
     // The cross-harness respawn arms again, so the pane a usage limit killed
@@ -1642,7 +1788,8 @@ export class Dispatcher {
     this.deps.writeConnectionSettings({
       wtPath: GUEST_WT, hostWtPath: wtPath, cfgDir, agent: session, ticket,
       daemonPort: this.daemonPort, daemonHost: GUEST_DAEMON_HOST, token,
-      harness, reasoningEffort: this.routing.models[model].reasoning_effort ?? null,
+      harness, reasoningEffort: harnessReasoningEffort(harness,
+        reasoningEffort ?? this.routing.models[model].reasoning_effort ?? null),
       // The codex harness turns this into its skill deny list (#171); the
       // claude harness does not read it.
       skills: this.config.skills,
@@ -2272,6 +2419,9 @@ export class Dispatcher {
       onLine: (line) => {
         if (!said) {
           said = true
+          this.reduction.journal('agent_phase', {
+            agent: session, ticket, phase: { icon: '🔨', label: 'builds agent image' },
+          })
           this.reduction.journal('agent_image_building', { agent: session, ticket, model })
         }
         this.log(`[image ${session}] ${line}`)
@@ -2554,7 +2704,9 @@ export class Dispatcher {
     clearTimeout(this.wakeTimer)
     this.wakeTimer = null
     if (!times.length) return
-    const ms = Math.max(this.wakeFloorMs, Math.min(...times) - Date.now())
+    // Node clamps larger delays to 1 ms. Cap the timer and re-arm after it
+    // fires, or a distant provider reset becomes a hot loop.
+    const ms = Math.min(2_147_483_647, Math.max(this.wakeFloorMs, Math.min(...times) - Date.now()))
     this.wakeTimer = setTimeout(() => {
       this.#wake().catch((e) => this.log('post-cooldown wake failed:', e.message))
     }, ms)
@@ -2738,7 +2890,9 @@ export class Dispatcher {
     try {
       checkout = await this.deps.createReviewCheckout(this.root, repo, ticket)
       this.#assertNoPlantedConfig(checkout.path, harnessName)
-      this.#armAgent({ session, ticket, harness: harnessName, model, wtPath: checkout.path, cfgDir })
+      const labels = (issue.labels ?? []).map((label) => typeof label === 'string' ? label : label.name)
+      const reasoningEffort = reasoningEffortFor(this.routing, labels, model)
+      this.#armAgent({ session, ticket, harness: harnessName, model, reasoningEffort, wtPath: checkout.path, cfgDir })
       // No published ports: a reviewer starts no dev server, and
       // `publish_preview` is one of the four tools curia refuses it. Three
       // ports per reviewer would be three ports a builder could not have.
@@ -2762,6 +2916,7 @@ export class Dispatcher {
       // home for exactly what tmux cannot re-derive (#reconcileReviewers).
       this.reduction.journal('reviewer_spawned', {
         repo, ticket, agent: session, builder: `curia-${ticket}`, model, harness: harnessName,
+        reasoning_effort: reasoningEffort,
         builder_model: builderModel, same_provider: sameProvider, sha: checkout.sha,
         prompt_carries_limit_text: textCarriesLimitPhrase(issue.title, issue.body),
         checkout: checkout.path, base_branch: checkout.baseBranch, by: by ?? 'unknown',
@@ -3079,7 +3234,9 @@ export class Dispatcher {
         await this.deps.killSession(agent.session).catch(() => {})
         try {
           await this.#respawnOn(agent, agent.model, { retry_after_port_collision: true }, { freshPorts: true })
-          this.notify(agent.ticket, `⚙️ \`${agent.session}\` lost host port ${lostPorts.join('/')} to a concurrent spawn — respawned on ${agent.ports.join('/')}`)
+          this.reduction.journal('agent_phase', {
+            agent: agent.session, ticket: agent.ticket, phase: { icon: '🔨', label: 'respawns on ports' },
+          })
         } catch (e) {
           // Same shape as the failed limit-respawn: the old session is dead, so
           // letting this reject would strand the claim in a record reconcile
@@ -3239,7 +3396,9 @@ export class Dispatcher {
       agent.muteRespawns = attempt
       try {
         await this.#respawnOn(agent, model, { retry_after_mute: true })
-        this.notify(agent.ticket, `⚙️ \`${agent.session}\` reached its composer with **no curia tools** — its MCP client never connected, so nothing it did could have reached anyone. Respawned once on the same model (**${model}**); the model is not what failed.`)
+        this.reduction.journal('agent_phase', {
+          agent: agent.session, ticket: agent.ticket, phase: { icon: '🩹', label: 'restarts tools' },
+        })
         return
       } catch (e) {
         const verb = e.refusal ? 'refused' : 'failed'
@@ -3327,7 +3486,9 @@ export class Dispatcher {
       const cause = `hit ${limit.reason ? `the ${limit.reason}` : `a ${limit.scope} usage limit`}`
       try {
         await this.#respawnOn(agent, next, { retry_after_limit: true })
-        this.notify(agent.ticket, `⚙️ \`${agent.session}\` ${cause} — respawned on **${next}**`)
+        this.reduction.journal('agent_phase', {
+          agent: agent.session, ticket: agent.ticket, phase: { icon: '💭', label: 'switches model' },
+        })
         return
       } catch (e) {
         // The old session is already dead. Letting this reject would strand the
@@ -3430,9 +3591,10 @@ export class Dispatcher {
     const allocated = !agent.reviewer && (freshPorts || !agent.ports)
     const ports = agent.reviewer ? [] : (allocated ? await this.#allocatePorts() : agent.ports)
     try {
+      const reasoningEffort = reasoningEffortFor(this.routing, agent.labels ?? [], next)
       this.#armAgent({
         session: agent.session, ticket: agent.ticket, harness: nextHarness,
-        model: next, wtPath: agent.wtPath, cfgDir: agent.cfgDir,
+        model: next, reasoningEffort, wtPath: agent.wtPath, cfgDir: agent.cfgDir,
       })
       // Fresh numbers force the rewrite whatever the harness did: the prompt on
       // disk names the ports (#157), and keeping it would hand the agent three
@@ -3457,6 +3619,7 @@ export class Dispatcher {
           requested_model: agent.requestedModel,
           prompt_carries_limit_text: agent.promptCarriesLimitText,
           kind: spawnKind(agent), instruction: agent.instruction ?? null,
+          ...(agent.skillName ? { skill: agent.skillName, skill_target: agent.skillTarget } : {}),
           operator_after_stall: Boolean(journalData.operator_after_stall),
         })
       }
@@ -3465,6 +3628,7 @@ export class Dispatcher {
       agent.sandbox = 'docker'
       agent.exitMarker = exitMarker
       agent.model = next
+      agent.reasoningEffort = reasoningEffort
       agent.harness = nextHarness
       agent.provider = this.routing.models[next].provider
       agent.spawnedAt = Date.now()
@@ -3493,8 +3657,10 @@ export class Dispatcher {
         repo: agent.repo, ticket: agent.ticket, agent: agent.session,
         instance: agent.instance ?? null,
         model: next, requested_model: agent.requestedModel, harness: nextHarness,
+        reasoning_effort: reasoningEffort,
         prompt_carries_limit_text: Boolean(agent.promptCarriesLimitText),
         kind: spawnKind(agent), instruction: agent.instruction ?? null,
+        ...(agent.skillName ? { skill: agent.skillName, skill_target: agent.skillTarget } : {}),
         sandbox: 'docker', image: plan.container.image, ports: plan.container.ports,
         ...journalData,
       })
@@ -3552,6 +3718,8 @@ export class Dispatcher {
       wtPath: GUEST_WT,
       mapNumber,
       type: labels.find((l) => l.startsWith('wayfinder:')) ?? null,
+      skill: agent.skillName ?? null,
+      skillTarget: agent.skillTarget ?? null,
       prototypeVariations: this.config.dispatch.prototype_variations,
       ports,
       harness: nextHarness,
@@ -3918,7 +4086,7 @@ export class Dispatcher {
   // preview from the registry that allocated it, the pull request from GitHub,
   // the ticket from the spawn binding. #40 recorded the alternative as a live
   // limit: an agent can hand ask_human any `preview_url` string it likes.
-  async requestReview(agentName, { summary = '', charting = '', body = '' } = {}) {
+  async requestReview(agentName, { summary = '', charting = '', body = '', trackerWrites = null } = {}) {
     // #164: the reviewer is what a gate ASKS ABOUT, never what opens one. A
     // reviewer at the gate would put its own reading in front of the operator as
     // if it were the work, on a ticket it is not building.
@@ -3927,6 +4095,16 @@ export class Dispatcher {
     const b = this.#bindingFor(agentName)
     if (b.error) return { ok: false, text: `❌ ${b.error} — no review was requested` }
     const { w, ticket, repo, branch, wtPath } = b
+    const skillName = w?.skillName ?? this.#epochSpawn(agentName)?.skill ?? null
+    if (skillName && (!Array.isArray(trackerWrites) || trackerWrites.length === 0)) {
+      this.reduction.journal('review_refused', {
+        repo, ticket, agent: agentName, reason: 'skill run omitted tracker_writes', skill: skillName,
+      })
+      return {
+        ok: false,
+        text: '❌ no gate - this skill run must pass every proposed title, label, and native edge in `tracker_writes`.',
+      }
+    }
     // #297, ADR-0008: the gate is open to a charting agent now. #160 refused it
     // because a charting agent had no diff — that stopped being true when #286
     // gave the session research subagents that write files. The map edits are
@@ -6330,6 +6508,67 @@ export class Dispatcher {
 
   // ---- resume --------------------------------------------------------------------
 
+  // Switch one live ticket to a configured routing model (#717). The pane is
+  // replaced, but its session name, private clone, config root, and harness
+  // resume command keep the running conversation attached to the same ticket.
+  async switchModel(n, { model, by } = {}) {
+    const ticket = String(n)
+    const session = `curia-${ticket}`
+    const agent = this.agents.get(session)
+    if (!agent) return `❌ \`${session}\` is not an active ticket`
+    const target = this.routing.models?.[model]
+    if (!target) {
+      return `❌ unknown model \`${model}\`. Configured models: ${Object.keys(this.routing.models ?? {}).join(', ')}`
+    }
+    if (!isActive(this.routing, model)) {
+      return `❌ cannot switch \`${session}\` to \`${model}\`. That model is \`active: false\` in routing.yaml.`
+    }
+    this.judgeReadings()
+    if (this.cooling.isCool(model, target.provider)) {
+      const held = this.cooling.heldFor(target.provider)
+      const predicted = this.cooling.predictionFor(target.provider)
+      const hold = held
+        ? `${target.provider} credential`
+        : predicted
+          ? `${target.provider} predicted`
+          : `${model}/${target.provider} cooling`
+      return `❌ cannot switch \`${session}\` to \`${model}\`. The \`${hold}\` hold is active.`
+    }
+    if (target.harness !== agent.harness) {
+      return `❌ cannot switch \`${session}\` to \`${model}\`. Its saved conversation belongs to the ${agent.harness} harness.`
+    }
+
+    try {
+      await this.deps.sendKey(session, 'C-u')
+    } catch (e) {
+      return `❌ could not clear pending composer text in \`${session}\`: ${failureProse(e.message)}`
+    }
+    try {
+      await this.deps.killSession(session)
+    } catch (e) {
+      return `❌ could not stop \`${session}\` for its model switch: ${failureProse(e.message)}`
+    }
+
+    const previousRequested = agent.requestedModel
+    agent.requestedModel = model
+    try {
+      await this.#respawnOn(agent, model, {
+        operator_model_switch: true,
+        switched_from: agent.model,
+        requested_model: model,
+        by: by ?? 'unknown',
+      }, { resume: true })
+    } catch (e) {
+      agent.requestedModel = previousRequested
+      const released = await this.#releaseClaim(agent, `operator model switch failed: ${e.message}`)
+      return `❌ could not switch \`${session}\` to \`${model}\`: ${failureProse(e.message)}. ${released ? 'The claim is released.' : 'The issue is still assigned.'}`
+    }
+
+    const name = spawnModelId(this.routing, model)
+    const effort = agent.reasoningEffort ? `**${agent.reasoningEffort}** effort` : 'the model default effort'
+    return `⚙️ \`${session}\` switched to **${name}** on the **${target.harness}** harness with ${effort}. Its conversation and worktree continue.`
+  }
+
   // The resume contract (#81): a fresh agent on the ticket, inheriting the
   // surviving worktree and — since #177 — the model of the last spawn, never
   // the conversation. A live agent is refused flat — resume means "the agent is
@@ -6739,7 +6978,9 @@ export class Dispatcher {
       this.reduction.journal('stall_respawned', {
         repo: w.repo, ticket: w.ticket, agent: w.session, model: w.model, harness: w.harness,
       })
-      this.notify(w.ticket, `⚙️ \`${w.session}\` stayed stalled after two pane checks. Curia respawned its harness once and resumed the latest conversation.`)
+      this.reduction.journal('agent_phase', {
+        agent: w.session, ticket: w.ticket, phase: { icon: '🩹', label: 'resumes conversation' },
+      })
     } catch (e) {
       this.reduction.journal('stall_respawn_failed', {
         repo: w.repo, ticket: w.ticket, agent: w.session, reason: e.message,
@@ -7041,6 +7282,7 @@ export class Dispatcher {
     // viewer identity nor a session list — a `result` line for that agent, and
     // a record that opened before it.
     await this.#reconcileStaleQuestions(ctx)
+    await this.#reconcileMapFogQuestions()
 
     if (boot) this.#voidBootConfirms()
     // #346, after adoption: the limit resumes a previous process armed. Journal
@@ -7118,7 +7360,9 @@ export class Dispatcher {
         repo, ticket, agent: session, outcome: ran ? 'ran' : 'failed', reply,
       })
       if (ran) {
-        this.notify(ticket, `⚙️ a daemon restart interrupted the stall respawn. Curia resumed \`${session}\` on its saved conversation and worktree.`)
+        this.reduction.journal('agent_phase', {
+          agent: session, ticket, phase: { icon: '🩹', label: 'resumes conversation' },
+        })
       } else {
         this.reduction.journal('stall_escalated', {
           repo, ticket, agent: session, reason: `the restart recovery failed: ${reply}`,
@@ -7259,6 +7503,7 @@ export class Dispatcher {
           // exactly as it does for the repo and the charting kind.
           const operatorStallLaunch = this.reduction.operatorStallLaunch?.(n)
           const spawn = operatorStallLaunch ?? this.#epochSpawn(session)
+          const labels = (issue.labels ?? []).map((label) => typeof label === 'string' ? label : label.name)
           // a FRESH instance id: any confirm bound before the restart lapses
           // at boot rather than matching an adopted agent it never described
           const instance = `${session}@adopted-${Date.now()}`
@@ -7268,6 +7513,8 @@ export class Dispatcher {
             model: spawn?.model ?? null,
             requestedModel: spawn?.requested_model ?? spawn?.model ?? null,
             harness: spawn?.harness ?? null,
+            reasoningEffort: spawn?.reasoning_effort ?? null,
+            labels,
             provider: this.routing.models[spawn?.model]?.provider ?? null,
             ports: ports.length ? ports : null,
             sandbox: ports.length ? 'docker' : null,
@@ -7277,6 +7524,8 @@ export class Dispatcher {
             // field would read as a ticket one and be held to the ticket
             // ending, which tries to close the map.
             charting, instruction,
+            skillName: spawn?.skill ?? null,
+            skillTarget: spawn?.skill_target ?? null,
             promptCarriesLimitText: spawn?.prompt_carries_limit_text
               ?? textCarriesLimitPhrase(issue.title, issue.body),
             resultReceived: fs.existsSync(path.join(this.dataDir, 'results', `${session}.json`)),
@@ -7697,6 +7946,7 @@ export class Dispatcher {
     // used to answer for every agent that ever ran. The open records are what
     // this pass judges, and there are a handful of them.
     for (const r of this.reduction.openEscalations()) {
+      if (r.action?.verb === MAP_FOG_VERB) continue
       const { at, deferred } = this.reduction.questions.lastResult(r.agent)
       const reportedAt = Date.parse(at ?? '')
       const openedAt = Date.parse(r.opened_at ?? '')
@@ -7735,6 +7985,7 @@ export class Dispatcher {
         this.#noteOrigin(r, `confirm ${r.id} lapsed — the daemon restarted; re-issue the command if you still want it`)
         continue
       }
+      if (r.action?.verb === MAP_FOG_VERB) continue
       if (r.agent !== 'overseer') continue
       this.cancelEscalation(r.id, { by: 'reconcile' })
       this.reduction.journal('confirm_voided', { id: r.id, ticket: r.ticket })
@@ -7742,43 +7993,15 @@ export class Dispatcher {
     }
   }
 
-  // Asserted on every reconcile, never fatally — but the serve rule is only
-  // asserted over a surface probeTtyd calls publishable: the agreed index and
-  // a live listener on the ttyd port (#260 — compose runs ttyd; the daemon
-  // only health-checks it). And because `tailscale serve --bg` config persists
-  // in tailscaled across daemon restarts, skipping assertServe alone does not
-  // withdraw a rule a previous run asserted — so the refusing branch actively
-  // turns the rule off.
-  // #151 added a second thing that must be positively up before the rule is
-  // asserted: the identity proxy the rule now POINTS AT. ttyd live but the
-  // proxy down would mean publishing 127.0.0.1:<ttyd_port> directly — the
-  // un-gated terminal that ticket exists to close — so it is refused exactly
-  // like a dead ttyd, and the persisted rule is withdrawn.
+  // Atlas owns the same-origin terminal proxy. Reconcile actively withdraws
+  // the persisted standalone rule so an older daemon cannot leave it behind.
   async #assertAttachSurface() {
-    const { serve_port: servePort, ttyd_port: ttydPort, index } = this.config.attach
-    const proxyPort = this.config.identity?.proxy_port
-    const proxyUp = this.identityProxy?.listening ?? false
+    const { serve_port: servePort } = this.config.attach
     try {
-      const { verified } = proxyUp
-        ? await this.deps.probeTtyd({ ttydPort, index, log: this.log })
-        : { verified: false }
-      if (!verified) {
-        // Name the ACTUAL cause: a withdrawal blamed on the wrong half sends
-        // the operator to kill a ttyd that was never the problem.
-        const cause = proxyUp
-          ? `the ttyd surface on port ${ttydPort} is down or stale (is the compose ttyd service up?)`
-          : `the attach identity proxy is not up on port ${proxyPort}, so the rule has nothing gated to point at`
-        try {
-          await this.deps.serveOff({ servePort, log: this.log })
-          this.log(`reconcile: ${cause} — serve rule for :${servePort} withdrawn; /attach stays down until it is fixed (bring the service back and re-run reconcile, or restart the daemon)`)
-        } catch (e) {
-          this.log(`WARNING: ${cause} and withdrawing the serve rule failed (${e.message}) — if a rule for :${servePort} exists, an UNGATED listener REMAINS PUBLISHED tailnet-wide; run \`tailscale serve --https=${servePort} off\` by hand`)
-        }
-        return
-      }
-      await this.deps.assertServe({ servePort, targetPort: proxyPort })
+      await this.deps.serveOff({ servePort, log: this.log })
+      this.log(`reconcile: standalone terminal rule for :${servePort} withdrawn; Atlas now owns terminal access`)
     } catch (e) {
-      this.log(`reconcile: attach surface assertion failed (${e.message}) — /attach may be unavailable`)
+      this.log(`WARNING: withdrawing the retired standalone terminal rule failed (${e.message}). Run \`tailscale serve --https=${servePort} off\` by hand.`)
     }
   }
 
@@ -7813,6 +8036,7 @@ export class Dispatcher {
   }
 
   async #autoTick() {
+    await this.maintenance?.().catch((e) => this.log('maintenance failed:', e.message))
     // #138: the liveness sweep rides the dispatch tick — dead agents stop
     // lying on every surface before anything new is dispatched.
     await this.livenessSweep().catch((e) => this.log('liveness sweep failed:', e.message))

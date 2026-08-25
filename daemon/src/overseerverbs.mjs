@@ -33,6 +33,8 @@ export function canonicalFor(verb, args = {}) {
       return `${verb}${args.repo ? ' ' + args.repo : ''}`
     case 'status':
       return 'status'
+    case 'skill':
+      return `skill ${args.name} ${args.target}`
     // #177 removed `harness=`: the harness follows the model. #221 removed the
     // instruction: `start` no longer charts, so it carries no sentence.
     case 'start':
@@ -97,6 +99,8 @@ const ticketArg = z.string().regex(/^\d+$/).describe('issue number, digits only 
 const bulkArg = z.string().regex(/^(\d+|all)$/).describe('ticket number, or "all"')
 const repoArg = z.string().optional().describe('repo qualifier — any unambiguous part of a watched repo name')
 const modelArg = z.string().optional().describe('model override — the harness follows it, so there is no harness argument')
+const skillNameArg = z.string().regex(/^[a-z0-9][a-z0-9-]*$/).describe('configured skill name, without a slash or dollar prefix')
+const skillTargetArg = z.string().regex(/^(?:\d+|[\w.-]+\/[\w.-]+#\d+)$/).describe('target issue number, optionally qualified as owner/repo#number')
 
 // The catalogue. Each entry is a name, the text the model reads, and the
 // argument shape both transports publish — a raw zod shape, which is what the
@@ -116,6 +120,11 @@ export const VERB_SPECS = [
     verb: 'status',
     description: 'Show the live agents: ticket, model, state, uptime, and who is waiting on input.',
     args: {},
+  },
+  {
+    verb: 'skill',
+    description: 'Run a configured skill when no existing ticket carries the request. The daemon creates a durable record issue. The review gate shows proposed tracker writes before publication. If an existing ticket carries the work, use start instead.',
+    args: { name: skillNameArg, target: skillTargetArg },
   },
   {
     verb: 'start',

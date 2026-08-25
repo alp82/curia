@@ -523,6 +523,96 @@ function parseEvent(harness, event) {
   return { items }
 }
 
+// Read the messages on one transcript's active branch (#689). The interface
+// names no conversation role. Agent and overseer panes both provide a harness,
+// transcript text, and an optional landing from the durable rewind receipt.
+//
+// Claude stores one conversation as an append-only graph. Every graph record
+// carries `uuid` and `parentUuid`. The last record is the active head after a
+// fork. During the quiet window after a rewind, the transcript still ends on
+// the abandoned branch, so the journaled landing is the temporary head.
+// Harnesses without parent identity retain their linear transcript behavior.
+export function readActiveTranscript(harness, source, { landingUuid = null, landingTailUuid = null } = {}) {
+  const lines = Array.isArray(source)
+    ? source.map(String)
+    : String(source ?? '').split('\n')
+  const records = lines
+    .map((line, index) => ({ line, index }))
+    .filter((record) => record.line.trim())
+
+  if (harness !== 'claude') return parseActiveRecords(harness, records, null)
+
+  const byUuid = new Map()
+  let tailUuid = null
+  for (const record of records) {
+    try {
+      record.event = JSON.parse(record.line)
+    } catch {
+      continue
+    }
+    if (!record.event?.uuid) continue
+    record.uuid = String(record.event.uuid)
+    record.parentUuid = record.event.parentUuid == null ? null : String(record.event.parentUuid)
+    byUuid.set(record.uuid, record)
+    tailUuid = record.uuid
+  }
+
+  const landingStillCurrent = landingUuid
+    && (!landingTailUuid || String(landingTailUuid) === tailUuid)
+  const headUuid = landingStillCurrent ? String(landingUuid) : tailUuid
+  if (!headUuid) return parseActiveRecords(harness, records, null)
+  if (!byUuid.has(headUuid)) {
+    return { items: [], records: [], failures: [`landing ${headUuid} is absent from the transcript`], headUuid }
+  }
+
+  const active = new Set()
+  let at = headUuid
+  while (at) {
+    if (active.has(at)) {
+      return { items: [], records: [], failures: [`parent identity cycle at ${at}`], headUuid }
+    }
+    const record = byUuid.get(at)
+    if (!record) {
+      return { items: [], records: [], failures: [`parent ${at} is absent from the transcript`], headUuid }
+    }
+    active.add(at)
+    at = record.parentUuid
+  }
+
+  return parseActiveRecords(harness, records, active, headUuid)
+}
+
+function parseActiveRecords(harness, records, active, headUuid = null) {
+  const items = []
+  const messages = []
+  const failures = []
+  for (const record of records) {
+    if (active && record.uuid && !active.has(record.uuid)) continue
+    const parsed = parseLine(harness, record.line)
+    if (parsed.malformed) {
+      failures.push(`line ${record.index + 1} is not JSON`)
+      continue
+    }
+    if (parsed.unknown) {
+      failures.push(`line ${record.index + 1} has unknown ${harness} type "${parsed.unknown}"`)
+      continue
+    }
+    items.push(...parsed.items)
+    let event = record.event
+    if (!event) {
+      try { event = JSON.parse(record.line) } catch { event = null }
+    }
+    messages.push({
+      index: record.index,
+      event,
+      uuid: record.uuid ?? null,
+      parentUuid: record.parentUuid ?? null,
+      items: parsed.items,
+    })
+  }
+  return { items, records: messages, failures, headUuid }
+}
+
 export function parseLine(harness, line) {
   let event
   try {

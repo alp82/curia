@@ -94,6 +94,16 @@ const TERMINAL = new Set([
   'agent_exited_early',
 ])
 
+const PHASE_BY_ICON = new Map(Object.entries(PHASE_ICONS).map(([phase, icon]) => [icon, phase]))
+
+function validPhase(phase) {
+  const label = String(phase?.label ?? '').trim()
+  const name = PHASE_BY_ICON.get(phase?.icon)
+  if (!name || !label || Array.from(label).length > 20) return null
+  if (/\r|\n|`/.test(label)) return null
+  return { phase: name, label }
+}
+
 // The literal the 🔎 button sends (#165). Matched here rather than imported as
 // the regex, because this file reads the ANSWER off a journal event and an
 // operator may have typed the word instead of pressing the button.
@@ -226,24 +236,43 @@ export class StatusLine {
   }
 
   onEvent(ev) {
-    if (String(ev.agent ?? '').startsWith('curia-review-')) return
+    if (ev.kind === 'reviewer' || String(ev.agent ?? '').startsWith('curia-review-')) {
+      return this.#retire(ev.agent)
+    }
     // Every ending is the dispatcher's own message (#253) — this line adds
     // nothing to it and steps out of the way. Checked before the switch so one
     // rule covers every terminal event, whatever it is called.
     if (TERMINAL.has(ev.type)) return this.#retire(ev.agent)
     switch (ev.type) {
       case 'lifecycle_closed':
-        return ev.receipt ? this.#settle(ev.agent, ev.ticket, ev.receipt) : this.#retire(ev.agent)
+        return ev.receipt ? this.#settle(ev.agent, ev.ticket, ev.receipt) : undefined
       case 'agent_dispatching':
         return this.#set(ev.agent, ev.ticket, 'dispatched', { model: ev.model, stage: 'dispatch' })
       case 'agent_image_building':
         return this.#set(ev.agent, ev.ticket, 'dispatched', { model: ev.model, stage: 'image' })
-      case 'agent_spawned':
+      case 'agent_spawned': {
+        const current = this.agents.get(ev.agent)
+        if (current?.state === 'working') {
+          return this.#set(ev.agent, ev.ticket, 'working', {
+            ...current.detail, model: ev.model,
+          })
+        }
         return this.#set(ev.agent, ev.ticket, 'dispatched', { model: ev.model, stage: 'composer' })
+      }
+      case 'dispatch_status':
+        return this.#set(ev.agent, ev.ticket, 'dispatched', { model: ev.model })
       case 'agent_ready':
         // The spawn command carries the prompt, so the composer marker means
         // the agent is already at work — ready and working are one state.
-        return this.#set(ev.agent, ev.ticket, 'working', { model: ev.model, at: ev.ts, ...DEFAULT_PROGRESS })
+        return this.#set(ev.agent, ev.ticket, 'working', { model: ev.model, at: ev.ts })
+      case 'agent_phase': {
+        const phase = validPhase(ev.phase)
+        const w = this.agents.get(ev.agent)
+        if (!phase || !w || !['dispatched', 'working'].includes(w.state)) return
+        return this.#set(ev.agent, w.ticket, 'working', { ...w.detail, ...phase }, { small: false })
+      }
+      case 'thread_settled':
+        return this.#settleLine(ev)
       case 'agent_progress':
         return this.#set(ev.agent, ev.ticket, 'working', { phase: ev.phase, label: ev.label })
       case 'preview': {
@@ -348,6 +377,20 @@ export class StatusLine {
     this.retiring.add(done)
     done.then(() => this.retiring.delete(done))
     return done
+  }
+
+  #settleLine(ev) {
+    const w = this.agents.get(ev.agent)
+    if (!w) {
+      return this.#settle(ev.agent, ev.ticket, ev.receipt)
+    }
+    if (ev.model) w.model = ev.model
+    try {
+      w.finalMeters = meterParts(this.meters(ev.agent, w.model))
+    } catch (e) {
+      this.log(`status line final meters for ${ev.agent} failed: ${e.message}`)
+    }
+    return this.#settle(ev.agent, ev.ticket, ev.receipt)
   }
 
   // A successful ending keeps the status message as its receipt. The final
@@ -465,7 +508,7 @@ export class StatusLine {
 
   // One line per agent, edits serialized per agent so a fast transition
   // never lands under a slower one's edit.
-  #set(session, ticket, state, detail, { force = false } = {}) {
+  #set(session, ticket, state, detail, { force = false, small = true } = {}) {
     let w = this.agents.get(session)
     if (!w) {
       w = {
@@ -513,7 +556,8 @@ export class StatusLine {
         this.log(`thread flag for ${session} failed: ${e.message}`)
       })
     }
-    const text = smallPrint(this.#text(session, state, detail, w.model, w))
+    const composed = this.#text(session, state, detail, w.model, w)
+    const text = small ? smallPrint(composed) : composed
     w.chain = w.chain.then(() => this.#apply(w, text, { move, force })).catch((e) => {
       this.log(`status line for ${session} failed: ${e.message}`)
     })

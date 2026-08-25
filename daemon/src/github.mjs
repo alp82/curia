@@ -126,6 +126,14 @@ export function issueComments(repo, n) {
   return ghJSONL(['api', '--paginate', `repos/${repo}/issues/${n}/comments?per_page=100`, '--jq', '.[]'], { repo })
 }
 
+// A ticketless skill run gets one durable record before its agent starts. The
+// record is mechanics, not one of the proposed tracker writes the gate holds.
+export function createIssue(repo, { title, body }) {
+  return withBodyFile(JSON.stringify({ title, body }), async (file) => JSON.parse(await gh([
+    'api', '--method', 'POST', `repos/${repo}/issues`, '--input', file,
+  ], { repo })))
+}
+
 // The open issues blocking one ticket — number and state per blocker, the
 // same native-dependency edge the tracker doc writes with POST. Only called
 // for tickets whose summary says blocked_by > 0.
@@ -259,17 +267,15 @@ export function selectLane(maps, mode = 'auto') {
   return { lane: 'map', maps: active.map((m) => m.number) }
 }
 
-// The stranded map (#485): open, not deferred, with at least one child and
-// every child closed. No dispatch ever fires on it again — no open child
-// remains — so without a watch nobody would ever say so (#316 sat that way
-// for days). At least one child, because a new-map session creates the map
-// moments before its first tickets, and that window must not alarm.
+// The stranded map (#485, widened by #698): open, not deferred, with no open
+// child. This includes a map with no child, because every empty map now needs
+// a durable verdict about its retained fog before Curia may close it.
 export function strandedMaps(maps = [], mapItems = {}) {
   return maps
     .filter((m) => m.state === 'open' && !(m.labels ?? []).some((l) => l.name === 'wayfinder:deferred'))
     .filter((m) => {
       const children = mapItems[m.number] ?? []
-      return children.length > 0 && children.every((c) => c.state === 'closed')
+      return children.every((c) => c.state === 'closed')
     })
     .map((m) => ({ number: m.number, title: m.title ?? '' }))
 }
