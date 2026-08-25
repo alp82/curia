@@ -31,10 +31,11 @@ describe('the standing orders, with no shell (#328)', () => {
   // than a prompt. The fixture was taken from the shipped code BEFORE the move,
   // and it stays the record of what the no-shell posture says.
   //
-  // ONE BLOCK HAS MOVED SINCE, deliberately: the writing rules, when #133's
-  // voice went from Simplified Technical English to the Google developer
-  // documentation style. The fixture was regenerated for that and nothing
-  // else, so every other line is still the pre-move text.
+  // TWO CHANGES HAVE LANDED SINCE, both deliberate. First the writing rules,
+  // when #133's voice went from Simplified Technical English to the Google
+  // developer documentation style. Then #692 (ADR-0022) added the tool-reply
+  // section and split the map verb in two. The fixture was regenerated for
+  // each, and for nothing else.
   test('it is byte for byte the text the in-daemon host always sent', () => {
     assert.equal(`${buildSystemPrompt()}\n`, fs.readFileSync(FIXTURE, 'utf8'))
   })
@@ -243,5 +244,39 @@ describe('the tool list agrees with the text (#328)', () => {
   test('the lists are copies, so a caller cannot edit the next caller list', () => {
     toolsFor().allowed.push('Bash')
     assert.ok(!ALLOWED_TOOLS.includes('Bash'))
+  })
+})
+
+// The two standing orders #692 added, from ADR-0022. Both come from measured
+// incidents, and both are prompt tests for the reason the new-map phrase test
+// is one: a rule the text does not carry is a rule the model never follows.
+describe('what a tool reply is, and what it is not (#692, ADR-0022)', () => {
+  // The overseer paraphrased a router refusal into "Ticket 91 does not exist",
+  // a cause the refusal never named. The refusal is the daemon's own words
+  // about the daemon's own state, and the model repeats them.
+  test('a refusal is quoted word for word, and its cause is never invented', () => {
+    for (const text of [SYSTEM_PROMPT, shellPrompt()]) {
+      assert.match(text, /Quote every refusal/)
+      assert.match(text, /word for word/)
+      assert.match(text, /do not name a cause the refusal did not name/)
+    }
+  })
+
+  // The overseer retyped the ids in a `tickets` summary and named other
+  // tickets. Every id it says has to come from a tool reply of THIS turn.
+  test('ids are copied from this turn\'s tool replies, never retyped', () => {
+    for (const text of [SYSTEM_PROMPT, shellPrompt()]) {
+      assert.match(text, /Copy every id/)
+      assert.match(text, /character by character/)
+      assert.match(text, /Never retype one from memory/)
+    }
+  })
+
+  // The order sits in front of the vocabulary and the never-list, because it
+  // governs every answer the model writes rather than one verb.
+  test('the order comes before the vocabulary the verbs are chosen with', () => {
+    assert.ok(
+      SYSTEM_PROMPT.indexOf('Copy every id') < SYSTEM_PROMPT.indexOf('Vocabulary the operator uses:'),
+    )
   })
 })

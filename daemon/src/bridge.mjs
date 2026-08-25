@@ -25,6 +25,7 @@ import {
   StringSelectMenuBuilder,
 } from 'discord.js'
 import { isChatHandle } from './attach.mjs'
+import { parseCommand } from './commands.mjs'
 import { safeLeaf } from './attachments.mjs'
 import { REVIEW_KIND, CROSS_CHECK_ANSWER, ALL_AS_RECOMMENDED } from './lifecycle.mjs'
 import { CONFIRM_KIND } from './reduction.mjs'
@@ -1836,6 +1837,23 @@ export class DiscordBridge {
     if (!this.authorized(m.author.id)) return
     // Top-level prose in #curia always opens a fresh conversation thread (#89).
     if (m.channel.id === this.channel.id) {
+      // #692, ADR-0022: a typed verb runs BEFORE a model turn. When the whole
+      // trimmed line parses, it is a command the operator wrote, not prose for
+      // the overseer to interpret. It runs on the router, in the channel, with
+      // no thread and no session behind it.
+      //
+      // The reference incident is three `status` lines in four minutes: three
+      // threads named "status", three model sessions, and three paraphrases of
+      // an answer the router already had. Interpretation is for prose.
+      //
+      // The whole line has to parse. A partial match is prose that starts with
+      // a verb ("status of the landing page map?"), and that is a question.
+      const typed = m.content?.trim() ?? ''
+      if (typed && this.handlers.command && parseCommand(typed)) {
+        const reply = await this.handlers.command(typed, m.author.id, { threadId: null })
+        await this.#sendChunked(m.channel, { content: reply ?? `relayed: \`${typed}\`` })
+        return
+      }
       if (!this.handlers.overseerTurn) return
       const thread = await m.startThread({ name: m.content.slice(0, 80) || 'overseer', autoArchiveDuration: 10080 })
       await this.#addWatchers(thread)

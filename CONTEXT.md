@@ -259,6 +259,13 @@ The expiry half is a PAT-only fact and it dies holder by holder as [ADR-0018](do
 `tickets`, `next`, `status`, `start`, `map`, `cancel`, `resume`, `attach`, `review`. The whole command surface, identical over Discord and REST. Each verb has one meaning. `start` works a thing, and `map` updates a map.
 _Avoid_: the five verbs (the pre-#81 count, wrong since `next`, `resume` and `review` joined).
 
+**Typed command**:
+A top-level message in the command channel that the parser accepts as a whole line. It runs on the router before any model turn: no conversation thread, and no overseer session. A line the parser refuses, and a line that only starts with a verb, are both prose, and prose opens a conversation. See [ADR-0022](docs/adr/0022-the-overseers-command-understanding.md) and [#692](https://github.com/alp82/curia/issues/692).
+_Avoid_: slash command (that names the Discord manifest, which is another transport onto the same router).
+
+**The map tools**:
+The two tools the overseer reaches the `map` verb through. `map_update` requires an existing map's number. `map_new` has no number field at all and requires the operator's brief. Both compose the same `map` router text, so the grammar, the slash surface and the operator's usage catalogue don't change. The test of which shape to use is a schema rather than prompt prose, so the wrong shape is not a call the model can make. See [ADR-0022](docs/adr/0022-the-overseers-command-understanding.md) and [#692](https://github.com/alp82/curia/issues/692).
+
 **Resume**:
 A fresh agent on a ticket whose agent is gone. It inherits the surviving worktree, the model of the last spawn, which the journal states, and the inherited exchange (#374). It never inherits the conversation. A live agent refuses it: `cancel <n>` is the way to end one.
 
