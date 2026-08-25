@@ -177,6 +177,30 @@ const OVERVIEW = () => ({
     { ts: at(60), type: 'credentials_swept', agent: 'curia-263', ticket: '263', repo: 'alp82/curia' },
   ],
   deploy: { in_flight: null, last: null, verdict_read_error: null },
+  // The complete map snapshot #687 put on `/overview`. Home is its first reader
+  // (#703): the progress rows read `counts`, the type mix reads the open
+  // tickets' types, and the ranking reads `blocked[].blockers` to learn which
+  // tickets hold other tickets. #255 is a blocker here, which is what earns the
+  // question on it its unblock bonus.
+  maps: {
+    computed_at: at(120),
+    maps: [
+      {
+        repo: 'alp82/curia', number: 685, title: 'Build the Atlas operator experience',
+        url: 'https://github.com/alp82/curia/issues/685',
+        walked: Array.from({ length: 18 }, (_, i) => ({ number: 600 + i, title: 'walked', type: 'task' })),
+        in_flight: [{ number: 703, title: 'Show the whole operating state on Atlas Home', type: 'task', assignees: ['curia'], agent: null }],
+        takeable: [{ number: 704, title: 'The Maps screen', type: 'grilling', model: 'claude-opus-5' }],
+        blocked: [{
+          number: 705, title: 'Finish GitHub App setup', type: 'research',
+          blockers: [{ number: 255, title: 'The note queue drains in order' }],
+        }],
+        fog: [{ text: 'how search ranks map decisions' }, { text: 'the retired terminal address' }],
+        counts: { walked: 18, in_flight: 1, takeable: 1, blocked: 1, fog: 2, total: 21 },
+        latest_event_at: at(300),
+      },
+    ],
+  },
   frontier: {
     computed_at: at(120),
     repos: [
@@ -462,8 +486,9 @@ describe('the read screens (#264)', () => {
       assert.match(t, /openai the 5h window is spent at 97%/)
       assert.match(t, /it rolls at \d\d:\d\d/)
       assert.match(t, /Nothing you can press ends this/, 'the reason it is not on the answer surface')
-      // The banner sits above the tiles, where the hold does.
-      assert.ok(html.indexOf('spent-banner') < html.indexOf('stat-tiles'))
+      // The banner sits above the verdict ring, where the hold does (#703
+      // replaced the tiles it used to sit above).
+      assert.ok(html.indexOf('spent-banner') < html.indexOf('home-grid'))
       // And it is off the list, which is what the count already knew.
       assert.equal(page.attentionItems(payload().overview).length, 2)
       assert.equal(text(page.screenHome(payload({ usage: [] }))).includes('window is spent'), false,
@@ -718,6 +743,168 @@ describe('the read screens (#264)', () => {
     test('with no snapshot at all the page says that, and invents none', () => {
       const t = text(page.screenHome({ poll_interval_s: 5, read_at: null, daemon_up: false, overview: null }))
       assert.match(t, /No snapshot yet/)
+    })
+  })
+
+  // ---- the whole operating state on Home (#703) -----------------------------
+  //
+  // What these pin is the ARITHMETIC and the SHAPE, which is the half nobody
+  // can check by looking at a rendered page: that the rank is wait plus two
+  // stated bonuses, that four hours on that score turns amber and says the word
+  // beside it, that exactly three items get a full card and the rest get one
+  // line each without being dropped, and that a map states closed, total and
+  // fog rather than a percentage.
+  describe('home — the whole operating state (#703)', () => {
+    // Enough items to push the list past the three full rows.
+    const asks = (n, minutesEach) => Array.from({ length: n }, (_, i) => ({
+      id: `esc-${100 + i}`, agent: `curia-${100 + i}`, ticket: String(900 + i), kind: 'choice',
+      prompt: `question number ${i}`, options: null, preview_url: null,
+      opened_at: at(minutesEach[i] * 60), agent_died: false, rendered: true, thread_id: '1',
+    }))
+
+    test('Home leads with the verdict ring, and the ring is the one count', () => {
+      const html = page.screenHome(payload())
+      assert.match(html, /class="ring hot"/)
+      // The ring's number and word are the count every other surface says.
+      assert.match(text(html), /2 needs you/)
+      assert.equal(page.needsYou(payload().overview), 2)
+      // It leads: nothing but the read bar and the banners is drawn above it.
+      assert.ok(html.indexOf('class="ring') < html.indexOf('Needs you'))
+      // A quiet box draws the same ring, cold, with a number rather than a gap.
+      const quiet = page.screenHome(payload({ escalations: [], review_gate: [] }))
+      assert.match(quiet, /class="ring"/)
+      assert.match(text(quiet), /0 needs you/)
+    })
+
+    test('the readings under the ring keep the words the tiles used', () => {
+      const t = text(page.screenHome(payload()))
+      assert.match(t, /3 agents live/)
+      assert.match(t, /1 review gate/)
+      assert.match(t, /oldest waits 12m/)
+    })
+
+    test('wait leads the ranking', () => {
+      const one = payload({
+        escalations: asks(3, [10, 90, 30]), review_gate: [], credentials: undefined,
+      })
+      const ranked = page.rankAttention(one.overview)
+      assert.deepEqual(plain(ranked.map((i) => i.ticket)), ['901', '902', '900'])
+      assert.deepEqual(plain(ranked.map((i) => i.score)), [90, 30, 10])
+    })
+
+    test('an unblocking ticket adds 90 minutes, and says so in words', () => {
+      // #255 is a blocker in the map fixture, so the question on it carries the
+      // bonus; #900 does not.
+      const one = payload({ escalations: [
+        ...asks(1, [10]),
+        { id: 'esc-255', agent: 'curia-255', ticket: '255', kind: 'choice', prompt: 'a held question',
+          options: null, preview_url: null, opened_at: at(600), agent_died: false, rendered: true, thread_id: '2' },
+      ], review_gate: [] })
+      const ranked = page.rankAttention(one.overview)
+      assert.deepEqual(plain(ranked.map((i) => [i.ticket, i.score, i.unblocks])), [['255', 100, true], ['900', 10, false]])
+      assert.match(text(page.screenHome(one)), /unblocks other work/)
+    })
+
+    test('a review gate adds 20 minutes', () => {
+      const gateOnly = payload({ escalations: [], credentials: undefined })
+      const [gate] = page.rankAttention(gateOnly.overview)
+      assert.equal(gate.kind, 'gate')
+      // The fixture gate opened five minutes ago.
+      assert.equal(gate.score, gate.waits + 20)
+    })
+
+    test('four hours on the score turns amber, and never without the word', () => {
+      const under = page.rankAttention(payload({
+        escalations: asks(1, [239]), review_gate: [],
+      }).overview)
+      assert.equal(under[0].amber, false)
+      const over = payload({ escalations: asks(1, [241]), review_gate: [] })
+      assert.equal(page.rankAttention(over.overview)[0].amber, true)
+      const html = page.screenHome(over)
+      assert.match(html, /class="att-lead over"/)
+      assert.match(text(html), /overdue/, 'the amber is paired with a word')
+      assert.match(text(html), /waits 4\.0h/, 'and with the number behind it')
+      // A gate's twenty minutes can be what carries it over, and that is the
+      // point of pricing both bonuses in minutes.
+      const gate = payload({ escalations: [], review_gate: [{
+        ...OVERVIEW().review_gate[0], opened_at: at(230 * 60),
+      }] })
+      assert.equal(page.rankAttention(gate.overview)[0].amber, true)
+    })
+
+    test('the top three are full rows and the rest are one line each', () => {
+      const many = payload({ escalations: asks(6, [60, 50, 40, 30, 20, 10]), review_gate: [] })
+      const html = page.screenHome(many)
+      assert.equal((html.match(/class="att-full/g) ?? []).length, 3)
+      assert.equal((html.match(/class="att-row/g) ?? []).length, 3)
+      assert.match(text(html), /3 more, ranked, in one line each/)
+      // Nothing is dropped: every question is still named, and the count agrees.
+      const t = text(html)
+      for (let i = 0; i < 6; i += 1) assert.match(t, new RegExp(`question number ${i}`))
+      assert.match(t, /Needs you \(6\)/)
+      assert.match(t, /6 needs you/)
+      // The three full ones are the three highest ranked.
+      const full = /class="att-full[\s\S]*?class="att-more"/.exec(html)[0]
+      assert.match(full, /question number 0/)
+      assert.match(full, /question number 1/)
+      assert.match(full, /question number 2/)
+      assert.doesNotMatch(full, /question number 3/)
+    })
+
+    test('a compact row still names which item it is', () => {
+      const many = payload({ escalations: asks(4, [60, 50, 40, 30]), review_gate: [] })
+      const row = /<div class="att-row[\s\S]*?<\/div>\s*<\/div>/.exec(page.screenHome(many))[0]
+      assert.match(text(row), /Ask waits 30m question number 3 #903/)
+    })
+
+    test('map progress states closed, total and fog as numbers', () => {
+      const t = text(page.screenHome(payload()))
+      assert.match(t, /Build the Atlas operator experience 18 of 21 closed · 2 fog/)
+      assert.match(t, /every map →/)
+    })
+
+    test('a map snapshot the daemon has not written is not an empty frontier', () => {
+      const t = text(page.screenHome(payload({ maps: undefined })))
+      assert.match(t, /No map snapshot yet/)
+      assert.doesNotMatch(t, /No map is open/)
+      assert.match(text(page.screenHome(payload({ maps: { computed_at: at(10), maps: [] } }))), /No map is open/)
+    })
+
+    test('the type mix counts the open tickets, not the walked ones', () => {
+      const t = text(page.screenHome(payload()))
+      assert.match(t, /3 open — 1 grilling · 1 research · 1 task/)
+    })
+
+    test('momentum reads the journal tail, and says the tail bounds it', () => {
+      const t = text(page.screenHome(payload({
+        events: [
+          { ts: at(600), type: 'ticket_resolved', repo: 'alp82/curia', ticket: '261', agent: 'curia-261' },
+          { ts: at(1200), type: 'lifecycle_closed', repo: 'alp82/curia', ticket: '260', agent: 'curia-260' },
+          { ts: at(86400 * 3), type: 'ticket_resolved', repo: 'alp82/curia', ticket: '100', agent: 'curia-100' },
+          { ts: at(60), type: 'agent_ready', agent: 'curia-263', repo: 'alp82/curia', ticket: '263' },
+        ],
+      })))
+      assert.match(t, /2 resolved 24h/, 'the three-day-old resolution is outside the window')
+      assert.match(t, /3 events 24h/)
+      assert.match(t, /counted in the journal tail this snapshot carries, which is bounded/)
+    })
+
+    test('the deploy verdict is still on Home, in flight and in error', () => {
+      const flight = text(page.screenHome(payload({
+        deploy: { in_flight: { prev: 'a'.repeat(40), next: 'b'.repeat(40), state: 'merging' }, last: null, verdict_read_error: null },
+      })))
+      assert.match(flight, /a deploy is in flight: a{7} → b{7}/)
+      const failed = text(page.screenHome(payload({
+        deploy: { in_flight: null, verdict_read_error: null, last: {
+          state: 'lockout', prev: 'a'.repeat(40), next: 'b'.repeat(40),
+          reason: 'the health check never came back', by: 'u1', resolved_at: at(30), log: 'connection refused',
+        } },
+      })))
+      assert.match(failed, /LOCKOUT: a{7} → b{7}/)
+      assert.match(failed, /connection refused/)
+      assert.match(text(page.screenHome(payload({
+        deploy: { in_flight: null, last: null, verdict_read_error: 'the verdict file is unreadable' },
+      }))), /the verdict file is unreadable/)
     })
   })
 

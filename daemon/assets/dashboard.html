@@ -38,7 +38,7 @@
      2. Null is not empty. An unreadable fleet is not an idle box, and a frontier
         nobody has computed is not an empty frontier. Every section that can fail
         on its own says which of the two it is. -->
-<meta name="curia-dashboard" content="proto=7">
+<meta name="curia-dashboard" content="proto=8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark light">
 <title>Atlas · Curia</title>
@@ -209,17 +209,53 @@
   .meter-row .lbl { width: 2.2em; flex: none; font-family: ui-monospace, Menlo, monospace; }
   .meter-row .pct { width: 3.4em; flex: none; text-align: right; font-variant-numeric: tabular-nums; }
 
-  /* ---------- home ---------- */
-  .stat-tiles { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
-  .tile { border: 1px solid var(--line); border-radius: 10px; background: var(--bg-raise); padding: 12px 14px; box-shadow: var(--shadow); }
-  .tile .v { font-size: 22px; font-weight: 700; font-family: ui-monospace, Menlo, monospace; }
-  .tile .l { font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--ink-faint); margin-top: 2px; }
-  .tile.warn { border-color: var(--warn); } .tile.warn .v { color: var(--warn); }
-  .tile .v.none { color: var(--ink-faint); }
+  /* ---------- home (#703, on the V6 direction of #519) ---------- */
+  /* One column on a phone, in the reading order the markup already has. On a
+     desktop the ring takes its own rail and the four sections fill the rest. */
+  .home-grid { display: grid; gap: 0 30px; margin-top: 16px; align-items: start; }
+  .home-grid > div { min-width: 0; }
+  @media (min-width: 900px) {
+    .home-grid { grid-template-columns: 280px minmax(0, 1.4fr) minmax(0, 1fr); }
+    .home-grid .core { grid-column: 1; grid-row: 1 / span 3; padding-top: 24px; }
+    .home-grid .s-need { grid-column: 2 / span 2; }
+    .home-grid .s-agents { grid-column: 2; }
+    .home-grid .s-maps { grid-column: 3; }
+    .home-grid .s-log { grid-column: 2 / span 2; }
+  }
 
-  .split-cols { display: grid; grid-template-columns: 5fr 7fr; gap: 22px; align-items: start; margin-top: 16px; }
-  .split-cols > div { min-width: 0; }
-  @media (max-width: 900px) { .split-cols { grid-template-columns: 1fr; } }
+  .core { text-align: center; }
+  .ring { width: 150px; height: 150px; margin: 0 auto; position: relative; color: var(--ink-faint); }
+  .ring.hot { color: var(--warn); }
+  .ring svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .ring .in { position: absolute; inset: 0; display: flex; flex-direction: column;
+    justify-content: center; align-items: center; }
+  .ring .n { font-size: 48px; font-weight: 700; line-height: 1; color: currentColor;
+    font-family: ui-monospace, Menlo, monospace; }
+  .ring .k { font-size: 9px; letter-spacing: .3em; text-transform: uppercase;
+    color: var(--ink-faint); margin-top: 6px; }
+  .core-sub { margin-top: 12px; font-size: 12.5px; color: var(--ink-dim); }
+  .core .reads { display: flex; justify-content: center; gap: 28px; margin-top: 16px; }
+  .core .reads > div { text-align: center; color: var(--accent); }
+  .core .reads .v { font-size: 17px; font-weight: 700; color: var(--ink);
+    font-family: ui-monospace, Menlo, monospace; }
+  .core .reads .k { font-size: 9px; letter-spacing: .16em; text-transform: uppercase;
+    color: var(--ink-faint); margin: 2px 0 4px; }
+  .core .dim-note { margin-top: 8px; font-size: 11px; }
+  .spark { display: block; margin: 0 auto; }
+
+  /* The map bar: a filled share for the walked tickets, a dotted tail for the
+     fog beyond them. Both are restatements — the line above says the numbers. */
+  .quest { padding: 10px 0; border-top: 1px solid var(--line); }
+  .h-sect .quest:first-of-type { border-top: 0; }
+  .quest .l1 { display: flex; align-items: baseline; gap: 10px; }
+  .quest .ttl { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; font-weight: 600; }
+  .quest .num { flex: none; font-size: 11.5px; color: var(--ink-dim); }
+  .qbar { height: 3px; margin-top: 8px; background: var(--line); position: relative; border-radius: 2px; }
+  .qbar i { position: absolute; inset: 0 auto 0 0; background: var(--accent); border-radius: 2px; }
+  .qbar .fog { position: absolute; top: 0; bottom: 0; border-top: 3px dotted var(--ink-faint); opacity: .7; }
+  .type-mix { margin-top: 12px; font-size: 12.5px; color: var(--ink-dim); }
+  .type-mix b { color: var(--ink); }
   .h-sect { margin: 16px 0; }
   .h-sect:first-child { margin-top: 0; }
   .h-sect > h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--ink-faint); margin-bottom: 6px; font-weight: 700; }
@@ -230,6 +266,26 @@
   .att-item .who { font-family: ui-monospace, Menlo, monospace; font-weight: 700; margin-right: 8px; }
   .att-item .dim { color: var(--ink-dim); font-size: 12px; }
   .att-item .opts { margin-top: 5px; font-size: 12.5px; color: var(--ink-dim); }
+  /* The ranked list (#703). The lead line is the same on a full row and a
+     compact one, so the two read as one list at two densities. Amber is never
+     alone: `overdue` sits beside it. */
+  .att-lead { display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    font-size: 11px; color: var(--ink-faint); margin-bottom: 4px; }
+  .att-lead .chip { font-size: 9px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase;
+    padding: 3px 7px; border-radius: 4px; background: var(--chip-warn-bg); color: var(--warn); }
+  .att-lead.over .chip { background: var(--warn); color: var(--bg); }
+  .att-lead .waits { color: var(--ink-dim); }
+  .att-lead .lead-note { color: var(--ink-faint); }
+  .att-lead .lead-note.over { color: var(--warn); font-weight: 700; }
+  .att-full { margin-bottom: 10px; }
+  .att-more { margin: 12px 0 6px; font-size: 11px; text-transform: uppercase;
+    letter-spacing: .08em; color: var(--ink-faint); }
+  .att-row { display: flex; align-items: center; gap: 10px; padding: 8px 0;
+    border-top: 1px solid var(--line); font-size: 13px; }
+  .att-row .att-lead { margin-bottom: 0; flex: none; }
+  .att-row .ttl { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .att-row .ttl .sub { color: var(--ink-faint); margin-left: 6px; font-family: ui-monospace, Menlo, monospace; font-size: 11px; }
+  .att-row.over { border-left: 3px solid var(--warn); padding-left: 8px; }
   .att-item.gate { border-left-color: var(--accent); background: var(--chip-ok-bg); }
   .att-item.limit { border-left-color: var(--bad); background: var(--chip-bad-bg); }
   /* A credential that is dying reads as bad, not as a warning: nothing on this
@@ -1068,11 +1124,19 @@ function answerField(r) {
 }
 
 function escCard(r) {
-  return `<div class="att-item">
+  return {
+    kind: "ask",
+    chip: r.options?.length ? `Ask · ${r.options.length}` : "Ask",
+    title: snip(r.prompt, 90),
+    repo: r.repo ?? null,
+    ticket: r.ticket,
+    waited_at: r.opened_at,
+    html: `<div class="att-item">
     <span class="who">${esc(r.agent)}</span>${esc(snip(r.prompt, 260))}
     <div class="dim">${esc(r.kind)} · ${esc(ticketName(null, r.ticket))} · open ${esc(ago(r.opened_at))}${r.agent_died ? " · the agent died holding it" : ""}${r.rendered ? "" : " · not rendered in Discord yet"}</div>
     ${r.preview_url ? `<div class="opts"><a href="${esc(r.preview_url)}">the preview it asks about</a></div>` : ""}
-    ${answerButtons(r)}${answerField(r)}${said("esc:" + r.id)}</div>`;
+    ${answerButtons(r)}${answerField(r)}${said("esc:" + r.id)}</div>`,
+  };
 }
 
 /* ---- the diff digest (#355) ------------------------------------------------
@@ -1265,7 +1329,14 @@ const RANK_RULE = "source first, then tests, then docs, generated and lock files
    operator's words back to the builder. */
 function gateCard(r) {
   const id = "rej-" + r.id;
-  return `<div class="att-item gate">
+  return {
+    kind: "gate",
+    chip: "Gate",
+    title: snip(r.prompt, 90),
+    repo: r.repo ?? null,
+    ticket: r.ticket,
+    waited_at: r.opened_at,
+    html: `<div class="att-item gate">
     <span class="who">${esc(r.agent)}</span>review gate — ${esc(ticketName(null, r.ticket))} · open ${esc(ago(r.opened_at))}
     <div class="dim">${esc(snip(r.prompt, 220))}</div>
     ${r.pull_request ? `<div class="opts"><a href="${esc(r.pull_request)}">${esc(r.pull_request)}</a></div>` : `<div class="opts">no pull request on this gate</div>`}
@@ -1279,7 +1350,8 @@ function gateCard(r) {
       <input type="text" id="${esc(id)}" placeholder="what to change — a rejection carries your words…" ${anyBusy() ? "disabled" : ""}>
       <button class="btn sm danger" ${anyBusy() ? "disabled" : ""} onclick="rejectGate('${js(r.id)}','${js(id)}')">Reject</button>
     </div>
-    ${said("esc:" + r.id)}</div>`;
+    ${said("esc:" + r.id)}</div>`,
+  };
 }
 
 /* A credential warning (#380). It sits above the spent windows because it is
@@ -1293,9 +1365,17 @@ function gateCard(r) {
    through this shape too, which is why the message and the act are read
    defensively rather than assumed. */
 function tokenCard(w) {
-  return `<div class="att-item token">
+  return {
+    kind: "credential",
+    chip: "Token",
+    title: `${w.key} cannot reach ${w.repo}`,
+    repo: w.repo ?? null,
+    ticket: null,
+    waited_at: null,
+    html: `<div class="att-item token">
     <span class="who">${esc(w.key)}</span>cannot reach ${esc(w.repo)}${w.message ? ` — ${esc(w.message)}` : ""}
-    <div class="dim">${esc(w.refusal)}${w.fix ? ` — ${esc(w.fix)}` : ""}</div></div>`;
+    <div class="dim">${esc(w.refusal)}${w.fix ? ` — ${esc(w.fix)}` : ""}</div></div>`,
+  };
 }
 
 function dispatchHoldCard(h) {
@@ -1307,9 +1387,17 @@ function dispatchHoldCard(h) {
   const act = h.kind === "stall-watchdog"
     ? `type <code>resume ${esc(h.ticket)}</code> to use the surviving worktree`
     : "a <code>start</code> or <code>resume</code> you type dispatches it again and clears the count";
-  return `<div class="att-item limit">
+  return {
+    kind: "hold",
+    chip: "Held",
+    title: `${ticketName(h.repo, h.ticket)} — auto-dispatch steps over it`,
+    repo: h.repo ?? null,
+    ticket: h.ticket,
+    waited_at: null,
+    html: `<div class="att-item limit">
     <span class="who">${esc(ticketName(h.repo, h.ticket))}</span>${cause}, so auto-dispatch steps over it
-    <div class="dim">${act}</div></div>`;
+    <div class="dim">${act}</div></div>`,
+  };
 }
 
 /* The model credentials, as ONE POINTER (#642, ADR-0027; moved here by #661).
@@ -1359,22 +1447,37 @@ function credentialPointers(o) {
   const items = [];
   if (flow) {
     const mins = Math.floor((flow.seconds_left ?? 0) / 60);
-    items.push(`<div class="att-item token"><span class="who">${esc(flow.provider)}</span>is signing in —
-      the link${flow.typed ? "" : " and the code"} ${credLink("are on Credentials")} (${esc(mins)} min left)</div>`);
+    items.push({
+      kind: "credential", chip: "Sign in", repo: null, ticket: null, waited_at: flow.started_at ?? null,
+      title: `${flow.provider} is signing in`,
+      html: `<div class="att-item token"><span class="who">${esc(flow.provider)}</span>is signing in —
+      the link${flow.typed ? "" : " and the code"} ${credLink("are on Credentials")} (${esc(mins)} min left)</div>`,
+    });
   }
   /* A dead consumer on the provider now signing in is the SAME news as the line
      above, so it is not said twice. One on any other provider is not. */
   const rest = deadCredentials(o).filter((c) => !flow || c.provider !== flow.provider);
   if (rest.length) {
-    items.push(`<div class="att-item token"><span class="who">${esc(rest.map((c) => c.consumer).join(", "))}</span>the model
-      credential ${rest.length > 1 ? "cannot be used" : credSays(rest[0])} — ${credLink("open Credentials")} to sign in</div>`);
+    items.push({
+      kind: "credential", chip: "Credential", repo: null, ticket: null, waited_at: rest[0].held?.at ?? null,
+      /* THE SAME SENTENCE THE FULL CARD SAYS. A compact row is a shorter row,
+         not a vaguer one: an item that reaches row four must still name which
+         credential and what happened to it. */
+      title: `${rest.map((c) => c.consumer).join(", ")} the model credential ${rest.length > 1 ? "cannot be used" : credWords(rest[0])}`,
+      html: `<div class="att-item token"><span class="who">${esc(rest.map((c) => c.consumer).join(", "))}</span>the model
+      credential ${rest.length > 1 ? "cannot be used" : credSays(rest[0])} — ${credLink("open Credentials")} to sign in</div>`,
+    });
   }
   return items;
 }
 /* One consumer, in the vocabulary the screen uses, so the pointer and the row
-   cannot say different words about one fault. */
+   cannot say different words about one fault. `credWords` is the same sentence
+   as plain text, for the compact row, which escapes its own title. */
+function credWords(c) {
+  return c.held ? "cannot be refreshed and the lane is held" : `is ${c.state}`;
+}
 function credSays(c) {
-  return c.held ? "cannot be refreshed and the lane is held" : `is ${esc(c.state)}`;
+  return esc(credWords(c));
 }
 /* The hash IS the route (#661): the Discord alarm sends an operator to the same
    `#credentials` this link does, so somebody arriving through the front door
@@ -1404,11 +1507,111 @@ function attentionItems(o) {
   ];
 }
 
+/* ---- the Needs-you ranking (#703) -------------------------------------------
+
+   WAIT LEADS, and everything else is priced in the same unit so that nothing
+   can outrank a long wait by being a louder KIND of thing. An item's rank is
+   its wait in minutes plus two bonuses, each of them a stated number of
+   minutes rather than a weight nobody can reason about:
+
+     the item unblocks other tickets   +90 minutes
+     the item is a review gate         +20 minutes
+
+   90 for an unblock because a question holding other work costs more than the
+   one ticket it sits on. 20 for a gate because a gate is cheap to answer and an
+   agent is parked on it, but it is still one ticket's worth of hold.
+
+   FOUR HOURS TURNS AMBER, on that same score — the score IS the wait, in the
+   currency the ranking uses, so the marking and the order cannot disagree about
+   which item is the worst one. And the amber never travels alone: the row says
+   `overdue` beside it, and states the wait as a number.
+
+   An item with no clock behind it — a dead credential, a stepped-over ticket —
+   scores its bonuses and nothing else. It is not pretended to be new, and it is
+   not pretended to be old either. */
+const UNBLOCK_BONUS_MIN = 90;
+const GATE_BONUS_MIN = 20;
+const AMBER_MIN = 240;
+
+function waitMinutes(item) {
+  const t = item?.waited_at ? Date.parse(item.waited_at) : NaN;
+  if (!Number.isFinite(t)) return 0;
+  return Math.max(0, Math.round((Date.now() - t) / 60000));
+}
+
+/* The tickets that HOLD other tickets, as bare numbers. Two sources say it and
+   they agree: a map's blocked children name their blockers, and a frontier item
+   names what it unblocks. An escalation carries no repo at all, so the key is
+   the number — one box watches a handful of repos, and the alternative is a
+   bonus that silently never applies. */
+function unblockingTickets(o) {
+  const held = new Set();
+  for (const m of o?.maps?.maps ?? []) {
+    for (const child of m.blocked ?? []) {
+      for (const b of child.blockers ?? []) held.add(String(b.number));
+    }
+  }
+  for (const r of o?.frontier?.repos ?? []) {
+    for (const item of r.items ?? []) {
+      if ((item.unblocks ?? []).length) held.add(String(item.number));
+    }
+  }
+  return held;
+}
+
+function rankAttention(o) {
+  const held = unblockingTickets(o);
+  return attentionItems(o)
+    .map((item) => {
+      const waits = waitMinutes(item);
+      const unblocks = item.ticket != null && held.has(String(item.ticket));
+      const score = waits
+        + (unblocks ? UNBLOCK_BONUS_MIN : 0)
+        + (item.kind === "gate" ? GATE_BONUS_MIN : 0);
+      return { ...item, waits, unblocks, score, amber: score >= AMBER_MIN };
+    })
+    .sort((a, b) => b.score - a.score);
+}
+
+/* The lead line every row wears, full or compact. The chip names the KIND, the
+   number names the wait, and `overdue` is the word the amber never goes
+   without. `unblocks` is said in words too — it is 90 minutes of the row's
+   rank, and a rank an operator cannot account for is a rank they distrust. */
+function attLead(item) {
+  return `<div class="att-lead${item.amber ? " over" : ""}">
+    <span class="chip">${esc(item.chip)}</span>
+    <span class="waits num">${item.waited_at ? `waits ${esc(dur(item.waits * 60))}` : "no clock on it"}</span>
+    ${item.unblocks ? `<span class="lead-note">unblocks other work</span>` : ""}
+    ${item.amber ? `<span class="lead-note over">overdue</span>` : ""}
+  </div>`;
+}
+
 /* The column itself. It carries no count of its own any more: the number has one
-   home, `needsYou`, and a second one here is how the two drifted. */
+   home, `needsYou`, and a second one here is how the two drifted.
+
+   THE TOP THREE ARE FULL ROWS (#703) — the whole card, with the words the agent
+   wrote and the buttons that answer it. Everything below is a compact row: one
+   line, still named, still ranked, still reachable. Nothing is dropped. A list
+   that compresses its tail hides work; a list that draws forty full cards hides
+   the three that matter.
+
+   The `att-more` line says how many are down there, because a section that
+   quietly changes shape at item four is a section nobody trusts. */
+const FULL_ROWS = 3;
+
 function attentionList(o) {
-  const items = attentionItems(o);
-  return items.length ? items.join("") : `<div class="empty">Nothing wants you.</div>`;
+  const items = rankAttention(o);
+  if (!items.length) return `<div class="empty">Nothing wants you.</div>`;
+  const full = items.slice(0, FULL_ROWS).map((item) =>
+    `<div class="att-full${item.amber ? " over" : ""}">${attLead(item)}${item.html}</div>`).join("");
+  const rest = items.slice(FULL_ROWS);
+  if (!rest.length) return full;
+  return `${full}
+    <div class="att-more">${esc(rest.length)} more, ranked, in one line each</div>
+    ${rest.map((item) => `<div class="att-row${item.amber ? " over" : ""}">
+      ${attLead(item)}
+      <span class="ttl">${esc(item.title)}${item.ticket == null ? "" : `<span class="sub">${esc(ticketName(item.repo, item.ticket))}</span>`}</span>
+    </div>`).join("")}`;
 }
 
 /* ---- the feed -------------------------------------------------------------- */
@@ -1584,43 +1787,212 @@ function feedList(events, limit) {
 
 /* ---- home ------------------------------------------------------------------ */
 
-function tile(v, l, warn) {
-  const none = v === "—" || v === 0 ? " none" : "";
-  return `<div class="tile${warn && v ? " warn" : ""}"><div class="v num${none}">${esc(v)}</div><div class="l">${esc(l)}</div></div>`;
-}
-function statTiles(o) {
-  const reset = nextReset(o.usage);
-  return `<div class="stat-tiles">
-    ${tile(needsYou(o), "needs you", true)}
-    ${tile(o.agents == null ? "—" : o.agents.length, "agents live")}
-    ${tile(o.review_gate?.length ?? 0, "review gate", true)}
-    ${tile(reset ? clock(reset.at) : "—", reset ? `${reset.provider} ${reset.label} rolls` : "next reset")}
+/* THE VERDICT RING (#519 V6, built by #703). One focal number, and it is the
+   number every other Atlas surface already says: `needsYou`. The ring is a
+   circle whose amber arc is that count against the work the box is carrying,
+   so a quiet box draws a thin arc and a stuck one draws most of a circle.
+
+   COLOR NEVER CARRIES IT ALONE. The count is written in the middle, the words
+   `needs you` sit under it, and the readings below state agents, gates and the
+   oldest wait as numbers. Somebody reading this in greyscale loses nothing. */
+const RING_R = 68;
+const RING_C = 2 * Math.PI * RING_R;
+
+function verdictRing(o) {
+  const n = needsYou(o);
+  const live = o.agents == null ? 0 : o.agents.length;
+  /* The arc is the share of everything in play that wants a human. A box with
+     nothing in play and nothing waiting draws no arc rather than a full one. */
+  const load = Math.max(n + live, 1);
+  const arc = Math.min(1, n / load) * RING_C;
+  return `<div class="ring${n ? " hot" : ""}">
+    <svg viewBox="0 0 150 150" aria-hidden="true">
+      <circle cx="75" cy="75" r="${RING_R}" fill="none" stroke="var(--line)" stroke-width="4"></circle>
+      <circle cx="75" cy="75" r="${RING_R}" fill="none" stroke="currentColor" stroke-width="4"
+        stroke-linecap="round" transform="rotate(-90 75 75)"
+        stroke-dasharray="${arc.toFixed(1)} ${(RING_C - arc).toFixed(1)}"></circle>
+    </svg>
+    <div class="in"><span class="n num">${esc(n)}</span><span class="k">needs you</span></div>
   </div>`;
 }
 
-/* The all-three home (#248): tiles across the top, the attention list left, the
-   fleet right, the provider strip said once under it. */
+/* The readings under the ring. These are the four tiles Home used to lead with,
+   said once and smaller, because the ring is the thing that leads now. The
+   words are unchanged on purpose — `agents live`, `review gate` — so the count
+   an operator learned on the old Home means the same thing on this one. */
+function coreReads(o) {
+  const reset = nextReset(o.usage);
+  const items = rankAttention(o);
+  const oldest = items.filter((i) => i.waited_at).sort((a, b) => b.waits - a.waits)[0];
+  return `<div class="core-sub">
+    ${esc(o.agents == null ? "—" : o.agents.length)} agents live ·
+    ${esc(o.review_gate?.length ?? 0)} review gate ·
+    ${oldest ? `oldest waits ${esc(dur(oldest.waits * 60))}` : "nothing is waiting"}
+    ${reset ? ` · ${esc(reset.provider)} ${esc(reset.label)} rolls ${esc(clock(reset.at))}` : ""}
+  </div>`;
+}
+
+/* ---- momentum (#703) --------------------------------------------------------
+
+   What the box HAS DONE, next to what it is stuck on, so a page full of
+   Needs-you items is not the only reading an operator gets. Both numbers come
+   off the journal tail the snapshot already carries — this takes no read of its
+   own — and the tail is bounded, so the caption says so rather than letting a
+   truncated window read as a quiet day. */
+const MOMENTUM_H = 24;
+const RESOLVED_TYPES = ["ticket_resolved", "lifecycle_closed"];
+
+function recentEvents(events, hours) {
+  const floor = Date.now() - hours * 3600_000;
+  return (events ?? []).filter((e) => {
+    const t = Date.parse(e.ts);
+    return Number.isFinite(t) && t >= floor;
+  });
+}
+
+function momentum(o) {
+  const recent = recentEvents(o.events, MOMENTUM_H);
+  const resolved = recent.filter((e) => RESOLVED_TYPES.includes(e.type)).length;
+  return `<div class="reads">
+    <div><div class="v num">${esc(resolved)}</div><div class="k">resolved ${esc(MOMENTUM_H)}h</div></div>
+    <div><div class="v num">${esc(recent.length)}</div><div class="k">events ${esc(MOMENTUM_H)}h</div>
+      ${sparkline(hourly(recent, MOMENTUM_H))}</div>
+  </div>
+  <div class="dim-note">counted in the journal tail this snapshot carries, which is bounded</div>`;
+}
+
+/* One bucket an hour, oldest first, so the line reads left to right the way a
+   clock does. */
+function hourly(events, hours) {
+  const buckets = new Array(hours).fill(0);
+  const now = Date.now();
+  for (const e of events) {
+    const t = Date.parse(e.ts);
+    if (!Number.isFinite(t)) continue;
+    const i = hours - 1 - Math.floor((now - t) / 3600_000);
+    if (i >= 0 && i < hours) buckets[i] += 1;
+  }
+  return buckets;
+}
+
+/* A sparkline is decoration, and it is marked as such: every number it draws is
+   already written beside it in words. */
+function sparkline(values) {
+  if (!values.length) return "";
+  const top = Math.max(1, ...values);
+  const w = 72;
+  const h = 14;
+  const step = values.length > 1 ? w / (values.length - 1) : 0;
+  const points = values.map((v, i) => `${(i * step).toFixed(1)},${(h - (v / top) * h).toFixed(1)}`).join(" ");
+  return `<svg class="spark" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" aria-hidden="true">
+    <polyline fill="none" stroke="currentColor" stroke-width="1.5" points="${esc(points)}"></polyline></svg>`;
+}
+
+/* ---- map progress (#703) ----------------------------------------------------
+
+   The complete map snapshot #687 put on `/overview`, read here for the first
+   time. Every map states CLOSED, TOTAL and FOG as numbers, because those are
+   the three an operator needs to know whether an effort is nearly done, barely
+   started, or still uncertain — and fog is the one a percentage cannot carry:
+   a map at 18 of 24 with nine patches of fog is not 75% done.
+
+   The bar under each map says the same three facts again in shape: a filled
+   share for the walked work, and a dotted tail for the fog beyond the counted
+   tickets. Neither the bar nor its color says anything the line above does not
+   already say in words. */
+function mapProgress(o) {
+  const snap = o.maps;
+  if (!snap || !snap.maps) {
+    return `<div class="later">No map snapshot yet. The daemon computes one on its reconcile pass, and this page reads whatever it last wrote.</div>`;
+  }
+  if (!snap.maps.length) return `<div class="empty">No map is open.</div>`;
+  return snap.maps.map((m) => {
+    const c = m.counts ?? {};
+    const total = c.total ?? 0;
+    const closed = c.walked ?? 0;
+    const fog = c.fog ?? 0;
+    /* THE WHOLE OF THE BAR IS THE TICKETS PLUS THE FOG, so the three segments
+       never sit on top of each other and the walked share never looks larger
+       than it is. A map at 3 of 4 with four patches of fog is a quarter walked
+       here, which is the honest reading of it. */
+    const whole = Math.max(total + fog, 1);
+    const done = Math.round((closed / whole) * 100);
+    const fogShare = Math.round((fog / whole) * 100);
+    return `<div class="quest">
+      <div class="l1">
+        <a class="ttl" href="${esc(m.url)}">${esc(snip(m.title, 60))}</a>
+        <span class="num">${esc(closed)} of ${esc(total)} closed · ${esc(fog)} fog</span>
+      </div>
+      <div class="qbar"><i style="width:${done}%"></i>${
+        fog ? `<span class="fog" style="left:${100 - fogShare}%;width:${fogShare}%"></span>` : ""}</div>
+    </div>`;
+  }).join("");
+}
+
+/* ---- the type mix (#703) ----------------------------------------------------
+
+   What KIND of work is still open across every map. A frontier of eight
+   grillings is a different box from a frontier of eight tasks, and the counts
+   are the only place that shows. Walked tickets are not in it: this is what is
+   left, not what was done. */
+function typeMix(o) {
+  const snap = o.maps;
+  if (!snap || !snap.maps) return "";
+  const counts = new Map();
+  let open = 0;
+  for (const m of snap.maps) {
+    for (const t of [...(m.in_flight ?? []), ...(m.takeable ?? []), ...(m.blocked ?? [])]) {
+      const type = t.type ?? "untyped";
+      counts.set(type, (counts.get(type) ?? 0) + 1);
+      open += 1;
+    }
+  }
+  if (!open) return `<div class="dim-note">Nothing is open across the maps.</div>`;
+  const words = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .map(([type, n]) => `${esc(n)} ${esc(type)}`).join(" · ");
+  return `<div class="type-mix"><b class="num">${esc(open)}</b> open — ${words}</div>`;
+}
+
+/* THE WHOLE OPERATING STATE, ON ONE SCREEN (#703, on the V6 direction #519
+   settled). The old Home led with four tiles of equal weight, which is the
+   shape that makes a stuck box and a quiet box look alike. This one leads with
+   the verdict ring: one number, one word, and everything else arranged under it
+   in the order an operator actually needs it.
+
+   The order is the hierarchy, top to bottom on a phone and left to right on a
+   desktop: the verdict, then what wants you, then who is working, then where
+   the maps stand, then what happened and whether the last deploy survived.
+
+   NOTHING ELSE COMPUTES THE COUNT. The ring, the header and the tab title all
+   read `needsYou`, which reads `attentionItems` (#677), so a new item class
+   cannot reach one surface alone. */
 function screenHome(p) {
   const o = p?.overview;
   if (!o) return noSnapshot(p, "Home");
-  /* The list header reads `needsYou` like the tile, the badge and the tab title
-     do (#677). It is the same number the column beneath it draws — both come
-     off `attentionItems` — and saying it in the same word is what stops the
-     next surface from growing its own arithmetic. */
   const n = needsYou(o);
   return `${head(p, "Home")}
     ${spentBanner(o)}
     ${holdBanner(o)}
-    ${statTiles(o)}
-    <div class="split-cols">
-      <div>
-        <div class="h-sect"><h3><span class="${n ? "hot" : ""}">Needs you</span> (${n})</h3>${attentionList(o)}</div>
-        <div class="h-sect"><h3>Last events</h3>${feedList(o.events, 4)}
-          <a class="more" href="#feed">all events →</a></div>
+    <div class="home-grid">
+      <div class="core">
+        ${verdictRing(o)}
+        ${coreReads(o)}
+        ${momentum(o)}
       </div>
-      <div>
+      <div class="s-need">
+        <div class="h-sect"><h3><span class="${n ? "hot" : ""}">Needs you</span> (${n})</h3>${attentionList(o)}</div>
+      </div>
+      <div class="s-agents">
         <div class="h-sect"><h3>Fleet${o.agents == null ? "" : ` (${o.agents.length})`}</h3>${fleetTable(o)}</div>
         ${provStrip(o)}
+      </div>
+      <div class="s-maps">
+        <div class="h-sect"><h3>Maps</h3>${mapProgress(o)}${typeMix(o)}
+          <a class="more" href="#maps">every map →</a></div>
+      </div>
+      <div class="s-log">
+        <div class="h-sect"><h3>Last events</h3>${feedList(o.events, 4)}
+          <a class="more" href="#feed">all events →</a></div>
         ${deployCard(o)}
       </div>
     </div>`;

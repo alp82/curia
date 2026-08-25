@@ -72,7 +72,12 @@ export const daemonPort = () => Number(process.env.PORT ?? DEFAULT_DAEMON_PORT)
 // POSTs `/api/reauth`, a route a proto-6 sidecar does not serve — so a screen
 // built for the 3am no-ssh recovery would answer 404 at the press it exists
 // for. It also reads two fields a proto-6 daemon's `/overview` does not carry.
-export const DASHBOARD_PROTO = 7
+// Bumped to 8 by #703: Home draws the map progress rows and the type mix off
+// `overview.maps`, the complete map snapshot #687 added. A daemon from before
+// that carries no `maps` section at all, so the Maps column of the one screen
+// this map exists for would render as "no snapshot yet" on a box whose maps are
+// perfectly readable — the failure #642 bumped for, on a different section.
+export const DASHBOARD_PROTO = 8
 
 // The Credentials screen's own hash (#661). It is here rather than in the
 // daemon that links to it, because the page's screen names are this file's half
