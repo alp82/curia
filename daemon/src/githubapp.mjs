@@ -281,7 +281,16 @@ export class GitHubAppSetup {
     } catch {
       throw new Error('the GitHub App redirect URL is not a URL')
     }
+    // GitHub sends the one-use conversion code back to this URL, so what it
+    // may look like is worth naming. The daemon holds no record of its own
+    // public address - the sidecar composes the URL from curia's own records
+    // (#68), and that is where the host is decided. What this side can still
+    // check is the shape: HTTPS, and none of the parts a redirect for this
+    // flow has no use for. Credentials, a query, or a fragment in a manifest
+    // redirect are all signs the URL came from somewhere other than curia.
     if (redirect.protocol !== 'https:') throw new Error('the GitHub App redirect URL must use HTTPS')
+    if (redirect.username || redirect.password) throw new Error('the GitHub App redirect URL must carry no credentials')
+    if (redirect.search || redirect.hash) throw new Error('the GitHub App redirect URL must carry no query or fragment')
     const state = Buffer.from(this.randomBytes(32)).toString('hex')
     const expires = this.now() + APP_SETUP_TTL_MS
     this.#writeState({ state, expires_at: expires, status: 'pending' })

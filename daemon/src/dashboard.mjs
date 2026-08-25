@@ -874,7 +874,13 @@ export class DashboardSurface {
         return this.#verb(res, async () => {
           const b = await this.#body(req)
           const name = words(b.name, 'a GitHub App name')
-          const redirectUrl = `https://${String(req.headers.host ?? '')}/api/github-app/complete`
+          // The redirect is THIS surface's own address, composed from curia's
+          // own records (#68) rather than from the request headers. GitHub
+          // sends the conversion code back to this URL, so a caller-named
+          // redirect would be a way to send that code somewhere else. The
+          // `Host` header is whatever the caller wrote; `link()` is what
+          // tailscale says this box is.
+          const redirectUrl = new URL('api/github-app/complete', await this.link()).toString()
           return this.#daemon({
             method: 'POST', path: '/github-app/start', body: { name, redirect_url: redirectUrl }, accept: [200, 400],
           })
