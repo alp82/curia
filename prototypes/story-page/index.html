@@ -1079,10 +1079,18 @@
      - the home is the synthesis home of prototypes/home-directions/
        (#519): the ring of what needs you, the agents that run, and
        one progress bar per map.
-     - the map is the stops line of prototypes/frontier-visual/
-       (#588): the walked stop, the running row, the frontier rule,
-       then the blocked in their red-lined box and the fog on its
-       diagonal grey stripes.
+     - the map is the RED-DASHES cut of prototypes/frontier-visual/
+       (#588): the walked cap, the running row, the frontier rule,
+       then the blocked in their red-dashed box and the fog on its
+       diagonal grey stripes. Nothing wears a stop, and the route
+       reads as a column rather than a line.
+
+       This scene first drew the stops line, which #588 keeps as the
+       ALTERNATE. The operator overruled the six-round pick on
+       2026-08-22, but the asset still opened on the stops until #605
+       merged on 2026-08-25, so the scene was drawn from a file that
+       disagreed with its own ticket. Read the FIRST view in the
+       asset's cycle, not the second.
 
      Every count is what the tracker held when this file was written
      (#601: real records). The map is alp82/curia#600, the map that is
@@ -1190,7 +1198,15 @@
   .quest.sel .l1 .ttl { color: #5ec8e5; }
   .quest.sel .qbar i { box-shadow: 0 0 12px rgba(94, 200, 229, 0.45); }
 
-  /* ---- the map screen (#588, the decided stops line) ---- */
+  /* ---- the map screen (#588, the decided red-dashes cut) ----
+
+     F1, not F5. The operator overruled the six-round pick on
+     2026-08-22 and #605 flipped the asset on 2026-08-25; this scene
+     was drawn from the asset in between, while it still opened on the
+     stops. The route reads as a COLUMN here: no stop dots, no rail
+     down the left. What carries over from the drawing that was here
+     is exactly what #588 says carries over - the red-dashed blocked
+     box, the striped fog, the routed model on every takeable row. */
   .at-head { display: flex; align-items: baseline; gap: 0.55rem; }
   .at-frac { flex: none; font: 700 1.1rem var(--mono); font-variant-numeric: tabular-nums; }
   .at-frac span { color: #8a93a3; font-size: 0.78rem; font-weight: 600; }
@@ -1199,24 +1215,23 @@
   .at-meta { margin: 0.2rem 0 0; font: 0.58rem var(--mono); color: #8a93a3; }
 
   .rl { margin-top: 0.75rem; }
-  .rrow {
-    position: relative; display: flex; align-items: center; gap: 0.55rem;
-    padding: 0.36rem 0 0.36rem 1.4rem; font-size: 0.74rem;
+  /* The walked cap: one thin line for everything already behind us,
+     so the frontier gets the room. */
+  .walkcap {
+    display: flex; align-items: center; gap: 0.5rem; margin-top: 0.6rem;
+    font: 0.58rem var(--mono); color: #8a93a3;
   }
-  .rrow::before { content: ''; position: absolute; left: 0.22rem; top: 0; bottom: 0; width: 2px; background: #5ec8e5; }
-  .rrow.below::before {
-    background: none; opacity: 0.55;
-    background-image: linear-gradient(#8a93a3 45%, transparent 45%); background-size: 2px 9px;
-  }
-  .rrow.dim { color: #8a93a3; }
-  .rrow.dim .ttl { font-weight: 400; }
-  .rrow .stop { position: absolute; left: 0; top: 50%; transform: translateY(-50%); }
-  .s-walk { width: 0.65rem; height: 0.65rem; border-radius: 999px; background: #5ec8e5; }
-  .s-run {
-    width: 0.65rem; height: 0.65rem; border-radius: 999px; background: #41d98d;
+  .walkcap .cdot { flex: none; width: 0.5rem; height: 0.5rem; border-radius: 999px; background: #5ec8e5; opacity: 0.7; }
+  .walkcap .crule { flex: 1; height: 1px; background: #20242c; }
+  .prow { display: flex; align-items: center; gap: 0.55rem; padding: 0.36rem 0; font-size: 0.74rem; }
+  .prow.dim { color: #8a93a3; }
+  .prow.dim .ttl { font-weight: 400; }
+  /* A live agent's row. The green dot is the agent, not a stop on a
+     line - F1 wears no stops. */
+  .prow .live {
+    flex: none; width: 0.5rem; height: 0.5rem; border-radius: 999px; background: #41d98d;
     box-shadow: 0 0 0 3px rgba(65, 217, 141, 0.16);
   }
-  .s-fog { width: 0.65rem; height: 0.65rem; border-radius: 999px; border: 2px dotted #8a93a3; }
   .front { display: flex; align-items: center; gap: 0.55rem; margin: 0.45rem 0 0.15rem; }
   .front .frontlbl {
     flex: none; font: 700 0.5rem var(--mono); letter-spacing: 0.24em;
@@ -1225,9 +1240,10 @@
   .front .frule { flex: 1; height: 2px; background: #5ec8e5; box-shadow: 0 0 12px rgba(94, 200, 229, 0.45); }
   .front .fcap { flex: none; font: 0.56rem var(--mono); color: #8a93a3; }
 
-  /* The blocked box and the fog strip, as #588 round 5 drew them:
-     red rules behind what waits, diagonal grey stripes behind what
-     nobody has specified yet. */
+  /* The blocked box and the fog strip, unchanged by the overrule -
+     #588 carries both into F1: thin red dashes behind what waits,
+     diagonal grey stripes behind what nobody has specified yet. The
+     red always pairs with the word, and no pattern appears twice. */
   .waitr {
     margin-top: 0.6rem; padding: 0.45rem 0.65rem 0.5rem;
     border: 1px solid rgba(242, 112, 122, 0.45); border-radius: 8px;
@@ -1239,10 +1255,7 @@
   }
   .waitr .slbl { color: #f2707a; }
   .wrow { display: flex; align-items: center; gap: 0.5rem; padding: 0.22rem 0; font-size: 0.7rem; color: #8a93a3; }
-  .s-waitr {
-    flex: none; width: 0.55rem; height: 0.55rem; border-radius: 2px;
-    background: rgba(242, 112, 122, 0.1); border: 1px solid #f2707a;
-  }
+  .s-waitr { flex: none; width: 0.22rem; height: 0.62rem; background: #f2707a; opacity: 0.55; }
   .wrow .ttl { font-weight: 400; white-space: normal; }
   .wrow .ttl .sub { color: rgba(242, 112, 122, 0.75); }
   .fogs {
@@ -2055,9 +2068,10 @@
 
        Both redraw decided curia screens in the V6 dashboard tokens:
        the home is the synthesis home of prototypes/home-directions/
-       (#519), and the map is the stops line of
-       prototypes/frontier-visual/ (#588) — the blocked in their
-       red-lined box, the fog on its diagonal grey stripes.
+       (#519), and the map is the red-dashes cut of
+       prototypes/frontier-visual/ (#588) — bare rows under the
+       frontier rule, the blocked in their red-dashed box, the fog on
+       its diagonal grey stripes, and no stops anywhere.
 
        Every count is what the tracker held when this file was written
        (#601: real records). The map is #600, the map that is building
@@ -2114,7 +2128,7 @@
         </div>
       </div>
 
-      <!-- the map screen (#588, the decided stops line) -->
+      <!-- the map screen (#588, the decided red-dashes cut) -->
       <div class="at-scr mp-scr">
         <div class="at-ht"><span>curia · atlas · maps</span><span>#600</span></div>
         <div class="at-body">
@@ -2124,14 +2138,13 @@
           </div>
           <p class="at-meta">alp82/curia · destination: the page is live at curia.sh</p>
           <div class="rl">
-            <div class="rrow dim"><i class="stop s-walk"></i>
-              <span class="ttl">10 walked<span class="sub">#627 the preview · #626 the Discord scene · #625 the opening arc</span></span></div>
-            <div class="rrow"><i class="stop s-run"></i>
+            <div class="walkcap"><span class="cdot"></span>
+              <span>10 walked · 1 in flight</span><span class="crule"></span><span>#600</span></div>
+            <div class="prow"><i class="live"></i>
               <span class="ttl">The atlas scene of the story page<span class="sub">runs · claude-opus-5 · #628</span></span>
               <span class="go">chat →</span></div>
             <div class="front"><span class="frontlbl">the frontier</span><span class="frule"></span><span class="fcap">0 takeable</span></div>
-            <div class="rrow below dim"><i class="stop s-fog"></i>
-              <span class="ttl">nothing takeable. the way is in flight</span></div>
+            <div class="prow dim"><span class="ttl">nothing takeable. the way is in flight</span></div>
           </div>
           <div class="waitr">
             <p class="slbl">blocked · 5</p>
