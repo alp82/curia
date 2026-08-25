@@ -12,14 +12,14 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const EVIDENCE = path.join(ROOT, 'prototypes', 'overseer-pane', 'evidence')
 
 const texts = (items) => items.map(({ kind, text }) => ({ kind, text }))
-const read = (name, options) => readActiveMessages(
+const readRecordedMessages = (name, options) => readActiveMessages(
   'claude',
   fs.readFileSync(path.join(EVIDENCE, name), 'utf8').trimEnd().split('\n'),
   options,
 ).items
 
 test('reads a recorded linear transcript', () => {
-  const items = read('transcript-1-after-rewind.jsonl')
+  const items = readRecordedMessages('transcript-1-after-rewind.jsonl')
 
   assert.deepEqual(texts(items), [
     { kind: 'prompt', text: 'Which agents run right now?' },
@@ -32,7 +32,7 @@ test('reads a recorded linear transcript', () => {
 })
 
 test('uses the journaled landing point before the next transcript message', () => {
-  const items = read(
+  const items = readRecordedMessages(
     'transcript-1-after-rewind.jsonl',
     { landingUuid: 'd0a31952-1600-42c2-913c-572e2944d035' },
   )
@@ -46,7 +46,7 @@ test('uses the journaled landing point before the next transcript message', () =
 })
 
 test('excludes the abandoned branch from a recorded forked transcript', () => {
-  const items = read('transcript-2-after-fork.jsonl')
+  const items = readRecordedMessages('transcript-2-after-fork.jsonl')
 
   assert.deepEqual(texts(items), [
     { kind: 'prompt', text: 'Which agents run right now?' },
