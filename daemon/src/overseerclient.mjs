@@ -16,7 +16,7 @@
 //   1. `OverseerTurns` — the per-turn registry. It mints the secret the
 //      container's model presents, and it holds what a verb call needs to know:
 //      which thread to route to, and how to narrate.
-//   2. `buildVerbMcpServer` — the eight verbs as an HTTP MCP server, which is
+//   2. `buildVerbMcpServer` — the verb catalogue as an HTTP MCP server, which is
 //      the daemon's own side channel. The handlers are the catalogue's, so a
 //      call composes canonical text HERE and posts it to `/command`.
 //   3. `OverseerClient` — what the bridge and the Chat screen call. It kept
@@ -44,7 +44,7 @@ import {
   OVERSEER_CONTAINER_MODEL, overseerConfigDirFor,
 } from './overseerturn.mjs'
 
-// The eight verbs, served over HTTP MCP. One server per request, like the agent
+// The verb catalogue, served over HTTP MCP. One server per request, like the agent
 // surface: the transport is stateless, and the per-turn context is closed over
 // by `command` before this is ever called.
 export function buildVerbMcpServer(command) {

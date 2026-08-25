@@ -6,8 +6,8 @@
 
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { parseCommand } from '../src/commands.mjs'
-import { canonicalFor, verbHandlers } from '../src/overseerverbs.mjs'
+import { parseCommand, newMapPlan } from '../src/commands.mjs'
+import { canonicalFor, verbHandlers, VERB_SPECS, VERB_TOOLS } from '../src/overseerverbs.mjs'
 import { buildSystemPrompt, ALLOWED_TOOLS } from '../src/overseerprompt.mjs'
 
 // The posture that runs since the cutover (#315): the container holds a shell.
@@ -143,5 +143,172 @@ describe('verbHandlers', () => {
     const handlers = verbHandlers(async () => { throw new Error('daemon answered 500') })
     const status = handlers.find((h) => h.verb === 'status')
     await assert.rejects(() => status.handler({}), /daemon answered 500/)
+  })
+})
+
+// ---- the round trip (#692, ADR-0022) ----------------------------------------
+//
+// The A-class incidents behind ADR-0022 came from hand-maintained agreement:
+// `canonicalFor` and `parseCommand` are two halves of one seam, and only `map`
+// and `start` had spot checks. This suite GENERATES a case for every verb in
+// the catalogue and every combination of its optional arguments, composes each
+// one, parses the text back, and asserts the verb and the fields survived.
+//
+// A verb added to the catalogue with no sample here fails the coverage test
+// rather than going untested, and a field added to a verb fails the same way.
+describe('the command round trip, generated (#692)', () => {
+  // One watched repo, so the new-map shape's repo ruling has a sole repo to
+  // fall back to. `newMapPlan` is that ruling, and the test calls it for the
+  // same reason the router does: the parser marks a candidate word and only
+  // the watch list says whether it names a repo.
+  const WATCHED = ['alp82/curia']
+
+  // One sample per field name. The values are deliberately awkward: the repo
+  // is the slashed form the ambiguity refusals recommend, and the instruction
+  // carries a retired `--` inside it, which is the token #255 stopped writing
+  // and never stopped reading.
+  const SAMPLE = {
+    ticket: '147',
+    repo: 'alp82/curia',
+    model: 'opus',
+    instruction: 'chart the fog -- all of it',
+  }
+
+  // The verbs whose ticket field also takes "all". Both shapes are a separate
+  // case, because `all` names every agent and the composition drops arguments
+  // around it.
+  const BULK = { cancel: ['147', 'all'], resume: ['147', 'all'] }
+
+  const subsets = (keys) => keys.reduce(
+    (acc, k) => [...acc, ...acc.map((s) => [...s, k])],
+    [[]],
+  )
+
+  // What the seam DELIBERATELY drops on the way out. A drop is not a round-trip
+  // failure: it is the catalogue refusing to compose text the router would
+  // refuse, and it belongs in the expectation rather than in an exception.
+  const dropped = (verb, args) => {
+    // #177: `resume all` takes no model. One model over every surviving
+    // worktree would overwrite each ticket's own inherited model.
+    if (verb === 'resume' && args.ticket === 'all') return ['model']
+    return []
+  }
+
+  const cases = []
+  for (const spec of VERB_SPECS) {
+    const keys = Object.keys(spec.args)
+    const optional = keys.filter((k) => spec.args[k].isOptional())
+    const required = keys.filter((k) => !optional.includes(k))
+    for (const k of keys) {
+      assert.ok(k in SAMPLE, `the round trip has no sample value for \`${spec.verb}.${k}\``)
+    }
+    const tickets = BULK[spec.verb] ?? [SAMPLE.ticket]
+    for (const ticket of tickets) {
+      for (const chosen of subsets(optional)) {
+        const args = {}
+        for (const k of required) args[k] = k === 'ticket' ? ticket : SAMPLE[k]
+        for (const k of chosen) args[k] = k === 'ticket' ? ticket : SAMPLE[k]
+        cases.push({ verb: spec.verb, args })
+      }
+    }
+  }
+
+  test('every verb in the catalogue gets generated cases', () => {
+    assert.deepEqual([...new Set(cases.map((c) => c.verb))], [...VERB_TOOLS])
+    // The count is stated so a silently emptied powerset cannot pass as
+    // coverage: 9 verbs, 28 argument combinations.
+    assert.equal(cases.length, 28)
+  })
+
+  for (const { verb, args } of cases) {
+    const label = `${verb}(${Object.entries(args).map(([k, v]) => `${k}=${v}`).join(', ') || 'no arguments'})`
+    test(`${label} composes and parses back`, () => {
+      const text = canonicalFor(verb, args)
+      const cmd = parseCommand(text)
+      assert.ok(cmd, `\`${text}\` is text the router refuses`)
+
+      // The router verb. Both map tools compose the one `map` verb, which is
+      // the whole point of splitting the tool rather than the grammar.
+      const routerVerb = verb.startsWith('map') ? 'map' : verb
+      assert.equal(cmd.verb, routerVerb)
+
+      // The new-map shape hands its repo ruling to the router, so the fields
+      // are read after that ruling rather than off the raw parse.
+      const isNewMap = routerVerb === 'map' && !cmd.ticket
+      const plan = isNewMap ? newMapPlan(cmd, WATCHED) : null
+      assert.ok(!plan?.error, `the new-map ruling refused \`${text}\`: ${plan?.error}`)
+
+      const got = {
+        ticket: cmd.all ? 'all' : cmd.ticket,
+        repo: plan ? plan.repo : (cmd.repo ?? cmd.repoArg),
+        model: cmd.model,
+        instruction: plan ? plan.instruction : cmd.instruction,
+      }
+      const gone = dropped(verb, args)
+      for (const field of ['ticket', 'repo', 'model', 'instruction']) {
+        // `map_new` composes no number, so the ticket field is absent by
+        // design and the powerset never offers it one.
+        const want = gone.includes(field) ? undefined : args[field]
+        // The new-map shape with no repo named falls back to the sole watched
+        // repo, and that fallback is the router's answer, not a lost field.
+        if (field === 'repo' && isNewMap && want === undefined) {
+          assert.equal(got.repo, WATCHED[0])
+          continue
+        }
+        assert.equal(got[field], want, `\`${text}\` lost or changed \`${field}\``)
+      }
+    })
+  }
+})
+
+// ---- the map tool is two tools (#692, ADR-0022) -----------------------------
+//
+// The exists-test used to be prose in the standing orders: "the test between
+// the two shapes is whether the map EXISTS". A model argued with that prose and
+// called the update shape for a map that did not exist yet. It is a schema now,
+// so the wrong shape is not a call the model can make.
+describe('the map tool is two tools (#692)', () => {
+  const spec = (verb) => VERB_SPECS.find((s) => s.verb === verb)
+
+  test('map_update requires a map number, and map_new has no number field', () => {
+    assert.ok(!spec('map_update').args.ticket.isOptional(), 'map_update can be called with no map')
+    assert.ok(!('ticket' in spec('map_new').args), 'map_new publishes a number field to fill in')
+  })
+
+  test('map_new requires the brief, because there is nothing to ask about', () => {
+    assert.ok(!spec('map_new').args.instruction.isOptional())
+    // On an existing map a missing sentence has a safe meaning: the agent asks
+    // what should change. That asymmetry is deliberate (#241).
+    assert.ok(spec('map_update').args.instruction.isOptional())
+  })
+
+  test('both tools compose the one map router verb', () => {
+    assert.equal(
+      canonicalFor('map_update', { ticket: '147', instruction: 'add a ticket' }),
+      'map 147 add a ticket',
+    )
+    assert.equal(
+      canonicalFor('map_new', { repo: 'alp82/curia', instruction: 'chart the next feature' }),
+      'map alp82/curia chart the next feature',
+    )
+    for (const text of ['map 147 add a ticket', 'map alp82/curia chart the next feature']) {
+      assert.equal(parseCommand(text).verb, 'map')
+    }
+  })
+
+  // A number smuggled through the new-map tool is DROPPED rather than composed,
+  // the same treatment a hallucinated `harness=` gets on `start`. Composing it
+  // would update a map the operator never named.
+  test('a ticket handed to map_new is dropped, never composed into the text', () => {
+    assert.equal(
+      canonicalFor('map_new', { ticket: '147', instruction: 'chart the next feature' }),
+      'map chart the next feature',
+    )
+  })
+
+  test('the standing orders name both tools and neither the retired one', () => {
+    assert.match(PROMPT, /map_update/)
+    assert.match(PROMPT, /map_new/)
+    assert.ok(!/`map`/.test(PROMPT), 'the standing orders still name a `map` tool that no longer exists')
   })
 })

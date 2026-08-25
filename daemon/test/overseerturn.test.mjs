@@ -114,8 +114,11 @@ function storeDouble({ sessions = {}, notes = [], conversations = ['console-1'] 
 }
 
 describe('the verb catalogue serves both transports (#314)', () => {
-  test('one catalogue, eight verbs, in one order', () => {
-    assert.deepEqual(VERB_TOOLS, ['tickets', 'next', 'status', 'start', 'map', 'cancel', 'resume', 'attach'])
+  // #692 (ADR-0022) made the map tool two tools, so the catalogue is nine.
+  // Both compose the one `map` router verb, which is why the grammar, the slash
+  // surface and the operator's usage catalogue stayed where they were.
+  test('one catalogue, nine verbs, in one order', () => {
+    assert.deepEqual(VERB_TOOLS, ['tickets', 'next', 'status', 'start', 'map_update', 'map_new', 'cancel', 'resume', 'attach'])
     for (const spec of VERB_SPECS) {
       assert.ok(spec.description.length > 40, `${spec.verb} needs a description the model can act on`)
       assert.equal(typeof spec.args, 'object')
@@ -126,7 +129,7 @@ describe('the verb catalogue serves both transports (#314)', () => {
     assert.equal(canonicalFor('start', { ticket: '314', repo: 'curia' }), 'start curia#314')
   })
 
-  test('the HTTP transport publishes the same eight, with the same schemas', async () => {
+  test('the HTTP transport publishes the same nine, with the same schemas', async () => {
     const posted = []
     const mcp = buildVerbMcpServer(async (text) => { posted.push(text); return `ran ${text}` })
     const client = new Client({ name: 'test', version: '0' })
