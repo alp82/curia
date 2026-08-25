@@ -48,7 +48,10 @@
 
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { filterTakeable, selectLane, frontierForRepo, agentOnlyChainCount, strandedMaps, strandedMapLine } from '../src/github.mjs'
+import {
+  filterTakeable, selectLane, frontierForRepo, agentOnlyChainCount, strandedMaps,
+  emptyMapVerdictPrompt, mapCloseBlockers, mapClosedComment, mapHeldComment,
+} from '../src/github.mjs'
 
 // Small fixture builder -- keeps the field-notes ground truth readable below.
 // assignees/labels use the real gh shape: arrays of objects, not strings.
@@ -320,11 +323,65 @@ describe('strandedMaps (#485)', () => {
     assert.deepEqual(strandedMaps(maps, items), [])
   })
 
-  test('the line names the map and both acts that end it', () => {
-    const line = strandedMapLine('o/r', { number: 316, title: 'The journal becomes a queryable store' })
-    assert.match(line, /o\/r#316/)
-    assert.match(line, /no open ticket left/)
-    assert.match(line, /Close it with a verdict comment/)
-    assert.match(line, /Not yet specified/)
+})
+
+// The empty-map verdict (#698). #485 said a line about a stranded map and
+// waited for someone to act on it. This asks the operator a question instead,
+// and the answer is what closes the map.
+describe('the empty-map question (#698)', () => {
+  const map = { number: 316, title: 'The journal becomes a queryable store' }
+
+  test('the question names the map, its fog, and what each answer does', () => {
+    const prompt = emptyMapVerdictPrompt('o/r', map, [
+      { text: 'Pick the retention period' },
+      { text: 'Decide whether exports include raw rows' },
+    ])
+    assert.match(prompt, /o\/r#316/)
+    assert.match(prompt, /no open ticket left/)
+    assert.match(prompt, /Still under Not yet specified \(2\)/)
+    assert.match(prompt, /• Pick the retention period/)
+    assert.match(prompt, /• Decide whether exports include raw rows/)
+    assert.match(prompt, /✅ posts the verdict and closes the map/)
+  })
+
+  test('a map with no fog says so — an absence nobody looked for reads the same as silence', () => {
+    const prompt = emptyMapVerdictPrompt('o/r', map, [])
+    assert.match(prompt, /Nothing stands under Not yet specified/)
+    assert.doesNotMatch(prompt, /Still under Not yet specified/)
+  })
+})
+
+// What still holds an approved close (#698). The question can sit for days, so
+// the approval is checked against the map as it stands rather than as it read.
+describe('mapCloseBlockers (#698)', () => {
+  test('an open, unlabelled, childless, fogless map closes', () => {
+    assert.deepEqual(mapCloseBlockers({ state: 'open', labels: [], children: [], fog: [] }), [])
+    assert.deepEqual(mapCloseBlockers(), [])
+  })
+
+  test('a closed map, a reopened child, and standing fog each hold it', () => {
+    assert.match(mapCloseBlockers({ state: 'closed' })[0], /already closed/)
+    const child = mapCloseBlockers({ children: [{ number: 9, state: 'open' }] })
+    assert.match(child[0], /1 child ticket\(s\) reopened or arrived: #9/)
+    const fog = mapCloseBlockers({ fog: [{ text: 'Pick the retention period' }] })
+    assert.match(fog[0], /1 line\(s\) still stand under Not yet specified: Pick the retention period/)
+  })
+
+  test('a paused map is never closed by an answer — a pause is only ever ended by hand', () => {
+    const held = mapCloseBlockers({ labels: [{ name: 'wayfinder:deferred' }] })
+    assert.match(held[0], /paused/)
+    assert.deepEqual(mapCloseBlockers({ labels: ['wayfinder:deferred'] }).length, 1)
+  })
+
+  test('a closed child and a pull request hold nothing', () => {
+    assert.deepEqual(mapCloseBlockers({
+      children: [{ number: 9, state: 'closed' }, { number: 10, state: 'open', pull_request: {} }],
+    }), [])
+  })
+
+  test('both comments say which way the verdict went, and why', () => {
+    assert.match(mapClosedComment(), /Closed on the operator’s verdict/)
+    assert.match(mapHeldComment(['the operator says work remains on this map']), /stays open/)
+    assert.match(mapHeldComment(['the operator says work remains on this map']), /- the operator says work remains/)
   })
 })

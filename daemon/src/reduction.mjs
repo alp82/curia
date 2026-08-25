@@ -409,6 +409,19 @@ export class Reduction {
     // frontier read is what observes it.
     if (ev.type === 'map_stranded') this.mapAlarms.set(`${ev.repo}#${ev.map}`, { ...ev, at: ev.ts ?? null })
     if (ev.type === 'map_stranded_cleared') this.mapAlarms.delete(`${ev.repo}#${ev.map}`)
+    // The empty-map verdict (#698) stands on the same entry, because it is the
+    // same fact carried further: #485 raised an alarm about a map, and #698
+    // asks a question about it. Both `asked` and `answered` are merged onto
+    // whatever stands, so a boot rebuilds a question already out and an answer
+    // already given — the two things a restart must not lose. Only the same
+    // `map_stranded_cleared` erases it, and only when the fact itself is gone.
+    if (ev.type === 'map_verdict_asked' || ev.type === 'map_verdict_answered') {
+      const key = `${ev.repo}#${ev.map}`
+      const prior = this.mapAlarms.get(key) ?? { repo: ev.repo, map: ev.map, title: ev.title ?? null }
+      this.mapAlarms.set(key, ev.type === 'map_verdict_asked'
+        ? { ...prior, asked: ev.id, at: ev.ts ?? prior.at ?? null }
+        : { ...prior, answered: ev.answer ?? null, closed: ev.closed ?? false })
+    }
 
     if (ev.type === 'token_warned' || ev.type === 'token_cleared') {
       const key = ev.fault === 'expiring'

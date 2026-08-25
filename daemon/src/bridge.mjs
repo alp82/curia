@@ -30,6 +30,7 @@ import { safeLeaf } from './attachments.mjs'
 import { readInboundText } from './inbound.mjs'
 import { REVIEW_KIND, CROSS_CHECK_ANSWER, ALL_AS_RECOMMENDED } from './lifecycle.mjs'
 import { CONFIRM_KIND } from './reduction.mjs'
+import { MAP_CLOSE_VERB } from './github.mjs'
 import { chunkMessage, smallPrint, elapsedLabel } from './messaging.mjs'
 import { ThreadRenamer } from './threadname.mjs'
 
@@ -1252,9 +1253,16 @@ export class DiscordBridge {
 
   #escalationBody(record) {
     if (record.kind === CONFIRM_KIND) {
+      // Every confirm but one is about a live agent and lapses with it. The
+      // empty-map verdict (#698) is about a map, so it lapses with nothing and
+      // waits — including across a restart — and its footer must not promise
+      // an expiry it does not have.
+      const footer = record.action?.verb === MAP_CLOSE_VERB
+        ? '-# ✅ closes the map, and ❌ leaves it open. This question waits until you answer it.'
+        : '-# ✅ executes, and ❌ declines. This confirm lapses when its agent exits.'
       return [
         `❓ ${record.prompt}`,
-        '-# ✅ executes, and ❌ declines. This confirm lapses when its agent exits.',
+        footer,
         `-# ${record.id}`,
       ].join('\n')
     }

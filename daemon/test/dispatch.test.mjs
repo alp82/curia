@@ -6503,14 +6503,14 @@ describe('a dead harness under a live pane is a death (#386)', () => {
   })
 })
 
-// The stranded-map watch (#485). An open, non-deferred map whose children are
-// all closed gets no dispatch ever again, so the frontier read is the one place
-// that can say so. The alarm is edge-triggered off the journal like the backup
-// alarm (#436): said once, standing until the map closes, defers, or gains an
-// open child.
-describe('the stranded-map watch (#485)', () => {
-  const map = (n, { state = 'open', labels = [] } = {}) => ({
-    number: n, state, title: 'The journal becomes a queryable store',
+// The empty-map question (#485, asked rather than announced by #698). An open,
+// non-deferred map whose children are all closed gets no dispatch ever again,
+// so the frontier read is the one place that can notice it. #485 said a line
+// about it. #698 asks the operator a durable question instead, and their answer
+// is what posts the verdict and closes the map.
+describe('the empty-map question (#485, #698)', () => {
+  const map = (n, { state = 'open', labels = [], body = null } = {}) => ({
+    number: n, state, body, title: 'The journal becomes a queryable store',
     labels: [{ name: 'wayfinder:map' }, ...labels.map((name) => ({ name }))],
   })
   const closedChild = (n) => ({ number: n, state: 'closed', assignees: [], labels: [{ name: 'wayfinder:task' }] })
@@ -6518,38 +6518,76 @@ describe('the stranded-map watch (#485)', () => {
     number: n, state: 'open', assignees: [], labels: [{ name: 'wayfinder:task' }],
     issue_dependencies_summary: { blocked_by: 0 },
   })
+  const answered = (record, answer) => {
+    Object.assign(record, { status: 'answered', answer, answered_by: 'alp' })
+    return record
+  }
+  const verdicts = () => confirms.filter((r) => r.action?.verb === 'map_close')
 
-  test('an all-closed map is said once, journalled, and the second pass is quiet', async () => {
-    const says = []
+  test('an all-closed map is asked once, journalled, and the second pass is quiet', async () => {
     const d = makeDispatcher({
       repoMaps: async () => [map(316)],
       mapFrontier: async () => [closedChild(1), closedChild(2)],
     })
-    d.announce = async (text) => { says.push(text); return true }
 
     await d.frontier()
-    assert.equal(says.length, 1)
-    assert.match(says[0], /#316/)
-    assert.match(says[0], /no open ticket left/)
-    const ev = events.find((e) => e.type === 'map_stranded')
+    assert.equal(verdicts().length, 1)
+    assert.match(verdicts()[0].prompt, /o\/r#316/)
+    assert.match(verdicts()[0].prompt, /no open ticket left/)
+    assert.deepEqual(verdicts()[0].action, {
+      verb: 'map_close', repo: 'o/r', map: 316, title: 'The journal becomes a queryable store', fog: [],
+    })
+    const ev = events.find((e) => e.type === 'map_verdict_asked')
     assert.equal(ev.repo, 'o/r')
     assert.equal(ev.map, 316)
-    assert.equal(ev.said, true)
 
     await d.frontier()
-    assert.equal(says.length, 1, 'a standing alarm is not re-said')
-    assert.equal(events.filter((e) => e.type === 'map_stranded').length, 1)
+    assert.equal(verdicts().length, 1, 'a question already asked is not asked again')
+    assert.equal(events.filter((e) => e.type === 'map_verdict_asked').length, 1)
   })
 
-  test('an open child, an empty map, and a deferred map raise nothing', async () => {
-    const says = []
+  test('the question carries the fog, ignoring headings, blank lines and HTML comments', async () => {
+    const body = [
+      '## Not yet specified',
+      '',
+      '### The retention questions',
+      '',
+      '<!-- charting note, not a fog fact -->',
+      '- Pick the retention period',
+      '',
+      '## Out of scope',
+      '- something else entirely',
+    ].join('\n')
+    const d = makeDispatcher({
+      repoMaps: async () => [map(316, { body })],
+      mapFrontier: async () => [closedChild(1)],
+    })
+
+    await d.frontier()
+    assert.deepEqual(verdicts()[0].action.fog, ['Pick the retention period'])
+    assert.match(verdicts()[0].prompt, /Still under Not yet specified \(1\)/)
+    assert.match(verdicts()[0].prompt, /• Pick the retention period/)
+  })
+
+  test('a map with no fog is still asked — the question is durable either way', async () => {
+    const d = makeDispatcher({
+      repoMaps: async () => [map(316, { body: '## Not yet specified\n\nNone. The child set covers it.\n' })],
+      mapFrontier: async () => [closedChild(1)],
+    })
+
+    await d.frontier()
+    assert.equal(verdicts().length, 1)
+    assert.deepEqual(verdicts()[0].action.fog, [])
+    assert.match(verdicts()[0].prompt, /Nothing stands under Not yet specified/)
+  })
+
+  test('an open child, an empty map, and a deferred map ask nothing', async () => {
     let maps = [map(316)]
     let children = [closedChild(1), openChild(2)]
     const d = makeDispatcher({
       repoMaps: async () => maps,
       mapFrontier: async () => children,
     })
-    d.announce = async (text) => { says.push(text); return true }
 
     await d.frontier()
     children = []
@@ -6558,56 +6596,149 @@ describe('the stranded-map watch (#485)', () => {
     children = [closedChild(1)]
     await d.frontier()
 
-    assert.equal(says.length, 0)
-    assert.ok(!events.some((e) => e.type === 'map_stranded'))
+    assert.equal(verdicts().length, 0)
+    assert.ok(!events.some((e) => e.type === 'map_verdict_asked'))
   })
 
-  test('the alarm clears when a child reopens, and again when the map closes', async () => {
+  test('a child reopening lapses the standing question, and an emptying asks again', async () => {
     let maps = [map(316)]
     let children = [closedChild(1)]
-    const says = []
     const d = makeDispatcher({
       repoMaps: async () => maps,
       mapFrontier: async () => children,
     })
-    d.announce = async (text) => { says.push(text); return true }
 
     await d.frontier()
-    assert.equal(says.length, 1)
+    assert.equal(verdicts().length, 1)
 
     children = [closedChild(1), openChild(2)]
     await d.frontier()
     assert.ok(events.some((e) => e.type === 'map_stranded_cleared' && e.map === 316))
+    assert.ok(lapses.some((l) => l.id === verdicts()[0].id && /no longer empty/.test(l.reason)))
 
-    // it re-strands and is news again
     children = [closedChild(1), closedChild(2)]
     await d.frontier()
-    assert.equal(says.length, 2)
+    assert.equal(verdicts().length, 2, 'a map that empties again is a new question')
 
     maps = [map(316, { state: 'closed' })]
     await d.frontier()
     assert.equal(events.filter((e) => e.type === 'map_stranded_cleared').length, 2)
   })
 
-  test('an alarm the bridge could not carry stands unsaid and re-says when it returns', async () => {
+  test('approve posts the verdict and closes the map — comment first, close after', async () => {
+    const acts = []
+    const d = makeDispatcher({
+      repoMaps: async () => [map(316)],
+      mapFrontier: async () => [closedChild(1)],
+      fetchIssue: async () => ({ number: 316, state: 'open', labels: [], body: '## Not yet specified\n\nNone.\n' }),
+      commentIssue: async (repo, n, body) => acts.push(`comment:${repo}#${n}:${body.split('\n')[0]}`),
+      closeIssue: async (repo, n) => acts.push(`close:${repo}#${n}`),
+    })
+
+    await d.frontier()
+    await d.onConfirmAnswered(answered(verdicts()[0], 'approve'))
+
+    assert.equal(acts.length, 2)
+    assert.match(acts[0], /^comment:o\/r#316:✅ \*\*Closed on the operator/)
+    assert.equal(acts[1], 'close:o/r#316')
+    const ev = events.find((e) => e.type === 'map_verdict_answered')
+    assert.deepEqual([ev.answer, ev.closed], ['approve', true])
+  })
+
+  test('decline leaves the map open, says why on the map, and never asks again', async () => {
+    const acts = []
+    const d = makeDispatcher({
+      repoMaps: async () => [map(316)],
+      mapFrontier: async () => [closedChild(1)],
+      commentIssue: async (repo, n, body) => acts.push({ n, body }),
+      closeIssue: async () => acts.push({ closed: true }),
+    })
+
+    await d.frontier()
+    await d.onConfirmAnswered(answered(verdicts()[0], 'reject'))
+
+    assert.equal(acts.length, 1)
+    assert.match(acts[0].body, /stays open/)
+    assert.match(acts[0].body, /work remains/)
+    const ev = events.find((e) => e.type === 'map_verdict_answered')
+    assert.deepEqual([ev.answer, ev.closed], ['reject', false])
+
+    await d.frontier()
+    assert.equal(verdicts().length, 1, 'an answered question is never re-asked')
+  })
+
+  // The question can sit for days, so the approval it comes back with is an
+  // approval of what the CARD said. Everything below changed between the two.
+  const refusedClose = async (issue, children) => {
+    const acts = []
+    let asked = false
+    const d = makeDispatcher({
+      repoMaps: async () => [map(316)],
+      mapFrontier: async () => (asked ? children : [closedChild(1)]),
+      fetchIssue: async () => ({ number: 316, ...issue }),
+      commentIssue: async (repo, n, body) => acts.push({ body }),
+      closeIssue: async () => acts.push({ closed: true }),
+    })
+    await d.frontier()
+    asked = true
+    await d.onConfirmAnswered(answered(verdicts()[0], 'approve'))
+    assert.ok(!acts.some((a) => a.closed), 'the close is held')
+    assert.match(acts.at(-1).body, /stays open/)
+    assert.equal(events.filter((e) => e.type === 'map_verdict_answered').at(-1).closed, false)
+    return acts.at(-1).body
+  }
+
+  test('fog written since the question was asked refuses the approved close', async () => {
+    const body = await refusedClose(
+      { state: 'open', labels: [], body: '## Not yet specified\n\n- Pick the retention period\n' }, [])
+    assert.match(body, /still stand under Not yet specified: Pick the retention period/)
+  })
+
+  test('a child that reopened since the question was asked refuses the approved close', async () => {
+    const body = await refusedClose({ state: 'open', labels: [], body: '' }, [openChild(2)])
+    assert.match(body, /child ticket\(s\) reopened or arrived: #2/)
+  })
+
+  test('a map paused since the question was asked is never closed by the answer', async () => {
+    const body = await refusedClose({ state: 'open', labels: [{ name: 'wayfinder:deferred' }], body: '' }, [])
+    assert.match(body, /paused/)
+  })
+
+  test('a failed write leaves the map open, and no pass retries the close', async () => {
+    const d = makeDispatcher({
+      repoMaps: async () => [map(316)],
+      mapFrontier: async () => [closedChild(1)],
+      fetchIssue: async () => ({ number: 316, state: 'open', labels: [], body: '' }),
+      commentIssue: async () => { throw new Error('gh: 502') },
+      closeIssue: async () => { throw new Error('the close must never be reached') },
+    })
+
+    await d.frontier()
+    await d.onConfirmAnswered(answered(verdicts()[0], 'approve'))
+
+    assert.match(events.find((e) => e.type === 'map_verdict_failed').error, /502/)
+    await d.frontier()
+    assert.equal(verdicts().length, 1)
+  })
+
+  test('a restart keeps the question standing — boot lapses every confirm but this one', async () => {
     const d = makeDispatcher({
       repoMaps: async () => [map(316)],
       mapFrontier: async () => [closedChild(1)],
     })
-    // the constructor default announce is the no-bridge answer: false
-
     await d.frontier()
-    assert.equal(events.find((e) => e.type === 'map_stranded').said, false)
+    const asked = verdicts()[0]
 
-    await d.frontier()
-    assert.equal(events.filter((e) => e.type === 'map_stranded').length, 1,
-      'a standing unsaid alarm does not journal every pass')
+    await d.reconcile({ boot: true })
 
-    const says = []
-    d.announce = async (text) => { says.push(text); return true }
+    assert.equal(asked.status, 'open', 'the map question outlives the process that asked it')
+    assert.ok(!lapses.some((l) => l.id === asked.id))
     await d.frontier()
-    assert.equal(says.length, 1)
-    assert.equal(events.filter((e) => e.type === 'map_stranded').at(-1).said, true)
+    assert.equal(verdicts().length, 1, 'and a boot does not ask it a second time')
+
+    // the answer still executes after the restart
+    await d.onConfirmAnswered(answered(asked, 'approve'))
+    assert.ok(events.some((e) => e.type === 'map_verdict_answered'))
   })
 })
 
