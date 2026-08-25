@@ -271,6 +271,10 @@
   }
   .hold-banner .who { font-family: ui-monospace, Menlo, monospace; font-weight: 700; }
   .hold-banner .dim { color: var(--ink-dim); font-size: 12px; }
+  /* The spent window (#677). The same shape as the hold above it and a harder
+     color: the hold is curia choosing to wait, and this is the account
+     refusing. */
+  .spent-banner { border-color: var(--bad); background: var(--chip-bad-bg); }
 
   .prov-strip { display: flex; gap: 26px; flex-wrap: wrap; align-items: center; margin-top: 14px; font-size: 12px; color: var(--ink-dim); }
   .prov { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
@@ -592,14 +596,17 @@ function ticketName(repo, ticket) {
    is not hidden: the pointer names every consumer behind it, and the screen it
    points at states each one's own row.
 
-   Nothing else moves. Usage limits are still NOT counted: a spent window is on
-   the attention list because it explains a slow box, and nobody can answer it.
    A GitHub credential warning IS counted (#380), by the same test — a token
-   nobody mints stays dead and takes every agent's first `gh` call with it. */
+   nobody mints stays dead and takes every agent's first `gh` call with it.
+
+   THE COUNT IS THE LIST, SINCE #677. This used to be its own sum beside
+   `attentionList`, and twice the two drifted: once when the credential pointer
+   reached the list and not the sum, and once on the spent window, which the
+   list carried and the sum did not. Two functions that happen to agree is not
+   an invariant. There is one function that yields the items now, and both
+   surfaces read it, so a member class cannot be added to one of them alone. */
 function needsYou(o) {
-  return (o?.escalations?.length ?? 0) + (o?.review_gate?.length ?? 0)
-    + (o?.token_warnings?.length ?? 0) + (o?.dispatch_holds?.length ?? 0)
-    + credentialPointers(o).length;
+  return attentionItems(o).length;
 }
 
 /* ---- the operator verbs (#266) ----------------------------------------------
@@ -897,10 +904,10 @@ function provStrip(o) {
      (#262): an unmeasured window and an unspent one are not the same fact. */
   if (!usage.length) return `<div class="prov-strip">No usage window is measured. A window is read from the account probe, or from a live agent's own transcript.</div>`;
   return `<div class="prov-strip">${usage.map((p) => {
-    const soonest = nextReset([p]);
+    const note = spentNote(p) ?? nextReset([p]);
     return `<span class="prov"><b>${esc(p.provider)}</b>
       ${(p.windows ?? []).map((w) => meterBar(w.label, w)).join("")}
-      ${soonest ? `<span class="pnote ${spentWindows([p]).length ? "hot" : ""}">${esc(soonest.label)} rolls ${esc(clock(soonest.at))}</span>` : ""}
+      ${note ? `<span class="pnote ${note.spent ? "hot" : ""}">${note.at ? `${esc(note.label)} rolls ${esc(clock(note.at))}` : `${esc(note.label)} is spent — no reset instant is stated`}</span>` : ""}
       <span class="pnote">from the ${esc(p.from)}${p.session ? ` of ${esc(p.session)}` : ""}</span></span>`;
   }).join("")}</div>`;
 }
@@ -921,10 +928,50 @@ function holdBanner(o) {
     <span class="dim">curia dispatches on the other lanes. A <code>model:</code> label on a ticket still starts it here.</span>
   </div>`).join("");
 }
+/* THE SPENT WINDOW, SAID AT THE TOP (#677). It stood on the Needs-you list for
+   a while, which was the wrong surface twice over: that list is where a question
+   is ANSWERED, and this one was never answerable. Leaving it there also made the
+   count and the column disagree, because the count knew it was not an act.
+
+   So it is a promotion rather than a demotion. The pre-emptive hold at 93% had a
+   standing banner and the window actually spent had a feed line that scrolls
+   away — the harder failure was the quieter one. It is `bad` where the hold is
+   `warn`, for the same reason: the hold is curia choosing to wait, and this is
+   the account refusing.
+
+   It names the SPENT window's own roll, never the provider's soonest. */
+function spentBanner(o) {
+  const spent = spentWindows(o?.usage);
+  if (!spent.length) return "";
+  return spent.map((w) => `<div class="hold-banner spent-banner">
+    <span class="who">${esc(w.provider)}</span>
+    <span>the ${esc(w.label)} window is spent at ${esc(w.pct)}% — ${w.at ? `it rolls at ${esc(clock(w.at))}` : "no reset instant is stated"}</span>
+    <span class="dim">Nothing you can press ends this. curia dispatches on the other lanes until the window rolls.</span>
+  </div>`).join("");
+}
 function spentWindows(usage) {
   return (usage ?? []).flatMap((p) => (p.windows ?? [])
     .filter((w) => Number(w.pct ?? 0) >= SPENT_PCT)
     .map((w) => ({ provider: p.provider, label: w.label, pct: w.pct, at: w.resets_at })));
+}
+/* WHEN A PROVIDER IS SPENT, ITS NOTE IS ABOUT THE SPENT WINDOW (#677). The note
+   used to be marked hot by one window and worded by another: `nextReset` names
+   the provider's SOONEST roll, so a 5h window spent for another four hours read
+   as "7d rolls 14:20" in red. It also drops a window whose instant has already
+   passed, so a spent one awaiting its next probe lost its note entirely.
+
+   The LATEST spent window is the one the operator waits on — the rule the daemon
+   already runs (`spentReset`, usage.mjs rule 4): two spent windows are two caps,
+   and the earlier one rolling changes nothing. Where this page DIVERGES from it
+   is that rule about a reset already past. Cooling drops it, because waiting for
+   an instant behind us waits for nothing; the strip keeps it, because a note
+   that disappears is the operator learning the lane is fine when it is not. */
+function spentNote(p) {
+  const spent = spentWindows([p]);
+  if (!spent.length) return null;
+  const dated = spent.filter((w) => w.at).sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
+  const w = dated[0] ?? spent[0];
+  return { provider: w.provider, label: w.label, at: w.at ?? null, spent: true };
 }
 /* The soonest window still ahead of us, which is the one the operator waits on. */
 function nextReset(usage) {
@@ -1289,22 +1336,32 @@ function credLink(words) {
   return `<a href="#credentials" onclick="goto('credentials');return false">${esc(words)}</a>`;
 }
 
-function attentionList(o) {
-  const items = [
+/* THE ONE SOURCE OF THE ATTENTION SET (#677). `needsYou` counts what this
+   returns and `attentionList` draws it, so the badge and the column cannot
+   disagree about what an item is — the drift that shipped twice.
+
+   A spent usage window is NOT here. It never was answerable, and this is the
+   answer surface: it rolls on its own clock, and no operator act ends it. It
+   reaches the top of Home as a banner instead, beside the pre-emptive hold. */
+function attentionItems(o) {
+  return [
     ...credentialPointers(o),
-    ...(o.escalations ?? []).map(escCard),
-    ...(o.review_gate ?? []).map(gateCard),
-    ...(o.token_warnings ?? []).map(tokenCard),
-    ...spentWindows(o.usage).map((w) => `<div class="att-item limit">
-      <span class="who">${esc(w.provider)}</span>the ${esc(w.label)} window is spent at ${esc(w.pct)}%
-      <div class="dim">${w.at ? `it rolls at ${esc(clock(w.at))}` : "no reset instant is stated"}</div></div>`),
+    ...(o?.escalations ?? []).map(escCard),
+    ...(o?.review_gate ?? []).map(gateCard),
+    ...(o?.token_warnings ?? []).map(tokenCard),
     /* The tickets the auto loop steps over (#444). On this list where a spent
        window is not, by this list's own test: an operator act is what ends one.
        Nothing lifts it on a clock, and the ticket sits on the frontier
        untouched until somebody fixes the cause and dispatches it. */
-    ...(o.dispatch_holds ?? []).map(dispatchHoldCard),
+    ...(o?.dispatch_holds ?? []).map(dispatchHoldCard),
   ];
-  return { count: items.length, html: items.length ? items.join("") : `<div class="empty">Nothing wants you.</div>` };
+}
+
+/* The column itself. It carries no count of its own any more: the number has one
+   home, `needsYou`, and a second one here is how the two drifted. */
+function attentionList(o) {
+  const items = attentionItems(o);
+  return items.length ? items.join("") : `<div class="empty">Nothing wants you.</div>`;
 }
 
 /* ---- the feed -------------------------------------------------------------- */
@@ -1499,13 +1556,18 @@ function statTiles(o) {
 function screenHome(p) {
   const o = p?.overview;
   if (!o) return noSnapshot(p, "Home");
-  const att = attentionList(o);
+  /* The list header reads `needsYou` like the tile, the badge and the tab title
+     do (#677). It is the same number the column beneath it draws — both come
+     off `attentionItems` — and saying it in the same word is what stops the
+     next surface from growing its own arithmetic. */
+  const n = needsYou(o);
   return `${head(p, "Home")}
+    ${spentBanner(o)}
     ${holdBanner(o)}
     ${statTiles(o)}
     <div class="split-cols">
       <div>
-        <div class="h-sect"><h3><span class="${att.count ? "hot" : ""}">Needs you</span> (${att.count})</h3>${att.html}</div>
+        <div class="h-sect"><h3><span class="${n ? "hot" : ""}">Needs you</span> (${n})</h3>${attentionList(o)}</div>
         <div class="h-sect"><h3>Last events</h3>${feedList(o.events, 4)}
           <a class="more" href="#feed">all events →</a></div>
       </div>
