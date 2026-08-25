@@ -1166,6 +1166,58 @@ cannot repeat that fault, because it adds no nodes at all.
 **Two questions came back unanswered**, so they ride into round 3: whether the two TUIs read as
 their real counterparts now, and whether 58 columns is the right density on a phone.
 
+**The operator's answer to round 2**, verbatim:
+
+> 5 is good
+>
+> the terminal should have only one tab at the top
+> the statusline should stay but without the tabs
+> the sidebar should have the harness logos
+> add pi and opencode as well
+
+**The composition is settled: 5 relay.** The browser tab the claim names, and the session printing
+once, slowly, then handing over. The four corrections are in.
+
+**Round 3.** The corrections applied, and the variations narrowed to the one thing the answer
+opened: how the rail carries four harnesses and their marks. Five treatments ride `?id=1..5` —
+1 tile (a filled tile behind each mark), 2 glyph (no tile, a large bare mark, a bar on the active
+row), 3 grid (two by two cards, the mark over the name), 4 strip (a dense list, the mark inline,
+the active row filled), 5 badge (the mark on a ring, the rail reading as a device list). This is a
+narrower round than the default five vastly distinct variations, and the reason is the answer
+itself: the operator picked a composition and gave four corrections, so offering five new
+compositions would throw their pick away. The same shape #626 round 6 took.
+
+**Two harnesses more, and the panes stay real.** The pi and opencode panes are the same kind of
+thing as the other two: verbatim TUI chrome from this repo's own captures, in
+[prototypes/model-switch/evidence/](../model-switch/evidence/) (#561). pi carries its version and
+key-hint header, its plain turn lines, its two composer rules and its two-row footer with the
+context percentage. opencode carries its block wordmark, the `┃` gutter on a turn, the `▣` row
+that closes one, the `╹▀` rule under the composer and its two-column footer.
+
+**But they are real in a different way, and the rail says so rather than hiding it.**
+`config/routing.yaml` ships two harnesses, so curia dispatches to claude and codex only. The
+claude pane is a real curia dispatch and so is the codex pane. The pi and opencode panes are the
+**model-switch probe** of [#561](https://github.com/alp82/curia/issues/561), which is the only real
+thing this repo has ever run on either. Their rail rows read `probe #561` where the other two read
+a model and a ticket, and a build check asserts exactly two of the four say so.
+[#604](https://github.com/alp82/curia/issues/604) already holds the four-harness fact line until
+the code lands. It now holds this rail with it.
+
+**The relay stays two harnesses wide.** claude prints, holds, and hands to codex. Running all four
+in sequence takes past twenty seconds, and round 2's note was that the motion was hard to follow.
+pi and opencode stand ready on the rail instead.
+
+**The four marks are drawn, and none of them is that project's official logo.** The page ships no
+image and no webfont ([build.md](../../docs/landing-page/build.md)), so a mark here is drawn in
+inline SVG or it is not there at all. Each one is built from something the harness itself prints:
+Claude Code's burst, Codex's `>_` prompt, the letterform of pi's wordmark, and the solid and broken
+bars of opencode's block wordmark. Whether the page should carry the real logos instead is a
+question for the operator, and it carries a licensing decision this ticket cannot make.
+
+**154 build checks** now run against the file, and all 34 breaks that validate them land. The new
+ones cover the four corrections, the four harnesses in the rail, the tabs and the panes, the marks
+being drawn inline rather than fetched, and the two probe rows.
+
 **The scene is one composition canvas.** The claim, the terminal and the fact line are grid items
 of `.tm`. The old scene 7 held the claim in a centred `.wrap` and the pane in a `.shot`, which is
 the pair that broke the preview scene at [#627](https://github.com/alp82/curia/issues/627) round 3
