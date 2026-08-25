@@ -744,9 +744,13 @@ describe('a sandboxed dispatch (#156)', () => {
   // claim already taken. The same trade the GitHub mint makes one line earlier.
   test('no owned anthropic credential refuses the dispatch', async () => {
     const unclaimed = []
-    const { d } = makeDispatcher({ unclaim: async (repo, n) => { unclaimed.push(`${repo}#${n}`) } }, { anthropic: null })
+    const { d } = makeDispatcher(
+      { unclaim: async (repo, n) => { unclaimed.push(`${repo}#${n}`) } },
+      { anthropic: { read: () => null } },
+    )
     const out = await d.start('42', { repo: 'o/r' })
     assert.match(out, /owns no anthropic credential/)
+    assert.match(out, /reauth anthropic/)
     assert.deepEqual(unclaimed, ['o/r#42'])
   })
 

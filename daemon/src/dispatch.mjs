@@ -1815,8 +1815,8 @@ export class Dispatcher {
     const record = this.anthropic?.read()
     if (!record) {
       throw new Error(`refusing to start a claude agent for #${ticket}: curia owns no anthropic credential. ${this.anthropic
-        ? 'Seed one into daemon/.env.daemon and restart the daemon, or sign in once'
-        : 'This daemon brokers no model credential'} — an agent handed no credential dies at its first turn with a claim already taken`)
+        ? 'Run reauth anthropic to sign in'
+        : 'This daemon brokers no model credential'}. An agent handed no credential dies at its first turn with a claim already taken`)
     }
     return writeClaudeCredentials(cfgDir, record)
   }

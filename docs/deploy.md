@@ -48,7 +48,7 @@ DOCKER_GID=<output of: getent group docker | cut -d: -f3>
 | --- | --- |
 | Checkout | `/home/alp/curia` (clone of this repo) |
 | Env file | `/home/alp/curia/daemon/.env.daemon` (mode 600, never committed) |
-| Overseer env file | `/home/alp/curia/daemon/.env.overseer` (mode 600, never committed, #313) |
+| Retired overseer env file | `/home/alp/curia/daemon/.env.overseer` (remove after deleting legacy keys, #726) |
 | Compose env | `/home/alp/curia/deploy/.env` (`DOCKER_GID`, never committed) |
 | Box settings | `/home/alp/curia/config/curia.local.yaml`, `routing.local.yaml` (never committed) |
 | Worktrees | `/home/alp/curia-work` |
@@ -96,15 +96,14 @@ Compose refuses a missing `env_file`, so a deploy that arrives first fails its h
 - `DISCORD_BOT_TOKEN`, `DISCORD_ALLOWED_USERS` — copied from the dev box.
 - `CURIA_AGENT_GH_TOKEN_*` is **retired** ([#466](https://github.com/alp82/curia/issues/466)). An agent mints its own token from the GitHub App, and nothing reads these keys. A key still in this file is a live read-write PAT with no job, and boot names it: delete the line, then revoke the token on GitHub. A dispatch now needs the app. A mint that fails refuses it and releases the ticket, and adding a watched repo means granting it on the installation rather than editing a token.
 - `CURIA_GH_APP_ID`, `CURIA_GH_APP_KEY_FILE` — the GitHub App ([ADR-0018](adr/0018-the-daemon-is-a-github-app.md)). The key itself is a file beside this one, `daemon/.curia-app.pem` at mode 0600, and the deploy copies it the way it copies the env files. The operator's own steps are [docs/github-app.md](github-app.md).
-- `CLAUDE_CODE_OAUTH_TOKEN` — a long-lived subscription token from `claude setup-token` (decision [#100](https://github.com/alp82/curia/issues/100)). Compose loads the file with `env_file:`, so the token reaches the daemon and flows into every agent.
+- `CLAUDE_CODE_OAUTH_TOKEN` is **retired** ([#726](https://github.com/alp82/curia/issues/726)). Delete the line. The daemon reads the provider store only.
 
-## The second env file, `daemon/.env.overseer`
+## The retired env file, `daemon/.env.overseer`
 
-- `CLAUDE_CODE_OAUTH_TOKEN` — the model credential the overseer container runs its turns on ([#327](https://github.com/alp82/curia/issues/327)). It is the one host secret [ADR-0014](adr/0014-the-overseer-in-its-own-container.md) lets into that container, and it cannot come from `daemon/.env.daemon`, because the overseer never loads that file. The same value as the daemon's own line. Since [#392](https://github.com/alp82/curia/issues/392) it is the only thing this file holds.
-- **The overseer service loads this file and never `daemon/.env.daemon`.** That is the whole reason there are two files. The overseer container holds a shell, and a shell exports whatever the container is given. `daemon/.env.daemon` carries the agents' read-write tokens and the Discord bot token, and compose cannot filter an env file.
+- `CLAUDE_CODE_OAUTH_TOKEN` is **retired** ([#726](https://github.com/alp82/curia/issues/726)). Delete the line. The overseer reads the provider store per turn.
+- **The overseer service loads no env file.** Its GitHub and model credentials arrive through separate read-only mounts.
 - `CURIA_OVERSEER_GH_TOKEN_*` is **retired** ([#392](https://github.com/alp82/curia/issues/392)). The daemon mints the overseer's read-only token from the GitHub App and writes it into the tokens tree below. A key still in this file is a live PAT with no job, and boot names it: delete the line, then revoke the token on GitHub.
-- The daemon reads this file for those two warnings, and never loads it into its own environment.
-- Boot warns when a key that belongs in `daemon/.env.daemon` turns up here. A copy of the wrong file is the accident this catches.
+- The daemon reads an existing file for deletion warnings. Remove the file after you delete every legacy key.
 
 ## Curia's own home, and the one-time move into it
 
@@ -146,9 +145,11 @@ All four mount at their identical paths inside. One mount line covers every watc
 
 ### The model credential moves to the store
 
-`CLAUDE_CODE_OAUTH_TOKEN` in `daemon/.env.daemon` (or `daemon/.env.overseer`) is now a **first-boot seed**. The daemon reads it exactly once, into an empty `credentials/anthropic.json`, and the store wins from then on. Every boot after that names the leftover key in the log and asks you to delete it.
+`credentials/anthropic.json` is the only Anthropic credential source ([#726](https://github.com/alp82/curia/issues/726)). The Credentials screen accounts for that store.
 
-Keep the `env_file:` lines whatever the files hold — compose refuses a missing one.
+For a new box or a lost store, start the daemon and run `reauth anthropic`. The browser flow verifies and adopts the credential.
+
+Keep `daemon/.env.daemon`, because compose loads the daemon's own secrets from that file. Remove `daemon/.env.overseer` after deleting its legacy keys.
 
 `ANTHROPIC_API_KEY` is read nowhere. The map settled subscription-only, and #648 removed the branch from both readers that preferred it, so a key still in an env file is a box paying metered rates for nothing. The boot names that one too.
 

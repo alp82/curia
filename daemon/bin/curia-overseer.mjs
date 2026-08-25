@@ -11,10 +11,9 @@
 //      report, and the live answer is the one beside the config re-read. The
 //      lines name a token FILE the daemon writes (#392), so a container that
 //      boots before the first mint routes nothing and the next turn routes it.
-//   2. Says out loud what this container holds — which owners are routed, which
-//      are not, and whether a model credential arrived. Every one of those
-//      failures otherwise surfaces hours later, inside a turn, where nothing
-//      names the missing key.
+//   2. Says what this container holds: which owners are routed, which are not,
+//      and whether the mounted model credential exists. Without this report,
+//      those failures surface later inside a turn that names no missing file.
 //   3. Serves the two routes: `GET /ping`, the health check the daemon reads,
 //      and `POST /turn`, one operator message (#314).
 //
@@ -30,11 +29,8 @@
 // a tree mounted read-only, so a repo watched under a brand new owner is routed
 // at the next message. Nothing here needs this service recreated.
 //
-// The environment comes from `daemon/.env.overseer`, which compose hands over
-// whole, and NEVER from `daemon/.env.daemon` — that file carries the agents'
-// read-write tokens and the Discord bot token, and a shell in this container
-// exports whatever it is given (#313). What is left in it is the model
-// credential, which is the one host secret ADR-0014 lets in.
+// The environment carries no model credential (#726). The daemon writes the
+// provider store, and this container reads that store through a read-only mount.
 
 import http from 'node:http'
 import path from 'node:path'
@@ -43,6 +39,7 @@ import { loadCuriaConfig } from '../src/config.mjs'
 import { checkoutsRootFor } from '../src/checkouts.mjs'
 import { installCredentialConfig, unroutedOwners, unroutedNote } from '../src/overseercreds.mjs'
 import { overseerTokensRootFor } from '../src/overseertoken.mjs'
+import { AnthropicCredentialStore, anthropicStoreFile } from '../src/credentials.mjs'
 import { readOverseer, overseerHandler, PING_PATH } from '../src/overseerservice.mjs'
 import { turnRoute, TURN_PATH, overseerConfigDirFor, overseerHomeFor } from '../src/overseerturn.mjs'
 
@@ -75,12 +72,10 @@ try {
   log(`WARNING: the git credentials did not install (${String(e.message ?? e).split('\n')[0]}) — the first turn writes them again`)
 }
 
-// The model credential is the one host secret that enters this container
-// (ADR-0014), and it rides the same env file the tokens do. Absent, the turn
-// #314 lands would fail at its first call with an authentication error that
-// names no file.
-if (!process.env.CLAUDE_CODE_OAUTH_TOKEN && !process.env.ANTHROPIC_API_KEY) {
-  log('WARNING: no CLAUDE_CODE_OAUTH_TOKEN and no ANTHROPIC_API_KEY — add one to daemon/.env.overseer, or no turn can run a model')
+// The boot report reads the same mounted store that every turn reads. An absent
+// record is actionable without handing the container another secret source.
+if (!new AnthropicCredentialStore({ workspaceRoot: cfg.dispatch.workspace_root }).read()) {
+  log(`WARNING: no anthropic credential at ${anthropicStoreFile(cfg.dispatch.workspace_root)}. Run reauth anthropic, or no turn can run a model`)
 }
 
 log(`checkouts at ${checkoutsRootFor(cfg.dispatch.workspace_root)}, config dir at ${configDir}, turns run in ${overseerHomeFor(cfg.dispatch.workspace_root)}`)

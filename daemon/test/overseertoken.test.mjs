@@ -101,9 +101,9 @@ describe('the overseer token files (#392)', () => {
   })
 })
 
-// The file stopped being a token file with #392. It is still the boundary for
-// the one host secret ADR-0014 lets in, and the daemon still reads it whole.
-describe('the second env file after the cutover (#313, #392)', () => {
+// #726 retired the file after every credential moved behind a mounted file.
+// The daemon still reads a copy that remains so it can name legacy keys.
+describe('the retired overseer env file (#313, #392, #726)', () => {
   let tmp
   before(() => { tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-ovenv-')) })
   after(() => { fs.rmSync(tmp, { recursive: true, force: true }) })
@@ -119,7 +119,7 @@ describe('the second env file after the cutover (#313, #392)', () => {
   test('the file is parsed, and nothing in it reaches process.env', () => {
     const file = path.join(tmp, OVERSEER_ENV_FILE)
     fs.writeFileSync(file, [
-      '# the model credential, and nothing else (#392)',
+      '# a legacy model credential that boot must name for deletion (#726)',
       'CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat01-x',
       '',
     ].join('\n'))

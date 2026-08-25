@@ -1200,9 +1200,9 @@ export const SETUP_TOKEN_SCOPES = Object.freeze(['user:inference'])
 // The row's expiry comes from `obtained_at` and reads `unknown` without one,
 // because curia must not invent an age for a credential it inherited from an env
 // file. The FILE has no such freedom: the CLI refuses a past date and refuses a
-// missing one, so a seeded credential still needs a future instant written into
-// it. `seeded_at` — the moment the daemon read the seed, which is a real fact
-// about curia and not a claim about the token — carries that case.
+// missing one, so a legacy seeded credential still needs a future instant
+// written into it. `seeded_at` records when an older daemon read that seed.
+// #726 retired new seeds without invalidating existing store records.
 //
 // STABLE ACROSS TICKS, which is why it is not simply `now + a year`: the fan-out
 // compares file contents and rewrites nothing that already matches, and a
@@ -1342,13 +1342,12 @@ export function consumerContractFault(consumer) {
 // ---- the store ---------------------------------------------------------------
 
 // One per daemon, beside the codex broker, and deliberately NOT a broker: there
-// is nothing to refresh here. What it owns is the record, the seed rule, and the
-// fan-out to live claude agents.
+// is nothing to refresh here. It owns the record and fan-out to live claude
+// agents. #726 retired environment seeding after re-authentication shipped.
 export class AnthropicCredentialStore {
-  constructor({ workspaceRoot, now = Date.now, log = () => {}, journal = () => {} } = {}) {
+  constructor({ workspaceRoot, now = Date.now, journal = () => {} } = {}) {
     this.file = anthropicStoreFile(workspaceRoot)
     this.now = now
-    this.log = log
     this.journal = journal
   }
 
@@ -1379,27 +1378,6 @@ export class AnthropicCredentialStore {
     this.#write(record)
     this.journal('credential_adopted', { provider: ANTHROPIC_PROVIDER, obtained_at: record.obtained_at })
     return record
-  }
-
-  // THE ENV IS READ EXACTLY ONCE, and only when the store has no file.
-  //
-  // A seeded value carries NO `obtained_at`, because curia did not watch that
-  // login happen and an invented age is worse than an absent one: the row reads
-  // `unknown`, which is also the nudge to sign in once and get a real date.
-  // `seeded_at` is not that age — it is the instant curia read the seed, which
-  // is a fact about curia — and only the delivered file's `expiresAt` uses it.
-  //
-  // A seed that keeps being read is not a seed, it is a second source of truth.
-  seedOnce(token, { from = 'the environment' } = {}) {
-    if (this.read()) return { seeded: false, why: 'the anthropic store already holds a credential, and the store wins' }
-    if (!ANTHROPIC_TOKEN_RE.test(String(token ?? ''))) {
-      return { seeded: false, why: 'there is no `sk-ant-…` value to seed from' }
-    }
-    const record = { token, obtained_at: null, seeded_at: new Date(this.now()).toISOString() }
-    this.#write(record)
-    this.journal('credential_seeded', { provider: ANTHROPIC_PROVIDER, from })
-    this.log(`seeded the anthropic credential store from ${from} — it carries no adoption instant, so its expiry reads unknown until someone signs in`)
-    return { seeded: true, why: `read once from ${from}` }
   }
 
   // What the surfaces say, for ONE consumer. Two of the three rows land here and

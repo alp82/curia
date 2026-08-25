@@ -10,21 +10,21 @@ This section is the operator's box. To set curia up on your own machine, read th
 The daemon expects these on the box before the first boot:
 
 - **Node 22+** with npm. The daemon is one Node process (`npm install`, then `npm start`).
-- **Claude Code, logged in.** Agents share the host credential store at `~/.claude` (#53). They have no login of their own. If the host is logged out, every agent fails. The overseer container is the one exception: it mounts no `~/.claude` and runs each turn on the model credential in `.env.overseer` (#327).
+- **An Anthropic credential in Curia's provider store.** The daemon can start without one. Run `reauth anthropic` before you start model work.
 - **`gh`, authenticated** for every watched repo. The daemon claims, comments, and closes tickets through it.
 - **`tmux`** — the agent host. Under compose (#260) the server lives in the `tmux` service and the daemon is a client over `CURIA_TMUX_SOCKET`. Unset, the default socket serves a dev box.
 - **`ttyd` on port 7681** for the browser terminal. The compose `ttyd` service runs it. The daemon health-checks the port and does not spawn ttyd.
 - **Tailscale** with Serve available. Attach links and preview links publish through `tailscale serve`.
 - **A Discord bot** in one guild, with the message-content intent, and its token in `.env.daemon`.
 
-`.env.daemon` (never committed). One env file per container that holds secrets, and the pair reads as a pair: this one and `.env.overseer` (#313):
+`.env.daemon` holds the daemon's own secrets and is never committed:
 
 - `DISCORD_BOT_TOKEN` — CuriaBot token. Omit to run REST-only (escalations stay answerable via `POST /answer`).
 - `DISCORD_ALLOWED_USERS` — comma-separated Discord user ids; the auth gate. The bridge refuses to start if empty. It is also the watcher list: every id on it is silently added as a member of each thread the daemon opens, so new tickets appear in the operator's thread list without a ping.
 - `CURIA_GH_APP_ID` and `CURIA_GH_APP_KEY_FILE` are the GitHub App every holder mints from ([ADR-0018](../docs/adr/0018-the-daemon-is-a-github-app.md)). The key is a FILE beside this one, at mode 0600. Half an app refuses the boot, and no app at all is legal on a box that dispatches nothing. The operator's own steps are [docs/github-app.md](../docs/github-app.md).
 - `CURIA_AGENT_GH_TOKEN_<OWNER>` is **retired** ([#466](https://github.com/alp82/curia/issues/466)). An agent mints its own token now, so a key still here is a live read-write PAT with no job, and boot names it: delete the line, then revoke the token on GitHub. See [the agent's GitHub authority](#the-agents-github-authority-155-cut-over-by-389-retired-by-466) below.
 - `CURIA_GUILD_ID` (optional — defaults to the bot's first guild), `CURIA_CHANNEL` (default `curia`), `PORT` (default 4271).
-- The overseer's own tokens are **not** in this file, and since #392 they are in no env file at all. The daemon mints them and writes one file per owner under `<workspace_root>/overseer/tokens/`. `.env.overseer` beside this file keeps the model credential, and the overseer service loads that file and never this one. See [the overseer's GitHub authority](#the-overseers-github-authority-313-cut-over-by-392) below.
+- The overseer's own tokens are **not** in this file. The daemon writes GitHub tokens under `<workspace_root>/overseer/tokens/` and the model credential under `<workspace_root>/credentials/`.
 - The overseer takes **no model variable here**. It runs in its own container since the cutover (#315), on `claude-sonnet-5` with no fallback, and the model is `OVERSEER_CONTAINER_MODEL` in `src/overseerturn.mjs`. `OVERSEER_MODEL` and `OVERSEER_FALLBACK_MODEL` died with the in-daemon host.
 
 Config (validated on load; a bad shape refuses the boot): `../config/curia.yaml` (watch list, dispatch settings — `auto_dispatch` ships `false` — attach ports, preview range, agent skill set) and `../config/routing.yaml` (label-only model routing, fallback chains, harness command templates). Override the directory with `CURIA_CONFIG_DIR`.
@@ -304,7 +304,7 @@ The permissions are **Contents**, **Issues**, **Pull requests** and **Commit sta
 
 **An owner with no installation reads public repositories only.** It gets no token file, so it gets no credential rather than another owner's. The container names that owner in the chat, once per turn, through `unroutedNote` — the one sentence the boot log and the turn share. The daemon's boot names it too, beside the app installations it can see.
 
-`CURIA_OVERSEER_GH_TOKEN_<OWNER>` is retired. A key still sitting in `daemon/.env.overseer` is a live PAT with no job, so boot names it and asks for two acts: delete the key, and revoke the token on GitHub. What is left in that file is the model credential, which is the one host secret ADR-0014 lets into that container. The daemon parses that file and never loads it into its own environment. A bare token in the daemon environment would re-authenticate the daemon's own `gh`, which is the trap #155 named.
+`daemon/.env.overseer` is retired. Delete any `CURIA_OVERSEER_GH_TOKEN_<OWNER>` key, revoke that token, and delete any `CLAUDE_CODE_OAUTH_TOKEN` key. Then remove the file. The daemon parses an existing copy only to warn about legacy keys.
 
 The transcripts are [docs/live-checks/313-overseer-github-token.md](../docs/live-checks/313-overseer-github-token.md) for the routing and [docs/live-checks/392-overseer-minted-token.md](../docs/live-checks/392-overseer-minted-token.md) for the cutover.
 

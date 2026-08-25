@@ -991,31 +991,25 @@ describe('the anthropic store (#648)', () => {
     assert.equal(s.read().token, OAT)
   })
 
-  test('a seed carries NO adoption instant, and its row reads unknown', () => {
+  test('a legacy seeded record remains readable, and its row reads unknown', () => {
+    const file = anthropicStoreFile(dir)
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    fs.writeFileSync(file, `${JSON.stringify({
+      token: OAT,
+      obtained_at: null,
+      seeded_at: '2026-08-24T12:00:00.000Z',
+    })}\n`)
     const s = storeOn()
-    assert.equal(s.seedOnce(OAT, { from: 'daemon/.env.daemon' }).seeded, true)
-    const record = s.read()
-    assert.equal(record.obtained_at, null, 'curia did not watch that login, so it invents no age for it')
-    assert.equal(record.seeded_at, '2026-08-24T12:00:00.000Z')
+    assert.equal(s.read().token, OAT)
     const row = s.state('claude')
     assert.equal(row.state, 'unknown')
     assert.equal(row.expires_at, null)
     assert.match(row.why, /sign in once/)
   })
 
-  test('the seed is read EXACTLY ONCE — the store wins from then on', () => {
-    const s = storeOn()
-    assert.equal(s.seedOnce(OAT).seeded, true)
-    const second = s.seedOnce(OAT2)
-    assert.equal(second.seeded, false)
-    assert.match(second.why, /the store wins/)
-    assert.equal(s.read().token, OAT, 'a seed that keeps being read is a second source of truth')
-  })
-
-  test('a value that is not a subscription token is refused rather than stored', () => {
+  test('a value that is not a subscription token is refused on adoption', () => {
     const s = storeOn()
     assert.throws(() => s.adopt('sk-proj-an-api-key'), /sk-ant/)
-    assert.equal(s.seedOnce('').seeded, false)
     assert.equal(s.read(), null)
   })
 
