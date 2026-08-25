@@ -38,7 +38,7 @@
      2. Null is not empty. An unreadable fleet is not an idle box, and a frontier
         nobody has computed is not an empty frontier. Every section that can fail
         on its own says which of the two it is. -->
-<meta name="curia-dashboard" content="proto=7">
+<meta name="curia-dashboard" content="proto=8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark light">
 <title>Atlas · Curia</title>
@@ -572,6 +572,10 @@ var UI = {
      of sections: which section is open, and whether the phone is on the list
      in front of it. */
   drill: {},
+  /* The GitHub App setup (#705). `busy` is the conversion in flight on the
+     return from github.com, and `facts` and `error` are what it answered.
+     `name` is the app name being typed. */
+  app: { busy: false, facts: null, error: null, name: "" },
   /* Which `?` explanations are open, by row id. Page-wide, because the frame
      hands the same affordance to every section on every page. */
   hints: {},
@@ -2045,6 +2049,13 @@ const SET_SECTIONS = [
     patch: patchDispatch, count: countDispatch,
   },
   {
+    /* #705. It sits after the three that write curia.yaml because it writes
+       neither file: what it changes lives on github.com and in the daemon's
+       own env, and the save dock has nothing to do with it. */
+    key: "github", title: "GitHub App", gist: gistApp, body: setApp,
+    hint: "curia's own GitHub identity. It is created once, installed on each watched owner, and the daemon mints every token an agent uses from its key.",
+  },
+  {
     key: "maintenance", title: "Maintenance", gist: gistMaintenance, body: setMaintenance,
     hint: "Whether the daemon runs what the files say, and the restart for the keys a save cannot apply.",
   },
@@ -2368,6 +2379,203 @@ function setMaintenance(p) {
       Agent panes live in their own container, so they survive it.`)}
     ${writes ? `<div class="row"><span class="grow dim-note">where a save lands</span>${qq("set-writes")}</div>${qhint("set-writes", writes)}` : ""}
   </div>`;
+}
+
+/* ---- the GitHub App (#705, on the daemon flow of #694) ----------------------
+
+   docs/github-app.md is a seven-step checklist a human does by hand. This
+   section is steps 1-3 and 6 of it: name the app, create it on github.com, and
+   see where it is installed. Steps 4 and 5 stay manual, because only a person
+   can press Install on GitHub and choose the repositories.
+
+   THE PAGE HOLDS NO SECRET AND TOUCHES NO KEY. The daemon states the manifest
+   and mints the state; the browser posts that manifest to github.com as a form
+   and carries `code` and `state` back; the daemon converts, stores the private
+   key at 0600 and adopts the app in process. What comes back here is the set of
+   facts already public on the app's own settings page. That boundary is #694's
+   and this section does not widen it — in particular the redirect github.com
+   returns to is composed by the DAEMON from curia's own records, never from
+   anything typed on this page.
+
+   Adoption is in process, so a restart is in none of it: the created app is
+   stated from the same poll everything else on Atlas reads. */
+
+const MANUAL_SETUP_DOC = "https://github.com/alp82/curia/blob/main/docs/github-app.md";
+
+const appWire = (p) => p?.overview?.github_app ?? null;
+
+function gistApp(p) {
+  const a = appWire(p);
+  if (!a) return `<span class="dim-note">curia cannot tell</span>`;
+  if (!a.configured) return `<span style="color:var(--warn)">no app — no agent can be dispatched</span>`;
+  const owners = a.owners ?? [];
+  if (!owners.length) return `<span class="dim-note">app ${esc(a.app_id)} · no watched owner</span>`;
+  const on = owners.filter((o) => o.installed === true).length;
+  return `<span style="color:var(--${on === owners.length ? "ok" : "warn"})">${esc(on)} of ${esc(owners.length)} owner${
+    owners.length === 1 ? "" : "s"} installed</span>`;
+}
+
+function setApp(p) {
+  const a = appWire(p);
+  /* Null is not empty (rule 2): a daemon that carries no section at all is not
+     a box with no app. */
+  if (!a) {
+    return `<div class="unread">This snapshot carries no GitHub App section — the daemon answering it is older than this page.</div>`;
+  }
+  return `${appConversion()}${a.configured ? appIdentity(a) : appCreate()}${appOwners(a)}
+    <p class="qhint" style="margin-top:10px">Creating the app is steps 1-3 of
+      <a href="${MANUAL_SETUP_DOC}">docs/github-app.md</a>. Installing it on an owner and choosing that
+      owner's repositories are steps 4 and 5, and both happen on github.com — only a person can grant a
+      repository. The private key never reaches this page: the daemon converts the manifest, stores the key
+      on the box, and mints with it without a restart.</p>`;
+}
+
+/* What a conversion in THIS tab answered, above everything else: it is the
+   answer to a press the operator made a moment ago on another site, and a
+   failure there is the one thing that has to be read before the rows below. */
+function appConversion() {
+  if (UI.app.busy) return `<div class="later">Converting the manifest GitHub sent back…</div>`;
+  if (UI.app.error) return `<div class="unread">The GitHub App setup failed — ${esc(UI.app.error)}</div>`;
+  const f = UI.app.facts;
+  if (!f) return "";
+  return `<div class="gh-connect"><span class="dot"></span>Created
+    <b class="mono">${esc(f.name ?? f.slug ?? f.app_id)}</b>
+    <span class="dim-note">the daemon adopted it — no restart</span></div>`;
+}
+
+/* No app yet. One field, one press, and the manual route beside it. */
+function appCreate() {
+  return `<p class="unread">This box has no GitHub App, so no agent can be dispatched. Name one, and curia
+      states the manifest GitHub creates it from.</p>
+    <div class="rows">
+      <div class="row"><label class="key grow" for="set-app-name">app name</label>
+        <input type="text" id="set-app-name" placeholder="curia-yourname" size="24"
+          value="${esc(UI.app.name ?? "")}" oninput="UI.app.name=this.value">${qq("set-app-name")}</div>
+      ${qhint("set-app-name", `A GitHub app name is unique across the whole of GitHub, so <span class="mono">curia</span>
+        itself is taken. GitHub refuses a name in use, and the setup starts again with another.`)}
+      <div class="row"><span class="grow"><button class="btn primary" ${anyBusy() ? "disabled" : ""}
+        onclick="beginAppSetup()">Create the App on GitHub</button>
+        <a href="${MANUAL_SETUP_DOC}">set it up by hand instead</a></span></div>
+      ${said("appsetup")}
+    </div>`;
+}
+
+/* The app this daemon runs, in the facts its own settings page states. */
+function appIdentity(a) {
+  const row = (key, value) => `<div class="row"><span class="key grow">${esc(key)}</span>
+    <span class="key mono">${value}</span></div>`;
+  const name = a.html_url
+    ? `<a href="${esc(a.html_url)}">${esc(a.name ?? a.slug ?? "the app")}</a>`
+    : esc(a.name ?? a.slug ?? "—");
+  return `<div class="rows">
+    ${row("app", name)}
+    ${row("app id", esc(a.app_id ?? "—"))}
+    ${row("commits as", esc(a.bot_login ?? "not read yet"))}
+    ${row("key", esc(a.key_file ?? "—"))}
+  </div>`;
+}
+
+/* One row per watched OWNER, because an installation is per owner. Three
+   states, each with a word beside its color: installed, not installed, and not
+   measured — which is what a GitHub curia could not read looks like, and never
+   the same fact as an owner it read as missing. */
+function appOwners(a) {
+  const owners = a.owners ?? [];
+  const foot = `<div class="row"><span class="grow"><button class="btn sm" ${anyBusy() ? "disabled" : ""}
+      onclick="refreshInstalls()">Re-read installations</button>
+      <span class="dim-note">${a.read_at ? "read " + esc(ago(a.read_at)) : "not read yet"}</span></span>
+      ${qq("set-app-installs")}</div>
+    ${qhint("set-app-installs", `curia reads this by itself when the watch list changes. After the install on
+      github.com, this press turns the owner green — there is no second setup to run.`)}
+    ${a.error ? `<div class="unread">The last read of GitHub failed — ${esc(a.error)}. The rows above are the reading before it.</div>` : ""}
+    ${said("appsetup-refresh")}`;
+  if (!owners.length) {
+    return `<div class="h-sect"><h3>Owners</h3>
+      <div class="empty">No repo is watched, so there is no owner to install on.</div>
+      <div class="rows">${foot}</div></div>`;
+  }
+  const rows = owners.map((o) => {
+    const link = o.install_url
+      ? `<a href="${esc(o.install_url)}">install on GitHub</a>`
+      : `<span class="dim-note">curia has not read the app's slug, so it states no install link</span>`;
+    let state;
+    if (o.installed === true) state = `<span style="color:var(--ok)">installed ✓</span>`;
+    else if (o.installed === false) state = `<span style="color:var(--warn)">not installed</span>`;
+    else state = `<span class="dim-note">not measured</span>`;
+    return `<div class="row"><span class="key grow">${esc(o.owner)}</span>${state}
+      ${o.installed === true ? "" : link}</div>`;
+  }).join("");
+  return `<div class="h-sect"><h3>Owners (${esc(owners.length)})</h3>
+    <div class="rows">${rows}${foot}</div></div>`;
+}
+
+/* The presses. The first asks the DAEMON for a manifest and a state, then hands
+   both to github.com as a form POST — the only shape GitHub's manifest flow
+   takes, and the reason this is not a fetch. */
+async function beginAppSetup() {
+  const name = typed("set-app-name") || String(UI.app.name ?? "").trim();
+  if (!name) return refuse("appsetup", "Name the app first — GitHub needs a name, and it must be free across the whole of GitHub.");
+  const out = await verb("appsetup", "/api/appsetup/begin", { name });
+  if (!out || !out.action || !out.manifest) return;
+  postManifest(out.action, out.manifest);
+}
+
+function postManifest(action, manifest) {
+  const form = document.createElement("form");
+  form.method = "POST";
+  form.action = action;
+  const field = document.createElement("input");
+  field.type = "hidden";
+  field.name = "manifest";
+  field.value = JSON.stringify(manifest);
+  form.appendChild(field);
+  document.body.appendChild(form);
+  form.submit();
+}
+
+/* A function declaration rather than a const, for the reason DRILL_PAGES is a
+   `var`: a top-level const is not reachable from the vm the page's test drives
+   it in. */
+function refreshInstalls() { return verb("appsetup-refresh", "/api/appsetup/refresh", {}); }
+
+/* GitHub's redirect back. The daemon composed the address it lands on, and the
+   two values on it are the whole of what this page relays: the conversion, the
+   private key and the adoption are the daemon's, and the conversion response
+   never crosses back to the browser. */
+function appSetupReturn() {
+  let q;
+  try { q = new URLSearchParams(String(location.search ?? "")); } catch { return null; }
+  const code = q.get("code");
+  const state = q.get("state");
+  if (!code || !state) return null;
+  /* Off the address bar at once: a conversion code is good exactly once, and a
+     reload of a spent one would read as a failure the operator caused. */
+  try { history.replaceState(null, "", location.pathname + "#settings"); } catch { /* no history here */ }
+  return { code, state };
+}
+
+async function finishAppSetup(code, state) {
+  UI.app.busy = true;
+  UI.app.facts = null;
+  UI.app.error = null;
+  render();
+  try {
+    const res = await fetch("/api/appsetup/convert", {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({ code, state }),
+    });
+    const b = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(b.error || ("the console answered " + res.status));
+    UI.app.facts = b;
+  } catch (e) {
+    UI.app.error = e.message;
+  }
+  UI.app.busy = false;
+  render();
+  /* The daemon adopted the app in process, so the next read already carries it.
+     That is what "without a restart" means on this screen. */
+  tick();
 }
 
 /* ---- the chat (#267, many conversations by #333) ----------------------------
@@ -2983,7 +3191,14 @@ document.addEventListener("visibilitychange", () => {
    render into no document. */
 if (typeof document !== "undefined" && document.getElementById("app")) {
   const initial = routeName(location.hash.slice(1));
-  enter(NAMES.includes(initial) ? initial : "home");
+  /* A return from github.com (#705) lands on the section that sent the operator
+     there, with the conversion already in flight. */
+  const setup = appSetupReturn();
+  enter(setup ? "settings" : (NAMES.includes(initial) ? initial : "home"));
+  if (setup) {
+    UI.drill.settings = { open: "github", list: false };
+    finishAppSetup(setup.code, setup.state);
+  }
   /* The file read happens at boot even when the operator lands somewhere else
      (#362): the stale-daemon marker on the Settings nav item compares the two,
      and a marker that needed the section opened would be a marker nobody sees.

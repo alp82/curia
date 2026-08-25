@@ -33,7 +33,8 @@ function loadPage() {
   const ctx = vm.createContext({
     document: { title: '', getElementById: () => null, addEventListener() {}, visibilityState: 'hidden' },
     window: { addEventListener() {} },
-    location: { hash: '' },
+    location: { hash: '', search: '', pathname: '/' },
+    URLSearchParams,
     fetch: () => new Promise(() => {}),
     setTimeout,
     clearTimeout,
@@ -58,7 +59,8 @@ function loadPollingPage({ visibilityState = 'visible', mount = false } = {}) {
   const ctx = vm.createContext({
     document,
     window: { addEventListener() {} },
-    location: { hash: '' },
+    location: { hash: '', search: '', pathname: '/' },
+    URLSearchParams,
     fetch: async (url) => {
       reads.push(url)
       return { ok: true, json: async () => url === '/api/settings' ? SETTINGS() : payload() }
@@ -177,6 +179,20 @@ const OVERVIEW = () => ({
     { ts: at(60), type: 'credentials_swept', agent: 'curia-263', ticket: '263', repo: 'alp82/curia' },
   ],
   deploy: { in_flight: null, last: null, verdict_read_error: null },
+  // The GitHub App and where it is installed (#705). The ordinary box: an app
+  // created, and the one watched owner it is installed on.
+  github_app: {
+    configured: true,
+    app_id: '317489578',
+    slug: 'curia-sh',
+    name: 'curia-sh',
+    html_url: 'https://github.com/apps/curia-sh',
+    bot_login: 'curia-sh[bot]',
+    key_file: '/srv/curia/daemon/.curia-app.pem',
+    read_at: at(90),
+    error: null,
+    owners: [{ owner: 'alp82', installed: true, install_url: 'https://github.com/apps/curia-sh/installations/new' }],
+  },
   frontier: {
     computed_at: at(120),
     repos: [
@@ -1024,7 +1040,7 @@ describe('the settings screen (#265)', () => {
 
   test('the main list names every section, each with a gist of its own', () => {
     const html = screen()
-    assert.deepEqual(rows(html), ['routing', 'projects', 'dispatch', 'maintenance'])
+    assert.deepEqual(rows(html), ['routing', 'projects', 'dispatch', 'github', 'maintenance'])
     const t = text(html)
     assert.match(t, /Routing opus untyped · 2 of 3 models on/)
     assert.match(t, /Projects 2 repos watched/)
@@ -1273,7 +1289,7 @@ describe('the settings screen (#265)', () => {
     assert.match(text(html), /The daemon is running these files\./)
     assert.ok(!html.includes('restart-hot'), 'an ordinary restart button, because nothing disagrees')
     assert.match(html, /doRestart\(\)/, 'the one restart button lives here now')
-    assert.deepEqual(rows(html), ['routing', 'projects', 'dispatch', 'maintenance'], 'the fourth section, and it reads last')
+    assert.deepEqual(rows(html), ['routing', 'projects', 'dispatch', 'github', 'maintenance'], 'still the last section, and it still reads last')
   })
 
   test('a daemon running something else names the keys, and the button goes red', () => {
@@ -1893,6 +1909,10 @@ describe('the chat screen (#267, the picker of #333)', () => {
     assert.match(src, new RegExp(`<meta name="curia-dashboard" content="proto=${DASHBOARD_PROTO}">`))
     assert.match(src, /"\/api\/console\/new"/)
     assert.match(src, /"\/api\/console\/delete"/)
+    // #705 added a route to both halves and a field to `/overview`. A page
+    // that read `github_app` from an older daemon would draw "no app" over a
+    // box that has one, which is what the stamp exists to refuse.
+    assert.match(src, /"\/api\/appsetup\/refresh"/)
   })
 
   // Arriving is what takes the read. Settings holds its copy because a config
@@ -2103,5 +2123,212 @@ describe('the Credentials screen (#661)', () => {
     assert.match(src, new RegExp(`<meta name="curia-dashboard" content="proto=${DASHBOARD_PROTO}">`))
     assert.match(src, /"\/api\/reauth"/)
     assert.match(src, /credentials:\s*\["Credentials",\s*screenCredentials\]/)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// The GitHub App section (#705), on the daemon flow of #694.
+//
+// What is pinned here is the half a human reading the preview cannot check:
+// that a box with no app offers the create path and a box with one states its
+// facts without a restart in the sentence, that every watched owner carries a
+// state WORD beside its color and an install link where the state is not
+// installed, that an unmeasured owner never renders as an uninstalled one, and
+// — the boundary #694 drew — that the browser relays `code` and `state` and
+// nothing else, to a redirect it never composed.
+
+describe('the GitHub App section (#705)', () => {
+  let page
+
+  beforeEach(() => {
+    page = loadPage()
+    page.settings = SETTINGS()
+    page.draft = JSON.parse(JSON.stringify(page.settings))
+    page.UI.drill.settings = { open: 'github', list: false }
+  })
+
+  const screen = (p = payload()) => page.screenSettings(p)
+  const withApp = (app) => payload({ github_app: app })
+  const noApp = () => withApp({
+    configured: false,
+    app_id: null, slug: null, name: null, html_url: null, bot_login: null, key_file: null,
+    read_at: null, error: null,
+    owners: [
+      { owner: 'alp82', installed: null, install_url: null },
+      { owner: 'example', installed: null, install_url: null },
+    ],
+  })
+
+  test('the list row says whether the app exists and how many owners hold it', () => {
+    assert.match(text(screen()), /GitHub App 1 of 1 owner installed/)
+    assert.match(text(screen(noApp())), /GitHub App no app — no agent can be dispatched/)
+  })
+
+  test('a box with no app offers the name, the create action and the manual route', () => {
+    const html = screen(noApp())
+    assert.match(html, /id="set-app-name"/)
+    assert.match(html, /onclick="beginAppSetup\(\)"/)
+    assert.match(html, /docs\/github-app\.md/)
+    assert.match(text(html), /no GitHub App, so no agent can be dispatched/)
+  })
+
+  test('a created app states its own facts, and a restart is in none of them', () => {
+    const t = text(screen())
+    assert.match(t, /app id 317489578/)
+    assert.match(t, /commits as curia-sh\[bot\]/)
+    assert.match(t, /\.curia-app\.pem/)
+    assert.match(t, /mints with it without a restart/)
+    assert.ok(!screen().includes('id="set-app-name"'), 'there is nothing left to create')
+  })
+
+  test('a conversion that just landed says so from the page that asked for it', () => {
+    page.UI.app.facts = { ok: true, app_id: '9', slug: 'curia-box', name: 'curia-box' }
+    assert.match(text(screen()), /Created curia-box the daemon adopted it — no restart/)
+    page.UI.app.facts = null
+    page.UI.app.error = 'that GitHub App setup was already converted'
+    assert.match(text(screen()), /The GitHub App setup failed — that GitHub App setup was already converted/)
+  })
+
+  test('every watched owner carries its state and, where it is missing, GitHub’s install link', () => {
+    const p = withApp({
+      ...OVERVIEW().github_app,
+      owners: [
+        { owner: 'alp82', installed: true, install_url: 'https://github.com/apps/curia-sh/installations/new' },
+        { owner: 'example', installed: false, install_url: 'https://github.com/apps/curia-sh/installations/new' },
+      ],
+    })
+    const t = text(screen(p))
+    assert.match(t, /alp82 installed ✓/)
+    assert.match(t, /example not installed install on GitHub/)
+    assert.match(screen(p), /href="https:\/\/github\.com\/apps\/curia-sh\/installations\/new"/)
+  })
+
+  // The rule the whole page holds to (#262 rule 2), on the one section where
+  // getting it wrong sends the operator to GitHub to repair an install that is
+  // already right.
+  test('an owner nothing has measured is not an owner without the app', () => {
+    const t = text(screen(noApp()))
+    assert.match(t, /alp82 not measured/)
+    assert.ok(!t.includes('not installed'), 'unmeasured says its own word')
+  })
+
+  test('a snapshot older than this page says so, rather than drawing a box with no app', () => {
+    const p = payload()
+    delete p.overview.github_app
+    assert.match(text(screen(p)), /carries no GitHub App section/)
+  })
+
+  // ---- the two presses ------------------------------------------------------
+
+  test('the re-read is one press, and it names what it is for', () => {
+    assert.match(screen(), /onclick="refreshInstalls\(\)"/)
+    page.UI.hints['set-app-installs'] = true
+    assert.match(text(screen()), /turns the owner green — there is no second setup to run/)
+  })
+
+  test('the re-read asks the sidecar and nothing else', async () => {
+    const calls = []
+    page.fetch = async (path, init) => {
+      if (path.startsWith('/api/appsetup')) calls.push([path, init.body])
+      return { ok: true, json: async () => ({ ok: true }) }
+    }
+    await page.refreshInstalls()
+    assert.deepEqual(calls, [['/api/appsetup/refresh', '{}']])
+  })
+
+  test('a GitHub curia could not read leaves the last reading standing and says the failure', () => {
+    const t = text(screen(withApp({ ...OVERVIEW().github_app, error: 'GitHub answered HTTP 502' })))
+    assert.match(t, /The last read of GitHub failed — GitHub answered HTTP 502/)
+    assert.match(t, /alp82 installed ✓/, 'the reading before it still stands')
+  })
+
+  test('create with no name is refused here, before it costs a call', async () => {
+    let calls = 0
+    page.fetch = async () => { calls += 1; return { ok: true, json: async () => ({}) } }
+    await page.beginAppSetup()
+    assert.equal(calls, 0)
+    assert.match(page.UI.act.said.text, /Name the app first/)
+  })
+
+  // The manifest travels as a FORM POST to github.com, which is the only shape
+  // GitHub's manifest flow takes. The action and the manifest are both the
+  // daemon's — the page composes neither, and in particular composes no
+  // redirect: a browser-named one would be a way to send the conversion code
+  // somewhere else (#694).
+  test('the manifest is posted to the action the daemon stated, with the state on it', async () => {
+    const node = () => ({ children: [], appendChild(c) { this.children.push(c) } })
+    const form = node()
+    let submitted = false
+    form.submit = () => { submitted = true }
+    const created = []
+    page.document.createElement = (tag) => {
+      const el = tag === 'form' ? form : node()
+      created.push(tag)
+      return el
+    }
+    page.document.body = node()
+    page.fetch = async () => ({
+      ok: true,
+      json: async () => ({
+        state: 'a'.repeat(64),
+        action: 'https://github.com/settings/apps/new?state=' + 'a'.repeat(64),
+        manifest: { name: 'curia-box', redirect_url: 'https://box.ts.net:8443/' },
+      }),
+    })
+    page.UI.app.name = 'curia-box'
+    await page.beginAppSetup()
+    assert.equal(form.method, 'POST')
+    assert.match(form.action, /^https:\/\/github\.com\/settings\/apps\/new\?state=a{64}$/)
+    assert.deepEqual(form.children.map((c) => [c.name, c.type]), [['manifest', 'hidden']])
+    assert.deepEqual(JSON.parse(form.children[0].value), {
+      name: 'curia-box', redirect_url: 'https://box.ts.net:8443/',
+    })
+    assert.ok(submitted)
+  })
+
+  // THE BOUNDARY. GitHub redirects back to the address the daemon composed,
+  // with a code and a state on it. Those two values are the whole of what the
+  // browser relays, and what comes back is the app's public facts — the
+  // conversion response and the private key never cross this wire.
+  test('the return from github.com relays code and state, and nothing else', async () => {
+    const sent = []
+    page.location.search = '?code=abc123&state=' + 'b'.repeat(64) + '&redirect_uri=https://evil.example'
+    page.fetch = async (path, init) => {
+      if (!path.startsWith('/api/appsetup')) return { ok: true, json: async () => ({}) }
+      sent.push([path, JSON.parse(init.body)])
+      return { ok: true, json: async () => ({ ok: true, app_id: '9', slug: 'curia-box', name: 'curia-box' }) }
+    }
+    const back = page.appSetupReturn()
+    await page.finishAppSetup(back.code, back.state)
+    assert.deepEqual(sent, [['/api/appsetup/convert', { code: 'abc123', state: 'b'.repeat(64) }]])
+    assert.equal(page.UI.app.busy, false)
+    assert.equal(page.UI.app.facts.slug, 'curia-box')
+  })
+
+  test('a spent code is taken off the address bar, so a reload is not a second failure', () => {
+    const replaced = []
+    page.location.search = '?code=abc123&state=' + 'b'.repeat(64)
+    page.location.pathname = '/'
+    page.history = { replaceState: (_s, _t, url) => replaced.push(url) }
+    const back = page.appSetupReturn()
+    assert.equal(back.code, 'abc123')
+    assert.equal(back.state, 'b'.repeat(64))
+    assert.deepEqual(replaced, ['/#settings'])
+  })
+
+  test('an ordinary address starts no conversion at all', () => {
+    page.location.search = ''
+    assert.equal(page.appSetupReturn(), null)
+    page.location.search = '?code=abc123'
+    assert.equal(page.appSetupReturn(), null, 'a code with no state is not a return curia started')
+  })
+
+  test('a refused conversion is the operator’s own sentence, not a status code', async () => {
+    page.fetch = async (path) => (path.startsWith('/api/appsetup')
+      ? { ok: false, json: async () => ({ error: 'that GitHub App setup did not start on this box, or it lapsed' }) }
+      : { ok: true, json: async () => ({}) })
+    await page.finishAppSetup('abc123', 'c'.repeat(64))
+    assert.match(page.UI.app.error, /did not start on this box/)
+    assert.equal(page.UI.app.facts, null)
   })
 })

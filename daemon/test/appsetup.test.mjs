@@ -358,6 +358,13 @@ describe('the sidecar relays code and state, and nothing else (#694)', () => {
       try {
         if (r.url === '/app/setup') return res.end(JSON.stringify(setup.begin({ name: body.name, redirectUrl: body.redirect_url })))
         if (r.url === '/app/convert') return res.end(JSON.stringify(await setup.convert(body)))
+        // #705: the install reading, which is public facts and a watch list.
+        if (r.url === '/app/installs') {
+          return res.end(JSON.stringify({
+            configured: true, app_id: '9', slug: 'curia-sh', bot_login: 'curia-sh[bot]',
+            owners: [{ owner: 'alp82', installed: true, install_url: 'https://github.com/apps/curia-sh/installations/new' }],
+          }))
+        }
       } catch (e) {
         return res.end(JSON.stringify({ ok: false, error: e.message }))
       }
@@ -463,8 +470,21 @@ describe('the sidecar relays code and state, and nothing else (#694)', () => {
     assert.equal(ghCalls.length, 0)
   })
 
-  test('both routes are writes: no Origin, no setup', async () => {
-    for (const route of ['/api/appsetup/begin', '/api/appsetup/convert']) {
+  // #705. Atlas presses this after the operator installs the app on GitHub, and
+  // the whole of what it sends is the press: the watch list is the daemon's and
+  // the browser names no owner.
+  test('the re-read carries no field at all, and answers the same public shape', async () => {
+    const res = await req(surface.port, '/api/appsetup/refresh', { method: 'POST', headers: writes(), body: {} })
+    assert.equal(res.status, 200)
+    assert.deepEqual(bodies.map((b) => b.url), ['/app/installs'])
+    assert.deepEqual(bodies[0].body, {})
+    const out = JSON.parse(res.text)
+    assert.equal(out.owners[0].owner, 'alp82')
+    assert.doesNotMatch(res.text, /PRIVATE KEY|client_secret/)
+  })
+
+  test('all three routes are writes: no Origin, no setup', async () => {
+    for (const route of ['/api/appsetup/begin', '/api/appsetup/convert', '/api/appsetup/refresh']) {
       const res = await req(surface.port, route, {
         method: 'POST', headers: served({ 'content-type': 'application/json' }), body: { name: 'curia.sh' },
       })

@@ -72,7 +72,7 @@ export const daemonPort = () => Number(process.env.PORT ?? DEFAULT_DAEMON_PORT)
 // POSTs `/api/reauth`, a route a proto-6 sidecar does not serve — so a screen
 // built for the 3am no-ssh recovery would answer 404 at the press it exists
 // for. It also reads two fields a proto-6 daemon's `/overview` does not carry.
-export const DASHBOARD_PROTO = 7
+export const DASHBOARD_PROTO = 8
 
 // The Credentials screen's own hash (#661). It is here rather than in the
 // daemon that links to it, because the page's screen names are this file's half
@@ -909,6 +909,12 @@ export class DashboardSurface {
           if (out.ok === false) throw refuse(out.error)
           return out
         })
+      }
+      // The install reading again (#705). No body at all: what it re-reads is
+      // the watch list this daemon already runs, and the answer is the same
+      // public shape `/overview` carries.
+      if (url.pathname === '/api/appsetup/refresh') {
+        return this.#verb(res, () => this.#daemon({ method: 'POST', path: '/app/installs' }))
       }
       if (url.pathname === '/api/console/new') {
         return this.#verb(res, () => this.#daemon({ method: 'POST', path: '/console/new' }))

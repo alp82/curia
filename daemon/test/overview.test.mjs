@@ -198,6 +198,27 @@ describe('GET /overview (index.mjs, real boot)', () => {
     assert.deepEqual(o.bridge_health, { state: 'down', since: null, unhealthy_for_s: 0, last_error: null })
   })
 
+  // #705. Atlas draws the App section off this, and a box with no app is the
+  // state the section exists FOR — so the field is present, states that there
+  // is no app, and still names every watched owner. Nothing here costs a
+  // GitHub call: the reading is the detached one the watch takes.
+  test('the GitHub App section answers on a box that has no app, and names the watched owners', async () => {
+    const o = await overview()
+    assert.equal(o.github_app.configured, false)
+    assert.equal(o.github_app.app_id, null)
+    assert.equal(o.github_app.key_file, null)
+    assert.equal(o.github_app.read_at, null)
+    assert.deepEqual(o.github_app.owners, [
+      // Null, not false: nothing measured this owner, and an unmeasured
+      // install and a missing one are opposite facts on the page.
+      { owner: 'example', installed: null, install_url: null },
+    ])
+    // The whole shape is public facts. The one durable secret is the private
+    // key, and no spelling of it is on this wire.
+    assert.equal(JSON.stringify(o.github_app).includes('PRIVATE KEY'), false)
+    assert.equal('pem' in o.github_app, false)
+  })
+
   test('an unreadable fleet is null and says why, and every other section still answers', async () => {
     // The evidence rule on a page (tmux.mjs): a wedged tmux is not "no agents".
     // Serving `[]` here would draw an idle box over a live one, and 500-ing the

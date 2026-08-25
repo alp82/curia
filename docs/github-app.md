@@ -24,11 +24,13 @@ None of this is secret. The app id travels in every JWT the daemon signs. The pr
 
 ## Steps 1 to 3, from Atlas
 
+**Where it is.** Atlas → **Settings** → **GitHub App** ([#705](https://github.com/alp82/curia/issues/705)). The section names the app, creates it, and then lists every watched owner with the install state curia last measured and GitHub's own install link beside the ones it is missing from. **Re-read installations** takes that reading again — press it after installing on GitHub, and the owner turns green with no second setup and no restart.
+
 [#694](https://github.com/alp82/curia/issues/694) replaced the first three steps below with one press. Atlas asks the daemon for a manifest, the browser posts it to `https://github.com/settings/apps/new`, and GitHub redirects back with a one-hour conversion code. The daemon converts that code itself: it writes the private key to `daemon/.curia-app.pem` at mode 0600, writes `CURIA_GH_APP_ID` and `CURIA_GH_APP_KEY_FILE` into `daemon/.env.daemon`, and adopts the app in process, so step 6 and the restart are gone too.
 
 The manifest states the five permissions of step 2 and no events, so nothing on the **Permissions & events** page has to be set by hand. Neither the browser nor the dashboard sidecar ever sees the conversion response: the browser carries `code` and `state` back and gets the app id, the slug, the bot login and the install link.
 
-Steps 4 and 5 stay yours. An installation is granted per owner, and only a human can grant it.
+Steps 4 and 5 stay yours. An installation is granted per owner, and only a human can grant it. The owner rows in that section are where a missing one shows.
 
 The manual route below still works, and it is what to follow when the box has no Atlas reachable.
 

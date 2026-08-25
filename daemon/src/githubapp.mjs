@@ -305,6 +305,8 @@ export class TokenMinter {
 
   #bot = null
 
+  #facts = null
+
   // `<owner>|<role>` → the promise of a mint that has not answered yet (#390).
   #minting = new Map()
 
@@ -415,10 +417,29 @@ export class TokenMinter {
   // NOT HARD-CODED, though this box's answer is `curia-sh[bot]` and 317489578.
   // The app is per-operator (ADR-0018) and its name has to be free across the
   // whole of GitHub, so another operator's daemon has another bot entirely.
+  // What GitHub says the app IS: its slug, its name and its own settings page.
+  // Read once and kept, for the same reason `botIdentity` keeps its two: none
+  // of it changes for the life of an app.
+  //
+  // Atlas needs the slug (#705), because the install link GitHub offers is
+  // `github.com/apps/<slug>/installations/new` and the slug is nowhere in the
+  // env — the operator sets an app ID and a key file, and that is all.
+  async facts() {
+    if (!this.#facts) {
+      const app = await api('/app', { jwt: this.jwt(), fetchImpl: this.fetchImpl })
+      this.#facts = {
+        id: app?.id ?? null,
+        slug: String(app?.slug ?? '').trim() || null,
+        name: app?.name ?? null,
+        html_url: app?.html_url ?? null,
+      }
+    }
+    return this.#facts
+  }
+
   async botIdentity(token) {
     if (this.#bot) return this.#bot
-    const app = await api('/app', { jwt: this.jwt(), fetchImpl: this.fetchImpl })
-    const slug = String(app?.slug ?? '').trim()
+    const slug = (await this.facts()).slug ?? ''
     if (!slug) throw new Error('GitHub described curia\'s app without a slug, so its bot login cannot be built')
     const login = `${slug}[bot]`
     const user = await api(`/users/${encodeURIComponent(login)}`, { jwt: token, fetchImpl: this.fetchImpl })
@@ -435,6 +456,7 @@ export class TokenMinter {
     this.#minting.clear()
     this.#installations = null
     this.#bot = null
+    this.#facts = null
   }
 }
 

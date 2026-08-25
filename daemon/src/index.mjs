@@ -280,15 +280,74 @@ if (!appMinter) {
 // round trip, and GitHub being slow must never hold up a boot whose other duties
 // do not need it. Re-run on every reload (#362), because an owner added from the
 // settings screen must get the reading a booted one gets.
-function checkAppInstallations() {
-  if (!appMinter) return
-  appMinter.refreshInstallations().then((installs) => {
+// The last reading, kept so `/overview` can state it without a GitHub call per
+// poll (#705). `at` is null until a pass has landed, and null there is what
+// makes an unread owner read as unmeasured rather than as uninstalled — the
+// same rule the credential watch holds to.
+let appReading = { at: null, installed: new Set(), slug: null, name: null, htmlUrl: null, error: null }
+
+async function readAppInstallations() {
+  if (!appMinter) {
+    appReading = { at: null, installed: new Set(), slug: null, name: null, htmlUrl: null, error: null }
+    return appReading
+  }
+  try {
+    // The facts first: the slug is what the install link is built from, and an
+    // owner row with no link is a row that names a step it cannot start.
+    const facts = await appMinter.facts().catch(() => ({}))
+    const installs = await appMinter.refreshInstallations()
     for (const { id, owner } of installs) log(`GitHub App installed on ${owner} (installation ${id})`)
     const seen = new Set(installs.map((i) => String(i.owner ?? '').toLowerCase()))
     for (const owner of WATCHED_OWNERS) {
       if (!seen.has(owner.toLowerCase())) log(`WARNING: the GitHub App is not installed on ${owner} — no agent can be dispatched to it, every daemon call on it falls back to the host gh login, and the overseer reads ${owner}/* with no credential at all (docs/github-app.md)`)
     }
-  }).catch((e) => log(`could not read the GitHub App's installations (${e.message}) — that is a fact about GitHub rather than about the install`))
+    appReading = {
+      at: new Date().toISOString(),
+      installed: seen,
+      slug: facts.slug ?? null,
+      name: facts.name ?? null,
+      htmlUrl: facts.html_url ?? null,
+      error: null,
+    }
+  } catch (e) {
+    // A GitHub that could not answer is a fact about GitHub and not about the
+    // install, so the last reading STANDS and the failure joins it.
+    log(`could not read the GitHub App's installations (${e.message}) — that is a fact about GitHub rather than about the install`)
+    appReading = { ...appReading, error: e.message }
+  }
+  return appReading
+}
+
+function checkAppInstallations() {
+  if (!appMinter) return
+  readAppInstallations()
+}
+
+// The App, as Atlas reads it (#705). Every field here is already public on the
+// app's own settings page — the private key is not in it and never can be, and
+// nothing in this shape costs a GitHub call: it is the last detached reading
+// plus the watch list this process is running.
+function githubAppOnWire() {
+  const owners = [...new Set(curiaConfig.watch.map(({ repo }) => repo.split('/')[0]))]
+  const slug = appReading.slug
+  return {
+    configured: Boolean(appMinter),
+    app_id: appMinter?.appId ?? null,
+    slug,
+    name: appReading.name,
+    html_url: appReading.htmlUrl,
+    bot_login: slug ? `${slug}[bot]` : null,
+    key_file: appMinter?.keyFile ?? null,
+    read_at: appReading.at,
+    error: appReading.error,
+    owners: owners.map((owner) => ({
+      owner,
+      // Three states, and the third is not the second: true installed, false
+      // measured and absent, null nothing has measured it yet.
+      installed: appReading.at ? appReading.installed.has(owner.toLowerCase()) : null,
+      install_url: slug ? `https://github.com/apps/${slug}/installations/new` : null,
+    })),
+  }
 }
 
 // #390: the DAEMON cuts over. Every `gh` child it spawns for a named repo now
@@ -2498,6 +2557,9 @@ async function overview() {
     // live in a Discord line and a log only ssh could read, and the 4897a82
     // rollback was diagnosed over ssh because of it.
     deploy: selfDeploy.status(),
+    // The GitHub App and where it is installed (#705). The last detached
+    // reading, never a call on the poll — see githubAppOnWire.
+    github_app: githubAppOnWire(),
   }
 }
 
@@ -2954,6 +3016,16 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
       // is this box failing, and it answers 500 so the two never read the same.
       return json(e?.refusal ? 409 : 500, { ok: false, error: e.message })
     }
+  }
+
+  // The install reading, on demand (#705). The operator installs the app on
+  // github.com and comes back to Atlas, and this is the press that turns the
+  // owner green — the same read the watch takes, asked for rather than waited
+  // for. It answers the wire shape whether the read landed or failed, because
+  // an owner whose state could not be measured is a row too.
+  if (url.pathname === '/app/installs' && req.method === 'POST') {
+    await readAppInstallations()
+    return json(200, githubAppOnWire())
   }
 
   if (url.pathname === '/reload' && req.method === 'POST') {
