@@ -48,6 +48,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
+import { CFG_DIR, configRootEnvFor } from './workspace.mjs'
 
 // Rule 4. The npm package, its binary, and the runner that fetches it.
 export const CLI_PACKAGE = '@use-aistack/cli'
@@ -95,8 +96,6 @@ export function hasCredential(root) {
 }
 
 // ---- the roots --------------------------------------------------------------
-
-export const CFG_DIR = 'cfg'
 
 // Every config directory on the box, newest write first. The name is the
 // session, and `at` is the directory's own mtime, which is what ranks the codex
@@ -163,11 +162,14 @@ export function codexRoot(root) {
 export function syncEnv(root, { env = process.env } = {}) {
   const claude = claudeRoots(root)
   const codex = codexRoot(root)
+  // The variable names come from `workspace.mjs`, which is where a harness's
+  // config root is decided for the agents themselves. A sync that named them
+  // here would keep scanning the old variable the day one changes.
   return {
     ...env,
     HOME: homeFor(root),
-    ...(claude.length ? { CLAUDE_CONFIG_DIR: claude.join(',') } : {}),
-    ...(codex ? { CODEX_HOME: codex } : {}),
+    ...(claude.length ? { [configRootEnvFor('claude')]: claude.join(',') } : {}),
+    ...(codex ? { [configRootEnvFor('codex')]: codex } : {}),
   }
 }
 
