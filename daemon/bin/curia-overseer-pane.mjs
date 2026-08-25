@@ -13,15 +13,14 @@ const valueAfter = (flag) => {
   const at = args.indexOf(flag)
   return at >= 0 ? args[at + 1] : null
 }
-const key = valueAfter('--key')
 const resumeId = valueAfter('--resume')
 const sessionId = resumeId ?? valueAfter('--session-id')
 
-if (!key || !sessionId || (resumeId && args.includes('--session-id'))) {
-  console.error('usage: curia-overseer-pane --key <conversation> (--session-id <id> | --resume <id>)')
+if (!sessionId || (resumeId && args.includes('--session-id'))) {
+  console.error('usage: curia-overseer-pane (--session-id <id> | --resume <id>)')
   process.exit(2)
 }
 
 const cfg = loadCuriaConfig(CONFIG, { checkPaths: false })
-const code = await runOverseerPane({ cfg, key, sessionId, resume: Boolean(resumeId) })
+const code = await runOverseerPane({ cfg, sessionId, resume: Boolean(resumeId) })
 process.exitCode = code

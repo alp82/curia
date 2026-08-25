@@ -9,12 +9,16 @@ import { spawn } from 'node:child_process'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { hasSession, newSession, capturePane, sendText } from './tmux.mjs'
 import {
-  OVERSEER_CONTAINER_MODEL, modelCredentialEnv, overseerConfigDirFor,
+  OVERSEER_CONTAINER_MODEL, overseerConfigDirFor,
   overseerHomeFor, overseerProcessEnv,
 } from './overseerturn.mjs'
+import {
+  AnthropicCredentialStore, anthropicStoreFile, writeClaudeCredentials,
+} from './credentials.mjs'
 import { isConsoleKey, sessionForConsoleKey } from './attach.mjs'
 import { agentEnv, seedConfigDir } from './workspace.mjs'
 import { buildSystemPrompt } from './overseerprompt.mjs'
+import { SIGNALS } from './messaging.mjs'
 
 export const OVERSEER_CONTAINER = 'curia-overseer-1'
 const DISCORD_KEY_RE = /^\d+$/
@@ -27,38 +31,42 @@ export function overseerPaneSession(key) {
   throw new Error(`"${value}" is not an overseer conversation key`)
 }
 
-export function overseerPaneConfigDirFor(workspaceRoot) {
-  return overseerConfigDirFor(workspaceRoot)
-}
-
 function shellArg(value) {
   const text = String(value)
   if (/^[A-Za-z0-9_./:@+-]+$/.test(text)) return text
   return `'${text.replace(/'/g, `'"'"'`)}'`
 }
 
-export function overseerPaneCommand({ repoRoot, key, sessionId, resume }) {
+export function overseerPaneCommand({ repoRoot, sessionId, resume }) {
   const runner = path.join(repoRoot, 'daemon', 'bin', 'curia-overseer-pane.mjs')
   const identityFlag = resume ? '--resume' : '--session-id'
   return [
     'docker', 'exec', '-it', OVERSEER_CONTAINER,
-    'node', shellArg(runner), '--key', shellArg(key), identityFlag, shellArg(sessionId),
+    'node', shellArg(runner), identityFlag, shellArg(sessionId),
   ].join(' ')
 }
 
-export function prepareOverseerPane({ cfg, key, sessionId, resume = false, deps = {} }) {
-  overseerPaneSession(key)
+export function installOverseerPaneCredential(workspaceRoot, configDir) {
+  const record = new AnthropicCredentialStore({ workspaceRoot }).read()
+  if (!record) {
+    return `${SIGNALS.warn} there is no anthropic credential for this pane: ${anthropicStoreFile(workspaceRoot)} holds none. Run reauth anthropic`
+  }
+  writeClaudeCredentials(configDir, record)
+  return null
+}
+
+export function prepareOverseerPane({ cfg, sessionId, resume = false, deps = {} }) {
   if (!sessionId || typeof sessionId !== 'string') throw new Error('the overseer pane needs a durable session id')
   const root = cfg.dispatch.workspace_root
   const configDir = overseerConfigDirFor(root)
   const home = overseerHomeFor(root)
   const seed = deps.seed ?? seedConfigDir
   const systemPrompt = deps.systemPrompt ?? buildSystemPrompt
-  const credential = deps.credential ?? modelCredentialEnv
+  const installCredential = deps.installCredential ?? installOverseerPaneCredential
   const processEnv = deps.processEnv ?? overseerProcessEnv
   fs.mkdirSync(home, { recursive: true })
   seed(configDir, home, null, 'claude', { sandboxed: true })
-  const modelCredential = credential(root)
+  const note = installCredential(root, configDir)
   const prompt = systemPrompt({
     shell: true,
     checkoutsRoot: path.join(root, 'overseer', 'repos'),
@@ -71,7 +79,6 @@ export function prepareOverseerPane({ cfg, key, sessionId, resume = false, deps 
       ...processEnv(),
       ENABLE_TOOL_SEARCH: '0',
       ...agentEnv(configDir, 'claude', { sandboxed: true }),
-      ...modelCredential.env,
     },
     args: [
       '--model', OVERSEER_CONTAINER_MODEL,
@@ -79,7 +86,7 @@ export function prepareOverseerPane({ cfg, key, sessionId, resume = false, deps 
       '--dangerously-skip-permissions',
       identityFlag, sessionId,
     ],
-    note: modelCredential.note,
+    note,
   }
 }
 
@@ -120,10 +127,6 @@ export class OverseerPaneHost {
     this.starting = new Map()
   }
 
-  configDirFor() {
-    return overseerPaneConfigDirFor(this.workspaceRoot)
-  }
-
   async #waitForComposer(session) {
     const deadline = Date.now() + this.readyTimeoutMs
     do {
@@ -141,17 +144,21 @@ export class OverseerPaneHost {
     let sessionId = this.reduction.overseerSession(key)
     const resume = Boolean(sessionId)
     if (!sessionId) {
-      sessionId = crypto.randomUUID()
-      this.reduction.bindOverseerSession(key, sessionId)
+      sessionId = this.reduction.pendingOverseerSession(key)
+      if (!sessionId) {
+        sessionId = crypto.randomUUID()
+        this.reduction.reserveOverseerSession(key, sessionId)
+      }
     }
     this.deps.ensureDir(overseerHomeFor(this.workspaceRoot))
     await this.deps.newSession({
       name: session,
       cwd: overseerHomeFor(this.workspaceRoot),
-      shellCmd: overseerPaneCommand({ repoRoot: this.repoRoot, key, sessionId, resume }),
+      shellCmd: overseerPaneCommand({ repoRoot: this.repoRoot, sessionId, resume }),
       keepOpen: false,
     })
     await this.#waitForComposer(session)
+    if (!resume) this.reduction.bindOverseerSession(key, sessionId)
     this.reduction.journal(resume ? 'overseer_pane_resumed' : 'overseer_pane_started', {
       key, session, session_id: sessionId,
     })
@@ -159,15 +166,28 @@ export class OverseerPaneHost {
     return { session, sessionId, resumed: resume }
   }
 
-  async ensure(key) {
-    const session = overseerPaneSession(key)
+  async #ensure(key, session) {
     if (await this.deps.hasSession(session)) {
-      const sessionId = this.reduction.overseerSession(key)
+      let sessionId = this.reduction.overseerSession(key)
+      if (!sessionId) {
+        sessionId = this.reduction.pendingOverseerSession(key)
+        if (sessionId) {
+          await this.#waitForComposer(session)
+          this.reduction.bindOverseerSession(key, sessionId)
+          this.reduction.journal('overseer_pane_started', { key, session, session_id: sessionId })
+          return { session, sessionId, resumed: false }
+        }
+      }
       if (!sessionId) throw new Error(`${session} has no durable overseer conversation identity`)
       return { session, sessionId, resumed: false }
     }
+    return this.#start(key, session)
+  }
+
+  ensure(key) {
+    const session = overseerPaneSession(key)
     if (!this.starting.has(key)) {
-      const start = this.#start(key, session).finally(() => this.starting.delete(key))
+      const start = this.#ensure(key, session).finally(() => this.starting.delete(key))
       this.starting.set(key, start)
     }
     return this.starting.get(key)
