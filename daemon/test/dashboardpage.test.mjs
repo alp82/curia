@@ -1238,12 +1238,13 @@ describe('the settings screen (#265)', () => {
 
   test('the main list names every section, each with a gist of its own', () => {
     const html = screen()
-    assert.deepEqual(rows(html), ['routing', 'projects', 'dispatch', 'connections', 'maintenance'])
+    assert.deepEqual(rows(html), ['routing', 'projects', 'dispatch', 'connections', 'aistack', 'maintenance'])
     const t = text(html)
     assert.match(t, /Routing opus untyped · 2 of 3 models on/)
     assert.match(t, /Projects 2 repos watched/)
     assert.match(t, /Dispatch auto · 3 agents · 60s/)
     assert.match(t, /Connections state unavailable/)
+    assert.match(t, /aistack not read yet/, 'the section takes its own read, so the list says so until it has one')
     assert.match(t, /Maintenance in step/, 'a color state says a word too')
   })
 
@@ -1532,6 +1533,136 @@ describe('the settings screen (#265)', () => {
     assert.match(fs.readFileSync(DEFAULT_DASHBOARD_INDEX, 'utf8'), /manifest\.name = "manifest"/)
   })
 
+  // ---- aistack (#706) ------------------------------------------------------
+  //
+  // The section that guides a headless registration. What is pinned here is
+  // what it SAYS at each end of that flow, plus the one thing it must never
+  // say: anything out of the credential file.
+
+  const AISTACK = () => ({
+    ok: true,
+    registered: false,
+    machine: null,
+    flow: { phase: 'unregistered' },
+    log_file: '/w/home/.config/aistack/sync.log',
+    commands: {
+      login: 'HOME=/w/home npx -y @use-aistack/cli@0.7.2 login',
+      opt_in: 'HOME=/w/home npx -y @use-aistack/cli@0.7.2 sync --auto on',
+    },
+    sync: { last: null, alarm: null, interval_hours: 1, cli_version: '0.7.2' },
+  })
+
+  test('an unregistered box says curia publishes nothing, and offers the one press', () => {
+    page.aistack = AISTACK()
+    const html = screen('aistack')
+    const t = text(html)
+    assert.match(t, /aistack not registered/, 'the list row says it too')
+    assert.match(t, /This box is not an aistack machine/)
+    assert.match(html, /aistackDo\('register'\)/)
+    assert.ok(!html.includes("aistackDo('optin')"), 'there is nothing to grant a permission on yet')
+  })
+
+  test('a login in flight is the code and the link, and nothing else to do', () => {
+    page.aistack = { ...AISTACK(), flow: { phase: 'waiting', code: 'T72NNC', url: 'https://aistack.to/cli/auth?code=T72NNC', started_at: 1, expires_at: 2 } }
+    const html = screen('aistack')
+    const t = text(html)
+    assert.match(t, /aistack waiting for approval/)
+    assert.match(t, /T72NNC/)
+    assert.match(html, /href="https:\/\/aistack\.to\/cli\/auth\?code=T72NNC"/)
+    assert.match(html, /aistackDo\('cancel'\)/)
+    assert.ok(!html.includes("aistackDo('register')"), 'a second login would invalidate the code on screen')
+  })
+
+  test('the approval is said to be somewhere else, because it is', () => {
+    page.aistack = { ...AISTACK(), flow: { phase: 'waiting', code: 'AAAA', url: 'https://aistack.to/cli/auth?code=AAAA' } }
+    page.UI.hints['set-aistack-wait'] = true
+    assert.match(text(screen('aistack')), /needs a browser signed in to aistack, and the box has none/)
+  })
+
+  test('a registered box names the machine, the stack, and the last sync', () => {
+    page.aistack = {
+      ...AISTACK(),
+      registered: true,
+      machine: { proposed: 'curia.sh', servers: ['aistack.to'], at: Date.now() - 3600_000 },
+      flow: { phase: 'registered' },
+      sync: { last: { ok: true, at: Date.now() - 120_000, published: 'https://aistack.to/stacks/alp', message: null }, alarm: null, interval_hours: 1, cli_version: '0.7.2' },
+    }
+    const html = screen('aistack')
+    const t = text(html)
+    assert.match(t, /curia\.sh/)
+    assert.match(t, /aistack\.to/)
+    assert.match(t, /published 2m ago/)
+    assert.match(html, /href="https:\/\/aistack\.to\/stacks\/alp"/, 'the stack the run published to')
+    assert.match(html, /aistackDo\('optin'\)/, 'the second half of the ceremony is a press too')
+  })
+
+  test('a registered box that has never synced does not read as a success', () => {
+    page.aistack = { ...AISTACK(), registered: true, machine: { proposed: 'curia.sh', servers: ['aistack.to'], at: null }, flow: { phase: 'registered' } }
+    assert.match(text(screen('aistack')), /no sync has run yet/)
+  })
+
+  test('a failing sync names the reason, the log, and both ways out', () => {
+    page.aistack = {
+      ...AISTACK(),
+      registered: true,
+      machine: { proposed: 'curia.sh', servers: ['aistack.to'], at: null },
+      flow: { phase: 'registered' },
+      sync: { last: { ok: false, at: Date.now() - 60_000, published: null, message: 'npx exited 7' }, alarm: { message: 'npx exited 7: not authenticated', at: Date.now() - 60_000 }, interval_hours: 1, cli_version: '0.7.2' },
+    }
+    const t = text(screen('aistack'))
+    assert.match(t, /The sync is failing: npx exited 7: not authenticated/)
+    assert.match(t, /sync\.log/)
+    assert.match(t, /If the machine is gone from aistack\.to\/settings\/machines/)
+    assert.match(t, /grant the standing permission below/)
+  })
+
+  test('an expired login says nobody approved it, and the act is a new one', () => {
+    page.aistack = { ...AISTACK(), flow: { phase: 'expired', message: 'nobody approved the login within three minutes, so the CLI stopped waiting' } }
+    const html = screen('aistack')
+    assert.match(text(html), /The last registration expired: nobody approved the login within three minutes/)
+    assert.match(html, /aistackDo\('register'\)/)
+  })
+
+  test('a failed login points at the log on the box', () => {
+    page.aistack = { ...AISTACK(), flow: { phase: 'failed', message: 'npx exited 1: ENOTFOUND registry.npmjs.org' } }
+    const t = text(screen('aistack'))
+    assert.match(t, /The last registration failed: npx exited 1: ENOTFOUND/)
+    assert.match(t, /sync\.log/)
+  })
+
+  // A daemon that is not answering is where this section's whole answer lives,
+  // so it says that rather than "not registered", which is a different fact.
+  test('a daemon that cannot be asked is unknown, never unregistered', () => {
+    page.aistack = { ok: false, error: 'the daemon did not answer /aistack within 10s' }
+    const t = text(screen('aistack'))
+    assert.match(t, /curia cannot say whether this box is registered/)
+    assert.ok(!t.includes('not an aistack machine'))
+  })
+
+  test('the section takes its own read on arrival, not on the poll', () => {
+    const reads = []
+    page.fetch = (url) => { reads.push(url); return new Promise(() => {}) }
+    page.openSection('settings', 'aistack')
+    assert.deepEqual(reads, ['/api/aistack'])
+  })
+
+  // The whole point of keeping the flow daemon-side. The section draws what the
+  // daemon hands it, and the daemon hands it no secret — so a status that
+  // somehow carried one still has no line here that would draw it.
+  test('nothing the section draws comes out of the credential file', () => {
+    page.aistack = {
+      ...AISTACK(),
+      registered: true,
+      machine: { proposed: 'curia.sh', servers: ['aistack.to'], at: null },
+      flow: { phase: 'registered' },
+      token: 'x'.repeat(64),
+      credentials: { servers: { 'https://aistack.to': { token: 'y'.repeat(64), userId: 'u1' } } },
+    }
+    const html = screen('aistack')
+    assert.ok(!html.includes('x'.repeat(64)) && !html.includes('y'.repeat(64)), 'no field of the answer is drawn wholesale')
+    assert.ok(!html.includes('u1'))
+  })
+
   // ---- maintenance, and the marker on the nav (#362) ------------------------
 
   test('maintenance reads last, and says the daemon runs the files when it does', () => {
@@ -1539,7 +1670,7 @@ describe('the settings screen (#265)', () => {
     assert.match(text(html), /The daemon is running these files\./)
     assert.ok(!html.includes('restart-hot'), 'an ordinary restart button, because nothing disagrees')
     assert.match(html, /doRestart\(\)/, 'the one restart button lives here now')
-    assert.deepEqual(rows(html), ['routing', 'projects', 'dispatch', 'connections', 'maintenance'], 'the fifth section, and it reads last')
+    assert.deepEqual(rows(html), ['routing', 'projects', 'dispatch', 'connections', 'aistack', 'maintenance'], 'the sixth section, and it reads last')
   })
 
   test('a daemon running something else names the keys, and the button goes red', () => {

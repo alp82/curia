@@ -496,7 +496,9 @@ What a sync can never show is bounded twice, and both bounds are the measured la
 
 #### Registering the box
 
-Registration is a one-time operator ceremony, because the approval needs a signed-in browser. Run both commands on the box, as curia's own HOME.
+Registration is a one-time operator ceremony, because the approval needs a signed-in browser. [Register the Curia box with aistack from Settings (#706)](https://github.com/alp82/curia/issues/706) took the ssh out of it, and `src/aistackreg.mjs` holds that half: **Settings → aistack** presses **Register this box**, the daemon spawns the same `login` below and shows the code and the approval link it prints, and the operator approves on whatever screen they are already holding. **Grant standing permission** is step 3 as a press. Who approves does not change — nothing on the box can do it, and the token the approval returns is written to a file under curia's own HOME that no response body ever carries.
+
+The commands below are the same ceremony at a terminal, and the Settings section prints them too.
 
 1. Start the device-code login. The command prints a code and a URL, then polls for three minutes.
 
@@ -512,7 +514,7 @@ Registration is a one-time operator ceremony, because the approval needs a signe
    HOME=/home/alp/curia-work/home npx -y @use-aistack/cli@0.7.2 sync --auto on
    ```
 
-The daemon picks the credential up on its next tick. To revoke the machine, use `aistack.to/settings/machines` and delete the credentials file. Each run appends one line to `<HOME>/.config/aistack/sync.log`, which is the first place to read when the alarm fires.
+The daemon picks the credential up on its next tick, whichever way the ceremony ran. To revoke the machine, use `aistack.to/settings/machines` and delete the credentials file — Settings refuses a second registration while the credential is there, because a rival login would only mint a code beside a token that already works. Each run appends one line to `<HOME>/.config/aistack/sync.log`, which is the first place to read when the alarm fires.
 
 ### The Node pin
 

@@ -421,6 +421,7 @@ describe('the settings write and the restart (#265)', () => {
   let daemonCalls
   let cfgDir
   let reloadAnswer
+  let aistackAnswer
   let overviewAnswer
   const ALLOW = ['alp@example.com']
   const SERVE_PORT = 8445
@@ -456,12 +457,16 @@ describe('the settings write and the restart (#265)', () => {
     // What the stand-in daemon answers `POST /reload` with. A test that cares
     // about one outcome sets this; the ordinary answer is the applied one.
     reloadAnswer = { ok: true, applied: ['dispatch.max_concurrent'], loaded_at: new Date().toISOString() }
+    // What it answers on the aistack routes (#706). The daemon is the process
+    // that holds the credential, so this side never composes one of these.
+    aistackAnswer = { ok: true, registered: false, flow: { phase: 'unregistered' }, sync: { last: null, alarm: null } }
     overviewAnswer = async () => ({ daemon: { port: 4271 }, agents: [] })
     daemon = http.createServer((r, res) => {
       daemonCalls.push({ method: r.method, url: r.url, origin: r.headers.origin ?? null })
       res.writeHead(200, { 'content-type': 'application/json' })
       if (r.url === '/repos') return res.end(JSON.stringify({ login: 'alp82', repos: ['o/r', 'o/other'], error: null }))
       if (r.url === '/reload') return res.end(JSON.stringify(reloadAnswer))
+      if (r.url.startsWith('/aistack')) return res.end(JSON.stringify(aistackAnswer))
       res.end(JSON.stringify({ ok: true, exit_code: 75 }))
     })
     await new Promise((done) => daemon.listen(0, '127.0.0.1', done))
@@ -726,6 +731,53 @@ describe('the settings write and the restart (#265)', () => {
     const body = JSON.parse((await req(surface.port, '/api/repos', { headers: served() })).text)
     assert.equal(body.repos, null, 'an empty list would read as "you have no repos"')
     assert.ok(body.error)
+  })
+
+  // ---- the aistack registration (#706) -------------------------------------
+  //
+  // The same seam the repo list rides: the daemon holds the credential and
+  // spawns the CLI, and this process relays. What is pinned is that the relay
+  // adds nothing and that the browser names nothing.
+
+  test('the registration status comes from the daemon, unedited', async () => {
+    aistackAnswer = { ok: true, registered: true, machine: { proposed: 'curia.sh', servers: ['aistack.to'], at: 1 } }
+    const res = await req(surface.port, '/api/aistack', { headers: served() })
+    assert.equal(res.status, 200)
+    assert.deepEqual(JSON.parse(res.text), aistackAnswer)
+    assert.deepEqual(daemonCalls, [{ method: 'GET', url: '/aistack', origin: null }])
+  })
+
+  test('a daemon that cannot be asked is unknown, never "not registered"', async () => {
+    await new Promise((done) => daemon.close(done))
+    daemon = null
+    const body = JSON.parse((await req(surface.port, '/api/aistack', { headers: served() })).text)
+    assert.equal(body.ok, false, 'a false `registered` would read as an answer')
+    assert.ok(body.error)
+  })
+
+  test('each press crosses the wire as a bare act — the browser names no command', async () => {
+    for (const act of ['register', 'cancel', 'optin']) {
+      daemonCalls = []
+      const res = await req(surface.port, `/api/aistack/${act}`, {
+        method: 'POST', headers: writes(), body: { version: 'latest', home: '/etc' },
+      })
+      assert.equal(res.status, 200)
+      assert.deepEqual(daemonCalls, [{ method: 'POST', url: `/aistack/${act}`, origin: null }],
+        'the route is the whole message, and the fields the browser sent went nowhere')
+    }
+  })
+
+  test('a fourth act is not a route: there are three, named in code', async () => {
+    const res = await req(surface.port, '/api/aistack/login', { method: 'POST', headers: writes(), body: {} })
+    assert.equal(res.status, 404)
+    assert.deepEqual(daemonCalls, [], 'nothing reached the daemon')
+  })
+
+  test('a refusal from the daemon reads as one, not as this box failing', async () => {
+    aistackAnswer = { ok: false, error: 'this box is already registered with aistack' }
+    const res = await req(surface.port, '/api/aistack/register', { method: 'POST', headers: writes(), body: {} })
+    assert.equal(res.status, 409)
+    assert.match(JSON.parse(res.text).error, /already registered/)
   })
 })
 
