@@ -1391,6 +1391,46 @@ a wrong reading would invent: `d`, `n` and `o` are identical on both rows this r
 row being transcribed is the only thing that separates them. Round 9 asks for the banner as text
 rather than as pixels, which settles it in one paste.
 
+**The operator's answer to round 9**, verbatim:
+
+> maybe you can copy it from here? https://opencode.ai/brand
+>
+> web search subagent could help finding what you need
+
+**The wordmark came from opencode's own source, and it settled everything.** The brand page carries
+only PNG and SVG assets, so the block art is not there. The TUI renders it from
+[`packages/tui/src/logo.ts`](https://github.com/anomalyco/opencode/blob/dev/packages/tui/src/logo.ts),
+and [`packages/tui/src/component/logo.tsx`](https://github.com/anomalyco/opencode/blob/dev/packages/tui/src/component/logo.tsx)
+says how it is coloured. Both were read with `gh`.
+
+**The mark is FOUR rows, and this repo's capture held two.** That is why `d`, `n` and `o` looked
+identical: rows 0 and 1 are the only things that separate them. Row 0 carries a single `▄`, the
+ascender of the `d`. Row 1 is where `n` ends in `▄` rather than `█`.
+
+**And no text capture could ever have held it, because half the mark is background colour.**
+`logo.tsx` renders four characters against a `shadow` that is a 25 per cent tint of the foreground
+toward the background:
+
+| in the source | what it draws |
+|---------------|---------------|
+| `_` | a SPACE whose BACKGROUND is the shadow, so a whole filled cell |
+| `^` | `▀` in the foreground, over a shadow background |
+| `~` | `▀` drawn in the shadow colour |
+| `,` | `▄` drawn in the shadow colour |
+
+So `_` is not empty. It is a cell of colour that `tmux capture-pane` writes out as a blank, because
+a text capture records characters and this mark keeps half of itself in the colour behind them.
+`left` is "open" in the muted colour and `right` is "code" in the plain one, bold, which is the
+two-tone the operator's screenshot shows. All four shades are drawn here as rectangles.
+
+**This is the lesson of the whole ticket, and it took nine rounds to reach.** Rounds 5, 6 and 7
+each fixed a real fault in the rendering — the italic, the tiling, the removal — and not one of
+them could have produced a correct mark, because the input was wrong in two ways at once: it was
+missing two rows, and it was missing the colour that carries half the letterform. **A capture is a
+lossy record of a rendered thing, and the generator that made it is the only complete source.**
+Every other pane on this page is still built from captures, and that is fine, because nothing else
+in them depends on a background colour. Where it does, go to the source.
+
 **The scene is one composition canvas.** The claim, the terminal and the fact line are grid items
 of `.tm`. The old scene 7 held the claim in a centred `.wrap` and the pane in a `.shot`, which is
 the pair that broke the preview scene at [#627](https://github.com/alp82/curia/issues/627) round 3
