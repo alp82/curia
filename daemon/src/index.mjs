@@ -49,6 +49,7 @@ import { OVERSEER_MCP_PATH } from './overseerturn.mjs'
 import { hasSession } from './tmux.mjs'
 import { retiredAgentTokenKeys } from './workspace.mjs'
 import { APP_ID_KEY, APP_KEY_FILE_KEY, minterFrom } from './githubapp.mjs'
+import { AppSetup, minterForAdopted } from './appsetup.mjs'
 import { CodexCredentialBroker, AnthropicCredentialStore, anthropicStoreFile } from './credentials.mjs'
 import {
   OVERSEER_ENV_FILE, overseerEnvPath, loadOverseerEnv, daemonOnlyKeys, retiredTokenKeys,
@@ -259,7 +260,9 @@ function checkWatchedCredentials() {
 // nobody can place. NO app is a different thing and stays legal: a box can watch
 // and read before its operator finishes the checklist, and the refusal it gets
 // at the first dispatch names the step that was missed.
-const appMinter = minterFrom({ daemonRoot: ROOT, log })
+// `let`, because #694 adopts a converted app in process: the setup flow puts a
+// new minter here and hands it to the dispatcher without a restart.
+let appMinter = minterFrom({ daemonRoot: ROOT, log })
 if (!appMinter) {
   log(`no GitHub App configured — set ${APP_ID_KEY} and ${APP_KEY_FILE_KEY} in daemon/.env.daemon (docs/github-app.md). No agent can be dispatched until it is`)
 } else {
@@ -2417,6 +2420,25 @@ function consoleOnWire() {
   })
 }
 
+// The GitHub App setup (#694, building the spec at #684).
+//
+// The daemon owns the conversion because the conversion response carries the
+// private key, and neither the sidecar nor the browser may hold it. Adoption is
+// in process: the minter this file holds is replaced, the dispatcher is handed
+// the new one, and the installation read runs again — so the operator's next
+// act is installing the app rather than restarting the box.
+const appSetup = new AppSetup({
+  daemonRoot: ROOT,
+  log,
+  adopt: ({ appId, key, keyFile }) => {
+    appMinter = minterForAdopted({ appId, key, keyFile, log })
+    dispatcher.minter = appMinter
+    reduction.journal('github_app_adopted', { app_id: appId })
+    log(`GitHub App ${appId} adopted in process — key at ${keyFile}`)
+    checkAppInstallations()
+  },
+})
+
 async function handleRequest(req, res, { fromContainer = false } = {}) {
   const url = new URL(req.url, `http://127.0.0.1:${PORT}`)
   const json = (code, obj) => {
@@ -2776,6 +2798,34 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
   // live object reference — `this.config.dispatch`, `this.config.watch`,
   // `resolveModel(this.routing, …)`, `isActive(this.routing, …)`. Only
   // `poll_interval_s` is captured, by the interval `startAutoLoop` arms.
+  // ---- the GitHub App setup (#694) ---------------------------------------
+  //
+  // Two routes, and between them the browser learns a manifest and a state and
+  // nothing else. The conversion response never crosses back: what the second
+  // route answers is the set of facts already public on the app's own settings
+  // page, plus where to install it.
+  if (url.pathname === '/app/setup' && req.method === 'POST') {
+    const body = await readBody(req).catch(() => ({}))
+    try {
+      return json(200, appSetup.begin({ name: body?.name, redirectUrl: body?.redirect_url }))
+    } catch (e) {
+      if (e?.refusal) return json(409, { ok: false, error: e.message })
+      throw e
+    }
+  }
+  if (url.pathname === '/app/convert' && req.method === 'POST') {
+    const body = await readBody(req).catch(() => ({}))
+    try {
+      return json(200, await appSetup.convert({ code: body?.code, state: body?.state }))
+    } catch (e) {
+      reduction.journal('github_app_setup_failed', { error: e.message, refusal: Boolean(e?.refusal) })
+      log(`the GitHub App setup failed: ${e.message}`)
+      // A refusal is the operator's own to fix and reads as one; anything else
+      // is this box failing, and it answers 500 so the two never read the same.
+      return json(e?.refusal ? 409 : 500, { ok: false, error: e.message })
+    }
+  }
+
   if (url.pathname === '/reload' && req.method === 'POST') {
     const body = await readBody(req).catch(() => ({}))
     const by = named(body?.by)

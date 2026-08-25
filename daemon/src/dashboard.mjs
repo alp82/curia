@@ -235,6 +235,14 @@ const VERB_FILE_RE = /^\d{1,4}$/
 // reply the button shows — this only keeps a browser from writing the rest of
 // the line.
 const VERB_PROVIDER_RE = /^[a-z0-9][a-z0-9-]*$/
+// The GitHub App setup (#694). A name GitHub will slugify, and the two fields
+// GitHub redirects back with. Checked here for the reason every field above is:
+// this surface composes the daemon call, so it names the shape it will send —
+// and `code` is composed into a URL on the daemon side.
+const APP_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,33}$/
+const APP_CODE_RE = /^[A-Za-z0-9_-]{1,255}$/
+const APP_STATE_RE = /^[0-9a-f]{64}$/
+
 export const MAX_WORDS = 4000
 
 // Why an answer did not land (#266). The reduction refuses in ONE WORD — `unknown`,
@@ -866,6 +874,42 @@ export class DashboardSurface {
       // deletes one, and both are composed here out of a shape this file names:
       // `new` sends no field at all, and `delete` sends one key this side
       // validates before the daemon validates it again.
+      // The GitHub App setup (#694), in two presses.
+      //
+      // THE SIDECAR RELAYS CODE AND STATE, and that is the whole of its part.
+      // It holds no secret (#263) and this flow's secret is curia's only
+      // durable one, so the conversion happens on the daemon and what comes
+      // back here is the app's public facts. The manifest and the state go OUT
+      // to the browser because the browser is what posts them to github.com;
+      // the private key never travels this way at all.
+      if (url.pathname === '/api/appsetup/begin') {
+        return this.#write(res, async () => {
+          const b = await this.#body(req)
+          const name = field(b.name, APP_NAME_RE, 'a GitHub App name')
+          // The redirect is THIS surface's own address, composed from curia's
+          // own records (#68) rather than from anything the browser said:
+          // GitHub sends the conversion code to it, and a browser-named
+          // redirect would be a way to send that code somewhere else.
+          const redirect = await this.link()
+          const out = await this.#daemon({
+            method: 'POST', path: '/app/setup', body: { name, redirect_url: redirect }, accept: [200, 409],
+          })
+          if (out.ok === false) throw refuse(out.error)
+          return out
+        })
+      }
+      if (url.pathname === '/api/appsetup/convert') {
+        return this.#verb(res, async () => {
+          const b = await this.#body(req)
+          const code = field(b.code, APP_CODE_RE, 'a GitHub conversion code')
+          const state = field(b.state, APP_STATE_RE, 'a setup state curia minted')
+          const out = await this.#daemon({
+            method: 'POST', path: '/app/convert', body: { code, state }, accept: [200, 409, 500],
+          })
+          if (out.ok === false) throw refuse(out.error)
+          return out
+        })
+      }
       if (url.pathname === '/api/console/new') {
         return this.#verb(res, () => this.#daemon({ method: 'POST', path: '/console/new' }))
       }
