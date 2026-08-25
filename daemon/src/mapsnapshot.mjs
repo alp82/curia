@@ -38,6 +38,11 @@ export function fogFacts(body) {
   const source = section.lines.slice(section.start + 1, section.end).join('\n')
     .replace(/<!--[\s\S]*?-->/g, '')
   const lines = source.split('\n').map((line) => line.trim()).filter(Boolean)
+    // A sub-heading inside the fog is a shape, not a patch of fog (#698). The
+    // section is written by hand and by charting agents, and both group long
+    // fog under `###` lines — counting those as facts would make an empty map
+    // look uncertain and hold its close forever.
+    .filter((line) => !/^#{1,6}\s/.test(line))
   if (lines[0] && /^none(?:\b|[.!])/i.test(lines[0])) return []
   return lines
     .filter((line) => line.replace(/[*_()]/g, '').trim().toLowerCase() !== 'empty')

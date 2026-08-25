@@ -20,7 +20,7 @@ import { setTimeout as sleepFor } from 'node:timers/promises'
 import {
   repoMaps, mapFrontier, flatFrontier, fetchIssue, claim, unclaim, blockedByOf,
   selectLane, frontierForRepo, filterTakeable, agentOnlyChainCount, directUnblocks, commentIssue, closeIssue, setIssueBody, issueComments,
-  strandedMaps, strandedMapLine,
+  strandedMaps, emptyMapVerdictPrompt, mapCloseBlockers, mapClosedComment, mapHeldComment, MAP_CLOSE_VERB,
   parentNumberOf, hasLabel, findPullRequest, createPullRequest, setPullRequestBody,
   deleteRemoteBranch, pullRequestDiff, approvePullRequest,
 } from './github.mjs'
@@ -55,6 +55,10 @@ import { CREDENTIALS_HASH } from './dashboard.mjs'
 import { readDiffDigest, readFileHunks, digestLine, sliceFromPatch, capText } from './diffdigest.mjs'
 import { transcriptReset, holdVerdict, hottestPct, WARM_PCT } from './usage.mjs'
 import { transcriptActivity } from './transcript.mjs'
+// #698: the fog classifier the map snapshot already owns. The empty-map
+// question reads the same lines the Atlas map view draws, so a card and a
+// screen can never disagree about what is still uncertain.
+import { fogFacts } from './mapsnapshot.mjs'
 import { mintAgentToken, forgetAgentToken, sweepAgentTokens } from './agenttoken.mjs'
 import {
   GUEST_WT, GUEST_CFG, GUEST_DAEMON_HOST, GUEST_GUARD_ENV, ENV_FILE, PORTS_PER_AGENT,
@@ -394,9 +398,10 @@ export class Dispatcher {
     this.routing = routing
     this.reduction = reduction
     this.notify = notify
-    // The plain channel line (#485), injected by index.mjs the way the
-    // backup's announce is (#436): false when there is no bridge yet, so an
-    // alarm that could not be said stands and re-says.
+    // The plain channel line, injected by index.mjs the way the backup's
+    // announce is (#436): false when there is no bridge yet, so a line that
+    // could not be said stands and re-says. The stranded-map watch used it
+    // until #698 turned that alarm into a question with buttons.
     this.announce = announce ?? (async () => false)
     this.openConfirm = openConfirm ?? (() => null)
     this.lapseEscalation = lapseEscalation ?? ((id, reason) => this.reduction.lapse?.(id, reason))
@@ -843,36 +848,101 @@ export class Dispatcher {
   async #watchStrandedMaps(repo, maps, mapItems) {
     try {
       const stranded = strandedMaps(maps, mapItems)
+      const bodies = new Map(maps.map((m) => [m.number, m.body]))
       const now = new Set(stranded.map((m) => m.number))
       for (const s of this.reduction.standingStrandedMaps?.() ?? []) {
         if (s.repo === repo && !now.has(s.map)) {
+          // The fact the question was about is gone. A card still carrying
+          // buttons would ask about a map that has an open child again, so it
+          // lapses with the entry rather than outliving it.
+          this.#lapseMapVerdict(repo, s, 'the map is no longer empty')
           this.reduction.journal('map_stranded_cleared', { repo, map: s.map })
         }
       }
       for (const m of stranded) {
+        // One question per emptying, and the entry is what says so (#698). It
+        // is journalled, so neither a second pass nor a restart asks twice —
+        // and an entry that was already ANSWERED stays quiet for good, because
+        // an operator who said "work remains" has answered this question.
         const entry = this.reduction.strandedMap?.(repo, m.number)
-        if (entry?.said) continue
-        const said = await this.#sayChannel(strandedMapLine(repo, m))
-        // First sighting journals whatever happened. After that, only the say
-        // that finally lands journals — the standing entry already states the
-        // fact, and a tick is too often to restate it.
-        if (!entry || said) this.reduction.journal('map_stranded', { repo, map: m.number, title: m.title, said })
+        if (entry?.asked || entry?.answered) continue
+        const fog = fogFacts(bodies.get(m.number))
+        const record = this.openConfirm({
+          ticket: String(m.number),
+          prompt: emptyMapVerdictPrompt(repo, m, fog),
+          action: { verb: MAP_CLOSE_VERB, repo, map: m.number, title: m.title, fog: fog.map((f) => f.text) },
+          originThreadId: null,
+        })
+        if (!record) {
+          this.log(`the empty-map question for ${repo}#${m.number} could not be opened — the next pass asks again`)
+          continue
+        }
+        this.reduction.journal('map_verdict_asked', {
+          repo, map: m.number, title: m.title, id: record.id, fog: fog.map((f) => f.text),
+        })
       }
     } catch (e) {
       this.log(`the stranded-map watch failed (${e.message}) — the frontier read stands`)
     }
   }
 
-  // The one place `said` is decided, exactly as the backup's #say (#436): a
-  // missing bridge and a failing send are the same answer — the operator did
-  // not read it — so the alarm stands unsaid and re-says on a later pass.
-  async #sayChannel(text) {
+  // Close the open empty-map question for one map, if one is still out. The
+  // record is found by its own verb and map number rather than by an id held
+  // in memory, because the entry that names it outlives every process.
+  #lapseMapVerdict(repo, entry, why) {
+    if (!entry?.asked) return
+    for (const r of this.reduction.openEscalations?.() ?? []) {
+      if (r.action?.verb !== MAP_CLOSE_VERB) continue
+      if (r.action.repo !== repo || r.action.map !== entry.map) continue
+      this.lapseEscalation(r.id, why)
+      this.reduction.journal('map_verdict_lapsed', { repo, map: entry.map, id: r.id, reason: why })
+    }
+  }
+
+  // The executing path of an empty-map verdict (#698). The operator has spoken,
+  // and this is where their word becomes a comment and — only then, and only if
+  // the map still deserves it — a close.
+  //
+  // The re-read is the whole point. A question can sit for days, and the
+  // approval it comes back with is an approval of what the card SAID. So the
+  // close is checked against the map as it stands: a reopened child, a fog line
+  // written since, a pause put on it. Anything that holds it open is posted as
+  // the verdict instead, and the map stays open, said rather than stranded.
+  async #closeEmptyMap(record) {
+    const { repo, map } = record.action ?? {}
+    const approved = record.answer === 'approve'
     try {
-      const res = await this.announce(text)
-      return res !== false
+      if (!approved) {
+        await this.deps.commentIssue(repo, map, mapHeldComment(['the operator says work remains on this map']))
+        this.reduction.journal('map_verdict_answered', { repo, map, id: record.id, answer: 'reject', closed: false })
+        this.log(`${repo}#${map} stays open — the operator says work remains`)
+        return
+      }
+      const issue = await this.deps.fetchIssue(repo, map)
+      const children = (await this.deps.mapFrontier(repo, map)).filter((c) => !c.pull_request)
+      const held = mapCloseBlockers({
+        state: issue.state, labels: issue.labels, children, fog: fogFacts(issue.body),
+      })
+      if (held.length) {
+        // An already-closed map gets no second comment: the close it is held by
+        // is the outcome the operator asked for, and a comment saying so would
+        // be curia arguing with itself.
+        if (issue.state === 'open') await this.deps.commentIssue(repo, map, mapHeldComment(held))
+        this.reduction.journal('map_verdict_answered', { repo, map, id: record.id, answer: 'approve', closed: false, held })
+        this.log(`${repo}#${map} was approved for closing but stays open — ${held.join('; ')}`)
+        return
+      }
+      await this.deps.commentIssue(repo, map, mapClosedComment())
+      await this.deps.closeIssue(repo, map)
+      this.reduction.journal('map_verdict_answered', { repo, map, id: record.id, answer: 'approve', closed: true })
+      this.log(`${repo}#${map} closed on the operator's verdict`)
     } catch (e) {
-      this.log(`a channel line did not reach Discord (${e.message}) — it stands until it does`)
-      return false
+      // A failed write leaves the entry asked and unanswered, so no later pass
+      // asks the question again and no later pass closes anything. The map
+      // stays open and the failure is on the record, which is the safe end of
+      // a close curia could not make.
+      this.log(`the empty-map verdict on ${repo}#${map} failed (${e.message}) — the map stays open`)
+      this.reduction.journal('map_verdict_failed', { repo, map, id: record.id, error: e.message })
     }
   }
 
@@ -5676,6 +5746,9 @@ export class Dispatcher {
   // skipped, never guessed at.
   async onConfirmAnswered(record) {
     const { verb, targets = [] } = record.action ?? {}
+    // The empty-map verdict (#698) rides the same seam and names no agent: its
+    // answer writes a comment on a map, and possibly closes it.
+    if (verb === MAP_CLOSE_VERB) return this.#closeEmptyMap(record)
     if (verb !== 'cancel') {
       this.log(`confirm ${record.id} carries unknown verb "${verb}" — nothing executed`)
       return
@@ -7613,6 +7686,13 @@ export class Dispatcher {
   // must NOT touch confirms — their instances are still matchable live.
   #voidBootConfirms() {
     for (const r of this.reduction.openEscalations()) {
+      // The empty-map question (#698) survives the restart every other confirm
+      // dies of. What kills the others is the instance id: a cancel names a
+      // live agent, and no id minted before the boot names one after it. This
+      // one names a MAP, and a map number means the same thing across a
+      // restart — so lapsing it would be curia forgetting a question it had
+      // already asked, and asking it again on the next pass.
+      if (r.kind === CONFIRM_KIND && r.action?.verb === MAP_CLOSE_VERB) continue
       if (r.kind === CONFIRM_KIND) {
         this.lapseEscalation(r.id, 'the daemon restarted, and agent instances do not match across a restart')
         this.reduction.journal('confirm_lapsed', { id: r.id, reason: 'boot' })

@@ -193,6 +193,51 @@ test('fog returns the facts under Not yet specified', async () => {
   ])
 })
 
+// #698: the empty-map question shows this same fog, so a `###` line grouping
+// it would read as a patch of uncertainty and hold a finished map open.
+test('a sub-heading inside the fog is a shape, not a fact', async () => {
+  const body = [
+    '## Not yet specified',
+    '',
+    '### The retention questions',
+    '',
+    '- Pick the retention period',
+    '',
+    '#### Later',
+    '- Decide whether exports include raw rows',
+  ].join('\n')
+  const github = {
+    repoMaps: async () => [issue(10, 'the map', { body })],
+    mapFrontier: async () => [],
+    blockedByOf: async () => [],
+  }
+  const journal = { mapSnapshotFacts: async () => new Map() }
+
+  const { maps: [map] } = await readMapSnapshot({
+    watch: [{ repo: 'o/r', mode: 'map' }], routing, github, journal,
+  })
+
+  assert.deepEqual(map.fog, [
+    { text: 'Pick the retention period' },
+    { text: 'Decide whether exports include raw rows' },
+  ])
+})
+
+test('a fog section that is nothing but headings is empty fog', async () => {
+  const github = {
+    repoMaps: async () => [issue(10, 'the map', { body: '## Not yet specified\n\n### Open questions\n' })],
+    mapFrontier: async () => [],
+    blockedByOf: async () => [],
+  }
+  const journal = { mapSnapshotFacts: async () => new Map() }
+
+  const { maps: [map] } = await readMapSnapshot({
+    watch: [{ repo: 'o/r', mode: 'map' }], routing, github, journal,
+  })
+
+  assert.deepEqual(map.fog, [])
+})
+
 test('None and empty Not yet specified sections return no fog', async () => {
   const github = {
     repoMaps: async () => [

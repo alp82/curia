@@ -32,7 +32,10 @@ A GitHub issue labeled `wayfinder:map`. It indexes decisions and points to the c
 A ticket whose parent issue is a map.
 
 **Fog**:
-The map section "Not yet specified": work that is coming but not yet sharp enough to state as a ticket.
+The map section "Not yet specified": work that is coming but not yet sharp enough to state as a ticket. A heading, a blank line and an HTML comment inside that section are shape rather than fog, and `None` or `(empty)` is no fog at all.
+
+**Empty map**:
+An open, non-deferred map with at least one child and no open child left. No dispatch ever fires on it again, so the frontier read is the one thing that can notice it ([#485](https://github.com/alp82/curia/issues/485)) — and #316 sat that way for days because a line saying so is not an act. Curia asks the operator one durable question instead ([#698](https://github.com/alp82/curia/issues/698)): a ✅/❌ confirm carrying the map's fog, asked whether the fog is empty or not, journalled as `map_verdict_asked` so neither a second pass nor a restart asks twice. It is the one confirm a boot does not lapse, because it names a map rather than an agent instance. The answer posts a verdict comment on the map either way, and closes it only when the map as it stands THEN has no open child, no fog and no pause. A map that empties again after gaining a child is a new question.
 
 **Charting**:
 The map changes: new tickets, graduated fog, blocking edges, scope rulings. They land two ways. A ticket agent proposes them at the review gate and writes them after the approval. A charting agent writes them as its whole job.
