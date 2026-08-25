@@ -2018,6 +2018,34 @@ checks were wrong before they were right, and both are faults this file has alre
   round 7 had to fix it again for the cards. **A check that crashes proves exactly as much as one
   that cannot go red**, and the only way to find either is to break it.
 
+**The operator's answer to round 7**, verbatim, with a screenshot of the desktop view and two red
+arrows on it, both pointing UP — one from the title, one from the ticket:
+
+> we should start directly at the top with the title and the ticket should appear there right away
+> and stick to the top instead of the bottom
+>
+> the appearing screens then should be attached to its bottom with some padding
+
+**Round 8 turns the desk over.** The ticket takes the TOP of the held stage and the cards hang off
+its bottom with a little padding. Round 7 had it at the near edge, under the cards, which is what
+left the top of the screen empty on every beat. Three changes carry it:
+
+1. **The ticket comes first in the stage**, so it takes the top and it is on screen before the
+   reader has scrolled at all.
+2. **The cards hang from the top of the desk**, not its floor, so they sit against the ticket rather
+   than against the bottom of the viewport. The deal's pile builds downward now instead of up.
+3. **A title sits at the top of its own slot**, not its middle. That is the other arrow: a slot is
+   most of a screen tall, and centring the words in it put half a screen of nothing above every one
+   of them.
+
+**The five transitions are unchanged** and still ride `?id=1..5`, because nothing in this answer
+rules on them. The operator has not picked one yet.
+
+**132 build checks** run against the file and all **71 breaks** that validate them land. The four
+new ones test the correction itself, and the one worth naming asserts the ORDER of the two elements
+in the stage: a ticket moved back under the cards is valid CSS and valid markup, and only its
+position in the source says which way up the desk is.
+
 ## The verdict of the terminal scene ([#629](https://github.com/alp82/curia/issues/629))
 
 **Locked over ten operator rounds**, the longest run of any scene on this page. Every variation

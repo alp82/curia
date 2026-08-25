@@ -1834,15 +1834,19 @@
   /* The stage is held and the titles scroll past it. On a phone it
      takes the top of the screen and needs a ground of its own, because
      the titles scroll UNDER it. */
+  /* The ticket sits at the TOP of the stage and the cards hang off its
+     bottom with a little padding. Round 7 had it at the near edge of a
+     desk, which left the top of the screen empty on every beat. */
   .r8-stage {
     position: sticky; top: 0; z-index: 3;
-    height: 62dvh; display: flex; flex-direction: column; gap: 0.5rem;
-    padding: 0.6rem 0 0.7rem;
+    height: 62dvh; display: flex; flex-direction: column; gap: 0.75rem;
+    padding: 0.5rem 0 0.7rem;
     background: linear-gradient(180deg, rgba(17, 23, 45, 0.97) 82%, rgba(17, 23, 45, 0.86));
     -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
   }
   .r8-steps { position: relative; z-index: 2; }
-  .r8-nb { min-height: 76svh; display: flex; flex-direction: column; justify-content: center; margin: 0; }
+  .r8-nb { min-height: 76svh; display: flex; flex-direction: column; justify-content: flex-start; margin: 0; }
+  .r8-nb:first-child { padding-top: 0.4rem; }
   .r8-nb:last-child { min-height: 54svh; }
   .r8-nb { opacity: 0.5; transition: opacity 0.4s var(--ease); }
   .r8-nb.on { opacity: 1; }
@@ -1861,7 +1865,7 @@
          against the near edge the way paper on a desk does. ---- */
   .r8-desk { position: relative; flex: 1 1 auto; min-height: 0; }
   .r8-card {
-    position: absolute; inset: auto 0 0; opacity: 0; pointer-events: none;
+    position: absolute; inset: 0 0 auto; opacity: 0; pointer-events: none;
     transition: opacity 0.5s var(--ease), transform 0.5s var(--ease), filter 0.5s var(--ease);
   }
   .r8-card.on { opacity: 1; pointer-events: auto; z-index: 4; }
@@ -1872,7 +1876,7 @@
   .r8-lane .win-body, .r8-lane .at-body, .r8-lane .dcx-log { max-height: 34dvh; overflow: hidden; }
 
   /* ---- the ticket, lying at the near edge ---- */
-  .r8-tkt { flex: none; font-size: 0.72rem; z-index: 5; box-shadow: 0 -8px 26px rgba(0, 0, 0, 0.55); }
+  .r8-tkt { flex: none; font-size: 0.72rem; z-index: 5; box-shadow: 0 10px 26px rgba(0, 0, 0, 0.55); }
   .r8-tkt .gx-h1 { font-size: 1.02em; }
   .r8-tl { margin-top: 0.45em; }
   /* Every row is always laid out and only its VISIBILITY moves, so the
@@ -1916,7 +1920,7 @@
     .r8-track { display: grid; grid-template-columns: 19rem 1fr; column-gap: 3.2rem; align-items: start; }
     .r8-steps { grid-column: 1; }
     .r8-stage {
-      grid-column: 2; grid-row: 1; height: 100dvh; padding: 7vh 0 5vh;
+      grid-column: 2; grid-row: 1; height: 100dvh; padding: 2vh 0 4vh;
       background: none; backdrop-filter: none; -webkit-backdrop-filter: none;
     }
     .r8-lane .win-body, .r8-lane .at-body, .r8-lane .dcx-log { max-height: 46dvh; }
@@ -1935,7 +1939,7 @@
          little, and STAYS in the pile as the next lands on it. ---- */
   .v-deal .r8-card { transform: translateY(2.2rem) rotate(-2.6deg); }
   .v-deal .r8-card.on { transform: rotate(var(--rot, -0.9deg)); }
-  .v-deal .r8-card.seen { opacity: 0.26; transform: translateY(-0.8rem) rotate(var(--rot, -0.9deg)) scale(0.96); }
+  .v-deal .r8-card.seen { opacity: 0.26; transform: translateY(0.9rem) rotate(var(--rot, -0.9deg)) scale(0.96); }
   .v-deal .r8-lane > * { box-shadow: 0 18px 40px rgba(0, 0, 0, 0.62); }
 
   /* ---- 2 · dissolve. No travel at all. The card that is leaving fades
@@ -2812,6 +2816,27 @@
     <div class="r8-track" id="runtrack">
       <div class="r8-stage" id="runstage">
 
+        <!-- The constant, at the TOP. Every row is a real,
+             timestamped event on alp82/curia#587, read off its own
+             timeline. Rows are always laid out and only their
+             visibility moves, so the block never shifts. -->
+        <article class="gx r8-tkt" id="tkt">
+          <h3 class="gx-h1">Choose the words of every scene of the final page <span class="num">#587</span></h3>
+          <div class="gx-meta">
+            <span class="gx-st open"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-pr"/></svg>Open</span>
+            <span class="gx-st done"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-closed"/></svg>Closed as completed</span>
+            <span class="tkt-chip">wayfinder:prototype</span>
+            <span class="gx-by"><b>alp82</b> opened this issue on Aug 21, 2026</span>
+          </div>
+          <ol class="gx-tl r8-tl">
+          <li><span class="nd2"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-commit"/></svg></span><b>alp82</b> opened this issue · Aug 21, 15:08</li>
+          <li><span class="nd2"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-commit"/></svg></span><b>curia-sh</b> assigned this to <b>alp82</b> · Aug 21, 18:46</li>
+          <li><span class="nd2"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-pr"/></svg></span><b>curia-sh</b> commented · Aug 21, 18:55<span class="cmt">🔗 curia pushed <code>curia/587</code> (1 commit) and opened <a href="https://github.com/alp82/curia/pull/597">#597</a></span></li>
+          <li><span class="nd2"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-pr"/></svg></span><b>curia-sh</b> commented · Aug 22, 19:10<span class="cmt">🔗 curia pushed <code>curia/587</code> (5 commits) and updated <a href="https://github.com/alp82/curia/pull/597">#597</a></span></li>
+          <li><span class="nd2 merged"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-merge"/></svg></span><b>curia-sh</b> merged <a href="https://github.com/alp82/curia/pull/597">#597</a> as <code>a71e154</code> and closed this as completed · Aug 22, 2026, 19:13</li>
+          </ol>
+        </article>
+
         <div class="r8-desk" id="desk">
         <div class="r8-card on" data-i="1" style="--rot:-0.9deg">
           <div>
@@ -2984,27 +3009,6 @@
         </div>
 
         </div>
-
-        <!-- The constant, at the near edge. Every row is a real,
-             timestamped event on alp82/curia#587, read off its own
-             timeline. Rows are always laid out and only their
-             visibility moves, so the block never shifts. -->
-        <article class="gx r8-tkt" id="tkt">
-          <h3 class="gx-h1">Choose the words of every scene of the final page <span class="num">#587</span></h3>
-          <div class="gx-meta">
-            <span class="gx-st open"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-pr"/></svg>Open</span>
-            <span class="gx-st done"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-closed"/></svg>Closed as completed</span>
-            <span class="tkt-chip">wayfinder:prototype</span>
-            <span class="gx-by"><b>alp82</b> opened this issue on Aug 21, 2026</span>
-          </div>
-          <ol class="gx-tl r8-tl">
-          <li><span class="nd2"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-commit"/></svg></span><b>alp82</b> opened this issue · Aug 21, 15:08</li>
-          <li><span class="nd2"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-commit"/></svg></span><b>curia-sh</b> assigned this to <b>alp82</b> · Aug 21, 18:46</li>
-          <li><span class="nd2"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-pr"/></svg></span><b>curia-sh</b> commented · Aug 21, 18:55<span class="cmt">🔗 curia pushed <code>curia/587</code> (1 commit) and opened <a href="https://github.com/alp82/curia/pull/597">#597</a></span></li>
-          <li><span class="nd2"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-pr"/></svg></span><b>curia-sh</b> commented · Aug 22, 19:10<span class="cmt">🔗 curia pushed <code>curia/587</code> (5 commits) and updated <a href="https://github.com/alp82/curia/pull/597">#597</a></span></li>
-          <li><span class="nd2 merged"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-merge"/></svg></span><b>curia-sh</b> merged <a href="https://github.com/alp82/curia/pull/597">#597</a> as <code>a71e154</code> and closed this as completed · Aug 22, 2026, 19:13</li>
-          </ol>
-        </article>
       </div>
 
       <!-- The explanatory titles. They scroll naturally, on the docking
