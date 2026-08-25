@@ -986,6 +986,23 @@ band of this ticket's invention:
    its **diagonal grey stripes**. Those two treatments are the ones the operator named, lifted
    value for value.
 
+**Correction, 2026-08-25: the map screen drew the wrong cut, and item 2 above is the record of the
+mistake rather than the decision.** The stops line won the six rounds, but the operator overruled
+that pick on 2026-08-22 in favour of the red-dashes cut (F1); the stops are the kept alternate.
+This scene was drawn on 2026-08-24, two days after the overrule, because
+[#605](https://github.com/alp82/curia/pull/605) had not merged and
+[prototypes/frontier-visual/](../frontier-visual/) still opened its cycle on the stops. The asset
+disagreed with its own ticket, and the scene believed the asset.
+
+The map screen is F1 now: bare rows under the frontier rule, no stop dots and no rail down the
+left, the walked count collapsed into one thin cap. The **red-dashed blocked box** and the
+**striped fog strip** carry over untouched - they are F1's treatments too, which is why the
+operator's own words above still describe the screen exactly. The empty-frontier line stands.
+
+The lesson for any scene that redraws a decided screen: read the FIRST view in the asset's cycle
+and check the ticket's latest resolution, because a decision can be recorded in a ticket days
+before the asset it points at agrees with it.
+
 **The numbers are still real, and there are more of them now.** The home carries the three open
 maps of this repo: Build the Atlas operator experience at 8/42, Model credentials and
 provider-account failures at 16/19, and Ship the story landing page at 10/16 +2. The map screen
