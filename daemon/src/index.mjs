@@ -44,7 +44,8 @@ import { REVIEW_KIND, RESULT_KIND, NOTIFY_KIND } from './lifecycle.mjs'
 import { sameDigest } from './diffdigest.mjs'
 import { CommandRouter } from './commands.mjs'
 import { SelfDeploy } from './deploy.mjs'
-import { OverseerClient, OverseerTurns, serveVerbMcp } from './overseerclient.mjs'
+import { OverseerClient, OverseerTurns, serveConversationMcp, serveVerbMcp } from './overseerclient.mjs'
+import { OVERSEER_CONVERSATION_PARAM, revokeConversationToken } from './overseeridentity.mjs'
 import { OVERSEER_MCP_PATH } from './overseerturn.mjs'
 import { hasSession } from './tmux.mjs'
 import { retiredAgentTokenKeys } from './workspace.mjs'
@@ -2509,6 +2510,33 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
     if (req.method !== 'POST') return json(405, { error: 'stateless server: POST only' })
     const id = url.searchParams.get('turn') ?? ''
     const body = await readBody(req)
+    // A hosted conversation pane (#701). It carries no turn, because a pane
+    // outlives every turn it takes: it names its conversation and proves the
+    // name with the durable token the daemon wrote into its own connection
+    // settings. The destination comes from that conversation and from nothing
+    // on the request.
+    const conversation = url.searchParams.get(OVERSEER_CONVERSATION_PARAM) ?? ''
+    if (!id && conversation) {
+      return serveConversationMcp({
+        dataDir: DATA,
+        key: conversation,
+        presented: req.headers[TOKEN_HEADER],
+        command: (text, ctx) => gate.command(text, 'overseer', ctx),
+        log,
+        refuse: (error) => {
+          reduction.journal('overseer_conversation_refused', {
+            key: conversation, from: fromContainer ? 'container' : 'loopback', presented: Boolean(req.headers[TOKEN_HEADER]),
+          })
+          return json(403, { error })
+        },
+        serve: async (mcp) => {
+          const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined })
+          res.on('close', () => { transport.close() })
+          await mcp.connect(transport)
+          await transport.handleRequest(req, res, body)
+        },
+      })
+    }
     return serveVerbMcp({
       turns: overseerTurns,
       id,
@@ -2661,6 +2689,10 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
     if (!reduction.deleteConsoleConversation(key)) {
       return json(409, { ok: false, error: `there is no conversation \`${key}\` — it may already be deleted` })
     }
+    // The tool identity goes with the conversation (#701). A pane still
+    // running on the old token loses the verbs on its next call, which is what
+    // a spent number should mean at the transport too.
+    revokeConversationToken(DATA, key)
     log(`console: deleted browser conversation ${key} — its number is spent`)
     return json(200, { ok: true, key })
   }

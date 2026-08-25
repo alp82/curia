@@ -14,11 +14,14 @@ import { TimelineSurface, DEFAULT_TIMELINE_INDEX } from '../src/timeline.mjs'
 
 const ROOT = '/work'
 const REPO = '/repo'
+const DATA = '/data'
+const HOME = path.join(ROOT, 'cfg', 'curia-overseer', 'home')
 
 function build({ sessions = {}, pending = {}, live = [], ready = () => 'bypass permissions' } = {}) {
   const bound = { ...sessions }
   const reserved = { ...pending }
-  const calls = { started: [], sent: [], journal: [] }
+  const calls = { started: [], sent: [], journal: [], armed: [], carried: [] }
+  const minted = {}
   const liveSessions = new Set(live)
   const reduction = {
     overseerSession: (key) => bound[key] ?? null,
@@ -34,9 +37,17 @@ function build({ sessions = {}, pending = {}, live = [], ready = () => 'bypass p
     reduction,
     workspaceRoot: ROOT,
     repoRoot: REPO,
+    dataDir: DATA,
+    daemonPort: 8177,
     readyTimeoutMs: 0,
     deps: {
       ensureDir: () => {},
+      ensureToken: (dataDir, key) => {
+        minted[key] ??= `token-${key}-${Object.keys(minted).length}`
+        return minted[key]
+      },
+      writeConnection: (settings) => { calls.armed.push(settings) },
+      carryTranscript: (opts) => { calls.carried.push(opts) },
       hasSession: async (name) => liveSessions.has(name),
       newSession: async (opts) => { calls.started.push(opts); liveSessions.add(opts.name) },
       capturePane: async () => ready(),
@@ -46,7 +57,7 @@ function build({ sessions = {}, pending = {}, live = [], ready = () => 'bypass p
       },
     },
   })
-  return { host, calls, bound, reserved, liveSessions }
+  return { host, calls, bound, reserved, liveSessions, minted }
 }
 
 describe('the hosted overseer pane (#688)', () => {
@@ -60,7 +71,7 @@ describe('the hosted overseer pane (#688)', () => {
     assert.deepEqual(calls.sent, [{ name: 'curia-console-4', text: 'what is on the frontier?' }])
     assert.equal(calls.started.length, 1)
     assert.equal(calls.started[0].name, 'curia-console-4')
-    assert.equal(calls.started[0].cwd, path.join(ROOT, 'cfg', 'curia-overseer', 'home'))
+    assert.equal(calls.started[0].cwd, path.join(HOME, bound['console-4']))
     assert.equal(calls.started[0].keepOpen, false, 'an exited docker exec is a parked conversation, not a shell')
     assert.match(calls.started[0].shellCmd, /docker exec -it curia-overseer-1/)
     assert.doesNotMatch(calls.started[0].shellCmd, /--key/)
@@ -168,6 +179,65 @@ describe('the hosted overseer pane (#688)', () => {
     assert.deepEqual(calls.sent.map((call) => call.text), ['first', 'second'])
   })
 
+  test('a pane is armed with its conversation\'s token before the process starts', async () => {
+    const { host, calls, bound, minted } = build()
+
+    await host.send('console-4', 'what is on the frontier?')
+
+    assert.deepEqual(calls.armed, [{
+      home: path.join(HOME, bound['console-4']),
+      url: 'http://host.docker.internal:8177/overseer/mcp?conversation=console-4',
+      token: minted['console-4'],
+      serverName: 'curia',
+      header: 'x-curia-agent-token',
+    }])
+    assert.deepEqual(calls.carried, [{
+      configDir: path.join(ROOT, 'cfg', 'curia-overseer'),
+      sessionId: bound['console-4'],
+      home: path.join(HOME, bound['console-4']),
+    }])
+  })
+
+  test('the conversation key never rides the pane command line', async () => {
+    const { host, calls } = build()
+
+    await host.send('981234567890', 'who is running?')
+
+    const [start] = calls.started
+    assert.doesNotMatch(start.shellCmd, /981234567890/, 'the pane learns its session id, never its destination')
+    assert.doesNotMatch(start.shellCmd, /conversation=/)
+  })
+
+  test('a rehydrated pane keeps the identity it had, and gains nothing', async () => {
+    const id = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    const { host, calls, minted } = build({ sessions: { '981234567890': id } })
+
+    await host.send('981234567890', 'before the deploy')
+    const first = calls.armed.at(-1)
+    // The deploy killed the pane. The next message rehydrates it.
+    host.deps.hasSession = async () => false
+    await host.send('981234567890', 'after the deploy')
+
+    const second = calls.armed.at(-1)
+    assert.equal(second.token, first.token)
+    assert.equal(second.token, minted['981234567890'])
+    assert.equal(second.url, first.url)
+    assert.equal(second.home, path.join(HOME, id), 'the project directory follows the durable session id')
+  })
+
+  test('two conversations never share one tool identity', async () => {
+    const { host, calls } = build()
+
+    await host.send('console-4', 'first')
+    await host.send('console-5', 'second')
+
+    const [one, two] = calls.armed
+    assert.notEqual(one.token, two.token)
+    assert.notEqual(one.home, two.home)
+    assert.match(one.url, /conversation=console-4$/)
+    assert.match(two.url, /conversation=console-5$/)
+  })
+
   test('conversation sessions cannot collide with ticket agents', () => {
     assert.equal(overseerPaneSession('console-8'), 'curia-console-8')
     assert.equal(overseerPaneSession('688'), 'curia-overseer-688')
@@ -196,14 +266,15 @@ describe('the hosted overseer pane (#688)', () => {
       },
     })
 
+    const home = path.join(root, 'cfg', 'curia-overseer', 'home', 'cccccccc-cccc-4ccc-8ccc-cccccccccccc')
     assert.deepEqual(seeded, [[
       path.join(root, 'cfg', 'curia-overseer'),
-      path.join(root, 'cfg', 'curia-overseer', 'home'),
+      home,
       null,
       'claude',
       { sandboxed: true },
     ]])
-    assert.equal(launch.cwd, path.join(root, 'cfg', 'curia-overseer', 'home'))
+    assert.equal(launch.cwd, home, 'the pane runs in its conversation\'s own project directory (#701)')
     assert.equal(launch.env.CLAUDE_CONFIG_DIR, path.join(root, 'cfg', 'curia-overseer'))
     assert.equal(launch.env.CLAUDE_CODE_OAUTH_TOKEN, undefined)
     assert.equal(credentialInstalled, true)
