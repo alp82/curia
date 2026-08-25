@@ -45,6 +45,7 @@ import { sameDigest } from './diffdigest.mjs'
 import { CommandRouter } from './commands.mjs'
 import { SelfDeploy } from './deploy.mjs'
 import { OverseerClient, OverseerTurns, serveConversationMcp, serveVerbMcp } from './overseerclient.mjs'
+import { OverseerPaneHost } from './overseerpane.mjs'
 import { OVERSEER_CONVERSATION_PARAM, revokeConversationToken } from './overseeridentity.mjs'
 import { OVERSEER_MCP_PATH } from './overseerturn.mjs'
 import { hasSession } from './tmux.mjs'
@@ -1434,7 +1435,10 @@ const timeline = new TimelineSurface({
       return {
         cfgDir: overseerContainer.configDir,
         sessionId: reduction.overseerSession(key) ?? null,
-        send: (text) => overseerContainer.browserTurn(key, text),
+        // #708, ADR-0024: the message goes into the conversation's own live
+        // pane. `overseerPanes` is const below and read at request time, the
+        // same way `overseerContainer` is.
+        send: (text) => overseerPaneMessage(key, text),
       }
     },
   },
@@ -1481,6 +1485,42 @@ const overseerContainer = new OverseerClient({
   onModelCallFailed: () => dispatcher.checkAnthropicCredential({ trigger: 'overseer_turn' }),
   log,
 })
+
+// The pane every live overseer conversation runs in (#688, #701, #708). The
+// host owns the process, the durable tool identity, and — since #708 — the
+// complete message: one checkout pass, the notes curia queued between messages,
+// and the operator's words, delivered as one bracketed paste.
+//
+// The container reaches back through the conversation route below, on the
+// durable token this host writes into the pane's own connection settings.
+const overseerPanes = new OverseerPaneHost({
+  reduction,
+  workspaceRoot: curiaConfig.dispatch.workspace_root,
+  repoRoot: path.dirname(ROOT),
+  dataDir: DATA,
+  daemonPort: PORT,
+  daemonHost: GUEST_DAEMON_HOST,
+  // Read per message, because the settings screen rewrites it.
+  watchRepos: () => curiaConfig.watch.map((w) => w.repo),
+  log,
+})
+
+// One browser conversation message (#333, on the pane lane since #708). The
+// deleted-key refusal is the same one the turn lane carried: a key whose
+// conversation is gone must never reach tmux, or the operator reads a tmux
+// error about their own deleted chat.
+async function overseerPaneMessage(key, text) {
+  if (!reduction.hasConsoleConversation(key)) {
+    throw new Error(`there is no conversation \`${key}\` — it was deleted, and its number is spent; open a new one from the Chat screen`)
+  }
+  const out = await overseerPanes.deliver(key, text, {
+    onNote: (note) => log(`[overseer] ${key}: ${note}`),
+  })
+  if (out.delivery?.status === 'not-sent') {
+    throw new Error('curia is still on your last message — one message at a time in a conversation')
+  }
+  return out
+}
 
 // The turns the restart killed (#388, ADR-0015). Read HERE, before the listener
 // binds and before the bridge starts, because after that a pending turn is one
