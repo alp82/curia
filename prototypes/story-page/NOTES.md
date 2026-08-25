@@ -1722,9 +1722,21 @@ surface tags went. They were not put back in the browser bar or the Discord bar,
 be LESS true than leaving them out: a browser omnibox shows no favicon, and the Discord title bar
 shows a status dot. A build check now refuses a sprite that carries a passenger, in either direction.
 
-**109 build checks** run against the file and all **54 breaks** that validate them land. Four of the
-checks were wrong before they were right, and two of the four are the same lesson from opposite
-sides:
+**Three more faults found by reading the spliced result**, none of which a check had named:
+
+- **A comment claimed an overlap the code does not do.** With a narration box between every two
+  screens, pulling one screen over the last one can only mean landing the box on it, and that is
+  what `memo` is and the other two are not. What the desk actually carries here is the rest of it:
+  every screen turned a little, dropped close to the one above it, and casting like paper.
+- **The no-script default contradicted itself.** The section opened as `v-step piled`, and `v-step`
+  is the one composition that stands its screens apart. With scripts off the reader got the plainest
+  reading, dealt.
+- **The column's docket could not stick.** `align-self: start` sizes a grid item to its own content,
+  and a sticky box travels inside its own box. This is the SAME fault round 2's rail carried, in the
+  same shape, one round later. The grid item stretches now and the card sticks inside it.
+
+**110 build checks** run against the file and all **56 breaks** that validate them land. Six of the
+checks were wrong before they were right, and they fall into two families:
 
 - **A check read a comment as code.** Round 3's own header says the scene "calls no `scrollTo`, and
   calls `preventDefault` nowhere". The no-hijack check searched the script for those words and found
@@ -1736,6 +1748,17 @@ sides:
   constant-chrome check read, and the claim-order check still compared against a container that had
   left the file. Both use `find` and an explicit ordering test now, so a missing anchor fails the
   check instead of raising.
+
+**The other family is the distinctness check, which was wrong three times in three rounds.** Each
+time it was reading the wrong thing:
+
+- **It compared the base scope only** (#629's rule), so `v-col`, whose whole identity is a desktop
+  two-column layout, declared almost nothing and the check that it declares SOMETHING could not be
+  broken at all. It reads every rule now, tagged with the at-rule it sits in, which answers #629's
+  original reason too: a composition copied wholesale matches under the renamed class.
+- **It matched class names as substrings.** `.v-col` sits inside `.v-colx`, so renaming every one of
+  a composition's rules away still left the check believing it declared them.
+- **It accepted a stray rule as a difference** (round 2), and **it compared CSS comments** (round 1).
 
 **One fault the checks found in the work, not in themselves.** `v-step` declared exactly one rule,
 which is not a composition. The distinctness test caught it as a near-duplicate of `v-col`. It is

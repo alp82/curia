@@ -1885,9 +1885,12 @@
   .scrn { display: grid; gap: 2.6rem; }
   .sc { position: relative; }
   .dev { position: relative; }
-  /* The pile: the desk the operator kept. Papers overlap by a hair and
-     each one lands slightly turned, and the pull is sized so a screen
-     never covers the narration box of the one under it. */
+  /* The desk the operator kept. NOT an overlap: a narration box sits
+     between every two screens, so pulling one screen over the last one
+     can only mean landing the box on it, and that is what `memo` is and
+     the other two are not. What carries here is the rest of the desk —
+     every screen turned a little, dropped close to the one above it,
+     and casting like paper. */
   .piled .scrn { gap: 0; }
   .piled .sc { margin-top: 1.5rem; }
   .piled .sc:first-child { margin-top: 0; }
@@ -1955,7 +1958,19 @@
   @media (min-width: 60rem) {
     .v-col .runstage { display: grid; grid-template-columns: 17rem 1fr; column-gap: 3rem; }
     .v-col .scrn { grid-column: 2; }
-    .v-col .tkt { grid-column: 1; grid-row: 1; position: sticky; top: 16vh; bottom: auto; align-self: start; }
+    /* The grid item STRETCHES and the card sticks inside it. An item
+       sized to its own content has nothing for a sticky box to travel
+       in, which is the fault round 2's rail carried. */
+    .v-col .tkt {
+      grid-column: 1; grid-row: 1; position: static;
+      background: none; border: none; box-shadow: none; padding: 0;
+    }
+    .v-col .tkt-in {
+      position: sticky; top: 16vh; display: block;
+      background: linear-gradient(180deg, #161c33, #10142a);
+      border: 1px solid #ffffff1f; border-radius: 12px;
+      padding: 0.7rem 0.85rem 0.75rem; box-shadow: 0 14px 40px rgba(0, 0, 0, 0.5);
+    }
     .v-col .sc { display: grid; grid-template-columns: 1fr; }
     .v-col .nb { margin-bottom: 0.8rem; }
   }
@@ -2768,7 +2783,7 @@
 
        Round 1 offers five readings of the same six events on ?id=1..5:
        1 timeline, 2 lanes, 3 devices, 4 deal, 5 steps. -->
-  <section class="scene run sL v-step piled" id="run" data-v="1" data-k="0" data-stage="gate" data-n="07" data-name="one ticket on GitHub" style="--g1:#141b33;--g2:#0c1020">
+  <section class="scene run sL v-step" id="run" data-v="1" data-k="0" data-stage="gate" data-n="07" data-name="one ticket on GitHub" style="--g1:#141b33;--g2:#0c1020">
 
     <!-- The octicons and the two product marks. The page ships no
          image and no webfont, so every mark here is drawn (#629). -->
