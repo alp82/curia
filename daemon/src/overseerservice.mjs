@@ -26,6 +26,14 @@ import { TURN_PATH } from './overseerturn.mjs'
 // joins the collision check and the preview reserved list for the reason #263
 // gave the sidecar's ports: a surface that shadowed another would be found as
 // an outage instead of as a config error.
+// `live_pane_cap` is the pane cap of ADR-0024, and it is NOT `max_concurrent`.
+// The two budgets measure different promises: an agent slot is a container plus
+// three sandbox ports against the box's memory, and a live pane is 154-170 MiB
+// of one shared container held open for a conversation nobody is speaking to.
+// Three, because #569 priced fifty always-live panes at 7.5-8.3 GiB against an
+// 8 GiB box, and ADR-0016 promises an UNLIMITED number of conversations. The
+// cap bounds the cache, never the conversations: at the cap curia parks the
+// least recently used idle pane, and the next message rehydrates it.
 export const DEFAULT_OVERSEER = { port: 4274, live_pane_cap: 3 }
 
 // What answers "is it up". A plain marker, not JSON: the same shape #188 gave
@@ -46,6 +54,10 @@ export function readOverseer(cfg, fail) {
   if (!(Number.isInteger(out.port) && out.port > 0 && out.port < 65536)) {
     fail('overseer.port must be a port number — it is the loopback port compose publishes the overseer container on')
   }
+  // A cap of zero is not "no limit", it is a conversation that can never be
+  // spoken to: every message would park the pane it just started. There is no
+  // off switch here on purpose — ADR-0024 makes the cache bounded, and the way
+  // to hold more conversations live is a bigger number.
   if (!(Number.isInteger(out.live_pane_cap) && out.live_pane_cap > 0)) {
     fail('overseer.live_pane_cap must be a positive integer')
   }

@@ -89,10 +89,17 @@ export function noteDisposition(agent) {
 // draws four of them, so a pair per chat message would push every dispatch,
 // death and gate off the screen. What the operator DOES read about a killed
 // turn is `overseer_turn_dropped`, which the feed carries.
+//
+// The park joins them (#710). ADR-0024 makes a live pane a cache and the spec
+// hides it: "parked conversations hidden as a runtime detail, so that capacity
+// management doesn't change the conversation model". A feed entry every time
+// curia stopped a process the operator never knew had started is mechanics
+// reported as news.
 const FEED_SILENT = new Set([
   'overseer_session_reserved',
   'overseer_turn_started', 'overseer_turn_ended',
   'conversation_turn_recorded', 'conversation_turn_taken_back', 'agent_notes_requeued',
+  'overseer_pane_parked',
 ])
 
 // The events lastAgentEvent must not count (#236) — see _apply.
@@ -132,6 +139,22 @@ export class Reduction {
     this.agentNotes = new Map() // agent session -> pending operator notes (#108 item 14)
     this.overseerSessions = new Map() // thread id -> SDK session id (#92)
     this.pendingOverseerSessions = new Map() // thread id -> first pane launch id (#688)
+    // Which conversations hold a LIVE pane, and how recently each was used
+    // (#710, ADR-0024).
+    //
+    // THE ORDER IS A COUNTER AND NOT A CLOCK. Two of these events land in the
+    // same millisecond often enough — a pane starts and takes its first message
+    // at once — and a tie on a timestamp falls back to insertion order, which
+    // is the one order that is wrong here: `Map.set` on a key that is already
+    // there keeps its original position, so a conversation speaking for the
+    // second time would report as the oldest one there. The journal replays in
+    // order, so the count is the same on this process and on the next one.
+    //
+    // Journalled rather than held in memory because tmux survives a daemon
+    // restart and this process does not: a boot that forgot which panes are
+    // live would park nothing until every one of them had spoken again.
+    this.livePanes = new Map() // conversation key -> the touch number of its last start, resume or message
+    this.paneTouch = 0
     this.consoleConversations = new Map() // console key -> the live browser conversation (#333)
     this.consoleSpent = new Set() // every console key ever minted, deleted ones included (#333)
     this.ticketThreads = new Map() // ticket -> Discord thread id (#93)
@@ -781,6 +804,23 @@ export class Reduction {
         if (ev.agent) this.agentOpenings.add(ev.agent)
         break
       }
+      // ---- the live pane, and the park (#710, ADR-0024) --------------------
+      //
+      // A pane is a cache in front of a durable conversation. These four events
+      // are the cache's own bookkeeping: three that make a conversation live
+      // and touch its clock, and one that ends it. Nothing here touches the
+      // resume id, the notes or the token — parking is a process ending, not a
+      // conversation ending, and that difference is the whole decision.
+      case 'overseer_pane_started':
+      case 'overseer_pane_resumed':
+      case 'overseer_pane_message': {
+        if (ev.key) this.livePanes.set(ev.key, ++this.paneTouch)
+        break
+      }
+      case 'overseer_pane_parked': {
+        this.livePanes.delete(ev.key)
+        break
+      }
       case 'overseer_session': {
         // #92: `resume` mints a fresh session id per continued conversation,
         // so last write wins — the map always points at the live tail.
@@ -824,6 +864,7 @@ export class Reduction {
         this.overseerNotes.delete(ev.key)
         this.pendingTurns.delete(ev.key)
         this.droppedTurns.delete(ev.key)
+        this.livePanes.delete(ev.key)
         break
       }
       // ---- the turn a restart can kill (#388, ADR-0015) --------------------
@@ -1123,6 +1164,32 @@ export class Reduction {
 
   overseerSession(threadId) {
     return this.overseerSessions.get(threadId)
+  }
+
+  // ---- the live-pane cache (#710, ADR-0024) --------------------------------
+
+  // Which conversations hold a live pane, LEAST RECENTLY USED FIRST. That order
+  // is the parking decision: the cap is reached, and the pane at the head of
+  // this list is the one whose operator has been away longest.
+  //
+  // The count is the order, so a pane that started and never spoke again sits
+  // at the head of this list — which is exactly what "least recently used"
+  // means and exactly the pane worth parking.
+  livePaneKeys() {
+    return [...this.livePanes.entries()].sort((a, b) => a[1] - b[1]).map(([key]) => key)
+  }
+
+  hasLivePane(key) {
+    return this.livePanes.has(key)
+  }
+
+  // The pane stopped and the conversation stayed whole. `reason` says what
+  // stopped it — the cap, a deploy curia ordered, or a restart that had already
+  // killed it. Nothing here touches the resume id, the notes or the token:
+  // parking is a process ending, not a conversation ending, and that difference
+  // is the whole decision.
+  parkOverseerPane({ key, pane = null, reason = null }) {
+    this._append({ type: 'overseer_pane_parked', key, pane, reason })
   }
 
   // ---- the turn a restart can kill (#388, ADR-0015) -------------------------

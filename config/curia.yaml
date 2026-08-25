@@ -103,6 +103,13 @@ overseer:
   # The container stays on the docker bridge, which keeps its shell away from
   # host loopback and the tailnet.
   port: 4274
+  # #710, ADR-0024: how many conversations may hold a live pane at once. A pane
+  # is a CACHE in front of a durable conversation, not the conversation itself,
+  # so this bounds memory and never the number of conversations. At the cap
+  # curia parks the least recently used idle pane; the next message rehydrates
+  # it from the journalled session id. Separate from dispatch.max_concurrent,
+  # which counts agents.
+  live_pane_cap: 3
 
 usage:
   # #146: the per-agent status-line meters
