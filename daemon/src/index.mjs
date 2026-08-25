@@ -1353,6 +1353,9 @@ const timeline = new TimelineSurface({
     composerFor: (harness) => routingConfig.harnesses[harness]?.readyRe ?? null,
     escalationsFor: (session) => reduction.openEscalations().filter((r) => r.agent === session),
     escalationHistoryFor: (session) => reduction.escalationsForAgent(session),
+    // The rewind itself writes no transcript line. Its journal receipt holds
+    // the active parent until the next message starts the fork (#689).
+    landingPointFor: (session) => reduction.transcriptLanding(session),
     // The #151 identity check. The timeline is the daemon's own server, so it
     // carries the same predicate the terminal's proxy does, in-process.
     identityCheck: timelineIdentityCheck,

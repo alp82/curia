@@ -442,60 +442,93 @@ function codexItems(e) {
 
 const READERS = { claude: claudeItems, codex: codexItems }
 
-// Read the messages that the Chat surface can render from one transcript.
+// Read the messages that the Chat surface can render from transcript lines.
 // The branch selection lives here so agent and overseer conversations don't
-// grow separate transcript rules.
-export function readActiveMessages(harness, file, { landingUuid = null } = {}) {
+// grow separate transcript rules. The caller keeps filesystem and journal
+// access: this module receives the journaled landing identity as plain data.
+export function readActiveMessages(harness, lines, { landingUuid = null } = {}) {
   const items = []
-  const lines = fs.readFileSync(file, 'utf8').split('\n')
+  const failures = []
   const byUuid = new Map()
+  const records = []
   let tail = null
-  for (const line of lines) {
+  for (const [index, line] of lines.entries()) {
+    if (!line.trim()) continue
     let event
-    try { event = JSON.parse(line) } catch { continue }
+    try { event = JSON.parse(line) } catch {
+      failures.push({ key: `${index}:malformed`, reason: 'line is not JSON — the transcript format may have moved' })
+      continue
+    }
+    const parsed = parseEvent(harness, event)
+    if (parsed.malformed) {
+      failures.push({ key: `${index}:malformed`, reason: 'line is not a JSON object — the transcript format may have moved' })
+      continue
+    }
+    if (parsed.unknown) {
+      failures.push({
+        key: `${index}:unknown:${parsed.unknown}`,
+        reason: `unknown ${harness} line type "${parsed.unknown}" — the transcript format moved underneath the reader`,
+      })
+    }
+    const record = { event, parsed }
+    records.push(record)
     if (!event?.uuid) continue
-    byUuid.set(event.uuid, { event, line })
-    tail = event
+    byUuid.set(event.uuid, record)
+    tail = record
   }
 
   if (landingUuid) {
-    tail = byUuid.get(landingUuid)?.event ?? null
-    if (!tail) throw new Error(`transcript landing point "${landingUuid}" is missing from ${file}`)
-  }
-
-  let activeLines = lines
-  if (tail) {
-    activeLines = []
-    const seen = new Set()
-    for (let event = tail; event; event = event.parentUuid ? byUuid.get(event.parentUuid)?.event : null) {
-      if (seen.has(event.uuid)) throw new Error(`transcript parent cycle at "${event.uuid}" in ${file}`)
-      seen.add(event.uuid)
-      activeLines.push(byUuid.get(event.uuid).line)
+    tail = byUuid.get(landingUuid) ?? null
+    if (!tail) {
+      failures.push({
+        key: `landing:${landingUuid}`,
+        reason: `transcript landing point "${landingUuid}" is missing`,
+      })
+      return { items, failures }
     }
-    activeLines.reverse()
   }
 
-  for (const line of activeLines) {
-    if (!line.trim()) continue
-    const parsed = parseLine(harness, line)
+  let activeRecords = records
+  if (tail) {
+    activeRecords = []
+    const seen = new Set()
+    for (let record = tail; record; record = record.event.parentUuid ? byUuid.get(record.event.parentUuid) : null) {
+      if (seen.has(record.event.uuid)) {
+        failures.push({
+          key: `cycle:${record.event.uuid}`,
+          reason: `transcript parent cycle at "${record.event.uuid}"`,
+        })
+        return { items, failures }
+      }
+      seen.add(record.event.uuid)
+      activeRecords.push(record)
+    }
+    activeRecords.reverse()
+  }
+
+  for (const { parsed } of activeRecords) {
     if (parsed.items) items.push(...parsed.items)
   }
-  return items
+  return { items, failures }
+}
+
+function parseEvent(harness, event) {
+  const reader = READERS[harness]
+  if (!reader) throw new Error(`no transcript reader for harness "${harness}"`)
+  if (!event || typeof event !== 'object') return { malformed: true }
+  const items = reader(event)
+  if (items === null) {
+    return { unknown: harness === 'codex' && event.type === 'response_item' ? `response_item/${event.payload?.type}` : String(event.type) }
+  }
+  return { items }
 }
 
 export function parseLine(harness, line) {
-  const reader = READERS[harness]
-  if (!reader) throw new Error(`no transcript reader for harness "${harness}"`)
-  let e
+  let event
   try {
-    e = JSON.parse(line)
+    event = JSON.parse(line)
   } catch {
     return { malformed: true }
   }
-  if (!e || typeof e !== 'object') return { malformed: true }
-  const items = reader(e)
-  if (items === null) {
-    return { unknown: harness === 'codex' && e.type === 'response_item' ? `response_item/${e.payload?.type}` : String(e.type) }
-  }
-  return { items }
+  return parseEvent(harness, event)
 }
