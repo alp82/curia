@@ -1309,6 +1309,48 @@ the check stayed green. The markers are asserted per pane now, over all twenty, 
 that no TUI borrows another one's chrome. **A check that was right for one instance can be wrong
 for five, and only a break that lands in one instance can tell you.**
 
+**The operator's answer to round 6**, verbatim, with a screenshot marking the wordmark in red:
+
+> 1. 4 waterfall
+> 2. the marked red rect shows that the problem still persists. upper half of the opencode logo is
+>    missing. if you were fixing the icon in the sidebar panel, that was never broken
+> 3. y
+
+**The session is the waterfall.** Twelve sizes down the fonts page, from 96px. The four that lost
+and the switcher that carried them left the file with this round. The invented transcripts stand,
+answered `y`.
+
+**The opencode wordmark is gone, and refusing to draw it is the point.** Two rounds tried to fix
+the rendering. The rendering was never the fault. **This repo's capture of that banner is
+incomplete.** `prototypes/model-switch/evidence/opencode-1-spawn.txt` caught the pane mid-scroll:
+its first line is already the SECOND row of the mark, so the top row was never captured. Both
+earlier fixes were real (the italic slanted the grid, the block glyphs did not tile) and neither
+could put back a row that is not in the evidence.
+
+**And the missing row cannot be derived.** On the two rows this repo does have, three of the eight
+letters are identical, character for character:
+
+| letter | captured row 1 | captured row 2 |
+|--------|----------------|----------------|
+| d | `█  █` | `▀▀▀▀` |
+| n | `█  █` | `▀▀▀▀` |
+| o | `█  █` | `▀▀▀▀` |
+
+So the missing row is the only thing that tells `d`, `n` and `o` apart. Writing it would not be
+reconstruction, it would be inventing another project's wordmark and inventing the difference
+between three of its letters. The pane starts below the banner instead, which is exactly what the
+capture itself shows: a session already underway. A build check refuses a wordmark in that pane,
+and the file records why.
+
+**The lesson, and it is a new one for this file.** Every check here reads the source, and the
+source was faithful to the evidence at every round. The evidence was the thing that was wrong. **A
+check can only hold a file to its sources, never a source to the truth**, and no amount of
+checking finds a capture that is missing a row. The operator's eyes were the only instrument that
+could, and it took a red rectangle to say which half.
+
+**The rail marks were never broken**, which the operator also said. They are drawn shapes, not
+captured ones, so they were never exposed to this fault.
+
 **The scene is one composition canvas.** The claim, the terminal and the fact line are grid items
 of `.tm`. The old scene 7 held the claim in a centred `.wrap` and the pane in a `.shot`, which is
 the pair that broke the preview scene at [#627](https://github.com/alp82/curia/issues/627) round 3

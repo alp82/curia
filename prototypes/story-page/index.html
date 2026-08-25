@@ -1356,9 +1356,7 @@
   }
   .tm-body { min-width: 0; background: #0b0e12; }
   .tm-panes { display: block; }
-  /* ROUND 5 offers five candidate sessions. Only one is on, and the
-     first carries `on` in the markup, so the page reads whole with no
-     script rather than stacking twenty panes. */
+  /* ROUND 6 settled the session, so one .tm-var is left and it is on. */
   .tm-var { display: none; }
   .tm-var.on { display: block; }
   /* THE WINDOW IS A FIXED 30 ROWS, at every harness and every width.
@@ -1473,20 +1471,6 @@
   }
   .br-url .lock { color: #7dd3a0; }
 
-  /* ---- the round switcher; it leaves the file when the scene locks ---- */
-  .idsw {
-    position: fixed; z-index: 50; left: 50%; transform: translateX(-50%);
-    bottom: calc(0.6rem + env(safe-area-inset-bottom));
-    display: flex; gap: 0.3rem; align-items: center;
-    background: #0d1015e6; border: 1px solid var(--line); border-radius: 999px;
-    padding: 0.3rem 0.45rem; backdrop-filter: blur(8px);
-  }
-  .idsw span { font: 700 0.58rem var(--mono); letter-spacing: 0.12em; color: var(--dim); padding: 0 0.25rem; }
-  .idsw button {
-    border: 1px solid var(--line); background: none; color: var(--body); cursor: pointer;
-    font: 700 0.66rem var(--mono); border-radius: 999px; padding: 0.2rem 0.55rem;
-  }
-  .idsw button.on { background: var(--st-agent); border-color: var(--st-agent); color: #08090c; }
 
   /* ---- the marks. Drawn, not official logos: the page ships no image
      and no webfont, so each one is built from something the harness
@@ -2173,6 +2157,9 @@
        operator asked for a site cooler than a real curia prototype.
        #604 carries both.
 
+       ROUND 6 settled the session: the waterfall. The four that lost
+       and the switcher that carried them left the file with it.
+
        ROUND 1 settled the control: the harness rail at desktop width,
        bottom tabs on a phone, and NEVER BOTH. ROUND 2 settled the
        composition: the browser tab the claim names, and the session
@@ -2182,8 +2169,14 @@
 
        The scene is ONE composition canvas: the claim, the terminal and
        the fact line are grid items of .tm. No .wrap, no .shot.
-       ?id=1..5 picks the session. With no script the first one stands
-       and the page reads whole. -->
+       The opencode pane carries NO WORDMARK, and that is deliberate.
+       prototypes/model-switch/evidence/opencode-1-spawn.txt caught the
+       banner mid-scroll: its first line is already the second row of
+       the mark, so the top row is not in this repo. It cannot be
+       derived either — on the two rows we do have, d, n and o are
+       identical, so the missing row is the only thing telling three of
+       the eight letters apart. The pane starts below the banner
+       instead, which is what the capture itself shows. -->
   <section class="scene sR" id="term-scene" data-stage="agent" data-n="06" data-name="the harness, live" style="--g1:#0e1a14;--g2:#080f0b">
     <div class="tm" id="tm">
       <header class="claim rv">
@@ -2217,274 +2210,7 @@
             </div>
 
             <div class="tm-panes" id="tm-panes">
-        <div class="tm-var on" data-v="specimen" data-name="the specimen">
-          <div class="tm-pane" data-h="claude" role="group" aria-label="Claude Code, the specimen">
-            <pre class="tm-out"><span class="lg"><svg class="art" data-cols="9" viewBox="0 0 18 2" preserveAspectRatio="none" aria-hidden="true" style="width:9ch"><g fill="currentColor"><rect x="3" y="0" width="12" height="1"/><rect x="3" y="1" width="2" height="1"/><rect x="6" y="1" width="6" height="1"/><rect x="13" y="1" width="2" height="1"/></g></svg></span>   Claude Code v2.1.220
-<span class="lg"><svg class="art" data-cols="9" viewBox="0 0 18 2" preserveAspectRatio="none" aria-hidden="true" style="width:9ch"><g fill="currentColor"><rect x="1" y="0" width="16" height="1"/><rect x="3" y="1" width="12" height="1"/></g></svg></span>  Opus 5 (1M context) · API Usage Billing
-<span class="lg"><svg class="art" data-cols="9" viewBox="0 0 18 2" preserveAspectRatio="none" aria-hidden="true" style="width:9ch"><g fill="currentColor"><rect x="4" y="0" width="1" height="1"/><rect x="6" y="0" width="1" height="1"/><rect x="11" y="0" width="1" height="1"/><rect x="13" y="0" width="1" height="1"/></g></svg></span><span class="d">  ~/gravity</span>
-
-
-<span class="d">❯ </span>GRAVITY — build the specimen page
-  Nine weights, two widths, one page, no build step.
-
-<span class="bu">● </span><span class="tn">Read</span><span class="ar">(site/fonts/gravity.json)</span>
-<span class="d">  ⎿  9 weights, 2 widths, 1 spacing axis</span>
-
-<span class="bu">● </span><span class="tn">Write</span><span class="ar">(site/specimen.html)</span>
-<span class="d">  ⎿  Wrote 214 lines</span>
-
-<span class="bu">● </span><span class="tn">Bash</span><span class="ar">(npx serve site -l 4000)</span>
-<span class="d">  ⎿  Serving site on http://0.0.0.0:4000</span>
-
-<span class="bu">● </span>Every weight runs Thin to Black at four sizes, in
-  both widths. The preview link is on its way.
-
-<span class="sp">✻ Cooked for 38s</span></pre>
-            <pre class="tm-in"><span class="bd">──────────────────────────────────────────────────────────</span>
-<span class="d">❯ </span><span class="cur"> </span>
-<span class="bd">──────────────────────────────────────────────────────────</span>
-<span class="o">  ⏵⏵ bypass permissions on</span><span class="d"> (shift+tab to cycle)</span></pre>
-          </div>
-          <div class="tm-pane" data-h="codex" role="group" aria-label="Codex, the specimen">
-            <pre class="tm-out"><span class="bx">╭────────────────────────────────────────────────────╮</span>
-<span class="bx">│ </span>&gt;_ OpenAI Codex (v0.146.0)<span class="pad">                        </span><span class="bx"> │</span>
-<span class="bx">│ </span><span class="pad">                                                  </span><span class="bx"> │</span>
-<span class="bx">│ </span>model:       gpt-5.6-sol   <span class="d">/model to change</span><span class="pad">       </span><span class="bx"> │</span>
-<span class="bx">│ </span>directory:   ~/gravity<span class="pad">                            </span><span class="bx"> │</span>
-<span class="bx">│ </span>permissions: YOLO mode<span class="pad">                            </span><span class="bx"> │</span>
-<span class="bx">╰────────────────────────────────────────────────────╯</span>
-
-<span class="cy">› </span>GRAVITY — measure the specimen against the column
-
-<span class="bu">• </span>Ran <span class="ar">node tools/measure.mjs site/specimen.html</span>
-<span class="d">  └ 18 rows measured, 4 sizes, 2 widths</span>
-
-<span class="bd">──────────────────────────────────────────────────────────</span>
-
-<span class="bu">• </span>Every weight holds its line at 72px. Black at the
-  narrow width runs 3px past the column, and the fix
-  is the spacing axis rather than the size.
-
-<span class="bd">──────────────────────────────────────────────────────────</span></pre>
-            <pre class="tm-in"><span class="cy">› </span><span class="cur"> </span>
-
-<span class="d">  gpt-5.6-sol high · ~/gravity</span></pre>
-          </div>
-          <div class="tm-pane" data-h="pi" role="group" aria-label="Pi, the specimen">
-            <pre class="tm-out"><span class="d"> pi v0.84.2</span>
-<span class="d"> escape interrupt · ctrl+c/ctrl+d clear/exit · / commands</span>
-<span class="d"> ! bash · ctrl+o more</span>
-
-
- GRAVITY — do the weight names match the file?
-<span class="d"> fvar: Thin ExtraLight Light Regular Medium SemiBold</span>
-<span class="d"> Bold ExtraBold Black</span>
-<span class="d"> The specimen page names all nine, in that order.</span></pre>
-            <pre class="tm-in"><span class="bd">──────────────────────────────────────────────────────────</span>
- <span class="cur"> </span>
-<span class="bd">──────────────────────────────────────────────────────────</span>
-<span class="d"> ~/gravity</span>
-<span class="d"> 0.0%/128k (auto)</span><span class="pad">                        </span><span class="d">claude-opus-5</span></pre>
-          </div>
-          <div class="tm-pane" data-h="opencode" role="group" aria-label="Opencode, the specimen">
-            <pre class="tm-out"><span class="pad">         </span><span class="lg"><svg class="art" data-cols="39" viewBox="0 0 78 2" preserveAspectRatio="none" aria-hidden="true" style="width:39ch"><g fill="currentColor"><rect x="0" y="0" width="2" height="1"/><rect x="6" y="0" width="2" height="1"/><rect x="10" y="0" width="2" height="1"/><rect x="16" y="0" width="2" height="1"/><rect x="20" y="0" width="8" height="1"/><rect x="30" y="0" width="2" height="1"/><rect x="36" y="0" width="2" height="1"/><rect x="40" y="0" width="2" height="1"/><rect x="50" y="0" width="2" height="1"/><rect x="56" y="0" width="2" height="1"/><rect x="60" y="0" width="2" height="1"/><rect x="66" y="0" width="2" height="1"/><rect x="70" y="0" width="8" height="1"/><rect x="0" y="1" width="2" height="1"/><rect x="6" y="1" width="2" height="1"/><rect x="10" y="1" width="2" height="1"/><rect x="16" y="1" width="2" height="1"/><rect x="20" y="1" width="2" height="1"/><rect x="30" y="1" width="2" height="1"/><rect x="36" y="1" width="2" height="1"/><rect x="40" y="1" width="2" height="1"/><rect x="50" y="1" width="2" height="1"/><rect x="56" y="1" width="2" height="1"/><rect x="60" y="1" width="2" height="1"/><rect x="66" y="1" width="2" height="1"/><rect x="70" y="1" width="2" height="1"/></g></svg></span>
-<span class="pad">         </span><span class="lg"><svg class="art" data-cols="39" viewBox="0 0 78 2" preserveAspectRatio="none" aria-hidden="true" style="width:39ch"><g fill="currentColor"><rect x="0" y="0" width="8" height="1"/><rect x="10" y="0" width="8" height="1"/><rect x="20" y="0" width="8" height="1"/><rect x="30" y="0" width="8" height="1"/><rect x="40" y="0" width="8" height="1"/><rect x="50" y="0" width="8" height="1"/><rect x="60" y="0" width="8" height="1"/><rect x="70" y="0" width="8" height="1"/><rect x="10" y="1" width="2" height="1"/></g></svg></span>
-
-
-<span class="bx">  ┃</span>
-<span class="bx">  ┃  </span>GRAVITY — build the site and weigh it
-<span class="bx">  ┃</span>
-
-<span class="d">     built site/ — specimen.html 11.4 kB, fonts 148 kB</span>
-
-<span class="bu">     ▣  </span><span class="d">Build · gpt-5.6-sol · 1.2s</span></pre>
-            <pre class="tm-in"><span class="bx">  ┃</span>
-<span class="bx">  ┃  </span><span class="cur"> </span>
-<span class="bx">  ┃  </span><span class="d">Build · gpt-5.6-sol · gravity</span>
-<span class="bx">  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀</span>
-<span class="d">   tab agents  ctrl+p commands</span>
-<span class="d">  ~/gravity</span><span class="pad">                                    </span><span class="d">1.18.18</span></pre>
-          </div>
-        </div>
-        <div class="tm-var" data-v="axes" data-name="the axes">
-          <div class="tm-pane" data-h="claude" role="group" aria-label="Claude Code, the axes">
-            <pre class="tm-out"><span class="lg"><svg class="art" data-cols="9" viewBox="0 0 18 2" preserveAspectRatio="none" aria-hidden="true" style="width:9ch"><g fill="currentColor"><rect x="3" y="0" width="12" height="1"/><rect x="3" y="1" width="2" height="1"/><rect x="6" y="1" width="6" height="1"/><rect x="13" y="1" width="2" height="1"/></g></svg></span>   Claude Code v2.1.220
-<span class="lg"><svg class="art" data-cols="9" viewBox="0 0 18 2" preserveAspectRatio="none" aria-hidden="true" style="width:9ch"><g fill="currentColor"><rect x="1" y="0" width="16" height="1"/><rect x="3" y="1" width="12" height="1"/></g></svg></span>  Opus 5 (1M context) · API Usage Billing
-<span class="lg"><svg class="art" data-cols="9" viewBox="0 0 18 2" preserveAspectRatio="none" aria-hidden="true" style="width:9ch"><g fill="currentColor"><rect x="4" y="0" width="1" height="1"/><rect x="6" y="0" width="1" height="1"/><rect x="11" y="0" width="1" height="1"/><rect x="13" y="0" width="1" height="1"/></g></svg></span><span class="d">  ~/gravity</span>
-
-
-<span class="d">❯ </span>GRAVITY — wire the three axes to one tester
-  wght, wdth, and the axis for the space between.
-
-<span class="bu">● </span><span class="tn">Read</span><span class="ar">(site/fonts/Gravity[wght,wdth,spac].woff2)</span>
-<span class="d">  ⎿  fvar: wght 100-900, wdth 75-100, spac -40-80</span>
-
-<span class="bu">● </span><span class="tn">Write</span><span class="ar">(site/tester.html)</span>
-<span class="d">  ⎿  Wrote 168 lines, three range inputs</span>
-
-<span class="bu">● </span><span class="tn">Bash</span><span class="ar">(npx serve site -l 4000)</span>
-<span class="d">  ⎿  Serving site on http://0.0.0.0:4000</span>
-
-<span class="bu">● </span>One font file answers all three sliders, so the
-  tester loads 148 kB once and never fetches again.
-
-<span class="sp">✻ Cooked for 44s</span></pre>
-            <pre class="tm-in"><span class="bd">──────────────────────────────────────────────────────────</span>
-<span class="d">❯ </span><span class="cur"> </span>
-<span class="bd">──────────────────────────────────────────────────────────</span>
-<span class="o">  ⏵⏵ bypass permissions on</span><span class="d"> (shift+tab to cycle)</span></pre>
-          </div>
-          <div class="tm-pane" data-h="codex" role="group" aria-label="Codex, the axes">
-            <pre class="tm-out"><span class="bx">╭────────────────────────────────────────────────────╮</span>
-<span class="bx">│ </span>&gt;_ OpenAI Codex (v0.146.0)<span class="pad">                        </span><span class="bx"> │</span>
-<span class="bx">│ </span><span class="pad">                                                  </span><span class="bx"> │</span>
-<span class="bx">│ </span>model:       gpt-5.6-sol   <span class="d">/model to change</span><span class="pad">       </span><span class="bx"> │</span>
-<span class="bx">│ </span>directory:   ~/gravity<span class="pad">                            </span><span class="bx"> │</span>
-<span class="bx">│ </span>permissions: YOLO mode<span class="pad">                            </span><span class="bx"> │</span>
-<span class="bx">╰────────────────────────────────────────────────────╯</span>
-
-<span class="cy">› </span>GRAVITY — read the fvar table and check the ranges
-
-<span class="bu">• </span>Ran <span class="ar">node tools/fvar.mjs site/fonts/Gravity.woff2</span>
-<span class="d">  └ 3 axes, 9 named instances</span>
-
-<span class="bd">──────────────────────────────────────────────────────────</span>
-
-<span class="bu">• </span>The three axes are there and the defaults are 400,
-  100 and 0. The named instances cover the nine
-  weights at the wide width only, not the narrow.
-
-<span class="bd">──────────────────────────────────────────────────────────</span></pre>
-            <pre class="tm-in"><span class="cy">› </span><span class="cur"> </span>
-
-<span class="d">  gpt-5.6-sol high · ~/gravity</span></pre>
-          </div>
-          <div class="tm-pane" data-h="pi" role="group" aria-label="Pi, the axes">
-            <pre class="tm-out"><span class="d"> pi v0.84.2</span>
-<span class="d"> escape interrupt · ctrl+c/ctrl+d clear/exit · / commands</span>
-<span class="d"> ! bash · ctrl+o more</span>
-
-
- GRAVITY — is the spacing axis registered or custom?
-<span class="d"> spac is a custom axis, four letters, uppercase by</span>
-<span class="d"> convention would be SPAC. The tester writes it</span>
-<span class="d"> lowercase, which the spec allows for custom axes.</span></pre>
-            <pre class="tm-in"><span class="bd">──────────────────────────────────────────────────────────</span>
- <span class="cur"> </span>
-<span class="bd">──────────────────────────────────────────────────────────</span>
-<span class="d"> ~/gravity</span>
-<span class="d"> 0.0%/128k (auto)</span><span class="pad">                        </span><span class="d">claude-opus-5</span></pre>
-          </div>
-          <div class="tm-pane" data-h="opencode" role="group" aria-label="Opencode, the axes">
-            <pre class="tm-out"><span class="pad">         </span><span class="lg"><svg class="art" data-cols="39" viewBox="0 0 78 2" preserveAspectRatio="none" aria-hidden="true" style="width:39ch"><g fill="currentColor"><rect x="0" y="0" width="2" height="1"/><rect x="6" y="0" width="2" height="1"/><rect x="10" y="0" width="2" height="1"/><rect x="16" y="0" width="2" height="1"/><rect x="20" y="0" width="8" height="1"/><rect x="30" y="0" width="2" height="1"/><rect x="36" y="0" width="2" height="1"/><rect x="40" y="0" width="2" height="1"/><rect x="50" y="0" width="2" height="1"/><rect x="56" y="0" width="2" height="1"/><rect x="60" y="0" width="2" height="1"/><rect x="66" y="0" width="2" height="1"/><rect x="70" y="0" width="8" height="1"/><rect x="0" y="1" width="2" height="1"/><rect x="6" y="1" width="2" height="1"/><rect x="10" y="1" width="2" height="1"/><rect x="16" y="1" width="2" height="1"/><rect x="20" y="1" width="2" height="1"/><rect x="30" y="1" width="2" height="1"/><rect x="36" y="1" width="2" height="1"/><rect x="40" y="1" width="2" height="1"/><rect x="50" y="1" width="2" height="1"/><rect x="56" y="1" width="2" height="1"/><rect x="60" y="1" width="2" height="1"/><rect x="66" y="1" width="2" height="1"/><rect x="70" y="1" width="2" height="1"/></g></svg></span>
-<span class="pad">         </span><span class="lg"><svg class="art" data-cols="39" viewBox="0 0 78 2" preserveAspectRatio="none" aria-hidden="true" style="width:39ch"><g fill="currentColor"><rect x="0" y="0" width="8" height="1"/><rect x="10" y="0" width="8" height="1"/><rect x="20" y="0" width="8" height="1"/><rect x="30" y="0" width="8" height="1"/><rect x="40" y="0" width="8" height="1"/><rect x="50" y="0" width="8" height="1"/><rect x="60" y="0" width="8" height="1"/><rect x="70" y="0" width="8" height="1"/><rect x="10" y="1" width="2" height="1"/></g></svg></span>
-
-
-<span class="bx">  ┃</span>
-<span class="bx">  ┃  </span>GRAVITY — does the tester still fit the budget?
-<span class="bx">  ┃</span>
-
-<span class="d">     built site/ — tester.html 8.9 kB, one font 148 kB</span>
-
-<span class="bu">     ▣  </span><span class="d">Build · gpt-5.6-sol · 1.1s</span></pre>
-            <pre class="tm-in"><span class="bx">  ┃</span>
-<span class="bx">  ┃  </span><span class="cur"> </span>
-<span class="bx">  ┃  </span><span class="d">Build · gpt-5.6-sol · gravity</span>
-<span class="bx">  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀</span>
-<span class="d">   tab agents  ctrl+p commands</span>
-<span class="d">  ~/gravity</span><span class="pad">                                    </span><span class="d">1.18.18</span></pre>
-          </div>
-        </div>
-        <div class="tm-var" data-v="trials" data-name="the trial">
-          <div class="tm-pane" data-h="claude" role="group" aria-label="Claude Code, the trial">
-            <pre class="tm-out"><span class="lg"><svg class="art" data-cols="9" viewBox="0 0 18 2" preserveAspectRatio="none" aria-hidden="true" style="width:9ch"><g fill="currentColor"><rect x="3" y="0" width="12" height="1"/><rect x="3" y="1" width="2" height="1"/><rect x="6" y="1" width="6" height="1"/><rect x="13" y="1" width="2" height="1"/></g></svg></span>   Claude Code v2.1.220
-<span class="lg"><svg class="art" data-cols="9" viewBox="0 0 18 2" preserveAspectRatio="none" aria-hidden="true" style="width:9ch"><g fill="currentColor"><rect x="1" y="0" width="16" height="1"/><rect x="3" y="1" width="12" height="1"/></g></svg></span>  Opus 5 (1M context) · API Usage Billing
-<span class="lg"><svg class="art" data-cols="9" viewBox="0 0 18 2" preserveAspectRatio="none" aria-hidden="true" style="width:9ch"><g fill="currentColor"><rect x="4" y="0" width="1" height="1"/><rect x="6" y="0" width="1" height="1"/><rect x="11" y="0" width="1" height="1"/><rect x="13" y="0" width="1" height="1"/></g></svg></span><span class="d">  ~/gravity</span>
-
-
-<span class="d">❯ </span>GRAVITY — the trial download and its licence gate
-  Trials are free. The licence has to be read first.
-
-<span class="bu">● </span><span class="tn">Read</span><span class="ar">(site/copy/licence.md)</span>
-<span class="d">  ⎿  41 lines, the trial terms</span>
-
-<span class="bu">● </span><span class="tn">Write</span><span class="ar">(site/trials.html)</span>
-<span class="d">  ⎿  Wrote 132 lines</span>
-
-<span class="bu">● </span><span class="tn">Bash</span><span class="ar">(npx serve site -l 4000)</span>
-<span class="d">  ⎿  Serving site on http://0.0.0.0:4000</span>
-
-<span class="bu">● </span>The download is behind one checkbox, not a form.
-  Nothing is collected, so nothing has to be stored.
-
-<span class="sp">✻ Cooked for 31s</span></pre>
-            <pre class="tm-in"><span class="bd">──────────────────────────────────────────────────────────</span>
-<span class="d">❯ </span><span class="cur"> </span>
-<span class="bd">──────────────────────────────────────────────────────────</span>
-<span class="o">  ⏵⏵ bypass permissions on</span><span class="d"> (shift+tab to cycle)</span></pre>
-          </div>
-          <div class="tm-pane" data-h="codex" role="group" aria-label="Codex, the trial">
-            <pre class="tm-out"><span class="bx">╭────────────────────────────────────────────────────╮</span>
-<span class="bx">│ </span>&gt;_ OpenAI Codex (v0.146.0)<span class="pad">                        </span><span class="bx"> │</span>
-<span class="bx">│ </span><span class="pad">                                                  </span><span class="bx"> │</span>
-<span class="bx">│ </span>model:       gpt-5.6-sol   <span class="d">/model to change</span><span class="pad">       </span><span class="bx"> │</span>
-<span class="bx">│ </span>directory:   ~/gravity<span class="pad">                            </span><span class="bx"> │</span>
-<span class="bx">│ </span>permissions: YOLO mode<span class="pad">                            </span><span class="bx"> │</span>
-<span class="bx">╰────────────────────────────────────────────────────╯</span>
-
-<span class="cy">› </span>GRAVITY — can the trial file be reached past the gate?
-
-<span class="bu">• </span>Ran <span class="ar">node tools/probe.mjs http://0.0.0.0:4000</span>
-<span class="d">  └ 11 paths tried, 1 reachable</span>
-
-<span class="bd">──────────────────────────────────────────────────────────</span>
-
-<span class="bu">• </span>The trial woff2 is served straight from /fonts, so
-  the checkbox guards the button and not the file.
-  A gate that only hides a link is not a gate.
-
-<span class="bd">──────────────────────────────────────────────────────────</span></pre>
-            <pre class="tm-in"><span class="cy">› </span><span class="cur"> </span>
-
-<span class="d">  gpt-5.6-sol high · ~/gravity</span></pre>
-          </div>
-          <div class="tm-pane" data-h="pi" role="group" aria-label="Pi, the trial">
-            <pre class="tm-out"><span class="d"> pi v0.84.2</span>
-<span class="d"> escape interrupt · ctrl+c/ctrl+d clear/exit · / commands</span>
-<span class="d"> ! bash · ctrl+o more</span>
-
-
- GRAVITY — what do other foundries put behind a trial?
-<span class="d"> Most serve a separate trial cut: fewer glyphs, no</span>
-<span class="d"> kerning, and a name that ends in Trial. That is a</span>
-<span class="d"> font decision, not a web one.</span></pre>
-            <pre class="tm-in"><span class="bd">──────────────────────────────────────────────────────────</span>
- <span class="cur"> </span>
-<span class="bd">──────────────────────────────────────────────────────────</span>
-<span class="d"> ~/gravity</span>
-<span class="d"> 0.0%/128k (auto)</span><span class="pad">                        </span><span class="d">claude-opus-5</span></pre>
-          </div>
-          <div class="tm-pane" data-h="opencode" role="group" aria-label="Opencode, the trial">
-            <pre class="tm-out"><span class="pad">         </span><span class="lg"><svg class="art" data-cols="39" viewBox="0 0 78 2" preserveAspectRatio="none" aria-hidden="true" style="width:39ch"><g fill="currentColor"><rect x="0" y="0" width="2" height="1"/><rect x="6" y="0" width="2" height="1"/><rect x="10" y="0" width="2" height="1"/><rect x="16" y="0" width="2" height="1"/><rect x="20" y="0" width="8" height="1"/><rect x="30" y="0" width="2" height="1"/><rect x="36" y="0" width="2" height="1"/><rect x="40" y="0" width="2" height="1"/><rect x="50" y="0" width="2" height="1"/><rect x="56" y="0" width="2" height="1"/><rect x="60" y="0" width="2" height="1"/><rect x="66" y="0" width="2" height="1"/><rect x="70" y="0" width="8" height="1"/><rect x="0" y="1" width="2" height="1"/><rect x="6" y="1" width="2" height="1"/><rect x="10" y="1" width="2" height="1"/><rect x="16" y="1" width="2" height="1"/><rect x="20" y="1" width="2" height="1"/><rect x="30" y="1" width="2" height="1"/><rect x="36" y="1" width="2" height="1"/><rect x="40" y="1" width="2" height="1"/><rect x="50" y="1" width="2" height="1"/><rect x="56" y="1" width="2" height="1"/><rect x="60" y="1" width="2" height="1"/><rect x="66" y="1" width="2" height="1"/><rect x="70" y="1" width="2" height="1"/></g></svg></span>
-<span class="pad">         </span><span class="lg"><svg class="art" data-cols="39" viewBox="0 0 78 2" preserveAspectRatio="none" aria-hidden="true" style="width:39ch"><g fill="currentColor"><rect x="0" y="0" width="8" height="1"/><rect x="10" y="0" width="8" height="1"/><rect x="20" y="0" width="8" height="1"/><rect x="30" y="0" width="8" height="1"/><rect x="40" y="0" width="8" height="1"/><rect x="50" y="0" width="8" height="1"/><rect x="60" y="0" width="8" height="1"/><rect x="70" y="0" width="8" height="1"/><rect x="10" y="1" width="2" height="1"/></g></svg></span>
-
-
-<span class="bx">  ┃</span>
-<span class="bx">  ┃  </span>GRAVITY — build with the trial cut in place
-<span class="bx">  ┃</span>
-
-<span class="d">     built site/ — trials.html 9.6 kB, trial font 61 kB</span>
-
-<span class="bu">     ▣  </span><span class="d">Build · gpt-5.6-sol · 0.9s</span></pre>
-            <pre class="tm-in"><span class="bx">  ┃</span>
-<span class="bx">  ┃  </span><span class="cur"> </span>
-<span class="bx">  ┃  </span><span class="d">Build · gpt-5.6-sol · gravity</span>
-<span class="bx">  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀</span>
-<span class="d">   tab agents  ctrl+p commands</span>
-<span class="d">  ~/gravity</span><span class="pad">                                    </span><span class="d">1.18.18</span></pre>
-          </div>
-        </div>
-        <div class="tm-var" data-v="waterfall" data-name="the waterfall">
+        <div class="tm-var on" data-v="waterfall" data-name="the waterfall">
           <div class="tm-pane" data-h="claude" role="group" aria-label="Claude Code, the waterfall">
             <pre class="tm-out"><span class="lg"><svg class="art" data-cols="9" viewBox="0 0 18 2" preserveAspectRatio="none" aria-hidden="true" style="width:9ch"><g fill="currentColor"><rect x="3" y="0" width="12" height="1"/><rect x="3" y="1" width="2" height="1"/><rect x="6" y="1" width="6" height="1"/><rect x="13" y="1" width="2" height="1"/></g></svg></span>   Claude Code v2.1.220
 <span class="lg"><svg class="art" data-cols="9" viewBox="0 0 18 2" preserveAspectRatio="none" aria-hidden="true" style="width:9ch"><g fill="currentColor"><rect x="1" y="0" width="16" height="1"/><rect x="3" y="1" width="12" height="1"/></g></svg></span>  Opus 5 (1M context) · API Usage Billing
@@ -2492,7 +2218,7 @@
 
 
 <span class="d">❯ </span>GRAVITY — the size waterfall on the fonts page
-  One paragraph, twelve sizes, 10px to 96px.
+  Nine weights, two widths, twelve sizes, 10px to 96px.
 
 <span class="bu">● </span><span class="tn">Read</span><span class="ar">(site/copy/pangram.txt)</span>
 <span class="d">  ⎿  1 line, 62 characters</span>
@@ -2555,9 +2281,7 @@
 <span class="d"> 0.0%/128k (auto)</span><span class="pad">                        </span><span class="d">claude-opus-5</span></pre>
           </div>
           <div class="tm-pane" data-h="opencode" role="group" aria-label="Opencode, the waterfall">
-            <pre class="tm-out"><span class="pad">         </span><span class="lg"><svg class="art" data-cols="39" viewBox="0 0 78 2" preserveAspectRatio="none" aria-hidden="true" style="width:39ch"><g fill="currentColor"><rect x="0" y="0" width="2" height="1"/><rect x="6" y="0" width="2" height="1"/><rect x="10" y="0" width="2" height="1"/><rect x="16" y="0" width="2" height="1"/><rect x="20" y="0" width="8" height="1"/><rect x="30" y="0" width="2" height="1"/><rect x="36" y="0" width="2" height="1"/><rect x="40" y="0" width="2" height="1"/><rect x="50" y="0" width="2" height="1"/><rect x="56" y="0" width="2" height="1"/><rect x="60" y="0" width="2" height="1"/><rect x="66" y="0" width="2" height="1"/><rect x="70" y="0" width="8" height="1"/><rect x="0" y="1" width="2" height="1"/><rect x="6" y="1" width="2" height="1"/><rect x="10" y="1" width="2" height="1"/><rect x="16" y="1" width="2" height="1"/><rect x="20" y="1" width="2" height="1"/><rect x="30" y="1" width="2" height="1"/><rect x="36" y="1" width="2" height="1"/><rect x="40" y="1" width="2" height="1"/><rect x="50" y="1" width="2" height="1"/><rect x="56" y="1" width="2" height="1"/><rect x="60" y="1" width="2" height="1"/><rect x="66" y="1" width="2" height="1"/><rect x="70" y="1" width="2" height="1"/></g></svg></span>
-<span class="pad">         </span><span class="lg"><svg class="art" data-cols="39" viewBox="0 0 78 2" preserveAspectRatio="none" aria-hidden="true" style="width:39ch"><g fill="currentColor"><rect x="0" y="0" width="8" height="1"/><rect x="10" y="0" width="8" height="1"/><rect x="20" y="0" width="8" height="1"/><rect x="30" y="0" width="8" height="1"/><rect x="40" y="0" width="8" height="1"/><rect x="50" y="0" width="8" height="1"/><rect x="60" y="0" width="8" height="1"/><rect x="70" y="0" width="8" height="1"/><rect x="10" y="1" width="2" height="1"/></g></svg></span>
-
+            <pre class="tm-out">
 
 <span class="bx">  ┃</span>
 <span class="bx">  ┃  </span>GRAVITY — build the fonts page
@@ -2566,95 +2290,6 @@
 <span class="d">     built site/ — fonts.html 14.2 kB, fonts 148 kB</span>
 
 <span class="bu">     ▣  </span><span class="d">Build · gpt-5.6-sol · 1.3s</span></pre>
-            <pre class="tm-in"><span class="bx">  ┃</span>
-<span class="bx">  ┃  </span><span class="cur"> </span>
-<span class="bx">  ┃  </span><span class="d">Build · gpt-5.6-sol · gravity</span>
-<span class="bx">  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀</span>
-<span class="d">   tab agents  ctrl+p commands</span>
-<span class="d">  ~/gravity</span><span class="pad">                                    </span><span class="d">1.18.18</span></pre>
-          </div>
-        </div>
-        <div class="tm-var" data-v="subset" data-name="the payload">
-          <div class="tm-pane" data-h="claude" role="group" aria-label="Claude Code, the payload">
-            <pre class="tm-out"><span class="lg"><svg class="art" data-cols="9" viewBox="0 0 18 2" preserveAspectRatio="none" aria-hidden="true" style="width:9ch"><g fill="currentColor"><rect x="3" y="0" width="12" height="1"/><rect x="3" y="1" width="2" height="1"/><rect x="6" y="1" width="6" height="1"/><rect x="13" y="1" width="2" height="1"/></g></svg></span>   Claude Code v2.1.220
-<span class="lg"><svg class="art" data-cols="9" viewBox="0 0 18 2" preserveAspectRatio="none" aria-hidden="true" style="width:9ch"><g fill="currentColor"><rect x="1" y="0" width="16" height="1"/><rect x="3" y="1" width="12" height="1"/></g></svg></span>  Opus 5 (1M context) · API Usage Billing
-<span class="lg"><svg class="art" data-cols="9" viewBox="0 0 18 2" preserveAspectRatio="none" aria-hidden="true" style="width:9ch"><g fill="currentColor"><rect x="4" y="0" width="1" height="1"/><rect x="6" y="0" width="1" height="1"/><rect x="11" y="0" width="1" height="1"/><rect x="13" y="0" width="1" height="1"/></g></svg></span><span class="d">  ~/gravity</span>
-
-
-<span class="d">❯ </span>GRAVITY — cut what the site ships
-  148 kB of font for a page that sets Latin only.
-
-<span class="bu">● </span><span class="tn">Bash</span><span class="ar">(node tools/coverage.mjs site/)</span>
-<span class="d">  ⎿  1,412 glyphs in the file, 231 used</span>
-
-<span class="bu">● </span><span class="tn">Bash</span><span class="ar">(pyftsubset --unicodes=U+0000-024F)</span>
-<span class="d">  ⎿  Gravity-latin.woff2 written</span>
-
-<span class="bu">● </span><span class="tn">Edit</span><span class="ar">(site/style.css)</span>
-<span class="d">  ⎿  unicode-range on both faces</span>
-
-<span class="bu">● </span>The Latin cut is 41 kB. The full file still loads,
-  but only for a reader who needs a glyph outside it.
-
-<span class="sp">✻ Cooked for 52s</span></pre>
-            <pre class="tm-in"><span class="bd">──────────────────────────────────────────────────────────</span>
-<span class="d">❯ </span><span class="cur"> </span>
-<span class="bd">──────────────────────────────────────────────────────────</span>
-<span class="o">  ⏵⏵ bypass permissions on</span><span class="d"> (shift+tab to cycle)</span></pre>
-          </div>
-          <div class="tm-pane" data-h="codex" role="group" aria-label="Codex, the payload">
-            <pre class="tm-out"><span class="bx">╭────────────────────────────────────────────────────╮</span>
-<span class="bx">│ </span>&gt;_ OpenAI Codex (v0.146.0)<span class="pad">                        </span><span class="bx"> │</span>
-<span class="bx">│ </span><span class="pad">                                                  </span><span class="bx"> │</span>
-<span class="bx">│ </span>model:       gpt-5.6-sol   <span class="d">/model to change</span><span class="pad">       </span><span class="bx"> │</span>
-<span class="bx">│ </span>directory:   ~/gravity<span class="pad">                            </span><span class="bx"> │</span>
-<span class="bx">│ </span>permissions: YOLO mode<span class="pad">                            </span><span class="bx"> │</span>
-<span class="bx">╰────────────────────────────────────────────────────╯</span>
-
-<span class="cy">› </span>GRAVITY — did the subset keep the three axes?
-
-<span class="bu">• </span>Ran <span class="ar">node tools/fvar.mjs site/fonts/Gravity-latin.woff2</span>
-<span class="d">  └ 3 axes kept, 9 named instances kept</span>
-
-<span class="bd">──────────────────────────────────────────────────────────</span>
-
-<span class="bu">• </span>The subset holds all three axes, so the tester still
-  works against it. 41 kB against 148 kB is 72 per
-  cent off the first paint of any page that sets type.
-
-<span class="bd">──────────────────────────────────────────────────────────</span></pre>
-            <pre class="tm-in"><span class="cy">› </span><span class="cur"> </span>
-
-<span class="d">  gpt-5.6-sol high · ~/gravity</span></pre>
-          </div>
-          <div class="tm-pane" data-h="pi" role="group" aria-label="Pi, the payload">
-            <pre class="tm-out"><span class="d"> pi v0.84.2</span>
-<span class="d"> escape interrupt · ctrl+c/ctrl+d clear/exit · / commands</span>
-<span class="d"> ! bash · ctrl+o more</span>
-
-
- GRAVITY — what breaks for a reader outside Latin?
-<span class="d"> unicode-range lets the browser fetch the full file</span>
-<span class="d"> only when a glyph falls outside the cut, so nothing</span>
-<span class="d"> breaks. It costs one extra request, once.</span></pre>
-            <pre class="tm-in"><span class="bd">──────────────────────────────────────────────────────────</span>
- <span class="cur"> </span>
-<span class="bd">──────────────────────────────────────────────────────────</span>
-<span class="d"> ~/gravity</span>
-<span class="d"> 0.0%/128k (auto)</span><span class="pad">                        </span><span class="d">claude-opus-5</span></pre>
-          </div>
-          <div class="tm-pane" data-h="opencode" role="group" aria-label="Opencode, the payload">
-            <pre class="tm-out"><span class="pad">         </span><span class="lg"><svg class="art" data-cols="39" viewBox="0 0 78 2" preserveAspectRatio="none" aria-hidden="true" style="width:39ch"><g fill="currentColor"><rect x="0" y="0" width="2" height="1"/><rect x="6" y="0" width="2" height="1"/><rect x="10" y="0" width="2" height="1"/><rect x="16" y="0" width="2" height="1"/><rect x="20" y="0" width="8" height="1"/><rect x="30" y="0" width="2" height="1"/><rect x="36" y="0" width="2" height="1"/><rect x="40" y="0" width="2" height="1"/><rect x="50" y="0" width="2" height="1"/><rect x="56" y="0" width="2" height="1"/><rect x="60" y="0" width="2" height="1"/><rect x="66" y="0" width="2" height="1"/><rect x="70" y="0" width="8" height="1"/><rect x="0" y="1" width="2" height="1"/><rect x="6" y="1" width="2" height="1"/><rect x="10" y="1" width="2" height="1"/><rect x="16" y="1" width="2" height="1"/><rect x="20" y="1" width="2" height="1"/><rect x="30" y="1" width="2" height="1"/><rect x="36" y="1" width="2" height="1"/><rect x="40" y="1" width="2" height="1"/><rect x="50" y="1" width="2" height="1"/><rect x="56" y="1" width="2" height="1"/><rect x="60" y="1" width="2" height="1"/><rect x="66" y="1" width="2" height="1"/><rect x="70" y="1" width="2" height="1"/></g></svg></span>
-<span class="pad">         </span><span class="lg"><svg class="art" data-cols="39" viewBox="0 0 78 2" preserveAspectRatio="none" aria-hidden="true" style="width:39ch"><g fill="currentColor"><rect x="0" y="0" width="8" height="1"/><rect x="10" y="0" width="8" height="1"/><rect x="20" y="0" width="8" height="1"/><rect x="30" y="0" width="8" height="1"/><rect x="40" y="0" width="8" height="1"/><rect x="50" y="0" width="8" height="1"/><rect x="60" y="0" width="8" height="1"/><rect x="70" y="0" width="8" height="1"/><rect x="10" y="1" width="2" height="1"/></g></svg></span>
-
-
-<span class="bx">  ┃</span>
-<span class="bx">  ┃  </span>GRAVITY — weigh the site with the subset in
-<span class="bx">  ┃</span>
-
-<span class="d">     built site/ — 41 kB latin, 148 kB full, lazy</span>
-
-<span class="bu">     ▣  </span><span class="d">Build · gpt-5.6-sol · 1.0s</span></pre>
             <pre class="tm-in"><span class="bx">  ┃</span>
 <span class="bx">  ┃  </span><span class="cur"> </span>
 <span class="bx">  ┃  </span><span class="d">Build · gpt-5.6-sol · gravity</span>
@@ -3191,42 +2826,6 @@ if (prefersStill || !window.IntersectionObserver) {
       }, 1500);
     });
   }
-
-  /* ---- the round: ?id=1..5 picks the session ---- */
-  function setSession(n) {
-    stopPrint();
-    live = vars[n - 1] || vars[0];
-    vars.forEach(function (v) { v.classList.toggle('on', v === live); });
-    ran = false;
-    tm.classList.remove('printing', 'done');
-    showHarness('claude');
-    [].slice.call(document.querySelectorAll('.idsw button')).forEach(function (b) {
-      b.classList.toggle('on', Number(b.getAttribute('data-id')) === n);
-    });
-    requestAnimationFrame(function () { fit(); if (seen) start(); });
-  }
-
-  var seen = false;
-  var sw = document.createElement('nav');
-  sw.className = 'idsw';
-  sw.setAttribute('aria-label', 'round 6 of #629');
-  sw.innerHTML = '<span>#629</span>' + vars.map(function (v, k) {
-    return '<button type="button" data-id="' + (k + 1) + '" title="' +
-      v.getAttribute('data-name') + '">' + (k + 1) + '</button>';
-  }).join('');
-  document.body.appendChild(sw);
-  [].slice.call(sw.querySelectorAll('button')).forEach(function (b) {
-    b.addEventListener('click', function () {
-      var n = Number(b.getAttribute('data-id'));
-      var u = new URL(window.location.href);
-      u.searchParams.set('id', String(n));
-      history.replaceState(null, '', u);
-      setSession(n);
-    });
-  });
-
-  var want = Number(new URLSearchParams(window.location.search).get('id'));
-  setSession(want >= 1 && want <= vars.length ? want : 1);
 
   showHarness('claude');
 
