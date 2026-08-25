@@ -76,7 +76,12 @@ export const daemonPort = () => Number(process.env.PORT ?? DEFAULT_DAEMON_PORT)
 // POSTs `/api/reauth`, a route a proto-9 sidecar does not serve — so a screen
 // built for the 3am no-ssh recovery would answer 404 at the press it exists
 // for. It also reads two fields a proto-9 daemon's `/overview` does not carry.
-export const DASHBOARD_PROTO = 10
+// Bumped to 11 by #706: the Settings screen carries an aistack section that
+// reads `/api/aistack` and POSTs three `/api/aistack/*` routes, none of which a
+// proto-10 sidecar serves — so an old server must refuse this page rather than
+// draw a registration flow whose device code never arrives and whose every
+// button answers 404.
+export const DASHBOARD_PROTO = 11
 
 // The Credentials screen's own hash (#661). It is here rather than in the
 // daemon that links to it, because the page's screen names are this file's half
@@ -214,6 +219,14 @@ export const ASSERT_MS = 60_000
 // wedged daemon must not wedge the page too: the marker and the last snapshot
 // are the answer, and they need this to return.
 export const POLL_TIMEOUT_MS = 10_000
+
+// What an aistack act (#706) gets instead. A poll must be quick or be dropped,
+// but starting the device flow means `npx` fetching a package before the CLI
+// prints anything, and granting the standing permission means a round trip to
+// aistack.to. This is a hair past the daemon's own wait on each, so the daemon's
+// sentence about what happened is what the operator reads rather than this
+// side's sentence about not having heard.
+export const AISTACK_ACT_TIMEOUT_MS = 150_000
 
 // The one read that may leave the box (#355). Hunks come from the worktree in
 // milliseconds, and from `gh pr diff` over the network when the worktree is
@@ -1017,6 +1030,27 @@ export class DashboardSurface {
           return out
         })
       }
+      // The aistack registration (#706), in three presses: start the device
+      // flow, stop waiting for it, and grant the standing permission once the
+      // machine exists.
+      //
+      // THE BROWSER SENDS NOTHING. Each of these is a bare press, and each one
+      // spawns a command whose arguments this box already decided — the pinned
+      // CLI version, curia's own HOME. There is no field for a browser to name
+      // a version, a home, or a server with, which is the whole reason these
+      // are three routes rather than one that takes a command.
+      if (url.pathname === '/api/aistack/register' || url.pathname === '/api/aistack/cancel'
+        || url.pathname === '/api/aistack/optin') {
+        const act = url.pathname.slice('/api/aistack/'.length)
+        return this.#write(res, async () => {
+          const out = await this.#daemon({
+            method: 'POST', path: `/aistack/${act}`, accept: [200, 409],
+            timeout: AISTACK_ACT_TIMEOUT_MS,
+          })
+          if (out.ok === false) throw refuse(out.error)
+          return out
+        })
+      }
       if (url.pathname === '/api/console/new') {
         return this.#verb(res, () => this.#daemon({ method: 'POST', path: '/console/new' }))
       }
@@ -1121,6 +1155,16 @@ export class DashboardSurface {
       } catch (e) {
         return this.#json(res, 500, { error: e.message })
       }
+    }
+    // The aistack registration and the sync verdict (#706). Straight from the
+    // daemon, which is the process that holds the credential and spawns the
+    // CLI. The sidecar relays and adds nothing: it holds no secret (#263) and
+    // this answer deliberately carries none either.
+    if (url.pathname === '/api/aistack') {
+      return this.#daemon({ path: '/aistack' }).then(
+        (r) => this.#json(res, 200, r),
+        (e) => this.#json(res, 200, { ok: false, error: e.message }),
+      )
     }
     // The repos the operator could watch. The sidecar holds no GitHub
     // credential — that is what #263 means by secret-free — so the list comes

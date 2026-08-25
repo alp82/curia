@@ -188,6 +188,8 @@ export class Reduction {
     this.backupAlarm = null // the journal-backup failure that still stands, or null (#436)
     this.aistackAlarm = null // the aistack-sync failure that still stands, or null (#695)
     this.aistackAt = null // when the last aistack sync attempt finished, or null (#695)
+    this.aistackLast = null // how the last aistack sync attempt ENDED, or null (#706)
+    this.aistackMachine = null // the registration this box holds, or null (#706)
     this.mapAlarms = new Map() // "repo#map" -> the stranded-map alarm that still stands (#485)
     this.transcriptLandings = new Map() // session -> rewind landing and transcript tail (#689)
     this.conversationTurns = new Map() // session -> sent operator turns and the queued notes each one carried (#702)
@@ -461,6 +463,25 @@ export class Reduction {
     if (ev.type === 'aistack_sync' || ev.type === 'aistack_sync_failed') {
       const at = ev.ts ? Date.parse(ev.ts) : NaN
       if (Number.isFinite(at)) this.aistackAt = at
+      // The VERDICT of the last attempt (#706), which the alarm alone cannot
+      // give: a standing alarm says a failure is unrepaired, and its absence
+      // says nothing about whether this box ever published. Settings shows this
+      // one, so a success and a silence stay two different readings.
+      this.aistackLast = {
+        ok: ev.type === 'aistack_sync',
+        at: Number.isFinite(at) ? at : null,
+        published: ev.published ?? null,
+        message: ev.message ?? null,
+      }
+    }
+
+    // The registration (#706). A fact rather than the registration object's own
+    // memory, so the machine name survives the restart the operator does right
+    // after registering. The credential file records no name, so this is the
+    // name the box PROPOSED, and the screen says as much.
+    if (ev.type === 'aistack_registered') {
+      const at = ev.ts ? Date.parse(ev.ts) : NaN
+      this.aistackMachine = { machine: ev.machine ?? null, at: Number.isFinite(at) ? at : null }
     }
 
     // The stranded-map alarm (#485). A reduction for the reason the backup's is
@@ -1660,6 +1681,17 @@ export class Reduction {
   // tick.
   lastAistackSyncAt() {
     return this.aistackAt
+  }
+
+  // How the last aistack sync attempt ended, or null on a box that has never
+  // attempted one (#706). The Settings section shows this as the sync verdict.
+  lastAistackSync() {
+    return this.aistackLast ? { ...this.aistackLast } : null
+  }
+
+  // The aistack registration this box holds, or null (#706).
+  registeredAistackMachine() {
+    return this.aistackMachine ? { ...this.aistackMachine } : null
   }
 
   // Every stranded-map alarm that still stands (#485). The frontier read

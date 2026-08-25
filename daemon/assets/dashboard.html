@@ -38,7 +38,7 @@
      2. Null is not empty. An unreadable fleet is not an idle box, and a frontier
         nobody has computed is not an empty frontier. Every section that can fail
         on its own says which of the two it is. -->
-<meta name="curia-dashboard" content="proto=10">
+<meta name="curia-dashboard" content="proto=11">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark light">
 <title>Atlas · Curia</title>
@@ -704,6 +704,8 @@ var settings = null;  /* the last read of curia.yaml + routing.yaml off disk */
 var draft = null;     /* the same, with the operator's unsaved edits on it */
 var repos = null;     /* the watchable repos, read through the daemon on demand */
 var conversations = null; /* the browser conversations (#333), read on the Chat screen only */
+var aistack = null;   /* the aistack registration and sync verdict (#706), read on that section only */
+var aistackAct = { busy: null, said: null, poll: null }; /* which aistack press is in flight, and what it answered */
 
 /* ---- words ---------------------------------------------------------------- */
 
@@ -2458,12 +2460,12 @@ function drillIn(page, p) {
       means is measured: the daemon reports the settings it is RUNNING, and
       this screen compares them against the file it read. */
 
-/* The five sections, in the order the list draws them. Each one is a whole
+/* The six sections, in the order the list draws them. Each one is a whole
    setting in the operator's vocabulary: what a section shows, what it writes,
    and what a save of it costs. A later row lands as a field inside one of
    these or as another entry here — the pane and message rows (#716), the
-   GitHub App rows (#705), the aistack rows (#706) — and nothing outside this
-   array has to be told about it. */
+   GitHub App rows (#705) — and nothing outside this array has to be told
+   about it. */
 const SET_SECTIONS = [
   {
     key: "routing", title: "Routing", gist: gistRouting, body: setRouting,
@@ -2486,6 +2488,14 @@ const SET_SECTIONS = [
   {
     key: "connections", title: "Connections", gist: gistConnections, body: setConnections,
     hint: "The GitHub App and repository access for each watched owner.",
+  },
+  {
+    key: "aistack", title: "aistack", gist: gistAistack, body: setAistack,
+    hint: "Whether this box publishes its token usage to your aistack stack, and the registration that decides it.",
+    /* Its own read, and only when asked for: it is a daemon file read that the
+       other sections have no use for. Re-read on every arrival rather than
+       once, because the thing it reports can be changed on aistack.to. */
+    enter: () => { loadAistack(); },
   },
   {
     key: "maintenance", title: "Maintenance", gist: gistMaintenance, body: setMaintenance,
@@ -2858,6 +2868,195 @@ function setMaintenance(p) {
       Agent panes live in their own container, so they survive it.`)}
     ${writes ? `<div class="row"><span class="grow dim-note">where a save lands</span>${qq("set-writes")}</div>${qhint("set-writes", writes)}` : ""}
   </div>`;
+}
+
+/* ---- aistack (#706) ---------------------------------------------------------
+
+   The section that guides a headless registration and then reports what came
+   of it. Three facts shape it, and each one is a thing this section does NOT
+   do.
+
+   1. IT DOES NOT APPROVE. #695 settled that the approval is a human act in a
+      signed-in browser, and nothing on the box can perform it. So this section
+      starts the CLI's device flow and shows the two things only the box knows
+      — the code and the link — and the operator finishes it on whatever screen
+      they are already holding. That deletes the ssh from the ceremony without
+      moving the approval anywhere.
+   2. IT DOES NOT SEE THE CREDENTIAL. The token lives in a file under curia's
+      HOME and never leaves the daemon. What arrives here is a code meant to be
+      read aloud, a link meant to be opened, a proposed machine name, and the
+      hosts the credential file is keyed by. There is no field on this wire
+      that could carry a bearer.
+   3. IT WRITES NO CONFIGURATION, so it declares no `patch`, `count` or
+      `restarts` and the save dock never rises for it. The credential IS the
+      switch (#695): an `enabled` key here would be a second answer to a
+      question that already has one.
+
+   The read is its own, taken when the section is opened and after every press,
+   never on the poll: it costs the daemon a file read and the other sections
+   have no use for it. While a login waits for approval the section re-reads on
+   a short timer, because the thing it is waiting for happens on a different
+   device and nothing else would tell it. */
+
+const AISTACK_MACHINES_URL = "https://aistack.to/settings/machines";
+/* The approval window is the CLI's own: it polls for three minutes. */
+const AISTACK_WAIT_MS = 5000;
+
+const agoMs = (ms) => (ms ? ago(new Date(ms).toISOString()) : "never");
+
+async function loadAistack() {
+  try {
+    const res = await fetch("/api/aistack", { headers: { accept: "application/json" }, cache: "no-store" });
+    if (!res.ok) throw new Error("the sidecar answered " + res.status);
+    aistack = await res.json();
+  } catch (e) {
+    aistack = { ok: false, error: e.message };
+  }
+  aistackWatch();
+  render();
+}
+
+/* One timer, armed only while a login is actually waiting. The section is a
+   settings row on a page that re-renders on every poll, so a timer armed per
+   render would multiply. */
+function aistackWatch() {
+  if (aistackAct.poll) { clearTimeout(aistackAct.poll); aistackAct.poll = null; }
+  if (aistack?.flow?.phase !== "waiting") return;
+  aistackAct.poll = setTimeout(() => { aistackAct.poll = null; loadAistack(); }, AISTACK_WAIT_MS);
+}
+
+async function aistackDo(act) {
+  if (aistackAct.busy) return;
+  aistackAct.busy = act;
+  aistackAct.said = null;
+  render();
+  try {
+    const res = await fetch("/api/aistack/" + act, {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: "{}",
+    });
+    const b = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(b.error || ("the sidecar answered " + res.status));
+    aistack = b;
+    if (b.said) aistackAct.said = { ok: true, text: b.said };
+  } catch (e) {
+    aistackAct.said = { ok: false, text: e.message };
+  }
+  aistackAct.busy = null;
+  aistackWatch();
+  render();
+}
+
+/* What the last sync attempt came to, in one clause. Absent is not the same as
+   failing and neither is the same as never having run, so all three have their
+   own words. */
+function aistackVerdict(a) {
+  const last = a?.sync?.last ?? null;
+  if (a?.sync?.alarm) return { ok: false, text: "the last sync failed " + agoMs(a.sync.alarm.at) };
+  if (!last) return { ok: null, text: "no sync has run yet" };
+  if (!last.ok) return { ok: false, text: "the last sync failed " + agoMs(last.at) };
+  return { ok: true, text: (last.published ? "published " : "synced ") + agoMs(last.at) };
+}
+
+function gistAistack() {
+  if (!aistack) return `<span class="dim-note">not read yet</span>`;
+  if (aistack.ok === false) return `<span class="dim-note">curia cannot tell</span>`;
+  if (aistack.flow?.phase === "waiting") return `<span style="color:var(--warn)">waiting for approval</span>`;
+  if (!aistack.registered) return `<span class="dim-note">not registered</span>`;
+  const v = aistackVerdict(aistack);
+  return `<span style="color:${v.ok === false ? "var(--warn)" : v.ok ? "var(--ok)" : "var(--ink-dim)"}">${esc(v.text)}</span>`;
+}
+
+function setAistack() {
+  if (!aistack) return `<p class="qhint">reading…</p>`;
+  if (aistack.ok === false) {
+    return `<p class="unread">curia cannot say whether this box is registered: ${esc(aistack.error ?? "the daemon is not answering")}.
+      The registration lives on the daemon, so this section is blank exactly while the daemon is.</p>`;
+  }
+  const said = aistackAct.said
+    ? `<p class="${aistackAct.said.ok ? "qhint" : "unread"}">${esc(aistackAct.said.text)}</p>`
+    : "";
+  const flow = aistack.flow ?? {};
+  const busy = aistackAct.busy;
+  const btn = (act, label, extra) => `<button class="btn${extra ? " " + extra : ""}"${
+    busy ? " disabled" : ""} onclick="aistackDo('${esc(act)}')">${esc(busy === act ? "…" : label)}</button>`;
+
+  /* The waiting half. The code and the link are the whole of what the operator
+     needs, so they are the whole of what is on the screen — big enough to read
+     off a phone across a room, and the link is the one the CLI printed rather
+     than one this page composed. */
+  if (flow.phase === "waiting") {
+    return `${said}<p class="unread">Approve this box on aistack. The code below is live for about three minutes;
+      after that, start a new registration.</p>
+      <div class="rows">
+        <div class="row"><span class="key">code</span><span class="grow mono" style="font-size:22px;letter-spacing:2px">${esc(flow.code ?? "—")}</span></div>
+        <div class="row"><span class="key">approve at</span><span class="grow"><a href="${esc(flow.url ?? "#")}" target="_blank" rel="noopener">${esc(flow.url ?? "—")}</a></span></div>
+        <div class="row"><span class="grow">${btn("cancel", "Stop waiting")}</span>${qq("set-aistack-wait")}</div>
+        ${qhint("set-aistack-wait", `Open the link on any signed-in machine, name this box, pick the stack, and approve.
+          The approval cannot happen here: it needs a browser signed in to aistack, and the box has none.
+          This section re-reads itself while it waits, so it will say so on its own.`)}
+      </div>`;
+  }
+
+  /* The unregistered half. One button, plus the same two commands over ssh for
+     the operator who would rather type them — they are the daemon README's,
+     and curia states them rather than making anyone go and find them. */
+  if (!aistack.registered) {
+    const why = ["failed", "expired", "cancelled"].includes(flow.phase)
+      ? `<p class="unread">The last registration ${esc(flow.phase)}: ${esc(flow.message ?? "no reason given")}.
+         ${flow.phase === "failed" ? `Read <span class="mono">${esc(aistack.log_file ?? "")}</span> on the box.` : ""}
+         Start a new one — a new login mints a new code.</p>`
+      : `<p class="qhint">This box is not an aistack machine, so curia publishes nothing and says nothing about it.
+         Registering it puts the agents' rolling 30-day token spend on your measured layer.</p>`;
+    return `${said}${why}<div class="rows">
+      <div class="row"><span class="grow">${btn("register", "Register this box")}</span>${qq("set-aistack-reg")}</div>
+      ${qhint("set-aistack-reg", `Curia runs the aistack CLI's device login on the box and shows you its code and link.
+        You approve in a browser that is signed in to aistack. The token it hands back is written to a file under curia's
+        own home, outside every checkout — it never reaches this page and no commit ever carries it.`)}
+      ${aistackCommands(aistack)}
+    </div>`;
+  }
+
+  /* The registered half: who this box is on aistack, and what the recurring
+     sync last did. */
+  const m = aistack.machine ?? {};
+  const v = aistackVerdict(aistack);
+  const alarm = aistack.sync?.alarm ?? null;
+  const state = alarm
+    ? `<p class="unread">The sync is failing: ${esc(alarm.message ?? "no reason given")}.
+       Read <span class="mono">${esc(aistack.log_file ?? "")}</span> on the box. If the machine is gone from
+       <a href="${esc(AISTACK_MACHINES_URL)}" target="_blank" rel="noopener">aistack.to/settings/machines</a>,
+       delete the credential on the box and register it again; if it is still there, grant the standing permission below.</p>`
+    : `<p class="qhint">This box is registered. Curia checks every
+       ${esc(aistack.sync?.interval_hours ?? "?")}h; the stack's own frequency decides how often a check actually publishes.</p>`;
+  const published = aistack.sync?.last?.published ?? null;
+  return `${said}${state}<div class="rows">
+    <div class="row"><span class="key">machine</span><span class="grow mono">${esc(m.proposed ?? "unknown")}</span>${qq("set-aistack-machine")}</div>
+    ${qhint("set-aistack-machine", `The name this box PROPOSED at registration, which is its hostname. The approval page can rename a
+      machine and the credential file records no name, so the name aistack shows is the one on
+      <a href="${esc(AISTACK_MACHINES_URL)}" target="_blank" rel="noopener">aistack.to/settings/machines</a>. That page is also where you revoke it.`)}
+    <div class="row"><span class="key">stack</span><span class="grow mono">${esc((m.servers ?? []).join(", ") || "—")}</span></div>
+    <div class="row"><span class="key">registered</span><span class="grow dim-note">${esc(m.at ? agoMs(m.at) : "before curia started recording it")}</span></div>
+    <div class="row"><span class="key">last sync</span><span class="grow" style="color:${
+      v.ok === false ? "var(--warn)" : v.ok ? "var(--ok)" : "var(--ink-dim)"}">${esc(v.text)}${
+      published ? ` — <a href="${esc(published)}" target="_blank" rel="noopener">the stack</a>` : ""}</span></div>
+    <div class="row"><span class="grow">${btn("optin", "Grant standing permission")}</span>${qq("set-aistack-optin")}</div>
+    ${qhint("set-aistack-optin", `The second half of the ceremony, and the one a registration alone does not do: it tells the stack this
+      machine may publish without anyone present. A box that is registered but never granted this syncs nothing and fails
+      with a permission message. Pressing it twice is harmless.`)}
+    ${aistackCommands(aistack)}
+  </div>`;
+}
+
+/* The same two acts as shell lines, for the operator at a terminal. Behind a
+   `?`, because the point of this section is that nobody has to type them. */
+function aistackCommands(a) {
+  const c = a?.commands;
+  if (!c) return "";
+  return `<div class="row"><span class="grow dim-note">the same thing over ssh</span>${qq("set-aistack-ssh")}</div>
+    ${qhint("set-aistack-ssh", `<span class="mono">${esc(c.login)}</span><br><span class="mono">${esc(c.opt_in)}</span><br>
+      Run them as curia's own HOME, which is what those lines say. Curia picks the credential up on its next tick either way.`)}`;
 }
 
 /* ---- the chat (#267, many conversations by #333) ----------------------------

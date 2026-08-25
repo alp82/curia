@@ -479,7 +479,7 @@ export class Dispatcher {
     // files no ticket, so it belongs beside the liveness sweep rather than
     // behind a second timer. NULL is legal: the suite builds dispatchers that
     // have no business spawning a command line interface.
-    this.aistack = maintenance ? null : (aistack ?? null)
+    this.aistack = aistack ?? null
     this.deps = { ...DEFAULT_DEPS, ...deps }
     this.root = config.dispatch.workspace_root
     this.agents = new Map() // session -> agent record (disposable cache)

@@ -64,6 +64,7 @@ import { setDaemonTokenSource } from './daemongh.mjs'
 import { TokenWatch } from './tokenwatch.mjs'
 import { JournalBackup } from './backup.mjs'
 import { AistackSync } from './aistack.mjs'
+import { AistackRegistration } from './aistackreg.mjs'
 import {
   probeTtyd, serveOff, attachBase, atlasTerminalUrl, validSessionName,
   isConsoleKey, consoleKeyForSession, sessionForConsoleKey,
@@ -144,7 +145,6 @@ const CURIA_FILE = path.join(CONFIG_DIR, 'curia.yaml')
 const ROUTING_FILE = path.join(CONFIG_DIR, 'routing.yaml')
 const curiaConfig = loadCuriaConfig(CURIA_FILE)
 const routingConfig = loadRoutingConfig(ROUTING_FILE)
-const aistack = new AistackSync({ workspaceRoot: curiaConfig.dispatch.workspace_root, log })
 // When the values this process RUNS were read off disk (#362). Boot sets it,
 // and a reload that applies moves it. `GET /overview` stamps the six live
 // settings with it, which is what lets the console say "applied" as a fact it
@@ -1192,6 +1192,39 @@ const aistackSync = new AistackSync({
   log: (line) => log(line),
 })
 
+// The registration behind that sync (#706). It spawns the same two commands the
+// README documents and hands the browser their device code and approval link;
+// the approval itself stays a human act in a signed-in browser, which is what
+// #695 settled. It journals, so a registration survives the restart the
+// operator tends to do right after making one.
+const aistackReg = new AistackRegistration({
+  root: curiaConfig.dispatch.workspace_root,
+  version: curiaConfig.aistack.cli_version,
+  journal: (type, detail) => reduction.journal(type, detail),
+  log: (line) => log(line),
+})
+
+// The one shape the Settings section reads (#706): the registration, plus what
+// the recurring sync did last. Composed here rather than in either module,
+// because the verdict belongs to the reduction and the flow belongs to the
+// registration, and joining them anywhere else would give one of them a
+// reference to the other for no other reason.
+function aistackStatus() {
+  const alarm = reduction.standingAistackAlarm()
+  return {
+    ok: true,
+    ...aistackReg.status({ machine: reduction.registeredAistackMachine() }),
+    sync: {
+      last: reduction.lastAistackSync(),
+      // The unrepaired failure, if there is one. Its message is the CLI's, and
+      // the screen shows it beside the act that fixes it.
+      alarm: alarm ? { message: alarm.message ?? null, at: alarm.at ?? null } : null,
+      interval_hours: curiaConfig.aistack.interval_hours,
+      cli_version: curiaConfig.aistack.cli_version,
+    },
+  }
+}
+
 const dispatcher = new Dispatcher({
   config: curiaConfig,
   aistack: aistackSync,
@@ -1306,7 +1339,6 @@ const dispatcher = new Dispatcher({
   // The anthropic store (#648), constructed above beside the seed that fills it.
   anthropic,
   anthropicHealth,
-  maintenance: () => aistack.tick(),
   deps: {
     // #188: the container-facing listener is this file's, so the check that a
     // sandboxed dispatch can rely on it is this file's too. It binds lazily,
@@ -2611,7 +2643,11 @@ async function overview() {
     bridge: health?.state ?? 'down',
     bridge_health: health ?? { state: 'down', since: null, unhealthy_for_s: 0, last_error: null },
     usage: providerUsage(),
-    aistack: aistack.status(),
+    // ONE VERDICT ABOUT THIS BOX (#706). The registration and the sync verdict
+    // both come out of the journal, so this route and the Settings section read
+    // the same facts and cannot disagree — and a restart, which is what an
+    // operator does right after registering, does not blank either of them.
+    aistack: aistackStatus(),
     // The pre-emptive holds standing now (#384). The strip above says how full
     // a window is; this says curia has STOPPED dispatching on it, which is a
     // different fact and gets its own banner.
@@ -3188,6 +3224,29 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
       // is this box failing, and it answers 500 so the two never read the same.
       return json(e?.refusal ? 409 : 500, { ok: false, error: e.message })
     }
+  }
+
+  // ---- the aistack registration (#706) -----------------------------------
+  //
+  // Four routes, and none of them can carry the bearer: the read composes a
+  // status out of a device code, a link, a hostname and the reduced sync
+  // verdict, and the two acts spawn the CLI and answer what it said. The token
+  // stays in the file the CLI writes under curia's HOME.
+  if (url.pathname === '/aistack' && req.method === 'GET') {
+    return json(200, aistackStatus())
+  }
+  if (url.pathname === '/aistack/register' && req.method === 'POST') {
+    const out = await aistackReg.begin()
+    return json(out.ok === false ? 409 : 200, out.ok === false ? out : aistackStatus())
+  }
+  if (url.pathname === '/aistack/cancel' && req.method === 'POST') {
+    const out = aistackReg.cancel()
+    return json(out.ok === false ? 409 : 200, out.ok === false ? out : aistackStatus())
+  }
+  if (url.pathname === '/aistack/optin' && req.method === 'POST') {
+    const out = await aistackReg.optIn()
+    if (out.ok === false) return json(409, out)
+    return json(200, { ok: true, said: out.said, ...aistackStatus() })
   }
 
   if (url.pathname === '/reload' && req.method === 'POST') {
