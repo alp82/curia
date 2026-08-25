@@ -997,10 +997,14 @@ describe('the settings screen (#265)', () => {
     page.repos = { login: 'alp82', repos: ['alp82/curia', 'alp82/aistack', 'alp82/annapod'], error: null }
   })
 
+  // The drill state as a pick leaves it: one section open, and the phone off
+  // the list in front of it.
   const screen = (section = 'routing') => {
-    page.UI.set.section = section
+    page.UI.drill.settings = { open: section, list: false }
     return page.screenSettings(payload())
   }
+  const rows = (html) => [...html.matchAll(/onclick="openSection\('settings', '(\w+)'\)"/g)].map((m) => m[1])
+  const headings = (html) => [...html.matchAll(/<h3>([^<]+)<\/h3>/g)].map((m) => m[1])
 
   test('it is a screen now, not a promise of one', () => {
     assert.ok(!text(screen()).includes('lands on #265'))
@@ -1011,18 +1015,63 @@ describe('the settings screen (#265)', () => {
     assert.match(text(screen()), /curia\.yaml · routing\.yaml/)
   })
 
+  // ---- the drill-in frame (#699) -------------------------------------------
+  //
+  // The shape every later Atlas section page renders inside. What is pinned
+  // here is the frame's contract rather than these four sections' words: one
+  // list, one open section, a way back, and a read that a section takes on
+  // arrival instead of on every poll.
+
+  test('the main list names every section, each with a gist of its own', () => {
+    const html = screen()
+    assert.deepEqual(rows(html), ['routing', 'projects', 'dispatch', 'maintenance'])
+    const t = text(html)
+    assert.match(t, /Routing opus untyped · 2 of 3 models on/)
+    assert.match(t, /Projects 2 repos watched/)
+    assert.match(t, /Dispatch auto · 3 agents · 60s/)
+    assert.match(t, /Maintenance in step/, 'a color state says a word too')
+  })
+
+  test('one section is open at a time, and a pick opens another', () => {
+    assert.deepEqual(headings(screen('routing')), ['Routing'])
+    assert.deepEqual(headings(screen('dispatch')), ['Dispatch'])
+    assert.ok(!text(screen('dispatch')).includes('most recently pushed repos'),
+      'a section nobody opened draws none of its body')
+  })
+
+  test('a phone lands on the list, and the back link returns to it', () => {
+    page.UI.drill.settings = { open: null, list: true }
+    assert.ok(!page.screenSettings(payload()).includes('data-open'))
+    page.openSection('settings', 'projects')
+    assert.match(page.screenSettings(payload()), /data-open="projects"/)
+    assert.deepEqual(headings(page.screenSettings(payload())), ['Projects'])
+    page.backToList('settings')
+    assert.ok(!page.screenSettings(payload()).includes('data-open'),
+      'the list is what the phone shows again; the desktop shows both either way')
+  })
+
+  test('a section takes its own read on arrival, not on every poll', () => {
+    page.repos = null
+    let reads = 0
+    page.loadRepos = () => { reads += 1 }
+    page.screenSettings(payload())
+    page.screenSettings(payload())
+    assert.equal(reads, 0, 'a render is a render — it fetches nothing')
+    page.openSection('settings', 'projects')
+    assert.equal(reads, 1)
+  })
+
   // ---- routing -------------------------------------------------------------
 
-  test('the ticket-type table leads and the model list sits behind one click', () => {
+  test('the ticket-type rows lead and the model list sits behind one click', () => {
     const t = text(screen('routing'))
-    assert.match(t, /ticket type default model/)
+    assert.match(t, /grilling opus/)
     assert.match(t, /2 of 3 models active · manage/)
     assert.ok(!t.includes('runs on'), 'the model list is closed until it is asked for')
     page.UI.set.models = true
     const open = text(screen('routing'))
     assert.match(open, /2 of 3 models active · close/)
-    assert.match(open, /runs on/)
-    assert.match(open, /gpt gpt-5\.6-sol openai · codex/, 'the CLI name rides beside the routing label')
+    assert.match(open, /gpt gpt-5\.6-sol runs on openai · codex/, 'the CLI name rides beside the routing label')
   })
 
   test('a default may only be pointed at a model that is ON', () => {
@@ -1070,11 +1119,21 @@ describe('the settings screen (#265)', () => {
   test('dispatch carries the switch and each editable number', () => {
     const t = text(screen('dispatch'))
     assert.match(t, /auto_dispatch/)
-    assert.match(t, /every dispatch is one the operator ordered/)
-    assert.match(t, /max_concurrent How many agents may run at once\. Each one costs a container/)
+    assert.match(t, /max_concurrent/)
     assert.match(t, /poll_interval_s/)
-    assert.match(t, /prototype_variations How many variations each prototype round offers by default/)
+    assert.match(t, /prototype_variations/)
     assert.ok(!t.includes('workspace_root'), 'a path on the daemon\'s filesystem is not a thing this screen writes')
+  })
+
+  // The #525 decision: a row says its key and nothing else until the `?` is
+  // asked. What a phone shows first is four short rows, not four paragraphs.
+  test('an explanation waits behind its own `?` and arrives when it is asked for', () => {
+    const shut = text(screen('dispatch'))
+    assert.ok(!shut.includes('Each one costs a container'), 'the words are not on the screen yet')
+    page.toggleHint('set-max_concurrent')
+    assert.match(text(screen('dispatch')), /How many agents may run at once\. Each one costs a container/)
+    assert.ok(!text(screen('dispatch')).includes('How often curia reads the frontier'),
+      'one `?` opens one explanation, not the section')
   })
 
   // ---- the patch -----------------------------------------------------------
@@ -1109,10 +1168,46 @@ describe('the settings screen (#265)', () => {
 
   // ---- the banner: one act, three outcomes (#362) ---------------------------
 
+  test('a clean screen carries no save chrome at all', () => {
+    assert.ok(!screen().includes('class="dock'), 'nothing has been edited, so there is nothing to save')
+  })
+
+  test('the dock rises on the first edit, and the discard puts the draft back', () => {
+    assert.ok(!screen().includes('class="dock'))
+    page.setDispatchField('max_concurrent', '4')
+    assert.match(screen(), /<div class="dock">/)
+    assert.match(text(screen()), /1 unsaved change/)
+    page.discardEdits()
+    assert.equal(page.draft.dispatch.max_concurrent, page.settings.dispatch.max_concurrent)
+    assert.ok(!screen().includes('class="dock'), 'the discard leaves a clean screen, not an empty dock')
+  })
+
+  // The restart is named BEFORE the press, not learned from the outcome. Every
+  // row shipped today is inside the reload's live set, so the sentence the
+  // operator reads is that nothing here needs one.
+  test('the dock names what a save cannot apply without a restart', () => {
+    page.setDispatchField('max_concurrent', '4')
+    assert.deepEqual(plain(page.restartNeeds()), [])
+    assert.match(text(screen()), /every change here lands at once, with no restart/)
+    page.DRILL_PAGES.settings.push({
+      key: 'later', title: 'Later', gist: () => '', body: () => '',
+      patch: (out) => { out.later = { on: true } },
+      count: () => 1,
+      restarts: (patch) => (patch.later ? ['later.on'] : []),
+    })
+    try {
+      assert.deepEqual(plain(page.restartNeeds()), ['later.on'])
+      assert.match(text(screen()), /a restart applies later\.on — every other change lands at once/)
+      assert.match(text(screen()), /2 unsaved changes/, 'the new section counts in the operator\'s own units')
+    } finally {
+      page.DRILL_PAGES.settings.pop()
+    }
+  })
+
   test('before a save: unsaved changes count, save is the primary button, and no restart is offered', () => {
     page.setDispatchField('max_concurrent', '4')
     const html = screen()
-    assert.match(text(html), /1 unsaved change\./)
+    assert.match(text(html), /1 unsaved change/)
     assert.match(html, /class="btn primary" {2}onclick="doSave\(\)"/)
     assert.ok(!html.includes('restart-hot'), 'nothing is applied yet, so nothing is loud')
     assert.ok(!html.includes('doRestart()'), 'the bar is just Save — the restart lives in Maintenance now')
@@ -1122,7 +1217,7 @@ describe('the settings screen (#265)', () => {
     page.UI.set.phase = 'applied'
     page.UI.set.note = 'Wrote curia.local.yaml, atomically, with the comments kept.'
     const html = screen()
-    assert.match(text(html), /Saved ✓/)
+    assert.match(text(html), /saved ✓/)
     assert.match(text(html), /The daemon is running it\./)
     assert.ok(!html.includes('doRestart()'), 'an applied save needs no button at all')
   })
@@ -1178,8 +1273,7 @@ describe('the settings screen (#265)', () => {
     assert.match(text(html), /The daemon is running these files\./)
     assert.ok(!html.includes('restart-hot'), 'an ordinary restart button, because nothing disagrees')
     assert.match(html, /doRestart\(\)/, 'the one restart button lives here now')
-    const tabs = [...html.matchAll(/onclick="setSection\('(\w+)'\)"/g)].map((m) => m[1])
-    assert.deepEqual(tabs, ['routing', 'projects', 'dispatch', 'maintenance'], 'the fourth section, and it reads last')
+    assert.deepEqual(rows(html), ['routing', 'projects', 'dispatch', 'maintenance'], 'the fourth section, and it reads last')
   })
 
   test('a daemon running something else names the keys, and the button goes red', () => {
@@ -1196,7 +1290,7 @@ describe('the settings screen (#265)', () => {
   test('a daemon that is not answering is unknown, never in step', () => {
     const p = { ...payload(), daemon_up: false }
     assert.equal(page.runningDiff(p), null)
-    page.UI.set.section = 'maintenance'
+    page.UI.drill.settings = { open: 'maintenance', list: false }
     assert.match(text(page.screenSettings(p)), /cannot tell whether the daemon runs these files: it is not answering/)
   })
 
