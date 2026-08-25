@@ -144,6 +144,11 @@ describe('GET /overview (index.mjs, real boot)', () => {
         return JSON.parse((await request(port, 'GET', '/overview')).body).frontier.computed_at !== null
       } catch { return false }
     }, 'a frontier stamped by boot reconcile')
+    await waitForBoot(watch, async () => {
+      try {
+        return JSON.parse((await request(port, 'GET', '/overview')).body).maps?.error != null
+      } catch { return false }
+    }, 'the map snapshot attempted during boot')
   })
 
   after(() => {
@@ -183,6 +188,9 @@ describe('GET /overview (index.mjs, real boot)', () => {
     for (const key of ['agents', 'untracked', 'recent', 'escalations', 'review_gate', 'usage', 'pre_cooling', 'events']) {
       assert.ok(Array.isArray(o[key]), `${key} is a list`)
     }
+    assert.equal(o.maps.computed_at, null)
+    assert.equal(o.maps.maps, null)
+    assert.match(o.maps.error, /gh api/)
     assert.equal(o.fleet_error, null, 'tmux answered, so the fleet is a reading rather than a refusal')
     // A bridgeless daemon says down in both spellings — the string /state
     // already gave this reader, and the whole record beside it.

@@ -1573,7 +1573,7 @@ describe('usage-limit respawn failure releases the claim (B3)', () => {
         if (spawnCalls > 1) throw new Error('tmux exploded')
       },
       // a model-scoped cap hit ⇒ cool sonnet, fall back to haiku
-      capturePane: async () => 'Sonnet usage limit reached | 1800000000',
+      capturePane: async () => `Sonnet usage limit reached | ${Math.floor((Date.now() + 3600_000) / 1000)}`,
       unclaim: async (repo, ticket) => { unclaimed.push(`${repo}#${ticket}`) },
       removeCredentials: (dir) => { credsRemoved.push(dir) },
     }, { routing })
@@ -2025,7 +2025,7 @@ describe('true exhaustion with a FAILED unclaim tells the operator the truth (re
     // failed that is the opposite of the truth: the ticket stays assigned
     // and filterTakeable drops it from every frontier.
     const d = makeDispatcher({
-      capturePane: async () => 'Claude usage limit reached | 1800000000',
+      capturePane: async () => `Claude usage limit reached | ${Math.floor((Date.now() + 3600_000) / 1000)}`,
       unclaim: async () => { throw new Error('gh: HTTP 502') },
     })
 
@@ -2040,7 +2040,7 @@ describe('true exhaustion with a FAILED unclaim tells the operator the truth (re
 
   test('control: a successful unclaim on true exhaustion adds no release-failure message', async () => {
     const d = makeDispatcher({
-      capturePane: async () => 'Claude usage limit reached | 1800000000',
+      capturePane: async () => `Claude usage limit reached | ${Math.floor((Date.now() + 3600_000) / 1000)}`,
     })
 
     await d.start('42', { repo: 'o/r', by: 'test' })
