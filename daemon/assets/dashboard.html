@@ -85,12 +85,12 @@
   }
   .drawer .brand {
     padding: 0 10px 18px; color: var(--ink-dim); font: 700 11px ui-monospace, Menlo, monospace;
-    letter-spacing: .16em; text-transform: uppercase;
+    letter-spacing: .16em;
   }
   .drawer button {
     text-align: left; border: 0; background: none; color: var(--ink-dim);
     padding: 11px 10px; border-radius: 7px; font: 600 12px ui-monospace, Menlo, monospace;
-    letter-spacing: .08em; text-transform: uppercase;
+    letter-spacing: .08em;
     display: flex; justify-content: space-between; align-items: baseline;
   }
   .drawer button.on { background: var(--bg-raise); color: var(--accent); }
@@ -112,7 +112,7 @@
     .notchbar button {
       min-width: 0; border: 0; background: none; color: var(--ink-dim);
       padding: 4px 1px; font: 700 9px ui-monospace, Menlo, monospace;
-      letter-spacing: .04em; text-transform: uppercase;
+      letter-spacing: .04em;
     }
     .notchbar button.on { color: var(--accent); }
     .notchbar .nav-icon { display: block; min-height: 20px; margin-bottom: 3px; font-size: 17px; line-height: 20px; }
@@ -435,7 +435,6 @@ const SCREENS = {
   settings: ["Settings", screenSettings],
 };
 const NAMES = Object.keys(SCREENS);
-const DESKTOP_NAV = ["home", "maps", "agents", "feed", "chat", "settings"];
 
 /* A usage window is spent at the same number the daemon calls spent
    (usage.mjs SPENT_PCT). One name for one thing: the page must not invent a
@@ -712,8 +711,8 @@ function readbar(p) {
 function head(p, title, right) {
   return `<div class="screen-head"><h2>${esc(title)}</h2>${right ?? ""}</div>${readbar(p)}`;
 }
-function noSnapshot(p, title) {
-  return `${head(p, title)}<div class="later">No snapshot yet. The sidecar is up and has not read the daemon successfully even once.</div>`;
+function noSnapshot(p, title, right) {
+  return `${head(p, title, right)}<div class="later">No snapshot yet. The sidecar is up and has not read the daemon successfully even once.</div>`;
 }
 function later(p, what, ticket) {
   return `${head(p, SCREENS[UI.screen][0])}
@@ -1425,7 +1424,8 @@ function deployCard(o) {
 
 function screenAgents(p) {
   const o = p?.overview;
-  if (!o) return noSnapshot(p, "Agents");
+  const chat = `<button class="btn sm" onclick="goto('chat')">Chat</button>`;
+  if (!o) return noSnapshot(p, "Agents", chat);
   const d = o.daemon ?? {};
   const live = o.agents == null ? "—" : o.agents.length;
   const bar = `<div class="statusbar">
@@ -1434,7 +1434,7 @@ function screenAgents(p) {
     <span>bridge ${esc(o.bridge)}</span>
     <span>daemon :${esc(d.port)} up ${esc(dur(d.uptime_s))}</span>
   </div>`;
-  return `${head(p, "Agents", `<button class="btn sm" onclick="goto('chat')">Chat</button>`)}${bar}${agentsTable(o)}${untrackedLine(o)}${recentLine(o)}`;
+  return `${head(p, "Agents", chat)}${bar}${agentsTable(o)}${untrackedLine(o)}${recentLine(o)}`;
 }
 
 function agentsTable(o) {
@@ -2272,7 +2272,7 @@ function navMarker(k, needs, stale) {
 }
 function desktopNav(needs, stale) {
   return `<nav class="drawer" aria-label="Atlas pages"><span class="brand">curia · atlas</span>
-    ${DESKTOP_NAV.map((k) => `<button class="${UI.screen === k ? "on" : ""}" onclick="goto('${k}')">
+    ${NAMES.map((k) => `<button class="${UI.screen === k ? "on" : ""}" onclick="goto('${k}')">
       <span class="nav-label">${SCREENS[k][0]}</span>${navMarker(k, needs, stale)}</button>`).join("")}
   </nav>`;
 }
@@ -2285,7 +2285,7 @@ function mobileNav(needs, stale) {
     ${mobileTab("home", "⌂", navMarker("home", needs, stale))}
     ${mobileTab("maps", "▦")}
     <button class="agents-key ${UI.screen === "agents" || UI.screen === "chat" ? "on" : ""}" onclick="goto('agents')">
-      <span class="nav-icon num">${needs || "◎"}</span><span class="nav-label">Agents</span></button>
+      <span class="nav-icon num">${needs}</span><span class="nav-label">Agents</span></button>
     ${mobileTab("feed", "≡")}
     ${mobileTab("settings", "⚙", navMarker("settings", needs, stale))}
   </nav>`;
@@ -2378,6 +2378,6 @@ if (typeof document !== "undefined" && document.getElementById("app")) {
      `enter` already took the read on the settings screen itself. */
   if (UI.screen !== "settings") loadSettings();
   render();
-  tick();
+  if (document.visibilityState === "visible") tick();
 }
 </script>

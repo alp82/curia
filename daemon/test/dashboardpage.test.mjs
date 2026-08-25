@@ -22,10 +22,14 @@ import { DEFAULT_DASHBOARD_INDEX, DASHBOARD_PROTO } from '../src/dashboard.mjs'
 // one keeps the load inert: no render, no poll, no timer. `fetch` never settles
 // on purpose — a rejection would flip the offline marker and every screen below
 // would be testing that instead.
-function loadPage() {
+function pageScript() {
   const html = fs.readFileSync(DEFAULT_DASHBOARD_INDEX, 'utf8')
   const script = /<script>([\s\S]*)<\/script>/.exec(html)
   assert.ok(script, 'the page carries its script inline — there is no build step')
+  return script[1]
+}
+
+function loadPage() {
   const ctx = vm.createContext({
     document: { title: '', getElementById: () => null, addEventListener() {}, visibilityState: 'hidden' },
     window: { addEventListener() {} },
@@ -35,22 +39,20 @@ function loadPage() {
     clearTimeout,
     console,
   })
-  vm.runInContext(script[1], ctx)
+  vm.runInContext(pageScript(), ctx)
   return ctx
 }
 
-function loadPollingPage() {
-  const html = fs.readFileSync(DEFAULT_DASHBOARD_INDEX, 'utf8')
-  const script = /<script>([\s\S]*)<\/script>/.exec(html)
+function loadPollingPage({ visibilityState = 'visible', mount = false } = {}) {
   const listeners = new Map()
   const timers = new Map()
   const reads = []
   let timerId = 0
   const document = {
     title: '',
-    visibilityState: 'visible',
+    visibilityState,
     activeElement: null,
-    getElementById: () => null,
+    getElementById: (id) => (mount && id === 'app' ? { set innerHTML(_value) {} } : null),
     addEventListener: (name, listener) => listeners.set(name, listener),
   }
   const ctx = vm.createContext({
@@ -59,7 +61,7 @@ function loadPollingPage() {
     location: { hash: '' },
     fetch: async (url) => {
       reads.push(url)
-      return { ok: true, json: async () => payload() }
+      return { ok: true, json: async () => url === '/api/settings' ? SETTINGS() : payload() }
     },
     setTimeout: (callback) => {
       const id = ++timerId
@@ -69,7 +71,7 @@ function loadPollingPage() {
     clearTimeout: (id) => timers.delete(id),
     console,
   })
-  vm.runInContext(script[1], ctx)
+  vm.runInContext(pageScript(), ctx)
   return { page: ctx, document, listeners, timers, reads }
 }
 
@@ -230,6 +232,11 @@ describe('the Atlas frame (#686)', () => {
       ['Home', 'Maps', 'Agents', 'Feed', 'Settings'],
     )
     assert.match(page.screenAgents(payload()), /onclick="goto\('chat'\)"[^>]*>Chat</)
+    assert.match(page.screenAgents({ ...payload(), overview: null }), /onclick="goto\('chat'\)"[^>]*>Chat</)
+  })
+
+  test('the Agents key carries a zero needs-you count as a number', () => {
+    assert.match(page.mobileNav(0, ''), /<span class="nav-icon num">0<\/span>/)
   })
 
   test('every screen receives the same held overview reading', () => {
@@ -275,6 +282,11 @@ describe('the Atlas frame (#686)', () => {
     await new Promise((resolve) => setImmediate(resolve))
     assert.equal(browser.reads.length, 2)
     assert.equal(browser.timers.size, 1)
+  })
+
+  test('a page that boots hidden takes no overview read', () => {
+    const browser = loadPollingPage({ visibilityState: 'hidden', mount: true })
+    assert.equal(browser.reads.filter((url) => url === '/api/overview').length, 0)
   })
 })
 
