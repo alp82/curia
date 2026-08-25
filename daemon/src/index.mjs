@@ -54,7 +54,8 @@ import {
   OVERSEER_ENV_FILE, overseerEnvPath, loadOverseerEnv, daemonOnlyKeys, retiredTokenKeys,
 } from './overseertoken.mjs'
 import { TOKEN_HEADER, AGENT_ROUTES, tokensDir, agentTokenMatches } from './agenttoken.mjs'
-import { viewerLogin, ghJSONL } from './github.mjs'
+import { viewerLogin, ghJSONL, repoMaps, mapFrontier, blockedByOf } from './github.mjs'
+import { MapSnapshot, readMapSnapshot } from './mapsnapshot.mjs'
 import { setDaemonTokenSource } from './daemongh.mjs'
 import { TokenWatch } from './tokenwatch.mjs'
 import { JournalBackup } from './backup.mjs'
@@ -459,7 +460,11 @@ const statusLine = new StatusLine({
   meters: metersFor,
 })
 statusLine.start()
-reduction.onEvent = (ev) => statusLine.onEvent(ev)
+let mapSnapshot = null
+reduction.onEvent = (ev) => {
+  mapSnapshot?.invalidate()
+  statusLine.onEvent(ev)
+}
 // escalation id -> { resolve, reject } — ephemeral, dies with the process. The
 // reject half is #458's: the daemon ends every call in here with a tool ERROR
 // before it exits, rather than letting the call die unannounced.
@@ -2232,17 +2237,30 @@ async function watchableRepos() {
 // The journal FILE stays daemon-private. What crosses is its last hundred
 // events, which is the feed and nothing more.
 //
-// The frontier is the only field this route does not compute. Reconcile does,
-// on the credentials that pass already holds, and the stamp beside it says how
-// old the reading is (see Dispatcher#frontierSnapshot).
+// The frontier and complete map snapshot are stamped readings. Reconcile
+// refreshes the frontier. Journal events invalidate the map snapshot, and the
+// next poll refreshes it with the GitHub credentials the daemon already holds.
 //
-// This route reads no journal (#289). The recent outcomes and the gate's
+// This route never scans the journal (#289). The recent outcomes and the gate's
 // pull request are both reductions the reduction fills as events are written, so
 // what one poll costs no longer rises with the history. The journal is still
 // read whole ONCE per process, by the reduction's boot replay, which is what fills
 // them. Every other section is memory or a stamped snapshot, except the
-// context meter, which reads one transcript tail per live agent (#264).
+// context meter, which reads one transcript tail per live agent (#264). The
+// map snapshot uses indexed journal questions when it refreshes.
+mapSnapshot = new MapSnapshot(
+  () => readMapSnapshot({
+    watch: curiaConfig.watch,
+    routing: routingConfig,
+    github: { repoMaps, mapFrontier, blockedByOf },
+    journal: reduction.questions,
+  }),
+  { onError: (error) => log(`map snapshot: refresh failed (${error.message}). The last snapshot stands`) },
+)
+
 async function overview() {
+  mapSnapshot.invalidate()
+  const mapSnapshotOnWire = await mapSnapshot.read()
   // The fleet read asks tmux, and an indeterminate tmux is not "no agents" —
   // the evidence rule holds on a page exactly as it holds in reconcile. It must
   // not cost the rest of the page either: the feed, the escalations, the gate
@@ -2330,6 +2348,7 @@ async function overview() {
     // away and a dying token does not.
     token_warnings: reduction.standingTokenWarnings(),
     events: reduction.recentEvents(),
+    maps: mapSnapshotOnWire,
     frontier: dispatcher.frontierSnapshot(),
     // The last self-deploy and any in-flight one (#562): the outcome used to
     // live in a Discord line and a log only ssh could read, and the 4897a82
@@ -2678,6 +2697,8 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
 
   if (url.pathname === '/reconcile' && req.method === 'POST') {
     await dispatcher.reconcile({ boot: false })
+    mapSnapshot.invalidate()
+    await mapSnapshot.read()
     return json(200, { ok: true })
   }
 
@@ -2774,6 +2795,7 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
     if (applied.includes('dispatch.poll_interval_s') && dispatcher.autoTimer) dispatcher.startAutoLoop()
 
     reduction.journal('config_reloaded', { by, keys: applied })
+    if (applied.length) mapSnapshot.read()
     log(applied.length
       ? `config reloaded by ${by}: ${applied.join(', ')}`
       : `config reloaded by ${by} — the file says what this daemon was already running`)
@@ -2835,6 +2857,7 @@ httpServer.listen(PORT, '127.0.0.1', () => {
     // confirms, assert the attach + timeline surfaces — then start the auto
     // loop (a no-op while auto_dispatch is false). Not gated on the bridge.
     .then(() => dispatcher.reconcile({ boot: true }))
+    .then(() => mapSnapshot.read())
     .then(() => {
       log('boot reconcile done')
       dispatcher.startAutoLoop()
