@@ -442,6 +442,47 @@ function codexItems(e) {
 
 const READERS = { claude: claudeItems, codex: codexItems }
 
+// Read the messages that the Chat surface can render from one transcript.
+// The branch selection lives here so agent and overseer conversations don't
+// grow separate transcript rules.
+export function readActiveMessages(harness, file, { landingUuid = null } = {}) {
+  const items = []
+  const lines = fs.readFileSync(file, 'utf8').split('\n')
+  const byUuid = new Map()
+  let tail = null
+  for (const line of lines) {
+    let event
+    try { event = JSON.parse(line) } catch { continue }
+    if (!event?.uuid) continue
+    byUuid.set(event.uuid, { event, line })
+    tail = event
+  }
+
+  if (landingUuid) {
+    tail = byUuid.get(landingUuid)?.event ?? null
+    if (!tail) throw new Error(`transcript landing point "${landingUuid}" is missing from ${file}`)
+  }
+
+  let activeLines = lines
+  if (tail) {
+    activeLines = []
+    const seen = new Set()
+    for (let event = tail; event; event = event.parentUuid ? byUuid.get(event.parentUuid)?.event : null) {
+      if (seen.has(event.uuid)) throw new Error(`transcript parent cycle at "${event.uuid}" in ${file}`)
+      seen.add(event.uuid)
+      activeLines.push(byUuid.get(event.uuid).line)
+    }
+    activeLines.reverse()
+  }
+
+  for (const line of activeLines) {
+    if (!line.trim()) continue
+    const parsed = parseLine(harness, line)
+    if (parsed.items) items.push(...parsed.items)
+  }
+  return items
+}
+
 export function parseLine(harness, line) {
   const reader = READERS[harness]
   if (!reader) throw new Error(`no transcript reader for harness "${harness}"`)
