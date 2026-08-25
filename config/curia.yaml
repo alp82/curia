@@ -148,6 +148,14 @@ sandbox:
   # `codex --version` before bumping.
   claude_version: 2.1.220
   codex_version: 0.146.0
+  # The other two harnesses the router can pick (#696). They ride the image for
+  # the same reason claude and codex do: routing must never select a command
+  # line interface the container doesn't carry. Read them off the box with
+  # `opencode --version` and `pi --version` before bumping. Both are plain npm
+  # globals - opencode is `opencode-ai`, and pi is
+  # `@earendil-works/pi-coding-agent`.
+  opencode_version: 1.18.23
+  pi_version: 0.84.3
   # Debian 12 ships gh 2.23 (2023). Pinned from the upstream release instead,
   # for the same reason: one tracker CLI, one version of it.
   gh_version: 2.97.0
