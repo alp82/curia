@@ -1820,8 +1820,15 @@
          trail, six documents dropped one on the next. Two kinds of
          paper, so the split is what your eye sorts first. ---- */
   .runset.as-deal { padding: 0 0.3rem; }
-  .as-deal .ev { margin-top: -0.9rem; }
+  /* The pull is sized against the tab, not by eye. A tab is about
+     1.35rem tall and it sits ABOVE its own card, so tab plus pull is
+     what covers the card underneath. Every card here gets bottom room
+     to spare that, or the pile hides the last row of each document —
+     which on a GitHub card is its state pill. */
+  .as-deal .ev { margin-top: -0.35rem; }
   .as-deal .ev:first-of-type { margin-top: 0; }
+  .as-deal .card .gx { padding-bottom: 1.5rem; }
+  .as-deal .card .dcx-log { padding-bottom: 1.6em; }
   .as-deal .nd { display: none; }
   .as-deal .tag {
     background: #12172a; border: 1px solid #ffffff1f; border-bottom: none;
@@ -1834,7 +1841,7 @@
      would otherwise flatten every card back into a straight pile. */
   .runset.as-deal .ev:nth-of-type(odd) { transform: rotate(-0.7deg); margin-right: 1.1rem; }
   .runset.as-deal .ev:nth-of-type(even) { transform: rotate(0.75deg); margin-left: 1.1rem; }
-  .runset.as-deal .ev.is-gate { transform: rotate(0deg); margin: -0.6rem 0 0; }
+  .runset.as-deal .ev.is-gate { transform: rotate(0deg); margin: -0.35rem 0 0; }
   .as-deal .ev.is-gate .card { box-shadow: 0 0 0 1px rgba(var(--scb), 0.6), 0 22px 50px rgba(0, 0, 0, 0.6); }
   .as-deal .ev { z-index: 1; }
   .as-deal .ev:nth-of-type(2) { z-index: 2; }
@@ -1915,8 +1922,11 @@
   }
   .rundev .gx-tl .nd2.open { background: var(--gx-open); color: #fff; }
   .rundev .gx-tl .nd2.done, .rundev .gx-tl .nd2.merged { background: var(--gx-done); color: #fff; }
+  /* On a phone the two screens STACK. They used to overlap, and the
+     phone landed on the last two rows of the timeline behind it, which
+     are the merge and the close — the payoff of the whole scene. */
   .rundev .phone {
-    margin: -3.2rem 0 0 auto; width: min(15rem, 62%); position: relative; z-index: 2;
+    margin: 0.9rem 0 0 auto; width: min(14rem, 58%); position: relative; z-index: 2;
     background: #14161c; border: 1px solid #ffffff24; border-radius: 20px;
     padding: 0.42rem; box-shadow: 0 26px 60px rgba(0, 0, 0, 0.68);
   }
@@ -3534,7 +3544,12 @@ function clampNum(v, a, b) { return v < a ? a : v > b ? b : v; }
      advance moves the caption under it, which is the same fault as
      taking the scroll, in miniature. */
   function fitWin() {
-    if (v !== '5') { set.style.removeProperty('--stepH'); return; }
+    set.style.removeProperty('--stepH');
+    if (v !== '5') return;
+    /* The property is cleared FIRST. The active card carries it as a
+       min-height, so measuring with the old value still set can only
+       ever ratchet the slot upward, and a phone turned back to portrait
+       keeps the landscape height for ever. */
     set.classList.add('measuring');
     var tall = 0;
     steps.forEach(function (e) { tall = Math.max(tall, e.offsetHeight); });
