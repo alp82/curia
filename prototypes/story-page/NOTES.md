@@ -1847,6 +1847,77 @@ as a SUBSTRING.**
 the copy left the two genuinely different. It copies the whole composition now, media queries and
 all, which is the hardest case the check has to survive.
 
+**The operator's answer to round 4**, verbatim:
+
+> behind is not bad. the github block should have fixed height but not that tall, only enough to fit
+> everything without layout shift. then the other screens show below it without that huge of a gap
+>
+> narration should be:
+> 1. open ticket (only github ticket visible)
+> 2. you tell it to start (dashboard ticket + start click)
+> 3. agent starts working on it (discord thread developing while scrolling, streaming questions,
+>    prototypes, etc.)
+> 4. agent waits for confirmation (pull request display)
+> 5. agent finishes the work (discord confifmation in thread)
+>
+> it also kind of has parallel lanes. the ticket is always there, but the discord thead and pull
+> request life together at the end of the journey, so we could also show them together evolving in
+> the last 2 steps
+>
+> more variations in this direction
+
+**Round 5.** Four things settle with that answer.
+
+**1. The ticket block never moves, and not because a height was reserved for it.** Every timeline
+row is always laid out and only its VISIBILITY changes, so nothing is ever added to the block and
+there is nothing to shift. A build check refuses `display: none` on those rows for exactly that
+reason: `display` would take the row out of the flow and hand the layout shift straight back.
+
+**2. The lanes open close under it.** One small gap, not a screen of air.
+
+**3. Five steps, the operator's own five**, and the ticket grows one real row per step:
+
+| step | the title | what opens | the ticket's new row |
+|------|-----------|------------|----------------------|
+| 01 | You open a ticket. | nothing, the ticket alone | opened · Aug 21, 15:08 |
+| 02 | You tell it to start. | curia's dashboard, and the Start click | assigned to alp82 · Aug 21, 18:46 |
+| 03 | The agent starts working on it. | the Discord thread | pushed 1 commit, opened #597 · Aug 21, 18:55 |
+| 04 | It waits for your confirmation. | the pull request, beside the thread | pushed 5 commits, updated #597 · Aug 22, 19:10 |
+| 05 | It finishes the work. | both, still evolving | merged as `a71e154`, closed · Aug 22, 19:13 |
+
+**4. The lanes are PARALLEL, not a sequence.** The thread opens at step 3 and stays. The pull
+request opens at step 4 beside it. Both are still evolving at step 5, where the thread carries the
+approval and the pull request turns Merged. That is the shape the operator named, and it is the
+shape the run really has.
+
+**The Start button is a real control.** `dashboard.mjs` serves `POST /api/start` from a frontier
+card, and it runs the same `start <repo>#<ticket>` the command channel does. The lane draws that
+card in the V6 dashboard tokens scene 6 already uses ([#519](https://github.com/alp82/curia/issues/519)),
+so this page does not invent a second dashboard.
+
+**The thread's name moves the way `bridge.mjs` moves it**: 🎫 while the agent runs, 🔎 while the
+review gate is open, ✅ when the ticket is done (`STATE_GLYPHS`, `bridge.mjs:96`). Three glyphs
+across three steps, and the check reads the script that moves them rather than one frozen value.
+
+**Five compositions ride `?id=1..5`**, differing in how the parallel lanes share the floor:
+
+1. **stack** — the lanes open one under the other, and at the end the thread and the pull request
+   share the floor top to bottom.
+2. **pair** — past 46rem the two stand SIDE BY SIDE, which is what makes them read as running at
+   the same time rather than one after the other.
+3. **deal** — the lanes are dealt onto the floor like paper, each turned a little and casting.
+4. **rail** — a lane slides in from the docking side as it opens, so the newest is in front and the
+   one that opened first is still there behind it.
+5. **console** — the ticket block and the lanes share ONE frame with no gap at all: the ticket is
+   the header band and the lanes are panes docked under it.
+
+**121 build checks** run against the file and all **69 breaks** that validate them land. One check
+was wrong before it was right, and it is the same family as round 4's three: **it measured the
+wrong element.** The gate check read the position of `#rungate`, which is the whole thread window
+and never moves. A gate card lifted out of the thread and dropped into the pull request lane left it
+green. It reads the position of the Approve BUTTON now, which is the thing that must not end up on
+the wrong surface.
+
 ## The verdict of the terminal scene ([#629](https://github.com/alp82/curia/issues/629))
 
 **Locked over ten operator rounds**, the longest run of any scene on this page. Every variation
