@@ -1218,6 +1218,31 @@ question for the operator, and it carries a licensing decision this ticket canno
 ones cover the four corrections, the four harnesses in the rail, the tabs and the panes, the marks
 being drawn inline rather than fetched, and the two probe rows.
 
+**The operator's answer to round 3**, verbatim:
+
+> title is best
+>
+> no layout shift, the windows should have fixed height. no scrolling
+
+**The rail is the tile.** Read as `tile`, treatment 1, which is one character away and was the
+recommendation. The four that lost and the switcher that carried them left the file with this
+round, the way the identity switcher did at #624. A build check refuses a `.tm.c` selector or an
+`.idsw` rule now.
+
+**The window is a fixed 30 rows**, at every harness and every width. This was a real fault and no
+check had looked for it: the pane took its height from its own content, so switching from the
+30-row claude pane to the 23-row pi pane shortened the window and moved everything under it. The
+height is now the tallest pane's row count times the line box, plus the padding. Line height is
+exactly 1, so one row is `1em`, which makes the height the row count and nothing else. A shorter
+transcript sits at the bottom against its composer with blank rows above, which is what a real
+full-screen TUI shows.
+
+**Nothing scrolls, and nothing moves on load.** The font size drives the height, so it has to be
+settled before the first paint, and `fit()` runs synchronously at setup for exactly that reason.
+The page ships no webfont, so nothing reflows afterwards. Five checks hold this shape: the height
+is a fixed row count, no `min-height` can grow it, every pane fits it, the count is the tallest
+pane with no dead rows, and the fit is not deferred past the first paint.
+
 **The scene is one composition canvas.** The claim, the terminal and the fact line are grid items
 of `.tm`. The old scene 7 held the claim in a centred `.wrap` and the pane in a `.shot`, which is
 the pair that broke the preview scene at [#627](https://github.com/alp82/curia/issues/627) round 3

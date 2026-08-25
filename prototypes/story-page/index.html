@@ -1356,9 +1356,21 @@
   }
   .tm-body { min-width: 0; background: #0b0e12; }
   .tm-panes { display: block; }
+  /* THE WINDOW IS A FIXED 30 ROWS, at every harness and every width.
+     The tallest pane is 30 rows, so the height is that count times the
+     line box (line height is exactly 1, so one row is 1em) plus the
+     0.5rem above and 0.7rem below. A shorter transcript does not shrink
+     the window: it sits at the bottom against the composer with blank
+     rows above, which is what a real full-screen TUI shows. Nothing
+     scrolls, and switching harness moves no other element on the page.
+
+     The font size drives the height, so it has to be settled before the
+     first paint. fit() runs synchronously at setup for that reason, and
+     the page ships no webfont, so nothing reflows later. */
   .tm-pane {
-    display: flex; flex-direction: column; min-width: 0;
-    min-height: var(--tmh, 15rem);
+    display: flex; flex-direction: column; min-width: 0; overflow: hidden;
+    font-size: var(--tmfs, clamp(0.4rem, 2.05vw, 0.8rem));
+    height: calc(30em + 1.2rem);
   }
   .tm-pane[hidden] { display: none; }
   /* The scrollback sits at the BOTTOM of the pane and the composer under
@@ -1370,8 +1382,7 @@
   .tm-out { display: block; margin: auto 0 0; padding: 0.5rem 0.6rem 0; overflow: hidden; }
   .tm-in { margin: 0; padding: 0.2rem 0.6rem 0.5rem; overflow: hidden; }
   .tm-out, .tm-in {
-    font-family: var(--mono);
-    font-size: var(--tmfs, clamp(0.4rem, 2.05vw, 0.8rem));
+    font-family: var(--mono); font-size: inherit;
     line-height: 1; color: #d7dce4; white-space: pre;
   }
   /* the 58-column ruler the script measures the frame against */
@@ -1461,66 +1472,32 @@
     color: #aab3c1; padding: 0.45rem 0.55rem; border-radius: 8px;
   }
   .tm-rail button + button { margin-top: 0.15rem; }
-  .tm-rail .hm { grid-row: span 2; color: #79808d; }
+  .tm-rail .hm {
+    grid-row: span 2; color: #79808d;
+    box-sizing: content-box; padding: 0.3rem; border-radius: 7px; background: #1a1f26;
+  }
   .tm-rail button b { font: 700 0.76rem/1.25 var(--sans); color: #e6e9ef; }
   .tm-rail button span { font: 0.58rem/1.3 var(--mono); color: #79808d; }
   .tm-rail button[aria-pressed="true"] { background: #15281f; }
   .tm-rail button[aria-pressed="true"] b { color: #7dd3a0; }
-  .tm-rail button[aria-pressed="true"] .hm { color: #7dd3a0; }
+  .tm-rail button[aria-pressed="true"] .hm { background: #7dd3a0; color: #08211a; }
 
   /* ---- the control below 60rem: bottom tabs. NEVER both (round 1) ---- */
-  .tm-tabs { display: flex; border-top: 1px solid #262d33; background: #0f1116; overflow-x: auto; }
+  .tm-tabs { display: flex; border-top: 1px solid #262d33; background: #0f1116; }
   .tm-tabs button {
-    flex: 1 0 auto; border: 0; background: none; cursor: pointer; color: #8a93a3;
+    flex: 1 1 0; min-width: 0; border: 0; background: none; cursor: pointer; color: #8a93a3;
     display: flex; flex-direction: column; align-items: center; gap: 0.2rem;
-    padding: 0.5rem 0.55rem; border-top: 2px solid transparent; margin-top: -1px;
+    padding: 0.5rem 0.3rem; border-top: 2px solid transparent; margin-top: -1px;
   }
-  .tm-tabs button b { font: 700 0.66rem var(--sans); }
+  .tm-tabs button b {
+    font: 700 0.6rem var(--sans); max-width: 100%;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
   .tm-tabs button[aria-pressed="true"] { color: #7dd3a0; border-top-color: #7dd3a0; background: #0b0e12; }
 
   /* the identity saturates the evidence with the scroll value (#624
      rule 5); the .shot that used to carry it is gone from this scene */
   #term-scene .tm-stage { filter: saturate(calc(0.62 + 0.38 * var(--p, 1))); }
-
-  /* ================= the five rail treatments ================= */
-
-  /* 1 tile — a filled tile behind each mark. */
-  .tm.c1 .tm-rail .hm { box-sizing: content-box; padding: 0.3rem; border-radius: 7px; background: #1a1f26; }
-  .tm.c1 .tm-rail button[aria-pressed="true"] .hm { background: #7dd3a0; color: #08211a; }
-
-  /* 2 glyph — no tile, a large bare mark, a bar on the active row. */
-  .tm.c2 .tm-rail .hm { width: 1.7rem; height: 1.7rem; }
-  .tm.c2 .tm-rail button { border-left: 2px solid transparent; border-radius: 0 8px 8px 0; }
-  .tm.c2 .tm-rail button[aria-pressed="true"] { border-left-color: #7dd3a0; background: none; }
-
-  /* 3 grid — two by two cards, the mark over the name. */
-  .tm.c3 .tm-rail .rl { display: grid; grid-template-columns: 1fr 1fr; gap: 0.3rem; }
-  .tm.c3 .tm-rail button {
-    grid-template-columns: minmax(0, 1fr); justify-items: start; row-gap: 0.25rem;
-    border: 1px solid #262d33; padding: 0.55rem 0.5rem;
-  }
-  .tm.c3 .tm-rail button + button { margin-top: 0; }
-  .tm.c3 .tm-rail .hm { grid-row: auto; }
-  .tm.c3 .tm-rail button[aria-pressed="true"] { border-color: #7dd3a0; }
-
-  /* 4 strip — a dense list, the mark inline, the active row filled. */
-  .tm.c4 .tm-rail button { padding: 0.3rem 0.5rem; border-radius: 4px; column-gap: 0.4rem; }
-  .tm.c4 .tm-rail button + button { margin-top: 0; }
-  .tm.c4 .tm-rail .hm { width: 0.85rem; height: 0.85rem; grid-row: auto; }
-  .tm.c4 .tm-rail button span { grid-column: 2; }
-  .tm.c4 .tm-rail button[aria-pressed="true"] { background: #7dd3a0; }
-  .tm.c4 .tm-rail button[aria-pressed="true"] b,
-  .tm.c4 .tm-rail button[aria-pressed="true"] span,
-  .tm.c4 .tm-rail button[aria-pressed="true"] .hm { color: #08211a; }
-
-  /* 5 badge — the mark on a ring, the rail reading as a device list. */
-  .tm.c5 .tm-rail .hm {
-    box-sizing: content-box; padding: 0.32rem; border-radius: 50%;
-    border: 1px solid #2f3a44; background: #0b0e12;
-  }
-  .tm.c5 .tm-rail button { column-gap: 0.7rem; padding: 0.5rem 0.55rem; }
-  .tm.c5 .tm-rail button[aria-pressed="true"] { background: none; }
-  .tm.c5 .tm-rail button[aria-pressed="true"] .hm { border-color: #7dd3a0; box-shadow: 0 0 0 3px #7dd3a028; }
 
   @media (prefers-reduced-motion: reduce) {
     .js .tm.printing .tm-out .ln { visibility: visible; }
@@ -1541,24 +1518,8 @@
     .tmw { grid-template-columns: 13.5rem minmax(0, 1fr); }
     .tm-rail { display: block; border-bottom: 0; border-right: 1px solid #262d33; }
     .tm-tabs { display: none; }
-    .tm.c3 .tmw { grid-template-columns: 15.5rem minmax(0, 1fr); }
-    .tm.c4 .tmw { grid-template-columns: 12.5rem minmax(0, 1fr); }
   }
 
-  /* ---- the round switcher; it leaves the file when the scene locks ---- */
-  .idsw {
-    position: fixed; z-index: 50; left: 50%; transform: translateX(-50%);
-    bottom: calc(0.6rem + env(safe-area-inset-bottom));
-    display: flex; gap: 0.3rem; align-items: center;
-    background: #0d1015e6; border: 1px solid var(--line); border-radius: 999px;
-    padding: 0.3rem 0.45rem; backdrop-filter: blur(8px);
-  }
-  .idsw span { font: 700 0.58rem var(--mono); letter-spacing: 0.12em; color: var(--dim); padding: 0 0.25rem; }
-  .idsw button {
-    border: 1px solid var(--line); background: none; color: var(--body); cursor: pointer;
-    font: 700 0.66rem var(--mono); border-radius: 999px; padding: 0.2rem 0.55rem;
-  }
-  .idsw button.on { background: var(--st-agent); border-color: var(--st-agent); color: #08090c; }
   /* ================================================================
      Scene 8 — one ticket on GitHub. A horizontal run from issue to
      merge, in GitHub's dark colors. The approve button is the climax.
@@ -2190,7 +2151,7 @@
        ?id=1..5 puts a rail treatment on the canvas, so the panes are
        written once and the page reads whole with no script. -->
   <section class="scene sR" id="term-scene" data-stage="agent" data-n="06" data-name="the harness, live" style="--g1:#0e1a14;--g2:#080f0b">
-    <div class="tm c1" id="tm">
+    <div class="tm" id="tm">
       <header class="claim rv">
         <p class="kick"><span class="kn">06</span><span class="kname">the harness, live</span></p>
         <h2 class="bold">Watch the agent type in your browser tab.</h2>
@@ -2865,36 +2826,6 @@ if (prefersStill || !window.IntersectionObserver) {
     });
   }
 
-  /* ---- the round: ?id=1..5 is a rail treatment, nothing else ---- */
-  function setTreatment(n) {
-    tm.className = 'tm c' + n + (tm.classList.contains('printing') ? ' printing' : '') +
-      (tm.classList.contains('done') ? ' done' : '');
-    [].slice.call(document.querySelectorAll('.idsw button')).forEach(function (b) {
-      b.classList.toggle('on', Number(b.getAttribute('data-id')) === n);
-    });
-    requestAnimationFrame(fit);
-  }
-
-  var NAMES = ['tile', 'glyph', 'grid', 'strip', 'badge'];
-  var sw = document.createElement('nav');
-  sw.className = 'idsw';
-  sw.setAttribute('aria-label', 'round 3 of #629');
-  sw.innerHTML = '<span>#629</span>' + NAMES.map(function (nm, k) {
-    return '<button type="button" data-id="' + (k + 1) + '" title="' + nm + '">' + (k + 1) + '</button>';
-  }).join('');
-  document.body.appendChild(sw);
-  [].slice.call(sw.querySelectorAll('button')).forEach(function (b) {
-    b.addEventListener('click', function () {
-      var n = Number(b.getAttribute('data-id'));
-      var u = new URL(window.location.href);
-      u.searchParams.set('id', String(n));
-      history.replaceState(null, '', u);
-      setTreatment(n);
-    });
-  });
-
-  var want = Number(new URLSearchParams(window.location.search).get('id'));
-  setTreatment(want >= 1 && want <= 5 ? want : 1);
   showHarness('claude');
 
   if (window.ResizeObserver) new ResizeObserver(fit).observe(win);
