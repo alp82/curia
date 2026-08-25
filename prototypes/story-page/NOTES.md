@@ -1769,6 +1769,84 @@ the constant's own detail, the device chrome and the GitHub timeline, because th
 marker above them to a marker below. All three outlive the compositions that happened to sit between
 them, and they came back from the previous commit rather than being retyped.
 
+**The operator's answer to round 3**, verbatim:
+
+> nonono. i like the desk! plus my feedback
+>
+> that means we have the explanatory titles naturally scrolling on the side with some gap
+>
+> and the screens in the main view are toggled while the static part is staying where it is.
+> although it should look much more like a github ticket and how it evolves over time
+
+**Round 3 kept the wrong half.** It read "boxes that scroll normally" as "nothing is held", and
+dissolved the desk to get there. The desk was never the problem: the long lead-in was.
+
+**Round 4.** The shape the operator describes, exactly:
+
+1. **The titles scroll, on the side, with gaps.** Each step is a tall slot in its own column past
+   62rem, on the docking side, so the reader sets the pace. Below that width the held view pins to
+   the top and the steps scroll under it.
+2. **The main view is held, and the screens TOGGLE in it.** The step crossing the middle of the
+   viewport owns the view.
+3. **The static part stays, and it is a GITHUB TICKET that EVOLVES.** Not the abstract docket of
+   round 2. It is the issue page of [#587](https://github.com/alp82/curia/issues/587), and its
+   timeline grows a row per step.
+
+**The lead-in fault does not come back with the held view.** The stage is stuck from the top of the
+section, so the first screen and the ticket are both on screen before the reader has scrolled at
+all. Round 2's fault was not that it held: it was that it spent its first slot on the ticket alone.
+A check asserts the track carries no height of its own and that the first screen stands in the
+static HTML.
+
+**Every timeline row is a real, timestamped event**, read off
+`GET /repos/alp82/curia/issues/587/timeline`:
+
+| step | the row | when |
+|------|---------|------|
+| 01 dispatch | `curia-sh` assigned this to `alp82` | Aug 21, 18:46 |
+| 02 the work | 🔗 curia pushed `curia/587` (1 commit) and opened #597 | Aug 21, 18:55 |
+| 03 the gate | 🔗 curia pushed `curia/587` (5 commits) and updated #597 | Aug 22, 19:10 |
+| 04 the end | `curia-sh` merged #597 and closed this as completed | Aug 22, 19:13 |
+
+Two of those rows are the reason this works. **The claim at 18:46 IS the dispatch's mark on
+GitHub** — curia claims a ticket by assigning it, before any work. And **the five-commit push at
+19:10 lands three minutes before the merge**, which is the gate. The run's shape was already in the
+tracker.
+
+**The pill moves ONCE, which is what GitHub really does.** A ticket is Open until it is closed, so
+the rows carry the run and the pill carries only its end. Making the pill walk four stages would
+have been the page inventing a GitHub that does not exist.
+
+**The one-card-one-surface rule bends here, on the operator's instruction.** The constant is now
+GitHub chrome by design. What survives is the half of the rule the original fault named: it must
+never carry a Discord control, and a check asserts that.
+
+**Five compositions ride `?id=1..5`**, differing in where the constant sits inside the held view:
+
+1. **desk** — the ticket lies at the near edge and the screens are dealt above it, each turned a
+   little and casting like paper. Round 2's desk with the feedback in.
+2. **head** — the ticket is the header of the view and its timeline grows downward, with the screens
+   toggling under it.
+3. **beside** — the ticket takes a column of its own beside the screens, so the record and the
+   evidence are read together.
+4. **behind** — the ticket fills the view and the screens toggle over it, dropped like windows.
+5. **inset** — the ticket IS the view, a whole issue page, and the screen toggles in a slot inside
+   its own timeline.
+
+**116 build checks** run against the file and all **62 breaks** that validate them land. Three of
+the checks were wrong before they were right, and all three are one fault: **a check matched a name
+as a SUBSTRING.**
+
+- `class="sc[^"]*"` matched `class="scx"`, so renaming a screen's class away left the count right.
+- The gap check found `min-height` on the desktop media rule and stayed green when the base rule
+  lost it. It reads the base rule by name now.
+- The toggle check's `\.sc \{` matched `.still .sc {`. It anchors on the start of the selector now.
+
+**And one break was too weak to prove anything.** The distinctness break copied `v-beside` onto
+`v-head` from the base scope only, and `v-beside` keeps almost all of itself in a media query, so
+the copy left the two genuinely different. It copies the whole composition now, media queries and
+all, which is the hardest case the check has to survive.
+
 ## The verdict of the terminal scene ([#629](https://github.com/alp82/curia/issues/629))
 
 **Locked over ten operator rounds**, the longest run of any scene on this page. Every variation

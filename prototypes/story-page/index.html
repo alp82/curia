@@ -1741,56 +1741,17 @@
   .gx-tl .nd2.open { background: var(--gx-open); color: #fff; }
   .gx-tl .nd2.done, .gx-tl .nd2.merged { background: var(--gx-done); color: #fff; }
 
-  /* ---- the constant ---- */
-  .tkt {
-    position: relative; z-index: 6;
-    --kc: var(--st-take); --kb: 139, 155, 176;
-    background: linear-gradient(180deg, #161c33, #10142a);
-    border: 1px solid #ffffff1f; border-radius: 12px;
-    padding: 0.7rem 0.85rem 0.75rem;
-    box-shadow: 0 14px 40px rgba(0, 0, 0, 0.5);
-  }
-  #run[data-k="1"] .tkt, #run[data-k="2"] .tkt { --kc: var(--st-agent); --kb: 224, 174, 76; }
-  #run[data-k="3"] .tkt { --kc: var(--st-gate); --kb: 121, 166, 242; }
-  #run[data-k="4"] .tkt { --kc: var(--st-merged); --kb: 125, 211, 160; }
-  .tkt-top { display: flex; align-items: center; gap: 0.5rem; }
-  .tkt-n { font: 800 0.76rem var(--mono); letter-spacing: 0.04em; color: #cdd6e4; flex: none; }
-  .tkt-st {
-    margin-left: auto; display: inline-flex; align-items: center; gap: 0.4em; flex: none;
-    border-radius: 999px; padding: 0.14rem 0.6rem;
-    font: 700 0.64rem var(--mono); letter-spacing: 0.07em; text-transform: uppercase;
-    color: var(--kc); background: rgba(var(--kb), 0.14); border: 1px solid rgba(var(--kb), 0.55);
-    transition: color 0.45s var(--ease), background 0.45s var(--ease), border-color 0.45s var(--ease);
-  }
-  .tkt-st i { width: 0.48em; height: 0.48em; border-radius: 50%; background: var(--kc); flex: none; }
-  .tkt-t { margin: 0.4rem 0 0; font-size: 0.92rem; font-weight: 600; line-height: 1.3; color: var(--text); text-wrap: pretty; }
-  .tkt-lbl { margin-top: 0.5rem; }
-  /* The constant reaches into NEITHER product's stylesheet, not even for
-     one shared shape. This is the real hex of the repo's
-     `wayfinder:prototype` label, which is a fact about the ticket rather
-     than a piece of GitHub's chrome borrowed for decoration. */
+  /* ---- the constant's label chip. It keeps the REAL hex of the
+         repo's `wayfinder:prototype` label, which is a fact about the
+         ticket rather than chrome borrowed for decoration. ---- */
   .tkt-chip {
     display: inline-block; border-radius: 2em; padding: 0.08em 0.7em;
-    font: 500 0.72rem var(--sans); background: #fbca04; color: #1f2328;
+    font: 500 0.82em var(--sans); background: #fbca04; color: #1f2328;
   }
-  .tkt-track { display: flex; gap: 0.26rem; margin-top: 0.65rem; }
-  .tkt-track i { flex: 1; height: 3px; border-radius: 2px; background: #ffffff1a; transition: background 0.45s var(--ease); }
-  #run[data-k="0"] .tkt-track i:nth-child(-n+1),
-  #run[data-k="1"] .tkt-track i:nth-child(-n+2),
-  #run[data-k="2"] .tkt-track i:nth-child(-n+3),
-  #run[data-k="3"] .tkt-track i:nth-child(-n+4),
-  #run[data-k="4"] .tkt-track i { background: var(--kc); }
-  .tkt-lines { margin-top: 0.5rem; min-height: 1.15rem; }
-  /* One word and one line per stage. The static HTML stands at stage 0,
-     so a reader with no script gets the ticket as it was opened. */
-  .tkt .w, .tkt .tl { display: none; font: 0.72rem/1.6 var(--mono); color: var(--dim); }
-  .tkt .w { font-size: inherit; line-height: inherit; color: inherit; }
-  #run[data-k="0"] .tkt .w[data-k="0"], #run[data-k="0"] .tkt .tl[data-k="0"],
-  #run[data-k="1"] .tkt .w[data-k="1"], #run[data-k="1"] .tkt .tl[data-k="1"],
-  #run[data-k="2"] .tkt .w[data-k="2"], #run[data-k="2"] .tkt .tl[data-k="2"],
-  #run[data-k="3"] .tkt .w[data-k="3"], #run[data-k="3"] .tkt .tl[data-k="3"],
-  #run[data-k="4"] .tkt .w[data-k="4"], #run[data-k="4"] .tkt .tl[data-k="4"] { display: inline; }
-  .tkt .tl b { color: var(--body); font-weight: 700; }
+  .gx-tl li .cmt {
+    display: block; margin-top: 0.3em; color: var(--gx-ink);
+    border-left: 2px solid var(--gx-soft); padding-left: 0.6em;
+  }
 
   /* ---- the screens. Each one is a DEVICE, never a bare card: the
          Discord client, a browser, a phone. ---- */
@@ -1834,168 +1795,178 @@
 
 
   /* ================================================================
-     Round 3 (#630) — the desk, narrated.
+     Round 4 (#630) — the desk, held, with the ticket as the record.
 
-     The operator's answer to round 2, verbatim:
+     The operator's answer to round 3, verbatim:
 
-       desk is the new baseline
+       nonono. i like the desk! plus my feedback
 
-       problems: i have to scroll quite a long time before i see
-       something at the bottom, it should appear right away. then we
-       should have boxes like the section titles in the beginning of
-       the page that scroll normally and narrate each step with simple
-       words
+       that means we have the explanatory titles naturally scrolling on
+       the side with some gap
 
-       5 new distinct variations based on this
+       and the screens in the main view are toggled while the static
+       part is staying where it is. although it should look much more
+       like a github ticket and how it evolves over time
 
-     Three things settle with that, and they hold for every variation
-     here:
+     Round 3 read "boxes that scroll normally" as "nothing is held", and
+     dissolved the desk to get there. That was the wrong half to keep.
+     The shape is the one the operator describes exactly:
 
-     1. NOTHING IS HELD ANY MORE. Round 2's desk grew the section to
-        430svh and gave the first slot to the ticket alone, which is
-        exactly the long scroll the operator hit: about a screen of
-        travel before anything arrived. The section is its own height
-        now, the whole column scrolls normally, and the first narration
-        box and the first screen sit right under the claim.
-     2. EVERY STEP IS NARRATED, in a box built like the section titles
-        at the top of the page: the numbered mono kicker, then the
-        line. Simple words, present tense, and the reader is "you".
-     3. THE CONSTANT STAYS, and it does it without holding the page.
-        The docket is the LAST thing in the column and it sticks to the
-        BOTTOM of the viewport, so it is pinned from the first screen
-        and settles onto the desk at the last one.
+     1. THE TITLES SCROLL, ON THE SIDE, WITH GAPS. Each step is a tall
+        slot in its own column, so the reader sets the pace.
+     2. THE MAIN VIEW IS HELD, and the screens TOGGLE in it. The step
+        crossing the middle of the screen owns the view.
+     3. THE STATIC PART STAYS, and it is a GITHUB TICKET that EVOLVES.
+        Not an abstract docket: the issue page of alp82/curia#587, whose
+        timeline grows a row per step.
+
+     The long lead-in of round 2 does not come back. The stage is stuck
+     from the top of the section, so the first screen and the ticket are
+     both on screen before the reader has scrolled at all.
+
+     Every timeline row is a real, timestamped event on that issue, read
+     off `GET /repos/alp82/curia/issues/587/timeline`. The claim at
+     18:46 IS the dispatch's mark on GitHub, and the five-commit push at
+     19:10 lands three minutes before the merge, which is the gate.
      ================================================================ */
 
-  /* ---- the narration box. Built from the identity frame's own parts
-         (#624): the numbered mono kicker, then the line. ---- */
-  .nb { margin: 0 0 0.9rem; }
+  /* ---- the track: the narration scrolls, the stage holds ---- */
+  .runtrack { position: relative; }
+  .runstage {
+    position: sticky; top: 0; z-index: 3;
+    height: 58dvh; display: flex; flex-direction: column; gap: 0.7rem;
+    padding: 0.7rem 0 0.9rem;
+    /* On a phone the steps scroll UNDER the held view, so it needs a
+       ground of its own or they read through it. */
+    background: linear-gradient(180deg, rgba(17, 23, 45, 0.97) 78%, rgba(17, 23, 45, 0.88));
+    -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
+    box-shadow: 0 14px 26px -18px #000;
+  }
+  .steps { position: relative; z-index: 2; }
+  /* The gap the operator asked for: each step owns a tall slot, so it
+     holds the main view for as long as the reader stays in it. */
+  .steps .nb { min-height: 74svh; display: flex; flex-direction: column; justify-content: center; margin: 0; }
+  .steps .nb:last-child { min-height: 52svh; }
+
+  /* ---- the narration box, from the identity frame's own parts (#624):
+         the numbered mono kicker, then the line. ---- */
   .nb .nn {
-    display: inline-block; margin-right: 0.6rem;
+    display: inline-block;
     font: 800 0.72rem var(--mono); letter-spacing: 0.06em;
     background: var(--sc); color: #08090c; padding: 0.13rem 0.5rem; border-radius: 3px;
   }
   .nb b {
-    font-size: clamp(1.05rem, 4.6vw, 1.5rem); font-weight: 800;
+    font-size: clamp(1.15rem, 5.4vw, 1.7rem); font-weight: 800;
     letter-spacing: -0.02em; line-height: 1.15; color: var(--text);
-    display: block; margin-top: 0.5rem; text-wrap: balance;
+    display: block; margin-top: 0.6rem; text-wrap: balance;
   }
+  /* The step that owns the view is the one lit. The others stay
+     readable — #624 rule 5: words are never dimmed to decoration. */
+  .steps .nb { opacity: 0.55; transition: opacity 0.4s var(--ease); }
+  .steps .nb.on { opacity: 1; }
 
-  /* ---- the column, the screens and the docket ---- */
-  .runstage { position: relative; }
-  .scrn { display: grid; gap: 2.6rem; }
-  .sc { position: relative; }
-  .dev { position: relative; }
-  /* The desk the operator kept. NOT an overlap: a narration box sits
-     between every two screens, so pulling one screen over the last one
-     can only mean landing the box on it, and that is what `memo` is and
-     the other two are not. What carries here is the rest of the desk —
-     every screen turned a little, dropped close to the one above it,
-     and casting like paper. */
-  .piled .scrn { gap: 0; }
-  .piled .sc { margin-top: 1.5rem; }
-  .piled .sc:first-child { margin-top: 0; }
-  .piled .dev { box-shadow: 0 18px 40px rgba(0, 0, 0, 0.6); }
-  .piled .sc:nth-child(odd) .dev { transform: rotate(-0.8deg); }
-  .piled .sc:nth-child(even) .dev { transform: rotate(0.7deg); }
-  .piled .sc:nth-child(1) { z-index: 1; }
-  .piled .sc:nth-child(2) { z-index: 2; }
-  .piled .sc:nth-child(3) { z-index: 3; }
-  .piled .sc:nth-child(4) { z-index: 4; }
-
-  /* The docket sticks to the BOTTOM. It is the last thing in the
-     column, so its own place is below the fold from the start, which
-     is what pins it there without holding the page. The column keeps
-     room under it so nothing ever reads from behind it. */
-  .tkt { position: sticky; bottom: 0.7rem; z-index: 7; }
-  .runstage { padding-bottom: 1rem; }
-  .scrn { margin-bottom: 1.4rem; }
-
-  /* ---- 1 · step. The plainest reading: the box above its screen, the
-         screens standing well apart, the docket an ordinary card at the
-         near edge. No pile, no slab, no paper. ---- */
-  .v-step .scrn { gap: 3.4rem; }
-  .v-step .nb { border-left: 3px solid var(--sc); padding-left: 0.9rem; }
-  .v-step .nb .nn { background: none; color: var(--sc); padding: 0; margin-right: 0; }
-  .v-step .nb b { margin-top: 0.3rem; }
-  .v-step .dev { box-shadow: 0 14px 34px rgba(0, 0, 0, 0.5); }
-
-  /* ---- 2 · slab. The box is a solid slab that bleeds off the edge,
-         the way the scene's own claim does (#624's one slab accent),
-         and it alternates sides. The screens pile. ---- */
-  .v-slab .nb {
-    background: var(--sc); width: fit-content; max-width: 92%;
-    padding: 0.7rem 1.1rem 0.8rem; margin-left: -1.25rem; padding-left: 2.5rem;
-    border-radius: 0 12px 12px 0; box-shadow: 0.45rem 0.45rem 0 rgba(var(--scb), 0.28);
+  /* ---- the screens toggle in the main view ---- */
+  .scrn { position: relative; flex: 1 1 auto; min-height: 0; }
+  .sc {
+    position: absolute; inset: 0; display: grid; place-items: center;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.45s var(--ease), transform 0.45s var(--ease);
   }
-  .v-slab .sc:nth-child(even) .nb {
-    margin-left: auto; margin-right: -1.25rem; padding-left: 1.1rem; padding-right: 2.5rem;
-    border-radius: 12px 0 0 12px; text-align: right;
-    box-shadow: -0.45rem 0.45rem 0 rgba(var(--scb), 0.28);
-  }
-  .v-slab .nb .nn { background: #08090c; color: var(--sc); }
-  .v-slab .nb b { color: #08090c; }
+  .sc.on { opacity: 1; pointer-events: auto; }
+  .sc > * { width: 100%; max-height: 100%; }
+  .sc .win-body, .sc .ph-scr { max-height: 40dvh; overflow: hidden; }
 
-  /* ---- 3 · memo. The box is paper, the same stock as the docket, and
-         it is clipped over the corner of its screen. The whole scene is
-         one desk. ---- */
-  .v-memo .nb {
-    background: linear-gradient(178deg, #f6f3ea, #eae5d7); color: #191b21;
-    border-radius: 2px; padding: 0.6rem 0.85rem 0.7rem;
-    width: fit-content; max-width: 88%;
-    box-shadow: 0 8px 22px rgba(0, 0, 0, 0.5);
-    transform: rotate(-1.1deg); position: relative; z-index: 5;
-    margin-bottom: -0.9rem; margin-left: 0.4rem;
-  }
-  .v-memo .sc:nth-child(even) .nb { transform: rotate(0.9deg); margin-left: auto; margin-right: 0.4rem; }
-  .v-memo .nb .nn { background: #191b21; color: #f6f3ea; }
-  .v-memo .nb b { color: #191b21; font-size: clamp(0.98rem, 4.2vw, 1.3rem); }
+  /* ---- the constant: the GitHub ticket, and how it evolves ---- */
+  .tkt { flex: none; font-size: 0.76rem; }
+  .tkt .gx-h1 { font-size: 1.05em; }
+  .tkt-tl { margin-top: 0.6em; }
+  .tkt-tl li { font-size: 0.94em; }
+  /* The timeline grows a row per step. GitHub keeps a ticket Open until
+     it is closed, so the pill moves once and the ROWS carry the run. */
+  #run[data-k="1"] .tkt-tl li:nth-child(n+2),
+  #run[data-k="2"] .tkt-tl li:nth-child(n+3),
+  #run[data-k="3"] .tkt-tl li:nth-child(n+4) { display: none; }
+  .tkt .gx-st.done { display: none; }
+  #run[data-k="4"] .tkt .gx-st.open { display: none; }
+  #run[data-k="4"] .tkt .gx-st.done { display: inline-flex; }
 
-  /* ---- 4 · column. Past 60rem the narration runs down one column and
-         the screens down the other, both scrolling normally, and the
-         docket rides the top of the narration column. On a phone it is
-         box, screen, box, screen. ---- */
-  .v-col .nb b { font-size: clamp(1rem, 4.2vw, 1.3rem); }
-  @media (min-width: 60rem) {
-    .v-col .runstage { display: grid; grid-template-columns: 17rem 1fr; column-gap: 3rem; }
-    .v-col .scrn { grid-column: 2; }
-    /* The grid item STRETCHES and the card sticks inside it. An item
-       sized to its own content has nothing for a sticky box to travel
-       in, which is the fault round 2's rail carried. */
-    .v-col .tkt {
-      grid-column: 1; grid-row: 1; position: static;
-      background: none; border: none; box-shadow: none; padding: 0;
+  @media (min-width: 62rem) {
+    /* The titles take the docking side and the held view takes the
+       other, which is #624's alternation rule read at the scale of one
+       scene. Nothing overlaps, so the stage drops its ground. */
+    .runtrack { display: grid; grid-template-columns: 20rem 1fr; column-gap: 3.4rem; align-items: start; }
+    .steps { grid-column: 1; }
+    .runstage {
+      grid-column: 2; grid-row: 1; height: 100dvh; padding: 8vh 0 6vh;
+      background: none; backdrop-filter: none; -webkit-backdrop-filter: none; box-shadow: none;
     }
-    .v-col .tkt-in {
-      position: sticky; top: 16vh; display: block;
-      background: linear-gradient(180deg, #161c33, #10142a);
-      border: 1px solid #ffffff1f; border-radius: 12px;
-      padding: 0.7rem 0.85rem 0.75rem; box-shadow: 0 14px 40px rgba(0, 0, 0, 0.5);
-    }
-    .v-col .sc { display: grid; grid-template-columns: 1fr; }
-    .v-col .nb { margin-bottom: 0.8rem; }
+    .sc .win-body, .sc .ph-scr { max-height: 56dvh; }
+    .steps .nb { min-height: 88svh; }
+    .steps .nb:last-child { min-height: 60svh; }
   }
 
-  /* ---- 5 · numeral. Megatype: the stage number stands behind the box
-         at poster size, the line small against it. The screens pile and
-         the docket is a full-bleed strip at the bottom edge. ---- */
-  .v-num .nb { position: relative; padding-top: 1.6rem; }
-  .v-num .nb .nn {
-    position: absolute; left: -0.4rem; top: -1.4rem; z-index: -1;
-    background: none; color: rgba(var(--scb), 0.2); padding: 0;
-    font: 900 clamp(4.5rem, 20vw, 8rem)/0.8 var(--mono); letter-spacing: -0.06em;
-  }
-  .v-num .nb b { margin-top: 0; }
-  .v-num .tkt {
-    border-radius: 0; margin: 0 -1.25rem; bottom: 0;
-    border-left: none; border-right: none; border-bottom: none;
+  /* ---- 1 · desk. The ticket lies at the near edge of the desk and the
+         screens are dealt above it, each one turned a little and
+         casting like paper. Round 2's desk, with the feedback in. ---- */
+  .v-desk .scrn { order: 1; }
+  .v-desk .tkt { order: 2; }
+  .v-desk .sc.on { transform: rotate(var(--rot, -0.8deg)); }
+  .v-desk .sc:not(.on) { transform: translateY(1.6rem) rotate(-2.4deg); }
+  .v-desk .dev { box-shadow: 0 20px 44px rgba(0, 0, 0, 0.62); }
+  .v-desk .tkt { box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.45); }
+
+  /* ---- 2 · head. The ticket is the header of the view and its
+         timeline grows downward from it, with the screens toggling
+         under it. ---- */
+  .v-head .tkt { order: 1; }
+  .v-head .scrn { order: 2; }
+  .v-head .sc:not(.on) { transform: translateY(-1.2rem); }
+  .v-head .tkt { border-bottom-width: 2px; border-bottom-color: rgba(var(--scb), 0.5); }
+
+  /* ---- 3 · beside. Inside the held view the ticket takes a column of
+         its own beside the screens, so the record and the evidence are
+         read together rather than one after the other. ---- */
+  .v-beside .sc:not(.on) { transform: scale(0.97); }
+  @media (min-width: 62rem) {
+    .v-beside .runstage { display: grid; grid-template-columns: 1fr 15rem; column-gap: 1.6rem; align-items: stretch; }
+    .v-beside .scrn { grid-column: 1; }
+    .v-beside .tkt { grid-column: 2; align-self: start; }
+    .v-beside .sc .win-body, .v-beside .sc .ph-scr { max-height: 60dvh; }
   }
 
-  /* ---- the fail-open path. Nothing in this scene is held any more,
-         so reduced motion only has to stop the docket from following
-         the reader and let every screen stand. ---- */
-  .still .tkt { position: static; }
-  .still .piled .sc { margin-top: 2.6rem; }
-  .still .piled .dev { transform: none; }
+  /* ---- 4 · behind. The ticket fills the held view and the screens
+         toggle OVER it, dropped on the page like windows. The record is
+         always there, and the evidence lands on top of it. ---- */
+  .v-behind .runstage { position: sticky; display: block; }
+  .v-behind .tkt { height: 100%; overflow: hidden; }
+  .v-behind .scrn { position: absolute; inset: 0; display: block; }
+  .v-behind .sc { place-items: end center; padding: 0 0.6rem 0.6rem; }
+  .v-behind .sc.on { transform: rotate(var(--rot, -0.8deg)); }
+  .v-behind .sc:not(.on) { transform: translateY(2rem) rotate(-3deg); }
+  .v-behind .dev { box-shadow: 0 24px 50px rgba(0, 0, 0, 0.75); }
+  .v-behind .sc .win-body, .v-behind .sc .ph-scr { max-height: 34dvh; }
+
+  /* ---- 5 · inset. The ticket IS the main view, a whole issue page,
+         and the screen toggles in a slot inside its own timeline at the
+         point it belongs. The record and the evidence are one thing.
+         ---- */
+  .v-inset .runstage { display: block; overflow: hidden; }
+  .v-inset .tkt { height: 100%; display: flex; flex-direction: column; }
+  .v-inset .tkt-tl { flex: none; }
+  .v-inset .scrn { flex: 1 1 auto; margin-top: 0.7em; border-top: 1px solid var(--gx-soft); padding-top: 0.7em; }
+  .v-inset .sc { place-items: center; }
+  .v-inset .sc:not(.on) { transform: translateY(0.9rem); }
+  .v-inset .sc .win-body, .v-inset .sc .ph-scr { max-height: 32dvh; }
+
+  /* ---- the fail-open path. With reduced motion or no script the held
+         view lets go, every screen stands, and the ticket shows its
+         whole timeline. Every word reads, in order. ---- */
+  .still .runstage { position: static; height: auto; display: block; background: none; box-shadow: none; }
+  .still .scrn { position: static; display: grid; gap: 2rem; margin-top: 1.4rem; }
+  .still .sc { position: relative; inset: auto; opacity: 1; transform: none; pointer-events: auto; }
+  .still .sc .win-body, .still .sc .ph-scr { max-height: none; }
+  .still .steps .nb { min-height: 0; opacity: 1; margin-bottom: 2rem; }
+  .still .tkt-tl li { display: list-item; }
 
   /* ---- the round switcher. It leaves the file with the round that
          settles this scene, the way #624's identity bar did. ---- */
@@ -2783,7 +2754,7 @@
 
        Round 1 offers five readings of the same six events on ?id=1..5:
        1 timeline, 2 lanes, 3 devices, 4 deal, 5 steps. -->
-  <section class="scene run sL v-step" id="run" data-v="1" data-k="0" data-stage="gate" data-n="07" data-name="one ticket on GitHub" style="--g1:#141b33;--g2:#0c1020">
+  <section class="scene run sL v-desk" id="run" data-v="1" data-k="1" data-stage="gate" data-n="07" data-name="one ticket on GitHub" style="--g1:#141b33;--g2:#0c1020">
 
     <!-- The octicons and the two product marks. The page ships no
          image and no webfont, so every mark here is drawn (#629). -->
@@ -2805,11 +2776,11 @@
     <!-- ROUND 1 DEVICE. It leaves the file with the round that settles
          this scene, the way #624's identity bar did. -->
     <div class="rsw" id="rsw" role="group" aria-label="composition">
-      <button type="button" data-i="1" aria-pressed="true">1 step</button>
-      <button type="button" data-i="2" aria-pressed="false">2 slab</button>
-      <button type="button" data-i="3" aria-pressed="false">3 memo</button>
-      <button type="button" data-i="4" aria-pressed="false">4 column</button>
-      <button type="button" data-i="5" aria-pressed="false">5 numeral</button>
+      <button type="button" data-i="1" aria-pressed="true">1 desk</button>
+      <button type="button" data-i="2" aria-pressed="false">2 head</button>
+      <button type="button" data-i="3" aria-pressed="false">3 beside</button>
+      <button type="button" data-i="4" aria-pressed="false">4 behind</button>
+      <button type="button" data-i="5" aria-pressed="false">5 inset</button>
     </div>
 
     <div class="runwrap">
@@ -2817,23 +2788,13 @@
       <!-- The six events. ONE set of cards; compositions 1, 2, 4 and 5
            are four layouts over it, so the same evidence is judged
            every time and only the reading changes. -->
-    <!-- ROUND 3. The desk, narrated. Every step carries a box built
-         it. The ticket comes up alone at stage 0, then each screen
-         moves it one stage on: running, running with a pull request,
-         in review, merged. The stage colours are the page's own four
-         (#624), so the ticket walks the pipeline this whole page is
-         coloured by. -->
+    <!-- ROUND 4. The titles scroll on the side, the screens toggle in a
+         held main view, and the static part is the GitHub ticket
+         itself, growing a timeline row per step. -->
     <div class="runtrack" id="runtrack">
       <div class="runstage" id="runstage">
-
         <div class="scrn" id="scrn">
-
-          <!-- Screen 1 · Discord, the client's own window. The dispatch
-               and the status line the daemon writes
-               (statusline.mjs:357), with the thread bound under the
-               live glyph bridge.mjs:96 gives a running ticket. -->
-          <div class="sc" data-i="0" style="--rot:-1.4deg">
-            <p class="nb"><span class="nn">01</span><b>You send it to an agent from Discord.</b></p>
+          <div class="sc on" data-i="0" style="--rot:-1.4deg">
             <div class="win dcw">
               <div class="win-bar">
                 <span class="wn"><i></i>Discord</span>
@@ -2867,7 +2828,6 @@
           <!-- Screen 2 · the browser. The pull request, with the five
                real SHAs and headlines of alp82/curia#597. -->
           <div class="sc" data-i="1" style="--rot:1.1deg">
-            <p class="nb"><span class="nn">02</span><b>The agent works and opens a pull request.</b></p>
             <div class="win">
               <div class="win-bar">
                 <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
@@ -2903,7 +2863,6 @@
                (bridge.mjs:1171-1181). The press is the true thing curia
                does: it edits the card and clears its components. -->
           <div class="sc" data-i="2" style="--rot:-0.7deg">
-            <p class="nb"><span class="nn">03</span><b>It asks you before anything merges.</b></p>
             <div class="ph">
               <div class="ph-scr">
                 <article class="dcx" id="rungate">
@@ -2938,7 +2897,6 @@
                nowhere else. The comment is the first line of the real
                resolution of alp82/curia#587. -->
           <div class="sc" data-i="3" style="--rot:1.3deg">
-            <p class="nb"><span class="nn">04</span><b>You approve. It merges and closes the ticket.</b></p>
             <div class="win">
               <div class="win-bar">
                 <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
@@ -2967,26 +2925,39 @@
               </div>
             </div>
           </div>
-
         </div>
-        <div class="tkt" id="tkt">
-          <div class="tkt-in">
-            <div class="tkt-top">
-              <span class="tkt-n">alp82/curia#587</span>
-              <span class="tkt-st"><i></i><span class="w" data-k="0">Open</span><span class="w" data-k="1">running</span><span class="w" data-k="2">running</span><span class="w" data-k="3">in review</span><span class="w" data-k="4">Merged</span></span>
-            </div>
-            <p class="tkt-t">Choose the words of every scene of the final page</p>
-            <div class="tkt-lbl"><span class="tkt-chip">wayfinder:prototype</span></div>
-            <div class="tkt-track" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
-            <div class="tkt-lines">
-              <span class="tl" data-k="0">opened by <b>you</b> on Aug 21, 2026</span>
-              <span class="tl" data-k="1">dispatched to <b>curia-587</b> on <b>claude-opus-5</b></span>
-              <span class="tl" data-k="2">pull request <b>#597</b> · 5 commits · <b>+757</b> in 3 files</span>
-              <span class="tl" data-k="3">the gate is open · waiting on <b>you</b></span>
-              <span class="tl" data-k="4"><b>#597</b> merged · <b>#587</b> closed as completed</span>
-            </div>
+        <!-- The constant: the GitHub ticket itself, and how it evolves.
+             Every row is a real, timestamped event on alp82/curia#587,
+             read off its own timeline. The claim at 18:46 is the mark
+             the dispatch leaves on GitHub, and the five-commit push at
+             19:10 lands three minutes before the merge, which is the
+             gate. GitHub keeps a ticket Open until it is closed, so the
+             pill moves once and the ROWS carry the run. -->
+        <article class="gx tkt" id="tkt">
+          <div class="gx-crumb">alp82 / <b>curia</b></div>
+          <h3 class="gx-h1">Choose the words of every scene of the final page <span class="num">#587</span></h3>
+          <div class="gx-meta">
+            <span class="gx-st open"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-pr"/></svg>Open</span>
+            <span class="gx-st done"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-closed"/></svg>Closed as completed</span>
+            <span class="tkt-chip">wayfinder:prototype</span>
+            <span class="gx-by"><b>alp82</b> opened this on Aug 21, 2026</span>
           </div>
-        </div>
+          <ol class="gx-tl tkt-tl">
+            <li><span class="nd2"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-commit"/></svg></span><b>curia-sh</b> assigned this to <b>alp82</b> · Aug 21, 18:46</li>
+            <li><span class="nd2"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-pr"/></svg></span><b>curia-sh</b> commented · Aug 21, 18:55<span class="cmt">🔗 curia pushed <code>curia/587</code> (1 commit) and opened <a href="https://github.com/alp82/curia/pull/597">#597</a></span></li>
+            <li><span class="nd2"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-pr"/></svg></span><b>curia-sh</b> commented · Aug 22, 19:10<span class="cmt">🔗 curia pushed <code>curia/587</code> (5 commits) and updated <a href="https://github.com/alp82/curia/pull/597">#597</a></span></li>
+            <li><span class="nd2 merged"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-merge"/></svg></span><b>curia-sh</b> merged <a href="https://github.com/alp82/curia/pull/597">#597</a> and closed this as completed · Aug 22, 19:13</li>
+          </ol>
+        </article>
+      </div>
+
+      <!-- The explanatory titles. They scroll naturally, on the side,
+           and each one owns a tall slot so it holds the view it names. -->
+      <div class="steps" id="steps">
+        <p class="nb on" data-i="0"><span class="nn">01</span><b>You send it to an agent from Discord.</b></p>
+        <p class="nb" data-i="1"><span class="nn">02</span><b>The agent works and opens a pull request.</b></p>
+        <p class="nb" data-i="2"><span class="nn">03</span><b>It asks you before anything merges.</b></p>
+        <p class="nb" data-i="3"><span class="nn">04</span><b>You approve. It merges and closes the ticket.</b></p>
       </div>
     </div>
 
@@ -3488,65 +3459,65 @@ if (!prefersStill) {
 function clampNum(v, a, b) { return v < a ? a : v > b ? b : v; }
 
 /* ================================================================
-   Scene 8 (#630) — the desk, narrated.
+   Scene 8 (#630) — the desk, held, with the ticket as the record.
 
-   Round 3 took the last held thing out of this scene. Round 2's desk
-   grew the section to 430svh and spent its first slot on the ticket
-   alone, so the reader travelled about a screen before anything
-   arrived. That was the operator's first fault, and the answer is not
-   a shorter track: the whole column scrolls normally now, and the
-   first narration box and the first screen sit right under the claim.
+   The shape the operator described at round 4: the explanatory titles
+   scroll naturally on the side with gaps, the screens toggle in a main
+   view that is held, and the static part stays where it is and looks
+   like a GitHub ticket evolving over time.
 
-   So this script owns one number and nothing else: the stage k, 0 to
-   4. Stage 0 is the ticket as it was opened, and each of the four
-   screens moves it one on. The section carries k as `data-k`, and the
-   state word, the evolving line, the five-stop track and the pill's
-   colour are all CSS off that one attribute.
+   So this script owns one number, the step k, 1 to 4. The step crossing
+   the middle of the viewport owns the view: it lights, its screen
+   toggles in, and the ticket's timeline grows to that row. The section
+   carries k as `data-k`, and the timeline rows and the state pill are
+   CSS off that one attribute.
 
-   An IntersectionObserver watches the screens and the one crossing the
-   middle of the viewport owns the stage. No wheel listener, no
-   scrollTo, no preventDefault: the scene reads the scroll and never
-   takes it. With reduced motion or no script every screen stands, the
-   docket sits at the end of the column instead of following the
-   reader, and every word still reads.
+   The stage is stuck from the top of the section, so the first screen
+   and the ticket are both on screen before the reader has scrolled at
+   all. That is the lead-in fault of round 2, and it does not come back
+   with the held view.
+
+   No wheel listener, no scrollTo, no preventDefault: the scene reads
+   the scroll and never takes it. With reduced motion or no script the
+   held view lets go, every screen stands in order and the ticket shows
+   its whole timeline.
    ================================================================ */
 (function () {
   var sec = document.getElementById('run');
-  var scrn = document.getElementById('scrn');
-  if (!sec || !scrn) return;
+  var steps = [].slice.call(document.querySelectorAll('#steps .nb'));
+  var screens = [].slice.call(document.querySelectorAll('#scrn .sc'));
+  if (!sec || !steps.length || !screens.length) return;
 
-  var V = { '1': 'v-step', '2': 'v-slab', '3': 'v-memo', '4': 'v-col', '5': 'v-num' };
-  /* Which compositions deal the screens into a pile rather than stand
-     them apart. The desk is the baseline, so most of them do. */
-  var PILED = { '2': 1, '3': 1, '5': 1 };
-  var screens = [].slice.call(scrn.querySelectorAll('.sc'));
+  var V = { '1': 'v-desk', '2': 'v-head', '3': 'v-beside', '4': 'v-behind', '5': 'v-inset' };
   var swb = [].slice.call(document.querySelectorAll('#rsw button'));
   var v = '1';
-  var k = 0;
+  var k = 1;
   var io = null;
 
   function setK(next) {
-    next = next < 0 ? 0 : next > screens.length ? screens.length : next;
+    next = next < 1 ? 1 : next > screens.length ? screens.length : next;
     if (next === k) return;
     k = next;
     sec.setAttribute('data-k', String(k));
+    steps.forEach(function (n, i) { n.classList.toggle('on', i === k - 1); });
+    screens.forEach(function (n, i) { n.classList.toggle('on', i === k - 1); });
     if (k >= 3) press();
   }
 
   function watch() {
     if (io || !window.IntersectionObserver) return;
-    /* A screen owns the stage from the moment it crosses the middle of
-       the viewport. The margins are what put that line there. */
+    /* A step owns the view from the moment it crosses the middle of the
+       viewport. The margins are what put that line there. */
     io = new IntersectionObserver(function (es) {
       es.forEach(function (e) {
         if (!e.isIntersecting) return;
         setK(parseInt(e.target.getAttribute('data-i'), 10) + 1);
       });
     }, { rootMargin: '-45% 0px -45% 0px', threshold: 0 });
-    screens.forEach(function (n) { io.observe(n); });
+    steps.forEach(function (n) { io.observe(n); });
   }
 
-  /* ---- the press. It plays once, when the gate takes the stage. ---- */
+  /* ---- the press. It plays once, when the gate takes the view. ---- */
   var gate = document.getElementById('rungate');
   var pressed = false;
   function press() {
@@ -3572,11 +3543,11 @@ function clampNum(v, a, b) { return v < a ? a : v > b ? b : v; }
     if (!V[next]) next = '1';
     v = next;
     sec.setAttribute('data-v', v);
-    sec.className = 'scene run sL ' + V[v]
-      + (PILED[v] ? ' piled' : '')
-      + (prefersStill ? ' still' : '');
+    sec.className = 'scene run sL ' + V[v] + (prefersStill ? ' still' : '');
     swb.forEach(function (b) { b.setAttribute('aria-pressed', b.getAttribute('data-i') === v ? 'true' : 'false'); });
     if (prefersStill) { press(); return; }
+    screens.forEach(function (n, i) { n.classList.toggle('on', i === k - 1); });
+    steps.forEach(function (n, i) { n.classList.toggle('on', i === k - 1); });
     watch();
   }
 
