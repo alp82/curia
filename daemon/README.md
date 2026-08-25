@@ -482,6 +482,38 @@ A restore is rare and destructive, and a human picks which dump. So there is no 
 
 The daemon sets `journal_mode` and `synchronous` when it opens the journal, so the restored file takes WAL at that boot. It also finds `events.db` present, so the migration does not run again. The loss is every event curia journaled after that dump.
 
+### The aistack sync
+
+[Publish recurring box usage to aistack (#695)](https://github.com/alp82/curia/issues/695) rules it, and `src/aistack.mjs` holds it. The box is an aistack machine: once a day, the daemon publishes the rolling 30-day token usage of every harness it can see, so the agents' spend joins the operator's measured layer on aistack.to.
+
+- **The credential is the switch.** The daemon syncs only when `<workspace_root>/home/.config/aistack/credentials.json` exists. That file holds a bearer token, it lives under curia's own HOME, and no checkout ever carries it. An unregistered box runs nothing and says nothing.
+- **The roots are built per run.** Every agent gets its own config directory under `<workspace_root>/cfg/<session>`, and teardown deletes it. So each run enumerates `cfg/*`, passes every directory holding `projects/` as the comma-separated `CLAUDE_CONFIG_DIR` list, and passes the newest directory holding `sessions/` as `CODEX_HOME`. `CODEX_HOME` names one directory only, so codex rollouts spread over several config directories cannot be aggregated in one run.
+- **It rides the dispatch tick.** Curia keeps one clock ([#345](https://github.com/alp82/curia/issues/345)). A publish files no ticket, so it runs beside the liveness sweep in the dispatcher's tick rather than behind a second timer. `aistack.interval_hours` bounds how often that tick spends a process, and the stack's own auto-sync frequency bounds how often a run publishes.
+- **The command is pinned.** `aistack.cli_version` in `config/curia.yaml` names the version. The stock aistack hook runs `@latest`, which changes behavior on a box nobody touched.
+- **A success says nothing.** Each run journals `aistack_sync` with the root counts and the published link. Only a failure reaches Discord, only when it is news, and it names the two commands that repair it. The alarm stands as `aistack_sync_failed` and a landed sync clears it, so a deploy repeats nothing.
+
+What a sync can never show is bounded twice, and both bounds are the measured layer's: a torn-down config directory takes its transcripts with it, and the measured layer stores windows rather than increments.
+
+#### Registering the box
+
+Registration is a one-time operator ceremony, because the approval needs a signed-in browser. Run both commands on the box, as curia's own HOME.
+
+1. Start the device-code login. The command prints a code and a URL, then polls for three minutes.
+
+   ```sh
+   HOME=/home/alp/curia-work/home npx -y @use-aistack/cli@0.7.2 login
+   ```
+
+2. Open the URL on any machine, name the machine, pick the stack, and approve. The CLI writes the token to `<HOME>/.config/aistack/credentials.json`.
+
+3. Grant the standing auto-sync permission on the stack. This path prompts for nothing, so it runs on a box with no terminal.
+
+   ```sh
+   HOME=/home/alp/curia-work/home npx -y @use-aistack/cli@0.7.2 sync --auto on
+   ```
+
+The daemon picks the credential up on its next tick. To revoke the machine, use `aistack.to/settings/machines` and delete the credentials file. Each run appends one line to `<HOME>/.config/aistack/sync.log`, which is the first place to read when the alarm fires.
+
 ### The Node pin
 
 [The store's backup and the Node pin (#357)](https://github.com/alp82/curia/issues/357) rules it. [The daemon image takes Node 24 and sqlite3 (#409)](https://github.com/alp82/curia/issues/409) applied the first value. The journal sits on `node:sqlite`, which Node marks Stability 1.2, and a patch update can change the API, the defaults and the bundled SQLite engine.

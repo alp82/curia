@@ -149,6 +149,10 @@ function makeDispatcher(deps = {}, {
   // than reach the box's own `~/.codex`.
   credentials = null,
   anthropicHealth = null,
+  // #695: the recurring aistack sync. NULL by default and on purpose - a real
+  // one spawns `npx`, and a test that forgot to pass one must run nothing rather
+  // than reach the network.
+  aistack = null,
   // Discarded by default. A test that asserts on a boot line passes a collector,
   // because the lines it wants are written inside the constructor (#377).
   log = () => {},
@@ -330,6 +334,7 @@ function makeDispatcher(deps = {}, {
     credentials,
     anthropic,
     anthropicHealth,
+    aistack,
     deps: { ...base, ...deps },
   })
   // #151: index.mjs hangs the identity proxy on the dispatcher the way it hangs
@@ -7517,5 +7522,58 @@ describe('a restart does not end a login (#671)', () => {
     await d.reconcile({ boot: true })
 
     assert.equal(d.credentialsStatus().reauth.started_at, at)
+  })
+})
+
+// The recurring aistack sync (#695). What is pinned here is the wiring, not the
+// sync itself: the publish rides the tick curia already has, and it never grows
+// a loop of its own. The sync's own rules are pinned in `aistack.test.mjs`.
+describe('the aistack sync rides the dispatch tick (#695)', () => {
+  test('the tick runs it, and it arms no timer of its own', async () => {
+    let passes = 0
+    const d = makeDispatcher({}, { aistack: { pass: async () => { passes += 1; return null } } })
+    d.config.dispatch.poll_interval_s = 0.05
+
+    d.startAutoLoop()
+    await waitFor(() => passes >= 2)
+    d.stopAutoLoop()
+
+    assert.ok(passes >= 2, 'the publish runs on the tick curia already has')
+    assert.equal(d.autoTimer, null, 'and the stopped loop leaves nothing else running')
+  })
+
+  test('the tick runs it while auto-dispatch is off, which is how curia ships', async () => {
+    let passes = 0
+    const d = makeDispatcher({}, { aistack: { pass: async () => { passes += 1; return null } } })
+    assert.equal(d.config.dispatch.auto_dispatch, false)
+    d.config.dispatch.poll_interval_s = 0.05
+
+    d.startAutoLoop()
+    await waitFor(() => passes >= 1)
+    d.stopAutoLoop()
+
+    assert.ok(passes >= 1, 'the box spends tokens whether or not it dispatches anything new')
+  })
+
+  test('a sync that rejects is logged, and the rest of the tick still runs', async () => {
+    const lines = []
+    let swept = 0
+    const d = makeDispatcher({}, {
+      aistack: { pass: async () => { throw new Error('npx exited 7') } },
+      log: (...a) => lines.push(a.join(' ')),
+    })
+    d.config.dispatch.poll_interval_s = 0.05
+    const realSweep = d.livenessSweep.bind(d)
+    d.livenessSweep = async () => { swept += 1; return realSweep() }
+
+    d.startAutoLoop()
+    await waitFor(() => lines.some((l) => /the aistack sync failed/.test(l)))
+    d.stopAutoLoop()
+
+    assert.ok(swept >= 1, 'the liveness sweep runs above it and is untouched')
+  })
+
+  test('a dispatcher with no sync holds none', () => {
+    assert.equal(makeDispatcher().aistack, null)
   })
 })
