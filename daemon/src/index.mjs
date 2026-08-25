@@ -60,6 +60,7 @@ import { MapSnapshot, readMapSnapshot } from './mapsnapshot.mjs'
 import { setDaemonTokenSource } from './daemongh.mjs'
 import { TokenWatch } from './tokenwatch.mjs'
 import { JournalBackup } from './backup.mjs'
+import { AistackSync } from './aistack.mjs'
 import {
   probeTtyd, assertServe, serveOff, attachBase, attachSessionUrl, validSessionName,
   isConsoleKey, consoleKeyForSession, sessionForConsoleKey,
@@ -1084,8 +1085,26 @@ const threads = {
   },
 }
 
+// The recurring aistack sync (#695). It is built here, beside the credential
+// watch and the journal backup, because it needs the same two things they do:
+// the reduction, which remembers the alarm that still stands and when the last
+// attempt finished, and the bridge, which is where the operator reads. `bridge`
+// is read per call for the reason theirs is, and the dispatcher runs it on the
+// tick it already has.
+const aistackSync = new AistackSync({
+  root: curiaConfig.dispatch.workspace_root,
+  version: curiaConfig.aistack.cli_version,
+  intervalHours: curiaConfig.aistack.interval_hours,
+  journal: (type, detail) => reduction.journal(type, detail),
+  announce: (text) => (bridge ? bridge.announce(text).then(() => true) : false),
+  standing: () => reduction.standingAistackAlarm(),
+  lastAt: () => reduction.lastAistackSyncAt(),
+  log: (line) => log(line),
+})
+
 const dispatcher = new Dispatcher({
   config: curiaConfig,
+  aistack: aistackSync,
   routing: routingConfig,
   reduction,
   notify: notifyThread,

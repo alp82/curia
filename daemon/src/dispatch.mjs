@@ -389,7 +389,7 @@ export class Dispatcher {
   // escalation and returns its record; lapseEscalation closes one as lapsed
   // (journal + message edit); confirmNote posts a line next to a record's
   // buttons; overseerNote journals a synthetic line for a thread's session.
-  constructor({ config, routing, reduction, notify, announce, openConfirm, lapseEscalation, confirmNote, overseerNote, askReview, cancelEscalation, threads, log = console.log, cooling, readings, dataDir, daemonPort, previews, attachLinks, attachSessionLink, dashboardLink, channelName, minter, credentials, anthropic, anthropicHealth, deps }) {
+  constructor({ config, routing, reduction, notify, announce, openConfirm, lapseEscalation, confirmNote, overseerNote, askReview, cancelEscalation, threads, log = console.log, cooling, readings, dataDir, daemonPort, previews, attachLinks, attachSessionLink, dashboardLink, channelName, minter, credentials, anthropic, anthropicHealth, aistack, deps }) {
     this.config = config
     this.routing = routing
     this.reduction = reduction
@@ -461,6 +461,12 @@ export class Dispatcher {
     // reads it treats null and a mint that failed as the same answer — fall back
     // — so there is one path to test rather than two.
     this.minter = minter ?? null
+    // The recurring aistack sync (#695), injected by index.mjs. It rides this
+    // dispatcher's tick because curia keeps one clock (#345), and a publish
+    // files no ticket, so it belongs beside the liveness sweep rather than
+    // behind a second timer. NULL is legal: the suite builds dispatchers that
+    // have no business spawning a command line interface.
+    this.aistack = aistack ?? null
     this.deps = { ...DEFAULT_DEPS, ...deps }
     this.root = config.dispatch.workspace_root
     this.agents = new Map() // session -> agent record (disposable cache)
@@ -7734,6 +7740,14 @@ export class Dispatcher {
     // container answers the operator whether or not this box dispatches
     // anything, and its token dies in an hour either way.
     await this.refreshOverseerCredentials().catch((e) => this.log('the overseer credential refresh failed:', e.message))
+    // #695: the aistack publish, above the gate for the reason every check above
+    // it is. The box's agents spend tokens whether or not it dispatches anything
+    // new, and the measured layer ages the same either way. The sync holds
+    // itself to a check interval and to the stack's own frequency, so this call
+    // is cheap on almost every tick, and it never throws.
+    if (this.aistack) {
+      await this.aistack.pass().catch((e) => this.log('the aistack sync failed:', e.message))
+    }
     if (!this.config.dispatch.auto_dispatch) return
     const max = this.config.dispatch.max_concurrent
     const liveCount = () => this.agents.size + this.inFlight.size

@@ -11,6 +11,7 @@ import { DEFAULT_SKILLS, defaultSkillsRoot, HARNESS_NAMES, harnessProvider } fro
 import { LIMIT_PATTERNS, SAFE_SUBSTITUTION } from './routing.mjs'
 import { DEFAULT_INDEX, REBUILD_CMD } from './attach.mjs'
 import { PROBE_MODEL } from './usage.mjs'
+import { DEFAULT_CLI_VERSION, DEFAULT_INTERVAL_HOURS } from './aistack.mjs'
 import { DEFAULT_TIMELINE_INDEX } from './timeline.mjs'
 import { DEFAULT_IMAGE, DOCKERFILE, SANDBOX_KEYS } from './image.mjs'
 import { DEFAULT_CONTAINER_PORTS, PORTS_PER_AGENT } from './sandbox.mjs'
@@ -404,6 +405,29 @@ export function loadCuriaConfig(file, { checkPaths = true, localFile, env = proc
     fail(src, 'usage.probe_model must be a model name')
   }
   cfg.usage = { account_bars: u.account_bars ?? true, probe_model: u.probe_model ?? PROBE_MODEL }
+
+  // The recurring aistack sync (#695). The section is optional and every key in
+  // it has a default, because the switch that turns this on is not a config key:
+  // it is the machine credential under curia's HOME, which only the operator's
+  // one-time registration writes. A box that never registered reads this block
+  // and does nothing with it.
+  //
+  // `cli_version` is a PIN, for the reason every pin in `sandbox:` is one. The
+  // stock aistack hook runs `@latest`, so an unpinned command changes behavior
+  // on a box nobody touched.
+  const ai = cfg.aistack ?? {}
+  if (typeof ai !== 'object' || Array.isArray(ai)) fail(src, '`aistack` must be a mapping')
+  if (ai.cli_version !== undefined && !VERSION_RE.test(String(ai.cli_version))) {
+    fail(src, `aistack.cli_version must be a pinned version like ${DEFAULT_CLI_VERSION} - "latest" and a range are what this pin exists to refuse`)
+  }
+  if (ai.interval_hours !== undefined
+    && (typeof ai.interval_hours !== 'number' || !Number.isFinite(ai.interval_hours) || ai.interval_hours <= 0)) {
+    fail(src, 'aistack.interval_hours must be a positive number of hours')
+  }
+  cfg.aistack = {
+    cli_version: String(ai.cli_version ?? DEFAULT_CLI_VERSION),
+    interval_hours: ai.interval_hours ?? DEFAULT_INTERVAL_HOURS,
+  }
 
   // The agent sandbox image (#154, from #148). The section is REQUIRED since
   // #195 retired the bare tmux path: every agent runs in a container, so a
