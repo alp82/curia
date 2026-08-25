@@ -137,12 +137,12 @@ describe('notify carries the typed fields and the lint gate (#420, real boot)', 
     fs.rmSync(tmp, { recursive: true, force: true })
   })
 
-  test('a typed status line lands with its kind, its spoiler and its visual', async () => {
+  test('a typed status line lands with its kind, its spoiler and its table', async () => {
     const text = await call('curia-420', '420', {
       kind: 'look',
       message: 'The prototype is up. The page is the one this ticket changed.',
       detail: 'The demo is prototypes/select-menu/index.html.',
-      visual: 'kind   you must do\nlook   open it now',
+      table: 'kind   you must do\nlook   open it now',
     })
 
     assert.match(text, /^ok/m)
@@ -150,7 +150,7 @@ describe('notify carries the typed fields and the lint gate (#420, real boot)', 
     const line = events.findLast((e) => e.type === 'notify' && e.agent === 'curia-420')
     assert.equal(line.kind, 'look')
     assert.equal(line.detail, 'The demo is prototypes/select-menu/index.html.')
-    assert.match(line.visual, /look   open it now/)
+    assert.match(line.table, /look   open it now/)
   })
 
   test('a phase-only update reaches the editable status line', async () => {

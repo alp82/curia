@@ -49,42 +49,108 @@ export const AGENT_ROUTES = new Set(['/mcp', '/agent_done'])
 // curl argument, a JSON string and a TOML string with no escaping rule anywhere.
 const TOKEN_RE = /^[0-9a-f]{64}$/
 
-export function tokensDir(dataDir) {
-  return path.join(dataDir, 'tokens')
+// ---- the file store ---------------------------------------------------------
+
+// The shape both token stores keep: one 0600 file per name, under one directory
+// of the daemon's data dir, holding a 64-hex secret and nothing else.
+//
+// The conversation store (`overseeridentity.mjs`) is the second caller. It
+// keeps its own two rules — which names are valid, and a DURABLE token read
+// back rather than reminted — and takes the rest from here: where the file
+// lives, how the name is asserted before it becomes one, the mode that survives
+// a rewrite, the constant-time compare, the revoke, and the sweep against a
+// positively known list. Two stores that had to agree on all of that by hand is
+// how one of them ends up world-readable.
+export function tokenStore({ dirName, validName, dirMode = null, refusal }) {
+  const dirFor = (dataDir) => path.join(dataDir, dirName)
+
+  // The name comes off a query param at check time, so it is asserted before it
+  // is ever used as a filename. Neither store's shape admits a `/`, which is
+  // what keeps this a basename.
+  const fileFor = (dataDir, name) => (validName(String(name ?? '')) ? path.join(dirFor(dataDir), String(name)) : null)
+
+  const read = (dataDir, name) => {
+    const file = fileFor(dataDir, name)
+    if (!file) return null
+    try {
+      const token = fs.readFileSync(file, 'utf8').trim()
+      return TOKEN_RE.test(token) ? token : null
+    } catch {
+      return null
+    }
+  }
+
+  // A fresh secret, written where the name says.
+  const mint = (dataDir, name) => {
+    const file = fileFor(dataDir, name)
+    if (!file) throw new Error(refusal(name))
+    const token = crypto.randomBytes(32).toString('hex')
+    fs.mkdirSync(dirFor(dataDir), { recursive: true, ...(dirMode === null ? {} : { mode: dirMode }) })
+    fs.writeFileSync(file, token, { mode: 0o600 })
+    // writeFileSync applies the mode only when it CREATES the file, and a name
+    // minted twice already has one (same note as sandbox.mjs's env file).
+    fs.chmodSync(file, 0o600)
+    return token
+  }
+
+  const revoke = (dataDir, name) => {
+    const file = fileFor(dataDir, name)
+    if (file) fs.rmSync(file, { force: true })
+  }
+
+  // Every token whose name is not in a POSITIVELY known list — the same
+  // evidence rule the rest of reconcile runs on. Returns the names collected.
+  const sweep = (dataDir, live) => {
+    let names = []
+    try {
+      names = fs.readdirSync(dirFor(dataDir))
+    } catch {
+      return [] // nothing was ever minted
+    }
+    const keep = new Set([...live].map(String))
+    const swept = []
+    for (const name of names) {
+      if (keep.has(name) || !validName(name)) continue
+      revoke(dataDir, name)
+      swept.push(name)
+    }
+    return swept
+  }
+
+  return {
+    dirFor,
+    fileFor,
+    read,
+    mint,
+    revoke,
+    sweep,
+    // Fails CLOSED in every direction that is not an exact match: no minted
+    // token, an unreadable one, a missing header, a wrong one.
+    matches: (dataDir, name, presented) => tokensEqual(read(dataDir, name), presented),
+  }
 }
 
-// The session name comes off a query param at check time, so it is asserted
-// before it is ever used as a filename. `validSessionName` admits no `/`, which
-// is what keeps this a basename.
-function tokenFile(dataDir, agent) {
-  if (!validSessionName(String(agent ?? ''))) return null
-  return path.join(tokensDir(dataDir), String(agent))
+// ---- the agent's store ------------------------------------------------------
+
+const AGENTS = tokenStore({
+  dirName: 'tokens',
+  validName: (name) => validSessionName(name),
+  refusal: (agent) => `refusing to mint an agent token for "${agent}": not a valid curia session name`,
+})
+
+export function tokensDir(dataDir) {
+  return AGENTS.dirFor(dataDir)
 }
 
 // A FRESH secret, overwriting whatever the last arm of this agent left. The
-// cross-harness respawn (#126) rewrites the connection settings, and the pane that died must
-// not keep speaking for the name.
+// cross-harness respawn (#126) rewrites the connection settings, and the pane
+// that died must not keep speaking for the name.
 export function mintAgentToken(dataDir, agent) {
-  const file = tokenFile(dataDir, agent)
-  if (!file) throw new Error(`refusing to mint an agent token for "${agent}": not a valid curia session name`)
-  const token = crypto.randomBytes(32).toString('hex')
-  fs.mkdirSync(tokensDir(dataDir), { recursive: true })
-  fs.writeFileSync(file, token, { mode: 0o600 })
-  // writeFileSync applies the mode only when it CREATES the file, and an agent
-  // armed twice already has one (same note as sandbox.mjs's env file).
-  fs.chmodSync(file, 0o600)
-  return token
+  return AGENTS.mint(dataDir, agent)
 }
 
 export function readAgentToken(dataDir, agent) {
-  const file = tokenFile(dataDir, agent)
-  if (!file) return null
-  try {
-    const token = fs.readFileSync(file, 'utf8').trim()
-    return TOKEN_RE.test(token) ? token : null
-  } catch {
-    return null
-  }
+  return AGENTS.read(dataDir, agent)
 }
 
 // One secret against another, in constant time. The overseer's per-turn secret
@@ -101,34 +167,17 @@ export function tokensEqual(expected, presented) {
   return crypto.timingSafeEqual(a, b)
 }
 
-// Fails CLOSED in every direction that is not an exact match: no minted token,
-// an unreadable one, a missing header, a wrong one. An agent armed before this
-// shipped therefore has no way in — see docs/live-checks/159-worker-token.md for
-// the one restart that costs, and its recovery.
+// An agent armed before #159 shipped has no way in — see
+// docs/live-checks/159-worker-token.md for the one restart that costs, and its
+// recovery.
 export function agentTokenMatches(dataDir, agent, presented) {
-  return tokensEqual(readAgentToken(dataDir, agent), presented)
+  return AGENTS.matches(dataDir, agent, presented)
 }
 
 export function forgetAgentToken(dataDir, agent) {
-  const file = tokenFile(dataDir, agent)
-  if (file) fs.rmSync(file, { force: true })
+  AGENTS.revoke(dataDir, agent)
 }
 
-// Every token whose agent is not in a POSITIVELY known session list — the same
-// evidence rule the rest of reconcile runs on. Returns the names collected.
 export function sweepAgentTokens(dataDir, live) {
-  let names = []
-  try {
-    names = fs.readdirSync(tokensDir(dataDir))
-  } catch {
-    return [] // nothing was ever minted
-  }
-  const keep = new Set(live)
-  const swept = []
-  for (const name of names) {
-    if (keep.has(name) || !validSessionName(name)) continue
-    forgetAgentToken(dataDir, name)
-    swept.push(name)
-  }
-  return swept
+  return AGENTS.sweep(dataDir, live)
 }

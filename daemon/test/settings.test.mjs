@@ -216,6 +216,44 @@ describe('the save lands beside the tracked file, never on it', () => {
     assert.match(after, /poll_interval_s: 30/)
   })
 
+  // The whole of #699's third criterion in one save: an operator edits one row
+  // on the settings screen, and the box loses nothing. Not a key nobody named,
+  // not a comment somebody wrote, and not the tracked layer under it.
+  test('a save loses no unrelated key, no comment, and nothing in the tracked file', () => {
+    fs.writeFileSync(overCuria(), [
+      '# This box runs hot and answers slowly.',
+      'dispatch:',
+      '  # Bumped by hand while the deploy box was thrashing.',
+      '  ready_timeout_s: 90 # not a key the screen writes',
+      '  max_concurrent: 9',
+      'attach:',
+      '  ttyd_port: 7999',
+      '',
+    ].join('\n'))
+    const tracked = fs.readFileSync(curiaFile, 'utf8')
+
+    saveSettings({ ...files(), patch: { dispatch: { poll_interval_s: 30 } } })
+
+    const after = readOr(overCuria())
+    // Every hand-written line, still where it was and worded as it was.
+    assert.match(after, /^# This box runs hot and answers slowly\.$/m)
+    assert.match(after, /^  # Bumped by hand while the deploy box was thrashing\.$/m)
+    assert.match(after, /^  ready_timeout_s: 90 # not a key the screen writes$/m)
+    // Every key nobody named, still holding the hand-edited value.
+    assert.equal(parse(after).dispatch.max_concurrent, 9)
+    assert.equal(parse(after).attach.ttyd_port, 7999)
+    assert.equal(parse(after).dispatch.poll_interval_s, 30)
+    // And the tracked layer under it, byte for byte.
+    assert.equal(fs.readFileSync(curiaFile, 'utf8'), tracked)
+    // Which is what the daemon then reads: the save on top, the hand edits
+    // beside it, and the tracked file under both.
+    const loaded = loadCuriaConfig(curiaFile, { checkPaths: false })
+    assert.equal(loaded.dispatch.poll_interval_s, 30)
+    assert.equal(loaded.dispatch.max_concurrent, 9)
+    assert.equal(loaded.dispatch.ready_timeout_s, 90)
+    assert.equal(loaded.dispatch.claim_login, 'alp82')
+  })
+
   test('the watch list replaces whole, and a list equal to the tracked one is no override', () => {
     saveSettings({ ...files(), patch: { watch: [{ repo: 'o/second' }, { repo: 'o/first' }] } })
     assert.deepEqual(parse(readOr(overCuria())), { watch: [{ repo: 'o/second' }, { repo: 'o/first' }] })

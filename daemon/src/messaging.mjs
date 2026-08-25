@@ -27,6 +27,8 @@ export const SIGNALS = {
   dead: '⚰️',
   link: '🔗',
   ask: '❓',
+  // ADR-0026 (#640) added the ninth: the background of a question.
+  background: '💡',
 }
 
 // Discord renders `-# ` as small print — the meta register (#89). Applied per
@@ -53,7 +55,13 @@ export function clampList(lines, max = 10) {
 // without crossing the cap (#119). Decision-bearing text is never silently
 // truncated: a long composed message becomes consecutive chunks, split at
 // paragraph boundaries first, then lines, then a hard slice as the last
-// resort (a single 1600-char line is code, not prose).
+// resort (a single 1700-char line is code, not prose).
+//
+// ADR-0026 (#640) moved it from 1600 to 1700. The prose message of a composite
+// send caps at 1600, and the rail line curia writes rides the same Discord
+// message, so a full prose field arrives at about 1620. The old limit cut it.
+// 1700 is still 300 under Discord's own 2000, so the margin that keeps a code
+// fence off a split survives.
 export const CHUNK_LIMIT = 1700
 
 // ---- fenced code blocks (#432) ----------------------------------------------

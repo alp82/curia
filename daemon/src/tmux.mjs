@@ -206,9 +206,30 @@ function paneJob(name, job) {
   return done
 }
 
+// A BRACKETED PASTE (#708, ADR-0024's note batch). The terminal wraps a real
+// paste in these two sequences, and every composer curia drives reads what sits
+// between them as ONE block of text rather than as typing: a newline inside it
+// stays a newline instead of submitting the half-message above it. That is the
+// whole reason a pane message needs it — a checkout verdict, a queue of notes
+// and the operator's own words are one message with lines in it, and sending
+// them as literal keys would submit each line as its own turn.
+//
+// The lines are joined with CR, which is what a terminal delivers inside a
+// paste. LF reaches some composers as a submit even inside the brackets.
+export const PASTE_START = '\u001b[200~'
+export const PASTE_END = '\u001b[201~'
+
+export function bracketedPaste(text) {
+  return `${PASTE_START}${String(text).replace(/\r\n|\n/g, '\r')}${PASTE_END}`
+}
+
 // -l sends the text LITERALLY (no key-name interpretation); the separate
 // Enter, one gap later, submits it.
-export function sendText(name, text, { readbackMs = PANE_READBACK_MS } = {}) {
+//
+// `paste: true` wraps the text as one bracketed paste first. Everything else —
+// the pacing, the active-turn readback, the atomic text-then-Enter job — is
+// identical, because a paste is still one write into one pane.
+export function sendText(name, text, { readbackMs = PANE_READBACK_MS, paste = false } = {}) {
   return paneJob(name, async (write, pace) => {
     await pace()
     const idleDeadline = Date.now() + readbackMs
@@ -220,7 +241,7 @@ export function sendText(name, text, { readbackMs = PANE_READBACK_MS } = {}) {
       await sleep(Math.min(250, idleDeadline - Date.now()))
     } while (true)
     try {
-      await write(['send-keys', '-t', `=${name}:`, '-l', text])
+      await write(['send-keys', '-t', `=${name}:`, '-l', paste ? bracketedPaste(text) : text])
       await write(['send-keys', '-t', `=${name}:`, 'Enter'])
     } catch (error) {
       return { status: 'unconfirmed', pane: before, error: error.message }

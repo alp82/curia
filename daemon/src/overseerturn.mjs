@@ -39,7 +39,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { query as sdkQuery } from '@anthropic-ai/claude-agent-sdk'
-import { seedConfigDir, agentEnv } from './workspace.mjs'
+import { seedConfigDir, agentEnv, cfgDirFor } from './workspace.mjs'
 import { buildSystemPrompt, toolsFor, checkoutReport } from './overseerprompt.mjs'
 import { syncCheckouts, checkoutsRootFor } from './checkouts.mjs'
 import { installCredentialConfig, unroutedOwners, unroutedNote } from './overseercreds.mjs'
@@ -81,7 +81,7 @@ export const CONTAINER_MAX_TURNS = 40
 // old tree any more, and the cutover copied no history (ADR-0016), so whatever
 // a box still carries there is dead paper.
 export function overseerConfigDirFor(workspaceRoot) {
-  return path.join(workspaceRoot, 'cfg', 'curia-overseer')
+  return cfgDirFor(workspaceRoot, 'curia-overseer')
 }
 
 // The cwd every turn runs in, and it never moves: `resume` is keyed by cwd

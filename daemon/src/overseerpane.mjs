@@ -6,13 +6,13 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
-import { execFileP } from './exec.mjs'
 import {
   capturePane, hasSession, listSessions, newSession, sendText, killSession,
+  paneShowsActiveTurn,
 } from './tmux.mjs'
 import {
   MCP_SERVER_NAME, OVERSEER_CONTAINER_MODEL, OVERSEER_MCP_PATH,
-  overseerConfigDirFor, overseerHomeFor, overseerProcessEnv,
+  checkoutNote, overseerConfigDirFor, overseerHomeFor, overseerProcessEnv,
 } from './overseerturn.mjs'
 import {
   AnthropicCredentialStore, anthropicStoreFile, writeClaudeCredentials,
@@ -24,9 +24,11 @@ import {
 } from './overseeridentity.mjs'
 import { TOKEN_HEADER } from './agenttoken.mjs'
 import { agentEnv, seedConfigDir } from './workspace.mjs'
-import { buildSystemPrompt } from './overseerprompt.mjs'
+import { buildSystemPrompt, checkoutReport } from './overseerprompt.mjs'
+import { execFileP } from './exec.mjs'
 import { SIGNALS } from './messaging.mjs'
 
+export const OVERSEER_CONTAINER = 'curia-overseer-1'
 const OVERSEER_PANE_PREFIX = 'curia-overseer-'
 const CONSOLE_KEY_RE = /^console-[1-9][0-9]*$/
 const CLAUDE_READY_RE = /(?:⏵⏵|bypass permissions)/i
@@ -51,6 +53,7 @@ const defaultPane = {
   ready: waitForClaudePane,
   send: sendText,
   park: killSession,
+  capture: capturePane,
 }
 
 function shellWord(value) {
@@ -160,18 +163,98 @@ export async function runOverseerPane(options, { spawnProcess = spawn } = {}) {
   })
 }
 
+// ---- the checkout pass a pane message starts on (#708, ADR-0024) -----------
+//
+// ADR-0014 gives the checkout tree ONE owner, and it is the overseer container:
+// the clones are fetched on its read-only token, and two owners would race on
+// one fetch. The HTTP turn ran the pass inside its own request, in that
+// container. A pane takes no HTTP turn, so the pass runs the way the container
+// already offers it — `daemon/bin/curia-checkouts.mjs`, over `docker exec` —
+// and the daemon reads the verdict off stdout. The daemon never fetches these
+// clones itself, which would be the wrong token and the second owner at once.
+//
+// IT NEVER REFUSES THE MESSAGE, for the reason `syncCheckouts` never refuses a
+// turn: a chat that will not answer is no way to find out why a fetch failed.
+// What it must never do is let a stale checkout read as a fresh one, so a pass
+// that could not run at all comes back as one FAILED verdict per watched repo,
+// and the report the model reads names every one of them as stale.
+const CHECKOUT_PASS_TIMEOUT_MS = 600_000
+
+// One verdict per watched repo, whatever the pass answered. A repo the pass
+// never mentioned is a repo nobody fetched, and silence about it would be the
+// one failure the verdict exists to prevent.
+export function completeVerdicts(pass, repos, why) {
+  const seen = new Map((pass.repos ?? []).map((r) => [r.repo, r]))
+  return repos.map((repo) => seen.get(repo) ?? {
+    repo,
+    ok: false,
+    cloned: false,
+    error: why,
+    fetchedAt: null,
+    staleSince: null,
+  })
+}
+
+export async function containerCheckoutPass({
+  repoRoot, repos, container = OVERSEER_CONTAINER,
+  execFile = execFileP, now = () => new Date(),
+}) {
+  const runner = path.join(repoRoot, 'daemon', 'bin', 'curia-checkouts.mjs')
+  let pass = { repos: [], removed: [] }
+  let why = null
+  try {
+    const { stdout } = await execFile('docker', ['exec', container, 'node', runner], {
+      maxBuffer: 16 * 1024 * 1024, timeout: CHECKOUT_PASS_TIMEOUT_MS, killSignal: 'SIGTERM',
+    })
+    pass = JSON.parse(stdout)
+    if (pass.error) why = String(pass.error).split('\n')[0]
+  } catch (e) {
+    why = String(e.stderr || e.message || e).trim().split('\n')[0] || 'the checkout pass answered nothing'
+  }
+  return {
+    root: pass.root ?? null,
+    at: pass.at ?? now().toISOString(),
+    removed: pass.removed ?? [],
+    repos: completeVerdicts(pass, repos, why ?? 'the checkout pass returned no verdict for this repo'),
+    why,
+  }
+}
+
+// ---- what one pane message says --------------------------------------------
+//
+// The HTTP turn put the checkout verdict in the system prompt and the queued
+// notes in front of the operator's words. A pane holds ONE system prompt for
+// its whole life, so the per-message facts have to ride in the message itself —
+// which is also why the message goes in as one bracketed paste: it has lines in
+// it, and a literal newline would submit the verdict as a turn of its own.
+//
+// THE ORDER IS FACTS, THEN NOTES, THEN THE OPERATOR. The verdict is the frame
+// every read in the answer happens inside, the notes are what curia did while
+// the model was not looking, and the operator's words are last so the thing
+// being answered is the thing nearest the answer.
+export function paneMessageText({ checkouts, notes = [], prompt, now = () => new Date() }) {
+  const parts = [checkoutReport(checkouts, { now })]
+  if (notes.length) parts.push(notes.map((t) => `[curia: ${t}]`).join('\n'))
+  parts.push(String(prompt))
+  return parts.join('\n\n')
+}
+
 export class OverseerPaneHost {
   constructor({
     reduction,
     workspaceRoot,
     repoRoot,
     dataDir,
+    log = console.log,
     daemonPort = 0,
     daemonHost = 'host.docker.internal',
     pane = defaultPane,
     containerId = () => runningOverseerContainer({ repoRoot }),
     newSessionId = crypto.randomUUID,
     livePaneCap = 3,
+    watchRepos = () => [],
+    startTimeoutMs = 90_000, messageTimeoutMs = 30 * 60_000, settlePollMs = 1_000,
+    now = () => new Date(),
     deps = {},
   }) {
     this.reduction = reduction
@@ -180,16 +263,32 @@ export class OverseerPaneHost {
     this.dataDir = dataDir
     this.daemonPort = daemonPort
     this.daemonHost = daemonHost
-    this.pane = pane
+    this.log = log
+    const paneOverrides = [deps.hasSession, deps.newSession, deps.capturePane, deps.sendText]
+      .some(Boolean)
+    this.pane = paneOverrides ? Object.create(pane) : pane
+    if (deps.hasSession) this.pane.has = deps.hasSession
+    if (deps.newSession) this.pane.start = deps.newSession
+    if (deps.capturePane) this.pane.capture = deps.capturePane
+    if (deps.sendText) this.pane.send = deps.sendText
     this.containerId = containerId
     this.newSessionId = newSessionId
     this.livePaneCap = livePaneCap
+    // Read the watch list for each message. Atlas can change the list while the
+    // daemon and a pane remain live.
+    this.watchRepos = watchRepos
+    this.startTimeoutMs = startTimeoutMs
+    this.messageTimeoutMs = messageTimeoutMs
+    this.settlePollMs = settlePollMs
+    this.now = now
     this.identity = {
       ensureToken: ensureConversationToken,
       writeConnection: writeConversationConnection,
       carryTranscript: carryOverseerTranscript,
       ...deps,
     }
+    this.checkoutPass = deps.checkoutPass ?? containerCheckoutPass
+    this.onComplete = deps.onComplete ?? (async () => {})
     this.live = new Map()
     this.lanes = new Map()
     this.capacityLane = Promise.resolve()
@@ -344,5 +443,114 @@ export class OverseerPaneHost {
       })
     }
     this.live.clear()
+  }
+
+  // WHEN THE HARNESS IS DONE WITH THIS MESSAGE. The pane is the only witness:
+  // there is no stream to end and no result message to read, so the answer comes
+  // from the same pane text the classifiers already read — the harness shows an
+  // active turn while it works and stops showing one when it stops.
+  //
+  // Two clocks, because two different things go wrong. A pane that never starts
+  // a turn swallowed the message; a pane that never stops has a message that
+  // will not end. Both are named, and both end in a signal.
+  async #settle(session) {
+    const startBy = this.now().getTime() + this.startTimeoutMs
+    let started = false
+    do {
+      if (await this.#active(session)) { started = true; break }
+      if (this.now().getTime() >= startBy) break
+      await sleep(this.settlePollMs)
+    } while (true)
+    if (!started) {
+      return { ok: false, why: `${session} never started a turn on the message` }
+    }
+    const endBy = this.now().getTime() + this.messageTimeoutMs
+    do {
+      if (!(await this.#active(session))) return { ok: true, why: null }
+      if (this.now().getTime() >= endBy) break
+      await sleep(this.settlePollMs)
+    } while (true)
+    return { ok: false, why: `${session} was still working ${Math.round(this.messageTimeoutMs / 1000)}s after the message` }
+  }
+
+  async #active(session) {
+    try {
+      return paneShowsActiveTurn(await this.pane.capture(session))
+    } catch {
+      // A pane that cannot be captured is a pane that is gone — a deploy, a
+      // park, a killed session. The message is over either way, and the caller
+      // reads the signal rather than a throw from a watcher nobody awaited.
+      return false
+    }
+  }
+
+  // ONE COMPLETE MESSAGE (#708, ADR-0024).
+  //
+  // Three things happen in this order, and the order is the ticket: the
+  // checkout pass returns one verdict per watched repo, the notes curia queued
+  // between messages come off the queue, and the two ride into the pane with
+  // the operator's words as ONE bracketed paste. A pane holds one system prompt
+  // for its whole life, so per-message facts have nowhere else to be.
+  //
+  // IT RETURNS WHEN THE MESSAGE IS IN, NOT WHEN THE ANSWER IS OUT. The answer
+  // reaches the operator off the transcript, which the chat surfaces tail. What
+  // the adapters need instead is one signal saying the harness is finished, and
+  // that arrives later, exactly once, on `onComplete` and in the journal.
+  //
+  // A MESSAGE THAT DID NOT GO IN PUTS ITS NOTES BACK. The drain already
+  // happened by then, and notes dropped on a failed send would be words the
+  // operator is never told about — ADR-0024's "curia returns queued notes to
+  // its queue", on the delivery path rather than the rewind.
+  deliver(key, prompt, { onNote = () => {} } = {}) {
+    const identity = String(key)
+    return this.#queue(identity, () => (
+      this.#withCapacity(() => this.#deliver(identity, prompt, { onNote }))
+    ))
+  }
+
+  async #deliver(key, prompt, { onNote }) {
+    const repos = this.watchRepos()
+    const checkouts = await this.checkoutPass({
+      repoRoot: this.repoRoot, repos, now: this.now,
+    })
+    await onNote(checkoutNote(checkouts))
+    const notes = this.reduction.takeOverseerNotes?.(key) ?? []
+    const text = paneMessageText({ checkouts, notes, prompt, now: this.now })
+    const resumed = Boolean(this.reduction.overseerSession(key))
+    const { name: session, session: sessionId } = await this.#ensure(key)
+    const delivery = await this.pane.send(session, text, { paste: true })
+    const current = this.live.get(session)
+    if (current) current.touchedAt = Date.now()
+    if (delivery?.status === 'not-sent') {
+      for (const note of notes) this.reduction.addOverseerNote?.(key, note)
+      const why = `${session} was still working, so curia did not send the message`
+      const signal = await this.#signal({ key, session, sessionId, ok: false, why })
+      return { session, sessionId, resumed, checkouts, notes, delivery, completion: Promise.resolve(signal) }
+    }
+    this.reduction.journal?.('overseer_pane_message', {
+      key, session, session_id: sessionId, notes: notes.length, stale: checkouts.repos.filter((r) => !r.ok).length,
+    })
+    // Detached on purpose: the surface that sent the message must not hold an
+    // HTTP request open for the length of a model's work. The promise is
+    // returned so a caller that DOES want to wait — a test, a replay — can.
+    const completion = this.#settle(session)
+      .then((out) => this.#signal({ key, session, sessionId, ...out }))
+    completion.catch(() => {})
+    return { session, sessionId, resumed, checkouts, notes, delivery, completion }
+  }
+
+  // The one signal, emitted once per message and nowhere else.
+  async #signal({ key, session, sessionId, ok, why }) {
+    const signal = { key, session, sessionId, ok, why: why ?? null, at: this.now().toISOString() }
+    this.reduction.journal?.('overseer_pane_message_ended', {
+      key, session, session_id: sessionId, ok, why: signal.why,
+    })
+    if (!ok) this.log(`[overseer] pane message on ${key} did not finish: ${signal.why}`)
+    try {
+      await this.onComplete(signal)
+    } catch (e) {
+      this.log(`[overseer] the completion signal for ${key} was not delivered: ${e.message}`)
+    }
+    return signal
   }
 }

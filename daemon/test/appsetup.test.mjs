@@ -19,7 +19,9 @@ import {
   AppSetup, buildManifest, upsertEnv, minterForAdopted,
   MANIFEST_PERMISSIONS, MANIFEST_ACTION, STATE_TTL_MS, MAX_PENDING, STATE_RE,
 } from '../src/appsetup.mjs'
-import { APP_ID_KEY, APP_KEY_FILE_KEY, appConfigFrom } from '../src/githubapp.mjs'
+import {
+  APP_ID_KEY, APP_KEY_FILE_KEY, appConfigFrom, ROLES, permissionsFor,
+} from '../src/githubapp.mjs'
 import { DashboardSurface, DEFAULT_DASHBOARD_INDEX } from '../src/dashboard.mjs'
 import { serveHosts, LOGIN_HEADER } from '../src/identity.mjs'
 
@@ -52,6 +54,28 @@ describe('the manifest (#694)', () => {
     // ADR-0018's one absence: an app that writes `.github/workflows/` lets any
     // agent rewrite CI, and the PATs it replaced could not do it either.
     assert.equal(m.default_permissions.workflows, undefined)
+  })
+
+  // The manifest is DERIVED from the tables in githubapp.mjs, so this fails the
+  // day a permission is added to either one and the manifest does not follow —
+  // which is the App created without it, and the 422 on the first token that
+  // asks for it.
+  test('it holds every permission any minted token can ask for, at least as wide', () => {
+    const m = buildManifest({ name: 'curia.sh', redirectUrl: REDIRECT })
+    const width = { read: 1, write: 2 }
+    for (const role of Object.keys(ROLES)) {
+      for (const [name, level] of Object.entries(permissionsFor(role))) {
+        assert.ok(m.default_permissions[name], `the manifest omits ${name}, which the ${role} token asks for`)
+        assert.ok(
+          width[m.default_permissions[name]] >= width[level],
+          `the manifest grants ${name} at ${m.default_permissions[name]}, narrower than the ${role} token's ${level}`,
+        )
+      }
+    }
+    // And nothing beyond them: a permission in the manifest that no token asks
+    // for is reach curia does not use.
+    const asked = new Set(Object.keys(ROLES).flatMap((r) => Object.keys(permissionsFor(r))))
+    assert.deepEqual(Object.keys(m.default_permissions).filter((k) => !asked.has(k)), [])
   })
 
   test('it subscribes to no events and activates no webhook — curia polls', () => {

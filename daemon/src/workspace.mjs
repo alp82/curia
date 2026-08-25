@@ -63,8 +63,14 @@ export function worktreePathFor(root, repo, n) {
   return path.join(root, 'repos', repo.replace('/', '__'), 'wt', String(n))
 }
 
+// The one directory name under the workspace root that holds every agent's
+// config dir. Named once because two readers walk it: `cfgDirFor` writes a
+// session's dir here, and `aistack.mjs` enumerates the same tree to find the
+// roots a usage sync scans.
+export const CFG_DIR = 'cfg'
+
 export function cfgDirFor(root, session) {
-  return path.join(root, 'cfg', session)
+  return path.join(root, CFG_DIR, session)
 }
 
 export function branchFor(n) {
@@ -541,6 +547,21 @@ export function removeCredentials(cfgDir) {
 
 export const HARNESS_NAMES = ['claude', 'codex']
 
+// WHICH ENVIRONMENT VARIABLE CARRIES A HARNESS'S CONFIG ROOT. The HARNESS rows
+// below build their env from this map rather than spelling the name inline, and
+// `aistack.mjs` reads it rather than naming the same two variables a second
+// time — a harness whose CLI reads a different variable is then answered here,
+// once, for the agent spawn and the usage sync alike.
+export const CONFIG_ROOT_ENV = Object.freeze({
+  claude: 'CLAUDE_CONFIG_DIR',
+  codex: 'CODEX_HOME',
+})
+
+export function configRootEnvFor(harness = 'claude') {
+  harnessDef(harness)
+  return CONFIG_ROOT_ENV[harness]
+}
+
 function harnessDef(harness) {
   const h = HARNESS[harness]
   if (!h) {
@@ -699,6 +720,42 @@ function writeSecretFile(file, data) {
   fs.chmodSync(file, 0o600) // the mode applies only on create; a reused config dir already has one
 }
 
+// THE CLAUDE HARNESS'S WHOLE REACH BACK INTO THE DAEMON, in one writer.
+//
+// A `.mcp.json` beside a `.claude/settings.json` that says
+// `enableAllProjectMcpServers` — the pair is what makes the CLI trust a project
+// server with no prompt, and either file alone is a harness with no tools. Two
+// callers write it: an agent worktree here, and a conversation's own project
+// directory (`overseeridentity.mjs`). They differ in the directory, the server
+// name and whether a Stop hook rides along; everything else — the shape of the
+// server entry, the header that carries the secret, the bypass mode, the 0600
+// on both files — is one rule and lives here.
+//
+// Returns the path of the `.mcp.json` it wrote.
+export function writeClaudeConnection({
+  dir, serverName, url, header, token, hooks = null, env = null,
+}) {
+  fs.mkdirSync(dir, { recursive: true })
+  const mcpFile = path.join(dir, '.mcp.json')
+  writeSecretFile(mcpFile, JSON.stringify({
+    mcpServers: {
+      // #159. Claude Code sends a per-server `headers` object on every request
+      // to an http MCP server (`claude mcp add --header` writes this exact
+      // shape).
+      [serverName]: { type: 'http', url, headers: { [header]: token } },
+    },
+  }, null, 2))
+  const dotClaude = path.join(dir, '.claude')
+  fs.mkdirSync(dotClaude, { recursive: true })
+  writeSecretFile(path.join(dotClaude, 'settings.json'), JSON.stringify({
+    enableAllProjectMcpServers: true,
+    permissions: { defaultMode: 'bypassPermissions' },
+    ...(env ? { env } : {}),
+    ...(hooks ? { hooks } : {}),
+  }, null, 2))
+  return mcpFile
+}
+
 const HARNESS = {
   claude: {
     // The CLI's global-memory file, and the ONLY per-session channel either
@@ -756,7 +813,7 @@ const HARNESS = {
     // frozen-credential shape #53 fixed for the bare path, accepted back by
     // #148 as the sandbox's one remaining host-secret exposure.
     env: (cfgDir, { sandboxed = false } = {}) => ({
-      CLAUDE_CONFIG_DIR: cfgDir,
+      [CONFIG_ROOT_ENV.claude]: cfgDir,
       ...(sandboxed ? {} : { CLAUDE_SECURESTORAGE_CONFIG_DIR: path.join(os.homedir(), '.claude') }),
       CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT: String(86_400_000),
     }),
@@ -827,26 +884,15 @@ const HARNESS = {
     // with per-agent substitution. Both land in the worktree and are hidden from
     // git by the base clone's info/exclude (see ensureBaseClone).
     connectionSettings: ({ wtPath, agent, ticket, daemonPort, daemonHost, reasoningEffort, token }) => {
-      writeSecretFile(path.join(wtPath, '.mcp.json'), JSON.stringify({
-        mcpServers: {
-          [MCP_SERVER_NAME]: {
-            type: 'http',
-            url: curiaMcpUrl(daemonPort, agent, ticket, daemonHost),
-            // #159. Claude Code sends a per-server `headers` object on every
-            // request to an http MCP server (`claude mcp add --header` writes
-            // this exact shape).
-            headers: { [TOKEN_HEADER]: token },
-          },
-        },
-      }, null, 2))
-      const dotClaude = path.join(wtPath, '.claude')
-      fs.mkdirSync(dotClaude, { recursive: true })
-      writeSecretFile(path.join(dotClaude, 'settings.json'), JSON.stringify({
-        enableAllProjectMcpServers: true,
-        permissions: { defaultMode: 'bypassPermissions' },
-        ...(reasoningEffort ? { env: { CLAUDE_CODE_EFFORT_LEVEL: reasoningEffort } } : {}),
+      writeClaudeConnection({
+        dir: wtPath,
+        serverName: MCP_SERVER_NAME,
+        url: curiaMcpUrl(daemonPort, agent, ticket, daemonHost),
+        header: TOKEN_HEADER,
+        token,
+        env: reasoningEffort ? { CLAUDE_CODE_EFFORT_LEVEL: reasoningEffort } : null,
         hooks: { Stop: [{ hooks: [{ type: 'command', command: stopHookCommand(daemonPort, agent, daemonHost, token) }] }] },
-      }, null, 2))
+      })
     },
   },
 
@@ -866,7 +912,7 @@ const HARNESS = {
     // CLAUDE_SECURESTORAGE_CONFIG_DIR has no codex equivalent). Sharing the
     // host's credentials therefore has to happen inside the dir.
     hostStore: () => path.join(os.homedir(), '.codex'),
-    env: (cfgDir) => ({ CODEX_HOME: cfgDir }),
+    env: (cfgDir) => ({ [CONFIG_ROOT_ENV.codex]: cfgDir }),
 
     // A SYMLINK to the host's auth.json, which is the same shared-store property
     // #53 landed for Claude and — read this carefully — reached by the opposite
@@ -2016,12 +2062,13 @@ export function writePrompt(cfgDir, issue, {
     '  every question carries one, so one reply names the exceptions. A question whose answer depends on',
     '  another one still open belongs to the NEXT round. One question is a round of one.',
     // #415, ADR-0019: the agent writes the parts and the bridge lays out the
-    // card. The example and the visual stay judgment fields, because a field
-    // required on every option produces filler rather than evidence.
+    // card. The example, the table and the diagram stay judgment fields,
+    // because a field required on every option produces filler rather than
+    // evidence.
     '- **Write the PARTS of a card, never the card itself.** `headline` says the whole decision in one line.',
     '  Every option of a `choice` carries the `consequence` of picking it. curia lays them out, adds the',
-    '  buttons and writes every link. An `example` or a `visual` is your judgment: add one where it removes',
-    '  prose, and leave it out where it would only say the line above it again in longer words.',
+    '  buttons and writes every link. An `example`, a `table` or a `diagram` is your judgment: add one where it',
+    '  removes prose, and leave it out where it would only say the line above it again in longer words.',
     '- **Never answer for the human.** A question they did not answer comes back in the next round. Only',
     '  the ✅ button takes your recommendations, and only for the questions in the round it sits on.',
     // #56: a daemon crash took an in-flight ask_human down with it, and the agent
@@ -2320,7 +2367,8 @@ export function writeReviewPrompt(cfgDir, issue, {
     '    `note` (worth knowing).',
     '  - `out_of_scope` — true when the finding is real but sits beyond this ticket.',
     '- `detail` — short facts, rendered as a spoiler. Optional.',
-    '- `visual` — a table or a diagram, at most 42 columns by 20 lines. Optional.',
+    '- `table` — a code-block table, at most 42 columns by 20 lines, columns lined up. Optional.',
+    '- `diagram` — an ASCII drawing, at most 42 columns by 20 lines. Optional.',
     '',
     'curia reads the GRADE of the whole verdict off those severities: one blocker makes it `fail`, one',
     'concern makes it `concerns`, and neither makes it `pass`. You never write that word yourself.',

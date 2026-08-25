@@ -45,9 +45,9 @@ import { sameDigest } from './diffdigest.mjs'
 import { CommandRouter } from './commands.mjs'
 import { SelfDeploy } from './deploy.mjs'
 import { OverseerClient, OverseerTurns, serveConversationMcp, serveVerbMcp } from './overseerclient.mjs'
+import { OverseerPaneHost } from './overseerpane.mjs'
 import { OVERSEER_CONVERSATION_PARAM, revokeConversationToken } from './overseeridentity.mjs'
 import { OVERSEER_MCP_PATH } from './overseerturn.mjs'
-import { OverseerPaneHost } from './overseerpane.mjs'
 import { ConversationRuntime } from './conversationruntime.mjs'
 import { hasSession } from './tmux.mjs'
 import { retiredAgentTokenKeys } from './workspace.mjs'
@@ -79,7 +79,7 @@ import {
   isTyped, floorFaults, hasText, lintAskHuman, lintRequestReview, reviewFloorFaults,
   lintResult, resultFloorFaults,
   lintNotify, notifyFloorFaults, notifyHasText,
-  lintVerdict, verdictFloorFaults, VERDICT_SEVERITIES,
+  lintVerdict, verdictFloorFaults, VERDICT_SEVERITIES, hasVisualField,
 } from './lint.mjs'
 import {
   composeCard, composeReviewBody, composeResultReport, composeOpening, optionLabels, derivedRecommended,
@@ -809,7 +809,9 @@ function askHumanGate(agentName, kind, raw) {
         questions: raw.questions,
         options: raw.options,
         detail: raw.detail,
-        visual: raw.visual,
+        picture: raw.picture,
+        table: raw.table,
+        diagram: raw.diagram,
         timeline: raw.timeline,
         preview_url: raw.preview_url,
       },
@@ -1450,6 +1452,8 @@ const overseerPanes = new OverseerPaneHost({
   daemonPort: PORT,
   daemonHost: GUEST_DAEMON_HOST,
   livePaneCap: curiaConfig.overseer.live_pane_cap,
+  watchRepos: () => curiaConfig.watch.map((entry) => entry.repo),
+  log,
 })
 
 const conversationRuntime = new ConversationRuntime({
@@ -1522,7 +1526,9 @@ const timeline = new TimelineSurface({
       return {
         cfgDir: overseerContainer.configDir,
         sessionId: reduction.overseerSession(key) ?? null,
-        send: (text) => overseerPanes.send(key, text),
+        // #708, ADR-0024: the message goes into the conversation's own live
+        // pane. The host also preserves the conversation's durable identity.
+        send: (text) => overseerPaneMessage(key, text),
       }
     },
   },
@@ -1568,6 +1574,23 @@ const overseerContainer = new OverseerClient({
   onModelCallFailed: () => dispatcher.checkAnthropicCredential({ trigger: 'overseer_turn' }),
   log,
 })
+
+// One browser conversation message (#333, on the pane lane since #708). The
+// deleted-key refusal is the same one the turn lane carried: a key whose
+// conversation is gone must never reach tmux, or the operator reads a tmux
+// error about their own deleted chat.
+async function overseerPaneMessage(key, text) {
+  if (!reduction.hasConsoleConversation(key)) {
+    throw new Error(`there is no conversation \`${key}\` — it was deleted, and its number is spent; open a new one from the Chat screen`)
+  }
+  const out = await overseerPanes.deliver(key, text, {
+    onNote: (note) => log(`[overseer] ${key}: ${note}`),
+  })
+  if (out.delivery?.status === 'not-sent') {
+    throw new Error('curia is still on your last message — one message at a time in a conversation')
+  }
+  return out
+}
 
 // The turns the restart killed (#388, ADR-0015). Read HERE, before the listener
 // binds and before the bridge starts, because after that a pending turn is one
@@ -1645,7 +1668,40 @@ function startKeepAlive(extra, id, label = null) {
 // inside your workspace" — pointed it straight at the form that got dropped.
 // It also names the allowed types, from the same list the check enforces: an
 // agent does not attach the diff it never learned it could send (#430).
-const FILES_HINT = `Files inside your workspace to show the human: a screenshot, a render, a diff, a note. Allowed: ${ALLOWED_EXTENSIONS.join(', ')}. Give a path relative to your workspace, or an absolute path under ${GUEST_WT}/.`
+const FILES_HINT = `Files inside your workspace for the human to DOWNLOAD: a screenshot, a render, a diff, a note. Allowed: ${ALLOWED_EXTENSIONS.join(', ')}. Give a path relative to your workspace, or an absolute path under ${GUEST_WT}/.`
+
+// The three visual fields of ADR-0026 (#640), declared once for the four tools
+// that take them. One home, so a wording that drifts on one surface cannot say
+// something else on another.
+//
+// The retired `visual` stays declared for the reason `prompt` does: zod strips
+// a key it does not declare, and a stripped `visual` would take the agent's
+// rows with it. Declared, it reaches the floor, which refuses the call and says
+// where the rows go.
+const VISUAL_SHAPE = {
+  visual: z.string().optional().describe('RETIRED. Send `table` for a table, `diagram` for a drawing, or `picture` for an image. Curia refuses a call that carries this.'),
+  picture: z.string().optional().describe('One image the human LOOKS AT in place: a screenshot, a render, a mock. A path, as `attachments` takes.'),
+  table: z.string().optional().describe('A table, as rows. Curia writes the fence. At most 42 columns by 20 lines, and the columns must line up.'),
+  diagram: z.string().optional().describe('An ASCII drawing, as rows. Curia writes the fence. At most 42 columns by 20 lines.'),
+}
+
+// `images` was renamed `attachments` by ADR-0026 (#640): the field has taken a
+// .patch, a .diff, a .md, a .txt and a .log since it shipped, so the name has
+// never been true. The old one stays declared so a call that carries it is
+// named rather than stripped.
+const ATTACHMENT_SHAPE = {
+  images: z.array(z.string()).optional().describe('RETIRED. Send the same paths under `attachments`. Curia refuses a call that carries this.'),
+  attachments: z.array(z.string()).optional().describe(FILES_HINT),
+}
+
+// Every path an outbound file arrives on, in one list (ADR-0026). `picture` is
+// what a reader looks at and `attachments` is what a reader downloads, and both
+// are files this box has to contain and hand to Discord. One helper, so neither
+// one is dropped on the surface that forgot to name it.
+const sentFiles = (raw, attachments) => [
+  ...(raw?.picture ? [raw.picture] : []),
+  ...(attachments ?? []),
+]
 
 function buildMcpServer(agent, ticket) {
   const server = new McpServer({ name: 'curia-daemon', version: '0.1.0' }, { capabilities: { logging: {} } })
@@ -1697,7 +1753,7 @@ function buildMcpServer(agent, ticket) {
       message: z.string().optional().describe('What happened, in plain words, at most 600 characters. The thread reads this.'),
       kind: z.enum(NOTIFY_KINDS).optional().describe('What the operator must do: `progress` (nothing), `look` (open something now), `ask` (reply when they can). Defaults to `progress`.'),
       detail: z.string().optional().describe('Short FACTS, rendered as a spoiler. One line, 500 characters.'),
-      visual: z.string().optional().describe('A table or an ASCII diagram, as rows. Curia writes the fence. At most 42 columns by 20 lines.'),
+      ...VISUAL_SHAPE,
       opening: z.object({
         goal: z.string().optional().describe('Your reading of the ticket goal, in one line.'),
         first_step: z.string().optional().describe('Your first step, in one line.'),
@@ -1710,9 +1766,9 @@ function buildMcpServer(agent, ticket) {
         z.string().describe('Your working phase: explore, think, build, test, fix, or ship.'),
       ]).optional().describe('Edit routine progress into the live status line without adding a thread message.'),
       label: z.string().optional().describe('What you are doing now, in one line of at most 20 characters.'),
-      images: z.array(z.string()).optional().describe(FILES_HINT),
+      ...ATTACHMENT_SHAPE,
     },
-    async ({ images, ...raw }) => {
+    async ({ attachments, ...raw }) => {
       if (raw.opening && reduction.hasAgentOpening(agent)) {
         return { content: [{ type: 'text', text: 'opening: already sent for this dispatch.' }] }
       }
@@ -1727,9 +1783,9 @@ function buildMcpServer(agent, ticket) {
         return { content: [{ type: 'text', text: verdict.reject ?? verdict.refuse }] }
       }
       const flags = verdict.flags ?? null
-      const { files, refusals } = outboundFiles(agent, images)
+      const { files, refusals } = outboundFiles(agent, sentFiles(raw, attachments))
       reduction.journal('notify', {
-        agent, ticket, ...raw, images: files.map((f) => f.attachment), refusals,
+        agent, ticket, ...raw, attachments: files.map((f) => f.attachment), refusals,
         ...(flags ? { lint_flags: flags } : {}),
       })
       if (raw.phase && typeof raw.phase === 'object') {
@@ -1748,7 +1804,7 @@ function buildMcpServer(agent, ticket) {
           ? statusLine.settle().then(() => bridge.notify(ticket, composeOpening(raw.opening), { as: speaker }))
           : Promise.resolve()
         const body = composeNotify(raw)
-        if (raw.message || raw.detail || raw.visual || files.length) {
+        if (raw.message || raw.detail || hasVisualField(raw) || files.length) {
           sends = sends.then(() => bridge.notify(ticket, body, { files, as: speaker }))
         }
         // A flagged send is CURIA's fact about the agent's text, so curia says
@@ -1845,7 +1901,7 @@ function buildMcpServer(agent, ticket) {
   // differ, and the daemon composes every one of them from its own records.
   server.tool(
     'request_review',
-    'THE review gate: ask the human "is this done?" and BLOCK until they answer. curia shows them the pull request, the preview and the ticket — you do not pass links, it knows them. On approval you merge the pull request and then resolve the ticket. A rejection comes back as the human\'s own words: fix, commit, open_pull_request again, and call this again.',
+    'THE review gate: ask the human "is this done?" and BLOCK until they answer. curia shows them the pull request, the preview and the ticket — you do not pass links, it knows them. On approval you merge the pull request and then resolve the ticket. A rejection comes back as the human\'s own words: fix, commit, open_pull_request again, and call this again. If your diff changed a page — markup, styles, a component or a template — publish_preview FIRST: curia checks for one here, and a first call without it comes back asking for one.',
     {
       // #418, ADR-0019: `summary` and `charting` are Grade B block prose, and
       // the operator reads both on every ticket. Optional to zod for the same
@@ -1854,7 +1910,7 @@ function buildMcpServer(agent, ticket) {
       charting: z.string().optional().describe('CONCRETE map changes you propose, as a numbered list — one line per change: ticket titles to create, fog lines to remove, edges to wire, anything to rule out of scope. At most 600 characters. Name each change; put full ticket bodies and long Decisions-so-far lines in the work you do AFTER approval, not here. Write "none" if there are none. A vague answer here makes the approval a rubber stamp.'),
       headline: z.string().optional().describe('The whole change in one line, at most 150 characters. It sits under the gate heading, so the operator reads it first.'),
       detail: z.string().optional().describe('Short FACTS, rendered as a spoiler. One line, 500 characters.'),
-      visual: z.string().optional().describe('A table or an ASCII diagram, as rows. Curia writes the fence. At most 42 columns by 20 lines.'),
+      ...VISUAL_SHAPE,
       tracker_writes: z.array(z.object({
         id: z.string().describe('Temporary stable id used by `after`. Curia displays a card number instead.'),
         title: z.string().describe('Exact proposed issue title.'),
@@ -1921,6 +1977,7 @@ function buildMcpServer(agent, ticket) {
       questions: z.array(z.object({
         text: z.string().optional().describe('One question of the round. One line, 250 characters.'),
         recommendation: z.string().optional().describe('Your recommended answer to THIS question. One line, 300 characters.'),
+        background: z.string().optional().describe('What this question rests on, in small print under its line. Block prose, 600 characters. Write one only where the question cannot be answered without it.'),
       })).optional().describe('free-text only: the round, one entry per question. Curia numbers them.'),
       options: z.union([
         // The bare-string form is RETIRED with the other two, and it is
@@ -1936,13 +1993,15 @@ function buildMcpServer(agent, ticket) {
         })),
       ]).optional(),
       detail: z.string().optional().describe('Short FACTS, rendered as a spoiler. One line, 500 characters. Reasoning belongs on the timeline, not here.'),
-      visual: z.string().optional().describe('A table or an ASCII diagram, as rows. Curia writes the fence. At most 42 columns by 20 lines.'),
+      ...VISUAL_SHAPE,
       timeline: z.boolean().optional().describe('Point the operator at the timeline for the reasoning. Curia composes the link.'),
       preview_url: z.string().optional(),
-      images: z.array(z.string()).optional().describe(FILES_HINT),
+      ...ATTACHMENT_SHAPE,
       messages: z.array(z.record(z.string(), z.any())).optional().describe('One ordered composite send. Each entry has its own `format`, `label`, content fields, and `attachments`. At most four messages. Put the one deciding message last.'),
     },
-    async ({ images, messages, ...input }, extra) => {
+    // `attachments` is bound aside, because the ANSWER carries a field of that
+    // name too (#34): the files the human replied with.
+    async ({ attachments: sent, messages, ...input }, extra) => {
       // #164: the reviewer asks nobody. ADR-0010 gives it one output — the
       // verdict — and a question in the ticket thread would put a second voice
       // in front of the operator on a ticket the reviewer is not building.
@@ -1950,7 +2009,7 @@ function buildMcpServer(agent, ticket) {
       if (refused) return { content: [{ type: 'text', text: refused }] }
       let raw = input
       let kind = raw.kind ?? 'free-text'
-      if (messages && images?.length) {
+      if (messages && (raw.images?.length || sent?.length)) {
         return { content: [{ type: 'text', text: '❌ curia refused this call. Put each file path in the `attachments` of the message it belongs to.' }] }
       }
       const composite = messages
@@ -1961,6 +2020,7 @@ function buildMcpServer(agent, ticket) {
       const { open, flags, note } = gated
       kind = open.kind
       raw = open.payload ?? raw
+      const decidingFiles = messages ? (gated.attachments ?? []) : sentFiles(raw, sent)
       // #165, ADR-0010: the FIRST question after a cross-check verdict is the
       // builder's judgement of it, and it lands as a second pull-request comment
       // under the verdict. Fire-and-forget on purpose — a gh round-trip must not
@@ -1985,7 +2045,8 @@ function buildMcpServer(agent, ticket) {
         // The card is what shows a file, and no card opened. Said rather than
         // swallowed: an agent that thinks the operator saw a screenshot or a
         // diff reads the answer as being about it.
-        if (images?.length) lines.push(`(curia opened no card, so the ${images.length} file(s) you sent with this call were not shown.)`)
+        const shown = decidingFiles
+        if (shown.length) lines.push(`(curia opened no card, so the ${shown.length} file(s) you sent with this call were not shown.)`)
         return {
           content: [
             { type: 'text', text: `${lines.join('\n')}\n\n${recorded.record.answer}` },
@@ -2003,7 +2064,7 @@ function buildMcpServer(agent, ticket) {
           else log(`[notify ticket-${ticket}] ${prelude.content}`)
         }
       }
-      const { files, refusals } = outboundFiles(agent, gated.attachments ?? images)
+      const { files, refusals } = outboundFiles(agent, decidingFiles)
       refusals.unshift(...preludeRefusals)
       const { record, answered } = openEscalation({ agent, ticket, ...open, lint_flags: flags, files })
       const stopKeepAlive = startKeepAlive(extra, record.id, promptTitle(open.prompt))
@@ -2061,7 +2122,7 @@ function buildMcpServer(agent, ticket) {
       summary: z.string().optional().describe('What the work came to, in plain words, at most 600 characters. The thread reads this, and curia records it on the ticket.'),
       headline: z.string().optional().describe('What the work came to, in one line, at most 150 characters. No markdown and no link.'),
       detail: z.string().optional().describe('Short FACTS, rendered as a spoiler. One line, 500 characters.'),
-      visual: z.string().optional().describe('A table or an ASCII diagram, as rows. Curia writes the fence. At most 42 columns by 20 lines.'),
+      ...VISUAL_SHAPE,
       // ADR-0019 rule 3: a free record. No surface renders it and no lint reads
       // it, so it stays the one field an agent may shape for itself.
       details: z.record(z.string(), z.any()).optional(),
@@ -2949,7 +3010,7 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
     const agent = body.agent ?? 'synthetic'
     // Same containment as the MCP path: /escalate is loopback-only, but it must
     // not be the softer way to hand the bridge an arbitrary file.
-    const { files } = outboundFiles(agent, body.images ?? body.files)
+    const { files } = outboundFiles(agent, body.attachments ?? body.images ?? body.files)
     // `?wait` is what makes this call a blocked one, so it is also what the
     // record says about itself (#489). Without it the caller has its answer
     // already — the id — and the boot sweep must not read this record as an

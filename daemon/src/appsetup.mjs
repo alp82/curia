@@ -35,31 +35,26 @@ import path from 'node:path'
 
 import {
   APP_ID_KEY, APP_KEY_FILE_KEY, DEFAULT_KEY_FILE, TokenMinter,
+  READ_PERMISSIONS, WRITE_PERMISSIONS,
 } from './githubapp.mjs'
 
 // ---- the manifest ----------------------------------------------------------
 
 // The five repository permissions of docs/github-app.md step 2, and nothing
-// else. The write set the agents mint (contents, issues, pull requests) plus the
-// two the overseer reads through (commit statuses, metadata), because a minted
-// token may scope DOWN from the installation and never up: an app created
-// without `statuses` would 422 the first read token the overseer asked for.
+// else. DERIVED, not restated: an installation token may scope DOWN from what
+// the app holds and never up, so the app must be created with the union of
+// every set `githubapp.mjs` mints — the write set the agents ask for, plus the
+// read set the overseer asks for. An app created without `statuses` would 422
+// the first read token, and a permission added to either table there would
+// otherwise never reach a newly created App.
 //
-// WORKFLOWS IS DELIBERATELY ABSENT, for the reason githubapp.mjs states at
-// WRITE_PERMISSIONS: an app that can write `.github/workflows/` is a path from
-// a ticket's text to whatever secrets the next CI run holds.
-export const MANIFEST_PERMISSIONS = Object.freeze({
-  contents: 'write',
-  issues: 'write',
-  pull_requests: 'write',
-  statuses: 'read',
-  metadata: 'read',
-})
+// The write value wins where both name a permission, because it is the wider
+// one. WORKFLOWS IS DELIBERATELY ABSENT, and stays absent as long as neither
+// table names it, for the reason githubapp.mjs states at WRITE_PERMISSIONS: an
+// app that can write `.github/workflows/` is a path from a ticket's text to
+// whatever secrets the next CI run holds.
+export const MANIFEST_PERMISSIONS = Object.freeze({ ...READ_PERMISSIONS, ...WRITE_PERMISSIONS })
 
-// Curia polls. It listens for no webhook, so it subscribes to no event — and an
-// app with no events needs no webhook endpoint to be reachable from GitHub at
-// all. `active: false` is how the manifest says that; the url is required
-// alongside it and is never called.
 export const MANIFEST_EVENTS = Object.freeze([])
 
 export const HOMEPAGE_URL = 'https://github.com/alp82/curia'

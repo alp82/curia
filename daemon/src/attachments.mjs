@@ -57,6 +57,10 @@ const TEXT_MIME_BY_EXT = {
   '.log': 'text/plain',
 }
 
+// The image forms, in the agent's own terms. `picture` (ADR-0026) takes one of
+// these and nothing else, so the lint and the attachment check read one list.
+export const IMAGE_EXTENSIONS = Object.keys(IMAGE_MIME_BY_EXT)
+
 // What an agent may attach, in the agent's own terms. Exported so the tool
 // hint names the same list the check enforces.
 export const ALLOWED_EXTENSIONS = [...Object.keys(IMAGE_MIME_BY_EXT), ...Object.keys(TEXT_MIME_BY_EXT)]

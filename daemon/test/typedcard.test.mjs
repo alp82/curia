@@ -58,7 +58,7 @@ describe('a typed card renders as one message the operator can answer', () => {
 
   const CHOICE = {
     headline: 'A restart forgets every cooling. Re-arm it from what source?',
-    visual: '09:00  cap lands\n13:02  deploy, memory wiped',
+    diagram: '09:00  cap lands\n13:02  deploy, memory wiped',
     options: [
       { label: 'From the journal.', consequence: 'A guessed reset holds 55 minutes too long.', recommended: true },
       { label: 'From a fresh reading.', consequence: 'It answers "am I near the cap", not "did I hit one".' },
@@ -75,7 +75,7 @@ describe('a typed card renders as one message the operator can answer', () => {
     assert.match(msg.content, /Recommendation: \*\*A\*\*\./)
   })
 
-  test('the visual rides a fence curia wrote, and the detail rides a spoiler', async () => {
+  test('the diagram rides a fence curia wrote, and the detail rides a spoiler', async () => {
     const msg = await render('choice', CHOICE)
     assert.match(msg.content, /```\n09:00 {2}cap lands\n13:02 {2}deploy, memory wiped\n```/)
     assert.match(msg.content, /Details: \|\|The daemon has journalled provider_cooling since #175\.\|\|/)

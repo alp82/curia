@@ -25,11 +25,11 @@
 // nothing else. It is not an agent token, it doesn't reach `AGENT_ROUTES`, and
 // the daemon still composes every canonical command itself.
 
-import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { isConsoleKey } from './attach.mjs'
-import { tokensEqual } from './agenttoken.mjs'
+import { tokenStore } from './agenttoken.mjs'
+import { writeClaudeConnection } from './workspace.mjs'
 
 // A Discord thread id is digits, and a browser conversation is `console-<n>`.
 // The same two shapes `overseerPaneSession` admits, stated once here because
@@ -63,28 +63,31 @@ export function overseerRoute(key) {
 // container mounts this tree: the daemon writes the secret straight into the
 // pane's connection settings, so the pane reads a file it can already see and
 // this directory stays the daemon's own.
+//
+// The store itself is `agenttoken.mjs`'s, which is where the file-handling rule
+// lives — one 0600 file per name, the name asserted before it becomes one, a
+// constant-time compare, a sweep against a positively known list. What this
+// conversation store keeps of its own is the two things that genuinely differ:
+// which names are keys, and the DURABLE mint below.
+const STORE = tokenStore({
+  dirName: 'overseer-tokens',
+  validName: isOverseerKey,
+  // 0700 rather than the agent store's default: nothing but the daemon ever
+  // reads this tree.
+  dirMode: 0o700,
+  refusal: (key) => `refusing to mint a tool token for "${key}": not an overseer conversation key`,
+})
+
 export function conversationTokensDir(dataDir) {
-  return path.join(dataDir, 'overseer-tokens')
+  return STORE.dirFor(dataDir)
 }
 
-const TOKEN_RE = /^[0-9a-f]{64}$/
-
-// The key is asserted before it is used as a file name. Neither shape admits a
-// separator, so this stays a basename.
 export function conversationTokenFile(dataDir, key) {
-  if (!isOverseerKey(key)) return null
-  return path.join(conversationTokensDir(dataDir), String(key))
+  return STORE.fileFor(dataDir, key)
 }
 
 export function readConversationToken(dataDir, key) {
-  const file = conversationTokenFile(dataDir, key)
-  if (!file) return null
-  try {
-    const token = fs.readFileSync(file, 'utf8').trim()
-    return TOKEN_RE.test(token) ? token : null
-  } catch {
-    return null
-  }
+  return STORE.read(dataDir, key)
 }
 
 // The conversation's token, minted once and read back forever after.
@@ -94,50 +97,26 @@ export function readConversationToken(dataDir, key) {
 // thing that parks and rehydrates, and rewriting its token on every rehydration
 // would leave a running pane holding a secret the daemon no longer honors.
 export function ensureConversationToken(dataDir, key) {
-  const file = conversationTokenFile(dataDir, key)
-  if (!file) throw new Error(`refusing to mint a tool token for "${key}": not an overseer conversation key`)
-  const existing = readConversationToken(dataDir, key)
-  if (existing) return existing
-  const token = crypto.randomBytes(32).toString('hex')
-  fs.mkdirSync(conversationTokensDir(dataDir), { recursive: true, mode: 0o700 })
-  fs.writeFileSync(file, token, { mode: 0o600 })
-  // writeFileSync applies the mode only when it CREATES the file, and a token
-  // file replaced after a revoke can find one there.
-  fs.chmodSync(file, 0o600)
-  return token
+  return STORE.read(dataDir, key) ?? STORE.mint(dataDir, key)
 }
 
 // Fails closed in every direction that isn't an exact match: an unknown key, an
 // unminted conversation, a missing header, a wrong secret.
 export function conversationTokenMatches(dataDir, key, presented) {
-  return tokensEqual(readConversationToken(dataDir, key), presented)
+  return STORE.matches(dataDir, key, presented)
 }
 
 // The revoke. A deleted conversation spends its number for good, so its token
 // must not outlive it: a pane still running on the old secret loses the verbs
 // on its next call.
 export function revokeConversationToken(dataDir, key) {
-  const file = conversationTokenFile(dataDir, key)
-  if (file) fs.rmSync(file, { force: true })
+  STORE.revoke(dataDir, key)
 }
 
 // Every token whose conversation is not in a positively known list, removed.
 // The same evidence rule `sweepAgentTokens` runs on.
 export function sweepConversationTokens(dataDir, keys) {
-  let names = []
-  try {
-    names = fs.readdirSync(conversationTokensDir(dataDir))
-  } catch {
-    return []
-  }
-  const keep = new Set([...keys].map(String))
-  const swept = []
-  for (const name of names) {
-    if (keep.has(name) || !isOverseerKey(name)) continue
-    revokeConversationToken(dataDir, name)
-    swept.push(name)
-  }
-  return swept
+  return STORE.sweep(dataDir, keys)
 }
 
 // ---- the pane's connection settings -----------------------------------------
@@ -149,11 +128,6 @@ export const OVERSEER_CONVERSATION_PARAM = 'conversation'
 export function conversationMcpUrl({ host, port, key, mcpPath }) {
   if (!isOverseerKey(key)) throw new Error(`"${key}" is not an overseer conversation key`)
   return `http://${host}:${port}${mcpPath}?${OVERSEER_CONVERSATION_PARAM}=${key}`
-}
-
-function writeSecretFile(file, data) {
-  fs.writeFileSync(file, data, { mode: 0o600 })
-  fs.chmodSync(file, 0o600)
 }
 
 // The conversation's own project directory, under the one config directory both
@@ -177,22 +151,12 @@ export function conversationHomeFor(overseerHome, sessionId) {
 
 // The pane's whole reach back into the daemon, written by the daemon.
 //
-// `enableAllProjectMcpServers` is what makes the harness trust a project server
-// with no prompt, the same pair `workspace.mjs` writes for an agent worktree.
+// It is the SAME pair `workspace.mjs` writes for an agent worktree, so it is
+// written by the same function — the pane differs only in the directory, the
+// server name, and having no Stop hook: a conversation ends when the operator
+// stops talking, not when a turn returns.
 export function writeConversationConnection({ home, url, token, serverName, header }) {
-  fs.mkdirSync(home, { recursive: true })
-  writeSecretFile(path.join(home, '.mcp.json'), JSON.stringify({
-    mcpServers: {
-      [serverName]: { type: 'http', url, headers: { [header]: token } },
-    },
-  }, null, 2))
-  const dotClaude = path.join(home, '.claude')
-  fs.mkdirSync(dotClaude, { recursive: true })
-  writeSecretFile(path.join(dotClaude, 'settings.json'), JSON.stringify({
-    enableAllProjectMcpServers: true,
-    permissions: { defaultMode: 'bypassPermissions' },
-  }, null, 2))
-  return path.join(home, '.mcp.json')
+  return writeClaudeConnection({ dir: home, serverName, url, header, token })
 }
 
 // ---- carrying a conversation into its own project directory -----------------

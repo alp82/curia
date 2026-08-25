@@ -5,8 +5,10 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import {
-  OverseerPaneHost, overseerPaneName, overseerPaneSession, prepareOverseerPane,
+  OverseerPaneHost, containerCheckoutPass, overseerPaneName, overseerPaneSession,
+  prepareOverseerPane,
 } from '../src/overseerpane.mjs'
+import { PASTE_START, PASTE_END, bracketedPaste } from '../src/tmux.mjs'
 
 const UUID = '11111111-2222-4333-8444-555555555555'
 const ROOT = '/work'
@@ -275,5 +277,217 @@ describe('overseer conversations use the pane host (#688, #701)', () => {
     } finally {
       fs.rmSync(root, { recursive: true, force: true })
     }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// one complete message (#708, ADR-0024)
+// ---------------------------------------------------------------------------
+
+const WORKING = '✻ Thinking… (esc to interrupt)'
+const COMPOSER = '> '
+
+function messageHost({
+  pass, notes = [], panes = [WORKING, COMPOSER],
+  delivery = { status: 'confirmed' },
+  startTimeoutMs = 5_000, messageTimeoutMs = 5_000,
+} = {}) {
+  const queued = [...notes]
+  const calls = { journal: [], sent: [], signals: [], passes: [], requeued: [] }
+  const reduction = {
+    overseerSession: () => 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    pendingOverseerSession: () => null,
+    reserveOverseerSession: () => {},
+    bindOverseerSession: () => {},
+    takeOverseerNotes: () => queued.splice(0, queued.length),
+    addOverseerNote: (key, text) => { calls.requeued.push({ key, text }); queued.push(text) },
+    journal: (type, detail) => calls.journal.push({ type, ...detail }),
+  }
+  const shown = [...panes]
+  const host = new OverseerPaneHost({
+    reduction,
+    workspaceRoot: ROOT,
+    repoRoot: REPO,
+    dataDir: DATA,
+    daemonPort: 8177,
+    readyTimeoutMs: 0,
+    watchRepos: () => ['alp82/curia', 'alp82/orca'],
+    startTimeoutMs,
+    messageTimeoutMs,
+    settlePollMs: 0,
+    log: () => {},
+    deps: {
+      ensureDir: () => {},
+      ensureToken: () => 'token',
+      writeConnection: () => {},
+      carryTranscript: () => {},
+      hasSession: async () => true,
+      newSession: async () => {},
+      capturePane: async () => (shown.length > 1 ? shown.shift() : shown[0]),
+      sendText: async (name, text, options) => {
+        calls.sent.push({ name, text, options })
+        return delivery
+      },
+      checkoutPass: async (args) => {
+        calls.passes.push(args)
+        return pass(args)
+      },
+      onComplete: async (signal) => { calls.signals.push(signal) },
+    },
+  })
+  return { host, calls, queued }
+}
+
+const freshPass = ({ repos }) => ({
+  root: '/work/overseer/repos',
+  at: '2026-08-25T10:00:00.000Z',
+  removed: [],
+  repos: repos.map((repo) => ({
+    repo, ok: true, cloned: false, branch: 'main', head: 'abc1234', fetchedAt: '2026-08-25T10:00:00.000Z',
+  })),
+  why: null,
+})
+
+describe('one complete pane message (#708)', () => {
+  test('the message starts on a checkout verdict for every watched repo', async () => {
+    const { host, calls } = messageHost({ pass: freshPass })
+
+    const out = await host.deliver('console-4', 'what is on the frontier?')
+
+    assert.deepEqual(calls.passes[0].repos, ['alp82/curia', 'alp82/orca'])
+    assert.deepEqual(out.checkouts.repos.map((r) => r.repo), ['alp82/curia', 'alp82/orca'])
+    const sent = calls.sent[0].text
+    assert.ok(sent.startsWith('This turn\'s checkouts:'), 'the facts frame the message')
+    assert.match(sent, /Every watched repo was fetched/)
+    assert.ok(sent.endsWith('what is on the frontier?'), 'the operator\'s words are last')
+    assert.equal(calls.sent[0].options.paste, true)
+    await out.completion
+  })
+
+  test('a stale checkout reaches the model as stale, with its age', async () => {
+    const { host, calls } = messageHost({
+      pass: ({ repos }) => ({
+        removed: [],
+        repos: [
+          { repo: repos[0], ok: true, cloned: false, branch: 'main', head: 'abc1234', fetchedAt: '2026-08-25T10:00:00.000Z' },
+          { repo: repos[1], ok: false, cloned: false, error: 'could not reach github.com', fetchedAt: null, staleSince: '2026-08-24T10:00:00.000Z' },
+        ],
+        why: null,
+      }),
+    })
+
+    const out = await host.deliver('console-4', 'read the atlas scene')
+
+    const sent = calls.sent[0].text
+    assert.match(sent, /alp82\/orca is STALE/)
+    assert.match(sent, /could not reach github\.com/)
+    assert.match(sent, /last good fetch was .+ ago/)
+    assert.equal(out.checkouts.repos.filter((r) => !r.ok).length, 1)
+    assert.ok(calls.journal.some((e) => e.type === 'overseer_pane_message' && e.stale === 1))
+    await out.completion
+  })
+
+  test('a pass that could not run leaves no repo reading as fresh', async () => {
+    const { host, calls } = messageHost({
+      pass: ({ repos }) => containerCheckoutPass({
+        repoRoot: REPO,
+        repos,
+        execFile: async () => {
+          throw Object.assign(new Error('exec failed'), { stderr: 'Error: No such container: curia-overseer-1' })
+        },
+      }),
+    })
+
+    const out = await host.deliver('console-4', 'what changed today?')
+
+    assert.equal(out.checkouts.repos.length, 2)
+    assert.equal(out.checkouts.repos.every((r) => r.ok === false), true)
+    assert.match(calls.sent[0].text, /No such container/)
+    await out.completion
+  })
+
+  test('several queued notes enter as one bracketed paste with their newlines', async () => {
+    const { host, calls, queued } = messageHost({
+      pass: freshPass,
+      notes: ['esc-12 was answered: yes', 'the deploy of curia@abc1234 succeeded', 'map #685 gained a child'],
+    })
+
+    const out = await host.deliver('console-4', 'anything I missed?')
+
+    const sent = calls.sent[0].text
+    assert.equal(calls.sent.length, 1, 'one message, not one send per note')
+    assert.match(sent, /\[curia: esc-12 was answered: yes\]\n\[curia: the deploy of curia@abc1234 succeeded\]\n\[curia: map #685 gained a child\]/)
+    assert.ok(sent.indexOf('[curia: esc-12') < sent.indexOf('anything I missed?'))
+    assert.equal(calls.sent[0].options.paste, true, 'the newlines survive only inside a bracketed paste')
+    assert.deepEqual(queued, [], 'the notes left the queue with the message')
+    assert.equal(out.notes.length, 3)
+    const wrapped = bracketedPaste(sent)
+    assert.ok(wrapped.startsWith(PASTE_START) && wrapped.endsWith(PASTE_END))
+    assert.equal(wrapped.split('\r').length, sent.split('\n').length)
+    assert.doesNotMatch(wrapped, /\n/, 'a newline inside a paste would submit half the message')
+    await out.completion
+  })
+
+  test('the harness finishing the message emits exactly one completion signal', async () => {
+    const { host, calls } = messageHost({
+      pass: freshPass,
+      panes: [WORKING, WORKING, COMPOSER],
+    })
+
+    const out = await host.deliver('console-4', 'summarise the map')
+    const signal = await out.completion
+
+    assert.equal(signal.ok, true)
+    assert.equal(signal.key, 'console-4')
+    assert.equal(signal.session, 'curia-console-4')
+    assert.deepEqual(calls.signals, [signal], 'one signal, once')
+    const ended = calls.journal.filter((e) => e.type === 'overseer_pane_message_ended')
+    assert.equal(ended.length, 1)
+    assert.equal(ended[0].ok, true)
+  })
+
+  test('a message the pane refused signals its failure and puts the notes back', async () => {
+    const { host, calls, queued } = messageHost({
+      pass: freshPass,
+      notes: ['esc-12 was answered: yes'],
+      delivery: { status: 'not-sent' },
+    })
+
+    const out = await host.deliver('console-4', 'stop the agent')
+    const signal = await out.completion
+
+    assert.equal(signal.ok, false)
+    assert.match(signal.why, /still working/)
+    assert.equal(calls.signals.length, 1, 'a message that never went in still signals, once')
+    assert.deepEqual(queued, ['esc-12 was answered: yes'], 'the drained note is back on the queue')
+    assert.deepEqual(calls.requeued, [{ key: 'console-4', text: 'esc-12 was answered: yes' }])
+    assert.equal(calls.journal.some((e) => e.type === 'overseer_pane_message'), false, 'nothing was delivered')
+  })
+
+  test('a harness that never finishes fails the message by name', async () => {
+    const { host, calls } = messageHost({
+      pass: freshPass,
+      panes: [WORKING],
+      messageTimeoutMs: 0,
+    })
+
+    const signal = await (await host.deliver('console-4', 'read every repo')).completion
+
+    assert.equal(signal.ok, false)
+    assert.match(signal.why, /still working 0s after the message/)
+    assert.equal(calls.signals.length, 1)
+  })
+
+  test('a pane that never picks the message up fails it by name', async () => {
+    const { host } = messageHost({
+      pass: freshPass,
+      panes: [COMPOSER],
+      startTimeoutMs: 0,
+    })
+
+    const signal = await (await host.deliver('console-4', 'hello')).completion
+
+    assert.equal(signal.ok, false)
+    assert.match(signal.why, /never started a turn/)
   })
 })
