@@ -260,7 +260,10 @@ describe('the Atlas frame (#686)', () => {
     assert.ok(drawer)
     assert.deepEqual(
       [...drawer.matchAll(/<span class="nav-label">([^<]+)<\/span>/g)].map((match) => match[1]),
-      ['Home', 'Maps', 'Agents', 'Feed', 'Chat', 'Settings'],
+      // Credentials sits between Chat and Settings (#661). It landed while the
+      // Atlas frame was in review, so the two agreed on every screen but this
+      // one until they met on `main`.
+      ['Home', 'Maps', 'Agents', 'Feed', 'Chat', 'Credentials', 'Settings'],
     )
   })
 
