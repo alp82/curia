@@ -1968,6 +1968,56 @@ raise instead of fail, because they indexed into a list the break had shortened.
 tests its own precondition now: a check that crashes proves nothing, exactly like a check that
 cannot go red.
 
+**The operator's answer to round 6**, verbatim:
+
+> do not scroll the actual screens associated the story titles. those are scrolling normally, but
+> the cards with the discord and browser and phone screens fade in and out in different ways
+>
+> we had this in a previous prototype called "4 desk paper docket, screens dealt" - bring that
+> concept back combined with the current setup and ideas and feedback
+
+**This corrects a wrong reading, and it is worth naming which one.** At round 5 the operator wrote
+"the pinned element should be just the ticket and the rest moves". I read "the rest moves" as
+"nothing else is held", took the stage out entirely at round 6, and scrolled the cards along with
+their words. That sentence was about the CLIPPING, not about holding. The titles move. The cards do
+not.
+
+**Round 7 brings the desk back**, with everything the rounds since have settled on it:
+
+- **The titles scroll**, on the docking side, one tall slot each.
+- **The cards do not.** They are dealt onto a desk that is held, and they fade in and out in place.
+- **The ticket lies at the near edge** of that desk, and it is the GitHub issue page of #587 growing
+  a real timeline row per beat.
+- **The thread and the pull request are dealt TOGETHER** for the last two beats, which is the
+  parallel of round 5.
+- **Beat 1 deals no card at all**, so the ticket stands alone, which is the operator's own step 1.
+
+**The round's question is the transition**, because that is what the answer asks about. Five ways a
+card comes and goes, on `?id=1..5`:
+
+1. **deal** — round 2's desk. A card lands from below, turned a little, and STAYS in the pile at
+   low opacity as the next lands on it.
+2. **dissolve** — no travel at all. The card that is leaving fades where it lies and the next comes
+   up through it.
+3. **lift** — the card that is done lifts off the desk and blurs out of focus, and the next rises
+   into focus behind it.
+4. **turn** — the cards swap on a turn, as if the top of the pile were being turned over.
+5. **slide** — the card is dealt ACROSS the desk, in from the docking side and out to the other.
+
+`seen` is what makes the deal a pile rather than a swap, and all five compositions read it. Only
+`deal` keeps the leaving card on the desk. The other four take it away, each a different way.
+
+**129 build checks** run against the file and all **67 breaks** that validate them land. Two of the
+checks were wrong before they were right, and both are faults this file has already recorded:
+
+- **A class matched as a SUBSTRING.** `r8-card[^"]*` matches `r8-cardx two`, so renaming a card's
+  class away left the count right. Rounds 4 and 6 each recorded this once. It matches the class as
+  a whole value now.
+- **Checks crashed on their own breaks.** Dropping a card made three of them raise rather than fail,
+  because they indexed into a list the break had shortened. Round 6 fixed this for the beats and
+  round 7 had to fix it again for the cards. **A check that crashes proves exactly as much as one
+  that cannot go red**, and the only way to find either is to break it.
+
 ## The verdict of the terminal scene ([#629](https://github.com/alp82/curia/issues/629))
 
 **Locked over ten operator rounds**, the longest run of any scene on this page. Every variation

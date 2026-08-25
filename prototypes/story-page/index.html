@@ -1795,64 +1795,59 @@
 
 
   /* ================================================================
-     Round 6 (#630) — one pinned ticket, and beats that scroll under it.
+     Round 7 (#630) — the desk is back, and the cards are dealt onto it.
 
-     The operator's answer to round 5, with a screenshot of their phone:
+     The operator's answer to round 6, verbatim:
 
-       Can't check the desktop version right now but mobile is broken.
-       The pinned element should be just the ticket and the rest moves
-       and switches while scrolling
+       do not scroll the actual screens associated the story titles.
+       those are scrolling normally, but the cards with the discord and
+       browser and phone screens fade in and out in different ways
 
-     WHY IT WAS BROKEN, and it is not what it looked like. Every lane
-     showed at once, squashed, because scene 9 already owns a class
-     called `.lane` — the VPS box's rows — and it declares it LATER in
-     this file. Same specificity, so it won. `.lane { display: none }`
-     never applied, and `.lane > * { height: 100% }` was damaging scene
-     9's own bars at the same time. Two scenes, one generic name.
+       we had this in a previous prototype called "4 desk paper docket,
+       screens dealt" - bring that concept back combined with the
+       current setup and ideas and feedback
 
-     So every class this scene owns is prefixed `r8-` now, and a build
-     check refuses a scene 8 class that any other scene declares.
+     This corrects my reading of round 5. "The pinned element should be
+     just the ticket and the rest moves" was about the CLIPPING, not
+     about holding: the titles move, the cards do not. Round 6 took the
+     stage out entirely and made the cards scroll with their words,
+     which is the one thing this answer rules out.
 
-     THE SHAPE, from the operator's own sentence. The ticket is the only
-     thing pinned. Everything else moves: the page scrolls through five
-     BEATS, each one its own words and the screens open at that point,
-     and the ticket's timeline grows a row as each beat arrives.
+     So the desk of round 2 comes back, with everything the rounds since
+     have settled on it:
 
-     Nothing else is held. Round 5 pinned a whole 60dvh stage and packed
-     the ticket, three lanes and their chrome into it, which is what
-     clipped every one of them on a phone.
+     - THE TITLES SCROLL, on the docking side, one tall slot each.
+     - THE CARDS DO NOT. They are dealt onto a desk that is held, and
+       they fade in and out in place. The five variations are five ways
+       of doing that, which is what the answer asks for.
+     - THE TICKET LIES AT THE NEAR EDGE of that desk, and it is the
+       GitHub issue page of #587 growing a real timeline row per beat.
+     - THE THREAD AND THE PULL REQUEST are dealt TOGETHER for the last
+       two beats, which is the parallel of round 5.
+
+     Every class here is prefixed `r8-`. Round 5 called one of them
+     `.lane`, which scene 9's VPS box already owns and declares later in
+     this file, and that collision is what broke the operator's phone.
      ================================================================ */
 
-  /* ---- the pinned ticket. The only held thing in the scene. ---- */
   .r8-track { position: relative; }
-  .r8-tkt {
-    position: sticky; top: 0.5rem; z-index: 6;
-    font-size: 0.74rem; box-shadow: 0 12px 30px -8px rgba(0, 0, 0, 0.7);
+  /* The stage is held and the titles scroll past it. On a phone it
+     takes the top of the screen and needs a ground of its own, because
+     the titles scroll UNDER it. */
+  .r8-stage {
+    position: sticky; top: 0; z-index: 3;
+    height: 62dvh; display: flex; flex-direction: column; gap: 0.5rem;
+    padding: 0.6rem 0 0.7rem;
+    background: linear-gradient(180deg, rgba(17, 23, 45, 0.97) 82%, rgba(17, 23, 45, 0.86));
+    -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px);
   }
-  .r8-tkt .gx-h1 { font-size: 1.02em; }
-  .r8-tl { margin-top: 0.5em; }
-  /* Every row is always laid out and only its VISIBILITY moves, so the
-     block is as tall as its fullest state from the first frame and
-     nothing is ever added to it. `display` would hand the shift back. */
-  .r8-tl li { font-size: 0.92em; margin-bottom: 0.45em; visibility: hidden; opacity: 0; transition: opacity 0.4s var(--ease); }
-  #run[data-k="1"] .r8-tl li:nth-child(-n+1),
-  #run[data-k="2"] .r8-tl li:nth-child(-n+2),
-  #run[data-k="3"] .r8-tl li:nth-child(-n+3),
-  #run[data-k="4"] .r8-tl li:nth-child(-n+4),
-  #run[data-k="5"] .r8-tl li { visibility: visible; opacity: 1; }
-  /* GitHub keeps a ticket Open until it is closed, so the pill moves
-     once and the ROWS carry the run. */
-  .r8-tkt .gx-st.done { display: none; }
-  #run[data-k="5"] .r8-tkt .gx-st.open { display: none; }
-  #run[data-k="5"] .r8-tkt .gx-st.done { display: inline-flex; }
-
-  /* ---- the beats. Each one is its words and the screens open at that
-         point in the run, and they scroll normally. ---- */
-  .r8-beat { padding: 3.2rem 0 1rem; display: grid; gap: 1rem; align-content: center; }
-  .r8-beat:first-child { min-height: 42svh; }
-  .r8-nb { margin: 0; }
+  .r8-steps { position: relative; z-index: 2; }
+  .r8-nb { min-height: 76svh; display: flex; flex-direction: column; justify-content: center; margin: 0; }
+  .r8-nb:last-child { min-height: 54svh; }
+  .r8-nb { opacity: 0.5; transition: opacity 0.4s var(--ease); }
+  .r8-nb.on { opacity: 1; }
   .r8-nb .nn {
-    display: inline-block;
+    display: inline-block; align-self: flex-start;
     font: 800 0.72rem var(--mono); letter-spacing: 0.06em;
     background: var(--sc); color: #08090c; padding: 0.13rem 0.5rem; border-radius: 3px;
   }
@@ -1861,18 +1856,39 @@
     letter-spacing: -0.02em; line-height: 1.15; color: var(--text);
     display: block; margin-top: 0.55rem; text-wrap: balance;
   }
-  .r8-beat { opacity: 0.62; transition: opacity 0.4s var(--ease); }
-  .r8-beat.on { opacity: 1; }
 
-  /* ---- the floor and its lanes. The thread opens at beat 3 and the
-         pull request runs beside it for the last two, which is the
-         parallel the operator named. ---- */
-  .r8-floor { display: grid; gap: 0.7rem; }
+  /* ---- the desk. Cards are dealt onto it, bottom first, so they lie
+         against the near edge the way paper on a desk does. ---- */
+  .r8-desk { position: relative; flex: 1 1 auto; min-height: 0; }
+  .r8-card {
+    position: absolute; inset: auto 0 0; opacity: 0; pointer-events: none;
+    transition: opacity 0.5s var(--ease), transform 0.5s var(--ease), filter 0.5s var(--ease);
+  }
+  .r8-card.on { opacity: 1; pointer-events: auto; z-index: 4; }
+  .r8-card > * { display: grid; gap: 0.5rem; }
   .r8-lane { min-width: 0; }
   .r8-lane .win, .r8-lane .at-scr { overflow: hidden; }
   .r8-lane .at-scr { max-height: none; }
+  .r8-lane .win-body, .r8-lane .at-body, .r8-lane .dcx-log { max-height: 34dvh; overflow: hidden; }
 
-  /* the dashboard lane's frontier card and its Start button */
+  /* ---- the ticket, lying at the near edge ---- */
+  .r8-tkt { flex: none; font-size: 0.72rem; z-index: 5; box-shadow: 0 -8px 26px rgba(0, 0, 0, 0.55); }
+  .r8-tkt .gx-h1 { font-size: 1.02em; }
+  .r8-tl { margin-top: 0.45em; }
+  /* Every row is always laid out and only its VISIBILITY moves, so the
+     block is as tall as its fullest state from the first frame and
+     nothing is ever added to it. `display` would hand the shift back. */
+  .r8-tl li { font-size: 0.9em; margin-bottom: 0.4em; visibility: hidden; opacity: 0; transition: opacity 0.4s var(--ease); }
+  #run[data-k="1"] .r8-tl li:nth-child(-n+1),
+  #run[data-k="2"] .r8-tl li:nth-child(-n+2),
+  #run[data-k="3"] .r8-tl li:nth-child(-n+3),
+  #run[data-k="4"] .r8-tl li:nth-child(-n+4),
+  #run[data-k="5"] .r8-tl li { visibility: visible; opacity: 1; }
+  .r8-tkt .gx-st.done { display: none; }
+  #run[data-k="5"] .r8-tkt .gx-st.open { display: none; }
+  #run[data-k="5"] .r8-tkt .gx-st.done { display: inline-flex; }
+
+  /* the dashboard card's frontier row and its Start button */
   .r8-fcard {
     display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 0.6rem;
     background: #12141a; border: 1px solid #262b35; border-left: 3px solid #5ec8e5;
@@ -1885,7 +1901,7 @@
     border: none; border-radius: 6px; padding: 0.4rem 0.9rem;
     font: 700 0.72rem var(--sans); color: #06231a; background: var(--st-merged);
   }
-  #run[data-k="2"] .r8-fcard .fc-go { animation: r8start 900ms var(--ease) 460ms; }
+  #run[data-k="2"] .r8-fcard .fc-go { animation: r8start 900ms var(--ease) 480ms; }
   @keyframes r8start {
     0% { transform: scale(1); box-shadow: 0 0 0 0 rgba(125, 211, 160, 0.75); }
     40% { transform: scale(1.12); filter: brightness(1.35); box-shadow: 0 0 0 0.5em rgba(125, 211, 160, 0.35); }
@@ -1894,55 +1910,76 @@
   }
 
   @media (min-width: 62rem) {
-    /* The words take the docking side and the screens the other, which
-       is #624's alternation read at the scale of one scene. The ticket
-       is still the only pinned thing. */
-    .r8-tkt { top: 6vh; }
-    .r8-beat { grid-template-columns: 17rem 1fr; column-gap: 3rem; align-items: center; padding: 4.5rem 0 1.5rem; }
-    .r8-nb { grid-column: 1; }
-    .r8-floor { grid-column: 2; }
-    .r8-beat:first-child { min-height: 30svh; }
+    /* The titles take the docking side and the desk the other, which is
+       #624's alternation read at the scale of one scene. Nothing
+       overlaps, so the stage drops its ground. */
+    .r8-track { display: grid; grid-template-columns: 19rem 1fr; column-gap: 3.2rem; align-items: start; }
+    .r8-steps { grid-column: 1; }
+    .r8-stage {
+      grid-column: 2; grid-row: 1; height: 100dvh; padding: 7vh 0 5vh;
+      background: none; backdrop-filter: none; -webkit-backdrop-filter: none;
+    }
+    .r8-lane .win-body, .r8-lane .at-body, .r8-lane .dcx-log { max-height: 46dvh; }
+    .r8-nb { min-height: 90svh; }
+    .r8-nb:last-child { min-height: 60svh; }
+    /* The last two beats deal BOTH cards, and side by side is what makes
+       them read as running at the same time. */
+    .r8-card.two > * { grid-auto-flow: column; grid-auto-columns: 1fr; align-items: end; }
   }
 
-  /* ---- 1 · stack. The lanes open one under the other, and at the end
-         the thread and the pull request share the beat top to bottom.
-         The plainest reading of parallel, and the only one that gives a
-         lane the whole width at every screen size. ---- */
-  .v-stack .r8-floor { grid-auto-flow: row; gap: 1rem; }
-  .v-stack .r8-lane > * { box-shadow: 0 10px 26px rgba(0, 0, 0, 0.5); }
-  .v-stack .r8-lane + .r8-lane { border-left: 2px solid rgba(var(--scb), 0.45); padding-left: 0.8rem; }
+  /* ================================================================
+     The five ways a card comes and goes. This is the round's question.
+     ================================================================ */
 
-  /* ---- 2 · pair. At the end the two lanes stand SIDE BY SIDE, which
-         is what makes them read as running at the same time rather than
-         one after the other. ---- */
-  @media (min-width: 46rem) {
-    .v-pair .r8-floor { grid-auto-flow: column; grid-auto-columns: 1fr; align-items: start; }
+  /* ---- 1 · deal. Round 2's desk: a card lands from below, turned a
+         little, and STAYS in the pile as the next lands on it. ---- */
+  .v-deal .r8-card { transform: translateY(2.2rem) rotate(-2.6deg); }
+  .v-deal .r8-card.on { transform: rotate(var(--rot, -0.9deg)); }
+  .v-deal .r8-card.seen { opacity: 0.26; transform: translateY(-0.8rem) rotate(var(--rot, -0.9deg)) scale(0.96); }
+  .v-deal .r8-lane > * { box-shadow: 0 18px 40px rgba(0, 0, 0, 0.62); }
+
+  /* ---- 2 · dissolve. No travel at all. The card that is leaving fades
+         where it lies and the next one comes up through it. ---- */
+  .v-dissolve .r8-card { transform: none; }
+  .v-dissolve .r8-card.on { transform: none; }
+  .v-dissolve .r8-lane > * { box-shadow: 0 14px 34px rgba(0, 0, 0, 0.55); }
+  .v-dissolve .r8-card { transition-duration: 0.7s; }
+
+  /* ---- 3 · lift. The card that is done lifts off the desk and blurs
+         out of focus, and the next one rises into focus behind it. ---- */
+  .v-lift .r8-card { transform: translateY(1.8rem) scale(0.97); filter: blur(5px); }
+  .v-lift .r8-card.on { transform: none; filter: none; }
+  .v-lift .r8-card.seen { opacity: 0; transform: translateY(-2.4rem) scale(1.03); filter: blur(7px); }
+  .v-lift .r8-lane > * { box-shadow: 0 16px 38px rgba(0, 0, 0, 0.6); }
+
+  /* ---- 4 · turn. The cards swap on a turn, as if the top of the pile
+         were being turned over onto the desk. ---- */
+  .v-turn .r8-desk { perspective: 1200px; }
+  .v-turn .r8-card { transform-origin: 50% 100%; transform: rotateX(24deg) translateY(1.4rem); }
+  .v-turn .r8-card.on { transform: none; }
+  .v-turn .r8-card.seen { opacity: 0; transform: rotateX(-16deg) translateY(-1.6rem); }
+  .v-turn .r8-lane > * { box-shadow: 0 20px 44px rgba(0, 0, 0, 0.65); }
+
+  /* ---- 5 · slide. The card is dealt ACROSS the desk: it comes in from
+         the docking side and the last one leaves to the other. ---- */
+  .v-slide .r8-card { transform: translateX(-14%); }
+  .v-slide .r8-card.on { transform: none; }
+  .v-slide .r8-card.seen { opacity: 0; transform: translateX(14%); }
+  .v-slide .r8-desk { overflow: hidden; }
+  .v-slide .r8-lane > * { box-shadow: 0 14px 34px rgba(0, 0, 0, 0.58); }
+
+  /* ---- the fail-open path. With reduced motion or no script the desk
+         lets go, every card stands in order, and the ticket shows its
+         whole timeline. Every word reads. ---- */
+  .still .r8-stage { position: static; height: auto; display: block; background: none; }
+  .still .r8-desk { position: static; display: grid; gap: 2rem; margin-top: 1.3rem; }
+  .still .r8-card {
+    position: relative; inset: auto; opacity: 1; pointer-events: auto;
+    transform: none; filter: none;
   }
-
-  /* ---- 3 · deal. The lanes are dealt onto the beat like paper, each
-         turned a little and casting, which keeps the desk. ---- */
-  .v-deal .r8-lane > * { box-shadow: 0 16px 34px rgba(0, 0, 0, 0.6); }
-  .v-deal .r8-lane:nth-child(odd) > * { transform: rotate(-0.8deg); }
-  .v-deal .r8-lane:nth-child(even) > * { transform: rotate(0.9deg); }
-  .v-deal .r8-floor { gap: 1.1rem; }
-
-  /* ---- 4 · rail. A lane that opens later is inset from the docking
-         side, so the run reads as widening rather than stacking. ---- */
-  .v-rail .r8-lane:nth-child(2) { margin-left: 1.6rem; }
-  .v-rail .r8-lane > * { box-shadow: 0 12px 30px rgba(0, 0, 0, 0.55); }
-  .v-rail .r8-floor { gap: 0.5rem; }
-
-  /* ---- 5 · console. The lanes share ONE frame with no gap at all, so
-         a beat reads as one instrument rather than two pictures. ---- */
-  .v-console .r8-floor { gap: 1px; background: var(--gx-line, #30363d); padding: 1px; border-radius: 8px; }
-  .v-console .r8-lane > * { border-radius: 0; border: none; }
-
-  /* ---- the fail-open path. With reduced motion or no script the
-         ticket stops following the reader and shows its whole timeline.
-         Every beat already stands on its own. ---- */
-  .still .r8-tkt { position: static; }
+  .still .r8-lane .win-body, .still .r8-lane .at-body, .still .r8-lane .dcx-log { max-height: none; }
+  .still .r8-nb { min-height: 0; opacity: 1; margin-bottom: 2rem; }
   .still .r8-tl li { visibility: visible; opacity: 1; }
-  .still .r8-beat { opacity: 1; }
 
   /* ---- the round switcher. It leaves the file with the round that
          settles this scene, the way #624's identity bar did. ---- */
@@ -2730,7 +2767,7 @@
 
        Round 1 offers five readings of the same six events on ?id=1..5:
        1 timeline, 2 lanes, 3 devices, 4 deal, 5 steps. -->
-  <section class="scene run sL v-stack" id="run" data-v="1" data-k="1" data-stage="gate" data-n="07" data-name="one ticket on GitHub" style="--g1:#141b33;--g2:#0c1020">
+  <section class="scene run sL v-deal" id="run" data-v="1" data-k="1" data-stage="gate" data-n="07" data-name="one ticket on GitHub" style="--g1:#141b33;--g2:#0c1020">
 
     <!-- The octicons and the two product marks. The page ships no
          image and no webfont, so every mark here is drawn (#629). -->
@@ -2752,11 +2789,11 @@
     <!-- ROUND 1 DEVICE. It leaves the file with the round that settles
          this scene, the way #624's identity bar did. -->
     <div class="rsw" id="rsw" role="group" aria-label="composition">
-      <button type="button" data-i="1" aria-pressed="true">1 stack</button>
-      <button type="button" data-i="2" aria-pressed="false">2 pair</button>
-      <button type="button" data-i="3" aria-pressed="false">3 deal</button>
-      <button type="button" data-i="4" aria-pressed="false">4 rail</button>
-      <button type="button" data-i="5" aria-pressed="false">5 console</button>
+      <button type="button" data-i="1" aria-pressed="true">1 deal</button>
+      <button type="button" data-i="2" aria-pressed="false">2 dissolve</button>
+      <button type="button" data-i="3" aria-pressed="false">3 lift</button>
+      <button type="button" data-i="4" aria-pressed="false">4 turn</button>
+      <button type="button" data-i="5" aria-pressed="false">5 slide</button>
     </div>
 
     <div class="runwrap">
@@ -2764,47 +2801,20 @@
       <!-- The six events. ONE set of cards; compositions 1, 2, 4 and 5
            are four layouts over it, so the same evidence is judged
            every time and only the reading changes. -->
-    <!-- ROUND 6. The ticket is the ONLY pinned thing. Everything else
-         moves: the page scrolls through five beats, each one its words
-         and the screens open at that point, and the ticket grows a
-         timeline row as each beat arrives.
+    <!-- ROUND 7. The titles scroll on the docking side. The cards do
+         NOT: they are dealt onto a desk that is held, and they fade in
+         and out in place. The ticket lies at the near edge of that desk
+         and grows a real timeline row per beat.
 
-         Every class this scene owns is prefixed `r8-`. Round 5 called
-         one of them `.lane`, which scene 9's VPS box already owns and
-         declares later in this file, so every lane showed at once and
-         squashed on the operator's phone. -->
+         Beat 1 deals no card, so the ticket stands alone. Beats 4 and 5
+         deal the thread and the pull request TOGETHER, which is the
+         parallel of round 5. -->
     <div class="r8-track" id="runtrack">
+      <div class="r8-stage" id="runstage">
 
-      <!-- The constant. Every row is a real, timestamped event on
-           alp82/curia#587, read off its own timeline. Rows are always
-           laid out and only their visibility moves, so this block is as
-           tall as its fullest state from the first frame. -->
-      <article class="gx r8-tkt" id="tkt">
-        <div class="gx-crumb">alp82 / <b>curia</b></div>
-        <h3 class="gx-h1">Choose the words of every scene of the final page <span class="num">#587</span></h3>
-        <div class="gx-meta">
-          <span class="gx-st open"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-pr"/></svg>Open</span>
-          <span class="gx-st done"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-closed"/></svg>Closed as completed</span>
-          <span class="tkt-chip">wayfinder:prototype</span>
-          <span class="gx-by"><b>alp82</b> opened this issue on Aug 21, 2026</span>
-        </div>
-        <ol class="gx-tl r8-tl">
-            <li><span class="nd2"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-commit"/></svg></span><b>alp82</b> opened this issue · Aug 21, 15:08</li>
-            <li><span class="nd2"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-commit"/></svg></span><b>curia-sh</b> assigned this to <b>alp82</b> · Aug 21, 18:46</li>
-            <li><span class="nd2"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-pr"/></svg></span><b>curia-sh</b> commented · Aug 21, 18:55<span class="cmt">🔗 curia pushed <code>curia/587</code> (1 commit) and opened <a href="https://github.com/alp82/curia/pull/597">#597</a></span></li>
-            <li><span class="nd2"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-pr"/></svg></span><b>curia-sh</b> commented · Aug 22, 19:10<span class="cmt">🔗 curia pushed <code>curia/587</code> (5 commits) and updated <a href="https://github.com/alp82/curia/pull/597">#597</a></span></li>
-            <li><span class="nd2 merged"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-merge"/></svg></span><b>curia-sh</b> merged <a href="https://github.com/alp82/curia/pull/597">#597</a> as <code>a71e154</code> and closed this as completed · Aug 22, 2026, 19:13</li>
-        </ol>
-      </article>
-
-      <div class="r8-beats" id="beats">
-        <section class="r8-beat on" data-i="0">
-          <p class="r8-nb"><span class="nn">01</span><b>You open a ticket.</b></p>
-        </section>
-
-        <section class="r8-beat" data-i="1">
-          <p class="r8-nb"><span class="nn">02</span><b>You tell it to start.</b></p>
-          <div class="r8-floor">
+        <div class="r8-desk" id="desk">
+        <div class="r8-card on" data-i="1" style="--rot:-0.9deg">
+          <div>
             <div class="r8-lane">
               <div class="at-scr">
                 <div class="at-ht"><span>curia · atlas</span><span class="needs">1 takeable</span></div>
@@ -2821,11 +2831,10 @@
               </div>
             </div>
           </div>
-        </section>
+        </div>
 
-        <section class="r8-beat" data-i="2">
-          <p class="r8-nb"><span class="nn">03</span><b>The agent starts working on it.</b></p>
-          <div class="r8-floor">
+        <div class="r8-card" data-i="2" style="--rot:1.1deg">
+          <div>
             <div class="r8-lane">
               <div class="win dcw">
                 <div class="win-bar">
@@ -2857,11 +2866,10 @@
               </div>
             </div>
           </div>
-        </section>
+        </div>
 
-        <section class="r8-beat" data-i="3">
-          <p class="r8-nb"><span class="nn">04</span><b>It waits for your confirmation.</b></p>
-          <div class="r8-floor">
+        <div class="r8-card two" data-i="3" style="--rot:-0.7deg">
+          <div>
             <div class="r8-lane">
               <div class="win dcw">
                 <div class="win-bar">
@@ -2920,11 +2928,10 @@
               </div>
             </div>
           </div>
-        </section>
+        </div>
 
-        <section class="r8-beat" data-i="4">
-          <p class="r8-nb"><span class="nn">05</span><b>It finishes the work.</b></p>
-          <div class="r8-floor">
+        <div class="r8-card two" data-i="4" style="--rot:1.2deg">
+          <div>
             <div class="r8-lane">
               <div class="win dcw">
                 <div class="win-bar">
@@ -2974,11 +2981,42 @@
               </div>
             </div>
           </div>
-        </section>
+        </div>
 
+        </div>
+
+        <!-- The constant, at the near edge. Every row is a real,
+             timestamped event on alp82/curia#587, read off its own
+             timeline. Rows are always laid out and only their
+             visibility moves, so the block never shifts. -->
+        <article class="gx r8-tkt" id="tkt">
+          <h3 class="gx-h1">Choose the words of every scene of the final page <span class="num">#587</span></h3>
+          <div class="gx-meta">
+            <span class="gx-st open"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-pr"/></svg>Open</span>
+            <span class="gx-st done"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-closed"/></svg>Closed as completed</span>
+            <span class="tkt-chip">wayfinder:prototype</span>
+            <span class="gx-by"><b>alp82</b> opened this issue on Aug 21, 2026</span>
+          </div>
+          <ol class="gx-tl r8-tl">
+          <li><span class="nd2"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-commit"/></svg></span><b>alp82</b> opened this issue · Aug 21, 15:08</li>
+          <li><span class="nd2"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-commit"/></svg></span><b>curia-sh</b> assigned this to <b>alp82</b> · Aug 21, 18:46</li>
+          <li><span class="nd2"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-pr"/></svg></span><b>curia-sh</b> commented · Aug 21, 18:55<span class="cmt">🔗 curia pushed <code>curia/587</code> (1 commit) and opened <a href="https://github.com/alp82/curia/pull/597">#597</a></span></li>
+          <li><span class="nd2"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-pr"/></svg></span><b>curia-sh</b> commented · Aug 22, 19:10<span class="cmt">🔗 curia pushed <code>curia/587</code> (5 commits) and updated <a href="https://github.com/alp82/curia/pull/597">#597</a></span></li>
+          <li><span class="nd2 merged"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-merge"/></svg></span><b>curia-sh</b> merged <a href="https://github.com/alp82/curia/pull/597">#597</a> as <code>a71e154</code> and closed this as completed · Aug 22, 2026, 19:13</li>
+          </ol>
+        </article>
+      </div>
+
+      <!-- The explanatory titles. They scroll naturally, on the docking
+           side, and each owns a tall slot so it holds the card it names. -->
+      <div class="r8-steps" id="steps">
+        <p class="r8-nb on" data-i="0"><span class="nn">01</span><b>You open a ticket.</b></p>
+        <p class="r8-nb" data-i="1"><span class="nn">02</span><b>You tell it to start.</b></p>
+        <p class="r8-nb" data-i="2"><span class="nn">03</span><b>The agent starts working on it.</b></p>
+        <p class="r8-nb" data-i="3"><span class="nn">04</span><b>It waits for your confirmation.</b></p>
+        <p class="r8-nb" data-i="4"><span class="nn">05</span><b>It finishes the work.</b></p>
       </div>
     </div>
-
 
       <p class="caption rv">Your approval merges the pull request and closes the ticket</p>
     </div>
@@ -3478,48 +3516,59 @@ if (!prefersStill) {
 function clampNum(v, a, b) { return v < a ? a : v > b ? b : v; }
 
 /* ================================================================
-   Scene 8 (#630) — one pinned ticket, and beats that scroll under it.
+   Scene 8 (#630) — the desk, and the cards dealt onto it.
 
-   The operator's phone showed every lane at once, squashed. The cause
-   was not the layout: scene 9's VPS box already owns a class called
-   `.lane` and declares it LATER in this file, so at equal specificity
-   it won and `.lane { display: none }` never applied. Every class this
-   scene owns is prefixed `r8-` now.
+   The operator's shape, corrected at round 7: the titles scroll and the
+   CARDS DO NOT. They are dealt onto a held desk and they fade in and
+   out in place. Round 6 read "the rest moves" as "nothing is held" and
+   scrolled the cards with their words, which is the one thing that
+   answer rules out.
 
-   The shape is the operator's own sentence: the ticket is the ONLY
-   pinned thing, and everything else moves. The page scrolls through
-   five beats, each one its words and the screens open at that point,
-   and this script owns one number — the beat k, 1 to 5 — which the
-   ticket's timeline rows and its state pill read off `data-k`.
+   So this script owns one number, the beat k, 1 to 5. The title
+   crossing the middle of the viewport owns the desk: it lights, its
+   card is dealt, and the ticket's timeline grows to that row. Beat 1
+   deals no card, so the ticket stands alone, and beats 4 and 5 deal the
+   thread and the pull request together.
 
-   Nothing is held but the ticket, so there is no stage to clip a lane
-   against. No wheel listener, no scrollTo, no preventDefault. With
-   reduced motion or no script the ticket stops following the reader and
-   shows its whole timeline, and every beat already stands on its own.
+   `seen` is what makes the deal a PILE rather than a swap: a card the
+   run is done with stays on the desk under the next one. The four
+   other compositions read it too, each taking the leaving card away a
+   different way.
+
+   No wheel listener, no scrollTo, no preventDefault. With reduced
+   motion or no script the desk lets go, every card stands in order and
+   the ticket shows its whole timeline.
    ================================================================ */
 (function () {
   var sec = document.getElementById('run');
-  var beats = [].slice.call(document.querySelectorAll('#beats .r8-beat'));
-  if (!sec || !beats.length) return;
+  var steps = [].slice.call(document.querySelectorAll('#steps .r8-nb'));
+  var cards = [].slice.call(document.querySelectorAll('#desk .r8-card'));
+  if (!sec || !steps.length || !cards.length) return;
 
-  var V = { '1': 'v-stack', '2': 'v-pair', '3': 'v-deal', '4': 'v-rail', '5': 'v-console' };
+  var V = { '1': 'v-deal', '2': 'v-dissolve', '3': 'v-lift', '4': 'v-turn', '5': 'v-slide' };
   var swb = [].slice.call(document.querySelectorAll('#rsw button'));
   var v = '1';
   var k = 1;
   var io = null;
 
   function setK(next) {
-    next = next < 1 ? 1 : next > beats.length ? beats.length : next;
+    next = next < 1 ? 1 : next > steps.length ? steps.length : next;
     if (next === k) return;
     k = next;
     sec.setAttribute('data-k', String(k));
-    beats.forEach(function (n, i) { n.classList.toggle('on', i === k - 1); });
+    steps.forEach(function (n, i) { n.classList.toggle('on', i === k - 1); });
+    /* Card i belongs to beat i + 1: the first beat deals none. */
+    cards.forEach(function (c) {
+      var i = parseInt(c.getAttribute('data-i'), 10);
+      c.classList.toggle('on', i === k - 1);
+      c.classList.toggle('seen', i < k - 1);
+    });
     if (k >= 4) press();
   }
 
   function watch() {
     if (io || !window.IntersectionObserver) return;
-    /* A beat owns the ticket from the moment it crosses the middle of
+    /* A title owns the desk from the moment it crosses the middle of
        the viewport. The margins are what put that line there. */
     io = new IntersectionObserver(function (es) {
       es.forEach(function (e) {
@@ -3527,7 +3576,7 @@ function clampNum(v, a, b) { return v < a ? a : v > b ? b : v; }
         setK(parseInt(e.target.getAttribute('data-i'), 10) + 1);
       });
     }, { rootMargin: '-45% 0px -45% 0px', threshold: 0 });
-    beats.forEach(function (n) { io.observe(n); });
+    steps.forEach(function (n) { io.observe(n); });
   }
 
   /* ---- the press. curia edits the card and clears its components when
@@ -3562,7 +3611,12 @@ function clampNum(v, a, b) { return v < a ? a : v > b ? b : v; }
     sec.className = 'scene run sL ' + V[v] + (prefersStill ? ' still' : '');
     swb.forEach(function (b) { b.setAttribute('aria-pressed', b.getAttribute('data-i') === v ? 'true' : 'false'); });
     if (prefersStill) { press(); return; }
-    beats.forEach(function (n, i) { n.classList.toggle('on', i === k - 1); });
+    steps.forEach(function (n, i) { n.classList.toggle('on', i === k - 1); });
+    cards.forEach(function (c) {
+      var i = parseInt(c.getAttribute('data-i'), 10);
+      c.classList.toggle('on', i === k - 1);
+      c.classList.toggle('seen', i < k - 1);
+    });
     watch();
   }
 
