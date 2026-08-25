@@ -1133,6 +1133,18 @@ const dispatcher = new Dispatcher({
   // `curia-auth-<provider>` login. Same publish-and-verify path as /attach, so
   // a link is never handed out over a surface /attach would refuse.
   attachSessionLink: (session) => attachApi.link(null, { session }),
+  // #661: the console's own URL, at one of its screens. It is composed and NOT
+  // probed, which is the one place this differs from the terminal link above.
+  // The sidecar publishes its own Serve rule and the daemon has no channel to
+  // ask it anything — the poll runs the other way — so there is nothing here to
+  // verify. That costs nothing an operator can be hurt by: naming a URL is not
+  // publishing a surface, and a link to a sidecar that is down fails in the
+  // browser rather than exposing anything. The tailnet name is tailscale's own
+  // answer, cached, never a hardcoded host.
+  dashboardLink: async (hash = '') => {
+    const base = await attachBase()
+    return `https://${base}:${curiaConfig.dashboard.serve_port}/${hash}`
+  },
   // #118 item 7 / #108 item 22: the ready message carries both attach handles
   // as link BUTTONS, composed the same way /attach composes them — each half
   // failing independently.

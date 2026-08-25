@@ -82,6 +82,14 @@ if ! git -C "$REPO" merge --ff-only "$NEXT"; then
   exit 1
 fi
 
+# Bash parsed this copy before the merge, so functions in it can be one
+# version behind the code they are about to deploy. Run the merged copy once
+# before recreate, and keep the pre-merge copy as the fallback if cp fails.
+if [ -z "${CURIA_SELF_DEPLOY_MERGED:-}" ]; then
+  cp "$REPO/deploy/self-deploy.sh" /tmp/self-deploy-merged.sh \
+    && CURIA_SELF_DEPLOY_MERGED=1 exec bash /tmp/self-deploy-merged.sh "$@"
+fi
+
 REASON="the new daemon failed its health check"
 if recreate; then
   if healthy 180; then

@@ -88,7 +88,9 @@ export function noteDisposition(agent) {
 // draws four of them, so a pair per chat message would push every dispatch,
 // death and gate off the screen. What the operator DOES read about a killed
 // turn is `overseer_turn_dropped`, which the feed carries.
-const FEED_SILENT = new Set(['overseer_turn_started', 'overseer_turn_ended'])
+const FEED_SILENT = new Set([
+  'overseer_session_reserved', 'overseer_turn_started', 'overseer_turn_ended',
+])
 
 // The events lastAgentEvent must not count (#236) — see _apply.
 const NOTE_EVENTS = new Set([
@@ -123,6 +125,7 @@ export class Reduction {
     this.agentNotes = new Map() // agent session -> pending operator notes (#108 item 14)
     this.overseerSessions = new Map() // thread id -> SDK session id (#92)
     this.transcriptLandings = new Map() // session -> rewind landing parent (#689, ADR-0024)
+    this.pendingOverseerSessions = new Map() // thread id -> first pane launch id (#688)
     this.consoleConversations = new Map() // console key -> the live browser conversation (#333)
     this.consoleSpent = new Set() // every console key ever minted, deleted ones included (#333)
     this.ticketThreads = new Map() // ticket -> Discord thread id (#93)
@@ -633,6 +636,15 @@ export class Reduction {
         // #92: `resume` mints a fresh session id per continued conversation,
         // so last write wins — the map always points at the live tail.
         this.overseerSessions.set(ev.thread_id, ev.session_id)
+        this.pendingOverseerSessions.delete(ev.thread_id)
+        break
+      }
+      case 'overseer_session_reserved': {
+        // A new pane needs its UUID before Claude starts. Keep that UUID apart
+        // from a proven resume handle until the composer appears. If startup
+        // fails or the daemon restarts, the next attempt uses --session-id
+        // again instead of trying to resume a session Claude never created.
+        this.pendingOverseerSessions.set(ev.thread_id, ev.session_id)
         break
       }
       case 'transcript_rewound': {
@@ -659,6 +671,7 @@ export class Reduction {
         // address this key again, so a binding left behind would only be a line
         // the next boot replays for a conversation that is not there.
         this.overseerSessions.delete(ev.key)
+        this.pendingOverseerSessions.delete(ev.key)
         this.overseerNotes.delete(ev.key)
         this.pendingTurns.delete(ev.key)
         this.droppedTurns.delete(ev.key)
@@ -943,6 +956,14 @@ export class Reduction {
   // daemon restart replays every conversation's resume handle.
   bindOverseerSession(threadId, sessionId) {
     this._append({ type: 'overseer_session', thread_id: threadId, session_id: sessionId })
+  }
+
+  reserveOverseerSession(threadId, sessionId) {
+    this._append({ type: 'overseer_session_reserved', thread_id: threadId, session_id: sessionId })
+  }
+
+  pendingOverseerSession(threadId) {
+    return this.pendingOverseerSessions.get(threadId)
   }
 
   overseerSession(threadId) {

@@ -84,6 +84,8 @@ describe('the compose overseer service (#327 pins)', () => {
   test('it runs the container process from the repo mount', () => {
     assert.deepEqual(SERVICE.command, ['node', `${DEFAULT_REPO_ROOT}/daemon/bin/curia-overseer.mjs`])
     assert.equal(SERVICE.user, '1000:1000')
+    assert.equal(SERVICE.build.args.CLAUDE_VERSION, '2.1.220')
+    assert.match(DOCKER_INSTRUCTIONS, /@anthropic-ai\/claude-code@\$\{CLAUDE_VERSION\}/)
   })
 })
 

@@ -34,9 +34,11 @@
 # the anchor in deploy/compose.yaml (#357, applied by #409).
 ARG NODE_VERSION
 ARG GH_VERSION=2.97.0
+ARG CLAUDE_VERSION
 
 FROM node:${NODE_VERSION}-bookworm-slim
 ARG GH_VERSION
+ARG CLAUDE_VERSION
 
 # The shell is a human-facing surface through the chat, and a tree read with a
 # broken locale answers in question marks.
@@ -60,6 +62,13 @@ RUN curl -fsSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_$
   && install -D -m 0755 "/tmp/gh_${GH_VERSION}_linux_amd64/bin/gh" /usr/local/libexec/curia/gh \
   && rm -rf /tmp/gh_* \
   && /usr/local/libexec/curia/gh --version
+
+# The shared service hosts each live conversation as one Claude Code process.
+# Keep the CLI pinned to the agent image's version through compose.
+RUN npm install -g --no-fund --no-audit \
+      "@anthropic-ai/claude-code@${CLAUDE_VERSION}" \
+  && npm cache clean --force \
+  && claude --version
 
 # THE PER-OWNER TOKEN ROUTING, half one (#313). The container holds one
 # read-only token per resource owner and `gh` reads a single GH_TOKEN, so the
