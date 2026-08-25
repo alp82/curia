@@ -1637,6 +1637,16 @@ what scenes 1 to 3 and scene 4 already do, and it is what the operator asked for
 asserts the scene's script binds no `wheel` or `touchmove` listener, calls no `scrollTo`, and calls
 `preventDefault` nowhere.
 
+**Two more faults found by reading**, neither of which a check had named:
+
+- **The rail stopped sticking.** `align-items: start` on the two-column grid shrinks each item to
+  its own content, and a sticky item can only travel inside its own box. The rail would have come
+  unstuck the moment the screens beside it grew taller than it, which is always.
+- **The constant reached into GitHub's stylesheet** for its label chip. It keeps the label's real
+  hex, which is a fact about the ticket rather than chrome borrowed for decoration, under a class of
+  its own now. The rule holds with no exception, and the check reads it as any `gx-` or `dc-` class
+  inside the ticket.
+
 **108 build checks** run against the file and all **44 breaks** that validate them land. Two of the
 checks were wrong before they were right:
 
