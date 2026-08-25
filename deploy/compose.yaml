@@ -47,6 +47,7 @@ name: curia
 # update can change the API, the defaults and the bundled SQLite engine. The
 # upgrade recipe is in the daemon README, under "The Node pin".
 x-node-version: &node-version "24.19.0"
+x-claude-version: &claude-version "2.1.220"
 
 volumes:
   # The tmux server socket. The server lives in the `tmux` container; the
@@ -225,15 +226,14 @@ services:
       # curia.yaml and routing.yaml from the settings screens (#265).
       - ${CURIA_REPO_ROOT:-/home/alp/curia}/config:${CURIA_REPO_ROOT:-/home/alp/curia}/config
 
-  # The overseer (#327, building ADR-0015). One long-lived container beside the
-  # dashboard, and many conversations pass through it. There is no pane and no
-  # spawn path: compose owns its liveness, and the daemon only health-checks it,
-  # the way it already treats ttyd. Recreating it kills no agent, so the routine
-  # deploy names it.
+  # The overseer (#327 and #688). One long-lived container sits beside the
+  # dashboard, and each live conversation enters it through its own tmux pane.
+  # Compose owns the shared container's liveness. The daemon owns conversation
+  # panes through the same tmux adapter that serves agents. A routine recreate
+  # ends each docker exec, which parks the pane until its durable session resumes.
   #
-  # IT ANSWERS NO TURN YET. #314 carries the turn across this boundary. Until
-  # then the container runs, routes its tokens and answers /ping, and every
-  # other route is a 501 naming that ticket.
+  # The service keeps the existing health and turn routes while the pane build
+  # moves conversation behavior across in ordered tickets.
   #
   # NOT ON THE HOST NETWORK, and it is the only service that is not. That is the
   # containment ADR-0014 asks for: this container holds a SHELL, and on the host
@@ -248,6 +248,7 @@ services:
       dockerfile: deploy/overseer/Dockerfile
       args:
         NODE_VERSION: *node-version
+        CLAUDE_VERSION: *claude-version
         CURIA_HOME: ${CURIA_WORKSPACE_ROOT:-/home/alp/curia-work}/home
         CURIA_REPO_ROOT: ${CURIA_REPO_ROOT:-/home/alp/curia}
     image: curia-overseer
