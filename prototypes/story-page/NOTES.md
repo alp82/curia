@@ -1465,6 +1465,91 @@ ships `claude` and `codex` today, so [#604](https://github.com/alp82/curia/issue
 that line until the code lands. A build check asserts the file still ships two, and it goes red on
 the day it ships four, which is the day the line is safe.
 
+## The verdict of the terminal scene ([#629](https://github.com/alp82/curia/issues/629))
+
+**Locked over ten operator rounds**, the longest run of any scene on this page. Every variation
+that lost, and the switchers that carried them, left the file with the round that settled it, the
+way the identity switcher did at [#624](https://github.com/alp82/curia/issues/624).
+
+The ticket asked for one thing: the operator's note at #551 round 2 said the two TUIs "look not
+like their original counterparts at all. they should be really realistic". Eight of the ten rounds
+were spent on what realistic means for a terminal, and the answer was not visual polish.
+
+**What the scene is, finally:**
+
+1. **A terminal is a CHARACTER GRID, and that is the whole of it.** All four panes are authored at
+   exactly 58 columns, and the script measures a 58ch ruler against the live frame and scales the
+   font until 58 columns fill it. So the Codex banner box, the Claude composer rules and every
+   separator end on the same column at every width. Line height is exactly 1, because a browser
+   draws box characters at the glyph height and any leading opens a gap a terminal does not have.
+2. **Each pane is a scrollback and a composer**, the way all four TUIs are built. The transcript
+   sits at the bottom of a window fixed at 26 rows, and the input row never moves.
+3. **The window never changes height**, at any harness or any width. A shorter transcript sits
+   against its composer with blank rows above, which is what a real full-screen TUI shows. Nothing
+   scrolls and nothing moves on load: the font size drives the height, so `fit()` runs before the
+   first paint and the page ships no webfont.
+4. **The control is the harness rail past 60rem and bottom tabs below it, and never both.** So the
+   tmux status line is what a real one is: text stating the session, controlling nothing.
+5. **The composition is the browser tab the claim names**, with one tab, over the tailnet URL. The
+   session prints once, a line every 190ms, then hands from Claude Code to Codex.
+6. **The session is the type foundry of scene 4.** GRAVITY, locked at
+   [#627](https://github.com/alp82/curia/issues/627), and the job is its size waterfall.
+7. **Four harnesses**, each with the chrome its own TUI prints, and four drawn marks on the rail.
+
+**One deliberate deviation from [#601](https://github.com/alp82/curia/issues/601)**, and it is the
+SECOND instance of one deviation rather than a new one. The transcripts are invented, because
+GRAVITY is invented. #627 already took that step, on the operator's instruction, when they asked
+for a site cooler than a real curia prototype. Extending that site into this scene extends the same
+step. Nothing here claims to be a curia record: the rail states a model or a version and no ticket,
+the working directory is `~/gravity`, and a build check refuses a ticket number in either place.
+[#604](https://github.com/alp82/curia/issues/604) carries it, beside the four-harness fact line.
+
+**Three faults the operator's eyes found that no check could.** Every check here reads the source,
+and at each of these the source was exactly what it claimed to be.
+
+| what they saw | what it was |
+|---------------|-------------|
+| everything italic | the colored runs were `<i>` elements, which a browser slants. An oblique face does not sit on a character grid |
+| the wordmark cut off | block characters are drawn at the FONT's metrics, not the line box, so two rows of them never tile at line height 1 |
+| the cursor inside the text | the opencode composer is four gutter rows and this file had three, so the cursor landed against the mode line |
+
+**And one fault that was in the EVIDENCE, not the file, which is the lesson of this ticket.** The
+opencode wordmark was wrong for three rounds while every check stayed green, because the capture it
+was built from is wrong in two ways at once:
+
+- **It is missing half its rows.** `prototypes/model-switch/evidence/opencode-1-spawn.txt` caught
+  the pane mid-scroll and held the bottom two of four. That is why `d`, `n` and `o` were
+  character-for-character identical in it.
+- **It is missing half its ink.** `logo.tsx` renders the shading on the BACKGROUND of a cell, so
+  `_` in the source is a space whose background is filled. `tmux capture-pane` writes that out as a
+  blank, because a text capture records characters and this mark keeps half of itself in the colour
+  behind them.
+
+The mark is drawn from
+[`packages/tui/src/logo.ts`](https://github.com/anomalyco/opencode/blob/dev/packages/tui/src/logo.ts)
+and [`packages/tui/src/component/logo.tsx`](https://github.com/anomalyco/opencode/blob/dev/packages/tui/src/component/logo.tsx)
+now, in the four shades that source names. **A capture is a lossy record of a rendered thing, and
+the generator that made it is the only complete source.** Where a pane depends on nothing but
+characters, a capture is enough, and every other pane here still rests on one. Where it depends on
+colour, go to the source.
+
+**157 build checks** run against the file, and all **56 breaks** that validate them land. Three of
+the checks were wrong before they were right, and each was a different kind of wrong:
+
+- **A break landed in the wrong scene.** The `.wrap` mutation hit the first `<header class="claim
+  rv">` in the file, which belongs to an earlier scene, so the check stayed green and proved
+  nothing. That is the same fault #628 recorded, repeated by the same shortcut.
+- **A check compared the wrong scope.** The distinctness check gathered declarations from inside
+  the desktop media query too, so a composition copied wholesale still looked different.
+- **A check that was right for one instance was wrong for five.** Every TUI-marker check asked
+  whether a string appeared anywhere in the SCENE. With five candidate sessions that is not the
+  same question as whether a PANE has it, and breaking one session of five left the check green.
+  They run per pane now. **Only a break that lands in one instance can tell you this.**
+
+**The four marks on the rail are drawn, and none is that project's official logo.** The page ships
+no image and no webfont, so a mark is drawn or it is not there. Each is built from something the
+harness itself prints. The operator confirmed they stand.
+
 ## The verdict of the atlas scene ([#628](https://github.com/alp82/curia/issues/628))
 
 **Locked over three operator rounds.** The four compositions that lost, and the bar that carried
