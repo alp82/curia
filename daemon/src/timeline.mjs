@@ -44,7 +44,7 @@ import { fileURLToPath } from 'node:url'
 import { assertServe, serveOff, attachBase, validSessionName } from './attach.mjs'
 import { paneTail } from './dispatch.mjs'
 import { sendText, sendKey, capturePane } from './tmux.mjs'
-import { detectHarness, findTranscript, transcriptForSession, parseLine } from './transcript.mjs'
+import { detectHarness, findTranscript, transcriptForSession, readActiveMessages } from './transcript.mjs'
 
 const DIR = path.dirname(fileURLToPath(import.meta.url))
 
@@ -184,6 +184,9 @@ export class TimelineSurface {
       // escalationHistoryFor(session): every escalation record for this
       // agent, any status — the full-fidelity interleave (#108 item 1).
       escalationHistoryFor: () => [],
+      // landingPointFor(session): the parent identity on the latest rewind
+      // receipt. Null outside the window before the next transcript message.
+      landingPointFor: () => null,
       // identityCheck(headers): the #151 gate — a refusal reason, or null to
       // admit. The default REFUSES: this is a security control, so an
       // unconfigured surface must fail closed rather than inherit the
@@ -310,10 +313,12 @@ export class TimelineSurface {
     let s = this.sessions.get(name)
     if (!s) {
       s = {
-        harness: null, file: null, offset: 0, rest: '', items: [],
+        harness: null, file: null, offset: 0, rest: '', lines: [], items: [],
+        landingUuid: null,
         clients: new Set(), draft: '',
         parse: null, // { reason, file, dropped } — current loud failure, if any
         journalled: new Set(), // parse failures journalled once per file+reason
+        parseFailures: new Set(), // line-keyed failures already counted for this file
         escalations: '[]', // last broadcast snapshot, serialized
         escHistory: '[]', // last full-history snapshot, serialized (#108 item 1)
         dialog: null, // { hint } while a terminal dialog owns the pane (#75)
@@ -355,8 +360,11 @@ export class TimelineSurface {
     s.file = file
     s.offset = 0
     s.rest = ''
+    s.lines = []
     s.items = []
+    s.landingUuid = null
     s.parse = null
+    s.parseFailures.clear()
     this.#broadcast(s, 'reset', { file })
   }
 
@@ -377,44 +385,51 @@ export class TimelineSurface {
     let st
     try { st = fs.statSync(s.file) } catch { return }
     if (st.size < s.offset) this.#reset(s, s.file) // truncated: same file, new run
-    if (st.size === s.offset) return
+    const landingUuid = this.deps.landingPointFor(name) ?? null
+    if (st.size === s.offset && landingUuid === s.landingUuid) return
 
-    let buf
-    try {
-      const fd = fs.openSync(s.file, 'r')
+    if (st.size !== s.offset) {
+      let buf
       try {
-        buf = Buffer.alloc(st.size - s.offset)
-        fs.readSync(fd, buf, 0, buf.length, s.offset)
-      } finally {
-        fs.closeSync(fd)
+        const fd = fs.openSync(s.file, 'r')
+        try {
+          buf = Buffer.alloc(st.size - s.offset)
+          fs.readSync(fd, buf, 0, buf.length, s.offset)
+        } finally {
+          fs.closeSync(fd)
+        }
+      } catch (e) {
+        this.#parseFailure(name, s, `transcript read failed: ${e.message}`)
+        return
       }
-    } catch (e) {
-      this.#parseFailure(name, s, `transcript read failed: ${e.message}`)
-      return
+      s.offset = st.size
+      const chunk = s.rest + buf.toString('utf8')
+      const lines = chunk.split('\n')
+      s.rest = lines.pop() ?? '' // a half-written line waits for the next read
+      s.lines.push(...lines)
     }
-    s.offset = st.size
+    s.landingUuid = landingUuid
 
-    const chunk = s.rest + buf.toString('utf8')
-    const lines = chunk.split('\n')
-    s.rest = lines.pop() ?? '' // a half-written line stays in the buffer
-    const fresh = []
-    for (const line of lines) {
-      if (!line.trim()) continue
-      const r = parseLine(s.harness, line)
-      if (r.malformed) {
-        this.#parseFailure(name, s, 'line is not JSON — the transcript format may have moved')
-        continue
-      }
-      if (r.unknown) {
-        this.#parseFailure(name, s, `unknown ${s.harness} line type "${r.unknown}" — the transcript format moved underneath the reader`)
-        continue
-      }
-      for (const item of r.items) {
-        item.seq = s.items.length
-        s.items.push(item)
-        fresh.push(item)
-      }
+    const active = readActiveMessages(s.harness, s.lines, { landingUuid })
+    for (const failure of active.failures) {
+      if (s.parseFailures.has(failure.key)) continue
+      s.parseFailures.add(failure.key)
+      this.#parseFailure(name, s, failure.reason)
     }
+
+    const sameItem = (a, b) => {
+      const { seq: _seq, ...old } = a
+      return JSON.stringify(old) === JSON.stringify(b)
+    }
+    const extendsCurrent = s.items.length <= active.items.length
+      && s.items.every((item, index) => sameItem(item, active.items[index]))
+    if (!extendsCurrent) {
+      s.items = []
+      this.#broadcast(s, 'reset', { file: s.file })
+    }
+    const fresh = active.items.slice(s.items.length)
+    for (const [seq, item] of active.items.entries()) item.seq = seq
+    s.items = active.items
     if (fresh.length) this.#broadcast(s, 'items', fresh)
   }
 

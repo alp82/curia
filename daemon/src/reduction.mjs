@@ -124,6 +124,7 @@ export class Reduction {
     this.overseerNotes = new Map() // thread id -> pending synthetic lines (#94)
     this.agentNotes = new Map() // agent session -> pending operator notes (#108 item 14)
     this.overseerSessions = new Map() // thread id -> SDK session id (#92)
+    this.transcriptLandings = new Map() // session -> rewind landing parent (#689, ADR-0024)
     this.pendingOverseerSessions = new Map() // thread id -> first pane launch id (#688)
     this.consoleConversations = new Map() // console key -> the live browser conversation (#333)
     this.consoleSpent = new Set() // every console key ever minted, deleted ones included (#333)
@@ -646,6 +647,14 @@ export class Reduction {
         this.pendingOverseerSessions.set(ev.thread_id, ev.session_id)
         break
       }
+      case 'transcript_rewound': {
+        this.transcriptLandings.set(ev.agent, ev.landing_uuid)
+        break
+      }
+      case 'transcript_branch_started': {
+        this.transcriptLandings.delete(ev.agent)
+        break
+      }
       // The browser conversations (#333, ADR-0016). Two reductions, because
       // "which conversations exist" and "which numbers are spent" are different
       // facts and only the second one survives a delete. The spent set never
@@ -959,6 +968,13 @@ export class Reduction {
 
   overseerSession(threadId) {
     return this.overseerSessions.get(threadId)
+  }
+
+  // The active parent while a rewind has no transcript line of its own.
+  // The rewind flow journals the first event and clears it after the next
+  // transcript message starts the new branch.
+  transcriptLanding(agent) {
+    return this.transcriptLandings.get(agent) ?? null
   }
 
   // ---- the turn a restart can kill (#388, ADR-0015) -------------------------
