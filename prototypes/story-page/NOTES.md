@@ -1374,6 +1374,23 @@ Round 8 asks the operator for a fresh capture of the opencode start screen, beca
 one thing this session cannot get for itself, and the alternative is inventing three letters of
 another project's wordmark.
 
+**Round 8's answer was two screenshots of a live opencode**, and one of them corrected a line
+nobody had questioned.
+
+**The composer mode line names the PROVIDER, not the directory.** The repo capture reads
+`Build · standin-1 stand-in` and the operator's live screenshot reads `Build · GPT-5.6 Luna
+OpenAI`. Both are `Build · <model> <provider>`, so `stand-in` was never a suffix on the model name.
+This file had been reading it as one and putting the project directory in that slot. It reads
+`Build · gpt-5.6-sol OpenAI` now. **Two captures of the same line, taken a year apart on different
+models, are what made the shape legible** — one alone leaves `standin-1 stand-in` looking like a
+single name.
+
+**The wordmark still needs its text.** The screenshot shows the whole mark, and reading it means
+transcribing 39 cells by eye across three rows. The three letters that matter are exactly the ones
+a wrong reading would invent: `d`, `n` and `o` are identical on both rows this repo holds, so the
+row being transcribed is the only thing that separates them. Round 9 asks for the banner as text
+rather than as pixels, which settles it in one paste.
+
 **The scene is one composition canvas.** The claim, the terminal and the fact line are grid items
 of `.tm`. The old scene 7 held the claim in a centred `.wrap` and the pane in a `.shot`, which is
 the pair that broke the preview scene at [#627](https://github.com/alp82/curia/issues/627) round 3
