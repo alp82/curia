@@ -514,6 +514,22 @@ describe('the sibling script holds the deploy rule', () => {
     assert.ok(firstCall !== -1 && refuse < firstCall, 'merge-refused must be marked before the first recreate call')
   })
 
+  // alp82/curia#674: bash parsed the sibling's functions before the merge, so
+  // the commit that added a bind-mount source still ran the old pre-create
+  // list. The first run must hand off to a guarded copy of the merged script.
+  test('the merged script replaces the pre-merge script before recreate', () => {
+    const lines = code.split('\n')
+    const merge = lines.findIndex((l) => /git -C "\$REPO" merge --ff-only "\$NEXT"/.test(l))
+    const guard = lines.findIndex((l) => /if \[ -z "\$\{CURIA_SELF_DEPLOY_MERGED:-\}" \]/.test(l))
+    const copy = lines.findIndex((l) => /cp "\$REPO\/deploy\/self-deploy\.sh" \/tmp\/self-deploy-merged\.sh/.test(l))
+    const firstCall = lines.findIndex((l) => /^\s*if recreate\b/.test(l))
+
+    assert.ok(merge !== -1, 'the fast-forward merge is missing')
+    assert.ok(guard > merge, 'the merged-script guard must run after the merge')
+    assert.ok(copy > guard && copy < firstCall, 'the merged script must replace this process before recreate')
+    assert.match(code, /CURIA_SELF_DEPLOY_MERGED=1 exec bash \/tmp\/self-deploy-merged\.sh "\$@"/)
+  })
+
   test('each rollback carries the reason the sibling measured', () => {
     assert.match(code, /REASON="the new daemon failed its health check"/)
     assert.match(code, /REASON="docker compose could not recreate the services"/)

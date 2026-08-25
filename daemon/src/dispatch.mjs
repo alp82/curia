@@ -52,6 +52,7 @@ import {
   ANTHROPIC_PROVIDER, writeClaudeCredentials, CONSUMER_CREDENTIALS,
   DeviceLoginLane, SetupTokenLane,
 } from './credentials.mjs'
+import { CREDENTIALS_HASH } from './dashboard.mjs'
 import { readDiffDigest, readFileHunks, digestLine, sliceFromPatch, capText } from './diffdigest.mjs'
 import { transcriptReset, holdVerdict, hottestPct, WARM_PCT } from './usage.mjs'
 import { transcriptActivity } from './transcript.mjs'
@@ -394,7 +395,7 @@ export class Dispatcher {
   // escalation and returns its record; lapseEscalation closes one as lapsed
   // (journal + message edit); confirmNote posts a line next to a record's
   // buttons; overseerNote journals a synthetic line for a thread's session.
-  constructor({ config, routing, reduction, notify, announce, openConfirm, openMapQuestion, lapseEscalation, confirmNote, overseerNote, askReview, cancelEscalation, threads, log = console.log, cooling, readings, dataDir, daemonPort, previews, attachLinks, attachSessionLink, channelName, minter, credentials, anthropic, anthropicHealth, maintenance, deps }) {
+  constructor({ config, routing, reduction, notify, announce, openConfirm, openMapQuestion, lapseEscalation, confirmNote, overseerNote, askReview, cancelEscalation, threads, log = console.log, cooling, readings, dataDir, daemonPort, previews, attachLinks, attachSessionLink, dashboardLink, channelName, minter, credentials, anthropic, anthropicHealth, maintenance, deps }) {
     this.config = config
     this.routing = routing
     this.reduction = reduction
@@ -451,6 +452,13 @@ export class Dispatcher {
     // same publish-and-verify path, so a re-auth link is refused on a surface
     // /attach would also refuse.
     this.attachSessionLink = attachSessionLink ?? null
+    // dashboardLink(hash) → the console's own URL, at one of its screens (#661).
+    // The credential alarm is the first caller: it fires while the operator is
+    // asleep and away from the box, and everything it asks of them lives on the
+    // Credentials screen — so the message carries the way there rather than the
+    // name of a page they have to go and find. Optional; absent, the alarm says
+    // the screen's name and no link, which is what it did before.
+    this.dashboardLink = dashboardLink ?? null
     // The command channel's own name (#218). A confirm typed outside any thread
     // renders in that channel, and the reply has to name it.
     this.channelName = channelName ?? 'curia'
@@ -2039,6 +2047,13 @@ export class Dispatcher {
     // NEVER THE CODE. A one-time auth code in a chat log is a credential in a
     // chat log; it reaches the terminal link and the dashboard, both of which
     // sit behind the operator's own Tailscale login.
+    // THE ALARM CARRIES THE WAY IN (#661). It fires at whatever hour the token
+    // dies, and everything it asks of the operator is on one screen — so the
+    // message links to that screen rather than naming a page they have to go and
+    // find. A link that could not be composed costs the line and nothing else.
+    const screen = this.dashboardLink
+      ? await Promise.resolve(this.dashboardLink(CREDENTIALS_HASH)).catch(() => null)
+      : null
     // A bridge that cannot carry the alarm must not cost the fan-out below, the
     // hold, or the login already started. It is logged loudly instead: the
     // dashboard card and the `credential_hold` journal line both stand whatever
@@ -2054,6 +2069,7 @@ export class Dispatcher {
         'Nothing new dispatches on this lane until someone signs in again.',
         stopped,
         login,
+        screen ? `Credentials: ${screen}` : null,
       ].filter(Boolean).join('\n'))
     } catch (e) {
       this.log(`the ${provider} credential alarm could not be announced (${e.message}). The hold stands, and the login is running`)
@@ -2103,6 +2119,12 @@ export class Dispatcher {
     // the link is composed rather than the verb suggested. A surface that
     // cannot be published leaves the dashboard, which is where the code is.
     const attach = this.attachSessionLink ? await Promise.resolve(this.attachSessionLink(session)).catch(() => null) : null
+    // ONE COMPOSITION, TWO SURFACES (#661). Discord got this link from the
+    // first commit and the dashboard did not, though the dashboard is where an
+    // operator lands when the scrape misses and the terminal is the only way
+    // through. Stamping it on the flow is what puts it on both, and keeps the
+    // page out of the business of building a URL it cannot vouch for.
+    this.reauth.noteTerminal(attach)
     const where = attach
       ? `Terminal: ${attach}`
       : 'curia could not publish a terminal link for it. The dashboard card carries the link and the code.'
@@ -2136,7 +2158,20 @@ export class Dispatcher {
       this.log(`the re-authentication poll failed (${e.message})`)
       return null
     }
-    if (!outcome) return null
+    if (!outcome) {
+      // A RESTART LOSES THE LINK, NOT THE LOGIN (#671 with #661). A re-adopted
+      // flow is rebuilt from the journal, and the journal never held the
+      // terminal URL — but the terminal is the path that always works when the
+      // scrape misses, so a panel without it is the one an operator reaches on
+      // the worst tick. It is composed again on the first tick that takes the
+      // login back, over the same publish-and-verify path the start used.
+      const live = this.reauth.state()
+      if (live?.state === 'waiting' && !live.terminal_url && this.attachSessionLink) {
+        const attach = await Promise.resolve(this.attachSessionLink(live.session)).catch(() => null)
+        this.reauth.noteTerminal(attach)
+      }
+      return null
+    }
     this.reauth.clear()
     const provider = outcome.provider
     if (outcome.state === 'done') {
@@ -2200,10 +2235,11 @@ export class Dispatcher {
       const held = this.cooling.heldFor(row.provider)
       return held ? { ...row, held: row.held ?? { why: held.why } } : row
     }
+    const withLane = (row) => ({ ...withHold(row), lane: this.#laneStatus(row.provider) })
     return {
       consumers: [
-        withHold(this.credentials ? this.credentials.state() : unowned('codex', CODEX_PROVIDER)),
-        ...['claude', 'overseer'].map((consumer) => withHold(this.anthropic
+        withLane(this.credentials ? this.credentials.state() : unowned('codex', CODEX_PROVIDER)),
+        ...['claude', 'overseer'].map((consumer) => withLane(this.anthropic
           ? {
             ...this.anthropic.state(consumer),
             delivery: CONSUMER_CREDENTIALS[consumer].deliver.how,
@@ -2217,6 +2253,40 @@ export class Dispatcher {
       // already stands is where this lands - so an operator who was signing in
       // is told why it stopped instead of finding the attempt simply absent.
       reauth_ended: this.reauth?.ending ?? null,
+    }
+  }
+
+  // WHAT IS BROKEN BEHIND THE CREDENTIAL (#661, found by the #645 prototype).
+  //
+  // A dead credential is not a fact about a file. It is a fact about the box:
+  // one lane stops dispatching, and every live agent on it is frozen mid-ticket
+  // — pane, claim, worktree and conversation intact, and no turn moving. Every
+  // surface had the state word and none of them had that, so the page that said
+  // the most about a credential said the least about the incident.
+  //
+  // IT COULD NOT RIDE `pre_cooling`, which is why this is its own field. That
+  // structure is usage-shaped — a window, a percent and a reset instant — and a
+  // credential hold has none of the three: it ends when a person finishes a
+  // login, and `Cooling` states no reset for it precisely so that no surface
+  // invents one.
+  //
+  // THE WIRE STATES FACTS AND THE PAGE COMPOSES THE SENTENCE. `dispatching` is
+  // the hold as `Cooling` holds it, and `agents` is who is on the lane; the word
+  // "frozen" is the page's, said only when the two are read together. A second
+  // copy of the reason does NOT ride here — the row's own `held` and `why`
+  // carry it, and two accounts of one fault are free to disagree.
+  //
+  // BOTH ANTHROPIC ROWS ANSWER THE SAME, because one lane serves them both. It
+  // is keyed by provider for the same reason the store is.
+  #laneStatus(provider) {
+    const held = provider ? this.cooling.heldFor(provider) : null
+    return {
+      provider: provider ?? null,
+      dispatching: !held,
+      // Only while the lane is held. On a working lane these agents are not
+      // frozen, they are at work, and a list of them under a credential row
+      // would read as damage curia had not done.
+      agents: held ? [...this.agents.values()].filter((a) => a.provider === provider).map((a) => a.session) : [],
     }
   }
 

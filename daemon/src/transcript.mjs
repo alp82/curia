@@ -442,19 +442,83 @@ function codexItems(e) {
 
 const READERS = { claude: claudeItems, codex: codexItems }
 
-export function parseLine(harness, line) {
+// Read the messages that the Chat surface can render from transcript lines.
+// The branch selection lives here so agent and overseer conversations don't
+// grow separate transcript rules. The caller keeps filesystem and journal
+// access: this module receives the journaled landing identity as plain data.
+export function readActiveMessages(harness, lines, { landingUuid = null } = {}) {
+  const items = []
+  const failures = []
+  const byUuid = new Map()
+  const records = []
+  let tail = null
+  for (const [index, line] of lines.entries()) {
+    if (!line.trim()) continue
+    let event
+    try { event = JSON.parse(line) } catch {
+      failures.push({ key: `${index}:malformed`, reason: 'line is not JSON — the transcript format may have moved' })
+      continue
+    }
+    const parsed = parseEvent(harness, event)
+    if (parsed.malformed) {
+      failures.push({ key: `${index}:malformed`, reason: 'line is not a JSON object — the transcript format may have moved' })
+      continue
+    }
+    if (parsed.unknown) {
+      failures.push({
+        key: `${index}:unknown:${parsed.unknown}`,
+        reason: `unknown ${harness} line type "${parsed.unknown}" — the transcript format moved underneath the reader`,
+      })
+    }
+    const record = { event, parsed }
+    records.push(record)
+    if (!event?.uuid) continue
+    byUuid.set(event.uuid, record)
+    tail = record
+  }
+
+  if (landingUuid) {
+    tail = byUuid.get(landingUuid) ?? null
+    if (!tail) {
+      failures.push({
+        key: `landing:${landingUuid}`,
+        reason: `transcript landing point "${landingUuid}" is missing`,
+      })
+      return { items, failures }
+    }
+  }
+
+  let activeRecords = records
+  if (tail) {
+    activeRecords = []
+    const seen = new Set()
+    for (let record = tail; record; record = record.event.parentUuid ? byUuid.get(record.event.parentUuid) : null) {
+      if (seen.has(record.event.uuid)) {
+        failures.push({
+          key: `cycle:${record.event.uuid}`,
+          reason: `transcript parent cycle at "${record.event.uuid}"`,
+        })
+        return { items, failures }
+      }
+      seen.add(record.event.uuid)
+      activeRecords.push(record)
+    }
+    activeRecords.reverse()
+  }
+
+  for (const { parsed } of activeRecords) {
+    if (parsed.items) items.push(...parsed.items)
+  }
+  return { items, failures }
+}
+
+function parseEvent(harness, event) {
   const reader = READERS[harness]
   if (!reader) throw new Error(`no transcript reader for harness "${harness}"`)
-  let e
-  try {
-    e = JSON.parse(line)
-  } catch {
-    return { malformed: true }
-  }
-  if (!e || typeof e !== 'object') return { malformed: true }
-  const items = reader(e)
+  if (!event || typeof event !== 'object') return { malformed: true }
+  const items = reader(event)
   if (items === null) {
-    return { unknown: harness === 'codex' && e.type === 'response_item' ? `response_item/${e.payload?.type}` : String(e.type) }
+    return { unknown: harness === 'codex' && event.type === 'response_item' ? `response_item/${event.payload?.type}` : String(event.type) }
   }
   return { items }
 }
@@ -547,4 +611,14 @@ function parseActiveRecords(harness, records, active, headUuid = null) {
     })
   }
   return { items, records: messages, failures, headUuid }
+}
+
+export function parseLine(harness, line) {
+  let event
+  try {
+    event = JSON.parse(line)
+  } catch {
+    return { malformed: true }
+  }
+  return parseEvent(harness, event)
 }

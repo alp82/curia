@@ -8,6 +8,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 
 import http from 'node:http'
 
@@ -20,6 +21,8 @@ import {
   DEFAULT_TIMELINE_INDEX, TIMELINE_PROTO,
 } from '../src/timeline.mjs'
 import { Reduction } from '../src/reduction.mjs'
+
+const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 
 // Real pane shapes, captured live on the deployment host (#75): the trust
 // prompt and the /model picker verbatim, the AskUserQuestion footer as the
@@ -653,6 +656,14 @@ describe('TimelineSurface', () => {
   let pane = PANE_COMPOSER // what capturePane returns; a function to throw
   let delivery = null
   const workspaceRoot = () => path.join(tmp, 'work')
+  const installRecordedTranscript = (session, name) => {
+    const cfg = path.join(workspaceRoot(), 'cfg', session, 'projects', 'p')
+    fs.mkdirSync(cfg, { recursive: true })
+    fs.copyFileSync(
+      path.join(REPO_ROOT, 'prototypes', 'overseer-pane', 'evidence', name),
+      path.join(cfg, 'run.jsonl'),
+    )
+  }
   // The driven session (#267): the console chat is the overseer, whose
   // transcript sits outside the workspace and whose composer is a turn.
   // #333: a browser conversation, and the session name carries its key.
@@ -863,6 +874,29 @@ describe('TimelineSurface', () => {
           remains: ['The tree stands.'],
         },
       }
+    }
+  })
+
+  test('a forked transcript backlog excludes the abandoned branch', async () => {
+    installRecordedTranscript('curia-10', 'transcript-2-after-fork.jsonl')
+
+    const { events } = await sse(port, 'session=curia-10')
+    const items = events.filter((e) => e.event === 'items').flatMap((e) => e.data)
+    assert.ok(items.some((i) => /Atlas Prime/.test(i.text ?? '')))
+    assert.ok(!items.some((i) => /rename the maps effort to Atlas\./i.test(i.text ?? '')))
+  })
+
+  test('the journaled landing point hides a rewound turn before the fork', async () => {
+    const session = 'curia-11'
+    installRecordedTranscript(session, 'transcript-1-after-rewind.jsonl')
+    landings.set(session, 'd0a31952-1600-42c2-913c-572e2944d035')
+    try {
+      const { events } = await sse(port, `session=${session}`)
+      const items = events.filter((e) => e.event === 'items').flatMap((e) => e.data)
+      assert.ok(items.some((i) => /Park the maps effort/.test(i.text ?? '')))
+      assert.ok(!items.some((i) => /deploy of curia 1\.4/.test(i.text ?? '')))
+    } finally {
+      landings.delete(session)
     }
   })
 

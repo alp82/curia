@@ -97,11 +97,11 @@ dashboard:
   poll_interval_s: 5
 
 overseer:
-  # #327, building ADR-0015: the overseer is a compose service, not a pane. The
-  # daemon binds this port no more than it binds the dashboard's — compose
-  # publishes the container on `127.0.0.1:<port>` and the daemon health-checks
-  # it. The container is on the docker bridge, which is what keeps a shell in it
-  # off host loopback and off the tailnet, so this port is the one way in.
+  # #327 and #688: the overseer is one compose service. Live conversations
+  # enter the shared container through tmux panes, while this port keeps the
+  # existing health and turn boundary available during the staged cutover.
+  # The container stays on the docker bridge, which keeps its shell away from
+  # host loopback and the tailnet.
   port: 4274
 
 usage:

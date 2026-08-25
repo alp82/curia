@@ -20,8 +20,8 @@ const CONFIG = process.env.CURIA_CONFIG ?? path.resolve(DIR, '..', '..', 'config
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 function identity(argv) {
-  if (argv.length !== 2 || !['--session', '--resume'].includes(argv[0]) || !UUID_RE.test(argv[1])) {
-    throw new Error('usage: curia-overseer-pane.mjs (--session|--resume) <session UUID>')
+  if (argv.length !== 2 || !['--session', '--session-id', '--resume'].includes(argv[0]) || !UUID_RE.test(argv[1])) {
+    throw new Error('usage: curia-overseer-pane.mjs (--session-id|--resume) <session UUID>')
   }
   return { resume: argv[0] === '--resume', session: argv[1] }
 }

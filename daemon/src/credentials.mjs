@@ -817,6 +817,18 @@ export class ReauthFlow {
       // the browser shows, and `sendText` refuses this session by name — so the
       // typing is the operator's to do, on the device they opened the link on.
       typed,
+      // THE PATH THAT ALWAYS WORKS (#661). Everything above this line is
+      // scraped off a pane, and a scrape is a guess about somebody else's
+      // wording: when the link or the code is missing, the terminal is the only
+      // way through. The card named it and never linked it, so an operator on a
+      // phone was told to open something they had no way to open.
+      //
+      // It is COMPOSED BY THE DAEMON and stamped here, never built by a page
+      // out of a host and a port it cannot vouch for — the same rule `attach`
+      // follows, and the reason `teleport` is a press rather than an href. Null
+      // where the surface could not be published, which reads as "no link" and
+      // never as a link that 403s.
+      terminal_url: this.flow.terminalUrl ?? null,
       started_at: new Date(startedAt).toISOString(),
       expires_at: new Date(deadline).toISOString(),
       seconds_left: Math.max(0, Math.round((deadline - this.now()) / 1000)),
@@ -834,6 +846,13 @@ export class ReauthFlow {
   // login for that provider starts or completes, so the page never shows a
   // stale ending beside a live attempt.
   ending = null
+
+  // The terminal link for the session in flight, from the one caller that can
+  // compose one. `startReauth` already asks for it to put in Discord; this is
+  // that same string reaching the surface that needs it most.
+  noteTerminal(url) {
+    if (this.flow) this.flow.terminalUrl = url ?? null
+  }
 
   // The lane for one provider, or a refusal naming what this daemon can sign in.
   laneFor(provider) {
@@ -899,6 +918,9 @@ export class ReauthFlow {
       code: null,
       codeSeen: false,
       typed: Boolean(lane?.typed),
+      // Stamped by `startReauth` a moment after this, because composing it
+      // needs a live tailnet and this method is synchronous.
+      terminalUrl: null,
       startedAt,
       // BOTH CLOCKS COME OFF THE LANE (#721), and they are different clocks.
       // The window is curia's patience; the code's lifetime is the login's own,

@@ -80,10 +80,11 @@ const SAFE_MARKER = /^[A-Za-z0-9_-]+$/
 // The script `bash -c` runs in the pane. Exported so a check can run the REAL
 // string through a real shell: the tmux live checks below skip wherever tmux is
 // absent, and a copy of this line in a test proves only the copy.
-export function wrapShellCmd(shellCmd, exitMarker = null) {
+export function wrapShellCmd(shellCmd, exitMarker = null, { keepOpen = true } = {}) {
   if (exitMarker && !SAFE_MARKER.test(exitMarker)) {
     throw new Error(`refusing to use exit marker "${exitMarker}": it is not quote-free/shell-safe`)
   }
+  if (!keepOpen) return `exec ${shellCmd}`
   return exitMarker
     ? `${shellCmd}; echo "[curia] the harness command exited — ${exitMarker} $?"; exec bash`
     : `${shellCmd}; exec bash`
@@ -97,8 +98,8 @@ export function wrapShellCmd(shellCmd, exitMarker = null) {
 // after a missing binary looks exactly like a slow start, and the watchdog can
 // only wait out its whole timeout. The echo is the last thing before the
 // shell, so it always sits inside the pane tail the classifiers read.
-export async function newSession({ name, cwd, env = {}, shellCmd, exitMarker = null }) {
-  const wrapped = wrapShellCmd(shellCmd, exitMarker)
+export async function newSession({ name, cwd, env = {}, shellCmd, exitMarker = null, keepOpen = true }) {
+  const wrapped = wrapShellCmd(shellCmd, exitMarker, { keepOpen })
   const args = ['new-session', '-d', '-s', name, '-c', cwd, 'env']
   for (const [k, v] of Object.entries(env)) args.push(`${k}=${v}`)
   args.push('bash', '-c', wrapped)

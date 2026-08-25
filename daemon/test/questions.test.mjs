@@ -39,6 +39,30 @@ const spawn = (ticket, agent, extra = {}) => ({
   type: 'agent_spawned', ticket, agent, repo: 'o/r', model: 'opus', harness: 'claude', ...extra,
 })
 
+describe('the map snapshot facts', () => {
+  test('one indexed read returns the latest event by journal order and the current agent', () => {
+    const q = ask([
+      spawn('11', 'curia-11', { ts: '2026-08-16T12:00:00.000Z' }),
+      { type: 'notify', ticket: '11', agent: 'curia-11', ts: '2026-08-16T11:00:00.000Z' },
+      spawn('11', 'curia-11', { repo: 'other/repo', model: 'gpt', harness: 'codex', ts: '2026-08-16T13:00:00.000Z' }),
+      spawn('12', 'curia-12', { ts: '2026-08-16T09:00:00.000Z' }),
+      { type: 'dispatch_claimed', ticket: '12', agent: 'curia-12', repo: 'o/r', ts: '2026-08-16T10:00:00.000Z' },
+    ])
+
+    assert.deepEqual([...q.mapSnapshotFacts('o/r', [10, 11, 12])], [
+      ['10', { latest_event_id: null, latest_event_at: null, agent: null }],
+      ['11', {
+        latest_event_id: 2,
+        latest_event_at: '2026-08-16T11:00:00.000Z',
+        agent: {
+          session: 'curia-11', model: 'opus', harness: 'claude', started_at: '2026-08-16T12:00:00.000Z',
+        },
+      }],
+      ['12', { latest_event_id: 5, latest_event_at: '2026-08-16T10:00:00.000Z', agent: null }],
+    ])
+  })
+})
+
 describe('a journal nothing has written answers, and never guesses (#408)', () => {
   test('every question has an answer for a key that never existed', () => {
     const q = ask([])

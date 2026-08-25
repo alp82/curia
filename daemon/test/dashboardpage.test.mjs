@@ -22,10 +22,14 @@ import { DEFAULT_DASHBOARD_INDEX, DASHBOARD_PROTO } from '../src/dashboard.mjs'
 // one keeps the load inert: no render, no poll, no timer. `fetch` never settles
 // on purpose — a rejection would flip the offline marker and every screen below
 // would be testing that instead.
-function loadPage({ fetchImpl = () => new Promise(() => {}) } = {}) {
+function pageScript() {
   const html = fs.readFileSync(DEFAULT_DASHBOARD_INDEX, 'utf8')
   const script = /<script>([\s\S]*)<\/script>/.exec(html)
   assert.ok(script, 'the page carries its script inline — there is no build step')
+  return script[1]
+}
+
+function loadPage({ fetchImpl = () => new Promise(() => {}) } = {}) {
   const storage = new Map()
   const ctx = vm.createContext({
     document: { title: '', getElementById: () => null, addEventListener() {}, visibilityState: 'hidden' },
@@ -40,8 +44,40 @@ function loadPage({ fetchImpl = () => new Promise(() => {}) } = {}) {
       setItem: (key, value) => storage.set(key, String(value)),
     },
   })
-  vm.runInContext(script[1], ctx)
+  vm.runInContext(pageScript(), ctx)
   return ctx
+}
+
+function loadPollingPage({ visibilityState = 'visible', mount = false } = {}) {
+  const listeners = new Map()
+  const timers = new Map()
+  const reads = []
+  let timerId = 0
+  const document = {
+    title: '',
+    visibilityState,
+    activeElement: null,
+    getElementById: (id) => (mount && id === 'app' ? { set innerHTML(_value) {} } : null),
+    addEventListener: (name, listener) => listeners.set(name, listener),
+  }
+  const ctx = vm.createContext({
+    document,
+    window: { addEventListener() {} },
+    location: { hash: '' },
+    fetch: async (url) => {
+      reads.push(url)
+      return { ok: true, json: async () => url === '/api/settings' ? SETTINGS() : payload() }
+    },
+    setTimeout: (callback) => {
+      const id = ++timerId
+      timers.set(id, callback)
+      return id
+    },
+    clearTimeout: (id) => timers.delete(id),
+    console,
+  })
+  vm.runInContext(pageScript(), ctx)
+  return { page: ctx, document, listeners, timers, reads }
 }
 
 // The wire shape of `GET /overview` (#262), with the ctx meter #264 joins onto
@@ -127,8 +163,12 @@ const OVERVIEW = () => ({
       { label: '5h', pct: 58, elapsed_pct: 48, resets_at: ahead(90), fresh: true },
       { label: '7d', pct: 22, elapsed_pct: 41, resets_at: ahead(4000), fresh: true },
     ] },
+    // TWO windows on openai, the spent one rolling LATER than the other (#677).
+    // The strip's note used to be marked hot by one window and worded by
+    // another, and one window could not show that.
     { provider: 'openai', from: 'transcript', session: 'curia-255', windows: [
-      { label: '5h', pct: 97, elapsed_pct: 48, resets_at: ahead(30), fresh: true },
+      { label: '5h', pct: 97, elapsed_pct: 48, resets_at: ahead(240), fresh: true },
+      { label: '7d', pct: 12, elapsed_pct: 30, resets_at: ahead(20), fresh: true },
     ] },
   ],
   // The credential warnings still standing (#380). The ordinary state is none:
@@ -181,12 +221,141 @@ const payload = (overrides = {}) => ({
   overview: { ...OVERVIEW(), ...overrides },
 })
 
+// The model credentials (#642, #648, #661). The base OVERVIEW carries no
+// `credentials` section on purpose — a daemon older than the section is a real
+// wire — so every test that wants one says so, out of these.
+//
+// `lane` is #661's field: what the credential did to the BOX, which is the half
+// no state word could carry. `dispatching` is the hold as Cooling holds it, and
+// `agents` is who is on the lane.
+const LANE = (provider, agents = null) => ({
+  provider, dispatching: !agents, agents: agents ?? [],
+})
+// The incident this map exists for, on the wire. The access token is `expiring`
+// — perfectly usable for another two days — and the lane is unrecoverable all
+// the same, which is the one case where the state word lies (#646).
+const HELD_CREDENTIALS = () => ({
+  consumers: [{
+    consumer: 'codex', provider: 'openai', state: 'expiring', expires_at: ahead(2880),
+    last_refresh_at: at(864000), store: '/home/curia/.codex/auth.json',
+    last_error: 'OpenAI answered HTTP 401 `refresh_token_reused`',
+    held: { by: 'provider', code: 'refresh_token_reused', status: 401, at: at(120), why: 'OpenAI answered HTTP 401 `refresh_token_reused`' },
+    lane: LANE('openai', ['curia-574', 'curia-578']),
+  }],
+  reauth: null,
+})
+const WAITING_REAUTH = (over = {}) => ({
+  provider: 'openai', session: 'curia-auth-openai', state: 'waiting',
+  url: 'https://auth.openai.com/codex/device', code: '83CC-A4ZT', typed: false,
+  terminal_url: 'https://box.taile1a2b.ts.net:8443/?arg=curia-auth-openai',
+  started_at: at(180), expires_at: ahead(27), seconds_left: 1620, ...over,
+})
+const THREE_ROWS = () => ({
+  consumers: [
+    { consumer: 'codex', provider: 'openai', state: 'valid', expires_at: ahead(10080), last_refresh_at: at(3600), lane: LANE('openai') },
+    { consumer: 'claude', provider: 'anthropic', state: 'unknown', expires_at: null, lane: LANE('anthropic'),
+      why: 'this credential was seeded from an env file rather than adopted from a login, so curia knows no date for it — sign in once to get one' },
+    { consumer: 'overseer', provider: 'anthropic', state: 'unknown', expires_at: null, lane: LANE('anthropic'),
+      why: 'this credential was seeded from an env file rather than adopted from a login, so curia knows no date for it — sign in once to get one' },
+  ],
+  reauth: null,
+})
+
 // What a reader sees, with the markup taken out.
 const text = (html) => html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
 
 // The page runs in a vm, so an object it built has a different realm's
 // prototype and deepEqual would refuse it on that alone.
 const plain = (x) => JSON.parse(JSON.stringify(x))
+
+describe('the Atlas frame (#686)', () => {
+  let page
+  let shell
+
+  before(() => {
+    page = loadPage()
+    page.document.getElementById = (id) => (id === 'app' ? { set innerHTML(value) { shell = value } } : null)
+    page.payload = payload()
+    page.render()
+  })
+
+  test('the desktop drawer names every Atlas screen in the decided order', () => {
+    const drawer = /<nav class="drawer"[\s\S]*?<\/nav>/.exec(shell)?.[0]
+    assert.ok(drawer)
+    assert.deepEqual(
+      [...drawer.matchAll(/<span class="nav-label">([^<]+)<\/span>/g)].map((match) => match[1]),
+      // Credentials sits between Chat and Settings (#661). It landed while the
+      // Atlas frame was in review, so the two agreed on every screen but this
+      // one until they met on `main`.
+      ['Home', 'Maps', 'Agents', 'Feed', 'Chat', 'Credentials', 'Settings'],
+    )
+  })
+
+  test('the mobile notch bar keeps four tabs around the Agents key', () => {
+    const notch = /<nav class="notchbar"[\s\S]*?<\/nav>/.exec(shell)?.[0]
+    assert.ok(notch)
+    assert.deepEqual(
+      [...notch.matchAll(/<span class="nav-label">([^<]+)<\/span>/g)].map((match) => match[1]),
+      ['Home', 'Maps', 'Agents', 'Feed', 'Settings'],
+    )
+    assert.match(page.screenAgents(payload()), /onclick="goto\('chat'\)"[^>]*>Chat</)
+    assert.match(page.screenAgents({ ...payload(), overview: null }), /onclick="goto\('chat'\)"[^>]*>Chat</)
+  })
+
+  test('the Agents key carries a zero needs-you count as a number', () => {
+    assert.match(page.mobileNav(0, ''), /<span class="nav-icon num">0<\/span>/)
+  })
+
+  test('every screen receives the same held overview reading', () => {
+    const held = payload()
+    const screens = [
+      page.screenHome,
+      page.screenFrontier,
+      page.screenAgents,
+      page.screenFeed,
+      page.screenChat,
+      page.screenSettings,
+    ]
+    for (const screen of screens) assert.match(text(screen(held)), /read \d+s ago/)
+  })
+
+  test('navigation markers pair their color with a word or number', () => {
+    page.settings = SETTINGS()
+    page.draft = JSON.parse(JSON.stringify(page.settings))
+    page.settings.dispatch.poll_interval_s = 5
+    page.render()
+    assert.match(shell, /class="nav-marker"[^>]*>stale<\/span>/)
+    assert.doesNotMatch(shell, /title="the daemon is not running these files">●/)
+  })
+
+  test('light and dark themes state the same browser color contract', () => {
+    const source = fs.readFileSync(DEFAULT_DASHBOARD_INDEX, 'utf8')
+    assert.match(source, /:root \{[^}]*color-scheme: dark;/s)
+    assert.match(source, /prefers-color-scheme: light[\s\S]*:root:not\(\[data-theme="dark"\]\) \{[^}]*color-scheme: light;/)
+  })
+
+  test('a hidden tab cancels its refresh and resumes with one immediate read', async () => {
+    const browser = loadPollingPage()
+    await browser.page.tick()
+    assert.equal(browser.reads.length, 1)
+    assert.equal(browser.timers.size, 1)
+
+    browser.document.visibilityState = 'hidden'
+    browser.listeners.get('visibilitychange')()
+    assert.equal(browser.timers.size, 0)
+
+    browser.document.visibilityState = 'visible'
+    browser.listeners.get('visibilitychange')()
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.equal(browser.reads.length, 2)
+    assert.equal(browser.timers.size, 1)
+  })
+
+  test('a page that boots hidden takes no overview read', () => {
+    const browser = loadPollingPage({ visibilityState: 'hidden', mount: true })
+    assert.equal(browser.reads.filter((url) => url === '/api/overview').length, 0)
+  })
+})
 
 describe('the read screens (#264)', () => {
   let page
@@ -226,7 +395,9 @@ describe('the read screens (#264)', () => {
       assert.match(t, /2 needs you/)
       assert.match(t, /3 agents live/)
       assert.match(t, /1 review gate/)
-      assert.match(t, /Needs you \(3\)/, 'the list adds the spent window the count does not')
+      // The header, the tile and the list are one number since #677: the spent
+      // window is a banner now, and the count is the list's own length.
+      assert.match(t, /Needs you \(2\)/)
       assert.match(t, /Two notes race the same expiry line/, 'the question is shown whole, not summarized')
       // #266 turned the options from named text into the buttons that send
       // them. The labels are still the whole set — that is what this pins.
@@ -307,10 +478,63 @@ describe('the read screens (#264)', () => {
       assert.equal(/<td[^>]*>[^<]*7d/.test(html), false)
     })
 
-    test('a spent window joins the attention list and says when it rolls', () => {
-      const t = text(page.screenHome(payload()))
+    // The hot note names the SPENT window (#677). openai's 5h is spent and rolls
+    // in four hours; its 7d rolls in twenty minutes. The note used to be marked
+    // hot by the first and worded by the second.
+    test("a spent provider's note names that window's own roll, not the soonest", () => {
+      const html = page.screenHome(payload())
+      const hot = /<span class="pnote hot">([^<]*)<\/span>/.exec(html)?.[1]
+      assert.ok(hot, 'the spent provider carries a hot note')
+      assert.match(hot, /^5h rolls /, 'the 7d rolling sooner must not take the note')
+      // anthropic has nothing spent, so its note is the ordinary soonest one.
+      assert.match(html, /<span class="pnote ">5h rolls /)
+      // A spent window whose instant has already passed keeps its note, where
+      // `nextReset` dropped it.
+      const stale = page.screenHome(payload({
+        usage: [{ provider: 'openai', from: 'account', session: null, windows: [
+          { label: '5h', pct: 99, elapsed_pct: 100, resets_at: at(60), fresh: false },
+        ] }],
+      }))
+      assert.match(stale, /<span class="pnote hot">5h rolls /)
+    })
+
+    // The spent window's promotion (#677). It left the answer surface, where it
+    // was never answerable, for the top of Home beside the pre-emptive hold —
+    // and it is the harder of the two failures, so it is the louder banner.
+    test('a spent window is a banner at the top of Home, not an attention item', () => {
+      const html = page.screenHome(payload())
+      const t = text(html)
+      assert.match(html, /class="hold-banner spent-banner"/)
       assert.match(t, /openai the 5h window is spent at 97%/)
       assert.match(t, /it rolls at \d\d:\d\d/)
+      assert.match(t, /Nothing you can press ends this/, 'the reason it is not on the answer surface')
+      // The banner sits above the tiles, where the hold does.
+      assert.ok(html.indexOf('spent-banner') < html.indexOf('stat-tiles'))
+      // And it is off the list, which is what the count already knew.
+      assert.equal(page.attentionItems(payload().overview).length, 2)
+      assert.equal(text(page.screenHome(payload({ usage: [] }))).includes('window is spent'), false,
+        'a box with no spent window banners nothing')
+    })
+
+    // THE INVARIANT #670 could not state and the old shape could not hold: the
+    // header number and `needsYou` are the same number, whatever the payload
+    // carries. Both read `attentionItems`, so a new item class cannot reach one
+    // surface alone.
+    test('the Needs-you header and the count are one number, on every payload', () => {
+      const cases = [
+        payload(),
+        payload({ escalations: [], review_gate: [] }),
+        payload({ usage: [{ provider: 'openai', from: 'account', session: null, windows: [{ label: '5h', pct: 100, elapsed_pct: 20, resets_at: ahead(60), fresh: true }] }] }),
+        payload({ dispatch_holds: [{ ticket: '444', repo: 'alp82/curia', failures: 2, kind: 'failed-spawn' }] }),
+        payload({ token_warnings: [{ holder: 'app', key: 'alp82', repo: 'alp82/curia', fault: 'unreachable', message: 'm', said: true, refusal: 'r', fix: 'f' }] }),
+        payload({ credentials: HELD_CREDENTIALS() }),
+      ]
+      for (const one of cases) {
+        const n = page.needsYou(one.overview)
+        assert.match(text(page.screenHome(one)), new RegExp(`Needs you \\(${n}\\)`),
+          `the header must say ${n}`)
+        assert.match(text(page.screenHome(one)), new RegExp(`${n} needs you`), 'and so must the tile')
+      }
     })
 
     // The credential watch (#380). The warning used to be a boot log line, so
@@ -345,31 +569,103 @@ describe('the read screens (#264)', () => {
       assert.match(t, /an agent on it will fail at its first gh call/)
     })
 
-    // #646: a held credential is the one case where the state word lies. The
-    // access token below is `expiring` — perfectly usable for another two days —
-    // and the lane is unrecoverable all the same.
-    test('a held credential names the lane rather than the token, and the frozen agents', () => {
+    // #661 moved the detail to the screen that owns it. What Home keeps is a
+    // POINTER: enough to know a credential wants you, and the way there. The
+    // whole card is gone on purpose — the detail said in two places is how two
+    // surfaces drift apart, and the Credentials suite below pins it where it
+    // now lives.
+    test('a dead credential leaves one pointer on Home, not the flow', () => {
+      const t = text(page.screenHome(payload({ credentials: HELD_CREDENTIALS() })))
+      assert.match(t, /codex the model credential cannot be refreshed and the lane is held/)
+      assert.match(t, /open Credentials to sign in/)
+      assert.ok(!/refresh_token_reused/.test(t), 'the reason is the screen\'s, said once')
+      assert.ok(!/frozen mid-ticket/.test(t), 'so is the blast radius')
+    })
+
+    test('the pointer names every consumer behind it, so the collapse hides nobody', () => {
       const t = text(page.screenHome(payload({
         credentials: {
-          consumers: [{
-            consumer: 'codex', state: 'expiring', expires_at: '2026-09-02T13:35:23Z',
-            last_error: 'OpenAI answered HTTP 401 `refresh_token_reused`',
-            held: { by: 'provider', code: 'refresh_token_reused', why: 'OpenAI answered HTTP 401 `refresh_token_reused`' },
-          }],
+          consumers: [
+            { consumer: 'claude', provider: 'anthropic', state: 'expired', why: 'the year is up', lane: LANE('anthropic') },
+            { consumer: 'overseer', provider: 'anthropic', state: 'expired', why: 'the year is up', lane: LANE('anthropic') },
+          ],
           reauth: null,
         },
       })))
-      assert.match(t, /the model credential cannot be refreshed/)
-      assert.match(t, /agents are frozen in place/)
-      assert.match(t, /refresh_token_reused/)
-      assert.ok(!/credential is expiring/.test(t), 'the state word would be true about the token and false about the lane')
+      assert.match(t, /claude, overseer the model credential/)
+    })
+
+    // A running openai login says nothing about a dead anthropic credential, so
+    // one must not swallow the other.
+    test('a login in flight does not hide a dead credential on another provider', () => {
+      const t = text(page.screenHome(payload({
+        credentials: {
+          consumers: [{ consumer: 'claude', provider: 'anthropic', state: 'expired', why: 'the year is up', lane: LANE('anthropic') }],
+          reauth: WAITING_REAUTH(),
+        },
+      })))
+      assert.match(t, /openai is signing in/)
+      assert.match(t, /claude the model credential is expired/)
+    })
+
+    test('a dead credential on the provider now signing in is not said twice', () => {
+      const t = text(page.screenHome(payload({
+        credentials: { ...HELD_CREDENTIALS(), reauth: WAITING_REAUTH() },
+      })))
+      assert.match(t, /openai is signing in/)
+      assert.ok(!/open Credentials to sign in/.test(t), 'the login IS the act — a second line asking for it is noise')
+    })
+
+    // #645 finding 1, and the reason the badge existed. By this count's own
+    // stated test — whether an operator act ends it — a dead model credential
+    // is the strongest member of the set, and it was the only member missing.
+    test('a dead model credential is counted, so the badge is hot at 3am', () => {
+      const one = payload({ credentials: HELD_CREDENTIALS() })
+      assert.equal(page.needsYou(one.overview), 3, 'one question, one gate, one credential pointer')
+      assert.match(text(page.screenHome(one)), /3 needs you/)
+    })
+
+    // The loose end #661 was asked to pick: the count follows the LIST, not the
+    // consumers. Three dead rows behind one provider are one act reached by one
+    // visit, and the list shows one line for them.
+    test('the count is pointers, not consumers', () => {
+      const three = payload({
+        credentials: {
+          consumers: [
+            { consumer: 'codex', provider: 'openai', state: 'expired', why: 'gone', lane: LANE('openai') },
+            { consumer: 'claude', provider: 'anthropic', state: 'expired', why: 'gone', lane: LANE('anthropic') },
+            { consumer: 'overseer', provider: 'anthropic', state: 'expired', why: 'gone', lane: LANE('anthropic') },
+          ],
+          reauth: null,
+        },
+      })
+      assert.equal(page.credentialPointers(three.overview).length, 1)
+      assert.equal(page.needsYou(three.overview), 3, 'and the badge counts that one line')
+    })
+
+    // Silent by design, and the reason the screen exists: an operator with a
+    // healthy box must have somewhere to look, and it is not this list.
+    test('a healthy or seeded credential puts nothing on the list', () => {
+      const quiet = payload({
+        credentials: {
+          consumers: [
+            { consumer: 'codex', provider: 'openai', state: 'valid', expires_at: ahead(9000), lane: LANE('openai') },
+            { consumer: 'claude', provider: 'anthropic', state: 'unknown', why: 'seeded from an env file', lane: LANE('anthropic') },
+            { consumer: 'overseer', provider: 'anthropic', state: 'unowned', why: 'not brokered', lane: LANE('anthropic') },
+          ],
+          reauth: null,
+        },
+      })
+      assert.deepEqual(plain(page.credentialPointers(quiet.overview)), [])
+      assert.equal(page.needsYou(quiet.overview), 2, 'the question and the gate, and nothing else')
     })
 
     // #721: a login that disappeared without a sentence is the same class of bug
-    // as the credential that disappeared without one. The card that already
-    // stands is where the sentence lands, so the operator who pressed the button
-    // is told why the attempt is gone rather than finding it simply absent.
-    test('the card says why the last login ended, and only for its own provider', () => {
+    // as the credential that disappeared without one. The ROW that already
+    // stands is where the sentence lands (#661 moved the detail off Home), so
+    // the operator who pressed Sign in is told why the attempt is gone rather
+    // than finding it simply absent.
+    test('the row says why the last login ended, and only for its own provider', () => {
       const ended = {
         provider: 'openai', state: 'expired', after_s: 900, ended_at: '2026-08-24T10:15:00Z',
         why: 'the one-time code ran out before anybody finished the login',
@@ -377,19 +673,19 @@ describe('the read screens (#264)', () => {
       const row = (consumer, provider) => ({
         consumer, provider, state: 'expired', expires_at: null, last_error: 'the access token expired',
       })
-      const t = text(page.screenHome(payload({
+      const t = text(page.screenCredentials(payload({
         credentials: { consumers: [row('codex', 'openai'), row('claude', 'anthropic')], reauth: null, reauth_ended: ended },
       })))
       assert.match(t, /the last login ended at .*the one-time code ran out before anybody finished the login/)
       assert.equal(t.match(/the last login ended/g).length, 1, 'the anthropic row is not told about an openai login')
-      // and the way back is still on the card the sentence joined
-      assert.match(t, /reauth openai/)
+      // and the way back is still on the row the sentence joined
+      assert.match(t, /Sign in from a browser/)
     })
 
     // Nothing to say is said as nothing. A page with no ended login draws the
-    // ordinary card, unchanged.
-    test('a card with no ended login behind it gains no line', () => {
-      const t = text(page.screenHome(payload({
+    // ordinary row, unchanged.
+    test('a row with no ended login behind it gains no line', () => {
+      const t = text(page.screenCredentials(payload({
         credentials: {
           consumers: [{ consumer: 'codex', provider: 'openai', state: 'expired', expires_at: null, last_error: 'the access token expired' }],
           reauth: null, reauth_ended: null,
@@ -445,10 +741,10 @@ describe('the read screens (#264)', () => {
       const el = { innerHTML: '' }
       page.document.getElementById = () => el
       page.render()
-      assert.equal(page.document.title, '(2) Atlas')
+      assert.equal(page.document.title, '(2) Atlas · Curia')
       page.payload = payload({ escalations: [], review_gate: [] })
       page.render()
-      assert.equal(page.document.title, 'Atlas')
+      assert.equal(page.document.title, 'Atlas · Curia')
       page.document.getElementById = () => null
     })
 
@@ -658,16 +954,16 @@ describe('the read screens (#264)', () => {
       assert.ok(html.indexOf('A newer calm map') < html.indexOf('Curia gets a face'))
     })
 
-    test('the shell exposes six desktop pages and the four-tab mobile bar with the Agents key', () => {
+    test('the shell exposes every desktop page and the four-tab mobile bar with the Agents key', () => {
       page.payload = payload()
       const el = { innerHTML: '' }
       page.document.getElementById = () => el
       page.render()
-      assert.match(el.innerHTML, /class="desktop-nav"/)
-      assert.match(el.innerHTML, /class="mobile-nav"/)
-      assert.match(el.innerHTML, /class="agent-key[^\"]*"/)
-      const desktop = el.innerHTML.slice(el.innerHTML.indexOf('desktop-nav'), el.innerHTML.indexOf('</nav>'))
-      assert.match(text(desktop), /Atlas Home.*Maps Agents Feed Chat Settings/)
+      assert.match(el.innerHTML, /class="drawer"/)
+      assert.match(el.innerHTML, /class="notchbar"/)
+      assert.match(el.innerHTML, /class="agents-key[^\"]*"/)
+      const desktop = el.innerHTML.slice(el.innerHTML.indexOf('drawer'), el.innerHTML.indexOf('</nav>'))
+      assert.match(text(desktop), /curia · atlas Home 2 Maps Agents Feed Chat Credentials Settings/)
       page.document.getElementById = () => null
     })
   })
@@ -707,6 +1003,56 @@ describe('the read screens (#264)', () => {
       // grows event types, and the page must not go blank on the day one ships.
       const t = text(page.screenFeed(payload()))
       assert.match(t, /credentials swept — curia-263 · alp82\/curia#263/)
+    })
+
+    // #645 finding 3. These fell through the fallback until #661, and the
+    // fallback names an agent or a ticket subject — a credential event carries
+    // neither, so the busiest hour this map exists for read as
+    // `credential refresh failed — —`. Each line now says the CONSEQUENCE.
+    test('the credential events read as sentences, and say what stopped', () => {
+      const t = text(page.screenFeed(payload({
+        events: [
+          { ts: at(300), type: 'credential_refresh_failed', consumer: 'codex', code: 'refresh_token_reused', status: 401, terminal: true, why: 'OpenAI answered HTTP 401 `refresh_token_reused`' },
+          { ts: at(290), type: 'credential_hold', consumer: 'codex', provider: 'openai', by: 'provider', why: 'OpenAI answered HTTP 401 `refresh_token_reused`', frozen: ['curia-574', 'curia-578'] },
+          { ts: at(200), type: 'reauth_started', provider: 'openai', session: 'curia-auth-openai' },
+          { ts: at(100), type: 'reauth_completed', provider: 'openai', session: 'curia-auth-openai', after_s: 140, expires_at: ahead(14400) },
+          { ts: at(90), type: 'credential_fanned_out', consumer: 'codex', agents: ['curia-574', 'curia-578'] },
+          { ts: at(80), type: 'credential_hold_lifted', provider: 'openai' },
+        ],
+      })))
+      assert.match(t, /the codex model credential could not be refreshed: OpenAI answered HTTP 401/)
+      assert.match(t, /the openai lane is held .* Nothing new dispatches to it, and 2 live agent\(s\) are frozen in place: curia-574, curia-578/)
+      assert.match(t, /a openai sign-in is running in curia-auth-openai/)
+      assert.match(t, /the openai sign-in completed after 2m/)
+      assert.match(t, /2 live codex agent\(s\) took the fresh credential: curia-574, curia-578/)
+      assert.match(t, /the openai lane is dispatching again/)
+      assert.ok(!/ — — /.test(t), 'the fallback is what these lines exist to stop')
+    })
+
+    // The one-time code is on the Credentials screen and on no other surface,
+    // and the anthropic token is on none at all. The journal never held either,
+    // so this table cannot print what is not there — and nothing here goes
+    // looking for a field that would.
+    test('no credential line carries a code or a token', () => {
+      const src = fs.readFileSync(DEFAULT_DASHBOARD_INDEX, 'utf8')
+      const table = src.slice(src.indexOf('const EVENTS = {'), src.indexOf('function eventLine'))
+      assert.ok(!/e\.code\b(?![^\n]*refresh)/.test(table.split('reauth_')[1] ?? ''), 'no re-auth line reads a code off an event')
+      assert.ok(!/e\.token/.test(table))
+    })
+
+    test('a give-up reads apart from a failure, because only one is evidence about the credential', () => {
+      const t = text(page.screenFeed(payload({
+        events: [{ ts: at(60), type: 'credential_refresh_exhausted', consumer: 'codex', attempts: 5, terminal: true, why: 'fetch failed' }],
+      })))
+      assert.match(t, /curia gave up refreshing the codex model credential after 5 answers it does not recognise/)
+    })
+
+    test('a seeded credential says why its expiry reads unknown', () => {
+      const t = text(page.screenFeed(payload({
+        events: [{ ts: at(60), type: 'credential_seeded', provider: 'anthropic', from: 'daemon/.env.daemon' }],
+      })))
+      assert.match(t, /seeded from daemon\/\.env\.daemon/)
+      assert.match(t, /expiry reads unknown until someone signs in/)
     })
 
     test('color marks the events that mean attention, and no others', () => {
@@ -1128,7 +1474,7 @@ describe('the settings screen (#265)', () => {
     assert.ok(!/Settings <span class="n">/.test(html), 'nothing to say while the daemon runs the files')
     page.settings.dispatch.poll_interval_s = 5
     page.render()
-    assert.match(html, /Settings <span class="n" title="the daemon is not running these files">/)
+    assert.match(html, /<span class="nav-label">Settings<\/span><span class="nav-marker">stale<\/span>/)
   })
 
   test('a restart the journal recorded reads as a sentence in the feed', () => {
@@ -1755,5 +2101,207 @@ describe('the chat screen (#267, the picker of #333)', () => {
   test('every arrival on the Chat screen re-reads the list', () => {
     const src = fs.readFileSync(DEFAULT_DASHBOARD_INDEX, 'utf8')
     assert.match(src, /if \(k === "chat"\) loadConversations\(\)/)
+  })
+})
+
+// The Credentials screen (#661), on the shape the #645 prototype settled.
+//
+// It exists to answer the one question no other surface could take: what is the
+// state of all three? The attention list is built to be EMPTY — `valid` and
+// `expiring` are silent by design — so before this screen there was nowhere to
+// look when nothing was wrong, and `unowned` was an absence rather than a fact.
+//
+// What is pinned here is what the screen SAYS, the same half of the page a
+// human reading a preview cannot check by looking: that a held lane names what
+// it broke rather than what the file holds, that a login that could not be
+// scraped hands over the terminal instead of dead-ending, and that no surface
+// on this page ever offers a field to type a credential into.
+describe('the Credentials screen (#661)', () => {
+  let page
+  before(() => { page = loadPage() })
+
+  test('all three rows are on it, healthy ones included, each naming its provider', () => {
+    const t = text(page.screenCredentials(payload({ credentials: THREE_ROWS() })))
+    assert.match(t, /Model credentials \(3\)/)
+    assert.match(t, /codex openai valid/)
+    assert.match(t, /claude anthropic unknown/)
+    assert.match(t, /overseer anthropic unknown/)
+  })
+
+  // Two of the three rows read one provider-keyed store, so ONE press signs
+  // both in. A second button for the same act would be a second way in where
+  // there is one.
+  test('one login is offered once, however many rows it heals', () => {
+    const html = page.screenCredentials(payload({
+      credentials: {
+        consumers: [
+          { consumer: 'claude', provider: 'anthropic', state: 'expired', why: 'the year is up', lane: LANE('anthropic') },
+          { consumer: 'overseer', provider: 'anthropic', state: 'expired', why: 'the year is up', lane: LANE('anthropic') },
+        ],
+        reauth: null,
+      },
+    }))
+    assert.equal(html.split('Sign in from a browser').length - 1, 1)
+    assert.match(text(html), /the same login signs this in/)
+  })
+
+  test('the press names the provider, because two of the three rows are anthropic', () => {
+    const html = page.screenCredentials(payload({
+      credentials: { consumers: [{ consumer: 'claude', provider: 'anthropic', state: 'absent', why: 'none on this box', lane: LANE('anthropic') }], reauth: null },
+    }))
+    assert.match(html, /startReauth\('anthropic'\)/)
+  })
+
+  // #645 finding 2, and the field #661 put on the wire for it. A dead
+  // credential is a fact about the BOX: one lane stops dispatching, and every
+  // live agent on it freezes mid-ticket. No state word can carry that.
+  test('a held lane says what it broke, and that the frozen agents are not lost', () => {
+    const t = text(page.screenCredentials(payload({ credentials: HELD_CREDENTIALS() })))
+    assert.match(t, /the openai lane is held — nothing new dispatches to it/)
+    assert.match(t, /2 live agent\(s\) are frozen mid-ticket, not lost: curia-574, curia-578/)
+    assert.match(t, /heal on the tick after a fresh credential lands/)
+  })
+
+  test('a held lane reads as held, though its token is good for another two days', () => {
+    const t = text(page.screenCredentials(payload({ credentials: HELD_CREDENTIALS() })))
+    assert.match(t, /codex openai held/)
+    assert.match(t, /refresh_token_reused/)
+    assert.ok(!/codex openai expiring/.test(t), 'the state word is true about the token and false about the lane')
+  })
+
+  test('one lane says its sentence once, though two rows answer it', () => {
+    const html = page.screenCredentials(payload({
+      credentials: {
+        consumers: [
+          { consumer: 'claude', provider: 'anthropic', state: 'expired', why: 'the year is up', lane: LANE('anthropic', ['curia-700']) },
+          { consumer: 'overseer', provider: 'anthropic', state: 'expired', why: 'the year is up', lane: LANE('anthropic', ['curia-700']) },
+        ],
+        reauth: null,
+      },
+    }))
+    assert.equal(html.split('the anthropic lane is held').length - 1, 1)
+  })
+
+  test('a working lane names no frozen agents, because there are none', () => {
+    const t = text(page.screenCredentials(payload({ credentials: THREE_ROWS() })))
+    assert.ok(!/lane is held/.test(t))
+    assert.ok(!/frozen/.test(t))
+  })
+
+  // The login is a PANEL above the table, not a row inside it: a flow with a
+  // countdown, a code and a fallback is a panel whatever it is called.
+  test('a login in flight draws the link, the code and the clock', () => {
+    const t = text(page.screenCredentials(payload({ credentials: { ...HELD_CREDENTIALS(), reauth: WAITING_REAUTH() } })))
+    assert.match(t, /openai · signing in · 27:00 left/)
+    assert.match(t, /https:\/\/auth\.openai\.com\/codex\/device/)
+    assert.match(t, /83CC-A4ZT/)
+    assert.match(t, /Nothing is pasted back/)
+  })
+
+  // #660: the anthropic lane asks the operator to type a code IN rather than
+  // read one out, and `sendText` refuses this session by name — so the typing
+  // is theirs to do, and the panel must say so rather than showing a code that
+  // does not exist.
+  test('the anthropic lane asks for a paste-back and shows no code', () => {
+    const t = text(page.screenCredentials(payload({
+      credentials: { consumers: [], reauth: WAITING_REAUTH({ provider: 'anthropic', session: 'curia-auth-anthropic', typed: true, code: null }) },
+    })))
+    assert.match(t, /Paste the code the browser shows back into the terminal/)
+    assert.match(t, /curia cannot type it for you/)
+    assert.ok(!/Enter this code/.test(t))
+  })
+
+  // #645 finding 4. The card named the terminal and never linked it, though the
+  // daemon had been composing that link for Discord since the first commit.
+  test('the terminal is a link, not an instruction', () => {
+    const html = page.screenCredentials(payload({ credentials: { consumers: [], reauth: WAITING_REAUTH() } }))
+    assert.match(html, /href="https:\/\/box\.taile1a2b\.ts\.net:8443\/\?arg=curia-auth-openai"/)
+    assert.match(text(html), /Open the terminal instead/)
+  })
+
+  // IT DEGRADES, NEVER DEAD-ENDS. The link and the code are scraped off a pane,
+  // and a scrape is a guess about somebody else's wording.
+  test('a scrape that missed says so and hands over the terminal', () => {
+    const t = text(page.screenCredentials(payload({
+      credentials: { consumers: [], reauth: WAITING_REAUTH({ url: null, code: null }) },
+    })))
+    assert.match(t, /curia could not read the login off the pane/)
+    assert.match(t, /The terminal always works/)
+    assert.match(t, /Open the terminal instead/)
+  })
+
+  test('a terminal link curia could not publish says that, rather than linking nowhere', () => {
+    const t = text(page.screenCredentials(payload({
+      credentials: { consumers: [], reauth: WAITING_REAUTH({ terminal_url: null }) },
+    })))
+    assert.match(t, /could not publish a terminal link/)
+  })
+
+  test('a login already running offers no second way in', () => {
+    const html = page.screenCredentials(payload({ credentials: { ...HELD_CREDENTIALS(), reauth: WAITING_REAUTH() } }))
+    assert.ok(!/Sign in from a browser/.test(html))
+    assert.match(text(html), /signing in now — the link is in the panel above/)
+  })
+
+  // `unowned` is the state this screen exists to make legible: on the attention
+  // list it was an ABSENCE, and an absence reads as nothing rather than as a
+  // fact about what this daemon owns.
+  test('unowned is a row with nothing to press, not a missing row', () => {
+    const t = text(page.screenCredentials(payload({
+      credentials: {
+        consumers: [{ consumer: 'codex', provider: 'openai', state: 'unowned', expires_at: null, lane: LANE('openai'), why: 'this daemon brokers no model credential for that provider' }],
+        reauth: null,
+      },
+    })))
+    assert.match(t, /codex openai unowned/)
+    assert.match(t, /brokers no model credential/)
+    assert.match(t, /nothing to press/)
+  })
+
+  // Null is not empty (rule 2). A daemon older than this page answers with no
+  // credentials section at all, and that is not a box that owns none.
+  test('a snapshot with no credentials section is not a daemon with no credentials', () => {
+    const t = text(page.screenCredentials(payload({ credentials: undefined })))
+    assert.match(t, /carries no credentials section/)
+    assert.match(t, /older than this page/)
+  })
+
+  test('no snapshot at all draws no rows and says why', () => {
+    const p = payload()
+    p.overview = null
+    assert.match(text(page.screenCredentials(p)), /No snapshot yet/)
+  })
+
+  // Subscription only, in every direction: `ANTHROPIC_API_KEY` and codex's
+  // `--with-api-key` are metered billing and are out, so no surface may grow a
+  // field that would take one.
+  test('the page says it holds no API key, and offers no field for one', () => {
+    const html = page.screenCredentials(payload({ credentials: THREE_ROWS() }))
+    assert.match(text(html), /Subscription credentials only/)
+    assert.ok(!/<input/.test(html), 'a credentials screen with a text field is the API-key path arriving by the back door')
+  })
+
+  // FOUND BY LOOKING, NOT BY REASONING (#645 finding 6). At 390px the six-column
+  // table did not wrap — it overflowed, and the column it pushed off the screen
+  // was the one holding the one button.
+  test('every row restacks as a card below 640px, with the action full width', () => {
+    const src = fs.readFileSync(DEFAULT_DASHBOARD_INDEX, 'utf8')
+    assert.match(src, /@media \(max-width: 640px\) \{\s*table\.creds/)
+    assert.match(src, /table\.creds td\.c-act \.btn \{ display: block; width: 100%/)
+    // The header is gone at that width, so each cell carries its own label.
+    const html = page.screenCredentials(payload({ credentials: THREE_ROWS() }))
+    for (const label of ['state', 'expires', 'last refresh', 'why']) {
+      assert.match(html, new RegExp(`data-label="${label}"`))
+    }
+  })
+
+  // The page and the sidecar are two halves of one protocol with no build step
+  // between them. A Credentials screen drawn against a proto-6 sidecar has a
+  // button that answers 404 at the one press it exists for.
+  test('the page declares the proto its own route needs', () => {
+    const src = fs.readFileSync(DEFAULT_DASHBOARD_INDEX, 'utf8')
+    assert.match(src, new RegExp(`<meta name="curia-dashboard" content="proto=${DASHBOARD_PROTO}">`))
+    assert.match(src, /"\/api\/reauth"/)
+    assert.match(src, /credentials:\s*\["Credentials",\s*screenCredentials\]/)
   })
 })

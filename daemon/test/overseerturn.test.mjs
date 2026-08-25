@@ -910,6 +910,20 @@ describe('Reduction overseer sessions', () => {
     const lines = journalEvents(dir)
     assert.equal(lines.filter((l) => l.type === 'overseer_session').length, 3)
   })
+
+  test('a reserved pane identity survives restart until the first launch succeeds', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'overseer-reduction-'))
+    const reduction = new Reduction(dir)
+    reduction.reserveOverseerSession('thread-1', 'reserved-1')
+    assert.equal(reduction.pendingOverseerSession('thread-1'), 'reserved-1')
+    assert.equal(reduction.overseerSession('thread-1'), undefined)
+
+    const replayed = new Reduction(dir)
+    assert.equal(replayed.pendingOverseerSession('thread-1'), 'reserved-1')
+    replayed.bindOverseerSession('thread-1', 'reserved-1')
+    assert.equal(replayed.pendingOverseerSession('thread-1'), undefined)
+    assert.equal(replayed.overseerSession('thread-1'), 'reserved-1')
+  })
 })
 
 // The register of browser conversations (#333, ADR-0016). It is journalled for
@@ -946,15 +960,18 @@ describe('Reduction browser conversations (#333)', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'overseer-reduction-'))
     const reduction = new Reduction(dir)
     const key = reduction.openConsoleConversation()
+    reduction.reserveOverseerSession(key, 'reserved-c1')
     reduction.bindOverseerSession(key, 'sess-c1')
     reduction.addOverseerNote(key, 'confirm esc-1 approved')
     reduction.deleteConsoleConversation(key)
     assert.equal(reduction.overseerSession(key), undefined)
+    assert.equal(reduction.pendingOverseerSession(key), undefined)
     assert.deepEqual(reduction.takeOverseerNotes(key), [])
     // The replay must reach the same state, not the state the bind wrote: the
     // delete event comes after it, so the reduction has to undo it in order.
     const replayed = new Reduction(dir)
     assert.equal(replayed.overseerSession(key), undefined)
+    assert.equal(replayed.pendingOverseerSession(key), undefined)
   })
 
   test('deleting what is not there is refused rather than journalled', () => {

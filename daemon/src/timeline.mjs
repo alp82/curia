@@ -395,6 +395,7 @@ export class TimelineSurface {
         correction: null,
         parse: null, // { reason, file, dropped } — current loud failure, if any
         journalled: new Set(), // parse failures journalled once per file+reason
+        parseFailures: new Set(), // line-keyed failures already counted for this file
         escalations: '[]', // last broadcast snapshot, serialized
         escHistory: '[]', // last full-history snapshot, serialized (#108 item 1)
         dialog: null, // daemon-parsed native dialog while one owns the pane
@@ -445,6 +446,7 @@ export class TimelineSurface {
     s.activeKey = null
     s.activeFailures = new Set()
     s.parse = null
+    s.parseFailures.clear()
     this.#broadcast(s, 'reset', { file })
   }
 
@@ -491,27 +493,25 @@ export class TimelineSurface {
     if (st.size < s.offset) this.#reset(s, s.file) // truncated: same file, new run
     if (st.size === s.offset) return this.#publishActive(name, s)
 
-    let buf
-    try {
-      const fd = fs.openSync(s.file, 'r')
+    if (st.size !== s.offset) {
+      let buf
       try {
-        buf = Buffer.alloc(st.size - s.offset)
-        fs.readSync(fd, buf, 0, buf.length, s.offset)
-      } finally {
-        fs.closeSync(fd)
+        const fd = fs.openSync(s.file, 'r')
+        try {
+          buf = Buffer.alloc(st.size - s.offset)
+          fs.readSync(fd, buf, 0, buf.length, s.offset)
+        } finally {
+          fs.closeSync(fd)
+        }
+      } catch (e) {
+        this.#parseFailure(name, s, `transcript read failed: ${e.message}`)
+        return
       }
-    } catch (e) {
-      this.#parseFailure(name, s, `transcript read failed: ${e.message}`)
-      return
-    }
-    s.offset = st.size
-
-    const chunk = s.rest + buf.toString('utf8')
-    const lines = chunk.split('\n')
-    s.rest = lines.pop() ?? '' // a half-written line stays in the buffer
-    for (const line of lines) {
-      if (!line.trim()) continue
-      s.lines.push(line)
+      s.offset = st.size
+      const chunk = s.rest + buf.toString('utf8')
+      const lines = chunk.split('\n')
+      s.rest = lines.pop() ?? '' // a half-written line waits for the next read
+      s.lines.push(...lines)
     }
     this.#publishActive(name, s)
   }

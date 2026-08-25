@@ -241,6 +241,11 @@ describe('the exit wrapper, through a real shell', () => {
   test('an unsafe marker is refused before it is ever nested in bash -c', () => {
     assert.throws(() => wrapShellCmd('true', 'x"; rm -rf /; #'), /not quote-free/)
   })
+
+  test('a parkable pane ends with its hosted process', () => {
+    assert.equal(wrapShellCmd('docker exec -it service claude', null, { keepOpen: false }),
+      'exec docker exec -it service claude')
+  })
 })
 
 // #223, WITHOUT tmux, for the same reason the wrapper test above runs without

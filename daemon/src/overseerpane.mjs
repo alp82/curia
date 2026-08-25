@@ -3,11 +3,24 @@
 // while this host owns the overseer lifecycle and authority policy.
 
 import crypto from 'node:crypto'
+import fs from 'node:fs'
 import path from 'node:path'
+import { spawn } from 'node:child_process'
 import { execFileP } from './exec.mjs'
 import {
   capturePane, hasSession, listSessions, newSession, sendText, killSession,
 } from './tmux.mjs'
+import {
+  OVERSEER_CONTAINER_MODEL, overseerConfigDirFor,
+  overseerHomeFor, overseerProcessEnv,
+} from './overseerturn.mjs'
+import {
+  AnthropicCredentialStore, anthropicStoreFile, writeClaudeCredentials,
+} from './credentials.mjs'
+import { isConsoleKey, sessionForConsoleKey } from './attach.mjs'
+import { agentEnv, seedConfigDir } from './workspace.mjs'
+import { buildSystemPrompt } from './overseerprompt.mjs'
+import { SIGNALS } from './messaging.mjs'
 
 const OVERSEER_PANE_PREFIX = 'curia-overseer-'
 const CONSOLE_KEY_RE = /^console-[1-9][0-9]*$/
@@ -44,16 +57,25 @@ function shellWord(value) {
 export function overseerPaneName(key) {
   const identity = String(key)
   if (CONSOLE_KEY_RE.test(identity)) return `curia-${identity}`
+  if (/^\d+$/.test(identity)) return `curia-overseer-${identity}`
   const digest = crypto.createHash('sha256').update(identity).digest('hex').slice(0, 16)
   return `${OVERSEER_PANE_PREFIX}${digest}`
 }
 
-export function overseerPaneCommand({ repoRoot, container, session, resume }) {
+export function overseerPaneSession(key) {
+  const identity = String(key ?? '')
+  if (isConsoleKey(identity)) return sessionForConsoleKey(identity)
+  if (/^\d+$/.test(identity)) return `curia-overseer-${identity}`
+  throw new Error(`"${identity}" is not an overseer conversation key`)
+}
+
+export function overseerPaneCommand({ repoRoot, container, session, sessionId, resume }) {
   const runner = path.join(repoRoot, 'daemon', 'bin', 'curia-overseer-pane.mjs')
-  const identityFlag = resume ? '--resume' : '--session'
+  const identityFlag = resume ? '--resume' : '--session-id'
+  const identity = sessionId ?? session
   return [
     'docker', 'exec', '-it', shellWord(container),
-    'node', shellWord(runner), identityFlag, shellWord(session),
+    'node', shellWord(runner), identityFlag, shellWord(identity),
   ].join(' ')
 }
 
@@ -66,6 +88,67 @@ export async function runningOverseerContainer({ repoRoot, exec = execFileP }) {
   const container = stdout.trim()
   if (!container) throw new Error('the shared overseer container is not running')
   return container
+}
+
+export function installOverseerPaneCredential(workspaceRoot, configDir) {
+  const record = new AnthropicCredentialStore({ workspaceRoot }).read()
+  if (!record) {
+    return `${SIGNALS.warn} there is no anthropic credential for this pane: ${anthropicStoreFile(workspaceRoot)} holds none. Run reauth anthropic`
+  }
+  writeClaudeCredentials(configDir, record)
+  return null
+}
+
+export function prepareOverseerPane({ cfg, sessionId, resume = false, deps = {} }) {
+  if (!sessionId || typeof sessionId !== 'string') throw new Error('the overseer pane needs a durable session id')
+  const root = cfg.dispatch.workspace_root
+  const configDir = overseerConfigDirFor(root)
+  const home = overseerHomeFor(root)
+  const seed = deps.seed ?? seedConfigDir
+  const systemPrompt = deps.systemPrompt ?? buildSystemPrompt
+  const installCredential = deps.installCredential ?? installOverseerPaneCredential
+  const processEnv = deps.processEnv ?? overseerProcessEnv
+  fs.mkdirSync(home, { recursive: true })
+  seed(configDir, home, null, 'claude', { sandboxed: true })
+  const note = installCredential(root, configDir)
+  const prompt = systemPrompt({
+    shell: true,
+    checkoutsRoot: path.join(root, 'overseer', 'repos'),
+    repos: cfg.watch.map((entry) => entry.repo),
+  })
+  const identityFlag = resume ? '--resume' : '--session-id'
+  return {
+    cwd: home,
+    env: {
+      ...processEnv(),
+      ENABLE_TOOL_SEARCH: '0',
+      ...agentEnv(configDir, 'claude', { sandboxed: true }),
+    },
+    args: [
+      '--model', OVERSEER_CONTAINER_MODEL,
+      '--append-system-prompt', prompt,
+      '--dangerously-skip-permissions',
+      identityFlag, sessionId,
+    ],
+    note,
+  }
+}
+
+export async function runOverseerPane(options, { spawnProcess = spawn } = {}) {
+  const launch = prepareOverseerPane(options)
+  if (launch.note) console.log(launch.note)
+  const child = spawnProcess('claude', launch.args, {
+    cwd: launch.cwd,
+    env: launch.env,
+    stdio: 'inherit',
+  })
+  return new Promise((resolve, reject) => {
+    child.once('error', reject)
+    child.once('exit', (code, signal) => {
+      if (signal) reject(new Error(`the overseer pane ended on ${signal}`))
+      else resolve(code ?? 1)
+    })
+  })
 }
 
 export class OverseerPaneHost {
@@ -131,27 +214,41 @@ export class OverseerPaneHost {
     const resume = Boolean(session)
     const created = !session
     if (!session) {
-      session = this.newSessionId()
+      session = this.reduction.pendingOverseerSession?.(key)
+      if (!session) {
+        session = this.newSessionId()
+        this.reduction.reserveOverseerSession?.(key, session)
+      }
     }
 
     let present = await this.pane.has(name)
     if (present && created) {
-      await this.pane.park(name)
-      present = false
+      if (this.reduction.pendingOverseerSession?.(key)) {
+        await this.pane.ready?.(name)
+      } else {
+        await this.pane.park(name)
+        present = false
+      }
     }
     if (!this.live.has(name)) await this.#makeRoom(name)
-    if (!present) {
+    if (!present || created) {
       const container = await this.containerId()
       await this.pane.start({
         name,
         cwd: this.repoRoot,
         role: 'overseer',
         authority: 'overseer',
+        keepOpen: false,
         shellCmd: overseerPaneCommand({ repoRoot: this.repoRoot, container, session, resume }),
       })
       await this.pane.ready?.(name)
     }
     if (created) this.reduction.bindOverseerSession(key, session)
+    if (!present) {
+      this.reduction.journal?.(resume ? 'overseer_pane_resumed' : 'overseer_pane_started', {
+        key, session: name, session_id: session,
+      })
+    }
     this.live.delete(name)
     this.live.set(name, { key, session, touchedAt: Date.now() })
     return { name, session }

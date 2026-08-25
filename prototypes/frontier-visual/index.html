@@ -6,12 +6,14 @@
 <title>#588 The frontier visual — prototype</title>
 <!--
   THROWAWAY PROTOTYPE — alp82/curia#588 "The frontier visual, iterated
-  from the maps mock". DECIDED after six rounds: the stops line (F5)
-  wins — one route line per map, takeable stops with start buttons,
-  red blocked stops, the striped fog strip, an empty-frontier line,
-  and a two-column desktop split. The red-dashes cut (F1) is kept on
-  record as the alternate. Both lead the cycle over four maps, two of
-  them stress maps. Earlier rounds sit behind for reference.
+  from the maps mock". DECIDED: the red-dashes cut (F1) wins — bare
+  takeable rows under the frontier rule with start buttons, a boxed
+  blocked group textured with thin red dashes that names each key, a
+  boxed fog strip in grey diagonal stripes, an empty-frontier line,
+  and a two-column desktop split. The stops line (F5) won the six
+  rounds and is kept on record as the alternate; the operator
+  overruled it on 2026-08-22. Both lead the cycle over four maps, two
+  of them stress maps. Earlier rounds sit behind for reference.
   Decided maps screen (#522), V6 tokens (#519).
   Switch via ?v=, width via ?w=, color via ?mode=.
   Static mock data shaped like the real #511 map, including one ticket
@@ -412,9 +414,9 @@ svg { display:block; }
 
 <div class="stage"><div class="stagewrap" id="wrap"><div class="frame w-phone dark" id="frame">
 
-<section class="view mv r4 r5 r6" data-view="r7f1" data-name="◦ · Red dashes (kept)"><div data-body></div></section>
+<section class="view mv r4 r5 r6" data-view="r7f1" data-name="✓ · Red dashes (decided)"><div data-body></div></section>
 <section class="view mv r4 r5 r6" data-view="r7f4" data-name="r6 · F4 Red rail"><div data-body></div></section>
-<section class="view mv r4c r5 r6" data-view="r7f5" data-name="✓ · The stops (decided)"><div data-body></div></section>
+<section class="view mv r4c r5 r6" data-view="r7f5" data-name="◦ · The stops (kept)"><div data-body></div></section>
 <section class="view mv r4 r5 r6" data-view="r6f1" data-name="r5 · F1 Red dashes"><div data-body></div></section>
 <section class="view mv r4 r5 r6" data-view="r6f2" data-name="r5 · F2 Red crosshatch"><div data-body></div></section>
 <section class="view mv r4 r5 r6" data-view="r6f3" data-name="r5 · F3 Red wash"><div data-body></div></section>
@@ -1420,7 +1422,7 @@ const RENDER = { r7f1: renderR7f1, r7f4: renderR7f4, r7f5: renderR7f5,
   r1a: renderR1a, r1b: renderR1b, r1c: renderR1c, r1d: renderR1d, r1e: renderR1e,
   r3a: renderR3a, r3b: renderR3b, r3c: renderR3c, r3d: renderR3d, r3e: renderR3e,
   v0: renderV0, v1: renderV1, v2: renderV2, v3: renderV3, v4: renderV4 };
-const VIEWS = ["r7f5", "r7f1", "r7f4",
+const VIEWS = ["r7f1", "r7f5", "r7f4",
   "r6f1", "r6f2", "r6f3", "r6f4", "r6f5",
   "r5a2", "r5a3", "r5c2", "r5m",
   "r4a", "r4b", "r4c", "r4d", "r4e",
@@ -1429,7 +1431,7 @@ const VIEWS = ["r7f5", "r7f1", "r7f4",
 const frame = document.getElementById("frame");
 const wrap = document.getElementById("wrap");
 const q = new URLSearchParams(location.search);
-let v = VIEWS.includes(q.get("v")) ? q.get("v") : "r7f5";
+let v = VIEWS.includes(q.get("v")) ? q.get("v") : "r7f1";
 let mode = q.get("mode") === "light" ? "light" : "dark";
 let w = q.get("w") === "desktop" ? "desktop" : "phone";
 

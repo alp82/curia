@@ -1079,10 +1079,18 @@
      - the home is the synthesis home of prototypes/home-directions/
        (#519): the ring of what needs you, the agents that run, and
        one progress bar per map.
-     - the map is the stops line of prototypes/frontier-visual/
-       (#588): the walked stop, the running row, the frontier rule,
-       then the blocked in their red-lined box and the fog on its
-       diagonal grey stripes.
+     - the map is the RED-DASHES cut of prototypes/frontier-visual/
+       (#588): the walked cap, the running row, the frontier rule,
+       then the blocked in their red-dashed box and the fog on its
+       diagonal grey stripes. Nothing wears a stop, and the route
+       reads as a column rather than a line.
+
+       This scene first drew the stops line, which #588 keeps as the
+       ALTERNATE. The operator overruled the six-round pick on
+       2026-08-22, but the asset still opened on the stops until #605
+       merged on 2026-08-25, so the scene was drawn from a file that
+       disagreed with its own ticket. Read the FIRST view in the
+       asset's cycle, not the second.
 
      Every count is what the tracker held when this file was written
      (#601: real records). The map is alp82/curia#600, the map that is
@@ -1190,7 +1198,15 @@
   .quest.sel .l1 .ttl { color: #5ec8e5; }
   .quest.sel .qbar i { box-shadow: 0 0 12px rgba(94, 200, 229, 0.45); }
 
-  /* ---- the map screen (#588, the decided stops line) ---- */
+  /* ---- the map screen (#588, the decided red-dashes cut) ----
+
+     F1, not F5. The operator overruled the six-round pick on
+     2026-08-22 and #605 flipped the asset on 2026-08-25; this scene
+     was drawn from the asset in between, while it still opened on the
+     stops. The route reads as a COLUMN here: no stop dots, no rail
+     down the left. What carries over from the drawing that was here
+     is exactly what #588 says carries over - the red-dashed blocked
+     box, the striped fog, the routed model on every takeable row. */
   .at-head { display: flex; align-items: baseline; gap: 0.55rem; }
   .at-frac { flex: none; font: 700 1.1rem var(--mono); font-variant-numeric: tabular-nums; }
   .at-frac span { color: #8a93a3; font-size: 0.78rem; font-weight: 600; }
@@ -1199,24 +1215,23 @@
   .at-meta { margin: 0.2rem 0 0; font: 0.58rem var(--mono); color: #8a93a3; }
 
   .rl { margin-top: 0.75rem; }
-  .rrow {
-    position: relative; display: flex; align-items: center; gap: 0.55rem;
-    padding: 0.36rem 0 0.36rem 1.4rem; font-size: 0.74rem;
+  /* The walked cap: one thin line for everything already behind us,
+     so the frontier gets the room. */
+  .walkcap {
+    display: flex; align-items: center; gap: 0.5rem; margin-top: 0.6rem;
+    font: 0.58rem var(--mono); color: #8a93a3;
   }
-  .rrow::before { content: ''; position: absolute; left: 0.22rem; top: 0; bottom: 0; width: 2px; background: #5ec8e5; }
-  .rrow.below::before {
-    background: none; opacity: 0.55;
-    background-image: linear-gradient(#8a93a3 45%, transparent 45%); background-size: 2px 9px;
-  }
-  .rrow.dim { color: #8a93a3; }
-  .rrow.dim .ttl { font-weight: 400; }
-  .rrow .stop { position: absolute; left: 0; top: 50%; transform: translateY(-50%); }
-  .s-walk { width: 0.65rem; height: 0.65rem; border-radius: 999px; background: #5ec8e5; }
-  .s-run {
-    width: 0.65rem; height: 0.65rem; border-radius: 999px; background: #41d98d;
+  .walkcap .cdot { flex: none; width: 0.5rem; height: 0.5rem; border-radius: 999px; background: #5ec8e5; opacity: 0.7; }
+  .walkcap .crule { flex: 1; height: 1px; background: #20242c; }
+  .prow { display: flex; align-items: center; gap: 0.55rem; padding: 0.36rem 0; font-size: 0.74rem; }
+  .prow.dim { color: #8a93a3; }
+  .prow.dim .ttl { font-weight: 400; }
+  /* A live agent's row. The green dot is the agent, not a stop on a
+     line - F1 wears no stops. */
+  .prow .live {
+    flex: none; width: 0.5rem; height: 0.5rem; border-radius: 999px; background: #41d98d;
     box-shadow: 0 0 0 3px rgba(65, 217, 141, 0.16);
   }
-  .s-fog { width: 0.65rem; height: 0.65rem; border-radius: 999px; border: 2px dotted #8a93a3; }
   .front { display: flex; align-items: center; gap: 0.55rem; margin: 0.45rem 0 0.15rem; }
   .front .frontlbl {
     flex: none; font: 700 0.5rem var(--mono); letter-spacing: 0.24em;
@@ -1225,9 +1240,10 @@
   .front .frule { flex: 1; height: 2px; background: #5ec8e5; box-shadow: 0 0 12px rgba(94, 200, 229, 0.45); }
   .front .fcap { flex: none; font: 0.56rem var(--mono); color: #8a93a3; }
 
-  /* The blocked box and the fog strip, as #588 round 5 drew them:
-     red rules behind what waits, diagonal grey stripes behind what
-     nobody has specified yet. */
+  /* The blocked box and the fog strip, unchanged by the overrule -
+     #588 carries both into F1: thin red dashes behind what waits,
+     diagonal grey stripes behind what nobody has specified yet. The
+     red always pairs with the word, and no pattern appears twice. */
   .waitr {
     margin-top: 0.6rem; padding: 0.45rem 0.65rem 0.5rem;
     border: 1px solid rgba(242, 112, 122, 0.45); border-radius: 8px;
@@ -1239,10 +1255,7 @@
   }
   .waitr .slbl { color: #f2707a; }
   .wrow { display: flex; align-items: center; gap: 0.5rem; padding: 0.22rem 0; font-size: 0.7rem; color: #8a93a3; }
-  .s-waitr {
-    flex: none; width: 0.55rem; height: 0.55rem; border-radius: 2px;
-    background: rgba(242, 112, 122, 0.1); border: 1px solid #f2707a;
-  }
+  .s-waitr { flex: none; width: 0.22rem; height: 0.62rem; background: #f2707a; opacity: 0.55; }
   .wrow .ttl { font-weight: 400; white-space: normal; }
   .wrow .ttl .sub { color: rgba(242, 112, 122, 0.75); }
   .fogs {
@@ -1277,44 +1290,286 @@
   }
 
   /* ================================================================
-     Scene 7 — the harness, live. The embedded terminal in its own
-     tokens, with a real pane and the tmux status bar.
+     Scene 7 — the harness, live (#629).
+
+     THE PANES ARE THE REAL TUIs, not an impression of them. Every row
+     is the shape of a verbatim tmux capture kept in this repo:
+
+       Claude Code v2.1.220  the banner, the ❯ turn, the ● tool row, the
+                             ⎿ result row, the ✻ elapsed line, the two
+                             composer rules, the ⏵⏵ mode footer
+       Codex 0.146.0         the rounded banner box, the Tip block, the
+                             › turn, the • Ran row with its └ output, the
+                             separators around an answer, the
+                             <model> <effort> · <cwd> footer
+       pi 0.84.2             the version and key-hint header, the plain
+                             turn lines, the two composer rules, the
+                             two-row footer with the context percentage
+       opencode 1.18.18      the block wordmark, the ┃ gutter on a turn,
+                             the ▣ row that closes one, the ╹▀ rule, the
+                             two-column footer
+
+     The chrome around them is the embedded terminal decided at #537
+     (prototypes/embedded-terminal/), with its tmux status line.
+
+     A terminal is a CHARACTER GRID, so all four panes are authored at
+     exactly 58 columns and the script scales the font until 58 columns
+     fill the frame. That is what makes the box drawing meet: the Codex
+     banner box, the opencode ╹▀ rule, the Claude composer rules and
+     every ─ separator end on the same column at every width. Line
+     height is exactly 1, because a browser draws │ at the glyph height
+     and any leading opens a gap the real terminal does not have. With
+     no script the clamp keeps it close and the pane clips rather than
+     reflowing.
+
+     Each pane is a SCROLLBACK and a COMPOSER, the way all four TUIs
+     are built: .tm-out holds the transcript and is pushed to the
+     bottom of the pane, .tm-in holds the input row and the status
+     footer and never moves.
+
+     THE CONTROL, settled at round 1: the harness rail past 60rem, the
+     bottom tabs below it, and never both. Round 2 took the window list
+     off the tmux status line, so the rail and the tabs are the only
+     control at any width, and the status line is what a real one is.
+
+     THE COMPOSITION, settled at round 2: the browser tab the claim
+     names, with ONE tab, and the session printing once, slowly, then
+     handing over from claude to codex.
+
+     The scene is ONE composition canvas — the claim, the terminal and
+     the fact line are grid items of .tm. No .wrap and no .shot: that
+     pair broke the preview scene at #627 round 3 and the atlas at #628
+     round 2, at a desktop width no agent here can see.
+
+     ROUND 3 varies the one thing round 2 opened and nothing else: how
+     the rail carries four harnesses and their marks. ?id=1..5 —
+       1 tile   a filled tile behind each mark, name and sub beside it
+       2 glyph  no tile; a large bare mark, and a bar on the active row
+       3 grid   two by two cards, the mark over the name
+       4 strip  a dense list, the mark inline, the active row filled
+       5 badge  the mark on a ring, the rail reading as a device list
      ================================================================ */
-  .term {
-    background: #0b0e12; border: 1px solid #262d33; border-radius: 10px; overflow: hidden;
-    box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
+  .tm {
+    position: relative; width: 100%; max-width: 96rem; margin: 0 auto;
+    padding: 0 clamp(1.1rem, 5vw, 4rem);
+    display: grid; align-content: start; row-gap: 1.15rem;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "claim" "term" "fact";
   }
-  .term-head {
-    display: flex; align-items: center; gap: 0.55rem;
-    background: #0c0f11; border-bottom: 1px solid #262d33;
-    padding: 0.4rem 0.65rem; font: 0.68rem var(--mono); color: #5a6472;
-    white-space: nowrap; overflow: hidden;
+  .tm > .claim { grid-area: claim; margin: 0; }
+  .tm > .fact { grid-area: fact; margin: 0; }
+  .tm-stage { grid-area: term; min-width: 0; position: relative; max-width: 47rem; margin-right: 0; }
+
+  /* ---- the window ---- */
+  .tmw {
+    position: relative; background: #0b0e12; border: 1px solid #262d33;
+    border-radius: 10px; overflow: hidden;
+    display: grid; grid-template-columns: minmax(0, 1fr);
+    box-shadow: 0 1.6rem 3.2rem -1.2rem rgba(0, 0, 0, 0.85), 0 0.3rem 1rem rgba(0, 0, 0, 0.4);
   }
-  .term-head .sess { color: #dde3e0; font-weight: 700; }
-  .term-head .url { overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 1; }
-  .term-head .pill {
-    flex: none; border-radius: 999px; padding: 0.1rem 0.5rem;
-    background: #12241f; color: #4cc2a0; font-weight: 600;
+  .tm-body { min-width: 0; background: #0b0e12; }
+  .tm-panes { display: block; }
+  /* ROUND 6 settled the session, so one .tm-var is left and it is on. */
+  .tm-var { display: none; }
+  .tm-var.on { display: block; }
+  /* THE WINDOW IS A FIXED 30 ROWS, at every harness and every width.
+     The tallest pane is 30 rows, so the height is that count times the
+     line box (line height is exactly 1, so one row is 1em) plus the
+     0.5rem above and 0.7rem below. A shorter transcript does not shrink
+     the window: it sits at the bottom against the composer with blank
+     rows above, which is what a real full-screen TUI shows. Nothing
+     scrolls, and switching harness moves no other element on the page.
+
+     The font size drives the height, so it has to be settled before the
+     first paint. fit() runs synchronously at setup for that reason, and
+     the page ships no webfont, so nothing reflows later. */
+  .tm-pane {
+    display: flex; flex-direction: column; min-width: 0; overflow: hidden;
+    font-size: var(--tmfs, clamp(0.4rem, 2.05vw, 0.8rem));
+    height: calc(26em + 1.2rem);
   }
-  .term-tabs { display: flex; gap: 0.4rem; padding: 0.5rem 0.65rem 0; }
-  .term-tab {
-    font: 600 0.7rem var(--mono); color: #6b7684; background: none;
-    border: 1px solid #262d33; border-radius: 6px; padding: 0.28rem 0.6rem; cursor: pointer;
+  .tm-pane[hidden] { display: none; }
+  /* The scrollback sits at the BOTTOM of the pane and the composer under
+     it, the way all four TUIs hold their input row against the last
+     line. margin-top: auto does that, and the pane stays a block box:
+     with display: flex here, the per-line spans the printer needs would
+     each become a flex item and the newlines between them would take
+     rows of their own. */
+  .tm-out { display: block; margin: auto 0 0; padding: 0.5rem 0.6rem 0; overflow: hidden; }
+  .tm-in { margin: 0; padding: 0.2rem 0.6rem 0.5rem; overflow: hidden; }
+  .tm-out, .tm-in {
+    font-family: var(--mono); font-size: inherit;
+    line-height: 1; color: #d7dce4; white-space: pre;
   }
-  .term-tab[aria-pressed="true"] { color: #58c99a; border-color: #58c99a; }
-  .term pre {
-    margin: 0; padding: 0.6rem 0.75rem 0.7rem; overflow-x: auto;
-    font: 0.72rem/1.45 var(--mono); color: #d6dde6; white-space: pre;
+  /* BLOCK ART IS DRAWN, NOT SET. The Claude Code mark and the opencode
+     wordmark are rows of █ ▀ ▛ ▝. A browser draws those at the FONT's
+     metrics rather than at the line box, so two rows of them do not tile
+     at line height 1: the halves detach and the mark reads as cut off,
+     which is what the operator saw. Each ROW is one SVG of the same
+     rectangles, one em tall and as many ch wide as it has cells, so the
+     rows stay rows, the halves meet, and the grid is unchanged. */
+  .tm-out .art, .tm-in .art { display: inline-block; vertical-align: top; height: 1em; }
+  /* opencode's composer border. As a run of ▀ glyphs it rendered as a light
+     bar across the pane and read as a scrollbar. Drawn, and dim. */
+  .tm-in .ocr { color: #232b33; }
+  .tm-in .dd { color: #5c6675; }
+
+  /* The opencode wordmark, taken from its own source rather than from a
+     capture: anomalyco/opencode, packages/tui/src/logo.ts for the four rows
+     and packages/tui/src/component/logo.tsx for how they are coloured. "open"
+     is the muted colour and "code" the plain one, each against a `shadow` that
+     is a 25% tint of that colour toward the background.
+
+     The shadow is carried on the BACKGROUND of a cell, so `_` in the source is
+     a SPACE whose background is filled. That is why no tmux text capture could
+     ever have held this mark: half of it is colour, and a text capture records
+     colour as a blank. This repo's capture also caught the pane mid-scroll and
+     held only the bottom two of the four rows, which is why d, n and o looked
+     identical in it — rows 0 and 1 are the only things that separate them. */
+  .tm-out .art.oc .lm { fill: #8a93a3; }
+  .tm-out .art.oc .ls { fill: #2b2f36; }
+  .tm-out .art.oc .rm { fill: #e6e9ef; }
+  .tm-out .art.oc .rs { fill: #424549; }
+
+  /* NOTHING IN A PANE IS ITALIC. The colored runs were <i> elements, which a
+     browser slants by default. An oblique face does not sit on the character
+     grid the whole scene rests on: the columns drift, and the last glyph of a
+     run overhangs and is clipped, which is what cut the opencode wordmark. */
+  .tm-out *, .tm-in * { font-style: normal; }
+  /* the 58-column ruler the script measures the frame against */
+  .tm-ruler {
+    position: absolute; left: 0; top: 0; visibility: hidden; pointer-events: none;
+    width: 58ch; height: 0; overflow: hidden;
+    font-family: var(--mono); font-size: var(--tmfs, clamp(0.4rem, 2.05vw, 0.8rem));
   }
-  .term .g { color: #58c99a; }
-  .term .y { color: #e0c06a; }
-  .term .b { color: #6aa9e0; }
-  .term .d { color: #6b7684; }
-  .term .cur { background: #d6dde6; color: #0b0e12; animation: blink 1.1s steps(1) infinite; }
-  @keyframes blink { 50% { background: none; color: #d6dde6; } }
-  .tmux-bar {
-    display: flex; justify-content: space-between; gap: 0.5rem;
-    font: 0.68rem/1.7 var(--mono); background: #1c3d33; color: #9fe0c6; padding: 0 0.6rem;
+
+  /* Read off the four TUIs: Claude Code carries a warm clay accent on
+     its mark, its elapsed line and its permission mode, opencode a
+     bright wordmark, and Codex and pi are nearly monochrome. Nothing
+     here is guessed structure — the hues are the one thing a text
+     capture cannot record. */
+  .tm-out .lg, .tm-out .sp { color: #d97757; }
+  .tm-out .tn { color: #eef1f6; font-weight: 700; }
+  .tm-out .ar { color: #98a1b0; }
+  .tm-out .bu { color: #ccd3dd; }
+  .tm-out .bx { color: #5c6675; }
+  .tm-out .cy { color: #9aa4b2; }
+  .tm-out .d, .tm-in .d { color: #79808d; }
+  .tm-in .bd { color: #3a434f; }
+  .tm-in .bx { color: #5c6675; }
+  .tm-in .o { color: #d97757; }
+  .tm-in .cy { color: #9aa4b2; }
+  .tm-out .pad, .tm-in .pad { color: transparent; }
+  .tm-in .cur { background: #d7dce4; color: #0b0e12; animation: blink 1.05s steps(1) infinite; }
+  @keyframes blink { 50% { background: none; color: #d7dce4; } }
+  /* opencode prints its wordmark in its own accent, not Claude's clay */
+  .tm-pane[data-h="opencode"] .tm-out .lg { color: #d7dce4; }
+
+  /* ---- the printer. A line is hidden, revealed, or mid-type. Typing
+     clips the line to a whole number of characters, which a monospace
+     grid makes exact: 1ch IS one column. No per-character spans, so
+     the whitespace fault the Discord scene hit at #626 cannot recur. */
+  .js .tm.printing .tm-out .ln { visibility: hidden; }
+  .js .tm.printing .tm-out .ln.on { visibility: visible; }
+  .js .tm.printing .tm-out .ln.typing {
+    visibility: visible; display: inline-block; vertical-align: top;
+    overflow: hidden; white-space: pre;
+  }
+  .js .tm.printing .tm-in { opacity: 0.5; transition: opacity 0.5s var(--ease); }
+  .js .tm.printing.done .tm-in { opacity: 1; }
+
+  /* ---- the tmux status line. Round 2 took the window list off it, so
+     it states the session and the clock and controls nothing. ---- */
+  .tmux {
+    display: flex; align-items: center; gap: 0.15rem;
+    background: #1c3d33; color: #9fe0c6; padding: 0 0.45rem;
+    font: 0.62rem/1.85 var(--mono); white-space: nowrap; overflow: hidden;
+  }
+  .tmux .sess { padding-right: 0.4rem; }
+  .tmux .clock { margin-left: auto; padding-left: 0.5rem; }
+
+  /* ---- the browser the tab lives in: ONE tab (round 2) ---- */
+  .br { background: #16181d; border-bottom: 1px solid #262d33; }
+  .br-tabs { display: flex; align-items: center; gap: 0.4rem; padding: 0.4rem 0.55rem 0; }
+  .br-dot { width: 0.46rem; height: 0.46rem; border-radius: 50%; flex: none; background: #3d444d; }
+  .br-dot.r { background: #e06c60; } .br-dot.y { background: #e0b34c; } .br-dot.g { background: #62c06a; }
+  .br-tab {
+    font: 0.6rem/1.6 var(--mono); color: #dbe1e9; background: #0b0e12;
+    border-radius: 6px 6px 0 0; padding: 0.22rem 0.55rem;
+    max-width: 13rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .br-url {
+    display: flex; align-items: center; gap: 0.4rem; padding: 0.32rem 0.6rem;
+    background: #0b0e12; font: 0.6rem/1.6 var(--mono); color: #8a93a3;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .br-url .lock { color: #7dd3a0; }
+
+
+  /* ---- the marks. Drawn, not official logos: the page ships no image
+     and no webfont, so each one is built from something the harness
+     itself prints. currentColor, so a row's state colors its mark. ---- */
+  .hm { width: 1.15rem; height: 1.15rem; flex: none; display: block; }
+
+  /* ---- the control past 60rem: curia's harness rail ---- */
+  .tm-rail { display: none; background: #0f1116; border-bottom: 1px solid #262d33; }
+  .tm-rail .rh {
+    margin: 0; font: 700 0.56rem var(--mono); letter-spacing: 0.2em; text-transform: uppercase;
+    color: #8a93a3; padding: 0.7rem 0.75rem 0.45rem;
+  }
+  .tm-rail .rl { padding: 0 0.5rem 0.6rem; }
+  .tm-rail button {
+    display: grid; width: 100%; text-align: left; border: 0; background: none; cursor: pointer;
+    grid-template-columns: auto minmax(0, 1fr); column-gap: 0.55rem; align-items: center;
+    color: #aab3c1; padding: 0.45rem 0.55rem; border-radius: 8px;
+  }
+  .tm-rail button + button { margin-top: 0.15rem; }
+  .tm-rail .hm {
+    grid-row: span 2; color: #79808d;
+    box-sizing: content-box; padding: 0.3rem; border-radius: 7px; background: #1a1f26;
+  }
+  .tm-rail button b { font: 700 0.76rem/1.25 var(--sans); color: #e6e9ef; }
+  .tm-rail button span { font: 0.58rem/1.3 var(--mono); color: #79808d; }
+  .tm-rail button[aria-pressed="true"] { background: #15281f; }
+  .tm-rail button[aria-pressed="true"] b { color: #7dd3a0; }
+  .tm-rail button[aria-pressed="true"] .hm { background: #7dd3a0; color: #08211a; }
+
+  /* ---- the control below 60rem: bottom tabs. NEVER both (round 1) ---- */
+  .tm-tabs { display: flex; border-top: 1px solid #262d33; background: #0f1116; }
+  .tm-tabs button {
+    flex: 1 1 0; min-width: 0; border: 0; background: none; cursor: pointer; color: #8a93a3;
+    display: flex; flex-direction: column; align-items: center; gap: 0.2rem;
+    padding: 0.5rem 0.3rem; border-top: 2px solid transparent; margin-top: -1px;
+  }
+  .tm-tabs button b {
+    font: 700 0.6rem var(--sans); max-width: 100%;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .tm-tabs button[aria-pressed="true"] { color: #7dd3a0; border-top-color: #7dd3a0; background: #0b0e12; }
+
+  /* the identity saturates the evidence with the scroll value (#624
+     rule 5); the .shot that used to carry it is gone from this scene */
+  #term-scene .tm-stage { filter: saturate(calc(0.62 + 0.38 * var(--p, 1))); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .js .tm.printing .tm-out .ln { visibility: visible; }
+    .js .tm.printing .tm-in { opacity: 1; }
+    .tm-in .cur { animation: none; }
+  }
+
+  @media (min-width: 60rem) {
+    .tm {
+      column-gap: clamp(1.5rem, 3vw, 3rem);
+      grid-template-columns: minmax(0, 1.4fr) minmax(15rem, 0.8fr);
+      grid-template-areas: "term claim" "term fact";
+      align-items: center;
+    }
+    .tm > .fact { align-self: start; }
+    .tm-stage { max-width: none; }
+    /* the control swaps here, and only here: rail on, tabs off */
+    .tmw { grid-template-columns: 13.5rem minmax(0, 1fr); }
+    .tm-rail { display: block; border-bottom: 0; border-right: 1px solid #262d33; }
+    .tm-tabs { display: none; }
   }
 
   /* ================================================================
@@ -1813,9 +2068,10 @@
 
        Both redraw decided curia screens in the V6 dashboard tokens:
        the home is the synthesis home of prototypes/home-directions/
-       (#519), and the map is the stops line of
-       prototypes/frontier-visual/ (#588) — the blocked in their
-       red-lined box, the fog on its diagonal grey stripes.
+       (#519), and the map is the red-dashes cut of
+       prototypes/frontier-visual/ (#588) — bare rows under the
+       frontier rule, the blocked in their red-dashed box, the fog on
+       its diagonal grey stripes, and no stops anywhere.
 
        Every count is what the tracker held when this file was written
        (#601: real records). The map is #600, the map that is building
@@ -1872,7 +2128,7 @@
         </div>
       </div>
 
-      <!-- the map screen (#588, the decided stops line) -->
+      <!-- the map screen (#588, the decided red-dashes cut) -->
       <div class="at-scr mp-scr">
         <div class="at-ht"><span>curia · atlas · maps</span><span>#600</span></div>
         <div class="at-body">
@@ -1882,14 +2138,13 @@
           </div>
           <p class="at-meta">alp82/curia · destination: the page is live at curia.sh</p>
           <div class="rl">
-            <div class="rrow dim"><i class="stop s-walk"></i>
-              <span class="ttl">10 walked<span class="sub">#627 the preview · #626 the Discord scene · #625 the opening arc</span></span></div>
-            <div class="rrow"><i class="stop s-run"></i>
+            <div class="walkcap"><span class="cdot"></span>
+              <span>10 walked · 1 in flight</span><span class="crule"></span><span>#600</span></div>
+            <div class="prow"><i class="live"></i>
               <span class="ttl">The atlas scene of the story page<span class="sub">runs · claude-opus-5 · #628</span></span>
               <span class="go">chat →</span></div>
             <div class="front"><span class="frontlbl">the frontier</span><span class="frule"></span><span class="fcap">0 takeable</span></div>
-            <div class="rrow below dim"><i class="stop s-fog"></i>
-              <span class="ttl">nothing takeable. the way is in flight</span></div>
+            <div class="prow dim"><span class="ttl">nothing takeable. the way is in flight</span></div>
           </div>
           <div class="waitr">
             <p class="slbl">blocked · 5</p>
@@ -1909,47 +2164,197 @@
     </div>
   </section>
 
-  <!-- Scene 7 · the harness, live. The pane is this ticket's own
-       session. The toggle switches the harness. -->
-  <section class="scene sR" data-stage="agent" data-n="06" data-name="the harness, live" style="--g1:#0e1a14;--g2:#080f0b">
-    <div class="wrap">
+  <!-- Scene 7 · the harness, live (#629). The four TUIs are the real
+       ones. Every row is the shape of a verbatim tmux capture in this
+       repo, and all four panes are authored at exactly 58 columns, so
+       the box drawing meets once the script scales the font.
+
+         Claude Code v2.1.220  prototypes/overseer-pane/evidence/,
+                               prototypes/pane-rewind/evidence/claude-*
+         Codex 0.146.0         prototypes/pane-rewind/evidence/codex-*
+         pi 0.84.2             prototypes/model-switch/evidence/pi-*
+         opencode 1.18.18      prototypes/model-switch/evidence/opencode-*
+
+       BLOCK ART IS DRAWN, NOT SET. The Claude Code mark and the
+       opencode wordmark are rows of █ ▀ ▛ ▝, and a browser draws those
+       at the FONT's metrics rather than the line box, so two rows do
+       not tile at line height 1: the halves detach and the mark reads
+       as cut off. Each ROW is one SVG of the same rectangles, sized N
+       ch by 1 em, so rows stay rows and the tiling is exact.
+
+       THE SESSION IS THE TYPE FOUNDRY OF SCENE 4. GRAVITY was locked
+       at #627 — "A typeface with weight. Nine weights, two widths, and
+       one axis for the space between." — and every session here is an
+       agent working on that site, so the two scenes tell one story.
+       That makes these transcripts INVENTED, which is a deviation from
+       #601, and it is the SAME deviation #627 already took when the
+       operator asked for a site cooler than a real curia prototype.
+       #604 carries both.
+
+       ROUND 6 settled the session: the waterfall. The four that lost
+       and the switcher that carried them left the file with it.
+
+       ROUND 1 settled the control: the harness rail at desktop width,
+       bottom tabs on a phone, and NEVER BOTH. ROUND 2 settled the
+       composition: the browser tab the claim names, and the session
+       printing once, slowly, then handing over. ROUND 3 settled the
+       corrections and the four harnesses. ROUND 4 fixed the window to
+       30 rows so nothing shifts, and ROUND 5 took the italic out.
+
+       The scene is ONE composition canvas: the claim, the terminal and
+       the fact line are grid items of .tm. No .wrap, no .shot.
+       The opencode pane carries NO WORDMARK, and that is deliberate.
+       prototypes/model-switch/evidence/opencode-1-spawn.txt caught the
+       banner mid-scroll: its first line is already the second row of
+       the mark, so the top row is not in this repo. It cannot be
+       derived either — on the two rows we do have, d, n and o are
+       identical, so the missing row is the only thing telling three of
+       the eight letters apart. The pane starts below the banner
+       instead, which is what the capture itself shows. -->
+  <section class="scene sR" id="term-scene" data-stage="agent" data-n="06" data-name="the harness, live" style="--g1:#0e1a14;--g2:#080f0b">
+    <div class="tm" id="tm">
       <header class="claim rv">
         <p class="kick"><span class="kn">06</span><span class="kname">the harness, live</span></p>
         <h2 class="bold">Watch the agent type in your browser tab.</h2>
       </header>
-    </div>
-    <div class="shot rv">
-      <div class="term">
-        <div class="term-head"><span class="sess">curia-551</span>
-          <span class="url">box.tailnet.ts.net:8445/terminal/?arg=curia-551</span>
-          <span class="pill">live · ttyd</span></div>
-        <div class="term-tabs" role="group" aria-label="Harness">
-          <button class="term-tab" type="button" data-harness="claude" aria-pressed="true">Claude Code</button>
-          <button class="term-tab" type="button" data-harness="codex" aria-pressed="false">Codex</button>
+
+      <div class="tm-stage rv">
+        <div class="tmw">
+          <span class="tm-ruler" aria-hidden="true"></span>
+
+          <!-- the control past 60rem -->
+          <div class="tm-rail">
+            <p class="rh">harness</p>
+            <div class="rl">
+              <button type="button" data-h="claude" aria-pressed="true"><svg class="hm" viewBox="0 0 22 22" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M11 3.5v15"/><path d="M4.5 7.25l13 7.5"/><path d="M4.5 14.75l13-7.5"/></g></svg><b>Claude Code</b><span>opus</span></button>
+              <button type="button" data-h="codex" aria-pressed="false"><svg class="hm" viewBox="0 0 22 22" aria-hidden="true"><path d="M6.5 5.5L12.5 11l-6 5.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><rect x="12" y="14.6" width="6" height="2.4" rx="1.2" fill="currentColor"/></svg><b>Codex</b><span>gpt-5.6-sol</span></button>
+              <button type="button" data-h="pi" aria-pressed="false"><svg class="hm" viewBox="0 0 22 22" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M3.5 6.5h15"/><path d="M8 6.5v10"/><path d="M14.5 6.5v8.2c0 1.4 1 2 2.6 1.6"/></g></svg><b>Pi</b><span>v0.84.2</span></button>
+              <button type="button" data-h="opencode" aria-pressed="false"><svg class="hm" viewBox="0 0 22 22" aria-hidden="true"><g fill="currentColor"><rect x="3" y="5" width="16" height="4.2" rx="0.6"/><rect x="3" y="12.8" width="4.6" height="4.2" rx="0.6"/><rect x="10.2" y="12.8" width="8.8" height="4.2" rx="0.6"/></g></svg><b>Opencode</b><span>v1.18.18</span></button>
+            </div>
+          </div>
+
+          <div class="tm-body">
+            <!-- the browser the tab lives in: ONE tab (round 2) -->
+            <div class="br">
+              <div class="br-tabs">
+                <i class="br-dot r"></i><i class="br-dot y"></i><i class="br-dot g"></i>
+                <span class="br-tab on">gravity &middot; preview</span>
+              </div>
+              <div class="br-url"><span class="lock">&#9919;</span>box.tailnet.ts.net/terminal/?arg=gravity</div>
+            </div>
+
+            <div class="tm-panes" id="tm-panes">
+        <div class="tm-var on" data-v="waterfall" data-name="the waterfall">
+          <div class="tm-pane" data-h="claude" role="group" aria-label="Claude Code, the waterfall">
+            <pre class="tm-out"><span class="lg"><svg class="art" data-cols="9" viewBox="0 0 18 2" preserveAspectRatio="none" aria-hidden="true" style="width:9ch"><g fill="currentColor"><rect x="3" y="0" width="12" height="1"/><rect x="3" y="1" width="2" height="1"/><rect x="6" y="1" width="6" height="1"/><rect x="13" y="1" width="2" height="1"/></g></svg></span>   Claude Code v2.1.220
+<span class="lg"><svg class="art" data-cols="9" viewBox="0 0 18 2" preserveAspectRatio="none" aria-hidden="true" style="width:9ch"><g fill="currentColor"><rect x="1" y="0" width="16" height="1"/><rect x="3" y="1" width="12" height="1"/></g></svg></span>  Opus 5 (1M context) · API Usage Billing
+<span class="lg"><svg class="art" data-cols="9" viewBox="0 0 18 2" preserveAspectRatio="none" aria-hidden="true" style="width:9ch"><g fill="currentColor"><rect x="4" y="0" width="1" height="1"/><rect x="6" y="0" width="1" height="1"/><rect x="11" y="0" width="1" height="1"/><rect x="13" y="0" width="1" height="1"/></g></svg></span><span class="d">  ~/gravity</span>
+
+
+<span class="d">❯ </span>GRAVITY — the size waterfall on the fonts page
+  Nine weights, two widths, twelve sizes, 10px to 96px.
+
+<span class="bu">● </span><span class="tn">Read</span><span class="ar">(site/copy/pangram.txt)</span>
+<span class="d">  ⎿  1 line, 62 characters</span>
+
+<span class="bu">● </span><span class="tn">Write</span><span class="ar">(site/fonts.html)</span>
+<span class="d">  ⎿  Wrote 189 lines</span>
+
+<span class="bu">● </span><span class="tn">Bash</span><span class="ar">(npx serve site -l 4000)</span>
+<span class="d">  ⎿  Serving site on http://0.0.0.0:4000</span>
+
+<span class="bu">● </span>The waterfall reads down from 96px, so the first
+  thing on screen is the face and not the smallest
+  setting of it.
+
+<span class="sp">✻ Cooked for 36s</span></pre>
+            <pre class="tm-in"><span class="bd">──────────────────────────────────────────────────────────</span>
+<span class="d">❯ </span><span class="cur"> </span>
+<span class="bd">──────────────────────────────────────────────────────────</span>
+<span class="o">  ⏵⏵ bypass permissions on</span><span class="d"> (shift+tab to cycle)</span></pre>
+          </div>
+          <div class="tm-pane" data-h="codex" role="group" aria-label="Codex, the waterfall">
+            <pre class="tm-out"><span class="bx">╭────────────────────────────────────────────────────╮</span>
+<span class="bx">│ </span>&gt;_ OpenAI Codex (v0.146.0)<span class="pad">                        </span><span class="bx"> │</span>
+<span class="bx">│ </span><span class="pad">                                                  </span><span class="bx"> │</span>
+<span class="bx">│ </span>model:       gpt-5.6-sol   <span class="d">/model to change</span><span class="pad">       </span><span class="bx"> │</span>
+<span class="bx">│ </span>directory:   ~/gravity<span class="pad">                            </span><span class="bx"> │</span>
+<span class="bx">│ </span>permissions: YOLO mode<span class="pad">                            </span><span class="bx"> │</span>
+<span class="bx">╰────────────────────────────────────────────────────╯</span>
+
+<span class="cy">› </span>GRAVITY — check the waterfall at the small end
+
+<span class="bu">• </span>Ran <span class="ar">node tools/contrast.mjs site/fonts.html</span>
+<span class="d">  └ 12 steps measured</span>
+
+<span class="bd">──────────────────────────────────────────────────────────</span>
+
+<span class="bu">• </span>Below 14px the Thin weight drops under 3:1 against
+  the cream background. The waterfall should stop at
+  14px for Thin, or the background should darken.
+
+<span class="bd">──────────────────────────────────────────────────────────</span></pre>
+            <pre class="tm-in"><span class="cy">› </span><span class="cur"> </span>
+
+<span class="d">  gpt-5.6-sol high · ~/gravity</span></pre>
+          </div>
+          <div class="tm-pane" data-h="pi" role="group" aria-label="Pi, the waterfall">
+            <pre class="tm-out"><span class="d"> pi v0.84.2</span>
+<span class="d"> escape interrupt · ctrl+c/ctrl+d clear/exit · / commands</span>
+<span class="d"> ! bash · ctrl+o more</span>
+
+
+ GRAVITY — is a pangram the right specimen text?
+<span class="d"> A pangram proves coverage, not rhythm. Foundries</span>
+<span class="d"> set real prose under it for the small sizes, and</span>
+<span class="d"> keep the pangram for the large ones.</span></pre>
+            <pre class="tm-in"><span class="bd">──────────────────────────────────────────────────────────</span>
+ <span class="cur"> </span>
+<span class="bd">──────────────────────────────────────────────────────────</span>
+<span class="d"> ~/gravity</span>
+<span class="d"> 0.0%/128k (auto)</span><span class="pad">                        </span><span class="d">claude-opus-5</span></pre>
+          </div>
+          <div class="tm-pane" data-h="opencode" role="group" aria-label="Opencode, the waterfall">
+            <pre class="tm-out"><span class="pad">         </span><svg class="art oc" data-cols="39" viewBox="0 0 78 2" preserveAspectRatio="none" aria-hidden="true" style="width:39ch"><rect class="rm" x="66" y="1" width="2" height="1"/></svg>
+<span class="pad">         </span><svg class="art oc" data-cols="39" viewBox="0 0 78 2" preserveAspectRatio="none" aria-hidden="true" style="width:39ch"><rect class="lm" x="0" y="0" width="2" height="1"/><rect class="lm" x="0" y="1" width="2" height="1"/><rect class="lm" x="2" y="0" width="2" height="1"/><rect class="lm" x="4" y="0" width="2" height="1"/><rect class="lm" x="6" y="0" width="2" height="1"/><rect class="lm" x="6" y="1" width="2" height="1"/><rect class="lm" x="10" y="0" width="2" height="1"/><rect class="lm" x="10" y="1" width="2" height="1"/><rect class="lm" x="12" y="0" width="2" height="1"/><rect class="lm" x="14" y="0" width="2" height="1"/><rect class="lm" x="16" y="0" width="2" height="1"/><rect class="lm" x="16" y="1" width="2" height="1"/><rect class="lm" x="20" y="0" width="2" height="1"/><rect class="lm" x="20" y="1" width="2" height="1"/><rect class="lm" x="22" y="0" width="2" height="1"/><rect class="lm" x="24" y="0" width="2" height="1"/><rect class="lm" x="26" y="0" width="2" height="1"/><rect class="lm" x="26" y="1" width="2" height="1"/><rect class="lm" x="30" y="0" width="2" height="1"/><rect class="lm" x="30" y="1" width="2" height="1"/><rect class="lm" x="32" y="0" width="2" height="1"/><rect class="lm" x="34" y="0" width="2" height="1"/><rect class="lm" x="36" y="1" width="2" height="1"/><rect class="rm" x="40" y="0" width="2" height="1"/><rect class="rm" x="40" y="1" width="2" height="1"/><rect class="rm" x="42" y="0" width="2" height="1"/><rect class="rm" x="44" y="0" width="2" height="1"/><rect class="rm" x="46" y="0" width="2" height="1"/><rect class="rm" x="50" y="0" width="2" height="1"/><rect class="rm" x="50" y="1" width="2" height="1"/><rect class="rm" x="52" y="0" width="2" height="1"/><rect class="rm" x="54" y="0" width="2" height="1"/><rect class="rm" x="56" y="0" width="2" height="1"/><rect class="rm" x="56" y="1" width="2" height="1"/><rect class="rm" x="60" y="0" width="2" height="1"/><rect class="rm" x="60" y="1" width="2" height="1"/><rect class="rm" x="62" y="0" width="2" height="1"/><rect class="rm" x="64" y="0" width="2" height="1"/><rect class="rm" x="66" y="0" width="2" height="1"/><rect class="rm" x="66" y="1" width="2" height="1"/><rect class="rm" x="70" y="0" width="2" height="1"/><rect class="rm" x="70" y="1" width="2" height="1"/><rect class="rm" x="72" y="0" width="2" height="1"/><rect class="rm" x="74" y="0" width="2" height="1"/><rect class="rm" x="76" y="0" width="2" height="1"/><rect class="rm" x="76" y="1" width="2" height="1"/></svg>
+<span class="pad">         </span><svg class="art oc" data-cols="39" viewBox="0 0 78 2" preserveAspectRatio="none" aria-hidden="true" style="width:39ch"><rect class="lm" x="0" y="0" width="2" height="1"/><rect class="lm" x="0" y="1" width="2" height="1"/><rect class="ls" x="2" y="0" width="2" height="1"/><rect class="ls" x="2" y="1" width="2" height="1"/><rect class="ls" x="4" y="0" width="2" height="1"/><rect class="ls" x="4" y="1" width="2" height="1"/><rect class="lm" x="6" y="0" width="2" height="1"/><rect class="lm" x="6" y="1" width="2" height="1"/><rect class="lm" x="10" y="0" width="2" height="1"/><rect class="lm" x="10" y="1" width="2" height="1"/><rect class="ls" x="12" y="0" width="2" height="1"/><rect class="ls" x="12" y="1" width="2" height="1"/><rect class="ls" x="14" y="0" width="2" height="1"/><rect class="ls" x="14" y="1" width="2" height="1"/><rect class="lm" x="16" y="0" width="2" height="1"/><rect class="lm" x="16" y="1" width="2" height="1"/><rect class="lm" x="20" y="0" width="2" height="1"/><rect class="lm" x="20" y="1" width="2" height="1"/><rect class="lm" x="22" y="0" width="2" height="1"/><rect class="ls" x="22" y="1" width="2" height="1"/><rect class="lm" x="24" y="0" width="2" height="1"/><rect class="ls" x="24" y="1" width="2" height="1"/><rect class="lm" x="26" y="0" width="2" height="1"/><rect class="ls" x="26" y="1" width="2" height="1"/><rect class="lm" x="30" y="0" width="2" height="1"/><rect class="lm" x="30" y="1" width="2" height="1"/><rect class="ls" x="32" y="0" width="2" height="1"/><rect class="ls" x="32" y="1" width="2" height="1"/><rect class="ls" x="34" y="0" width="2" height="1"/><rect class="ls" x="34" y="1" width="2" height="1"/><rect class="lm" x="36" y="0" width="2" height="1"/><rect class="lm" x="36" y="1" width="2" height="1"/><rect class="rm" x="40" y="0" width="2" height="1"/><rect class="rm" x="40" y="1" width="2" height="1"/><rect class="rs" x="42" y="0" width="2" height="1"/><rect class="rs" x="42" y="1" width="2" height="1"/><rect class="rs" x="44" y="0" width="2" height="1"/><rect class="rs" x="44" y="1" width="2" height="1"/><rect class="rs" x="46" y="0" width="2" height="1"/><rect class="rs" x="46" y="1" width="2" height="1"/><rect class="rm" x="50" y="0" width="2" height="1"/><rect class="rm" x="50" y="1" width="2" height="1"/><rect class="rs" x="52" y="0" width="2" height="1"/><rect class="rs" x="52" y="1" width="2" height="1"/><rect class="rs" x="54" y="0" width="2" height="1"/><rect class="rs" x="54" y="1" width="2" height="1"/><rect class="rm" x="56" y="0" width="2" height="1"/><rect class="rm" x="56" y="1" width="2" height="1"/><rect class="rm" x="60" y="0" width="2" height="1"/><rect class="rm" x="60" y="1" width="2" height="1"/><rect class="rs" x="62" y="0" width="2" height="1"/><rect class="rs" x="62" y="1" width="2" height="1"/><rect class="rs" x="64" y="0" width="2" height="1"/><rect class="rs" x="64" y="1" width="2" height="1"/><rect class="rm" x="66" y="0" width="2" height="1"/><rect class="rm" x="66" y="1" width="2" height="1"/><rect class="rm" x="70" y="0" width="2" height="1"/><rect class="rm" x="70" y="1" width="2" height="1"/><rect class="rm" x="72" y="0" width="2" height="1"/><rect class="rs" x="72" y="1" width="2" height="1"/><rect class="rm" x="74" y="0" width="2" height="1"/><rect class="rs" x="74" y="1" width="2" height="1"/><rect class="rm" x="76" y="0" width="2" height="1"/><rect class="rs" x="76" y="1" width="2" height="1"/></svg>
+<span class="pad">         </span><svg class="art oc" data-cols="39" viewBox="0 0 78 2" preserveAspectRatio="none" aria-hidden="true" style="width:39ch"><rect class="lm" x="0" y="0" width="2" height="1"/><rect class="lm" x="2" y="0" width="2" height="1"/><rect class="lm" x="4" y="0" width="2" height="1"/><rect class="lm" x="6" y="0" width="2" height="1"/><rect class="lm" x="10" y="0" width="2" height="1"/><rect class="lm" x="10" y="1" width="2" height="1"/><rect class="lm" x="12" y="0" width="2" height="1"/><rect class="lm" x="14" y="0" width="2" height="1"/><rect class="lm" x="16" y="0" width="2" height="1"/><rect class="lm" x="20" y="0" width="2" height="1"/><rect class="lm" x="22" y="0" width="2" height="1"/><rect class="lm" x="24" y="0" width="2" height="1"/><rect class="lm" x="26" y="0" width="2" height="1"/><rect class="lm" x="30" y="0" width="2" height="1"/><rect class="ls" x="32" y="0" width="2" height="1"/><rect class="ls" x="34" y="0" width="2" height="1"/><rect class="lm" x="36" y="0" width="2" height="1"/><rect class="rm" x="40" y="0" width="2" height="1"/><rect class="rm" x="42" y="0" width="2" height="1"/><rect class="rm" x="44" y="0" width="2" height="1"/><rect class="rm" x="46" y="0" width="2" height="1"/><rect class="rm" x="50" y="0" width="2" height="1"/><rect class="rm" x="52" y="0" width="2" height="1"/><rect class="rm" x="54" y="0" width="2" height="1"/><rect class="rm" x="56" y="0" width="2" height="1"/><rect class="rm" x="60" y="0" width="2" height="1"/><rect class="rm" x="62" y="0" width="2" height="1"/><rect class="rm" x="64" y="0" width="2" height="1"/><rect class="rm" x="66" y="0" width="2" height="1"/><rect class="rm" x="70" y="0" width="2" height="1"/><rect class="rm" x="72" y="0" width="2" height="1"/><rect class="rm" x="74" y="0" width="2" height="1"/><rect class="rm" x="76" y="0" width="2" height="1"/></svg>
+
+
+<span class="bx">  ┃</span>
+<span class="bx">  ┃  </span>GRAVITY — build the fonts page
+<span class="bx">  ┃</span>
+
+<span class="d">     built site/ — fonts.html 14.2 kB, fonts 148 kB</span>
+
+<span class="bu">     ▣  </span><span class="d">Build · gpt-5.6-sol · 1.3s</span></pre>
+            <pre class="tm-in"><span class="bx">  ┃</span>
+<span class="bx">  ┃  </span><span class="cur"> </span>
+<span class="bx">  ┃</span>
+<span class="bx">  ┃  </span><span class="d">Build · gpt-5.6-sol </span><span class="dd">OpenAI</span>
+<span class="bx">  ╹</span><span class="ocr"><svg class="art" data-cols="55" viewBox="0 0 110 2" preserveAspectRatio="none" aria-hidden="true" style="width:55ch"><g fill="currentColor"><rect x="0" y="0" width="110" height="1"/></g></svg></span>
+<span class="d">   tab agents  ctrl+p commands</span>
+<span class="d">  ~/gravity</span><span class="pad">                                    </span><span class="d">1.18.18</span></pre>
+          </div>
         </div>
-        <pre id="pane-claude"><span class="g"> ✻</span> Claude Code · curia-551 — The story page
+            </div>
+            <!-- the tmux status line stays, without the window list (round 2) -->
+            <div class="tmux" aria-hidden="true">
+              <span class="sess">[gravity]</span>
+              <span class="clock">"box" 19:42</span>
+            </div>
+          </div>
 
-<span class="g"> ●</span> <span class="b">Read</span>(prototypes/landing-copy/NOTES.md)
-<span class="d">   └ 111 lines · the locked words of every scene</span>
-<span class="g"> ●</span> <span class="b">Write</span>(prototypes/story-page/index.html)
-<span class="d">   └ one self-contained file, twelve scenes</span>
-<span class="g"> ✻</span> <span class="y">Bash</span>: python3 -m http.server 9000
-<span class="d">   └ serving prototypes/story-page</span>
-
-<span class="d"> The preview link is on its way to your phone.</span>
-
-<span class="g"> ❯</span> <span class="cur">█</span></pre>
-        <pre id="pane-codex" hidden><span class="d">/ T R A N S C R I P T / / / / / / / / / / /</span>
-
-  <span class="b">user:</span> build the story page from the locked copy
-  <span class="g">codex:</span> I read the locked words and the storyboard.
-         The twelve scenes render from one file.
-
-<span class="d">  q to quit   esc/← to edit prev   enter to send</span></pre>
-        <div class="tmux-bar"><span>[curia-551] 0:claude*</span><span>"box" 19:42</span></div>
+          <!-- the control on a phone; the rail and these are never both on -->
+          <div class="tm-tabs">
+            <button type="button" data-h="claude" aria-pressed="true"><svg class="hm" viewBox="0 0 22 22" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M11 3.5v15"/><path d="M4.5 7.25l13 7.5"/><path d="M4.5 14.75l13-7.5"/></g></svg><b>Claude Code</b></button>
+            <button type="button" data-h="codex" aria-pressed="false"><svg class="hm" viewBox="0 0 22 22" aria-hidden="true"><path d="M6.5 5.5L12.5 11l-6 5.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><rect x="12" y="14.6" width="6" height="2.4" rx="1.2" fill="currentColor"/></svg><b>Codex</b></button>
+            <button type="button" data-h="pi" aria-pressed="false"><svg class="hm" viewBox="0 0 22 22" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M3.5 6.5h15"/><path d="M8 6.5v10"/><path d="M14.5 6.5v8.2c0 1.4 1 2 2.6 1.6"/></g></svg><b>Pi</b></button>
+            <button type="button" data-h="opencode" aria-pressed="false"><svg class="hm" viewBox="0 0 22 22" aria-hidden="true"><g fill="currentColor"><rect x="3" y="5" width="16" height="4.2" rx="0.6"/><rect x="3" y="12.8" width="4.6" height="4.2" rx="0.6"/><rect x="10.2" y="12.8" width="8.8" height="4.2" rx="0.6"/></g></svg><b>Opencode</b></button>
+          </div>
+        </div>
       </div>
-    </div>
-    <div class="wrap">
+
       <p class="fact rv">Claude Code, Codex, Pi and Opencode are supported</p>
     </div>
   </section>
@@ -2325,18 +2730,161 @@ if (prefersStill || !window.IntersectionObserver) {
 
 })();
 
-/* ---- the harness toggle ---- */
+/* ================================================================
+   Scene 7 (#629) — the harness, live.
 
-[].slice.call(document.querySelectorAll('.term-tab')).forEach(function (b) {
-  b.addEventListener('click', function () {
-    var pick = b.getAttribute('data-harness');
-    [].slice.call(document.querySelectorAll('.term-tab')).forEach(function (t) {
-      t.setAttribute('aria-pressed', String(t === b));
+   Three jobs, none of which the page depends on: it fits the panes to
+   58 columns, it switches the harness, and it prints the session. With
+   no script all four panes stand whole, one under the other, at the
+   CSS clamp size.
+
+   THE FIT is what makes the panes read as terminals. A terminal is a
+   character grid: the Codex banner box, the opencode ╹▀ rule, the
+   Claude composer rules and every ─ separator are authored at exactly
+   58 columns, so they meet only if 58 columns are exactly as wide as
+   the frame. The ruler is a 58ch box measured against the live frame,
+   and the font size is the ratio. It is linear, so one measurement
+   lands it.
+
+   THE CONTROL was settled at round 1: the rail past 60rem, the bottom
+   tabs below it, never both. Round 2 took the window list off the tmux
+   status line, so these two are the only control at any width.
+
+   THE RELAY was settled at round 2. Claude Code prints a line every
+   190ms, holds, and hands to Codex, which carries on — the two curia
+   really dispatches to today (config/routing.yaml). Pi and opencode
+   stand ready on the rail rather than joining the relay, because a
+   four-way relay runs past twenty seconds and round 2's note was that
+   the motion was hard to follow. The run happens ONCE: round 1 replayed
+   it on every entry, so scrolling back restarted the session under the
+   reader.
+   ================================================================ */
+(function () {
+  var scene = document.getElementById('term-scene');
+  var tm = document.getElementById('tm');
+  if (!scene || !tm) return;
+
+  var win = tm.querySelector('.tmw');
+  var ruler = tm.querySelector('.tm-ruler');
+  var vars = [].slice.call(tm.querySelectorAll('.tm-var'));
+  var picks = [].slice.call(tm.querySelectorAll('.tm-rail button, .tm-tabs button'));
+  var still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var harness = 'claude';
+  var live = vars[0];
+  function panes() { return [].slice.call(live.querySelectorAll('.tm-pane')); }
+
+  /* ---- the fit: 58 columns exactly fill the frame ---- */
+  function fit() {
+    var pane = panes().filter(function (p) { return !p.hidden; })[0];
+    if (!pane) return;
+    var out = pane.querySelector('.tm-out');
+    var cs = window.getComputedStyle(out);
+    var avail = out.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    if (avail <= 0) return;
+    win.style.removeProperty('--tmfs');
+    var base = parseFloat(window.getComputedStyle(ruler).fontSize);
+    var wide = ruler.getBoundingClientRect().width;
+    if (!wide || !base) return;
+    win.style.setProperty('--tmfs', Math.max(5.5, Math.min(15, base * avail / wide)).toFixed(2) + 'px');
+  }
+
+  /* ---- the harness. The rail and the tabs drive the same state, and
+     only one of the two is ever on screen. ---- */
+  function showHarness(h) {
+    harness = h;
+    vars.forEach(function (v) {
+      [].slice.call(v.querySelectorAll('.tm-pane')).forEach(function (p) {
+        p.hidden = p.getAttribute('data-h') !== h;
+      });
     });
-    document.getElementById('pane-claude').hidden = pick !== 'claude';
-    document.getElementById('pane-codex').hidden = pick !== 'codex';
+    picks.forEach(function (b) { b.setAttribute('aria-pressed', String(b.getAttribute('data-h') === h)); });
+    fit();
+  }
+  picks.forEach(function (b) {
+    b.addEventListener('click', function () {
+      var h = b.getAttribute('data-h');
+      if (h === harness) return;
+      /* a hand on the control takes the pane over: it stands whole
+         rather than replaying under the reader */
+      settle();
+      showHarness(h);
+    });
   });
-});
+
+  /* ---- the printer ---- */
+  var lined = false;
+  function lineUp() {
+    if (lined) return;
+    lined = true;
+    [].slice.call(tm.querySelectorAll('.tm-out')).forEach(function (out) {
+      out.innerHTML = out.innerHTML.split('\n').map(function (l) {
+        return '<span class="ln">' + l + '</span>';
+      }).join('\n');
+    });
+  }
+  function linesOf(h) {
+    var p = panes().filter(function (n) { return n.getAttribute('data-h') === h; })[0];
+    return [].slice.call(p.querySelectorAll('.tm-out .ln'));
+  }
+
+  var clock = null;
+  function stopPrint() { if (clock) { clearTimeout(clock); clock = null; } }
+  function mark(add) {
+    lineUp();
+    [].slice.call(tm.querySelectorAll('.tm-out .ln')).forEach(function (l) { l.classList.toggle('on', add); });
+  }
+  function bare() { mark(false); tm.classList.remove('done'); }
+  function settle() { stopPrint(); mark(true); tm.classList.add('done'); }
+
+  function printLines(h, pace, done) {
+    var ls = linesOf(h), i = 0;
+    (function tick() {
+      if (i >= ls.length) { clock = setTimeout(done, 300); return; }
+      ls[i].classList.add('on');
+      i += 1;
+      clock = setTimeout(tick, pace);
+    })();
+  }
+
+  /* The run happens once. Scrolling away mid-print settles the pane
+     whole rather than leaving it half written. */
+  var ran = false;
+  function start() {
+    if (ran) return;
+    ran = true;
+    if (still) return settle();
+    /* the class goes on FIRST: the lines are only hidden under it, so
+       baring them before it is set flashes the whole pane for a frame */
+    tm.classList.add('printing');
+    bare();
+    showHarness('claude');
+    printLines('claude', 190, function () {
+      clock = setTimeout(function () {
+        showHarness('codex');
+        printLines('codex', 190, function () { tm.classList.add('done'); });
+      }, 1500);
+    });
+  }
+
+  showHarness('claude');
+
+  if (window.ResizeObserver) new ResizeObserver(fit).observe(win);
+  window.addEventListener('resize', fit, { passive: true });
+  window.addEventListener('load', fit);
+
+  if (window.IntersectionObserver) {
+    new IntersectionObserver(function (es) {
+      es.forEach(function (e) {
+        fit();
+        if (e.isIntersecting) { seen = true; start(); }
+        else if (ran) settle();
+      });
+    }, { threshold: 0.2 }).observe(tm);
+  } else {
+    seen = true;
+    settle();
+  }
+})();
 
 /* ---- #624: each scene owns its color field, so a color change
    never repaints an earlier scene. --p says how active a scene is:

@@ -72,7 +72,17 @@ export const daemonPort = () => Number(process.env.PORT ?? DEFAULT_DAEMON_PORT)
 // Bumped to 8 by #714: Chat embeds the terminal through `/terminal/`, including
 // its WebSocket upgrade. An older sidecar would leave that pane disconnected.
 // Bumped to 9 by #715: a native dialog card answers through `/dialog-answer`.
-export const DASHBOARD_PROTO = 9
+// Bumped to 10 by #661: the page carries a Credentials screen whose one button
+// POSTs `/api/reauth`, a route a proto-9 sidecar does not serve — so a screen
+// built for the 3am no-ssh recovery would answer 404 at the press it exists
+// for. It also reads two fields a proto-9 daemon's `/overview` does not carry.
+export const DASHBOARD_PROTO = 10
+
+// The Credentials screen's own hash (#661). It is here rather than in the
+// daemon that links to it, because the page's screen names are this file's half
+// of the protocol — and a second copy of the word in dispatch.mjs would be free
+// to point at a screen the page had renamed.
+export const CREDENTIALS_HASH = '#credentials'
 export const STAMP_NAME = 'curia-dashboard'
 const STAMP_RE = new RegExp(`<meta name="${STAMP_NAME}" content="proto=(\\d+)">`)
 
@@ -234,6 +244,13 @@ const CONSOLE_KEY_RE = /^console-\d+$/
 // path, so the set of files this surface can ask about is exactly the set curia
 // measured — the browser cannot name a file, only pick one.
 const VERB_FILE_RE = /^\d{1,4}$/
+// A model-credential provider (#661), the shape `reauth [provider]` parses.
+// Checked here for the reason every field above is: this surface composes the
+// command line, so it names the shape it will send. The daemon refuses an
+// unknown provider by naming what it can sign in, and that sentence is the
+// reply the button shows — this only keeps a browser from writing the rest of
+// the line.
+const VERB_PROVIDER_RE = /^[a-z0-9][a-z0-9-]*$/
 export const MAX_WORDS = 4000
 
 // Why an answer did not land (#266). The reduction refuses in ONE WORD — `unknown`,
@@ -934,6 +951,22 @@ export class DashboardSurface {
           const text = words(b.text, 'a note')
           const mode = b.mode === 'interrupt' ? 'interrupt' : 'queue'
           return this.#daemon({ method: 'POST', path: '/note', body: { agent, text, mode, by } })
+        })
+      }
+      // Sign a model credential back in (#661). The Credentials screen's one
+      // action, and the reason that screen exists: the recovery from a dead
+      // credential has no ssh in it, so the press has to reach a phone.
+      //
+      // It runs the operator's own `reauth <provider>` through the command
+      // seam, so a press journals the same `command` event a typed one does and
+      // the reply the button shows is curia's own sentence about what happened
+      // — including the refusal when this daemon brokers no credential for that
+      // provider. Nothing about the login is decided here.
+      if (url.pathname === '/api/reauth') {
+        return this.#verb(res, async () => {
+          const b = await this.#body(req)
+          const provider = field(b.provider, VERB_PROVIDER_RE, 'a provider name')
+          return this.#command(`reauth ${provider}`, by)
         })
       }
       // The browser conversations (#333). The Chat screen mints one and
