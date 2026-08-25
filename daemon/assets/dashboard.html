@@ -36,14 +36,16 @@
         on its own says which of the two it is. -->
 <meta name="curia-dashboard" content="proto=6">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>curia</title>
+<meta name="color-scheme" content="dark light">
+<title>Atlas · Curia</title>
 <style>
   /* ---------- tokens: dark-first (#248) ---------- */
   :root {
-    --bg: #111417; --bg-raise: #191e22; --bg-inset: #0c0f11;
-    --line: #262d33; --ink: #dde3e0; --ink-dim: #8a94a6; --ink-faint: #5a6472;
-    --accent: #4cc2a0; --accent-ink: #0c1512;
-    --warn: #e0a83c; --bad: #d95f57; --ok: #4cc2a0; --idle: #8a94a6;
+    color-scheme: dark;
+    --bg: #0b0c10; --bg-raise: #13161d; --bg-inset: #08090c;
+    --line: #20242c; --ink: #e6e9ef; --ink-dim: #8a93a3; --ink-faint: #687180;
+    --accent: #5ec8e5; --accent-ink: #08090c;
+    --warn: #ffb454; --bad: #f07a7a; --ok: #41d98d; --idle: #8a93a3;
     --chip-warn-bg: #2b2114; --chip-bad-bg: #2b1715; --chip-ok-bg: #12241f;
     --shadow: 0 6px 24px rgba(0,0,0,.45);
     /* The diff's own two colors (#355) — a patch's vocabulary, not the
@@ -52,10 +54,11 @@
   }
   @media (prefers-color-scheme: light) {
     :root:not([data-theme="dark"]) {
-      --bg: #f2f4f3; --bg-raise: #ffffff; --bg-inset: #e8ebe9;
-      --line: #d5dad6; --ink: #1d2420; --ink-dim: #5b6570; --ink-faint: #8b939e;
-      --accent: #157a5f; --accent-ink: #f2fdf9;
-      --warn: #9a6a10; --bad: #b03a32; --ok: #157a5f; --idle: #5b6570;
+      color-scheme: light;
+      --bg: #f6f6f4; --bg-raise: #ffffff; --bg-inset: #eeeeeb;
+      --line: #e3e3e0; --ink: #17181c; --ink-dim: #6b7280; --ink-faint: #8a93a3;
+      --accent: #0b6f8f; --accent-ink: #ffffff;
+      --warn: #b97900; --bad: #b3323a; --ok: #1fbf6b; --idle: #6b7280;
       --chip-warn-bg: #f4e8cf; --chip-bad-bg: #f6ddda; --chip-ok-bg: #d9efe7;
       --shadow: 0 6px 24px rgba(30,40,35,.12);
       --diff-add: #1f7a34; --diff-del: #a3352c;
@@ -75,28 +78,52 @@
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
   /* ---------- shell ---------- */
-  .shell { display: grid; grid-template-columns: 172px 1fr; min-height: 100vh; }
-  .shell nav {
-    border-right: 1px solid var(--line); padding: 16px 10px; background: var(--bg-inset);
-    display: flex; flex-direction: column; gap: 2px;
+  .shell { display: grid; grid-template-columns: 230px 1fr; min-height: 100vh; }
+  .drawer {
+    position: sticky; top: 0; height: 100vh; border-right: 1px solid var(--line);
+    padding: 22px 20px; background: var(--bg-inset); display: flex; flex-direction: column; gap: 2px;
   }
-  .shell nav .brand { font-family: ui-monospace, Menlo, monospace; font-weight: 700; font-size: 14px; padding: 0 10px 12px; }
-  .shell nav button {
+  .drawer .brand {
+    padding: 0 10px 18px; color: var(--ink-dim); font: 700 11px ui-monospace, Menlo, monospace;
+    letter-spacing: .16em; text-transform: uppercase;
+  }
+  .drawer button {
     text-align: left; border: 0; background: none; color: var(--ink-dim);
-    padding: 8px 10px; border-radius: 7px; font-size: 13.5px;
+    padding: 11px 10px; border-radius: 7px; font: 600 12px ui-monospace, Menlo, monospace;
+    letter-spacing: .08em; text-transform: uppercase;
     display: flex; justify-content: space-between; align-items: baseline;
   }
-  .shell nav button.on { background: var(--bg-raise); color: var(--ink); font-weight: 600; }
-  .shell nav button .n { color: var(--warn); font-weight: 700; }
+  .drawer button.on { background: var(--bg-raise); color: var(--accent); }
+  .nav-marker { color: var(--warn); font-weight: 700; }
+  .notchbar { display: none; }
   .shell main { padding: 18px 22px; min-width: 0; }
   .shell main h2 { font-size: 15px; }
   .screen-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
   @media (max-width: 760px) {
     .shell { grid-template-columns: 1fr; }
-    .shell nav { flex-direction: row; overflow-x: auto; border-right: 0; border-bottom: 1px solid var(--line); padding: 8px 10px; align-items: center; }
-    .shell nav .brand { padding: 0 10px 0 4px; }
-    .shell nav button { flex: none; gap: 6px; }
-    .shell main { padding: 14px; }
+    .drawer { display: none; }
+    .shell main { padding: 14px 14px calc(104px + env(safe-area-inset-bottom)); }
+    .notchbar {
+      position: fixed; z-index: 20; right: 0; bottom: 0; left: 0;
+      display: grid; grid-template-columns: 1fr 1fr 76px 1fr 1fr;
+      border-top: 1px solid var(--line); padding: 9px 6px calc(10px + env(safe-area-inset-bottom));
+      background: var(--bg-inset); box-shadow: 0 -8px 28px rgba(0,0,0,.24);
+    }
+    .notchbar button {
+      min-width: 0; border: 0; background: none; color: var(--ink-dim);
+      padding: 4px 1px; font: 700 9px ui-monospace, Menlo, monospace;
+      letter-spacing: .04em; text-transform: uppercase;
+    }
+    .notchbar button.on { color: var(--accent); }
+    .notchbar .nav-icon { display: block; min-height: 20px; margin-bottom: 3px; font-size: 17px; line-height: 20px; }
+    .notchbar .agents-key {
+      position: relative; width: 62px; height: 62px; align-self: end; justify-self: center;
+      margin-top: -28px; border: 1px solid var(--line); border-radius: 50%;
+      background: var(--bg-raise); box-shadow: var(--shadow);
+    }
+    .notchbar .agents-key.on { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .notchbar .agents-key .nav-icon { color: var(--warn); font-size: 16px; }
+    .notchbar .agents-key .nav-label { display: block; color: var(--ink-dim); font-size: 7px; }
   }
 
   /* ---------- the reading's own age ---------- */
@@ -401,13 +428,14 @@
    named tickets below draw their own. */
 const SCREENS = {
   home:     ["Home",     screenHome],
+  maps:     ["Maps",     screenFrontier],
   agents:   ["Agents",   screenAgents],
-  frontier: ["Frontier", screenFrontier],
   feed:     ["Feed",     screenFeed],
   chat:     ["Chat",     screenChat],
   settings: ["Settings", screenSettings],
 };
 const NAMES = Object.keys(SCREENS);
+const DESKTOP_NAV = ["home", "maps", "agents", "feed", "chat", "settings"];
 
 /* A usage window is spent at the same number the daemon calls spent
    (usage.mjs SPENT_PCT). One name for one thing: the page must not invent a
@@ -1406,7 +1434,7 @@ function screenAgents(p) {
     <span>bridge ${esc(o.bridge)}</span>
     <span>daemon :${esc(d.port)} up ${esc(dur(d.uptime_s))}</span>
   </div>`;
-  return `${head(p, "Agents")}${bar}${agentsTable(o)}${untrackedLine(o)}${recentLine(o)}`;
+  return `${head(p, "Agents", `<button class="btn sm" onclick="goto('chat')">Chat</button>`)}${bar}${agentsTable(o)}${untrackedLine(o)}${recentLine(o)}`;
 }
 
 function agentsTable(o) {
@@ -1612,12 +1640,12 @@ const FR_VIEWS = { cards: ["Cards", frCards], tree: ["Tree", frTree] };
 
 function screenFrontier(p) {
   const o = p?.overview;
-  if (!o) return noSnapshot(p, "Frontier");
+  if (!o) return noSnapshot(p, "Maps");
   const snap = o.frontier;
   const right = `<span class="seg">${Object.entries(FR_VIEWS).map(([k, v]) =>
     `<button class="${UI.fr.view === k ? "on" : ""}" onclick="frSet('view','${k}')">${esc(v[0])}</button>`).join("")}</span>`;
   if (!snap || !snap.computed_at) {
-    return `${head(p, "Frontier — two levels", right)}
+    return `${head(p, "Maps · two levels", right)}
       <div class="later">No frontier has been computed yet. Reconcile computes it on the credentials that pass already holds, and stamps the instant it did.</div>`;
   }
   const types = frTypes(snap);
@@ -1631,7 +1659,7 @@ function screenFrontier(p) {
     </select>
     <span class="dim-note">computed ${esc(ago(snap.computed_at))}</span>
   </div>`;
-  return `${head(p, "Frontier — two levels", right)}${filter}${FR_VIEWS[UI.fr.view][1](frFiltered(snap), o)}`;
+  return `${head(p, "Maps · two levels", right)}${filter}${FR_VIEWS[UI.fr.view][1](frFiltered(snap), o)}`;
 }
 function frSet(key, value) {
   UI.fr[key] = value;
@@ -2222,21 +2250,45 @@ function render() {
   /* The stale-daemon marker (#362). A daemon running something other than the
      files is visible from every screen, so nobody has to open Settings to find
      out. It reads the same comparison the Maintenance section draws. */
-  const stale = runningDiff(payload)?.length ? ` <span class="n" title="the daemon is not running these files">●</span>` : "";
+  const stale = runningDiff(payload)?.length ? `<span class="nav-marker">stale</span>` : "";
   const field = activeField();
   app.innerHTML = `<div class="shell">
-    <nav><span class="brand">curia</span>
-      ${NAMES.map((k) => `<button class="${UI.screen === k ? "on" : ""}" onclick="goto('${k}')">${SCREENS[k][0]}${
-        k === "home" && n ? ` <span class="n">${n}</span>` : ""}${k === "settings" ? stale : ""}</button>`).join("")}
-    </nav>
+    ${desktopNav(n, stale)}
     <main>${SCREENS[UI.screen][1](payload)}</main>
+    ${mobileNav(n, stale)}
   </div>`;
-  document.title = (n ? `(${n}) ` : "") + "curia";
+  document.title = (n ? `(${n}) ` : "") + "Atlas · Curia";
   restoreField(field);
   /* The hunks a card just asked for (#355). Started AFTER the page is written,
      so a renderer stays a renderer — and once each, because the marker the
      request left behind is what the next render reads. */
   drainDiffQueue();
+}
+
+function navMarker(k, needs, stale) {
+  if (k === "home" && needs) return `<span class="nav-marker num">${needs}</span>`;
+  if (k === "settings") return stale;
+  return "";
+}
+function desktopNav(needs, stale) {
+  return `<nav class="drawer" aria-label="Atlas pages"><span class="brand">curia · atlas</span>
+    ${DESKTOP_NAV.map((k) => `<button class="${UI.screen === k ? "on" : ""}" onclick="goto('${k}')">
+      <span class="nav-label">${SCREENS[k][0]}</span>${navMarker(k, needs, stale)}</button>`).join("")}
+  </nav>`;
+}
+function mobileTab(k, icon, marker) {
+  return `<button class="${UI.screen === k ? "on" : ""}" onclick="goto('${k}')">
+    <span class="nav-icon" aria-hidden="true">${icon}</span><span class="nav-label">${SCREENS[k][0]}</span>${marker ?? ""}</button>`;
+}
+function mobileNav(needs, stale) {
+  return `<nav class="notchbar" aria-label="Atlas pages">
+    ${mobileTab("home", "⌂", navMarker("home", needs, stale))}
+    ${mobileTab("maps", "▦")}
+    <button class="agents-key ${UI.screen === "agents" || UI.screen === "chat" ? "on" : ""}" onclick="goto('agents')">
+      <span class="nav-icon num">${needs || "◎"}</span><span class="nav-label">Agents</span></button>
+    ${mobileTab("feed", "≡")}
+    ${mobileTab("settings", "⚙", navMarker("settings", needs, stale))}
+  </nav>`;
 }
 
 /* The poll re-renders the whole page every few seconds, and the settings screen
@@ -2268,14 +2320,16 @@ function restoreField(f) {
    Chat re-reads on EVERY arrival, unlike settings. The list carries a context
    percent and a last-turn time, and both move with every turn taken from any
    device, so a held copy would age. */
+function routeName(k) { return k === "frontier" ? "maps" : k; }
 function enter(k) {
+  k = routeName(k);
   UI.screen = k;
   if (k === "settings" && !settings) loadSettings();
   if (k === "chat") loadConversations();
 }
 function goto(k) { enter(k); location.hash = k; render(); }
 window.addEventListener("hashchange", () => {
-  const k = location.hash.slice(1);
+  const k = routeName(location.hash.slice(1));
   if (NAMES.includes(k) && k !== UI.screen) { enter(k); render(); }
 });
 
@@ -2316,7 +2370,8 @@ document.addEventListener("visibilitychange", () => {
    a vm to call the screens directly, and a boot there would fetch nothing and
    render into no document. */
 if (typeof document !== "undefined" && document.getElementById("app")) {
-  enter(NAMES.includes(location.hash.slice(1)) ? location.hash.slice(1) : "home");
+  const initial = routeName(location.hash.slice(1));
+  enter(NAMES.includes(initial) ? initial : "home");
   /* The file read happens at boot even when the operator lands somewhere else
      (#362): the stale-daemon marker on the Settings nav item compares the two,
      and a marker that needed the section opened would be a marker nobody sees.

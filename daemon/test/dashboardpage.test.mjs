@@ -39,6 +39,40 @@ function loadPage() {
   return ctx
 }
 
+function loadPollingPage() {
+  const html = fs.readFileSync(DEFAULT_DASHBOARD_INDEX, 'utf8')
+  const script = /<script>([\s\S]*)<\/script>/.exec(html)
+  const listeners = new Map()
+  const timers = new Map()
+  const reads = []
+  let timerId = 0
+  const document = {
+    title: '',
+    visibilityState: 'visible',
+    activeElement: null,
+    getElementById: () => null,
+    addEventListener: (name, listener) => listeners.set(name, listener),
+  }
+  const ctx = vm.createContext({
+    document,
+    window: { addEventListener() {} },
+    location: { hash: '' },
+    fetch: async (url) => {
+      reads.push(url)
+      return { ok: true, json: async () => payload() }
+    },
+    setTimeout: (callback) => {
+      const id = ++timerId
+      timers.set(id, callback)
+      return id
+    },
+    clearTimeout: (id) => timers.delete(id),
+    console,
+  })
+  vm.runInContext(script[1], ctx)
+  return { page: ctx, document, listeners, timers, reads }
+}
+
 // The wire shape of `GET /overview` (#262), with the ctx meter #264 joins onto
 // each agent. Every fixture below starts from this and overrides one section.
 const at = (secondsAgo) => new Date(Date.now() - secondsAgo * 1000).toISOString()
@@ -167,6 +201,82 @@ const text = (html) => html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
 // The page runs in a vm, so an object it built has a different realm's
 // prototype and deepEqual would refuse it on that alone.
 const plain = (x) => JSON.parse(JSON.stringify(x))
+
+describe('the Atlas frame (#686)', () => {
+  let page
+  let shell
+
+  before(() => {
+    page = loadPage()
+    page.document.getElementById = (id) => (id === 'app' ? { set innerHTML(value) { shell = value } } : null)
+    page.payload = payload()
+    page.render()
+  })
+
+  test('the desktop drawer names every Atlas screen in the decided order', () => {
+    const drawer = /<nav class="drawer"[\s\S]*?<\/nav>/.exec(shell)?.[0]
+    assert.ok(drawer)
+    assert.deepEqual(
+      [...drawer.matchAll(/<span class="nav-label">([^<]+)<\/span>/g)].map((match) => match[1]),
+      ['Home', 'Maps', 'Agents', 'Feed', 'Chat', 'Settings'],
+    )
+  })
+
+  test('the mobile notch bar keeps four tabs around the Agents key', () => {
+    const notch = /<nav class="notchbar"[\s\S]*?<\/nav>/.exec(shell)?.[0]
+    assert.ok(notch)
+    assert.deepEqual(
+      [...notch.matchAll(/<span class="nav-label">([^<]+)<\/span>/g)].map((match) => match[1]),
+      ['Home', 'Maps', 'Agents', 'Feed', 'Settings'],
+    )
+    assert.match(page.screenAgents(payload()), /onclick="goto\('chat'\)"[^>]*>Chat</)
+  })
+
+  test('every screen receives the same held overview reading', () => {
+    const held = payload()
+    const screens = [
+      page.screenHome,
+      page.screenFrontier,
+      page.screenAgents,
+      page.screenFeed,
+      page.screenChat,
+      page.screenSettings,
+    ]
+    for (const screen of screens) assert.match(text(screen(held)), /read \d+s ago/)
+  })
+
+  test('navigation markers pair their color with a word or number', () => {
+    page.settings = SETTINGS()
+    page.draft = JSON.parse(JSON.stringify(page.settings))
+    page.settings.dispatch.poll_interval_s = 5
+    page.render()
+    assert.match(shell, /class="nav-marker"[^>]*>stale<\/span>/)
+    assert.doesNotMatch(shell, /title="the daemon is not running these files">●/)
+  })
+
+  test('light and dark themes state the same browser color contract', () => {
+    const source = fs.readFileSync(DEFAULT_DASHBOARD_INDEX, 'utf8')
+    assert.match(source, /:root \{[^}]*color-scheme: dark;/s)
+    assert.match(source, /prefers-color-scheme: light[\s\S]*:root:not\(\[data-theme="dark"\]\) \{[^}]*color-scheme: light;/)
+  })
+
+  test('a hidden tab cancels its refresh and resumes with one immediate read', async () => {
+    const browser = loadPollingPage()
+    await browser.page.tick()
+    assert.equal(browser.reads.length, 1)
+    assert.equal(browser.timers.size, 1)
+
+    browser.document.visibilityState = 'hidden'
+    browser.listeners.get('visibilitychange')()
+    assert.equal(browser.timers.size, 0)
+
+    browser.document.visibilityState = 'visible'
+    browser.listeners.get('visibilitychange')()
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.equal(browser.reads.length, 2)
+    assert.equal(browser.timers.size, 1)
+  })
+})
 
 describe('the read screens (#264)', () => {
   let page
@@ -399,10 +509,10 @@ describe('the read screens (#264)', () => {
       const el = { innerHTML: '' }
       page.document.getElementById = () => el
       page.render()
-      assert.equal(page.document.title, '(2) curia')
+      assert.equal(page.document.title, '(2) Atlas · Curia')
       page.payload = payload({ escalations: [], review_gate: [] })
       page.render()
-      assert.equal(page.document.title, 'curia')
+      assert.equal(page.document.title, 'Atlas · Curia')
       page.document.getElementById = () => null
     })
 
@@ -863,7 +973,7 @@ describe('the settings screen (#265)', () => {
     assert.ok(!/Settings <span class="n">/.test(html), 'nothing to say while the daemon runs the files')
     page.settings.dispatch.poll_interval_s = 5
     page.render()
-    assert.match(html, /Settings <span class="n" title="the daemon is not running these files">/)
+    assert.match(html, /<span class="nav-label">Settings<\/span><span class="nav-marker">stale<\/span>/)
   })
 
   test('a restart the journal recorded reads as a sentence in the feed', () => {
