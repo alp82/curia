@@ -27,6 +27,7 @@ import {
 import { isChatHandle } from './attach.mjs'
 import { parseCommand } from './commands.mjs'
 import { safeLeaf } from './attachments.mjs'
+import { readInboundText } from './inbound.mjs'
 import { REVIEW_KIND, CROSS_CHECK_ANSWER, ALL_AS_RECOMMENDED } from './lifecycle.mjs'
 import { CONFIRM_KIND } from './reduction.mjs'
 import { chunkMessage, smallPrint, elapsedLabel } from './messaging.mjs'
@@ -483,6 +484,7 @@ export class DiscordBridge {
     token, allowedUsers, guildId, channelName = 'curia', dataDir, handlers, bindings = null,
     log = console.log, onHealth = () => {},
     clearDelayMs = CLEAR_DELAY_MS, timers = { set: setTimeout, clear: clearTimeout },
+    loadInboundText,
   }) {
     this.token = token
     this.allowedUsers = allowedUsers // array of user-id strings; the auth gate
@@ -498,6 +500,9 @@ export class DiscordBridge {
     this.clearDelayMs = clearDelayMs
     this.timers = timers
     this.flagClears = new Map() // ticket -> the held 🎫 clear (#277), ephemeral
+    // How an inbound text attachment's bytes are read (#697). Undefined means
+    // the module's own fetch; a test hands its own reader.
+    this.loadInboundText = loadInboundText
     // Bridge health (#56). Ephemeral like every other cache here: the journal
     // holds the transitions, this holds only what is true right now.
     this.health = { state: 'down', since: Date.now(), last_error: null }
@@ -1835,6 +1840,17 @@ export class DiscordBridge {
   async handleMessage(m) {
     if (m.author.bot) return
     if (!this.authorized(m.author.id)) return
+    // Nothing outside #curia and its threads is curia's message, and reading
+    // one costs a download (#697) — so the shape check runs before the read.
+    const inCuria = m.channel.id === this.channel.id
+      || (m.channel.isThread?.() && m.channel.parentId === this.channel.id)
+    if (!inCuria) return
+    // What the operator SAID, not what Discord kept in the message (#697).
+    // A body past 2000 characters arrives as a short message plus a
+    // `message.txt`, so every path below reads the composed text and none of
+    // them reads `m.content`. Refusals ride inside it, which is why a bad file
+    // costs a line and never the message. See `inbound.mjs`.
+    const { text: said } = await readInboundText(m, { load: this.loadInboundText })
     // Top-level prose in #curia always opens a fresh conversation thread (#89).
     if (m.channel.id === this.channel.id) {
       // #692, ADR-0022: a typed verb runs BEFORE a model turn. When the whole
@@ -1848,16 +1864,16 @@ export class DiscordBridge {
       //
       // The whole line has to parse. A partial match is prose that starts with
       // a verb ("status of the landing page map?"), and that is a question.
-      const typed = m.content?.trim() ?? ''
+      const typed = said.trim()
       if (typed && this.handlers.command && parseCommand(typed)) {
         const reply = await this.handlers.command(typed, m.author.id, { threadId: null })
         await this.#sendChunked(m.channel, { content: reply ?? `relayed: \`${typed}\`` })
         return
       }
       if (!this.handlers.overseerTurn) return
-      const thread = await m.startThread({ name: m.content.slice(0, 80) || 'overseer', autoArchiveDuration: 10080 })
+      const thread = await m.startThread({ name: said.slice(0, 80) || 'overseer', autoArchiveDuration: 10080 })
       await this.#addWatchers(thread)
-      return this.#overseerTurn(thread, m.content)
+      return this.#overseerTurn(thread, said)
     }
     if (!m.channel.isThread() || m.channel.parentId !== this.channel.id) return
     // A reply in a thread feeds an open escalation first, otherwise the
@@ -1873,7 +1889,7 @@ export class DiscordBridge {
       // round-one refusal notice is gone.
       const owner = this.handlers.agentForThread?.(m.channel.id)
       if (owner) {
-        const q = this.handlers.queueAgentNote?.(m.channel.id, m.content ?? '', m.author.id)
+        const q = this.handlers.queueAgentNote?.(m.channel.id, said, m.author.id)
         if (q) {
           // 📨 means the words are in a queue. A dead agent queues nothing
           // (#208), so the reaction says the same thing the reply does.
@@ -1884,7 +1900,7 @@ export class DiscordBridge {
           // The receipt carries the interrupt button, the operator's pick of
           // the other delivery mode (#252). A dead agent queued nothing, so its
           // receipt gets none.
-          await m.channel.send(noteReceipt({ owner, q, text: m.content, channelId: this.channel.id })).catch(() => {})
+          await m.channel.send(noteReceipt({ owner, q, text: said, channelId: this.channel.id })).catch(() => {})
         } else {
           await m.react('⚠️').catch(() => {})
           await m.channel.send(smallPrint(
@@ -1896,10 +1912,10 @@ export class DiscordBridge {
         this.#reportPost(m.channel)
         return
       }
-      if (this.handlers.overseerTurn && m.content?.trim()) return this.#overseerTurn(m.channel, m.content)
+      if (this.handlers.overseerTurn && said.trim()) return this.#overseerTurn(m.channel, said)
       return
     }
-    let answer = m.content?.trim() ?? ''
+    let answer = said.trim()
     // numbered reply against a degraded long choice list
     if (open.kind === 'choice' && /^\d+$/.test(answer)) {
       const picked = open.options?.[Number(answer) - 1]
