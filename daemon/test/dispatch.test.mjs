@@ -4634,6 +4634,92 @@ describe('the diff digest at the gate (#355)', () => {
   })
 })
 
+// The preview at the gate (#735). The rule itself is pinned in
+// previewgate.test.mjs; what is pinned here is what the GATE does with it — one
+// bounce, never a block, and the operator's link composed by curia either way.
+describe('the preview the gate expects (#735)', () => {
+  const digestOf = (...paths) => ({
+    readDiffDigest: async () => ({
+      digest: {
+        uncommitted: false, files: paths.length, added: 1, deleted: 0, capped: false,
+        rank_rule: 'r', list: paths.map((p) => ({ path: p, added: 1, deleted: 0, status: 'M', binary: false, untracked: false, hunks: 1, from: null })),
+      },
+      error: null,
+    }),
+  })
+
+  test('a backend-only task reaches review with no preview and no bounce', async () => {
+    let asked = null
+    const d = makeDispatcher(digestOf('daemon/src/dispatch.mjs'),
+      { askReview: async (a, t, text) => { asked = text; return { text: 'approve', status: 'answered' } } })
+    liveAgent(d)
+
+    const r = await d.requestReview('curia-42', { summary: 's', charting: 'none' })
+
+    assert.equal(r.approved, true)
+    assert.ok(!/preview/i.test(asked), 'a backend-only gate must not mention a preview at all')
+    assert.ok(!events.some((e) => e.type === 'preview_expected'))
+  })
+
+  test('a task that changed a page is bounced once instead of gating', async () => {
+    let asked = false
+    const d = makeDispatcher(digestOf('web/index.html', 'daemon/src/dispatch.mjs'),
+      { askReview: async () => { asked = true; return { text: 'approve', status: 'answered' } } })
+    const w = liveAgent(d)
+
+    const r = await d.requestReview('curia-42', { summary: 's', charting: 'none' })
+
+    assert.equal(r.ok, false)
+    assert.equal(asked, false, 'no gate opened')
+    assert.match(r.text, /no preview is published/)
+    assert.match(r.text, /web\/index\.html/)
+    assert.equal(w.previewAsked, true, 'the ask must be remembered, or the agent is trapped')
+    const journalled = events.find((e) => e.type === 'preview_expected')
+    assert.deepEqual(journalled.files, ['web/index.html'])
+  })
+
+  test('the second call opens the gate and says curia asked and got nothing', async () => {
+    let asked = null
+    const d = makeDispatcher(digestOf('web/index.html'),
+      { askReview: async (a, t, text) => { asked = text; return { text: 'approve', status: 'answered' } } })
+    liveAgent(d)
+
+    await d.requestReview('curia-42', { summary: 's', charting: 'none' })
+    const r = await d.requestReview('curia-42', { summary: 'nothing to look at — this page is generated at build time', charting: 'none' })
+
+    assert.equal(r.approved, true, 'the expectation must never block review')
+    assert.match(asked, /No preview — curia asked for one/)
+    assert.ok(events.some((e) => e.type === 'preview_missing'))
+  })
+
+  test('a published preview gates on the first call, with curia\'s own link', async () => {
+    let asked = null
+    const d = makeDispatcher(digestOf('web/index.html'),
+      { askReview: async (a, t, text) => { asked = text; return { text: 'approve', status: 'answered' } } })
+    liveAgent(d)
+    // allocated by the registry (#40), never a string the agent handed over
+    d.previews = { get: () => ({ servePort: 8500, devPort: 5173, url: 'https://box.ts.net:8500/curia-check' }) }
+
+    const r = await d.requestReview('curia-42', { summary: 's', charting: 'none' })
+
+    assert.equal(r.approved, true)
+    assert.match(asked, /Preview: https:\/\/box\.ts\.net:8500\/curia-check/)
+    assert.ok(!/curia asked for one/.test(asked))
+    assert.ok(!events.some((e) => e.type === 'preview_expected'))
+  })
+
+  test('a diff curia could not count never bounces the gate', async () => {
+    const d = makeDispatcher({ readDiffDigest: async () => ({ digest: null, error: 'the agent worktree is gone' }) },
+      { askReview: async () => ({ text: 'approve', status: 'answered' }) })
+    liveAgent(d)
+
+    const r = await d.requestReview('curia-42', { summary: 's', charting: 'none' })
+
+    assert.equal(r.approved, true)
+    assert.ok(!events.some((e) => e.type === 'preview_expected'))
+  })
+})
+
 // The hunks, on demand (#355). The browser names an escalation id or an agent,
 // and these are what resolve that name to a worktree — the #266 seam.
 describe('the hunks the console asks for (#355)', () => {
