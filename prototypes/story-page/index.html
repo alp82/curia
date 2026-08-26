@@ -2135,7 +2135,7 @@
   .vps .shot { justify-content: center; }
   .vps .shot > * { max-width: 30rem; }
   .vps .box { padding: 1.3rem 1.4rem 1.4rem; }
-  .vps .box .bx-head { font-size: 0.86rem; margin-bottom: 1rem; }
+  .vps .box .bx-head { font-size: 0.78rem; margin-bottom: 1rem; }
   .vps .box { font-family: var(--mono); }
   .vps .k { color: var(--dim); }
   .vps .m { color: var(--st-merged); }
@@ -2154,15 +2154,63 @@
   .st-mem .bar i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--st-merged); width: 2.5%; }
   .st-mem .bar u { position: absolute; left: 0; top: 0; bottom: 0; border-right: 1px dashed var(--st-agent); width: 6.7%; }
 
-  /* 2 gauge: the whole memory of the box as one strip. */
-  .gg-strip { display: grid; grid-template-columns: repeat(8, 1fr); gap: 0.3rem; margin: 0.5rem 0 0.5rem; }
-  .gg-strip i { height: 2.6rem; background: #ffffff0c; border-radius: 6px; }
-  .gg-strip i.p { background: var(--st-merged); }
-  .gg-strip i.a { background: none; box-shadow: inset 0 0 0 1px var(--st-agent); }
-  .gg-strip i.h { background: #ffffff18; }
+  /* 2 gauge, round 3: forty columns of 0.1 GB. Agents in the scene
+     color, the system in the agent gold, free dark. Five stylings on
+     .v1 to .v5 of the box. */
+  .vps-rail { display: flex; justify-content: center; gap: 0.35rem; margin: 0 0 1.4rem; }
+  .vps-rail button {
+    border: 1px solid var(--line); background: none; color: var(--dim); cursor: pointer;
+    font: 700 0.62rem/1 var(--mono); padding: 0.34rem 0.5rem; border-radius: 6px;
+  }
+  .vps-rail button.on { border-color: var(--st-merged); color: #08090c; background: var(--st-merged); }
+  .gg { --ca: var(--st-merged); --cs: var(--st-agent); --ch: #ffffff12; }
+  .gg-strip { display: grid; grid-template-columns: repeat(40, 1fr); gap: 0.16rem; margin: 0.5rem 0; }
+  .gg-strip i { height: 2.8rem; background: var(--ch); border-radius: 2px; }
+  .gg-strip i.p { background: var(--ca); }
+  .gg-strip i.s { background: var(--cs); }
+  .gg-groups { display: grid; grid-template-columns: repeat(40, 1fr); gap: 0.16rem; height: 1rem; font: 600 0.56rem/1 var(--mono); color: var(--dim); }
+  .gg-groups span { grid-column: span 5; text-align: center; white-space: nowrap; overflow: hidden; }
+  .gg-groups span.s { grid-column: span 10; color: var(--cs); }
+  .gg-groups span.h { grid-column: span 10; }
   .gg-row { display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--dim); gap: 0.5rem; }
   .gg-leg { list-style: none; padding: 0; margin: 1.1rem 0 0; font-size: 0.84rem; line-height: 1.7; }
-  .gg-leg li::before { content: ''; display: inline-block; width: 0.95rem; height: 0.95rem; border-radius: 4px; margin-right: 0.6rem; vertical-align: -0.1rem; background: var(--c); box-shadow: var(--sh, none); }
+  .gg-leg li::before { content: ''; display: inline-block; width: 0.95rem; height: 0.95rem; border-radius: 4px; margin-right: 0.6rem; vertical-align: -0.1rem; background: var(--ch); }
+  .gg-leg .c-a::before { background: var(--ca); }
+  .gg-leg .c-s::before { background: var(--cs); }
+
+  /* 1 flat: what round 2 was, with thin columns. */
+  .gg.v1 .gg-groups { display: none; }
+
+  /* 2 pills: rounded columns, the lit ones glow. */
+  .gg.v2 .gg-strip i { border-radius: 999px; height: 3.2rem; }
+  .gg.v2 .gg-strip i.p { box-shadow: 0 0 10px color-mix(in srgb, var(--ca) 55%, transparent); }
+  .gg.v2 .gg-strip i.s { box-shadow: 0 0 10px color-mix(in srgb, var(--cs) 55%, transparent); }
+  .gg.v2 .gg-groups { display: none; }
+
+  /* 3 ruler: hairline columns, the groups bracketed and named above. */
+  .gg.v3 .gg-strip { gap: 0.28rem; }
+  .gg.v3 .gg-strip i { height: 2.2rem; border-radius: 0; background: none; border-left: 2px solid var(--ch); }
+  .gg.v3 .gg-strip i.p { background: none; border-left-color: var(--ca); }
+  .gg.v3 .gg-strip i.s { background: none; border-left-color: var(--cs); }
+  .gg.v3 .gg-groups span { border-bottom: 1px solid var(--ca); padding-bottom: 0.2rem; color: var(--ca); }
+  .gg.v3 .gg-groups span.s { border-bottom-color: var(--cs); }
+  .gg.v3 .gg-groups span.h { border-bottom-color: var(--line); color: var(--dim); }
+
+  /* 4 ledger bar: one solid bar, the columns as hairlines through it. */
+  .gg.v4 .gg-strip { gap: 0; background: var(--ch); border-radius: 8px; overflow: hidden; }
+  .gg.v4 .gg-strip i { border-radius: 0; background: none; height: 2.4rem; box-shadow: inset -1px 0 0 #0d1015; }
+  .gg.v4 .gg-strip i.p { background: var(--ca); }
+  .gg.v4 .gg-strip i.s { background: var(--cs); }
+  .gg.v4 .gg-groups { display: none; }
+
+  /* 5 tall: the strip is the scene, no box chrome, tall columns. */
+  .gg.v5 { background: none; border: none; box-shadow: none; padding-left: 0; padding-right: 0; }
+  .gg.v5 .gg-strip i { height: 5rem; border-radius: 3px 3px 0 0; }
+  .gg.v5 .gg-strip { align-items: end; }
+  .gg.v5 .gg-strip i.p { height: 5rem; }
+  .gg.v5 .gg-strip i.s { height: 4rem; }
+  .gg.v5 .gg-strip i:not(.p):not(.s) { height: 1.4rem; }
+  .gg.v5 .gg-groups span { color: var(--ca); }
 
   /* 3 readout: what `docker ps` and `free` say on the box. */
   .ro pre { margin: 0; font: 0.58rem/1.5 var(--mono); color: var(--text); white-space: pre; overflow-x: auto; }
@@ -3202,15 +3250,18 @@
       </header>
     </div>
 
-    <!-- round 2: the gauge alone, centered, on a 4 GB box. -->
+    <!-- round 3: forty columns of 0.1 GB, agents and the system as two colors, five stylings. -->
+    <div class="wrap"><div class="vps-rail rv"></div></div>
     <div class="shot rv">
-      <div class="box">
-        <div class="bx-head"><span>memory on a 4 GB box</span><span>1 block = 0.5 GB</span></div>
+      <div class="box gg">
+        <div class="bx-head"><span>memory on a 4 GB box</span><span>1 column = 0.1 GB</span></div>
+        <div class="gg-groups tw" aria-hidden="true"></div>
         <div class="gg-strip tw" aria-hidden="true"></div>
         <div class="gg-row"><span>0</span><span>4 GB</span></div>
         <ul class="gg-leg tw">
-          <li style="--c:var(--st-merged)"><b>4 agents</b> · about 0.5 GB each</li>
-          <li style="--c:#ffffff18"><b>2 GB left</b> for the daemon and Docker</li>
+          <li class="c-a"><b>4 agents</b> · about 0.5 GB each</li>
+          <li class="c-s"><b>the system</b> · Docker, tmux, ttyd, Tailscale, the curia daemon</li>
+          <li class="c-h"><b>free</b> · room for more agents</li>
         </ul>
       </div>
     </div>
@@ -3293,10 +3344,26 @@ if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').m
   if (runSec) runSec.classList.add('still');
 }
 
-/* Scene 9 round 2: the gauge, eight half-gigabyte blocks of a 4 GB box. */
+/* Scene 9 round 3: forty columns; agents 0 to 19, the system 20 to 29,
+   free 30 to 39. ?vps=1..5 picks a styling, the rail switches it. */
 (function () {
-  var strip = document.querySelector('.vps .gg-strip'); if (!strip) return;
-  for (var i = 0; i < 8; i++) { var e = document.createElement('i'); e.className = i < 4 ? 'p' : 'h'; strip.appendChild(e); }
+  var box = document.querySelector('.vps .gg'); if (!box) return;
+  var strip = box.querySelector('.gg-strip'), groups = box.querySelector('.gg-groups'), rail = document.querySelector('.vps-rail');
+  for (var i = 0; i < 40; i++) { var e = document.createElement('i'); e.className = i < 20 ? 'p' : i < 30 ? 's' : ''; strip.appendChild(e); }
+  ['610', '611', '612', '614', 'system', 'free'].forEach(function (t, i) {
+    var g = document.createElement('span'); g.textContent = t; if (i === 4) g.className = 's'; if (i === 5) g.className = 'h'; groups.appendChild(g);
+  });
+  var names = ['flat', 'pills', 'ruler', 'bar', 'tall'];
+  function pick(n) {
+    box.className = 'box gg v' + n;
+    [].slice.call(rail.children).forEach(function (b, i) { b.classList.toggle('on', i + 1 === +n); });
+  }
+  names.forEach(function (t, i) {
+    var b = document.createElement('button'); b.textContent = i + 1; b.title = t;
+    b.addEventListener('click', function () { pick(i + 1); history.replaceState(null, '', '?vps=' + (i + 1)); });
+    rail.appendChild(b);
+  });
+  var q = /[?&]vps=([1-5])/.exec(location.search); pick(q ? q[1] : 1);
 })();
 
 var prefersStill = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;

@@ -2402,6 +2402,19 @@ common size, so the strip is eight half-gigabyte blocks with four lit; and the m
 off the scene. Everything grew: the blocks are 2.6rem tall, the box is 30rem wide and the legend
 reads at 0.84rem. The switcher and the four losing readings left the file with this round.
 
+**Round 3.** The operator asked for the daemon and the parts it needs as a second colored block,
+thinner columns of 0.1 GB, and five stylings. The strip is forty columns: twenty in the scene
+green for the four agents, ten in the agent gold for the system, ten dark and free. Five stylings
+on `?vps=1..5` and a rail: 1 flat (round 2 with thin columns), 2 pills (rounded, the lit ones
+glow), 3 ruler (hairlines, the groups bracketed and named), 4 bar (one solid bar with hairline
+columns through it), 5 tall (no box chrome, the columns are the scene, agents tallest).
+
+**One number on this round is not measured.** The system block draws 1 GB for the OS, Docker,
+tmux, ttyd, tailscaled and the daemon together. Nothing in the repo records what those take on
+the box. The operator either confirms it by reading `free -m` on coinmatica with no agent alive,
+or it changes before the round settles. The 4 GB box itself is the operator's pick at round 2 as
+the common size, not a measurement.
+
 The `.box` and `.lane` classes of the old scene stay, unused by the new markup. Each variation
 prefixes its classes (`st-`, `gg-`, `ro`, `bp`, `lg`), after the fault
 [#773](https://github.com/alp82/curia/issues/773) records. The switcher and the four losing
