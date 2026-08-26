@@ -255,11 +255,11 @@ describe('the last event of a type for a key', () => {
       spawn('42', 'curia-42', { model: 'opus', harness: 'claude' }),
       spawn('42', 'curia-42', {
         model: 'codex-high', requested_model: 'opus', harness: 'codex',
-        prompt_carries_limit_text: true,
+        reasoning_effort: 'xhigh', prompt_carries_limit_text: true,
       }),
     ])
     assert.deepEqual(q.epochSpawn('curia-42'), {
-      model: 'codex-high', requested_model: 'opus', harness: 'codex',
+      model: 'codex-high', requested_model: 'opus', harness: 'codex', reasoning_effort: 'xhigh',
       prompt_carries_limit_text: true, skill: null, skill_target: null,
     })
   })
@@ -269,7 +269,7 @@ describe('the last event of a type for a key', () => {
     // and the program under it was its backend.
     const q = ask([{ type: 'worker_spawned', ticket: '170', worker: 'curia-170', model: 'opus', backend: 'claude' }])
     assert.deepEqual(q.epochSpawn('curia-170'), {
-      model: 'opus', requested_model: null, harness: 'claude',
+      model: 'opus', requested_model: null, harness: 'claude', reasoning_effort: null,
       prompt_carries_limit_text: null, skill: null, skill_target: null,
     })
     assert.deepEqual([...q.epochs()], [['170', { repo: null }]])

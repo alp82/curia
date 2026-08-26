@@ -512,14 +512,17 @@ const harnessFor = (session) => dispatcher?.agents.get(session)?.harness ?? dete
 // dashboard's provider strip (#262), and one agent must not be measured two
 // ways on two surfaces.
 //
-// The routing label takes the same route (#187). The status line only learns
-// it from a spawn event, so a line first drawn after a restart carries none —
-// and the effort meter reads off the label's routing row. The dispatcher's
-// record answers instead, which reconcile now rebuilds from the journal.
+// The model and the effort take the same route (#187, #763). The status line
+// only learns them from a spawn event, so a line first drawn after a restart
+// carries none. The dispatcher's record answers instead, which reconcile
+// rebuilds from the journal. The effort is the depth the agent was dispatched
+// at, which a type route can set away from the model default; the model
+// default only speaks when no record exists.
 const metersFor = (session, model) => agentMeters({
   harness: harnessFor(session),
   cfgDir: cfgDirFor(session),
   model: model ?? dispatcher?.agents.get(session)?.model ?? null,
+  effort: dispatcher?.agents.get(session)?.reasoningEffort ?? null,
   routing: routingConfig,
   account: accountUsage,
   models: modelWindows,
@@ -2824,7 +2827,7 @@ async function overview() {
 // The browser conversations, on the wire (#333). Everything about the shape
 // lives in usage.mjs beside `ctxOnWire`; what stays here is the wiring — the
 // reduction this daemon holds and the overseer container's config dir and model.
-function ticketConversationOnWire({ session, repo, ticket, title = null, model = null, state, reviewer = false, cfgDir = null, harness = null, live = true }) {
+function ticketConversationOnWire({ session, repo, ticket, title = null, model = null, reasoningEffort = null, state, reviewer = false, cfgDir = null, harness = null, live = true }) {
   const root = cfgDir ?? cfgDirFor(curiaConfig.dispatch.workspace_root, session)
   const detected = harness ?? detectHarness(root)
   const transcript = detected ? findTranscript(detected, root) : null
@@ -2848,6 +2851,7 @@ function ticketConversationOnWire({ session, repo, ticket, title = null, model =
       harness: detected,
       cfgDir: root,
       model,
+      effort: reasoningEffort,
       routing: routingConfig,
       account: accountUsage,
       models: modelWindows,

@@ -855,6 +855,19 @@ describe('agentMeters', () => {
     assert.deepEqual(m, { model: 'gpt-5.6-sol', effort: 'high', ctxPct: null, ctxOver: false, ctxTokens: null, windows: null })
   })
 
+  // #763: a type route can dispatch a model away from its configured default,
+  // and the meter must state THAT depth. The model default is only the answer
+  // when no dispatch record exists to say otherwise.
+  test('the dispatched effort beats the model default', () => {
+    const m = agentMeters({ harness: 'codex', cfgDir: cfgDir(), model: 'gpt', effort: 'xhigh', routing, account: null, now: NOW })
+    assert.equal(m.effort, 'xhigh')
+  })
+
+  test('the model default shows when no dispatch record names an effort', () => {
+    const m = agentMeters({ harness: 'codex', cfgDir: cfgDir(), model: 'gpt', effort: null, routing, account: null, now: NOW })
+    assert.equal(m.effort, 'high')
+  })
+
   // #332, building ADR-0016: the meter is the ONE signal that a conversation is
   // getting long, so it has to read the conversation it was asked about. Every
   // overseer conversation writes into one config dir, where newest-by-mtime is
