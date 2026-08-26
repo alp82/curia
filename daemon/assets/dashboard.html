@@ -274,6 +274,18 @@
   .need-rank.compact .att-item { padding: 6px 10px; background: transparent; border-left-color: var(--line); color: var(--ink-dim); }
   .need-rank.compact .att-item .diff, .need-rank.compact .att-item .act-row, .need-rank.compact .att-item .opts { display: none; }
   .need-rank.aged .att-item { border-left-color: var(--warn); }
+  /* The handoff sheet (#718): a bottom sheet on the phone, a centered dialog
+     on the desktop. Its rows are landings, not answers, so they are plain. */
+  .handoff-scrim { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 40; }
+  .handoff { position: fixed; left: 0; right: 0; bottom: 0; z-index: 41; background: var(--bg-raise); box-shadow: var(--shadow); border-top: 1px solid var(--line);
+    border-radius: 14px 14px 0 0; padding: 16px 16px calc(16px + env(safe-area-inset-bottom)); display: grid; gap: 10px; }
+  @media (min-width: 900px) { .handoff { left: 50%; right: auto; bottom: auto; top: 50%; transform: translate(-50%, -50%); width: 520px; border-radius: 14px; border: 1px solid var(--line); } }
+  .handoff-head { font-size: 15px; }
+  .handoff-list { display: grid; gap: 6px; }
+  .handoff-item { text-align: left; font: inherit; color: var(--ink); background: transparent; border: 1px solid var(--line); border-left: 3px solid var(--line);
+    border-radius: 8px; padding: 8px 10px; cursor: pointer; display: flex; gap: 10px; align-items: baseline; }
+  .handoff-item.aged { border-left-color: var(--warn); }
+  .handoff-item .rank { font-family: ui-monospace, Menlo, monospace; color: var(--ink-dim); }
   /* A credential that is dying reads as bad, not as a warning: nothing on this
      page fixes it, and an agent meets it as a failed first `gh` call (#380). */
   .att-item.token { border-left-color: var(--bad); background: var(--chip-bad-bg); }
@@ -799,7 +811,11 @@ var UI = {
      the control it came from; `said` is what curia answered, shown at that same
      control. `note` and `tele` name the agent whose box is open, and `mode` is
      the delivery ADR-0013 defaults to. */
-  act: { busy: null, said: null, note: null, mode: "queue", tele: null, diff: null },
+  act: { busy: null, said: null, note: null, mode: "queue", tele: null, diff: null,
+    /* The handoff sheet (#718): the id of the item the operator just answered,
+       or null when no sheet is up. The sheet draws nothing of its own — it
+       reads the same `attentionItems` Home reads, minus this one id. */
+    handoff: null },
 };
 var payload = null;   /* the sidecar's last answer */
 var reachable = true; /* is the SIDECAR itself answering — a different fact from daemon_up */
@@ -973,11 +989,10 @@ function receiptLine(x) {
 function outcome(b) {
   if (typeof b.reply === "string") return b.reply;
   if (b.mode) return noteOutcome(b);
-  if (b.ok) {
-    const next = (b.next_needs ?? []).slice(0, 3);
-    const more = next.length ? `\nNext ${next.length} needs:\n${next.map((need, i) => `${i + 1}. ${need.headline} · ${need.agent} · ticket ${need.ticket}`).join("\n")}` : "";
-    return "Answered. It is with the agent." + more;
-  }
+  /* The daemon's `next_needs` ride the reply for Discord. Atlas does not read
+     them (#718): the handoff sheet ranks the next items as Home ranks them,
+     off the fresh overview, so the two surfaces cannot disagree. */
+  if (b.ok) return "Answered. It is with the agent.";
   return "Done.";
 }
 /* A note says which delivery it got, because the delivery is the half the
@@ -1017,7 +1032,14 @@ async function answerEsc(id, body) {
   } catch (e) {
     return refuse("esc:" + id, e.message);
   }
-  return verb("esc:" + id, "/api/answer", { id, ...answer });
+  const out = await verb("esc:" + id, "/api/answer", { id, ...answer });
+  /* One successful answer opens the handoff sheet (#718). A refusal opens
+     nothing: the receipt under the card is the whole of what happened. */
+  if (out && out.ok !== false) {
+    UI.act.handoff = id;
+    render();
+  }
+  return out;
 }
 function answerIndex(id, index) { return answerEsc(id, { index: Number(index) }); }
 function answerSelect(id, field) {
@@ -1798,16 +1820,19 @@ function attentionItems(o) {
     const unblocks = Array.isArray(row?.unblocks) ? row.unblocks.length : Number(row?.unblocks ?? 0);
     return waitMinutes(row?.opened_at ?? row?.at) + unblocks * 90 + (gate ? 20 : 0);
   };
+  /* Each item also carries an `id`, a one-line `line`, and a `landing` (#718):
+     the handoff sheet names the next items with these and lands the operator
+     on the card itself. It never carries an answer control of its own. */
   const items = [
-    ...credentialPointers(o).map((html) => ({ html, score: 100_000, aged: false })),
-    ...(o?.escalations ?? []).map((row) => ({ html: escCard(row), score: effectiveWait(row), aged: waitMinutes(row.opened_at) >= 240 })),
-    ...(o?.review_gate ?? []).map((row) => ({ html: gateCard(row), score: effectiveWait(row, true), aged: waitMinutes(row.opened_at) >= 240 })),
-    ...(o?.token_warnings ?? []).map((row) => ({ html: tokenCard(row), score: 50_000, aged: false })),
+    ...credentialPointers(o).map((html, i) => ({ id: "cred-" + i, line: "a model credential wants you", landing: "credentials", html, score: 100_000, aged: false })),
+    ...(o?.escalations ?? []).map((row) => ({ id: row.id, line: `${row.agent} · ${row.kind} · ${ticketName(null, row.ticket)}: ${snip(row.prompt, 90)}`, landing: "home", html: escCard(row), score: effectiveWait(row), aged: waitMinutes(row.opened_at) >= 240 })),
+    ...(o?.review_gate ?? []).map((row) => ({ id: row.id, line: `${row.agent} · review gate · ${ticketName(null, row.ticket)}: ${snip(row.prompt, 90)}`, landing: "home", html: gateCard(row), score: effectiveWait(row, true), aged: waitMinutes(row.opened_at) >= 240 })),
+    ...(o?.token_warnings ?? []).map((row) => ({ id: "token-" + row.key, line: `${row.key} cannot reach ${row.repo}`, landing: "home", html: tokenCard(row), score: 50_000, aged: false })),
     /* The tickets the auto loop steps over (#444). On this list where a spent
        window is not, by this list's own test: an operator act is what ends one.
        Nothing lifts it on a clock, and the ticket sits on the frontier
        untouched until somebody fixes the cause and dispatches it. */
-    ...(o?.dispatch_holds ?? []).map((row) => ({ html: dispatchHoldCard(row), score: 50_000, aged: false })),
+    ...(o?.dispatch_holds ?? []).map((row) => ({ id: `hold-${row.repo}-${row.ticket}`, line: `${ticketName(row.repo, row.ticket)} is held from auto-dispatch`, landing: "home", html: dispatchHoldCard(row), score: 50_000, aged: false })),
   ];
   items.sort((a, b) => b.score - a.score);
   return items;
@@ -1818,8 +1843,54 @@ function attentionItems(o) {
 function attentionList(o) {
   const items = attentionItems(o);
   return items.length
-    ? items.map((item, index) => `<div class="need-rank ${index < 3 ? "full" : "compact"}${item.aged ? " aged" : ""}">${item.html}</div>`).join("")
+    ? items.map((item, index) => `<div class="need-rank ${index < 3 ? "full" : "compact"}${item.aged ? " aged" : ""}" id="need-${esc(item.id)}">${item.html}</div>`).join("")
     : `<div class="empty">Nothing wants you.</div>`;
+}
+
+/* ---- the handoff sheet (#718) ----------------------------------------------
+
+   After one answer lands, the sheet says how many items still want the operator
+   and names the next three, IN HOME'S ORDER: it reads `attentionItems`, the one
+   source the ring and the column read, so the sheet and Home cannot rank
+   differently. It re-reads on every render, so the poll after the answer
+   updates it, and the answered id is left out until that poll lands.
+
+   THE SHEET ANSWERS NOTHING. Each item is a landing on its own card, where its
+   own first valid answer is taken. A sheet with answer buttons on it is a batch
+   answer, and a batch answer is what ADR-0025's first-valid-wins refuses. */
+function nextNeeds(o, answered) {
+  return attentionItems(o).filter((item) => item.id !== answered);
+}
+function handoffSheet() {
+  const answered = UI.act.handoff;
+  if (answered == null) return "";
+  const items = nextNeeds(payload?.overview, answered);
+  const n = items.length;
+  const next = items.slice(0, 3);
+  const head = n
+    ? `<strong>Answered.</strong> ${esc(n)} ${n === 1 ? "item still needs" : "items still need"} you.`
+    : `<strong>Answered.</strong> Nothing else wants you.`;
+  const list = next.length
+    ? `<div class="dim-note">Next ${next.length === 1 ? "up" : next.length}, as Home ranks ${next.length === 1 ? "it" : "them"}. Each takes its own answer.</div>
+    <div class="handoff-list">${next.map((item, i) => `<button class="handoff-item${item.aged ? " aged" : ""}" onclick="handoffGo(${i})"><span class="rank">${i + 1}</span>${esc(item.line)}</button>`).join("")}</div>`
+    : "";
+  return `<div class="handoff-scrim" onclick="handoffClose()"></div><div class="handoff" role="dialog" aria-label="What needs you next">
+    <div class="handoff-head">${head}</div>${list}
+    <div class="act-row"><button class="btn sm" onclick="handoffClose()">Close</button></div></div>`;
+}
+function handoffClose() {
+  UI.act.handoff = null;
+  render();
+}
+/* The tap lands on the item's own card. The sheet closes first, so the card is
+   what the operator sees, with its own controls and nothing else's. */
+function handoffGo(i) {
+  const item = nextNeeds(payload?.overview, UI.act.handoff)[i];
+  UI.act.handoff = null;
+  if (!item) return render();
+  goto(item.landing);
+  const card = typeof document.getElementById === "function" ? document.getElementById("need-" + item.id) : null;
+  if (card && typeof card.scrollIntoView === "function") card.scrollIntoView({ block: "start" });
 }
 
 /* ---- the feed -------------------------------------------------------------- */
@@ -4277,6 +4348,7 @@ function render() {
     <main>${SCREENS[UI.screen][1](payload)}</main>
     ${mobileNav(n, stale)}
     ${searchOverlay()}
+    ${handoffSheet()}
   </div>`;
   document.title = (n ? `(${n}) ` : "") + "Atlas · Curia";
   restoreField(field);
