@@ -2314,7 +2314,15 @@
   /* #773 round 3: on a phone a 0.5 GB group at 8 GB was a sliver. Every
      group and its label get a floor, and the free space gives it up. */
   @media (max-width: 40rem) {
-    .gg .gg-strip .g, .gg-groups span { min-width: min(2.4rem, calc(100% / var(--gn, 3))); }
+    /* The even share is the row minus its gaps, divided by the groups.
+       Round 4 forgot the gaps, and thirty of them at 0.42rem ran the
+       strip past the box. */
+    .gg .gg-strip .g, .gg-groups span {
+      min-width: min(2.4rem, calc((100% - (var(--gn, 3) - 1) * 0.42rem) / var(--gn, 3)));
+    }
+    .gg .gg-strip, .gg-groups { overflow: hidden; }
+    /* Past a dozen groups the agent labels are slivers of glyph. */
+    .gg-groups.many span:not(.s):not(.h) { visibility: hidden; }
   }
   .gg .gg-strip i.p { background: var(--ca); }
   .gg .gg-strip i.s { background: var(--cs); }
@@ -3481,6 +3489,7 @@ if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').m
        most, so thirty agents at 16 GB cannot run past the box. */
     strip.style.setProperty('--gn', strip.children.length);
     groups.style.setProperty('--gn', groups.children.length);
+    groups.classList.toggle('many', groups.children.length > 12);
   }
   function drawStrip() {
     var ram = RAM[+ramIn.value], cols = ram * 10, max = Math.floor((cols - 10) / 5);

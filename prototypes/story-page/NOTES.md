@@ -3009,3 +3009,9 @@ are too wide at 8 and 16 GB (thirty agents ran past the box).
   the strip and the label row, and the phone floor is `min(2.4rem, 100% / var(--gn))`.
 
 Desktop diffs to zero pixels. The scroll budget at 375×667: 16.2 screens, the arc 4.8.
+
+**Round 5.** The operator: the strip is still too wide at 16 GB. Round 4's floor forgot the
+gaps between groups: thirty of them at 0.42rem are 13rem on their own. The floor is now the
+even share of the row MINUS its gaps, the two rows clip as a backstop, and past a dozen groups
+the agent labels are blank rather than slivers of glyph. Measured on the phone at 16 GB and
+thirty agents: strip 293px in a 293px row. Desktop diffs to zero.
