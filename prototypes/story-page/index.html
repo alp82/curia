@@ -2181,29 +2181,60 @@
   /* the columns are grouped: the system first, then five per agent,
      then free. A gap between groups, none inside one. */
   .gg-strip { display: flex; gap: 0.42rem; }
-  .gg-strip .g { display: flex; gap: 0.12rem; flex: 10 1 0; }
-  .gg-strip .g.a { flex: 5 1 0; }
-  .gg-strip .g.h { flex: var(--free, 10) 1 0; }
+  .gg-strip .g { display: flex; flex: 1 1 0; min-width: 0; }
   .gg-strip .g i { flex: 1 1 0; }
   .gg-groups { display: flex; gap: 0.42rem; }
-  .gg-groups span { flex: 5 1 0; grid-column: auto; }
-  .gg-groups span.s { flex: 10 1 0; }
-  .gg-groups span.h { flex: var(--free, 10) 1 0; }
+  .gg-groups span { flex: 1 1 0; min-width: 0; grid-column: auto; }
   .gg-ctl { display: flex; align-items: center; gap: 0.7rem; margin: 1rem 0 0; font: 600 0.8rem var(--mono); color: var(--dim); }
   .gg-ctl input { flex: 1; accent-color: var(--ca); }
   .gg-ctl b { color: var(--text); width: 1.2em; text-align: right; }
 
-  /* 2 pills: rounded columns, the lit ones glow. */
-  .gg.v2 .gg-strip i { border-radius: 999px; height: 3.2rem; }
-  .gg.v2 .gg-strip i.p { box-shadow: 0 0 10px color-mix(in srgb, var(--ca) 55%, transparent); }
-  .gg.v2 .gg-strip i.s { box-shadow: 0 0 10px color-mix(in srgb, var(--cs) 55%, transparent); }
+  .gg-strip .g i { box-shadow: inset -1px 0 0 #0d1015; }
+  .gg-ticks { display: flex; justify-content: space-between; margin-top: 0.3rem; height: 0.5rem; }
+  .gg-ticks i { width: 1px; background: var(--line); }
+  .gg-ticks i:nth-child(2n) { height: 50%; }
+  .gg-ctl b { width: 2.6em; }
 
-  /* 4 bar: each group one solid bar, hairline columns through it. */
-  .gg.v4 .gg-strip .g { gap: 0; border-radius: 6px; overflow: hidden; background: var(--ch); }
-  .gg.v4 .gg-strip i { border-radius: 0; background: none; height: 2.4rem; box-shadow: inset -1px 0 0 #0d1015; }
-  .gg.v4 .gg-strip i:last-child { box-shadow: none; }
-  .gg.v4 .gg-strip i.p { background: var(--ca); }
-  .gg.v4 .gg-strip i.s { background: var(--cs); }
+  /* all five build on the bar: each group one solid bar. */
+  .gg .gg-strip .g { gap: 0; border-radius: 6px; overflow: hidden; background: var(--ch); }
+  .gg .gg-strip i { border-radius: 0; background: none; height: 2.4rem; }
+  .gg .gg-strip i:last-child { box-shadow: none; }
+  .gg .gg-strip i.p { background: var(--ca); }
+  .gg .gg-strip i.s { background: var(--cs); }
+  .gg.dense .gg-strip i { box-shadow: none; }
+  .gg .gg-ticks { display: none; }
+
+  /* 1 bar: round 4 as it stood. */
+
+  /* 2 named: no hairlines, the name inside each bar. */
+  .gg.v2 .gg-strip i { box-shadow: none; }
+  .gg.v2 .gg-groups { display: none; }
+  .gg.v2 .gg-strip .g { position: relative; height: 2.6rem; }
+  .gg.v2 .gg-strip .g::after { content: attr(data-t); position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font: 700 0.6rem var(--mono); color: #08090c; overflow: hidden; white-space: nowrap; }
+  .gg.v2 .gg-strip .g.h::after { color: var(--dim); }
+
+  /* 3 pills: rounded ends on every group, a ruler of gigabytes below. */
+  .gg.v3 .gg-strip .g { border-radius: 999px; }
+  .gg.v3 .gg-strip i { height: 1.6rem; }
+  .gg.v3 .gg-ticks { display: flex; }
+  .gg.v3 .gg-groups { display: none; }
+
+  /* 4 stack: the bars tall, the labels under them, nothing above. */
+  .gg.v4 .gg-strip i { height: 4rem; }
+  .gg.v4 .gg-strip .g { border-radius: 4px; }
+  .gg.v4 .gg-groups { order: 2; margin-top: 0.4rem; height: auto; }
+  .gg.v4 .gg-strip { order: 1; }
+  .gg.v4 .gg-row { order: 3; }
+  .gg.v4 .bx-head { order: 0; }
+  .gg.v4 .gg-ctl, .gg.v4 .gg-leg { order: 4; }
+  .gg.v4 { display: flex; flex-direction: column; }
+
+  /* 5 thin: one hairline-thin bar, the legend does the talking. */
+  .gg.v5 .gg-strip i { height: 0.9rem; box-shadow: none; }
+  .gg.v5 .gg-strip .g { border-radius: 3px; }
+  .gg.v5 .gg-strip { gap: 0.2rem; }
+  .gg.v5 .gg-groups { display: none; }
+  .gg.v5 .gg-ticks { display: flex; }
 
   /* 3 readout: what `docker ps` and `free` say on the box. */
   .ro pre { margin: 0; font: 0.58rem/1.5 var(--mono); color: var(--text); white-space: pre; overflow-x: auto; }
@@ -3247,11 +3278,13 @@
     <div class="wrap"><div class="vps-rail rv"></div></div>
     <div class="shot rv">
       <div class="box gg">
-        <div class="bx-head"><span>memory on a 4 GB box</span><span>1 column = 0.1 GB</span></div>
+        <div class="bx-head"><span>memory on a <b class="gg-ram">4 GB</b> box</span><span>1 column = 0.1 GB</span></div>
         <div class="gg-groups tw" aria-hidden="true"></div>
         <div class="gg-strip tw" aria-hidden="true"></div>
-        <div class="gg-row"><span>0</span><span>4 GB</span></div>
-        <label class="gg-ctl tw"><span>agents at once</span><input type="range" min="1" max="6" value="4" step="1"><b class="gg-n">4</b></label>
+        <div class="gg-ticks tw" aria-hidden="true"></div>
+        <div class="gg-row"><span>0</span><span class="gg-ram">4 GB</span></div>
+        <label class="gg-ctl tw"><span>RAM</span><input type="range" min="0" max="4" value="1" step="1" data-k="ram"><b class="gg-ram">4 GB</b></label>
+        <label class="gg-ctl tw"><span>agents at once</span><input type="range" min="1" max="6" value="4" step="1" data-k="n"><b class="gg-n">4</b></label>
         <ul class="gg-leg tw">
           <li class="c-s"><b>the system</b> · Docker, tmux, ttyd, Tailscale, the curia daemon</li>
           <li class="c-a"><b><span class="gg-n">4</span> agents</b> · about 0.5 GB each</li>
@@ -3338,42 +3371,49 @@ if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').m
   if (runSec) runSec.classList.add('still');
 }
 
-/* Scene 9 round 4: the system first (ten columns), then five per agent,
-   then free. A slider sets the agent count, 1 to 6, and the legend
-   follows. ?vps=2|4 picks a styling, the rail switches it. */
+/* Scene 9 round 5: two sliders. RAM steps 2, 4, 8, 16, 32 GB, and the
+   agent count is clamped to what fits after the system's 1 GB. Every
+   column is 0.1 GB, so the strip thins as the box grows. ?vps=1..5
+   picks a styling built on the bar, the rail switches it. */
 (function () {
   var box = document.querySelector('.vps .gg'); if (!box) return;
-  var strip = box.querySelector('.gg-strip'), groups = box.querySelector('.gg-groups'), rail = document.querySelector('.vps-rail');
-  var range = box.querySelector('input[type=range]');
-  function group(cls, n, colcls) {
-    var g = document.createElement('span'); g.className = 'g ' + cls;
+  var strip = box.querySelector('.gg-strip'), groups = box.querySelector('.gg-groups'), ticks = box.querySelector('.gg-ticks'), rail = document.querySelector('.vps-rail');
+  var ramIn = box.querySelector('input[data-k=ram]'), nIn = box.querySelector('input[data-k=n]');
+  var RAM = [2, 4, 8, 16, 32];
+  function group(cls, n, colcls, t) {
+    var g = document.createElement('span'); g.className = 'g ' + cls; g.setAttribute('data-t', t); g.style.flexGrow = n;
     for (var i = 0; i < n; i++) { var e = document.createElement('i'); e.className = colcls; g.appendChild(e); }
     return g;
   }
-  function label(t, cls) { var l = document.createElement('span'); l.textContent = t; l.className = cls; return l; }
-  function draw(n) {
-    var free = 30 - 5 * n;
-    strip.innerHTML = ''; groups.innerHTML = '';
-    strip.appendChild(group('s', 10, 's')); groups.appendChild(label('system', 's'));
-    for (var i = 0; i < n; i++) { strip.appendChild(group('a', 5, 'p')); groups.appendChild(label('agent', 'a')); }
-    if (free) { strip.appendChild(group('h', free, '')); groups.appendChild(label('free', 'h')); }
-    box.style.setProperty('--free', free);
-    [].slice.call(box.querySelectorAll('.gg-n')).forEach(function (e) { e.textContent = n; });
+  function label(t, cls, n) { var l = document.createElement('span'); l.textContent = t; l.className = cls; l.style.flexGrow = n; return l; }
+  function all(sel, f) { [].slice.call(box.querySelectorAll(sel)).forEach(f); }
+  function draw() {
+    var ram = RAM[+ramIn.value], cols = ram * 10, max = Math.floor((cols - 10) / 5);
+    nIn.max = max; if (+nIn.value > max) nIn.value = max;
+    var n = +nIn.value, free = cols - 10 - 5 * n;
+    strip.innerHTML = ''; groups.innerHTML = ''; ticks.innerHTML = '';
+    strip.appendChild(group('s', 10, 's', 'system')); groups.appendChild(label('system', 's', 10));
+    for (var i = 0; i < n; i++) { strip.appendChild(group('a', 5, 'p', 'agent')); groups.appendChild(label(n > 6 ? '' : 'agent', 'a', 5)); }
+    if (free) { strip.appendChild(group('h', free, '', 'free')); groups.appendChild(label('free', 'h', free)); }
+    for (var t = 0; t <= ram; t++) ticks.appendChild(document.createElement('i'));
+    box.classList.toggle('dense', cols > 80);
+    all('.gg-n', function (e) { e.textContent = n; });
+    all('.gg-ram', function (e) { e.textContent = ram + ' GB'; });
     box.querySelector('.gg-free').textContent = (free / 10).toFixed(1).replace('.0', '') + ' GB';
   }
-  range.addEventListener('input', function () { draw(+range.value); });
-  draw(+range.value);
-  var names = { 2: 'pills', 4: 'bar' };
+  ramIn.addEventListener('input', draw); nIn.addEventListener('input', draw);
+  draw();
+  var names = ['bar', 'named', 'pills', 'stack', 'thin'];
   function pick(n) {
-    box.className = 'box gg v' + n;
-    [].slice.call(rail.children).forEach(function (b) { b.classList.toggle('on', b.textContent === String(n)); });
+    box.classList.remove('v1', 'v2', 'v3', 'v4', 'v5'); box.classList.add('v' + n);
+    [].slice.call(rail.children).forEach(function (b, i) { b.classList.toggle('on', i + 1 === +n); });
   }
-  Object.keys(names).forEach(function (k) {
-    var b = document.createElement('button'); b.textContent = k; b.title = names[k];
-    b.addEventListener('click', function () { pick(k); history.replaceState(null, '', '?vps=' + k); });
+  names.forEach(function (t, i) {
+    var b = document.createElement('button'); b.textContent = i + 1; b.title = t;
+    b.addEventListener('click', function () { pick(i + 1); history.replaceState(null, '', '?vps=' + (i + 1)); });
     rail.appendChild(b);
   });
-  var q = /[?&]vps=([24])/.exec(location.search); pick(q ? q[1] : 2);
+  var q = /[?&]vps=([1-5])/.exec(location.search); pick(q ? q[1] : 1);
 })();
 
 var prefersStill = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;

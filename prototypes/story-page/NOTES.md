@@ -2422,6 +2422,15 @@ input under the strip sets one to six agents, and the legend and the free count 
 group labels read system, agent, free; the ticket numbers left with the ruler. Flat, ruler and
 tall left the file with this round. The 1 GB system block is still unmeasured.
 
+**Round 5.** The operator picked the bar and asked for variations on it, plus a RAM slider. Two
+sliders now: RAM in five stops (2, 4, 8, 16, 32 GB) and the agent count, clamped to what fits
+after the system's 1 GB. A column is always 0.1 GB, so the strip thins as the box grows, and the
+hairlines between columns drop past 80 columns. Five stylings on `?vps=1..5`, all built on the
+bar: 1 bar (round 4 as it stood), 2 named (no hairlines, the name inside each bar), 3 pills
+(rounded ends and a gigabyte ruler), 4 stack (tall bars, labels under them), 5 thin (one
+hairline-thin bar with the ruler, the legend does the talking). The 1 GB system block is still
+unmeasured.
+
 The `.box` and `.lane` classes of the old scene stay, unused by the new markup. Each variation
 prefixes its classes (`st-`, `gg-`, `ro`, `bp`, `lg`), after the fault
 [#773](https://github.com/alp82/curia/issues/773) records. The switcher and the four losing
