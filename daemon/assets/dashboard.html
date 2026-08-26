@@ -471,42 +471,12 @@
   .since-marker { color: var(--warn); font: 700 10px ui-monospace, Menlo, monospace; letter-spacing: .08em; text-transform: uppercase; border-top: 1px solid var(--warn); padding-top: 5px; margin: 10px 0; }
   .legacy-feed { margin-top: 24px; color: var(--ink-faint); }
 
-  /* ---------- frontier ---------- */
-  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--bg-raise); }
-  .seg button { border: 0; background: none; color: var(--ink-dim); padding: 5px 12px; font-size: 12.5px; }
-  .seg button.on { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
-  .frx-filter { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
-  .frx-filter .fchip { border: 1px solid var(--line); border-radius: 999px; background: var(--bg-raise); color: var(--ink-dim); padding: 3px 12px; font-size: 12.5px; }
-  .frx-filter .fchip.on { border-color: var(--accent); color: var(--accent); background: var(--chip-ok-bg); font-weight: 600; }
-  .frx-filter select { padding: 3px 8px; }
-  .frx-filter .sep { color: var(--ink-faint); }
+  /* ---------- the start control and level two ---------- */
   select {
     background: var(--bg-inset); color: var(--ink); border: 1px solid var(--line);
     border-radius: 6px; padding: 4px 8px; font: 12.5px ui-monospace, Menlo, monospace; max-width: 100%;
   }
-  .frx-sect { margin: 4px 0 18px; }
-  .frx-sect > .eyebrow { display: block; margin-bottom: 8px; }
-  .frx-big { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
-  .frx-card {
-    border: 1px solid var(--line); border-top: 3px solid var(--accent); border-radius: 10px;
-    background: var(--bg-raise); padding: 12px 14px; box-shadow: var(--shadow);
-    display: flex; flex-direction: column; gap: 6px;
-  }
-  .frx-card .head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
-  .frx-card .t { font-family: ui-monospace, Menlo, monospace; font-weight: 700; color: var(--accent); }
-  .frx-card .typ { font-size: 11px; color: var(--ink-faint); font-family: ui-monospace, Menlo, monospace; }
-  .frx-card .title { font-size: 13.5px; font-weight: 600; }
-  .frx-card .foot { display: flex; justify-content: space-between; gap: 8px; font-size: 11.5px; color: var(--ink-dim); font-family: ui-monospace, Menlo, monospace; flex-wrap: wrap; }
-  .frx-dim { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); }
-  .frx-dimcard { border: 1px solid var(--line); border-radius: 8px; background: var(--bg-inset); padding: 8px 11px; font-size: 12.5px; color: var(--ink-dim); }
-  .frx-dimcard .t { font-family: ui-monospace, Menlo, monospace; margin-right: 5px; }
-  .frx-dimcard .from { display: block; margin-top: 4px; font-size: 11px; color: var(--ink-faint); font-family: ui-monospace, Menlo, monospace; }
-  .fr-repo { margin-bottom: 14px; }
-  .fr-repo > .eyebrow { margin-bottom: 6px; display: block; }
-  .fr-group { margin-bottom: 10px; }
-  .fr-node { border: 1px solid var(--line); border-left: 3px solid var(--accent); background: var(--bg-raise); border-radius: 7px; padding: 7px 10px; font-size: 13px; }
-  .fr-node .t { font-family: ui-monospace, Menlo, monospace; color: var(--ink-dim); margin-right: 6px; }
-  .fr-node .typ { float: right; font-size: 11px; color: var(--ink-faint); font-family: ui-monospace, Menlo, monospace; margin-left: 8px; }
+  /* Level two of a takeable row on Maps (#768): what the ticket directly unblocks. */
   .fr-kids { margin: 0 0 10px 14px; padding-left: 14px; border-left: 1px dashed var(--line); }
   .fr-kid { position: relative; margin-top: 6px; font-size: 12.5px; color: var(--ink-dim); }
   .fr-kid::before { content: "└─"; position: absolute; left: -16px; color: var(--ink-faint); font-family: ui-monospace, Menlo, monospace; }
@@ -787,7 +757,6 @@ const REVIEW_KIND = "review-gate";
 /* The page's whole mutable state. `var` on purpose — the test reaches it. */
 var UI = {
   screen: "home",
-  fr: { view: "cards", repo: "all", type: "all" },
   /* The maps page's own state (#700): which project the list is filtered to,
      which map and group the detail half shows, and whether the phone is on
      that detail instead of the list. `open` is the route's, never a width's. */
@@ -2434,8 +2403,16 @@ function mapDetailRows(o, map, group) {
       const start = map.deferred
         ? `<div class="act-row"><span class="dim-note">this map is paused (<span class="mono">wayfinder:deferred</span>), and a pause is only ever ended by hand</span></div>`
         : startRow(o, map.repo, item);
+      /* LEVEL TWO (#768). The snapshot names what each takeable ticket
+         directly unblocks, one level down and never a closure, so the
+         operator reads which press opens the most of this way. A ticket that
+         opens nothing says so, because a missing line reads as an unread one. */
+      const kids = item.unblocks?.length
+        ? `<div class="fr-kids">${item.unblocks.map((kid) => `<div class="fr-kid"><a href="https://github.com/${esc(map.repo)}/issues/${esc(kid.number)}"><span class="t">#${esc(kid.number)}</span></a>${esc(kid.title)}</div>`).join("")}</div>`
+        : "";
       return `<div class="map-detail-row">${issue}
-      <span class="sub">${esc(mapType(item))} · routed to ${esc(item.model ?? "unknown")}</span>${start}</div>`;
+      <span class="sub">${esc(mapType(item))} · routed to ${esc(item.model ?? "unknown")} · ${
+        item.unblocks?.length ? `unblocks ${esc(item.unblocks.length)}` : "unblocks nothing yet"}</span>${kids}${start}</div>`;
     }
     if (group === "blocked") {
       /* EVERY blocker, never a count of them: the operator's next question is
@@ -2544,7 +2521,7 @@ function mapRepo(repo) {
   render();
 }
 
-/* ---- frontier -------------------------------------------------------------- */
+/* ---- the start control --------------------------------------------------- */
 
 /* The ticket type is the `wayfinder:` label and nothing else — a ticket with no
    such label has no type, and saying so beats guessing one from another label. */
@@ -2557,20 +2534,6 @@ function typeOf(item) {
   return l ? String(l).slice("wayfinder:".length) : "untyped";
 }
 const shortRepo = (r) => String(r).split("/").pop();
-
-/* The filter runs over the snapshot, never over the wire: the frontier is
-   reconcile's reading and the page must not re-ask for a narrower one. */
-function frFiltered(snap) {
-  const f = UI.fr;
-  return (snap?.repos ?? [])
-    .filter((r) => f.repo === "all" || r.repo === f.repo)
-    .map((r) => (r.error ? r : { ...r, items: (r.items ?? []).filter((i) => f.type === "all" || typeOf(i) === f.type) }));
-}
-function frTypes(snap) {
-  const all = new Set();
-  for (const r of snap?.repos ?? []) for (const i of r.items ?? []) all.add(typeOf(i));
-  return [...all].sort();
-}
 
 /* Start (#266). The dispatch order — claim, prepare, spawn — is `start`'s own,
    and the reply that comes back is curia's sentence about what it did.
@@ -2602,74 +2565,6 @@ function startRow(o, repo, n) {
     ${said(key)}`;
 }
 
-function frCards(repos, o) {
-  const bigs = repos.filter((r) => !r.error).flatMap((r) => (r.items ?? []).map((i) => ({ ...i, repo: r.repo })));
-  const kids = repos.filter((r) => !r.error).flatMap((r) => (r.items ?? []).flatMap((i) => (i.unblocks ?? []).map((k) => ({ ...k, repo: r.repo, from: i.number }))));
-  return `${repos.filter((r) => r.error).map(frError).join("")}
-    <div class="frx-sect"><span class="eyebrow">takeable now (${bigs.length})</span>
-      ${bigs.length ? `<div class="frx-big">${bigs.map((n) => `<div class="frx-card">
-        <div class="head"><span class="t">#${esc(n.number)}</span><span class="typ">${esc(typeOf(n))}</span></div>
-        <div class="title">${esc(n.title)}</div>
-        <div class="foot"><span>${esc(n.repo)}</span><span>${n.unblocks?.length ? `unblocks ${n.unblocks.length}` : "unblocks nothing yet"}</span></div>
-        ${n.mapTitle ? `<div class="dim-note">${esc(n.mapTitle)}</div>` : ""}
-        ${startRow(o, n.repo, n)}
-      </div>`).join("")}</div>` : `<div class="empty">Nothing is takeable under this filter.</div>`}
-    </div>
-    <div class="frx-sect"><span class="eyebrow">unblocked next (${kids.length})</span>
-      ${kids.length ? `<div class="frx-dim">${kids.map((k) => `<div class="frx-dimcard"><span class="t">#${esc(k.number)}</span>${esc(k.title)}
-        <span class="from">↖ #${esc(k.from)} · ${esc(k.repo)}</span></div>`).join("")}</div>`
-        : `<div class="empty">These tickets unblock nothing that is not already takeable.</div>`}
-    </div>`;
-}
-function frTree(repos, o) {
-  return repos.map((r) => {
-    if (r.error) return frError(r);
-    if (!r.items?.length) return `<div class="fr-repo"><span class="eyebrow mono">${esc(r.repo)}</span>
-      <div class="empty">Nothing is takeable under this filter.</div></div>`;
-    return `<div class="fr-repo"><span class="eyebrow mono">${esc(r.repo)}</span>
-      ${r.items.map((n) => `<div class="fr-group">
-        <div class="fr-node"><span class="typ">${esc(typeOf(n))}</span><span class="t">#${esc(n.number)}</span>${esc(n.title)}
-          ${startRow(o, r.repo, n)}</div>
-        ${n.unblocks?.length ? `<div class="fr-kids">${n.unblocks.map((k) => `<div class="fr-kid"><span class="t">#${esc(k.number)}</span>${esc(k.title)}</div>`).join("")}</div>` : ""}
-      </div>`).join("")}</div>`;
-  }).join("");
-}
-function frError(r) {
-  return `<div class="unread"><span class="mono">${esc(r.repo)}</span> could not be read — ${esc(r.error)}. This is not an empty frontier: there may be takeable tickets there.</div>`;
-}
-
-const FR_VIEWS = { cards: ["Cards", frCards], tree: ["Tree", frTree] };
-
-function screenFrontier(p) {
-  const o = p?.overview;
-  if (!o) return noSnapshot(p, "Maps");
-  const snap = o.frontier;
-  const right = `<span class="seg">${Object.entries(FR_VIEWS).map(([k, v]) =>
-    `<button class="${UI.fr.view === k ? "on" : ""}" onclick="frSet('view','${k}')">${esc(v[0])}</button>`).join("")}</span>`;
-  if (!snap || !snap.computed_at) {
-    return `${head(p, "Maps · two levels", right)}
-      <div class="later">No frontier has been computed yet. Reconcile computes it on the credentials that pass already holds, and stamps the instant it did.</div>`;
-  }
-  const types = frTypes(snap);
-  const filter = `<div class="frx-filter">
-    <button class="fchip ${UI.fr.repo === "all" ? "on" : ""}" onclick="frSet('repo','all')">all projects</button>
-    ${(snap.repos ?? []).map((r) => `<button class="fchip ${UI.fr.repo === r.repo ? "on" : ""}" onclick="frSet('repo','${esc(r.repo)}')">${esc(shortRepo(r.repo))}</button>`).join("")}
-    <span class="sep">·</span>
-    <select onchange="frSet('type',this.value)">
-      <option value="all"${UI.fr.type === "all" ? " selected" : ""}>all types</option>
-      ${types.map((t) => `<option${UI.fr.type === t ? " selected" : ""}>${esc(t)}</option>`).join("")}
-    </select>
-    <span class="dim-note">computed ${esc(ago(snap.computed_at))}</span>
-  </div>`;
-  return `${head(p, "Maps · two levels", right)}${filter}${FR_VIEWS[UI.fr.view][1](frFiltered(snap), o)}`;
-}
-function frSet(key, value) {
-  UI.fr[key] = value;
-  /* A repo that leaves the filter takes its types with it — an unreachable
-     type filter would show an empty page and name no reason. */
-  if (key === "repo") UI.fr.type = "all";
-  render();
-}
 
 /* ---- feed ------------------------------------------------------------------ */
 

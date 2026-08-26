@@ -101,10 +101,18 @@ export async function readMapSnapshot({ watch, routing, github, journal }) {
           assignees: child.assignees.map((assignee) => assignee.login),
           agent: agentFact(facts.get(String(child.number))?.agent, routing),
         }))
+      // LEVEL TWO RIDES THE SAME READ (#768). A blocked child already names
+      // its open blockers, so what each takeable child DIRECTLY unblocks is
+      // those edges walked the other way round, at no extra call. One level,
+      // never a transitive closure, and only within this map: the operator's
+      // question is which takeable ticket opens the most of THIS way.
       const takeable = categories.takeable
         .map((child) => ({
           ...ticketFact(child),
           model: spawnModelId(routing, resolveModel(routing, labelsOf(child), null)),
+          unblocks: blocked
+            .filter((item) => item.blockers.some((blocker) => blocker.number === child.number))
+            .map((item) => ({ number: item.number, title: item.title })),
         }))
       const fog = fogFacts(map.body)
       maps.push({
