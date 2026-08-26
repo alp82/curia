@@ -95,6 +95,7 @@ import { githubSearchSource, journalSearchSource, transcriptSearchSource } from 
 import {
   compositeSendFaults, compositeSendSchemaFaults, renderCompositeSend,
 } from './composite.mjs'
+import { sendSchema, sendHasText, decidingIndex, SEND_HINT } from './send.mjs'
 import { trackerWriteWaves } from './trackerwrites.mjs'
 import {
   AccountUsage, AnthropicCredentialHealth, ModelWindows,
@@ -866,24 +867,42 @@ function askHumanGate(agentName, kind, raw) {
   return { open, flags: verdict.flags ?? null, note: verdict.note ?? null }
 }
 
-function compositeAskHumanGate(agentName, messages, maxMessages) {
+// The composite gate (#716, ADR-0026). One pass over a `messages` array, on
+// its own lint key per tool, so a refused send and a refused single card never
+// spend each other's attempts. `send.mjs` is the contract and `composite.mjs`
+// renders each message; the gate adds only what the TOOL decides: an
+// `ask_human` send decides once, last, and a `notify` send decides nothing.
+function compositeGate(agentName, tool, messages, maxMessages) {
   const schemaFaults = compositeSendSchemaFaults(messages, { maxMessages })
   const rendered = Array.isArray(messages) ? renderCompositeSend(messages) : []
   const deciding = rendered.at(-1)
-  const decisionFaults = deciding?.deciding
-    ? []
-    : ['messages: `ask_human` needs one deciding message last. Use `notify` when no answer blocks the work.']
+  const decisionFaults = []
+  if (tool === 'ask_human' && !deciding?.deciding) {
+    decisionFaults.push('messages: `ask_human` needs one deciding message last. Use `notify` when no answer blocks the work.')
+  }
+  const decides = Array.isArray(messages) ? decidingIndex(messages) : -1
+  if (tool === 'notify' && decides >= 0) {
+    decisionFaults.push(`messages: \`notify\` decides nothing, and message ${decides + 1} is a ${messages[decides].format}. Use \`ask_human\` when an answer blocks the work.`)
+  }
   const faults = [...compositeSendFaults(messages, { maxMessages }), ...decisionFaults]
   const verdict = lintGate.judge({
     agent: agentName,
-    kind: 'composite-ask',
+    kind: `composite-${tool === 'ask_human' ? 'ask' : 'notify'}`,
     faults,
     schema: schemaFaults.length > 0 || decisionFaults.length > 0,
-    hasText: Boolean(deciding?.deciding && rendered.some((message) => message.content)),
+    hasText: sendHasText(messages) && decisionFaults.length === 0,
     prompt: deciding?.content ?? null,
     payload: Array.isArray(messages) ? { messages } : null,
   })
   if (verdict.reject || verdict.refuse) return { stop: verdict.reject ?? verdict.refuse }
+  return { rendered, flags: verdict.flags ?? null, note: verdict.note ?? null }
+}
+
+function compositeAskHumanGate(agentName, messages, maxMessages) {
+  const gated = compositeGate(agentName, 'ask_human', messages, maxMessages)
+  if (gated.stop) return gated
+  const { rendered, flags, note } = gated
+  const deciding = rendered.at(-1)
 
   const payload = deciding.payload
   return {
@@ -897,8 +916,8 @@ function compositeAskHumanGate(agentName, messages, maxMessages) {
     },
     preludes: rendered.slice(0, -1),
     attachments: deciding.attachments,
-    flags: verdict.flags ?? null,
-    note: verdict.note ?? null,
+    flags,
+    note,
   }
 }
 
@@ -1828,11 +1847,53 @@ function buildMcpServer(agent, ticket) {
   // `progress` means neither. A set built on the agent's own weighting would be
   // a claim the payload cannot check, which is the fault ADR-0019 retired the
   // `recommended` boolean over.
+  // A composite `notify` (#716): every message of the send posts in order,
+  // each under its rail, each with its own files, and the whole send journals
+  // once so Atlas and the timeline read the same sequence Discord did. It
+  // carries none of the single-call fields: a status line and a send are two
+  // shapes, and a call that mixes them is refused before either goes out.
+  async function notifyComposite(messages, attachments, raw) {
+    const mixed = Object.entries(raw).filter(([, v]) => v !== undefined && v !== null).map(([k]) => k)
+    if (attachments?.length) mixed.push('attachments')
+    if (mixed.length) {
+      return { content: [{ type: 'text', text: `❌ curia refused this call. A composite \`notify\` carries only \`messages\`, and this one also carries ${mixed.join(', ')}. Put each file path in the \`attachments\` of the message it belongs to, and send a status line as its own call.` }] }
+    }
+    const gated = compositeGate(agent, 'notify', messages, curiaConfig.dispatch.messages_per_send ?? 4)
+    if (gated.stop) return { content: [{ type: 'text', text: gated.stop }] }
+    const { rendered, flags, note } = gated
+    const posts = rendered.map((message) => ({ message, ...outboundFiles(agent, message.attachments) }))
+    const refusals = posts.flatMap((p) => p.refusals)
+    reduction.journal('composite_send', {
+      agent, ticket, tool: 'notify', messages,
+      attachments: posts.flatMap((p) => p.files.map((f) => f.attachment)), refusals,
+      ...(flags ? { lint_flags: flags } : {}),
+    })
+    if (bridge) {
+      let sends = Promise.resolve()
+      for (const { message, files } of posts) {
+        sends = sends.then(() => bridge.notify(ticket, message.content, { files, as: speaker }))
+      }
+      if (flags?.length) {
+        sends = sends.then(() => bridge.notify(ticket, smallPrint([
+          `⚠️ curia sent this after ${flags.length} lint fault(s) the agent did not fix:`,
+          ...flags,
+        ].join('\n'))))
+      }
+      sends.catch(() => {})
+    } else {
+      for (const { message } of posts) log(`[notify ticket-${ticket}] ${message.content}`)
+    }
+    const said = refusals.length ? `ok (${refusals.length} file(s) refused)\n${refusals.join('\n')}` : 'ok'
+    const flagNote = note ? [{ type: 'text', text: flaggedNotifyText(flags) }] : []
+    return { content: [...flagNote, { type: 'text', text: said }, ...drainNotes()] }
+  }
+
   server.tool(
     'notify',
     'Fire-and-forget opening, working phase, or milestone for the human. Returns immediately.'
     + ' `kind` says what the operator must DO: `progress` needs nothing from them, `look` puts a file or a page in front of their eyes now, and `ask` wants a reply they can send whenever they get to it.'
     + ' An `ask` blocks nothing — use `ask_human` when you cannot go on without the answer.'
+    + ` An answer that does not fit the status line is a SEND: put it in \`messages\` alone, with a prose message that leads with its conclusion in bold. ${SEND_HINT} A notify send decides nothing.`
     + ' READ WHAT THIS CALL RETURNS. Curia lints your words and refuses the call when they break a rule. Rewrite the named field and call again. You get three attempts, and the fourth text goes out flagged.',
     {
       // Off zod for the reason the gate's `summary` is (#438): a -32602 dies in
@@ -1855,11 +1916,16 @@ function buildMcpServer(agent, ticket) {
       ]).optional().describe('Edit routine progress into the live status line without adding a thread message.'),
       label: z.string().optional().describe('What you are doing now, in one line of at most 20 characters.'),
       ...ATTACHMENT_SHAPE,
+      // The composite send (#716, ADR-0026), with NO deciding message: a prose
+      // message carries the answer that never fit the 600-character status
+      // line, and an image or a file rides the message it belongs to.
+      messages: sendSchema,
     },
-    async ({ attachments, ...raw }) => {
+    async ({ attachments, messages, ...raw }) => {
       if (raw.opening && reduction.hasAgentOpening(agent)) {
         return { content: [{ type: 'text', text: 'opening: already sent for this dispatch.' }] }
       }
+      if (messages) return notifyComposite(messages, attachments, raw)
       // The same gate as the other surfaces, on its own key, so a rejected
       // status line and a rejected question never spend each other's attempts.
       const floor = notifyFloorFaults(raw)
@@ -2050,6 +2116,7 @@ function buildMcpServer(agent, ticket) {
     + ' Every call needs a `headline`. The untyped `prompt` is retired, and curia refuses a call that carries it.'
     + ' free-text is a ROUND — put every question in `questions`, give each a `recommendation`, and curia adds the ✅ All as recommended button when every one of them has it.'
     + ' choice takes `options`, each with a `label` and the `consequence` of picking it.'
+    + ` A decision that needs an answer or a picture in front of it is a SEND: put the whole sequence in \`messages\` alone, the deciding message last. ${SEND_HINT}`
     + ' READ WHAT THIS CALL RETURNS. Curia lints your words and refuses the call when they break a rule, and the refusal names the rule and quotes the text. Rewrite the named field and call again. You get three attempts, and the fourth text goes out flagged.',
     {
       // The two RETIRED fields (#422). They stay in the schema so that curia
@@ -2085,7 +2152,10 @@ function buildMcpServer(agent, ticket) {
       timeline: z.boolean().optional().describe('Point the operator at the timeline for the reasoning. Curia composes the link.'),
       preview_url: z.string().optional(),
       ...ATTACHMENT_SHAPE,
-      messages: z.array(z.record(z.string(), z.any())).optional().describe('One ordered composite send. Each entry has its own `format`, `label`, content fields, and `attachments`. At most four messages. Put the one deciding message last.'),
+      // The composite send (#716, ADR-0026): the array `send.mjs` types, with
+      // the deciding message last. The single-card fields above stay for a
+      // call of one card, and a call carries one shape or the other.
+      messages: sendSchema,
     },
     // `attachments` is bound aside, because the ANSWER carries a field of that
     // name too (#34): the files the human replied with.
@@ -2143,7 +2213,7 @@ function buildMcpServer(agent, ticket) {
         }
       }
       const preludeRefusals = []
-      if (messages) reduction.journal('composite_send', { agent, ticket, messages })
+      if (messages) reduction.journal('composite_send', { agent, ticket, tool: 'ask_human', messages })
       if (gated.preludes?.length) {
         for (const prelude of gated.preludes) {
           const outbound = outboundFiles(agent, prelude.attachments)

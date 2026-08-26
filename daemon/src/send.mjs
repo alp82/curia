@@ -167,12 +167,26 @@ export function sendFloorFaults(messages, { cap = MESSAGES_PER_SEND } = {}) {
 
 // ---- the words ----------------------------------------------------------------
 
+// A prose message opens with one bold line, and the body comes after it.
+export const leadsWithConclusion = (prose) => /^\*\*[^*\n]+\*\*/.test(String(prose ?? '').trim())
+
 function messageLint(m, prefix) {
   const faults = []
   if (present(m?.label)) faults.push(...gradeA(`${prefix}label`, m.label, CAPS.label))
   // The prose message. Past the cap the agent composes a SECOND prose message,
-  // and `gradeB` names the cap while the send-level guidance names that path.
-  if (present(m?.prose)) faults.push(...gradeB(`${prefix}prose`, m.prose, CAPS.prose))
+  // and the refusal names that path rather than only the number: an agent that
+  // hears the number alone spends its attempts squeezing.
+  if (present(m?.prose)) {
+    faults.push(...gradeB(`${prefix}prose`, m.prose, CAPS.prose).map((f) => (
+      f.includes(`over the ${CAPS.prose} cap`) ? `${f} Compose a second prose message, and break where the meaning breaks.` : f
+    )))
+    // The conclusion leads, in bold (#640). It is the shape the ending report
+    // and the verdict already take, and it survives being read halfway, which
+    // is what a phone does to a long block.
+    if (!leadsWithConclusion(m.prose)) {
+      faults.push(`${prefix}prose: lead with the conclusion, in bold, on the first line: **The cap holds.** The body follows it.`)
+    }
+  }
   if (present(m?.caption)) faults.push(...gradeA(`${prefix}caption`, m.caption, CAPS.caption))
   if (present(m?.detail)) faults.push(...gradeA(`${prefix}detail`, m.detail, CAPS.detail))
   faults.push(...lintVisualFields(m ?? {}, prefix))

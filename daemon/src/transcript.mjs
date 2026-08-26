@@ -27,6 +27,7 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
+import { renderCompositeSend } from './composite.mjs'
 
 export const TRANSCRIPT_HARNESSES = ['claude', 'codex']
 
@@ -244,6 +245,7 @@ function claudeToolBrief(name, input = {}) {
   if (name === 'Grep' || name === 'Glob') return `${input.pattern ?? ''} ${input.path ?? ''}`.trim()
   if (name === 'TodoWrite') return `${input.todos?.length ?? 0} items`
   if (name?.startsWith('mcp__curia__')) {
+    if (isCuriaSend(input)) return curiaSendBrief(input)
     return firstLine(input.prompt ?? input.summary ?? input.message ?? JSON.stringify(input))
   }
   if (name === 'Task' || name === 'Agent') return firstLine(input.description ?? input.prompt)
@@ -258,6 +260,30 @@ function curiaToolText(input = {}) {
   const t = input.prompt ?? input.message ?? input.summary
   return typeof t === 'string' && t.trim() ? t : null
 }
+
+// The composite send a curia call carries (#716, ADR-0026), rendered by the
+// one renderer Discord posts from, so Atlas Chat draws the same sequence under
+// the same rails. The deciding message is marked rather than dropped: the
+// page draws it from the daemon's escalation record, as it draws every card.
+// A `messages` value the renderer cannot read is no sequence, and the brief
+// stands alone, because a transcript line must never break the room.
+function curiaToolSend(input = {}) {
+  if (!Array.isArray(input.messages) || !input.messages.length) return null
+  try {
+    return renderCompositeSend(input.messages)
+      .map(({ rail, body, deciding, format, label }) => ({ rail, body, deciding, format, label }))
+  } catch {
+    return null
+  }
+}
+
+// One line for a send: how many messages, and their labels in order.
+function curiaSendBrief(input = {}) {
+  const labels = input.messages.map((m) => String(m?.label ?? m?.format ?? '?').trim())
+  return `send of ${input.messages.length}: ${labels.join(' · ')}`
+}
+
+const isCuriaSend = (input) => Array.isArray(input?.messages) && input.messages.length > 0
 
 function claudeResultText(content) {
   if (typeof content === 'string') return content
@@ -282,6 +308,8 @@ function claudeItems(e) {
         if (c.name?.startsWith('mcp__curia__')) {
           const text = curiaToolText(c.input)
           if (text) item.text = text
+          const send = curiaToolSend(c.input)
+          if (send) item.send = send
         }
         out.push(item)
       }
@@ -355,6 +383,7 @@ function codexToolBrief(name, args) {
   if (name === 'exec_command' || name === 'shell') return firstLine(args.cmd ?? args.command)
   if (name === 'write_stdin') return firstLine(args.chars)
   if (name === 'ask_human' || name === 'notify' || name === 'report_result' || name === 'request_review') {
+    if (isCuriaSend(args)) return curiaSendBrief(args)
     return firstLine(args.prompt ?? args.message ?? args.summary ?? JSON.stringify(args))
   }
   return firstLine(JSON.stringify(args), 160)
@@ -411,6 +440,8 @@ function codexItems(e) {
       if (String(p.namespace ?? '').startsWith('mcp__curia')) {
         const text = curiaToolText(args)
         if (text) item.text = text
+        const send = curiaToolSend(args)
+        if (send) item.send = send
       }
       return [item]
     }

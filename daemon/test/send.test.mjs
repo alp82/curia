@@ -16,7 +16,7 @@ import { CAPS } from '../src/lint.mjs'
 
 const names = (faults) => faults.join(' | ')
 
-const prose = (label, text = 'The cap landed at 09:00 and cooling ran to 14:20.') => ({
+const prose = (label, text = '**The cap held.** It landed at 09:00 and cooling ran to 14:20.') => ({
   format: 'prose', label, prose: text,
 })
 const round = (label = 'decision') => ({
@@ -127,11 +127,20 @@ describe('the field vocabulary per format', () => {
     assert.match(names(sendFloorFaults([{ format: 'prose', label: 'answer' }])), /messages\[0\]\.prose: missing/)
   })
 
-  test('prose caps at 1600, not at the block cap', () => {
-    assert.deepEqual(lintSend([{ format: 'prose', label: 'answer', prose: 'Short words. '.repeat(100) }]), [])
-    const long = 'Short words here. '.repeat(100)
+  test('prose caps at 1600, not at the block cap, and the refusal names the second message', () => {
+    assert.deepEqual(lintSend([{ format: 'prose', label: 'answer', prose: `**Short.** ${'Short words. '.repeat(100)}` }]), [])
+    const long = `**Long.** ${'Short words here. '.repeat(100)}`
     assert.ok(long.length > CAPS.prose)
-    assert.match(names(lintSend([{ format: 'prose', label: 'answer', prose: long }])), new RegExp(`messages\\[0\\]\\.prose: ${long.length} characters over the ${CAPS.prose} cap`))
+    const faults = names(lintSend([{ format: 'prose', label: 'answer', prose: long }]))
+    assert.match(faults, new RegExp(`messages\\[0\\]\\.prose: ${long.length} characters over the ${CAPS.prose} cap`))
+    assert.match(faults, /Compose a second prose message/)
+  })
+
+  test('prose leads with its conclusion, in bold (#716)', () => {
+    assert.deepEqual(lintSend([prose('answer', '**The cap holds.**\nThe body follows.')]), [])
+    const faults = names(lintSend([prose('answer', 'The cap holds. The body follows.')]))
+    assert.match(faults, /messages\[0\]\.prose: lead with the conclusion, in bold/)
+    assert.match(names(lintSend([prose('answer', 'Some words **and bold later**.')])), /lead with the conclusion/)
   })
 
   test('a visual message shows one of the three', () => {
