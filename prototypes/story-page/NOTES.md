@@ -986,23 +986,6 @@ band of this ticket's invention:
    its **diagonal grey stripes**. Those two treatments are the ones the operator named, lifted
    value for value.
 
-**Correction, 2026-08-25: the map screen drew the wrong cut, and item 2 above is the record of the
-mistake rather than the decision.** The stops line won the six rounds, but the operator overruled
-that pick on 2026-08-22 in favour of the red-dashes cut (F1); the stops are the kept alternate.
-This scene was drawn on 2026-08-24, two days after the overrule, because
-[#605](https://github.com/alp82/curia/pull/605) had not merged and
-[prototypes/frontier-visual/](../frontier-visual/) still opened its cycle on the stops. The asset
-disagreed with its own ticket, and the scene believed the asset.
-
-The map screen is F1 now: bare rows under the frontier rule, no stop dots and no rail down the
-left, the walked count collapsed into one thin cap. The **red-dashed blocked box** and the
-**striped fog strip** carry over untouched - they are F1's treatments too, which is why the
-operator's own words above still describe the screen exactly. The empty-frontier line stands.
-
-The lesson for any scene that redraws a decided screen: read the FIRST view in the asset's cycle
-and check the ticket's latest resolution, because a decision can be recorded in a ticket days
-before the asset it points at agrees with it.
-
 **The numbers are still real, and there are more of them now.** The home carries the three open
 maps of this repo: Build the Atlas operator experience at 8/42, Model credentials and
 provider-account failures at 16/19, and Ship the story landing page at 10/16 +2. The map screen
@@ -2173,6 +2156,306 @@ is in the markup goes through it. **The fault was never in any one check. It was
 removed the track, the held stage, the titles and the ticket, because the cut ran between two
 comment headers with live rules between them. Eleven checks went red at once. The same shortcut —
 cut from marker to marker — is what #628, #629 and this file's round 1 each recorded once.
+
+**The operator's answer to round 10**, verbatim, with a screenshot:
+
+> i accidentally merged the PR but we are not done yet, can you bring it back?
+>
+> also the icon looks broken
+>
+> desk looks good
+
+**The staging is settled: desk.** Scene 5's browser tilted back with the phone standing in front of
+it. It is the default now, and a build check asserts the default is the composition that was picked
+rather than whichever one happens to sit first in the list.
+
+**The broken icon was an orphaned class, and it is the most instructive fault of this ticket.**
+Round 10's dead-CSS cut removed the block that held `.r8-mk { width: 0.95em; height: 0.95em }`. The
+mark did not get smaller or plainer when that rule went. **An inline `<svg>` is sized by CSS or by
+its container, and there is no third option** — so curia's ring grew to fill an entire browser
+screen on the operator's phone.
+
+Nothing could have caught it. The markup was valid, the CSS was valid, every class was spelled
+right, and no check asked the one question that mattered. Two now do:
+
+- **A class scene 8 wears with no rule anywhere** is an orphan, and the check names it.
+- **An inline `<svg>` whose class sets no width** takes its container, and that check names it too.
+
+The second is the narrower one and it is the one that would have caught this, because `.r8-mk` was
+not orphaned for long: two colour rules still mentioned it. **A class can be declared and still be
+undressed.**
+
+**Two classes left with the fix**, found by the same sweep: `.cont` on the closing section and `.sm`
+on the kicker, both worn for rounds and neither ever given a rule.
+
+**140 build checks** run against the file and all **83 breaks** that validate them land.
+
+**The operator's answer to round 11**, verbatim, with two screenshots:
+
+> desk: for this step the phone is not below the ticket
+> all others: the phone is too Shuge and content is not filling it
+>
+> i want to keep desk and only do variations with that as a baseline
+>
+> the screens need the correct proportions for screens, even if we have only little elements to
+> show, we then need to add a proper shell to give context where they are
+
+**Two complaints, one cause.** The phone was given its LANE's width, and a lane is the whole card.
+A 9:19.5 frame at that width is taller than the desk, which is the first complaint. Its three lines
+of content then sat in a corner of all that glass, which is the second complaint seen from inside
+the same mistake.
+
+**A phone is narrow, and it is narrow in EVERY beat.** Round 11 sized and placed it only inside a
+two-lane card, which is exactly why the one beat that deals a phone alone put it wherever it liked.
+It has a width of its own now — `min(9.5rem, 44%)` — and a check refuses a `.pv-phone` rule that
+takes 100% of anything.
+
+**The shell is the answer to the empty glass, and it is the more interesting half.** Three lines do
+not fill a phone, and shrinking the phone until they do would stop it being a phone. So each screen
+carries the furniture its app really has:
+
+| screen | its furniture |
+|--------|---------------|
+| the phone | a status bar with the clock and the signal, a channel header with a back arrow, and a composer pinned at the bottom |
+| GitHub | a page header with the repo path, and the repo nav with Pull requests marked |
+| curia | a site header with the mark, and the nav with Atlas marked |
+
+**A screen is mostly furniture, which is why three lines can fill one.** The log flexes between the
+header and the composer, so the content sits where content sits and the glass is full without a
+single invented word.
+
+**Desk is the baseline** and the five compositions are five arrangements of it: front (the phone
+standing at the browser's lower corner), beside (nothing overlapping), flat (no tilt), lean (both
+leaning the same way), over (the phone standing on the browser).
+
+**149 build checks** run against the file and all **90 breaks** that validate them land.
+
+**The orphan check caught the same fault one round after it was written.** Round 12's first cut
+removed `.r8-mk`'s width rule again, in the same way round 10's did, and the check that round 11
+added went red before the file was served. That is the whole argument for writing a check the moment
+a fault has a name: **the second instance arrived one round later.**
+
+**And four checks were too weak to break, all in the same shape.** A desktop media query that also
+sized the phone kept the proportion check green while the phone was full-width on every phone. A
+composition that still named a device in one surviving rule kept the staging check green. Six marks
+of the wrong product still counted as six marks. The lesson each time is the one this file keeps
+writing down: **a check that reads "somewhere" cannot see a fault that lives in "here".**
+
+**The operator's answer to round 12**, verbatim, with a screenshot:
+
+> they dont have the right dimensions, a screen should be higher, the phone is too small to read
+> anything
+>
+> bigger padding between the ticket and the screens. a bit longer fade transitions
+>
+> sticky ticket should look more like a ticket card that updates with subtle motion and
+> micro-animations
+
+**The dimensions had one cause, and it is the opposite of round 12's.** A card was
+`inset: 0 0 auto` — anchored to the top of the desk and only as tall as its content — so a browser
+window collapsed to the height of the four lines it held, and the desk under it stayed empty. That
+is the strip in the screenshot, and the void below it.
+
+**A card fills the desk now**, and the devices take their size from it. A browser is `16 / 11`,
+which is a viewport rather than a strip, and its page flexes to fill it.
+
+**The phone is sized by HEIGHT, and that is the whole fix.** Round 12 made it narrow to stop it
+being huge, which was right, and then it was too small to read, which was the price. A width is the
+wrong handle for a device that is 9:19.5: the width that fits beside a browser is not the width that
+makes it tall enough to read. Height is the handle. It stands as tall as the desk allows and its
+width follows its own shape.
+
+**The ticket is a card.** It has a header strip of its own with the repo path and the state, a body
+under it, an edge and a shadow. And it UPDATES rather than jumping:
+
+- a new timeline row slides in from the left as it fades, and only the row that just arrived lands
+  its node — the ones before it are already on the card and must not twitch every time the step
+  moves.
+- the state pill CROSS-FADES. Both states are always laid out in one grid cell, so the header cannot
+  change height when it turns.
+- nothing about the block's size moves while any of it happens, because every row is always laid out
+  and only its visibility changes. That rule has been in this file since round 5 and it is what
+  makes micro-animation safe here at all.
+
+**The fade is longer**, 0.85s, and the gap between the ticket and the screens is 2.4rem.
+
+**156 build checks** run against the file and all **97 breaks** that validate them land.
+
+**The operator's answer to round 13**, verbatim, with four screenshots:
+
+> 1 front is the way foward
+>
+> screenshots:
+> #1: first image coming too late
+> #2: not enough browser like, maybe the all black bg is not helping here due to missing contrast
+> #3: almost invisible phone, toooo small
+> #4: desktop good, phone again too small (same for step 5)
+
+**The arrangement is settled: front.** The browser tilted back with the phone standing at its lower
+corner.
+
+**The phone was a pill, and the cause is one missing link in a height chain.** A percentage height
+resolves only against a DEFINITE one, and `.r8-lane` had no height of its own — so
+`.pv-phone { height: 100% }` fell back to the phone's own content and became the little capsule in
+screenshot 3. The lane carries `height: 100%` now, and every step of the chain is definite: the
+stage has a height, the desk flexes inside it, the card is `inset: 0` of the desk, the card's grid
+is `height: 100%`, the lane is `height: 100%`, and the phone finally has something real to be 100%
+of.
+
+**That one line is why the phone was too small in every beat**, including the two-lane ones the
+operator flagged separately. It was never a sizing choice.
+
+**A window needs an edge and a scrollbar, and a page needs to not be the colour of the scene.** The
+browser did not read as a browser because it had none of the three: the page was `#0d1117`, which is
+as black as the scene behind it, the window had no border, and nothing on it said it scrolls. The
+page is lifted to `#12161f`, the window carries a hairline edge, and the app draws its own scrollbar.
+
+**And the void under the content is filled with something real.** The atlas page now carries the
+map's own progress: 13 of the 17 children of [#600](https://github.com/alp82/curia/issues/600) are
+closed, which is the count on the tracker today.
+
+**The first screen comes sooner.** The opening title takes a shorter slot than the others, because
+nothing is on the desk while it holds.
+
+**160 build checks** run against the file and all **101 breaks** that validate them land.
+
+**One check was RETIRED this round, and that is worth as much as adding one.** "A lane is never
+squeezed into a fixed box" came from round 5, where a lane at `height: 100%` inside a held 60dvh
+stage with three lanes crammed into it clipped every one of them. Round 13 made the card fill the
+desk, and from that moment the same declaration became the thing that lets a phone be tall enough to
+read. A check that outlives its reason does not go quiet: **it argues for the bug.** It is replaced
+by the rule that still holds — a lane follows the desk and is never pinned to a length.
+
+**And one check was red for a reason that had nothing to do with what it checks.** Adding a
+box-shadow as a second rule on the same selector made "a browser is a viewport" fail, because it
+demanded that EVERY base rule mention the aspect ratio. It asks that one sets it and none unsets it
+now, and the shadow lives in the same rule where it belongs.
+
+**The operator's answer to round 14**, verbatim, with a screenshot:
+
+> the screen and phone should have a fixed aspect ratio. as you can see, it depends on the viewport
+> size
+
+**A fixed aspect ratio means exactly ONE axis may be constrained**, and round 14 constrained two.
+The browser had `width: 100%` and `max-height: 100%` together: whenever the cap bound, the ratio
+broke, and WHICH viewport that happened at is exactly what made the shape look like it depended on
+the window.
+
+**The lane was doing the same thing more quietly.** It was a flex box with `align-items: stretch`,
+and **a flex item's stretched height beats its aspect-ratio** — which is why a 16:11 window came out
+portrait and a 9:19.5 phone came out a sliver. The lane is a plain block now and a device sizes
+itself.
+
+**Both devices set a WIDTH and let the ratio give the height**, and the width is the smaller of what
+the desk has each way:
+
+```
+width: min(100%, calc(100cqh * 16 / 11))
+```
+
+The desk is a size container, so `100cqh` is the room the desk really has. That fits a device both
+ways without ever touching its shape, and it is the same rule for both: the phone reads its budget
+from `--ph-h`, so the `front` arrangement can hand it 92% of the desk without touching its ratio
+either.
+
+**Neither device carries a cap on the axis the ratio owns**, and a check refuses one, because that
+is the fault in one line.
+
+**163 build checks** run against the file and all **104 breaks** that validate them land.
+
+**The operator's answer to round 15**, verbatim:
+
+> let's pick front for now and call this prototype done. but we will need two follow up tickets: a
+> second prototype round to flesh this out and another one for fleshing out the mobile experience
+> from top to bottom once all sections are prototyped properly
+
+**Settled.** The switcher and the four arrangements that lost left the file with this round, the way
+#624's identity bar and #629's switchers did.
+
+## The merge that arrived early
+
+The operator merged pull request #739 by accident at round 10, before the scene was done. **Nothing
+was lost and nothing needed undoing.** The branch `curia/630` survives on the remote with all of its
+commits, and the squash put the round 10 prototype on main — which is exactly the shape every
+earlier scene ticket left main in, because a prototype living at `prototypes/story-page/` IS where
+this map says prototypes live. The live page is untouched: only
+[#604](https://github.com/alp82/curia/issues/604) copies this file to `docs/`.
+
+So the work carried on where it was, and the next pull request carries only what came after. Curia's
+own record is the thing that made this a non-event: the branch is curia's to push and delete, and it
+had not deleted it.
+
+## The verdict of the ticket run scene ([#630](https://github.com/alp82/curia/issues/630))
+
+**Locked over fifteen operator rounds**, the longest run of any scene on this page. The ticket asked
+for three things, from the operator's note at #551 round 2: no horizontal scroll hijack, tickets that
+read as tickets, and a clean split between what GitHub shows and what Discord shows.
+
+**What the scene is, finally:**
+
+1. **The titles scroll, on the docking side, and the screens do not.** Each of the five steps owns a
+   tall slot. The step crossing the middle of the viewport owns the desk.
+2. **The desk is held, and the cards turn onto it.** The transition is `turn`, settled at round 8:
+   a card swaps on a turn from its top edge, which is the edge it hangs from.
+3. **The ticket is the constant, at the top, and it is a GITHUB TICKET.** Not an invented docket.
+   Its timeline grows one real row per step, its state pill cross-fades once, and nothing about its
+   size moves while either happens, because every row is always laid out and only its visibility
+   changes.
+4. **The screens are real devices.** Scene 5's own browser window and phone
+   ([#627](https://github.com/alp82/curia/issues/627)), referenced and never re-rooted.
+5. **The arrangement is `front`:** the browser tilted back and the phone standing at its lower
+   corner, the way both really sit on a desk.
+6. **The lanes are parallel.** The thread opens at step 3 and stays, the pull request opens beside it
+   at step 4, and both are still evolving at step 5.
+
+**The three faults of the ticket, and what answered each:**
+
+| the fault | the answer |
+|-----------|------------|
+| the horizontal scroll hijack | deleted at round 1 and never replaced. A build check asserts the scene binds no `wheel` or `touchmove` listener, calls no `scrollTo`, and calls `preventDefault` nowhere |
+| the tickets looked bad | the constant IS the issue page of #587, and every screen carries its product's real furniture at a size that reads |
+| GitHub and Discord were mixed | one card carries one surface. The gate moved to Discord, where it belongs, with Reject in the red `ButtonStyle.Danger` really builds it |
+
+**Everything on the page is real** ([#601](https://github.com/alp82/curia/issues/601)). Every
+timeline row is a timestamped event read off `GET /repos/alp82/curia/issues/587/timeline`, and two of
+them are why the scene works at all: the claim at 18:46 is the mark the dispatch leaves on GitHub,
+and the five-commit push at 19:10 lands three minutes before the merge, which is the gate. The
+Start button on the dashboard is a real control — `dashboard.mjs` serves `POST /api/start` from a
+frontier card. The map's progress line is the count on the tracker today.
+
+**Two deliberate reductions, both recorded above.** The pull request shows one real commit and the
+real counts rather than all five SHAs, and the gate lost its two verbatim small-print lines. Both
+are the price of "simple, spaced content", and the scene's own locked fact line still carries what
+the small print said.
+
+**Four new words this ticket authored**, the five step titles, which #587 never locked. That is the
+second time this file has written copy #587 left open, and it happened on the operator's instruction
+at round 3.
+
+**One thing the preview nearly shipped.** The curia address bar was drawn from the tailnet host
+curia published this ticket's own preview on, which is the operator's real tailnet identifier. A
+build check now refuses one anywhere in the file. **A page that ships publicly must not carry the
+host it was built on.**
+
+**140 build checks** run against the file and all **98 breaks** that validate them land.
+
+**What fifteen rounds of checking taught, in three lines:**
+
+- **A check that reads "somewhere" cannot see a fault that lives in "here."** A desktop media query
+  that also sized the phone hid a phone that was full-width on every phone. Six marks of the wrong
+  product still counted as six marks. This was the fault five times.
+- **A class matched as a substring is not a class.** `'pv-bezel' in sec` is true of
+  `class="pv-bezelx"`. Five rounds recorded one instance each, in five different checks, before it
+  stopped being a bug and became a `has_class()` helper. The fault was never in any one check: it
+  was in reaching for `in` when the question is about a name.
+- **A check that outlives its reason argues for the bug.** "A lane is never squeezed into a fixed
+  box" was right at round 5 and became, at round 13, the exact declaration that lets a phone be tall
+  enough to read. Retiring it was worth as much as writing one.
+
+**And the fault this file could not stop repeating was a cut, not a check.** Removing dead CSS from
+one comment header to the next carried live rules off with it at rounds 10, 12, 13 and 15 — the
+desktop split four times, the mark's width twice. The sweep at this verdict cut by RULE instead,
+selecting only rules whose every class is dead. **A marker is a place. A rule is a thing.**
 
 ## The verdict of the terminal scene ([#629](https://github.com/alp82/curia/issues/629))
 
