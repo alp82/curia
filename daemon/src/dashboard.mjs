@@ -85,7 +85,7 @@ export const daemonPort = () => Number(process.env.PORT ?? DEFAULT_DAEMON_PORT)
 // the `#chat/<session>` route, the page reads the six timeline routes through
 // this sidecar, and it draws an ended agent from the `live` field of
 // `/api/console`, which a proto-12 daemon does not carry.
-export const DASHBOARD_PROTO = 13
+export const DASHBOARD_PROTO = 14
 
 // The Credentials screen's own hash (#661). It is here rather than in the
 // daemon that links to it, because the page's screen names are this file's half
@@ -241,6 +241,9 @@ export const DIFF_TIMEOUT_MS = 30_000
 // The biggest settings patch this surface will read. The screen writes a watch
 // list and a handful of numbers, so anything near this is not a settings save.
 export const MAX_BODY = 256 * 1024
+// An answer may carry files inline as base64 (#712): 8 MB of files is about
+// 11 MB on the wire, and the daemon caps the decoded bytes at 8 MB.
+export const MAX_ANSWER_BODY = 12 * 1024 * 1024
 
 // What the page may name on a verb route (#266).
 //
@@ -313,6 +316,16 @@ function field(value, re, what) {
   if (!re.test(s)) throw refuse(`"${s}" is not ${what}`)
   return s
 }
+// A reply's files, as the page sends them (#712): `{name, data}` with base64
+// data. The names are the operator's own and the daemon makes them safe; this
+// surface only keeps the shape honest and the count small.
+const MAX_REPLY_FILES = 10
+function replyFiles(value) {
+  if (!Array.isArray(value)) return []
+  if (value.length > MAX_REPLY_FILES) throw refuse(`a reply carries at most ${MAX_REPLY_FILES} files`)
+  return value.map((f) => ({ name: String(f?.name ?? ''), data: String(f?.data ?? '') }))
+}
+
 function words(value, what) {
   const s = String(value ?? '').trim()
   if (!s) throw refuse(`${what} with no words is not ${what}`)
@@ -615,15 +628,15 @@ export class DashboardSurface {
 
   // A JSON body, bounded. `readBody` on the daemon side is the same shape; this
   // one is separate because the sidecar imports no daemon internals.
-  #body(req) {
+  #body(req, limit = MAX_BODY) {
     return new Promise((resolve, reject) => {
       const chunks = []
       let size = 0
       req.on('data', (c) => {
         size += c.length
-        if (size > MAX_BODY) {
+        if (size > limit) {
           req.destroy()
-          return reject(new Error(`a settings save may not exceed ${MAX_BODY} bytes`))
+          return reject(new Error(`a ${limit === MAX_BODY ? 'settings save' : 'reply with files'} may not exceed ${limit} bytes`))
         }
         chunks.push(c)
       })
@@ -651,7 +664,7 @@ export class DashboardSurface {
       (e) => {
         if (e?.refusal) {
           this.log(`dashboard: the save was refused — ${e.message}`)
-          return this.#json(res, 409, { error: e.message, refused: true })
+          return this.#json(res, 409, { error: e.message, refused: true, ...(e.receipt ? { receipt: e.receipt } : {}) })
         }
         this.log(`dashboard: the save failed — ${e.message}`)
         return this.#json(res, 500, { error: e.message })
@@ -965,13 +978,23 @@ export class DashboardSurface {
       // reason, and the page says which.
       if (url.pathname === '/api/answer') {
         return this.#verb(res, async () => {
-          const b = await this.#body(req)
+          const b = await this.#body(req, MAX_ANSWER_BODY)
           const id = field(b.id, VERB_ESC_RE, 'an escalation id')
-          const answer = words(b.answer, 'an answer')
+          // An answer is words, an option index, or files (#712): a button and
+          // a select send the index every surface shares, a numbered reply
+          // sends words the page resolved, and a reply may carry files as
+          // inline base64. Any one of the three is an answer.
+          const index = Number.isInteger(b.index) && b.index >= 0 ? b.index : null
+          const files = replyFiles(b.files)
+          const answer = index === null && !files.length ? words(b.answer, 'an answer') : String(b.answer ?? '').trim().slice(0, MAX_WORDS)
           const out = await this.#daemon({
-            method: 'POST', path: '/answer', body: { id, answer, by, via: 'dashboard' }, accept: [200, 409],
+            method: 'POST', path: '/answer', body: { id, answer, index, files, by, via: 'dashboard' }, accept: [200, 400, 409],
           })
-          if (out.ok === false) throw refuse(ANSWER_REFUSAL[out.reason] ?? `that question is ${out.reason}`)
+          if (out.ok === false) {
+            // The first receipt rides the refusal, so the page shows the mark
+            // rather than an error (#712, ADR-0025).
+            throw Object.assign(refuse(out.error ?? ANSWER_REFUSAL[out.reason] ?? `that question is ${out.reason}`), { receipt: out.receipt ?? null })
+          }
           return out
         })
       }

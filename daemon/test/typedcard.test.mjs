@@ -183,6 +183,7 @@ describe('a typed choice past the button band', () => {
     // body already IS that list, so printing it again is the scroll #431 named.
     assert.equal((msg.content.match(/option 1/g) ?? []).length, 1)
     assert.match(msg.content, /_Pick from the menu below\._/)
+    assert.match(msg.content, /-# A reply here may carry files\. They land under `\S+\/attachments\/esc-[^`]+\/` and reach the agent as paths\./, 'every card names the file path (#712)')
   })
 
   test('past the menu band the card asks for a letter or a number', async () => {

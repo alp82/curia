@@ -473,7 +473,16 @@ A builder idle inside its own `request_review` or `report_result` call while a c
 The message curia queues at the builder the moment a reviewer spawns. It names the reviewer and holds the ending: no resolve, no merge and no `report_result` until the verdict lands. A cross-check pressed at the gate sends none, because the builder is already parked.
 
 **First-valid-wins**:
-The answer rule. The first valid answer closes the escalation atomically. Any device may answer. Later answers get a refusal.
+The answer rule. The first valid answer closes the escalation atomically. Any device may answer. Later answers get a refusal that carries the first **Answer receipt**, so the surface that lost the race shows the mark and never a second question (#712).
+
+**Answer receipt**:
+The one mark an answered card carries on every surface: who answered, on which surface, when, and the answer's own words. The Discord card edits it on, the Chat room and Home read it from the record, and a second answer gets it back in place of an error. See [ADR-0025](docs/adr/0025-the-cards-under-the-one-voice.md) and [#712](https://github.com/alp82/curia/issues/712).
+
+**Option band**:
+Which control a choice card earns from its option count, the same on Discord and Atlas: two to four options are buttons that say the marker and the per-option handle, five to 25 are one select, and past 25 the numbered list stays and a reply names a marker. Every control sends the option index, and the daemon resolves the index to the option's own words, so a typed reply, a Discord press and an Atlas tap record one answer. The card body keeps every consequence. See [ADR-0025](docs/adr/0025-the-cards-under-the-one-voice.md) and [#712](https://github.com/alp82/curia/issues/712).
+
+**Reply files**:
+The files an answer carries. Every card names the path they land in, `data/attachments/<escalation id>/`, whether the reply came from a Discord thread or a browser. A browser reply sends them inline through the sidecar, the daemon writes them under the bridge's own naming, and the paths ride the answer as the agent's readable form. See [#712](https://github.com/alp82/curia/issues/712).
 
 **Supersede**:
 A re-asked question closes the older record and routes late answers to the live one. The key is the agent and the kind, never the wording (#336). A re-send that explains itself in its own words is the same call, so it closes the original at birth. A confirm keys on the target instance instead. It reaches OPEN records only, so a question that is already answered is handled by the recorded answer (#369).

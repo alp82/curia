@@ -935,6 +935,54 @@ describe('the console verbs on the loopback surface (#266, real boot)', () => {
     assert.equal(JSON.parse(res.body).reason, 'unknown')
   })
 
+  // The typed card from a browser (#712, ADR-0025): an index is the option's
+  // own words, a reply file lands where the card said, and the second answer
+  // gets the first receipt and no second journal line.
+  describe('one answer, from any surface (#712)', () => {
+    let id
+    before(async () => {
+      const res = await post('/escalate', { agent: 'curia-1', ticket: '1', kind: 'choice', prompt: 'which?', options: ['Stable', 'Preview'] })
+      id = JSON.parse(res.body).id
+    })
+
+    test('an option index resolves to the option\'s words, and the files land under the question\'s own directory', async () => {
+      const data = Buffer.from('a: 1\n').toString('base64')
+      const res = await post('/answer', {
+        id, index: 1, answer: '', by: 'alp@example.com', via: 'dashboard',
+        files: [{ name: '../../notes.txt', data }, { name: 'shot.png', data: Buffer.from('png').toString('base64') }],
+      })
+      assert.equal(res.status, 200, res.body)
+      const answered = journal().filter((e) => e.type === 'esc_answer' && e.id === id)
+      assert.equal(answered.length, 1)
+      const dir = path.join(dataDir, 'attachments', id)
+      assert.deepEqual(fs.readdirSync(dir).sort(), ['notes-1.txt', 'shot-2.png'], 'the names are made safe and numbered like a Discord download')
+      assert.match(answered[0].answer, /^Preview\n\[attachment: .*notes-1\.txt\]\n\[attachment: .*shot-2\.png\]$/)
+      assert.deepEqual(answered[0].attachments, [path.join(dir, 'notes-1.txt'), path.join(dir, 'shot-2.png')])
+      assert.equal(fs.readFileSync(path.join(dir, 'notes-1.txt'), 'utf8'), 'a: 1\n')
+    })
+
+    test('a second answer is refused with the first receipt, and journals nothing', async () => {
+      const res = await post('/answer', { id, index: 0, by: 'other@example.com', via: 'dashboard', files: [{ name: 'late.txt', data: Buffer.from('x').toString('base64') }] })
+      assert.equal(res.status, 409)
+      const body = JSON.parse(res.body)
+      assert.equal(body.reason, 'answered')
+      assert.equal(body.receipt.by, 'alp@example.com')
+      assert.equal(body.receipt.via, 'dashboard')
+      assert.match(body.receipt.answer, /^Preview/)
+      assert.ok(body.receipt.at)
+      assert.equal(journal().filter((e) => e.type === 'esc_answer' && e.id === id).length, 1)
+      assert.equal(fs.existsSync(path.join(dataDir, 'attachments', id, 'late-1.txt')), false, 'a late reply writes no file')
+    })
+
+    test('a file type curia would refuse on the way out is refused on the way in, by name', async () => {
+      const open = JSON.parse((await post('/escalate', { agent: 'curia-2', ticket: '2', kind: 'free-text', prompt: 'notes?' })).body)
+      const res = await post('/answer', { id: open.id, answer: 'here', files: [{ name: 'tool.exe', data: Buffer.from('MZ').toString('base64') }] })
+      assert.equal(res.status, 400)
+      assert.match(JSON.parse(res.body).error, /tool\.exe: refused/)
+      assert.equal(journal().filter((e) => e.type === 'esc_answer' && e.id === open.id).length, 0)
+    })
+  })
+
   // ---- the browser conversations (#333, ADR-0016) ----------------------------
   //
   // Live, on the real daemon, because the rule that matters is durable: a

@@ -2038,27 +2038,107 @@ describe('the operator verbs (#266)', () => {
   // ---- answer --------------------------------------------------------------
 
   describe('an answer, on the one answer surface', () => {
-    test('a choice offers its own options, and the button sends the option verbatim', () => {
+    test('a choice offers its own options, and the button sends the option INDEX every surface shares (#712)', () => {
       const html = page.screenHome(payload())
-      assert.match(html, /answerEsc\('esc-7','Drop the older note'\)/)
-      assert.match(html, /answerEsc\('esc-7','Post both with stamps'\)/)
+      assert.match(html, /answerIndex\('esc-7',0\)/)
+      assert.match(html, /answerIndex\('esc-7',1\)/)
+      assert.match(text(html), /1 · Drop the older note/, 'an untyped card counts its options')
+      assert.match(text(html), /2 · Post both with stamps/)
+    })
+
+    // The typed card (#712, ADR-0025): the button says the letter and the
+    // handle, the body keeps the consequence, and the band picks the control.
+    describe('the typed card, one payload on every surface (#712)', () => {
+      const typedCard = (n, { handles = true } = {}) => {
+        const p = payload()
+        const options = Array.from({ length: n }, (_, i) => `Option ${i + 1}, with its whole consequence spelled out`)
+        Object.assign(p.overview.escalations[0], {
+          typed: true, options,
+          option_handles: handles ? options.map((_, i) => `opt${i + 1}`) : null,
+          files_dir: '/box/data/attachments/esc-7',
+        })
+        return p
+      }
+
+      test('two to four options are buttons that say the letter and the handle', () => {
+        const html = page.screenHome(typedCard(3))
+        assert.match(html, /answerIndex\('esc-7',2\)/)
+        assert.match(text(html), /A · opt1/)
+        assert.match(text(html), /C · opt3/)
+        assert.doesNotMatch(html, /<select id="sel-esc-7"/)
+        assert.doesNotMatch(text(html), /whole consequence spelled out/, 'the button never repeats the body')
+      })
+
+      test('five to 25 options are one select, and its Answer sends the picked index', () => {
+        const html = page.screenHome(typedCard(5))
+        assert.match(html, /<select id="sel-esc-7"/)
+        assert.match(html, /<option value="4">E · opt5<\/option>/)
+        assert.match(html, /answerSelect\('esc-7','sel-esc-7'\)/)
+        assert.doesNotMatch(html, /answerIndex\('esc-7',0\)/, 'no button row beside the menu')
+        assert.match(page.screenHome(typedCard(25)), /<select id="sel-esc-7"/)
+      })
+
+      test('past 25 the numbered list stays, and a reply of a marker resolves to the index', () => {
+        const p = typedCard(27)
+        const html = page.screenHome(p)
+        assert.doesNotMatch(html, /<select id="sel-esc-7"/)
+        assert.doesNotMatch(html, /answerIndex\('esc-7',0\)/)
+        assert.match(text(html), /A\. opt1/)
+        assert.match(text(html), /27\. opt27/, 'the 27th marker is a number, as card.mjs marks it')
+        assert.match(text(html), /Reply with a letter or a number\./)
+        const r = p.overview.escalations[0]
+        assert.equal(page.markerIndex(r, 'b'), 1)
+        assert.equal(page.markerIndex(r, '27'), 26)
+        assert.equal(page.markerIndex(r, '28'), null, 'a marker no option carries is words')
+        assert.equal(page.markerIndex({ ...r, typed: false }, 'B'), null, 'an untyped card has no letters')
+      })
+
+      test('a card with no handles falls back to the label, so no button is blank', () => {
+        assert.match(text(page.screenHome(typedCard(2, { handles: false }))), /A · Option 1, with its whole/)
+      })
+
+      test('every card names the file path, and the reply carries files from its own input', () => {
+        const html = page.screenHome(typedCard(2))
+        assert.match(html, /<input type="file" id="files-esc-7" multiple/)
+        assert.match(text(html), /A reply may carry files\. They land under \/box\/data\/attachments\/esc-7\/ and reach the agent as paths\./)
+        const p = payload()
+        assert.match(text(page.screenHome(p)), /A reply may carry files\./, 'an untyped card names it too')
+      })
+
+      test('a second answer shows the first receipt, in the words the Discord mark uses', async () => {
+        const p = typedCard(2)
+        let posted = null
+        const local = loadPage({
+          fetchImpl: async (url, init) => {
+            posted = { url, body: JSON.parse(init.body) }
+            return { ok: false, status: 409, json: async () => ({ error: 'that question was already answered — the first valid answer wins', refused: true, receipt: { by: 'alp', via: 'button', at: at(60), answer: 'Option 1, with its whole consequence spelled out' } }) }
+          },
+        })
+        local.payload = p
+        await local.answerIndex('esc-7', 1)
+        assert.equal(posted.url, '/api/answer')
+        assert.deepEqual(posted.body, { id: 'esc-7', index: 1, files: [] })
+        const t = text(local.screenHome(p))
+        assert.match(t, /✅ answered by alp via button .*: Option 1, with its whole/)
+        assert.doesNotMatch(t, /already answered/, 'the receipt, not the refusal')
+      })
     })
 
     // An option is an AGENT's own words, and it lands inside an onclick
     // handler. A quote in it would close the JS string and open code, which
     // makes it the one value on this page that could ever do that.
-    test('an option carrying a quote is escaped for the handler it sits in, not only for the html', () => {
+    test('an option carrying a quote never reaches a handler: the control sends the index, and the label is html-escaped', () => {
       const raw = "x'),alert(1),('"
       const p = payload()
       p.overview.escalations[0].options = ["it's fine", raw]
       const html = page.screenHome(p)
-      assert.ok(html.includes("answerEsc('esc-7','it\\'s fine')"), 'the quote is escaped, and the label still reads')
-      assert.equal(html.includes(`,'${raw}')`), false, 'the raw option never reaches the handler')
-      assert.ok(html.includes("x\\'),alert(1),(\\'"), 'every quote in it stays inside the string it was given')
+      assert.doesNotMatch(html, /onclick="[^"]*alert/, 'the option is inside no handler')
+      assert.match(text(html), /2 · x'\),alert\(1\),\('/, 'the label still reads')
+      assert.match(html, /answerIndex\('esc-7',1\)/)
     })
 
     test('every kind still takes words: an option list is not the only way to answer', () => {
-      assert.match(page.screenHome(payload()), /answerTyped\('esc-7','ans-esc-7'\)/)
+      assert.match(page.screenHome(payload()), /answerTyped\('esc-7','ans-esc-7',escRecord\('esc-7'\)\)/)
     })
 
     test('an approve-reject pair sends the two literals the daemon classifies', () => {
@@ -2523,8 +2603,25 @@ describe('the chat screen (#267, the picker of #333)', () => {
       page.chatReceive('esc_history', [{ id: 'esc-7', kind: 'question', prompt: 'Which branch?', options: ['a', 'b'], opened_at: at(200), closed_at: at(150), status: 'answered', answer: 'a', answered_by: 'alp', answered_via: 'dashboard' }])
       page.chatReceive('escalations', [{ id: 'esc-8', kind: 'question', prompt: 'Ship it?', options: null, opened_at: at(50), nudges: 0 }])
       const t = text(page.screenChat(payload()))
-      assert.match(t, /first .*Which branch\?.*answered by alp \(dashboard\).*third/s)
+      assert.match(t, /first .*Which branch\?.*✅ answered by alp via dashboard.*third/s)
       assert.match(t, /waiting on you — question \(esc-8\) Ship it\?/)
+    })
+
+    test('an open choice in the room is the same typed card Home draws, answered in place (#712)', () => {
+      page.chatReceive('escalations', [{
+        id: 'esc-9', kind: 'choice', prompt: '**Which branch?**', typed: true, recommended: false,
+        options: ['Stable, and wait for the fix', 'Preview, and take the risk'], option_handles: ['stable', 'preview'],
+        files_dir: '/box/data/attachments/esc-9', opened_at: at(50), nudges: 0,
+      }])
+      const html = page.screenChat(payload())
+      assert.match(html, /answerIndex\('esc-9',0\)/)
+      assert.match(text(html), /A · stable/)
+      assert.match(text(html), /B · preview/)
+      assert.match(html, /answerTyped\('esc-9','ans-esc-9',escRecord\('esc-9'\)\)/)
+      assert.match(html, /<input type="file" id="files-esc-9" multiple/)
+      assert.match(text(html), /They land under \/box\/data\/attachments\/esc-9\//)
+      assert.doesNotMatch(text(html), /answer it on Home/)
+      assert.equal(page.escRecord('esc-9').id, 'esc-9', 'the typed answer resolves its marker against the room\'s own record')
     })
 
     test('an ended agent stays readable and refuses new input with one sentence', () => {

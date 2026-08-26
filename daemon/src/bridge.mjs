@@ -1271,6 +1271,11 @@ export class DiscordBridge {
     return rows
   }
 
+  // The path a reply file lands in, as one small-print line (#712).
+  #replyFilesLine(record) {
+    return smallPrint(`A reply here may carry files. They land under \`${path.join(this.dataDir, 'attachments', record.id)}/\` and reach the agent as paths.`)
+  }
+
   #escalationBody(record, files = []) {
     if (record.kind === CONFIRM_KIND) {
       // Every confirm but one is about a live agent and lapses with it. The
@@ -1295,6 +1300,7 @@ export class DiscordBridge {
         '',
         '_✅ Approve to merge and resolve. A reply is a rejection, and I take your words as the change list._',
         '_🔎 Cross-check answers neither. It starts a reviewer on the other provider, and I wait for its verdict._',
+        this.#replyFilesLine(record),
         `-# ${record.id}`,
       ].join('\n')
     }
@@ -1344,6 +1350,11 @@ export class DiscordBridge {
     } else if (record.kind === 'preview-review') {
       parts.push(`Preview: ${record.preview_url}`, '_Approve/Reject, or reply in this thread with comments._')
     }
+    // Every card names the file path (#712, ADR-0025): one small-print line
+    // says a reply may carry files, and where they land. The directory is the
+    // one `#downloadAttachments` writes and the one a browser reply writes, so
+    // the agent reads one shape whichever surface answered.
+    parts.push(this.#replyFilesLine(record))
     // A flagged send (#416, ADR-0005): the agent used up its three rejections
     // and curia sent the text as it stands. The operator sees which rule it
     // broke, beside the text that broke it — a flagged question still reaches
@@ -1800,7 +1811,13 @@ export class DiscordBridge {
           }).catch(() => {})
         }
       } else {
-        await i.reply({ content: `⚠️ not open — ${result.reason}${result.record?.answer ? ` (answer was \`${result.record.answer}\`)` : ''}`, ephemeral: true })
+        // A second press shows the first receipt (#712, ADR-0025): the same
+        // mark the card carries, and no second journal answer behind it.
+        const r = result.record
+        const receipt = result.reason === 'answered' && r
+          ? `✅ **answered** by <@${r.answered_by}> via ${r.answered_via}: \`${String(r.answer ?? '').slice(0, 200)}\``
+          : `⚠️ not open — ${result.reason}${r?.answer ? ` (answer was \`${r.answer}\`)` : ''}`
+        await i.reply({ content: receipt, ephemeral: true })
       }
     }
   }

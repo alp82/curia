@@ -76,12 +76,22 @@ describe('a press on an escalation button says nothing beside the card (#253)', 
   // A refusal is the other case: nothing happened, so there is no mark on the
   // card to read. The presser is told privately.
   test('a refusal still replies, and only to the presser', async () => {
-    result = { ok: false, reason: 'already answered', record: { id: 'esc-12', answer: 'navy' } }
+    result = { ok: false, reason: 'cancelled', record: { id: 'esc-12', answer: 'navy' } }
     await press('esc|esc-12|opt|approve')
     assert.equal(replies.length, 1)
     assert.equal(replies[0].ephemeral, true)
     assert.match(replies[0].content, /not open/)
     assert.match(replies[0].content, /navy/)
+  })
+
+  // A second press shows the first receipt (#712, ADR-0025): the same mark
+  // the card carries, to the presser alone, and nothing is journalled.
+  test('a second press on an answered card shows the first receipt', async () => {
+    result = { ok: false, reason: 'answered', record: { id: 'esc-12', answer: 'navy', answered_by: 'u-1', answered_via: 'button' } }
+    await press('esc|esc-12|idx|1')
+    assert.equal(replies.length, 1)
+    assert.equal(replies[0].ephemeral, true)
+    assert.equal(replies[0].content, '✅ **answered** by <@u-1> via button: `navy`')
   })
 })
 

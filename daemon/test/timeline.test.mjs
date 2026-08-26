@@ -922,6 +922,24 @@ describe('TimelineSurface', () => {
     }
   })
 
+  test('the open card carries the typed-card fields the room renders from (#712)', async () => {
+    escalations = [{
+      id: 'esc-8', kind: 'choice', prompt: '**Which?**', options: ['Stable, and wait', 'Preview, and risk it'],
+      payload: { options: [{ label: 'Stable, and wait', handle: 'stable' }, { label: 'Preview, and risk it' }] },
+      preview_url: null, opened_at: 'T',
+    }]
+    try {
+      const { events } = await sse(port, 'session=curia-9')
+      const r = events.filter((e) => e.event === 'escalations').at(-1).data[0]
+      assert.deepEqual(r.option_handles, ['stable', 'Preview, and risk it'], 'a missing handle falls back to the label')
+      assert.equal(r.typed, true)
+      assert.equal(r.recommended, false)
+      assert.equal(r.files_dir, null, 'this fixture names no files directory, and the field says so rather than inventing one')
+    } finally {
+      escalations = []
+    }
+  })
+
   test('the full escalation history reaches the page — question, options, answer, who answered (#108 item 1)', async () => {
     escHistory = [{
       id: 'esc-3', agent: 'curia-9', kind: 'choice',
