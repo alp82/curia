@@ -2363,6 +2363,15 @@ is the fault in one line.
 
 **163 build checks** run against the file and all **104 breaks** that validate them land.
 
+**The operator's answer to round 15**, verbatim:
+
+> let's pick front for now and call this prototype done. but we will need two follow up tickets: a
+> second prototype round to flesh this out and another one for fleshing out the mobile experience
+> from top to bottom once all sections are prototyped properly
+
+**Settled.** The switcher and the four arrangements that lost left the file with this round, the way
+#624's identity bar and #629's switchers did.
+
 ## The merge that arrived early
 
 The operator merged pull request #739 by accident at round 10, before the scene was done. **Nothing
@@ -2375,6 +2384,78 @@ this map says prototypes live. The live page is untouched: only
 So the work carried on where it was, and the next pull request carries only what came after. Curia's
 own record is the thing that made this a non-event: the branch is curia's to push and delete, and it
 had not deleted it.
+
+## The verdict of the ticket run scene ([#630](https://github.com/alp82/curia/issues/630))
+
+**Locked over fifteen operator rounds**, the longest run of any scene on this page. The ticket asked
+for three things, from the operator's note at #551 round 2: no horizontal scroll hijack, tickets that
+read as tickets, and a clean split between what GitHub shows and what Discord shows.
+
+**What the scene is, finally:**
+
+1. **The titles scroll, on the docking side, and the screens do not.** Each of the five steps owns a
+   tall slot. The step crossing the middle of the viewport owns the desk.
+2. **The desk is held, and the cards turn onto it.** The transition is `turn`, settled at round 8:
+   a card swaps on a turn from its top edge, which is the edge it hangs from.
+3. **The ticket is the constant, at the top, and it is a GITHUB TICKET.** Not an invented docket.
+   Its timeline grows one real row per step, its state pill cross-fades once, and nothing about its
+   size moves while either happens, because every row is always laid out and only its visibility
+   changes.
+4. **The screens are real devices.** Scene 5's own browser window and phone
+   ([#627](https://github.com/alp82/curia/issues/627)), referenced and never re-rooted.
+5. **The arrangement is `front`:** the browser tilted back and the phone standing at its lower
+   corner, the way both really sit on a desk.
+6. **The lanes are parallel.** The thread opens at step 3 and stays, the pull request opens beside it
+   at step 4, and both are still evolving at step 5.
+
+**The three faults of the ticket, and what answered each:**
+
+| the fault | the answer |
+|-----------|------------|
+| the horizontal scroll hijack | deleted at round 1 and never replaced. A build check asserts the scene binds no `wheel` or `touchmove` listener, calls no `scrollTo`, and calls `preventDefault` nowhere |
+| the tickets looked bad | the constant IS the issue page of #587, and every screen carries its product's real furniture at a size that reads |
+| GitHub and Discord were mixed | one card carries one surface. The gate moved to Discord, where it belongs, with Reject in the red `ButtonStyle.Danger` really builds it |
+
+**Everything on the page is real** ([#601](https://github.com/alp82/curia/issues/601)). Every
+timeline row is a timestamped event read off `GET /repos/alp82/curia/issues/587/timeline`, and two of
+them are why the scene works at all: the claim at 18:46 is the mark the dispatch leaves on GitHub,
+and the five-commit push at 19:10 lands three minutes before the merge, which is the gate. The
+Start button on the dashboard is a real control — `dashboard.mjs` serves `POST /api/start` from a
+frontier card. The map's progress line is the count on the tracker today.
+
+**Two deliberate reductions, both recorded above.** The pull request shows one real commit and the
+real counts rather than all five SHAs, and the gate lost its two verbatim small-print lines. Both
+are the price of "simple, spaced content", and the scene's own locked fact line still carries what
+the small print said.
+
+**Four new words this ticket authored**, the five step titles, which #587 never locked. That is the
+second time this file has written copy #587 left open, and it happened on the operator's instruction
+at round 3.
+
+**One thing the preview nearly shipped.** The curia address bar was drawn from the tailnet host
+curia published this ticket's own preview on, which is the operator's real tailnet identifier. A
+build check now refuses one anywhere in the file. **A page that ships publicly must not carry the
+host it was built on.**
+
+**140 build checks** run against the file and all **98 breaks** that validate them land.
+
+**What fifteen rounds of checking taught, in three lines:**
+
+- **A check that reads "somewhere" cannot see a fault that lives in "here."** A desktop media query
+  that also sized the phone hid a phone that was full-width on every phone. Six marks of the wrong
+  product still counted as six marks. This was the fault five times.
+- **A class matched as a substring is not a class.** `'pv-bezel' in sec` is true of
+  `class="pv-bezelx"`. Five rounds recorded one instance each, in five different checks, before it
+  stopped being a bug and became a `has_class()` helper. The fault was never in any one check: it
+  was in reaching for `in` when the question is about a name.
+- **A check that outlives its reason argues for the bug.** "A lane is never squeezed into a fixed
+  box" was right at round 5 and became, at round 13, the exact declaration that lets a phone be tall
+  enough to read. Retiring it was worth as much as writing one.
+
+**And the fault this file could not stop repeating was a cut, not a check.** Removing dead CSS from
+one comment header to the next carried live rules off with it at rounds 10, 12, 13 and 15 — the
+desktop split four times, the mark's width twice. The sweep at this verdict cut by RULE instead,
+selecting only rules whose every class is dead. **A marker is a place. A rule is a thing.**
 
 ## The verdict of the terminal scene ([#629](https://github.com/alp82/curia/issues/629))
 

@@ -1609,8 +1609,6 @@
     padding: 0.1em 0.4em; color: var(--gx-ink);
   }
   .oc { width: 1em; height: 1em; flex: none; vertical-align: -0.15em; }
-  .gx-crumb { display: flex; align-items: center; gap: 0.4em; color: var(--gx-mute); font-size: 0.88em; margin-bottom: 0.4em; }
-  .gx-crumb b { color: var(--gx-ink); font-weight: 600; }
   .gx-h1 {
     margin: 0; font-size: 1.28em; font-weight: 600; line-height: 1.3;
     letter-spacing: -0.01em; color: var(--gx-ink); text-wrap: pretty;
@@ -1627,25 +1625,9 @@
   .gx-by { color: var(--gx-mute); font-size: 0.9em; }
   .gx-by b { color: var(--gx-ink); font-weight: 600; }
   /* The real hex of this repo's `wayfinder:prototype` label. */
-  .gx-lbl {
-    display: inline-block; border-radius: 2em; padding: 0.08em 0.7em;
-    font-size: 0.82em; font-weight: 500; background: #fbca04; color: #1f2328;
-  }
-  .gx-cl { margin-top: 0.65em; border: 1px solid var(--gx-soft); border-radius: 6px; overflow: hidden; }
-  .gx-cl > div {
-    display: flex; gap: 0.6em; align-items: baseline;
-    padding: 0.38em 0.6em; font-size: 0.86em; border-top: 1px solid var(--gx-soft);
-  }
-  .gx-cl > div:first-child { border-top: none; }
-  .gx-cl .sha { font: 0.92em var(--mono); color: var(--gx-mute); flex: none; }
-  .gx-cl .msg { color: var(--gx-ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .gx-diff { display: inline-flex; align-items: center; gap: 0.45em; font-size: 0.9em; color: var(--gx-mute); }
   .gx-diff .a { color: var(--gx-add); font-weight: 600; font-family: var(--mono); }
   .gx-diff .d { color: var(--gx-del); font-weight: 600; font-family: var(--mono); }
-  .gx-diff .sq { display: inline-flex; gap: 2px; }
-  .gx-diff .sq i { width: 0.66em; height: 0.66em; border-radius: 2px; background: var(--gx-add); }
   .gx-diff .sq i.n { background: var(--gx-soft); }
-  .gx-cm { border: 1px solid var(--gx-line); border-radius: 6px; overflow: hidden; }
   .gx-cm .h {
     background: var(--gx-sunk); padding: 0.4em 0.7em; font-size: 0.88em;
     color: var(--gx-mute); border-bottom: 1px solid var(--gx-line);
@@ -1790,17 +1772,8 @@
 
   /* ---- the page inside a shell. Dark, because all three products are,
          and a light window around a dark page is what a browser is. --- */
-  .r10-page {
-    background: #0d1117; color: #e6edf3; padding: 0.7rem 0.75rem;
-    font: 0.66rem/1.5 var(--sans); display: grid; gap: 0.55rem; align-content: start;
-  }
   .r10-page.dc { background: #313338; color: #dbdee1; padding: 1.5rem 0.55rem 0.6rem; }
-  .r10-scr { overflow: hidden; }
-  .r10-scr .r10-page { height: 100%; }
-  .r10-head { display: flex; align-items: center; gap: 0.4em; font-size: 0.92em; }
-  .r10-head b { font-weight: 700; color: #e6edf3; }
   .r10-head.dc b { color: #f2f3f5; }
-  .r10-head i { font-style: normal; color: #8b93a4; font-size: 0.92em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
   /* curia's page: the frontier, and the Start button prominently */
   .r10-front { display: flex; align-items: center; gap: 0.45em; font: 700 0.58rem var(--mono); letter-spacing: 0.1em; text-transform: uppercase; color: #8a93a3; }
@@ -1839,7 +1812,6 @@
   .r10-c code { font: 0.92em var(--mono); color: #4493f8; }
 
   /* the thread: three short messages, spaced */
-  .r10-log { display: grid; gap: 0.6rem; align-content: start; }
   .r10-msg .w { margin: 0 0 0.15rem; display: flex; align-items: center; gap: 0.35em; font-size: 0.9em; }
   .r10-msg .w b { color: #f2f3f5; font-weight: 500; }
   .r10-msg .w .ap { background: #5865f2; color: #fff; border-radius: 3px; padding: 0 0.3em; font: 700 0.72em var(--sans); }
@@ -2089,55 +2061,12 @@
   }
 
   @media (min-width: 62rem) {
-    .r12-app { font-size: 0.74rem; }
-    .r12-scr { font-size: 0.58rem; }
-    .r8-tkt { font-size: 0.76rem; }
-  }
-
-  /* ================================================================
-     Five arrangements of the desk. Which is what the answer asks for.
-     ================================================================ */
-
-  /* ---- 1 · front. The browser tilted back and the phone standing in
-         front of its lower corner, the way both really sit on a desk.
-         Round 11's arrangement, with the phone finally phone-sized. --- */
-  .v-front .r8-card.two > * { position: relative; display: block; perspective: 1400px; }
-  .v-front .r8-lane[data-app="github"] { transform: rotateX(10deg) rotateY(-11deg) rotate(-0.5deg); transform-origin: 62% 100%; }
-  .v-front .r8-lane[data-app="discord"] { position: absolute; right: 1%; bottom: -0.6rem; height: auto; --ph-h: 92cqh; z-index: 3; }
-  .v-front .r8-lane[data-app="curia"] { transform: rotateX(8deg) rotate(-0.4deg); transform-origin: 50% 100%; }
-  .v-front .r8-card:not(.two) .pv-phone { margin-left: auto; margin-right: 6%; }
-
-  /* ---- 2 · beside. Nothing overlaps: the browser takes the width it
-         needs and the phone stands next to it, both whole. ---- */
-  .v-beside2 .r8-card.two > * { display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 0.8rem; }
-  .v-beside2 .r8-lane[data-app="discord"] .pv-phone { width: 9rem; }
-  .v-beside2 .r8-card:not(.two) .pv-phone { margin: 0 auto; }
-
-  /* ---- 3 · flat. No tilt at all. The plainest desk, and the only one
-         that gives the browser its full width on a narrow screen. ---- */
-  .v-flat2 .r8-card.two > * { display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 0.7rem; }
-  .v-flat2 .r8-lane > * { box-shadow: 0 12px 30px rgba(0, 0, 0, 0.55); }
-  .v-flat2 .r8-card:not(.two) .pv-phone { margin: 0 auto; }
-
-  /* ---- 4 · lean. Both devices lean the same way, as if the desk were
-         seen from one side, so the pair reads as one workplace. ---- */
-  .v-lean .r8-card.two > * { display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 0.6rem; perspective: 1500px; }
-  .v-lean .r8-lane > * { transform: rotateY(-9deg); transform-origin: 100% 50%; }
-  .v-lean .r8-lane[data-app="discord"] > * { transform: rotateY(-9deg) translateZ(2rem); }
-  .v-lean .r8-card:not(.two) .pv-phone { margin-left: auto; margin-right: 8%; }
-
-  /* ---- 5 · over. The phone stands ON the browser, overlapping its
-         middle, which is the boldest reading and the one that makes the
-         phone the thing you look at. ---- */
-  .v-over .r8-card.two > * { position: relative; display: block; }
-  .v-over .r8-lane[data-app="github"] { width: 88%; }
-  .v-over .r8-lane[data-app="discord"] { position: absolute; right: 0; bottom: -1.2rem; z-index: 3; }
-  .v-over .r8-lane[data-app="discord"] .pv-phone { width: 8.6rem; }
-  .v-over .r8-card:not(.two) .pv-phone { margin-left: auto; margin-right: 4%; }
-
-  @media (min-width: 62rem) {
     /* The titles take the docking side and the desk the other, which is
-       #624's alternation read at the scale of one scene. */
+       #624's alternation read at the scale of one scene. This block has
+       now been carried off FOUR times by a cut that ran from one comment
+       header to another with live rules between them — rounds 10, 12,
+       13 and 15. The dead-CSS sweep at the verdict cut by RULE instead,
+       and that is the only reason this is the last time. */
     .r8-track { display: grid; grid-template-columns: 19rem 1fr; column-gap: 3.2rem; align-items: start; }
     .r8-steps { grid-column: 1; }
     .r8-stage {
@@ -2147,12 +2076,28 @@
     .r8-nb { min-height: 90svh; }
     .r8-nb:first-child { min-height: 50svh; }
     .r8-nb:last-child { min-height: 60svh; }
-    #run .pv-phone { width: min(11rem, 34%); }
-    .r12-app { font-size: 0.72rem; }
-    .r12-scr { font-size: 0.56rem; }
-    .v-beside2 .r8-lane[data-app="discord"] .pv-phone,
-    .v-over .r8-lane[data-app="discord"] .pv-phone { width: 11rem; }
+    .r12-app { font-size: 0.74rem; }
+    .r12-scr { font-size: 0.58rem; }
+    .r8-tkt { font-size: 0.76rem; }
   }
+
+  /* ---- the arrangement, settled at round 15: the browser tilted back
+         and the phone standing at its lower corner, the way both really
+         sit on a desk. The four that lost left the file with the round
+         that settled it, the way #624's identity bar did. ---- */
+  .r8-card.two > * { position: relative; display: block; perspective: 1400px; }
+  .r8-lane[data-app="github"] { transform: rotateX(10deg) rotateY(-11deg) rotate(-0.5deg); transform-origin: 62% 100%; }
+  .r8-lane[data-app="discord"] { position: absolute; right: 1%; bottom: -0.6rem; height: auto; --ph-h: 92cqh; z-index: 3; }
+  .r8-lane[data-app="curia"] { transform: rotateX(8deg) rotate(-0.4deg); transform-origin: 50% 100%; }
+  .r8-card:not(.two) .pv-phone { margin-left: auto; margin-right: 6%; }
+
+  /* ---- the column the claim and the closing lines sit in ---- */
+  .runwrap { max-width: 36rem; margin: 0 auto; padding: 0 1.25rem; }
+  @media (min-width: 62rem) { .runwrap { max-width: 72rem; } }
+
+  /* ---- the two lines that close the scene ---- */
+  .caption { color: var(--dim); font-size: 0.85rem; font-style: italic; margin: 1.4rem 0 0; text-align: center; }
+  .dogfood { color: var(--body); margin-top: 1.6rem; }
 
   /* ---- the fail-open path. With reduced motion or no script the desk
          lets go, every card stands in order, and the ticket shows its
@@ -2166,29 +2111,6 @@
   .still .r8-lane .win-body, .still .r8-lane .at-body, .still .r8-lane .dcx-log { max-height: none; }
   .still .r8-nb { min-height: 0; opacity: 1; margin-bottom: 2rem; }
   .still .r8-tl li { visibility: visible; opacity: 1; }
-
-  /* ---- the round switcher. It leaves the file with the round that
-         settles this scene, the way #624's identity bar did. ---- */
-  .rsw {
-    position: sticky; top: 0; z-index: 8;
-    display: flex; gap: 0.3rem; overflow-x: auto; scrollbar-width: none;
-    padding: 0.5rem 1.25rem; margin-bottom: 1rem;
-    background: rgba(9, 12, 26, 0.86);
-    backdrop-filter: blur(7px); -webkit-backdrop-filter: blur(7px);
-    border-bottom: 1px solid #ffffff12;
-  }
-  .rsw::-webkit-scrollbar { display: none; }
-  .rsw button {
-    flex: none; border: 1px solid #ffffff26; background: #ffffff0d; color: var(--dim);
-    border-radius: 999px; padding: 0.3rem 0.75rem; cursor: pointer;
-    font: 700 0.66rem var(--mono); letter-spacing: 0.04em;
-  }
-  .rsw button[aria-pressed="true"] { background: var(--sc); border-color: var(--sc); color: #08090c; }
-
-  .runwrap { max-width: 36rem; margin: 0 auto; padding: 0 1.25rem; }
-  @media (min-width: 62rem) { .runwrap { max-width: 66rem; } }
-  .caption { color: var(--dim); font-size: 0.85rem; font-style: italic; margin: 1.4rem 0 0; text-align: center; }
-  .dogfood { color: var(--body); margin-top: 1.6rem; }
 
   /* ================================================================
      Scene 9 — your VPS. One box, four lanes, the measured numbers.
@@ -2953,7 +2875,7 @@
 
        Round 1 offers five readings of the same six events on ?id=1..5:
        1 timeline, 2 lanes, 3 devices, 4 deal, 5 steps. -->
-  <section class="scene run sL v-front" id="run" data-v="1" data-k="1" data-stage="gate" data-n="07" data-name="one ticket on GitHub" style="--g1:#141b33;--g2:#0c1020">
+  <section class="scene run sL" id="run" data-k="1" data-stage="gate" data-n="07" data-name="one ticket on GitHub" style="--g1:#141b33;--g2:#0c1020">
 
     <!-- The octicons and the two product marks. The page ships no
          image and no webfont, so every mark here is drawn (#629). -->
@@ -2974,29 +2896,7 @@
       </header>
     </div>
 
-    <!-- ROUND 1 DEVICE. It leaves the file with the round that settles
-         this scene, the way #624's identity bar did. -->
-    <div class="rsw" id="rsw" role="group" aria-label="composition">
-      <button type="button" data-i="1" aria-pressed="true">1 front</button>
-      <button type="button" data-i="2" aria-pressed="false">2 beside</button>
-      <button type="button" data-i="3" aria-pressed="false">3 flat</button>
-      <button type="button" data-i="4" aria-pressed="false">4 lean</button>
-      <button type="button" data-i="5" aria-pressed="false">5 over</button>
-    </div>
-
     <div class="runwrap">
-
-      <!-- The six events. ONE set of cards; compositions 1, 2, 4 and 5
-           are four layouts over it, so the same evidence is judged
-           every time and only the reading changes. -->
-    <!-- ROUND 7. The titles scroll on the docking side. The cards do
-         NOT: they are dealt onto a desk that is held, and they fade in
-         and out in place. The ticket lies at the near edge of that desk
-         and grows a real timeline row per beat.
-
-         Beat 1 deals no card, so the ticket stands alone. Beats 4 and 5
-         deal the thread and the pull request TOGETHER, which is the
-         parallel of round 5. -->
     <div class="r8-track" id="runtrack">
       <div class="r8-stage" id="runstage">
 
@@ -3738,9 +3638,6 @@ function clampNum(v, a, b) { return v < a ? a : v > b ? b : v; }
   var cards = [].slice.call(document.querySelectorAll('#desk .r8-card'));
   if (!sec || !steps.length || !cards.length) return;
 
-  var V = { '1': 'v-front', '2': 'v-beside2', '3': 'v-flat2', '4': 'v-lean', '5': 'v-over' };
-  var swb = [].slice.call(document.querySelectorAll('#rsw button'));
-  var v = '1';
   var k = 1;
   var io = null;
 
@@ -3795,38 +3692,9 @@ function clampNum(v, a, b) { return v < a ? a : v > b ? b : v; }
   var approve = document.getElementById('runapprove');
   if (approve) approve.addEventListener('click', press);
 
-  /* ---- the composition ---- */
-  function setV(next) {
-    next = String(next);
-    if (!V[next]) next = '1';
-    v = next;
-    sec.setAttribute('data-v', v);
-    sec.className = 'scene run sL ' + V[v] + (prefersStill ? ' still' : '');
-    swb.forEach(function (b) { b.setAttribute('aria-pressed', b.getAttribute('data-i') === v ? 'true' : 'false'); });
-    if (prefersStill) { press(); return; }
-    steps.forEach(function (n, i) { n.classList.toggle('on', i === k - 1); });
-    cards.forEach(function (c) {
-      var i = parseInt(c.getAttribute('data-i'), 10);
-      c.classList.toggle('on', i === k - 1);
-      c.classList.toggle('seen', i < k - 1);
-    });
-    watch();
-  }
-
-  swb.forEach(function (b) {
-    b.addEventListener('click', function () {
-      setV(b.getAttribute('data-i'));
-      try {
-        var u = new URL(window.location.href);
-        u.searchParams.set('id', v);
-        history.replaceState(null, '', u);
-      } catch (e) { /* a URL this browser will not parse costs the switcher nothing */ }
-    });
-  });
-
-  var id = '';
-  try { id = new URL(window.location.href).searchParams.get('id') || ''; } catch (e) { id = ''; }
-  setV(V[id] ? id : '1');
+  /* The arrangement is settled, so there is nothing to switch. What is
+     left is the one thing this script owns: the beat. */
+  if (prefersStill) { sec.classList.add('still'); press(); } else { watch(); }
 })();
 
 /* ================================================================
