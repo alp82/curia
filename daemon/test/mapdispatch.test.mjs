@@ -30,7 +30,7 @@ import { Dispatcher } from '../src/dispatch.mjs'
 import { writePrompt, STANDING_FILE } from '../src/workspace.mjs'
 import { outstanding, CHARTING_ENDING, ENDING } from '../src/lifecycle.mjs'
 import { chartingComment } from '../src/resolve.mjs'
-import { resolveModel, candidates, Cooling } from '../src/routing.mjs'
+import { resolveModel, reasoningEffortFor, candidates, Cooling } from '../src/routing.mjs'
 import { loadRoutingConfig } from '../src/config.mjs'
 import { expandCommand } from '../src/bridge.mjs'
 import { parseCommand } from '../src/commands.mjs'
@@ -205,7 +205,8 @@ describe('a wayfinder:map row joins the routing defaults', () => {
     const routing = loadRoutingConfig(path.join(path.dirname(new URL(import.meta.url).pathname), '..', '..', 'config', 'routing.yaml'))
     const model = resolveModel(routing, ['wayfinder:map'], null)
     assert.ok(routing.defaults.map, 'routing.yaml states no map default')
-    assert.equal(model, routing.defaults.map)
+    assert.equal(model, routing.defaults.map.model)
+    assert.equal(reasoningEffortFor(routing, ['wayfinder:map'], model), routing.defaults.map.effort)
     assert.equal(routing.models[model].harness, 'claude', 'a map dispatch must route to the claude harness')
   })
 

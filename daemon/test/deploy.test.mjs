@@ -83,6 +83,7 @@ function build(opts = {}) {
   const deploy = new SelfDeploy({
     repoRoot: opts.repoRoot ?? '/home/alp/curia', dataDir, workRoot: '/home/alp/curia-work', reduction, exec,
     log: () => {}, port: 4271, home: '/home/alp/curia-work/home',
+    parkOverseerPanes: opts.parkOverseerPanes,
     env: {
       PATH: '/usr/bin', GH_TOKEN: 'minted', GITHUB_TOKEN: 'fallback',
       GH_CONFIG_DIR: '/wrong/gh', XDG_CONFIG_HOME: '/wrong/xdg',
@@ -292,6 +293,17 @@ describe('the daemon half: preflight and hand-off', () => {
     assert.ok(args.some((a) => a.includes('cp /home/alp/curia/deploy/self-deploy.sh /tmp/')))
     // script argv: prev next repoRoot markerFile logFile port workRoot
     assert.deepEqual(args.slice(-7), [PREV, NEXT, '/home/alp/curia', deploy.markerPath, deploy.logPath, '4271', '/home/alp/curia-work'])
+  })
+
+  test('the hand-off parks overseer panes before compose recreates their container', async () => {
+    const calls = []
+    const { deploy, docker } = build({ parkOverseerPanes: async () => calls.push('parked') })
+
+    const reply = await deploy.run({ by: 'u1' })
+
+    assert.match(reply, /deploy handed off/)
+    assert.deepEqual(calls, ['parked'])
+    assert.equal(docker.length, 1)
   })
 
   test('a second deploy while one is in flight is refused by the marker', async () => {

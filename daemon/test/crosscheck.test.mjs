@@ -779,7 +779,7 @@ describe('a parked builder reads as idle, never as working (#165)', () => {
       { type: 'cross_check_requested', agent: 'curia-42', ticket: '42', ts: new Date().toISOString() },
       { type: 'cross_check_returned', agent: 'curia-42', ticket: '42', ok: true },
     ])
-    assert.match(line, /^▶️/, 'the working line is the icon alone (#480)')
+    assert.match(line, /^-# 🧭 `reads the ticket`/, 'the working line uses the accepted phase')
   })
 
   test('an ordinary rejection still moves it to working', async () => {
@@ -787,7 +787,7 @@ describe('a parked builder reads as idle, never as working (#165)', () => {
       { type: 'agent_spawned', agent: 'curia-42', ticket: '42', model: 'opus' },
       { type: 'esc_answer', id: 'esc-1', answer: 'rename the flag', ts: new Date().toISOString() },
     ])
-    assert.match(line, /^▶️/, 'the working line is the icon alone (#480)')
+    assert.match(line, /^-# 🧭 `reads the ticket`/, 'the working line uses the accepted phase')
   })
 })
 

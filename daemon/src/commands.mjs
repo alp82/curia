@@ -35,7 +35,7 @@ const REPOISH_RE = /^[\w./-]+$/
 // the FIRST WORD is the repo when it IS a watched repo's name — `map curia
 // chart the dashboard` — and is the first word of the sentence when it is not.
 // The ruling needs the watch list, so the parser only marks the candidate and
-// the router decides (see #chartNew). The match is exact there, never the
+// the router decides (see `newMapPlan`). The match is exact there, never the
 // substring match `tickets cur` takes: a fragment rule would eat the first word
 // of any sentence that happens to sit inside a repo name.
 //
@@ -148,7 +148,7 @@ function parseIssueRef(cmd, rest, { instruction: takesInstruction = false } = {}
 // names both shapes rather than a session that opens with a blank question.
 //
 // The repo token is optional, and the ROUTER fills it in when exactly one repo
-// is watched (see #newMapRepo). #255: with the `--` retired, this parser cannot
+// is watched (see `newMapPlan`). #255: with the `--` retired, this parser cannot
 // tell a repo from the first word of the sentence — that needs the watch list —
 // so it marks ONE candidate as `repoWord` and hands the ruling to the router.
 // A bare number is never the candidate: `map 147 x` is the OTHER shape, and a
@@ -180,11 +180,46 @@ function parseNewMap(rest) {
   return cmd
 }
 
+// The new-map RULING (#241, made a pure function by #692). The parser marks one
+// candidate word and stops, because only the watch list says whether that word
+// names a repo or opens the operator's sentence. This decides, and it takes the
+// watch list as an argument rather than reaching into the router, so the seam
+// the overseer's `map_new` tool composes into can be round-tripped in a test
+// with no dispatcher and no Discord in the loop.
+//
+// The match is EXACT, on the full name or the part after the slash, never the
+// substring match `tickets cur` takes: a fragment rule would eat the first word
+// of every sentence that sits inside a repo name.
+//
+// One watched repo means there is no question to ask, and asking it anyway
+// would put a token in the way of the shortest form of the command. Two or
+// more, and curia refuses rather than picking the first: a map is a standing
+// artifact, and one charted into the wrong repo is a manual move.
+export function newMapPlan(cmd, watched = []) {
+  const word = cmd.repoWord
+  const named = word
+    ? watched.find((r) => {
+      const w = word.toLowerCase()
+      return r.toLowerCase() === w || r.slice(r.indexOf('/') + 1).toLowerCase() === w
+    }) ?? null
+    : null
+  // A word that names no repo is the first word of the brief, so it goes back
+  // in front of the sentence it was taken from.
+  const instruction = named ? cmd.instruction : [word, cmd.instruction].filter(Boolean).join(' ')
+  if (!instruction) return { error: `❌ \`map ${word}\` names a repo and nothing to chart.\n${MAP_SHAPES}` }
+  if (named) return { repo: named, instruction }
+  if (watched.length === 1) return { repo: watched[0], instruction }
+  if (!watched.length) return { error: '❌ no repo is on the watch list, so there is nowhere to chart a new map' }
+  return { error: `❌ ${watched.length} repos are watched, so a new map needs one named first: ${watched.map((r) => `\`map ${r} …\``).join(' or ')}` }
+}
+
 // 'tickets [repo]' | 'next [repo]' | 'status'
 // | 'start <n>|<owner/repo#n> [model=x]'
 // | 'map <n>|<owner/repo#n> [model=x] [<instruction>]'
 // | 'map [repo] [model=x] <instruction>'
 // | 'cancel <n>|all' | 'resume <n> [model=x]' | 'resume all' | 'attach <n>'
+// | 'model <n> <target>'
+// | 'skill <name> <n>|<owner/repo#n>'
 // — anything else ⇒ null.
 export function parseCommand(text) {
   const parts = (text ?? '').trim().split(/\s+/).filter(Boolean)
@@ -253,6 +288,15 @@ export function parseCommand(text) {
       if (rest.length === 1 && AGENT_RE.test(rest[0])) return { verb, ticket: rest[0] }
       return null
     }
+    case 'model': {
+      if (rest.length !== 2 || !/^\d+$/.test(rest[0]) || !/^[\w.-]+$/.test(rest[1])) return null
+      return { verb, ticket: rest[0], model: rest[1] }
+    }
+    case 'skill': {
+      if (rest.length !== 2 || !/^[a-z0-9][a-z0-9-]*$/.test(rest[0])) return null
+      if (!/^(?:\d+|[\w.-]+\/[\w.-]+#\d+)$/.test(rest[1])) return null
+      return { verb, name: rest[0], target: rest[1] }
+    }
     // The cross-check's daemon-side entry point (#164, ADR-0010). The operator
     // surface is a third button on the review gate (#165); this verb is what
     // proves the engine without it, and it takes the same `model=` override
@@ -284,6 +328,8 @@ const USAGE = [
   '`map [repo] <instruction>` — dispatch a charting agent with NO map: it settles the destination with you and creates the `wayfinder:map` issue itself. The first word is the repo only when it names a watched one',
   '`cancel <n>|all` — immediate teardown (the overseer\'s interpreted cancel posts a ✅/❌ confirm instead)',
   '`resume <n> [model=x]|resume all` — fresh agent on a ticket, inheriting its surviving worktree, the model it last ran on, and every question you already answered on it',
+  '`model <n> <target>` - switch a live ticket to a configured routing model and keep its conversation',
+  '`skill <name> <n>|owner/repo#<n>` - run a configured skill against a target with a durable record and review gate',
   '`attach <n>` — timeline + browser-terminal links for a live agent',
   '`cancel chat-1` / `resume chat-1` / `attach chat-1` — the same three verbs on an agent no ticket answers for, such as one charting a NEW map. `status` lists its handle',
   '`review <n> [model=x]` — cross-check: a reviewer on the other provider reads the pushed diff and returns a verdict',
@@ -371,6 +417,10 @@ export class CommandRouter {
         case 'resume':
           if (cmd.all) return await this.dispatcher.resumeAll({ by: userId })
           return await this.dispatcher.resume(cmd.ticket, { model: cmd.model, by: userId, threadId })
+        case 'model':
+          return await this.dispatcher.switchModel(cmd.ticket, { model: cmd.model, by: userId })
+        case 'skill':
+          return await this.dispatcher.skill(cmd.name, cmd.target, { by: userId, threadId })
         case 'attach':
           return await this.#attachReply(cmd.ticket)
         case 'review':
@@ -395,43 +445,16 @@ export class CommandRouter {
     return this.#matchRepo(cmd.repoArg)
   }
 
-  // A NEW-map dispatch (#241), and the ruling #255 moved here: whether the
-  // first word is a repo or the first word of the brief. The parser cannot
-  // know — only the watch list says — so it hands over a candidate and this
-  // decides. The match is EXACT, on the full name or the part after the slash,
-  // never the substring match `tickets cur` takes: a fragment rule would eat
-  // the first word of every sentence that sits inside a repo name.
+  // A NEW-map dispatch (#241). The ruling that reads the parser's repo
+  // candidate is `newMapPlan`, which #692 lifted out of this class so the
+  // round-trip test can reach it with no dispatcher in the loop. What is left
+  // here is the dispatch itself.
   async #chartNew(cmd, { userId, threadId }) {
-    const named = this.#namedRepo(cmd.repoWord)
-    const instruction = named ? cmd.instruction : [cmd.repoWord, cmd.instruction].filter(Boolean).join(' ')
-    if (!instruction) return `❌ \`map ${cmd.repoWord}\` names a repo and nothing to chart.\n${MAP_SHAPES}`
-    const target = named ? { repo: named } : this.#newMapRepo()
-    if (target.error) return target.error
+    const plan = newMapPlan(cmd, (this.dispatcher.config?.watch ?? []).map((w) => w.repo))
+    if (plan.error) return plan.error
     return await this.dispatcher.chartNew({
-      repo: target.repo, model: cmd.model, instruction, by: userId, threadId,
+      repo: plan.repo, model: cmd.model, instruction: plan.instruction, by: userId, threadId,
     })
-  }
-
-  // The watched repo a word NAMES, or null when it names none. `alp82/curia`
-  // and `curia` both name it; `cur` does not.
-  #namedRepo(word) {
-    if (!word) return null
-    const w = word.toLowerCase()
-    return (this.dispatcher.config?.watch ?? [])
-      .map((x) => x.repo)
-      .find((r) => r.toLowerCase() === w || r.slice(r.indexOf('/') + 1).toLowerCase() === w) ?? null
-  }
-
-  // The repo a NEW-map dispatch runs against when the operator named none
-  // (#241). One watched repo means there is no question to ask, and asking it
-  // anyway would put a token in the way of the shortest form of the command.
-  // Two or more, and curia refuses rather than picking the first — a map is a
-  // standing artifact, and one charted into the wrong repo is a manual move.
-  #newMapRepo() {
-    const watched = (this.dispatcher.config?.watch ?? []).map((w) => w.repo)
-    if (watched.length === 1) return { repo: watched[0] }
-    if (!watched.length) return { error: '❌ no repo is on the watch list, so there is nowhere to chart a new map' }
-    return { error: `❌ ${watched.length} repos are watched, so a new map needs one named first: ${watched.map((r) => `\`map ${r} …\``).join(' or ')}` }
   }
 
   // #81: a repo argument matches on any unambiguous substring of a watched

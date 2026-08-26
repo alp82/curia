@@ -120,17 +120,14 @@ describe('the card carries what the interaction reply used to add (#253)', () =>
   })
 })
 
-// Section 3 of the same cold read: every spawn is announced twice — the
-// overseer says "Agent is running on ticket 108…" as `curia`, and four seconds
-// later the daemon says "✅ `curia-108` is at the composer on **opus**" as
-// CuriaBot. ADR-0013 gives the announcement to CuriaBot and leaves the overseer
-// the CHOICE: which ticket, and why.
+// The overseer owns the choice. The ticket status owns dispatch progress, so
+// another announcement would repeat the same event.
 describe('the overseer never narrates a dispatch (#253)', () => {
   test('the system prompt forbids the announcement and keeps the choice', () => {
     // The shell posture is the one the overseer container runs (#315).
     const prompt = buildSystemPrompt({ shell: true, checkoutsRoot: '/work/overseer/repos', repos: ['alp82/curia'] })
     assert.match(prompt, /Never announce a dispatch/)
-    assert.match(prompt, /The daemon posts its own line when the agent reaches its composer/, 'it says which line already covers it')
+    assert.match(prompt, /The daemon edits the ticket status during dispatch/, 'it says which surface already covers it')
     assert.match(prompt, /Say which ticket you picked and why/)
   })
 })

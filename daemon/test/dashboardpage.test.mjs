@@ -29,15 +29,20 @@ function pageScript() {
   return script[1]
 }
 
-function loadPage() {
+function loadPage({ fetchImpl = () => new Promise(() => {}) } = {}) {
+  const storage = new Map()
   const ctx = vm.createContext({
     document: { title: '', getElementById: () => null, addEventListener() {}, visibilityState: 'hidden' },
     window: { addEventListener() {} },
     location: { hash: '' },
-    fetch: () => new Promise(() => {}),
+    fetch: fetchImpl,
     setTimeout,
     clearTimeout,
     console,
+    localStorage: {
+      getItem: (key) => storage.get(key) ?? null,
+      setItem: (key, value) => storage.set(key, String(value)),
+    },
   })
   vm.runInContext(pageScript(), ctx)
   return ctx
@@ -92,7 +97,8 @@ const OVERVIEW = () => ({
     max_concurrent: 3,
     config: {
       loaded_at: at(7200),
-      dispatch: { auto_dispatch: true, max_concurrent: 3, poll_interval_s: 60, prototype_variations: 5 },
+      dispatch: { auto_dispatch: true, max_concurrent: 3, poll_interval_s: 60, prototype_variations: 5, messages_per_send: 4 },
+      overseer: { live_pane_cap: 3 },
       watch: [{ repo: 'alp82/curia', mode: 'auto' }, { repo: 'alp82/aistack', mode: 'map' }],
       routing: {
         defaults: [{ type: 'grilling', model: 'opus' }, { type: 'research', model: 'gpt' }, { type: 'untyped', model: 'opus' }],
@@ -188,6 +194,31 @@ const OVERVIEW = () => ({
       ] },
       { repo: 'alp82/aistack', error: 'gh api failed: HTTP 502' },
     ],
+  },
+  // The complete map snapshot (#687), which is where every map fact the page
+  // draws comes from (#700). `frontier` above is the takeable reading only.
+  maps: {
+    computed_at: at(90),
+    error: null,
+    maps: [{
+      repo: 'alp82/curia', number: 244, title: 'Curia gets a face', latest_event_at: at(40),
+      url: 'https://github.com/alp82/curia/issues/244',
+      counts: { walked: 18, in_flight: 1, takeable: 2, blocked: 1, fog: 2, total: 22 },
+      walked: [{ number: 243, title: 'The accepted frame', type: 'prototype' }],
+      in_flight: [{
+        number: 255, title: 'The note queue drains in order', type: 'task',
+        assignees: ['alp82'], agent: { session: 'curia-255', model: 'gpt-5.6-sol' },
+      }],
+      takeable: [
+        { number: 265, title: 'The settings write', type: 'task', model: 'claude-opus-5' },
+        { number: 266, title: 'The verbs reach the browser', type: 'grilling', model: 'gpt-5.6-sol' },
+      ],
+      blocked: [{
+        number: 267, title: 'The chat embeds the timeline attach', type: 'task',
+        blockers: [{ number: 265, title: 'The settings write' }, { number: 266, title: 'The verbs reach the browser' }],
+      }],
+      fog: [{ text: 'The native dialog seam' }, { text: 'Search result excerpts' }],
+    }],
   },
 })
 
@@ -342,6 +373,32 @@ describe('the read screens (#264)', () => {
   before(() => { page = loadPage() })
 
   describe('home — the all-three (#248)', () => {
+    test('Atlas Home leads with the verdict and keeps map progress, momentum, and the type mix in one glance', () => {
+      const t = text(page.screenHome(payload()))
+      assert.match(t, /2 needs you.*3 agents live/)
+      assert.match(t, /Curia gets a face.*18\/22.*2 fog/)
+      assert.match(t, /Momentum.*events in 24h/)
+      assert.match(t, /Type mix.*1 task.*1 grilling/)
+    })
+
+    test('Home ranks every open need by effective wait, with three full rows and compact rows after them', () => {
+      const p = payload({
+        usage: [], token_warnings: [], dispatch_holds: [], credentials: { consumers: [], reauth: null },
+        escalations: [
+          { id: 'old', agent: 'curia-old', ticket: '1', kind: 'free-text', prompt: 'Oldest wait', opened_at: at(15_000) },
+          { id: 'route', agent: 'curia-route', ticket: '2', kind: 'free-text', prompt: 'Unblocks two', opened_at: at(60), unblocks: 2 },
+          { id: 'plain', agent: 'curia-plain', ticket: '3', kind: 'free-text', prompt: 'Plain thirty', opened_at: at(1_800) },
+          { id: 'small', agent: 'curia-small', ticket: '4', kind: 'free-text', prompt: 'Small wait', opened_at: at(120) },
+        ],
+      })
+      const html = page.screenHome(p)
+      assert.equal((html.match(/class="need-rank full/g) ?? []).length, 3)
+      assert.equal((html.match(/class="need-rank compact/g) ?? []).length, 2)
+      assert.ok(html.indexOf('Oldest wait') < html.indexOf('Unblocks two'))
+      assert.ok(html.indexOf('Unblocks two') < html.indexOf('Plain thirty'))
+      assert.match(html, /need-rank full aged/)
+    })
+
     test('the tiles, the attention list and the fleet all draw one snapshot', () => {
       const html = page.screenHome(payload())
       const t = text(html)
@@ -722,6 +779,20 @@ describe('the read screens (#264)', () => {
   })
 
   describe('agents', () => {
+    test('the Focus roster opens the first Needs-you agent with meters, story, links, and today\'s endings', () => {
+      page.UI.agents = { selected: null }
+      const html = page.screenAgents(payload())
+      const t = text(html)
+      assert.match(html, /class="agent-focus"/)
+      assert.ok(html.indexOf('curia-255') < html.indexOf('curia-263'))
+      assert.match(t, /Selected.*The note queue drains in order/)
+      assert.match(t, /waiting.*gpt-5\.6-sol.*68%.*1\.0h/)
+      assert.match(t, /Story.*spawned on gpt-5\.6-sol/)
+      assert.match(html, /href="\/chat\?session=curia-255"/)
+      assert.match(html, /href="https:\/\/github\.com\/alp82\/curia\/issues\/255"/)
+      assert.match(t, /Ended today.*finished alp82\/curia#261/)
+    })
+
     test('the table names the state in words and the meters in numbers', () => {
       const t = text(page.screenAgents(payload()))
       assert.match(t, /agents 3\/3/)
@@ -849,7 +920,246 @@ describe('the read screens (#264)', () => {
     })
   })
 
+  describe('maps', () => {
+    test('the decided map view carries every state group and the routed start control', () => {
+      page.UI.maps = { repo: 'all', selected: { repo: 'alp82/curia', map: 244, group: 'takeable' }, open: false }
+      const html = page.screenMaps(payload())
+      const t = text(html)
+      assert.match(t, /Curia gets a face/)
+      assert.match(t, /18 walked/)
+      assert.match(t, /1 in flight/)
+      assert.match(t, /2 takeable/)
+      assert.match(t, /1 blocked/)
+      assert.match(t, /2 fog/)
+      assert.match(t, /The settings write/)
+      assert.match(t, /task.*claude-opus-5.*Start/)
+      assert.match(html, /startTicket\('alp82\/curia','265'\)/)
+    })
+
+    test('blocked detail names every blocker, and fog detail names each retained uncertainty', () => {
+      page.UI.maps = { repo: 'all', selected: { repo: 'alp82/curia', map: 244, group: 'blocked' }, open: false }
+      let t = text(page.screenMaps(payload()))
+      assert.match(t, /behind #265 The settings write, #266 The verbs reach the browser/)
+      page.UI.maps.selected.group = 'fog'
+      t = text(page.screenMaps(payload()))
+      assert.match(t, /The native dialog seam.*not yet specified/)
+      assert.match(t, /Search result excerpts.*not yet specified/)
+    })
+
+    test('maps needing the operator lead, then calm maps sort by the latest event', () => {
+      const p = payload()
+      p.overview.maps.maps.push({
+        repo: 'alp82/curia', number: 300, title: 'A newer calm map', latest_event_at: at(1),
+        counts: { walked: 1, in_flight: 0, takeable: 0, blocked: 0, fog: 0, total: 1 },
+        walked: [{ number: 301, title: 'Done', type: 'untyped' }],
+        in_flight: [], takeable: [], blocked: [], fog: [],
+      })
+      page.UI.maps = { repo: 'all', selected: null, open: false }
+      let html = page.screenMaps(p)
+      assert.ok(html.indexOf('Curia gets a face') < html.indexOf('A newer calm map'))
+
+      p.overview.escalations = []
+      p.overview.review_gate = []
+      p.overview.agents.forEach((agent) => { agent.waiting_on = [] })
+      html = page.screenMaps(p)
+      assert.ok(html.indexOf('A newer calm map') < html.indexOf('Curia gets a face'))
+    })
+
+    // #700. Two readings used to answer the same question: the dispatcher's
+    // frontier pass carried a second copy of every map, and the page drew that
+    // one. There is one map reading now, and this is the page half of it.
+    test('every map fact comes from the complete snapshot, never from the frontier reading', () => {
+      const p = payload()
+      p.overview.frontier.repos[0].maps = [{
+        repo: 'alp82/curia', number: 999, title: 'A map from the frontier pass',
+        counts: { walked: 0, in_flight: 0, takeable: 0, blocked: 0, fog: 0 },
+        walked: [], in_flight: [], takeable: [], blocked: [], fog: [],
+      }]
+      page.UI.maps = { repo: 'all', selected: null, open: false }
+      const t = text(page.screenMaps(p))
+      assert.match(t, /Curia gets a face/)
+      assert.doesNotMatch(t, /A map from the frontier pass/)
+    })
+
+    test('the walked fraction is the snapshot total, and the fog rides beside it', () => {
+      page.UI.maps = { repo: 'all', selected: null, open: false }
+      assert.match(text(page.screenMaps(payload())), /18 \/22 \+2/)
+    })
+
+    test('a snapshot curia could not read is not an empty map set', () => {
+      const p = payload()
+      p.overview.maps = { computed_at: null, maps: null, error: 'gh api failed: HTTP 502' }
+      const t = text(page.screenMaps(p))
+      assert.match(t, /could not be read/)
+      assert.match(t, /HTTP 502/)
+      assert.match(t, /not an empty map set/)
+      assert.doesNotMatch(t, /No open map matches this project/)
+    })
+
+    test('an uncomputed snapshot reads as uncomputed rather than as no maps', () => {
+      const p = payload()
+      p.overview.maps = { computed_at: null, maps: null, error: null }
+      assert.match(text(page.screenMaps(p)), /No map snapshot has been computed yet/)
+    })
+
+    test('the takeable group sits under the frontier rule, and an empty one says where the way went', () => {
+      const p = payload()
+      page.UI.maps = { repo: 'all', selected: { repo: 'alp82/curia', map: 244, group: 'takeable' }, open: false }
+      assert.match(page.screenMaps(p), /class="map-front"/)
+      p.overview.maps.maps[0].takeable = []
+      assert.match(text(page.screenMaps(p)), /Nothing is takeable\. The way is in flight or behind a blocker\./)
+    })
+
+    test('blocked wears the decided red dashes and fog the grey stripes', () => {
+      page.UI.maps = { repo: 'all', selected: { repo: 'alp82/curia', map: 244, group: 'blocked' }, open: false }
+      assert.match(page.screenMaps(payload()), /class="map-detail-list blocked"/)
+      page.UI.maps.selected.group = 'fog'
+      assert.match(page.screenMaps(payload()), /class="map-detail-list fog"/)
+    })
+
+    test('an in-flight ticket names who holds it and the model it runs on', () => {
+      page.UI.maps = { repo: 'all', selected: { repo: 'alp82/curia', map: 244, group: 'in_flight' }, open: false }
+      assert.match(text(page.screenMaps(payload())), /The note queue drains in order.*alp82.*gpt-5\.6-sol/)
+    })
+
+    // The phone's half of the split is a ROUTE (#700): it opens over the list,
+    // reloads into the same view, and the browser's back leaves it.
+    test('choosing a group routes to that map detail, and back returns to the list', () => {
+      page.UI.maps = { repo: 'all', selected: null, open: false }
+      page.mapSelect('alp82/curia', 244, 'blocked')
+      assert.equal(page.location.hash, 'maps/alp82/curia/244/blocked')
+      assert.equal(page.UI.maps.open, true)
+      assert.match(page.screenMaps(payload()), /<div class="map-layout" data-open>/)
+
+      page.mapBack()
+      assert.equal(page.location.hash, 'maps')
+      assert.equal(page.UI.maps.open, false)
+      assert.doesNotMatch(page.screenMaps(payload()), /data-open/)
+    })
+
+    test('a detail hash opens that group, and the bare maps hash opens the list', () => {
+      page.UI.maps = { repo: 'all', selected: null, open: false }
+      page.applyMapRoute(['maps', 'alp82', 'curia', '244', 'fog'])
+      assert.equal(page.UI.maps.selected.repo, 'alp82/curia')
+      assert.equal(String(page.UI.maps.selected.map), '244')
+      assert.equal(page.UI.maps.selected.group, 'fog')
+      assert.equal(page.UI.maps.open, true)
+      assert.match(text(page.screenMaps(payload())), /The native dialog seam/)
+
+      page.applyMapRoute(['maps'])
+      assert.equal(page.UI.maps.open, false)
+    })
+
+    test('the maps tab lands on the list, never on the last detail opened', () => {
+      page.UI.maps = { repo: 'all', selected: { repo: 'alp82/curia', map: 244, group: 'fog' }, open: true }
+      page.goto('maps')
+      assert.equal(page.UI.maps.open, false)
+      assert.equal(page.location.hash, 'maps')
+    })
+
+    // A pause is only ever ended by hand (github.mjs `mapCloseBlockers`), so the
+    // one surface that could start work on a paused map must not offer to.
+    test('a paused map is listed and says so, and hands out no start control', () => {
+      const p = payload()
+      p.overview.maps.maps[0].deferred = true
+      page.UI.maps = { repo: 'all', selected: { repo: 'alp82/curia', map: 244, group: 'takeable' }, open: false }
+      const html = page.screenMaps(p)
+      const t = text(html)
+      assert.match(t, /Curia gets a face/, 'the map stays listed')
+      assert.match(t, /The settings write/, 'its tickets stay listed')
+      assert.match(t, /paused/)
+      assert.match(t, /only ever ended by hand/)
+      assert.doesNotMatch(html, /startTicket/)
+    })
+
+    test('the shell exposes every desktop page and the four-tab mobile bar with the Agents key', () => {
+      page.payload = payload()
+      const el = { innerHTML: '' }
+      page.document.getElementById = () => el
+      page.render()
+      assert.match(el.innerHTML, /class="drawer"/)
+      assert.match(el.innerHTML, /class="notchbar"/)
+      assert.match(el.innerHTML, /class="agents-key[^\"]*"/)
+      const desktop = el.innerHTML.slice(el.innerHTML.indexOf('drawer'), el.innerHTML.indexOf('</nav>'))
+      assert.match(text(desktop), /curia · atlas Home 2 Maps Agents Feed Chat Credentials Settings/)
+      page.document.getElementById = () => null
+    })
+  })
+
   describe('feed', () => {
+    test('the Feed marker comes from the journal stamp, and a visit posts the read under the login (#704)', async () => {
+      const prior = at(3_600)
+      const posts = []
+      const p = loadPage({ fetchImpl: async (url, init) => { posts.push([url, init]); return { ok: true, json: async () => ({}) } } })
+      p.payload = { ...payload({ feed_reads: { 'alp82@example.com': prior } }), operator: 'alp82@example.com' }
+      p.enter('feed')
+      assert.equal(p.UI.feed.lastRead, prior, 'the marker is the PREVIOUS read, not the one that just happened')
+      assert.deepEqual(posts.map(([u, i]) => [u, i.method]), [['/api/feed/read', 'POST']])
+      assert.ok(!p.localStorage.getItem('atlas.feed.last-read:alp82@example.com'), 'no browser-local copy: the journal is the one record')
+    })
+
+    test('a first visit under a login draws no marker', () => {
+      const p = loadPage({ fetchImpl: async () => ({ ok: true, json: async () => ({}) }) })
+      p.payload = { ...payload(), operator: 'new@example.com' }
+      p.enter('feed')
+      assert.equal(p.UI.feed.lastRead, null)
+      assert.ok(!/Since you left/.test(p.screenFeed(p.payload)))
+    })
+
+    test('Feed separates news from mechanics and places the last-visit marker over a 24-hour density strip', () => {
+      page.UI.feed = { lastRead: at(500), operator: 'alp82@example.com', family: 'all' }
+      const html = page.screenFeed(payload())
+      assert.equal((html.match(/class="density-cell/g) ?? []).length, 24)
+      assert.match(html, /24 h · 3 events/)
+      assert.match(html, /class="feed-news needs"/)
+      assert.match(html, /class="feed-mechanic"/)
+      const marker = html.indexOf('Since you left')
+      assert.ok(html.indexOf('Two notes race') < marker)
+      assert.ok(marker < html.indexOf('spawned on gpt-5.6-sol'))
+      assert.match(html, /href="\/chat\?session=curia-255"/)
+      assert.match(text(html), /Needs you/, 'a needs-you row says so in a word, not only a tint')
+    })
+
+    test('a family chip narrows the stream to one family, and says so when nothing is left', () => {
+      page.UI.feed = { lastRead: null, operator: 'alp82@example.com', family: 'need' }
+      const wire = () => { const h = page.screenFeed(payload()); return h.slice(0, h.indexOf('legacy-feed')) }
+      let html = wire()
+      assert.match(html, /class="feed-chip on"[^>]*>needs you</)
+      assert.match(html, /Two notes race/)
+      assert.ok(!/spawned on gpt-5.6-sol/.test(html), 'a spawn is the agents family')
+      page.UI.feed.family = 'deploy'
+      assert.match(text(wire()), /No deploys events in the journal tail/)
+      page.feedFilter('all')
+      assert.equal(page.UI.feed.family, 'all')
+    })
+
+    test('a run of mechanics folds into one named group, and a filter opens it (#523)', () => {
+      page.UI.feed = { lastRead: null, operator: null, family: 'all' }
+      const events = Array.from({ length: 6 }, (_, i) => ({ ts: at(600 - i * 10), type: 'reconcile', boot: false }))
+      events.push({ ts: at(5), type: 'esc_open', id: 'esc-9', agent: 'curia-9', ticket: '9', kind: 'choice', prompt: 'Pick one.' })
+      const wire = () => { const h = page.screenFeed(payload({ events })); return h.slice(0, h.indexOf('legacy-feed')) }
+      let html = wire()
+      assert.match(html, /<details class="feed-fold"><summary>6 mechanics · \d\d:\d\d – \d\d:\d\d — reconcile<\/summary>/)
+      assert.equal((html.match(/class="feed-mechanic"/g) ?? []).length, 6, 'nothing is dropped, only paced')
+      assert.ok(html.indexOf('Pick one.') < html.indexOf('feed-fold'), 'news stays above the fold it precedes')
+      page.UI.feed.family = 'system'
+      html = wire()
+      assert.match(html, /<details class="feed-fold" open>/)
+      assert.ok(!/Pick one/.test(html))
+    })
+
+    test('a news row lands on the owning Chat, map, or GitHub record', () => {
+      page.UI.feed = { lastRead: null, operator: null, family: 'all' }
+      const html = page.screenFeed(payload({ events: [
+        { ts: at(30), type: 'agent_died', agent: 'curia-4', repo: 'o/r', ticket: '4' },
+        { ts: at(20), type: 'ticket_resolved', repo: 'o/r', ticket: '5', map: 99 },
+        { ts: at(10), type: 'lifecycle_closed', repo: 'o/r', ticket: '6' },
+      ] }))
+      assert.match(html, /href="\/chat\?session=curia-4">Chat/)
+      assert.match(html, /href="#maps\/o\/r\/99\/walked">Map/)
+      assert.match(html, /href="https:\/\/github.com\/o\/r\/issues\/6">GitHub/)
+    })
+
     test('the journal reads as sentences, newest first', () => {
       const t = text(page.screenFeed(payload()))
       const spawn = t.indexOf('spawned on gpt-5.6-sol')
@@ -958,6 +1268,64 @@ describe('the read screens (#264)', () => {
       page.reachable = true
     })
   })
+
+  describe('global search', () => {
+    test('the header lens opens typed results with snippets, ages, attention words, and owning destinations', () => {
+      page.UI.search = {
+        open: true, q: 'atlas', loading: false, error: null,
+        result: { query: 'atlas', errors: [], results: [
+          { kind: 'ticket', title: 'Build Atlas', snippet: 'One Atlas address', age_s: 60, attention: 'needs you', landing: { surface: 'chat', conversation: 'curia-684' } },
+          { kind: 'map', title: 'Atlas map', snippet: 'The route', age_s: 120, attention: null, landing: { surface: 'maps', map: 244 } },
+          { kind: 'journal', title: 'Agent started', snippet: 'Atlas work began', age_s: 180, attention: null, landing: { surface: 'feed', event: 'event-4' } },
+          { kind: 'decision', title: 'Keep one spec', snippet: 'Atlas and Discord', age_s: 240, attention: null, landing: { surface: 'github', url: 'https://github.com/alp82/curia/issues/685' } },
+        ] },
+      }
+      assert.match(page.screenHome(payload()), /class="search-lens"/)
+      const html = page.searchOverlay()
+      const t = text(html)
+      assert.match(html, /class="search-sheet"/)
+      assert.match(t, /needs you Build Atlas One Atlas address 1m Chat/)
+      assert.match(t, /map Atlas map The route 2m Maps/)
+      assert.match(t, /journal Agent started Atlas work began 3m Feed/)
+      assert.match(html, /href="https:\/\/github\.com\/alp82\/curia\/issues\/685"/)
+
+      page.payload = payload()
+      page.searchGo('maps', '244')
+      assert.equal(page.UI.screen, 'maps')
+      assert.equal(page.UI.maps.selected.map, 244)
+      assert.equal(page.UI.search.open, false)
+
+      page.UI.search.q = 'notes'
+      page.searchGo('feed', 'event-4')
+      assert.match(page.atlasFeed(page.payload.overview), /class="feed-news needs focus"/)
+    })
+
+    test('an older response cannot replace results for a newer query', async () => {
+      const pending = []
+      const searchPage = loadPage({
+        fetchImpl: (url) => new Promise((resolve) => pending.push({ url, resolve })),
+      })
+      searchPage.UI.search.q = 'old'
+      const old = searchPage.runSearch()
+      searchPage.UI.search.q = 'new'
+      const fresh = searchPage.runSearch()
+      pending[1].resolve({ ok: true, json: async () => ({ query: 'new', results: [], errors: [] }) })
+      await fresh
+      pending[0].resolve({ ok: true, json: async () => ({ query: 'old', results: [], errors: [] }) })
+      await old
+
+      assert.equal(searchPage.UI.search.result.query, 'new')
+    })
+
+    test('closing search clears the loading state of an invalidated request', () => {
+      page.UI.search.open = true
+      page.UI.search.loading = true
+
+      page.closeSearch()
+
+      assert.equal(page.UI.search.loading, false)
+    })
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -972,7 +1340,8 @@ describe('the read screens (#264)', () => {
 
 const SETTINGS = () => ({
   files: { curia: '/home/alp/curia/config/curia.yaml', routing: '/home/alp/curia/config/routing.yaml' },
-  dispatch: { auto_dispatch: true, max_concurrent: 3, poll_interval_s: 60, prototype_variations: 5 },
+  dispatch: { auto_dispatch: true, max_concurrent: 3, poll_interval_s: 60, prototype_variations: 5, messages_per_send: 4 },
+  overseer: { live_pane_cap: 3 },
   watch: [{ repo: 'alp82/curia', mode: 'auto' }, { repo: 'alp82/aistack', mode: 'map' }],
   watch_modes: ['auto', 'map', 'ready-for-agent'],
   routing: {
@@ -997,32 +1366,98 @@ describe('the settings screen (#265)', () => {
     page.repos = { login: 'alp82', repos: ['alp82/curia', 'alp82/aistack', 'alp82/annapod'], error: null }
   })
 
+  // The drill state as a pick leaves it: one section open, and the phone off
+  // the list in front of it.
   const screen = (section = 'routing') => {
-    page.UI.set.section = section
+    page.UI.drill.settings = { open: section, list: false }
     return page.screenSettings(payload())
   }
+  const rows = (html) => [...html.matchAll(/onclick="openSection\('settings', '(\w+)'\)"/g)].map((m) => m[1])
+  const headings = (html) => [...html.matchAll(/<h3>([^<]+)<\/h3>/g)].map((m) => m[1])
 
   test('it is a screen now, not a promise of one', () => {
     assert.ok(!text(screen()).includes('lands on #265'))
     assert.match(text(screen()), /Settings/)
   })
 
+  test('Settings starts from a drill-in list and holds dirty edits in one save dock', () => {
+    page.UI.drill.settings = { open: null, list: true }
+    let html = page.screenSettings(payload())
+    assert.match(html, /class="drill"/)
+    assert.match(text(html), /Routing.*Projects.*Dispatch.*Connections.*Maintenance/)
+    assert.ok(!html.includes('class="dock"'))
+
+    page.openSection('settings', 'routing')
+    page.setDispatchField('max_concurrent', '4')
+    html = page.screenSettings(payload())
+    assert.match(text(html), /‹ settings.*Routing.*grilling.*model default/)
+    assert.match(html, /class="dock"/)
+    assert.match(text(html), /1 unsaved change.*Save/)
+  })
+
   test('the two files it writes are named on the screen', () => {
     assert.match(text(screen()), /curia\.yaml · routing\.yaml/)
   })
 
+  // ---- the drill-in frame (#699) -------------------------------------------
+  //
+  // The shape every later Atlas section page renders inside. What is pinned
+  // here is the frame's contract rather than these four sections' words: one
+  // list, one open section, a way back, and a read that a section takes on
+  // arrival instead of on every poll.
+
+  test('the main list names every section, each with a gist of its own', () => {
+    const html = screen()
+    assert.deepEqual(rows(html), ['routing', 'projects', 'dispatch', 'connections', 'aistack', 'maintenance'])
+    const t = text(html)
+    assert.match(t, /Routing opus untyped · 2 of 3 models on/)
+    assert.match(t, /Projects 2 repos watched/)
+    assert.match(t, /Dispatch auto · 3 agents · 60s/)
+    assert.match(t, /Connections state unavailable/)
+    assert.match(t, /aistack not read yet/, 'the section takes its own read, so the list says so until it has one')
+    assert.match(t, /Maintenance in step/, 'a color state says a word too')
+  })
+
+  test('one section is open at a time, and a pick opens another', () => {
+    assert.deepEqual(headings(screen('routing')), ['Routing'])
+    assert.deepEqual(headings(screen('dispatch')), ['Dispatch'])
+    assert.ok(!text(screen('dispatch')).includes('most recently pushed repos'),
+      'a section nobody opened draws none of its body')
+  })
+
+  test('a phone lands on the list, and the back link returns to it', () => {
+    page.UI.drill.settings = { open: null, list: true }
+    assert.ok(!page.screenSettings(payload()).includes('data-open'))
+    page.openSection('settings', 'projects')
+    assert.match(page.screenSettings(payload()), /data-open="projects"/)
+    assert.deepEqual(headings(page.screenSettings(payload())), ['Projects'])
+    page.backToList('settings')
+    assert.ok(!page.screenSettings(payload()).includes('data-open'),
+      'the list is what the phone shows again; the desktop shows both either way')
+  })
+
+  test('a section takes its own read on arrival, not on every poll', () => {
+    page.repos = null
+    let reads = 0
+    page.loadRepos = () => { reads += 1 }
+    page.screenSettings(payload())
+    page.screenSettings(payload())
+    assert.equal(reads, 0, 'a render is a render — it fetches nothing')
+    page.openSection('settings', 'projects')
+    assert.equal(reads, 1)
+  })
+
   // ---- routing -------------------------------------------------------------
 
-  test('the ticket-type table leads and the model list sits behind one click', () => {
+  test('the ticket-type rows lead and the model list sits behind one click', () => {
     const t = text(screen('routing'))
-    assert.match(t, /ticket type default model/)
+    assert.match(t, /grilling opus/)
     assert.match(t, /2 of 3 models active · manage/)
     assert.ok(!t.includes('runs on'), 'the model list is closed until it is asked for')
     page.UI.set.models = true
     const open = text(screen('routing'))
     assert.match(open, /2 of 3 models active · close/)
-    assert.match(open, /runs on/)
-    assert.match(open, /gpt gpt-5\.6-sol openai · codex/, 'the CLI name rides beside the routing label')
+    assert.match(open, /gpt gpt-5\.6-sol runs on openai · codex/, 'the CLI name rides beside the routing label')
   })
 
   test('a default may only be pointed at a model that is ON', () => {
@@ -1036,7 +1471,7 @@ describe('the settings screen (#265)', () => {
     page.draft.routing.defaults.push({ type: 'map', model: 'fable' })
     page.settings.routing.defaults.push({ type: 'map', model: 'fable' })
     const t = text(screen('routing'))
-    assert.match(t, /switched off — the daemon refuses this config/)
+    assert.match(t, /Switched off\. The daemon refuses this config\./)
   })
 
   // ---- projects ------------------------------------------------------------
@@ -1070,11 +1505,23 @@ describe('the settings screen (#265)', () => {
   test('dispatch carries the switch and each editable number', () => {
     const t = text(screen('dispatch'))
     assert.match(t, /auto_dispatch/)
-    assert.match(t, /every dispatch is one the operator ordered/)
-    assert.match(t, /max_concurrent How many agents may run at once\. Each one costs a container/)
+    assert.match(t, /max_concurrent/)
     assert.match(t, /poll_interval_s/)
-    assert.match(t, /prototype_variations How many variations each prototype round offers by default/)
+    assert.match(t, /prototype_variations/)
+    assert.match(t, /messages_per_send/)
+    assert.match(t, /live_pane_cap/)
     assert.ok(!t.includes('workspace_root'), 'a path on the daemon\'s filesystem is not a thing this screen writes')
+  })
+
+  // The #525 decision: a row says its key and nothing else until the `?` is
+  // asked. What a phone shows first is four short rows, not four paragraphs.
+  test('an explanation waits behind its own `?` and arrives when it is asked for', () => {
+    const shut = text(screen('dispatch'))
+    assert.ok(!shut.includes('Each one costs a container'), 'the words are not on the screen yet')
+    page.toggleHint('set-max_concurrent')
+    assert.match(text(screen('dispatch')), /How many agents may run at once\. Each one costs a container/)
+    assert.ok(!text(screen('dispatch')).includes('How often curia reads the frontier'),
+      'one `?` opens one explanation, not the section')
   })
 
   // ---- the patch -----------------------------------------------------------
@@ -1091,9 +1538,36 @@ describe('the settings screen (#265)', () => {
     assert.equal(page.changeCount(), 3)
   })
 
+  test('a ticket-type edit preserves its model and reasoning effort together', () => {
+    page.settings.routing.defaults[1].effort = 'high'
+    page.draft = JSON.parse(JSON.stringify(page.settings))
+
+    const html = screen('routing')
+    assert.match(html, /research[\s\S]*?<option selected>gpt<\/option>[\s\S]*?<option selected>high<\/option>/)
+    page.setDefault(1, 'opus')
+    assert.deepEqual(plain(page.settingsPatch().routing.defaults), {
+      research: { model: 'opus', effort: 'high' },
+    })
+
+    page.setDefaultEffort(1, 'medium')
+    assert.deepEqual(plain(page.settingsPatch().routing.defaults), {
+      research: { model: 'opus', effort: 'medium' },
+    })
+  })
+
   test('a number field posts a number, never the string the input holds', () => {
     page.setDispatchField('prototype_variations', '7')
     assert.strictEqual(page.settingsPatch().dispatch.prototype_variations, 7)
+  })
+
+  test('conversation limits join the save dock patch as numbers', () => {
+    page.setDispatchField('messages_per_send', '3')
+    page.setOverseerField('live_pane_cap', '5')
+    assert.deepEqual(plain(page.settingsPatch()), {
+      dispatch: { messages_per_send: 3 }, overseer: { live_pane_cap: 5 },
+    })
+    assert.equal(page.changeCount(), 2)
+    assert.match(text(screen('dispatch')), /2 unsaved changes.*Save/)
   })
 
   test('the watch list posts whole, because its order is part of it', () => {
@@ -1109,10 +1583,46 @@ describe('the settings screen (#265)', () => {
 
   // ---- the banner: one act, three outcomes (#362) ---------------------------
 
+  test('a clean screen carries no save chrome at all', () => {
+    assert.ok(!screen().includes('class="dock'), 'nothing has been edited, so there is nothing to save')
+  })
+
+  test('the dock rises on the first edit, and the discard puts the draft back', () => {
+    assert.ok(!screen().includes('class="dock'))
+    page.setDispatchField('max_concurrent', '4')
+    assert.match(screen(), /<div class="dock">/)
+    assert.match(text(screen()), /1 unsaved change/)
+    page.discardEdits()
+    assert.equal(page.draft.dispatch.max_concurrent, page.settings.dispatch.max_concurrent)
+    assert.ok(!screen().includes('class="dock'), 'the discard leaves a clean screen, not an empty dock')
+  })
+
+  // The restart is named BEFORE the press, not learned from the outcome. Every
+  // row shipped today is inside the reload's live set, so the sentence the
+  // operator reads is that nothing here needs one.
+  test('the dock names what a save cannot apply without a restart', () => {
+    page.setDispatchField('max_concurrent', '4')
+    assert.deepEqual(plain(page.restartNeeds()), [])
+    assert.match(text(screen()), /every change here lands at once, with no restart/)
+    page.DRILL_PAGES.settings.push({
+      key: 'later', title: 'Later', gist: () => '', body: () => '',
+      patch: (out) => { out.later = { on: true } },
+      count: () => 1,
+      restarts: (patch) => (patch.later ? ['later.on'] : []),
+    })
+    try {
+      assert.deepEqual(plain(page.restartNeeds()), ['later.on'])
+      assert.match(text(screen()), /a restart applies later\.on — every other change lands at once/)
+      assert.match(text(screen()), /2 unsaved changes/, 'the new section counts in the operator\'s own units')
+    } finally {
+      page.DRILL_PAGES.settings.pop()
+    }
+  })
+
   test('before a save: unsaved changes count, save is the primary button, and no restart is offered', () => {
     page.setDispatchField('max_concurrent', '4')
     const html = screen()
-    assert.match(text(html), /1 unsaved change\./)
+    assert.match(text(html), /1 unsaved change/)
     assert.match(html, /class="btn primary" {2}onclick="doSave\(\)"/)
     assert.ok(!html.includes('restart-hot'), 'nothing is applied yet, so nothing is loud')
     assert.ok(!html.includes('doRestart()'), 'the bar is just Save — the restart lives in Maintenance now')
@@ -1122,7 +1632,7 @@ describe('the settings screen (#265)', () => {
     page.UI.set.phase = 'applied'
     page.UI.set.note = 'Wrote curia.local.yaml, atomically, with the comments kept.'
     const html = screen()
-    assert.match(text(html), /Saved ✓/)
+    assert.match(text(html), /saved ✓/)
     assert.match(text(html), /The daemon is running it\./)
     assert.ok(!html.includes('doRestart()'), 'an applied save needs no button at all')
   })
@@ -1171,6 +1681,158 @@ describe('the settings screen (#265)', () => {
     assert.match(t, /the sidecar answered 500/)
   })
 
+  // ---- connections ---------------------------------------------------------
+
+  test('Connections creates the GitHub App and names each owner installation', () => {
+    const p = payload()
+    p.overview.github_app = {
+      configured: false,
+      status: 'idle',
+      owners: [
+        { owner: 'alp82', installed: true, install_url: 'https://github.com/settings/installations' },
+        { owner: 'getalfredo', installed: false, install_url: 'https://github.com/settings/installations' },
+      ],
+    }
+    page.UI.drill.settings = { open: 'connections', list: false }
+    const html = page.screenSettings(p)
+    const t = text(html)
+    assert.match(t, /No GitHub App is configured\. Create one from Atlas\./)
+    assert.match(t, /alp82 installed/)
+    assert.match(t, /getalfredo missing access Manage installation/)
+    assert.match(html, /doGitHubAppSetup\(\)/)
+    assert.match(fs.readFileSync(DEFAULT_DASHBOARD_INDEX, 'utf8'), /manifest\.name = "manifest"/)
+  })
+
+  // ---- aistack (#706) ------------------------------------------------------
+  //
+  // The section that guides a headless registration. What is pinned here is
+  // what it SAYS at each end of that flow, plus the one thing it must never
+  // say: anything out of the credential file.
+
+  const AISTACK = () => ({
+    ok: true,
+    registered: false,
+    machine: null,
+    flow: { phase: 'unregistered' },
+    log_file: '/w/home/.config/aistack/sync.log',
+    commands: {
+      login: 'HOME=/w/home npx -y @use-aistack/cli@0.7.2 login',
+      opt_in: 'HOME=/w/home npx -y @use-aistack/cli@0.7.2 sync --auto on',
+    },
+    sync: { last: null, alarm: null, interval_hours: 1, cli_version: '0.7.2' },
+  })
+
+  test('an unregistered box says curia publishes nothing, and offers the one press', () => {
+    page.aistack = AISTACK()
+    const html = screen('aistack')
+    const t = text(html)
+    assert.match(t, /aistack not registered/, 'the list row says it too')
+    assert.match(t, /This box is not an aistack machine/)
+    assert.match(html, /aistackDo\('register'\)/)
+    assert.ok(!html.includes("aistackDo('optin')"), 'there is nothing to grant a permission on yet')
+  })
+
+  test('a login in flight is the code and the link, and nothing else to do', () => {
+    page.aistack = { ...AISTACK(), flow: { phase: 'waiting', code: 'T72NNC', url: 'https://aistack.to/cli/auth?code=T72NNC', started_at: 1, expires_at: 2 } }
+    const html = screen('aistack')
+    const t = text(html)
+    assert.match(t, /aistack waiting for approval/)
+    assert.match(t, /T72NNC/)
+    assert.match(html, /href="https:\/\/aistack\.to\/cli\/auth\?code=T72NNC"/)
+    assert.match(html, /aistackDo\('cancel'\)/)
+    assert.ok(!html.includes("aistackDo('register')"), 'a second login would invalidate the code on screen')
+  })
+
+  test('the approval is said to be somewhere else, because it is', () => {
+    page.aistack = { ...AISTACK(), flow: { phase: 'waiting', code: 'AAAA', url: 'https://aistack.to/cli/auth?code=AAAA' } }
+    page.UI.hints['set-aistack-wait'] = true
+    assert.match(text(screen('aistack')), /needs a browser signed in to aistack, and the box has none/)
+  })
+
+  test('a registered box names the machine, the stack, and the last sync', () => {
+    page.aistack = {
+      ...AISTACK(),
+      registered: true,
+      machine: { proposed: 'curia.sh', servers: ['aistack.to'], at: Date.now() - 3600_000 },
+      flow: { phase: 'registered' },
+      sync: { last: { ok: true, at: Date.now() - 120_000, published: 'https://aistack.to/stacks/alp', message: null }, alarm: null, interval_hours: 1, cli_version: '0.7.2' },
+    }
+    const html = screen('aistack')
+    const t = text(html)
+    assert.match(t, /curia\.sh/)
+    assert.match(t, /aistack\.to/)
+    assert.match(t, /published 2m ago/)
+    assert.match(html, /href="https:\/\/aistack\.to\/stacks\/alp"/, 'the stack the run published to')
+    assert.match(html, /aistackDo\('optin'\)/, 'the second half of the ceremony is a press too')
+  })
+
+  test('a registered box that has never synced does not read as a success', () => {
+    page.aistack = { ...AISTACK(), registered: true, machine: { proposed: 'curia.sh', servers: ['aistack.to'], at: null }, flow: { phase: 'registered' } }
+    assert.match(text(screen('aistack')), /no sync has run yet/)
+  })
+
+  test('a failing sync names the reason, the log, and both ways out', () => {
+    page.aistack = {
+      ...AISTACK(),
+      registered: true,
+      machine: { proposed: 'curia.sh', servers: ['aistack.to'], at: null },
+      flow: { phase: 'registered' },
+      sync: { last: { ok: false, at: Date.now() - 60_000, published: null, message: 'npx exited 7' }, alarm: { message: 'npx exited 7: not authenticated', at: Date.now() - 60_000 }, interval_hours: 1, cli_version: '0.7.2' },
+    }
+    const t = text(screen('aistack'))
+    assert.match(t, /The sync is failing: npx exited 7: not authenticated/)
+    assert.match(t, /sync\.log/)
+    assert.match(t, /If the machine is gone from aistack\.to\/settings\/machines/)
+    assert.match(t, /grant the standing permission below/)
+  })
+
+  test('an expired login says nobody approved it, and the act is a new one', () => {
+    page.aistack = { ...AISTACK(), flow: { phase: 'expired', message: 'nobody approved the login within three minutes, so the CLI stopped waiting' } }
+    const html = screen('aistack')
+    assert.match(text(html), /The last registration expired: nobody approved the login within three minutes/)
+    assert.match(html, /aistackDo\('register'\)/)
+  })
+
+  test('a failed login points at the log on the box', () => {
+    page.aistack = { ...AISTACK(), flow: { phase: 'failed', message: 'npx exited 1: ENOTFOUND registry.npmjs.org' } }
+    const t = text(screen('aistack'))
+    assert.match(t, /The last registration failed: npx exited 1: ENOTFOUND/)
+    assert.match(t, /sync\.log/)
+  })
+
+  // A daemon that is not answering is where this section's whole answer lives,
+  // so it says that rather than "not registered", which is a different fact.
+  test('a daemon that cannot be asked is unknown, never unregistered', () => {
+    page.aistack = { ok: false, error: 'the daemon did not answer /aistack within 10s' }
+    const t = text(screen('aistack'))
+    assert.match(t, /curia cannot say whether this box is registered/)
+    assert.ok(!t.includes('not an aistack machine'))
+  })
+
+  test('the section takes its own read on arrival, not on the poll', () => {
+    const reads = []
+    page.fetch = (url) => { reads.push(url); return new Promise(() => {}) }
+    page.openSection('settings', 'aistack')
+    assert.deepEqual(reads, ['/api/aistack'])
+  })
+
+  // The whole point of keeping the flow daemon-side. The section draws what the
+  // daemon hands it, and the daemon hands it no secret — so a status that
+  // somehow carried one still has no line here that would draw it.
+  test('nothing the section draws comes out of the credential file', () => {
+    page.aistack = {
+      ...AISTACK(),
+      registered: true,
+      machine: { proposed: 'curia.sh', servers: ['aistack.to'], at: null },
+      flow: { phase: 'registered' },
+      token: 'x'.repeat(64),
+      credentials: { servers: { 'https://aistack.to': { token: 'y'.repeat(64), userId: 'u1' } } },
+    }
+    const html = screen('aistack')
+    assert.ok(!html.includes('x'.repeat(64)) && !html.includes('y'.repeat(64)), 'no field of the answer is drawn wholesale')
+    assert.ok(!html.includes('u1'))
+  })
+
   // ---- maintenance, and the marker on the nav (#362) ------------------------
 
   test('maintenance reads last, and says the daemon runs the files when it does', () => {
@@ -1178,8 +1840,7 @@ describe('the settings screen (#265)', () => {
     assert.match(text(html), /The daemon is running these files\./)
     assert.ok(!html.includes('restart-hot'), 'an ordinary restart button, because nothing disagrees')
     assert.match(html, /doRestart\(\)/, 'the one restart button lives here now')
-    const tabs = [...html.matchAll(/onclick="setSection\('(\w+)'\)"/g)].map((m) => m[1])
-    assert.deepEqual(tabs, ['routing', 'projects', 'dispatch', 'maintenance'], 'the fourth section, and it reads last')
+    assert.deepEqual(rows(html), ['routing', 'projects', 'dispatch', 'connections', 'aistack', 'maintenance'], 'the sixth section, and it reads last')
   })
 
   test('a daemon running something else names the keys, and the button goes red', () => {
@@ -1196,7 +1857,7 @@ describe('the settings screen (#265)', () => {
   test('a daemon that is not answering is unknown, never in step', () => {
     const p = { ...payload(), daemon_up: false }
     assert.equal(page.runningDiff(p), null)
-    page.UI.set.section = 'maintenance'
+    page.UI.drill.settings = { open: 'maintenance', list: false }
     assert.match(text(page.screenSettings(p)), /cannot tell whether the daemon runs these files: it is not answering/)
   })
 
@@ -1622,6 +2283,22 @@ describe('the operator verbs (#266)', () => {
       assert.match(page.outcome({ mode: 'interrupt', ok: true, session: 'curia-263', graceMs: 5000 }), /5s of grace/)
     })
 
+    test('an answer keeps the next three needs under the answered card', () => {
+      const said = page.outcome({
+        ok: true,
+        next_needs: [
+          { headline: 'Review the map.', agent: 'curia-8', ticket: '8' },
+          { headline: 'Choose the limit.', agent: 'curia-9', ticket: '9' },
+          { headline: 'Approve the preview.', agent: 'curia-10', ticket: '10' },
+          { headline: 'Hidden fourth.', agent: 'curia-11', ticket: '11' },
+        ],
+      })
+      assert.match(said, /Next 3 needs/)
+      assert.match(said, /Review the map/)
+      assert.match(said, /Approve the preview/)
+      assert.doesNotMatch(said, /Hidden fourth/)
+    })
+
     test('an interrupt curia refused still delivered the words — queued, which is the default anyway', () => {
       const said = page.outcome({ mode: 'interrupt', ok: false, why: 'curia-263 is waiting on esc-7', still_queued: true })
       assert.match(said, /waiting on esc-7/)
@@ -1724,6 +2401,19 @@ describe('the chat screen (#267, the picker of #333)', () => {
     const t = text(html)
     assert.match(t, /what is takeable on curia/, 'the label is the operator\'s own first message')
     assert.match(t, /console-2/)
+  })
+
+  test('ticket and overseer conversations share the picker', () => {
+    page.conversations = { conversations: [
+      conv({ kind: 'overseer', deletable: true }),
+      conv({ kind: 'ticket', deletable: false, key: 'alp82/curia#684', session: 'curia-684', state: 'working', label: 'Build Atlas' }),
+    ] }
+    const html = page.screenChat(payload())
+    const t = text(html)
+    assert.match(t, /overseer/)
+    assert.match(t, /ticket · working/)
+    assert.match(html, /href="\/chat\?session=curia-684"/)
+    assert.doesNotMatch(html, /doDeleteConversation\('alp82\/curia#684'\)/)
   })
 
   test('a row carries its own context percent — ADR-0016 makes that the one signal', () => {

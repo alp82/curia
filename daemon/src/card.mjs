@@ -11,11 +11,9 @@
 // It also keeps ADR-0002 whole. The daemon lints and structures, the bridge
 // renders, and neither one interprets.
 //
-// What is NOT in here: every link. curia composes the preview, timeline and
-// terminal links as buttons on the card (ADR-0013), so the `timeline` flag adds
-// a pointer line and never a URL. The buttons, the select menu and the answer
-// instructions stay in the bridge, because they are the answer surface rather
-// than the question.
+// What is NOT in here: every link. The status line owns the preview, Chat, and
+// ticket links. The decision buttons, select menu, and answer instructions stay
+// in the bridge because they are the answer surface.
 
 import { unfence, isTypedResult, verdictGrade, VERDICT_SEVERITIES } from './lint.mjs'
 import { SIGNALS, smallPrint } from './messaging.mjs'
@@ -27,11 +25,28 @@ const marker = (i) => (i < LETTERS.length ? LETTERS[i] : String(i + 1))
 
 const has = (v) => v !== undefined && v !== null && String(v).trim() !== ''
 
-// The visual arrives as rows and leaves as a fenced block. curia writes the
-// fence, so an agent can never send a broken one (#432 reads it either way).
+export function composeOpening(opening = {}) {
+  return [
+    `⚙️ ${String(opening.goal ?? '').trim()}`,
+    String(opening.first_step ?? '').trim(),
+  ].join('\n')
+}
+
+// A table or a diagram arrives as rows and leaves as a fenced block. curia
+// writes the fence, so an agent can never send a broken one (#432 reads it
+// either way).
 export function visualBlock(visual) {
   const body = unfence(visual)
   return `\`\`\`\n${body}\n\`\`\``
+}
+
+// The two geometry fields ADR-0026 (#640) split the retired `visual` field
+// into, in the order the operator reads them: the table states, the diagram
+// shows. `picture` is the third of the trio and it is not a block — it is a
+// file the reader looks at, so it rides the message's files rather than its
+// text.
+function visualBlocks(payload = {}) {
+  return ['table', 'diagram'].filter((f) => has(payload[f])).map((f) => visualBlock(payload[f]))
 }
 
 // The consequence and the example, under the thing they belong to. `↳` is the
@@ -51,7 +66,7 @@ const APPROVE_REJECT = ['✅ Approve', '❌ Reject']
 export function composeCard(kind, payload = {}) {
   const parts = []
   if (has(payload.headline)) parts.push(`**${String(payload.headline).trim()}**`)
-  if (has(payload.visual)) parts.push(visualBlock(payload.visual))
+  parts.push(...visualBlocks(payload))
 
   if (kind === 'free-text') {
     // A round is typed now (#285 wrote the numbers by hand inside one prose
@@ -59,6 +74,7 @@ export function composeCard(kind, payload = {}) {
     // so curia prints it rather than trusting the prose to carry it.
     for (const [i, q] of (payload.questions ?? []).entries()) {
       const lines = [`**${i + 1}.** ${String(q?.text ?? '').trim()}`]
+      if (has(q?.background)) lines.push(smallPrint(`💡 ${String(q.background).trim()}`))
       if (has(q?.recommendation)) lines.push(`↳ ${String(q.recommendation).trim()}`)
       parts.push(lines.join('\n'))
     }
@@ -91,7 +107,7 @@ export function composeCard(kind, payload = {}) {
 export function composeReviewBody(payload = {}) {
   const parts = []
   if (has(payload.headline)) parts.push(`**${String(payload.headline).trim()}**`)
-  if (has(payload.visual)) parts.push(visualBlock(payload.visual))
+  parts.push(...visualBlocks(payload))
   if (has(payload.detail)) parts.push(`Details: ||${String(payload.detail).trim()}||`)
   return parts.join('\n\n')
 }
@@ -106,7 +122,7 @@ export function composeReviewBody(payload = {}) {
 export function composeResultBody(payload = {}) {
   const parts = []
   if (has(payload.headline)) parts.push(`**${String(payload.headline).trim()}**`)
-  if (has(payload.visual)) parts.push(visualBlock(payload.visual))
+  parts.push(...visualBlocks(payload))
   if (has(payload.summary)) parts.push(String(payload.summary).trim())
   if (has(payload.detail)) parts.push(`Details: ||${String(payload.detail).trim()}||`)
   return parts.join('\n\n')
@@ -121,7 +137,12 @@ export function composeResultBody(payload = {}) {
 // one three times first. It still renders, because a flagged ending in the
 // thread beats an ending that reaches it never.
 export function composeResultReport(status, payload = {}) {
-  const head = `✅ reports **${status}**`
+  const head = `✅ **${status}**`
+  if (isTypedResult(payload) && has(payload.headline)) {
+    const typedHead = `✅ **${status}** - **${String(payload.headline).trim()}**`
+    const body = composeResultBody({ ...payload, headline: undefined })
+    return body ? `${typedHead}\n\n${body}` : typedHead
+  }
   const body = composeResultBody(payload)
   if (!body) return head
   return isTypedResult(payload) ? `${head}\n\n${body}` : `${head}: ${body}`
@@ -165,7 +186,7 @@ export function composeNotify(payload = {}) {
   const kind = NOTIFY_KINDS.includes(payload.kind) ? payload.kind : DEFAULT_NOTIFY_KIND
   const parts = []
   if (has(payload.message)) parts.push(`${NOTIFY_SIGNAL[kind]} ${String(payload.message).trim()}`)
-  if (has(payload.visual)) parts.push(visualBlock(payload.visual))
+  parts.push(...visualBlocks(payload))
   if (has(payload.detail)) parts.push(`Details: ||${String(payload.detail).trim()}||`)
   if (kind === 'ask' && parts.length) parts.push(smallPrint(ASK_LINE))
   return parts.join('\n\n')
@@ -207,7 +228,7 @@ export function composeVerdict(payload = {}) {
   if (has(payload.headline)) parts.push(`**${String(payload.headline).trim()}**`)
   const grade = verdictGrade(findings)
   if (grade) parts.push(`${VERDICT_SIGNAL[grade]} **${grade}** — ${findingCounts(findings)}`)
-  if (has(payload.visual)) parts.push(visualBlock(payload.visual))
+  parts.push(...visualBlocks(payload))
   if (has(payload.summary)) parts.push(String(payload.summary).trim())
   for (const [i, f] of (findings ?? []).entries()) {
     const severity = String(f?.severity ?? '').trim().toLowerCase()
@@ -226,7 +247,7 @@ export function composeVerdict(payload = {}) {
 // reports `blocked` could not read the diff at all, and that is the first thing
 // the operator needs. The grade of the diff sits under it, inside the verdict.
 export function composeVerdictReport(status, payload = {}) {
-  const head = `🔎 the cross-check reports **${status}**`
+  const head = `🔎 the cross-check found **${status}**`
   const body = composeVerdict(payload)
   return body ? `${head}\n\n${body}` : head
 }

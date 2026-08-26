@@ -63,8 +63,14 @@ export function worktreePathFor(root, repo, n) {
   return path.join(root, 'repos', repo.replace('/', '__'), 'wt', String(n))
 }
 
+// The one directory name under the workspace root that holds every agent's
+// config dir. Named once because two readers walk it: `cfgDirFor` writes a
+// session's dir here, and `aistack.mjs` enumerates the same tree to find the
+// roots a usage sync scans.
+export const CFG_DIR = 'cfg'
+
 export function cfgDirFor(root, session) {
-  return path.join(root, 'cfg', session)
+  return path.join(root, CFG_DIR, session)
 }
 
 export function branchFor(n) {
@@ -541,6 +547,21 @@ export function removeCredentials(cfgDir) {
 
 export const HARNESS_NAMES = ['claude', 'codex']
 
+// WHICH ENVIRONMENT VARIABLE CARRIES A HARNESS'S CONFIG ROOT. The HARNESS rows
+// below build their env from this map rather than spelling the name inline, and
+// `aistack.mjs` reads it rather than naming the same two variables a second
+// time — a harness whose CLI reads a different variable is then answered here,
+// once, for the agent spawn and the usage sync alike.
+export const CONFIG_ROOT_ENV = Object.freeze({
+  claude: 'CLAUDE_CONFIG_DIR',
+  codex: 'CODEX_HOME',
+})
+
+export function configRootEnvFor(harness = 'claude') {
+  harnessDef(harness)
+  return CONFIG_ROOT_ENV[harness]
+}
+
 function harnessDef(harness) {
   const h = HARNESS[harness]
   if (!h) {
@@ -661,6 +682,19 @@ function curiaMcpUrl(daemonPort, agent, ticket, host = LOOPBACK) {
 // SIGKILL, and this deadline is still the only bound there.
 const CODEX_TOOL_TIMEOUT_S = 86_400
 
+// Claude Code stores only the final 20 characters when the operator approves
+// a custom API key. Keep that upstream storage shape here, rather than writing
+// the complete secret into a durable config file.
+export const CLAUDE_API_KEY_TAIL_LENGTH = 20
+
+export function claudeApiKeyApproval(apiKey) {
+  if (!apiKey) return null
+  if (apiKey.length < CLAUDE_API_KEY_TAIL_LENGTH) {
+    throw new Error(`the deployed Claude API key is shorter than ${CLAUDE_API_KEY_TAIL_LENGTH} characters`)
+  }
+  return apiKey.slice(-CLAUDE_API_KEY_TAIL_LENGTH)
+}
+
 // The Stop hook, identical on both harnesses: POST the hook's own stdin payload to
 // the daemon, which answers `{decision:"block", reason}` while a step of the
 // ending is outstanding (#54).
@@ -684,6 +718,42 @@ function stopHookCommand(daemonPort, agent, host = LOOPBACK, token) {
 function writeSecretFile(file, data) {
   fs.writeFileSync(file, data, { mode: 0o600 })
   fs.chmodSync(file, 0o600) // the mode applies only on create; a reused config dir already has one
+}
+
+// THE CLAUDE HARNESS'S WHOLE REACH BACK INTO THE DAEMON, in one writer.
+//
+// A `.mcp.json` beside a `.claude/settings.json` that says
+// `enableAllProjectMcpServers` — the pair is what makes the CLI trust a project
+// server with no prompt, and either file alone is a harness with no tools. Two
+// callers write it: an agent worktree here, and a conversation's own project
+// directory (`overseeridentity.mjs`). They differ in the directory, the server
+// name and whether a Stop hook rides along; everything else — the shape of the
+// server entry, the header that carries the secret, the bypass mode, the 0600
+// on both files — is one rule and lives here.
+//
+// Returns the path of the `.mcp.json` it wrote.
+export function writeClaudeConnection({
+  dir, serverName, url, header, token, hooks = null, env = null,
+}) {
+  fs.mkdirSync(dir, { recursive: true })
+  const mcpFile = path.join(dir, '.mcp.json')
+  writeSecretFile(mcpFile, JSON.stringify({
+    mcpServers: {
+      // #159. Claude Code sends a per-server `headers` object on every request
+      // to an http MCP server (`claude mcp add --header` writes this exact
+      // shape).
+      [serverName]: { type: 'http', url, headers: { [header]: token } },
+    },
+  }, null, 2))
+  const dotClaude = path.join(dir, '.claude')
+  fs.mkdirSync(dotClaude, { recursive: true })
+  writeSecretFile(path.join(dotClaude, 'settings.json'), JSON.stringify({
+    enableAllProjectMcpServers: true,
+    permissions: { defaultMode: 'bypassPermissions' },
+    ...(env ? { env } : {}),
+    ...(hooks ? { hooks } : {}),
+  }, null, 2))
+  return mcpFile
 }
 
 const HARNESS = {
@@ -743,7 +813,7 @@ const HARNESS = {
     // frozen-credential shape #53 fixed for the bare path, accepted back by
     // #148 as the sandbox's one remaining host-secret exposure.
     env: (cfgDir, { sandboxed = false } = {}) => ({
-      CLAUDE_CONFIG_DIR: cfgDir,
+      [CONFIG_ROOT_ENV.claude]: cfgDir,
       ...(sandboxed ? {} : { CLAUDE_SECURESTORAGE_CONFIG_DIR: path.join(os.homedir(), '.claude') }),
       CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT: String(86_400_000),
     }),
@@ -751,7 +821,8 @@ const HARNESS = {
     // Exact prototype.md §1 shape, verified live: no first-spawn dialog ever
     // appears. The projects key MUST be the absolute worktree path (matched
     // exactly).
-    seed: (cfgDir, wtPath) => {
+    seed: (cfgDir, wtPath, { apiKey = null } = {}) => {
+      const approvedApiKey = claudeApiKeyApproval(apiKey)
       fs.writeFileSync(path.join(cfgDir, '.claude.json'), JSON.stringify({
         hasCompletedOnboarding: true,
         installMethod: 'native',
@@ -766,6 +837,9 @@ const HARNESS = {
             hasClaudeMdExternalIncludesWarningShown: true,
           },
         },
+        ...(approvedApiKey ? {
+          customApiKeyResponses: { approved: [approvedApiKey], rejected: [] },
+        } : {}),
       }, null, 2))
       // The MCP namespace is bounded HERE, in the two settings keys below
       // (#180), because nothing else reaches it. `CLAUDE_CONFIG_DIR` holds the
@@ -801,6 +875,7 @@ const HARNESS = {
         skipDangerousModePermissionPrompt: true,
         disableClaudeAiConnectors: true,
         allowedMcpServers: [{ serverName: MCP_SERVER_NAME }],
+        cleanupPeriodDays: 36500,
       }, null, 2))
     },
 
@@ -808,26 +883,16 @@ const HARNESS = {
     // MCP on, bypass permissions, Stop hook → /agent_done) — spike #29 shapes
     // with per-agent substitution. Both land in the worktree and are hidden from
     // git by the base clone's info/exclude (see ensureBaseClone).
-    connectionSettings: ({ wtPath, agent, ticket, daemonPort, daemonHost, token }) => {
-      writeSecretFile(path.join(wtPath, '.mcp.json'), JSON.stringify({
-        mcpServers: {
-          [MCP_SERVER_NAME]: {
-            type: 'http',
-            url: curiaMcpUrl(daemonPort, agent, ticket, daemonHost),
-            // #159. Claude Code sends a per-server `headers` object on every
-            // request to an http MCP server (`claude mcp add --header` writes
-            // this exact shape).
-            headers: { [TOKEN_HEADER]: token },
-          },
-        },
-      }, null, 2))
-      const dotClaude = path.join(wtPath, '.claude')
-      fs.mkdirSync(dotClaude, { recursive: true })
-      writeSecretFile(path.join(dotClaude, 'settings.json'), JSON.stringify({
-        enableAllProjectMcpServers: true,
-        permissions: { defaultMode: 'bypassPermissions' },
+    connectionSettings: ({ wtPath, agent, ticket, daemonPort, daemonHost, reasoningEffort, token }) => {
+      writeClaudeConnection({
+        dir: wtPath,
+        serverName: MCP_SERVER_NAME,
+        url: curiaMcpUrl(daemonPort, agent, ticket, daemonHost),
+        header: TOKEN_HEADER,
+        token,
+        env: reasoningEffort ? { CLAUDE_CODE_EFFORT_LEVEL: reasoningEffort } : null,
         hooks: { Stop: [{ hooks: [{ type: 'command', command: stopHookCommand(daemonPort, agent, daemonHost, token) }] }] },
-      }, null, 2))
+      })
     },
   },
 
@@ -847,7 +912,7 @@ const HARNESS = {
     // CLAUDE_SECURESTORAGE_CONFIG_DIR has no codex equivalent). Sharing the
     // host's credentials therefore has to happen inside the dir.
     hostStore: () => path.join(os.homedir(), '.codex'),
-    env: (cfgDir) => ({ CODEX_HOME: cfgDir }),
+    env: (cfgDir) => ({ [CONFIG_ROOT_ENV.codex]: cfgDir }),
 
     // A SYMLINK to the host's auth.json, which is the same shared-store property
     // #53 landed for Claude and — read this carefully — reached by the opposite
@@ -1427,7 +1492,7 @@ export function composeMemoryFile(cfgDir, harness) {
 // it as a `projects` key, which Claude Code matches against its own cwd — and a
 // container's cwd is the mount point, not the host path. Everything this
 // function WRITES goes to `cfgDir`, which is always the host path.
-export function seedConfigDir(cfgDir, wtPath, skills = null, harness = 'claude', { sandboxed = false } = {}) {
+export function seedConfigDir(cfgDir, wtPath, skills = null, harness = 'claude', { sandboxed = false, apiKey = null } = {}) {
   const h = harnessDef(harness)
   fs.mkdirSync(cfgDir, { recursive: true })
   // No credential is COPIED here — every harness shares the host's own store
@@ -1439,7 +1504,7 @@ export function seedConfigDir(cfgDir, wtPath, skills = null, harness = 'claude',
   // The seed needs the boundary too (#158): the codex harness shares the host's
   // credential file through a symlink on the bare path and cannot share it at
   // all across a mount, so it copies instead.
-  h.seed(cfgDir, wtPath, { sandboxed })
+  h.seed(cfgDir, wtPath, { sandboxed, apiKey })
   // The one deliberate narrowing of the no-host-config stance below (#133):
   // the operator's communication rules are mandatory for every agent, so a
   // curia-owned copy lands as the CLI's global-memory file. `CLAUDE.md` for
@@ -1726,7 +1791,7 @@ function deferredCuriaOrder(harness) {
 export function writePrompt(cfgDir, issue, {
   repo, wtPath, mapNumber = null, type = null, charting = false, newMap = false,
   instruction = null, ports = null, harness = 'claude', exchange = [], handoff = false,
-  prototypeVariations,
+  prototypeVariations, skill = null, skillTarget = null,
 }) {
   if (type === 'wayfinder:prototype' && (!Number.isInteger(prototypeVariations) || prototypeVariations <= 0)) {
     throw new Error('prototypeVariations must be a positive integer for a prototype dispatch')
@@ -1783,11 +1848,13 @@ export function writePrompt(cfgDir, issue, {
   // below rather than the invocation line — the line is one line, and this one
   // is a paragraph the operator wrote.
   const sigil = harness === 'codex' ? null : '/wayfinder'
-  const invocation = !sigil || !(newMap || mapNumber)
-    ? []
-    : newMap
-      ? [sigil, '']
-      : [`${sigil} ${mapUrl}${charting ? '' : ` ticket #${n}`}`, '']
+  const invocation = skill
+    ? [`${harness === 'codex' ? '$' : '/'}${skill}${skillTarget ? ` ${skillTarget}` : ''}`, '']
+    : !sigil || !(newMap || mapNumber)
+      ? []
+      : newMap
+        ? [sigil, '']
+        : [`${sigil} ${mapUrl}${charting ? '' : ` ticket #${n}`}`, '']
 
   // The params of a NEW-map dispatch (#241). The difference from a map dispatch
   // is one fact with consequences everywhere: the map does not exist. So this
@@ -1840,7 +1907,15 @@ export function writePrompt(cfgDir, issue, {
     ...researchParams({ repo, branch }),
   ]
 
-  const params = newMap ? newMapParams : charting ? chartingParams : [
+  const skillParams = [
+    '- **This is a TICKETLESS SKILL RUN.** This issue is the durable record that owns the run and its review gate.',
+    `- Run the \`${skill}\` skill against ${skillTarget}. The invocation is the first line of this prompt.`,
+    '- The product is tracker writes. Before publication, pass every proposed title, label, and native',
+    '  dependency edge in `tracker_writes` to `request_review`. Grouping into dispatch waves is done by curia.',
+    '- Nothing in `tracker_writes` exists on GitHub before approval. Publish only what the operator approved.',
+  ]
+
+  const params = skill ? skillParams : newMap ? newMapParams : charting ? chartingParams : [
     ...(mapNumber
       ? [`- The map is ${repo}#${mapNumber} — ${mapUrl}. curia has loaded it for you.`]
       : ['- This ticket belongs to no map, so there is no map to work through and no map line to append.']),
@@ -1896,7 +1971,15 @@ export function writePrompt(cfgDir, issue, {
     // request on this branch is what holds them off the default branch until a
     // human approves. Everything else on disk stays out of bounds, and curia
     // refuses the push rather than trusting the sentence.
-    ...(newMap
+    ...(skill
+      ? [
+        `- **Write only:** files inside ${wtPath}, and this record issue.`,
+        '- After gate approval, write only the approved tracker items and the approved merge.',
+        '- Write nothing else on the tracker or outside the worktree on disk.',
+        '- Before gate approval, the record issue is the only tracker issue you may write.',
+        '- Leave the assignee alone, and do not rewrite anyone else\'s text.',
+      ]
+      : newMap
       ? [
         `- **Write only:** the ONE \`wayfinder:map\` issue you create in ${repo}, and its child tickets;`,
         `  the research findings under \`${wtPath}/docs/research/\`; and the one merge a human has just`,
@@ -1979,12 +2062,13 @@ export function writePrompt(cfgDir, issue, {
     '  every question carries one, so one reply names the exceptions. A question whose answer depends on',
     '  another one still open belongs to the NEXT round. One question is a round of one.',
     // #415, ADR-0019: the agent writes the parts and the bridge lays out the
-    // card. The example and the visual stay judgment fields, because a field
-    // required on every option produces filler rather than evidence.
+    // card. The example, the table and the diagram stay judgment fields,
+    // because a field required on every option produces filler rather than
+    // evidence.
     '- **Write the PARTS of a card, never the card itself.** `headline` says the whole decision in one line.',
     '  Every option of a `choice` carries the `consequence` of picking it. curia lays them out, adds the',
-    '  buttons and writes every link. An `example` or a `visual` is your judgment: add one where it removes',
-    '  prose, and leave it out where it would only say the line above it again in longer words.',
+    '  buttons and writes every link. An `example`, a `table` or a `diagram` is your judgment: add one where it',
+    '  removes prose, and leave it out where it would only say the line above it again in longer words.',
     '- **Never answer for the human.** A question they did not answer comes back in the next round. Only',
     '  the ✅ button takes your recommendations, and only for the questions in the round it sits on.',
     // #56: a daemon crash took an in-flight ask_human down with it, and the agent
@@ -2062,9 +2146,14 @@ export function writePrompt(cfgDir, issue, {
   const tools = charting ? [
     '- `ask_human` — a decision you cannot make alone. Blocks until a human answers, for as long as it',
     '  takes. This is how you reach the operator who dispatched you.',
-    '- `notify` — a status line for the human. Returns at once. `kind` says what they must DO:',
+    '- `notify`: your opening, working phase, or milestone for the human. Returns at once. On your first',
+    '  call, send `opening.goal`, `opening.first_step`, `phase`, and `label`. The opening uses two lines.',
+    '  Later routine updates send `phase` and `label` without a message. Use a message for a milestone.',
+    '  `kind` says what they must DO:',
     '  `progress` (nothing), `look` (open a file or a page now), `ask` (reply when they can). An `ask`',
     '  blocks nothing, so use `ask_human` when you cannot go on without the answer.',
+    '  Set `phase` for routine progress. Curia edits the live status line instead of posting another message.',
+    '- Start with one `notify` message. Put your goal first, then your first step. Use at most two lines.',
     ...(newMap ? [
       '- `map_created` — tell curia the number of the map you created, the moment it exists. curia checks',
       '  the issue is really an open `wayfinder:map` in this repo, then takes it as this session\'s map:',
@@ -2088,9 +2177,14 @@ export function writePrompt(cfgDir, issue, {
   ] : [
     '- `ask_human` — a decision you cannot make alone. Blocks until a human answers, for as long as it',
     '  takes.',
-    '- `notify` — a status line for the human. Returns at once. `kind` says what they must DO:',
+    '- `notify`: your opening, working phase, or milestone for the human. Returns at once. On your first',
+    '  call, send `opening.goal`, `opening.first_step`, `phase`, and `label`. The opening uses two lines.',
+    '  Later routine updates send `phase` and `label` without a message. Use a message for a milestone.',
+    '  `kind` says what they must DO:',
     '  `progress` (nothing), `look` (open a file or a page now), `ask` (reply when they can). An `ask`',
     '  blocks nothing, so use `ask_human` when you cannot go on without the answer.',
+    '  Set `phase` for routine progress. Curia edits the live status line instead of posting another message.',
+    '- Start with one `notify` message. Put your goal first, then your first step. Use at most two lines.',
     ...(portLines.length ? [
       '- `publish_preview` — publish a dev server you have started as an HTTPS link. Start the server FIRST,',
       `  bound to \`0.0.0.0\` on one of your three ports (${ports.join(', ')}), then call this with that port`,
@@ -2102,6 +2196,10 @@ export function writePrompt(cfgDir, issue, {
     '- `open_pull_request` — curia pushes your branch and opens or updates the pull request. You never push.',
     '- `request_review` — the one gate. curia shows the human the pull request, the preview, the ticket and',
     '  your proposed charting, and blocks until they approve or reject. **You never write a link yourself.**',
+    ...(skill ? [
+      '  Put every proposed tracker title, label, and native edge in `tracker_writes`. Curia numbers the',
+      '  items and groups them by dispatch wave before the operator sees the gate.',
+    ] : []),
     '  curia composes all three from its own records, which is what makes them evidence rather than your',
     '  account of your own work. If the preview link points at the wrong page, fix it where it is made —',
     '  call `publish_preview` again with the right path — not by pasting a URL into your summary.',
@@ -2269,7 +2367,8 @@ export function writeReviewPrompt(cfgDir, issue, {
     '    `note` (worth knowing).',
     '  - `out_of_scope` — true when the finding is real but sits beyond this ticket.',
     '- `detail` — short facts, rendered as a spoiler. Optional.',
-    '- `visual` — a table or a diagram, at most 42 columns by 20 lines. Optional.',
+    '- `table` — a code-block table, at most 42 columns by 20 lines, columns lined up. Optional.',
+    '- `diagram` — an ASCII drawing, at most 42 columns by 20 lines. Optional.',
     '',
     'curia reads the GRADE of the whole verdict off those severities: one blocker makes it `fail`, one',
     'concern makes it `concerns`, and neither makes it `pass`. You never write that word yourself.',

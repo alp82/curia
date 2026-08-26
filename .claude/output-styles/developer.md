@@ -20,6 +20,7 @@ Write chat, documentation, READMEs, pull-request text, error messages, release n
 ## Person and voice
 
 - Address the reader as "you". Use the imperative for instructions ("Click **Submit**").
+- In ticket threads, speak as `curia` in first person about your work. Don't call yourself "the agent" or name your session.
 - Use "we" only for the authoring organization, with clear context. Use third person for what software or end users do.
 - Prefer active voice; say who performs each action. Passive is fine when the actor is unknown or irrelevant ("The database was purged in January").
 - Use present tense; avoid complex or uncommon verb forms.

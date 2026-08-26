@@ -22,6 +22,7 @@ import crypto from 'node:crypto'
 import { nextConsoleKey } from './attach.mjs'
 import { openJournal, normalizeEvent } from './journal.mjs'
 import { Questions } from './questions.mjs'
+import { MAP_FOG_VERB } from './mapfog.mjs'
 
 // The button-confirm kind (#94, per #89's messaging discipline). Its own kind
 // because a confirm behaves unlike every other escalation: no reminder, no
@@ -88,13 +89,28 @@ export function noteDisposition(agent) {
 // draws four of them, so a pair per chat message would push every dispatch,
 // death and gate off the screen. What the operator DOES read about a killed
 // turn is `overseer_turn_dropped`, which the feed carries.
+//
+// The park joins them (#710). ADR-0024 makes a live pane a cache and the spec
+// hides it: "parked conversations hidden as a runtime detail, so that capacity
+// management doesn't change the conversation model". A feed entry every time
+// curia stopped a process the operator never knew had started is mechanics
+// reported as news.
 const FEED_SILENT = new Set([
-  'overseer_session_reserved', 'overseer_turn_started', 'overseer_turn_ended',
+  'overseer_session_reserved',
+  'overseer_turn_started', 'overseer_turn_ended',
+  'conversation_turn_recorded', 'conversation_turn_taken_back', 'agent_notes_requeued',
+  'overseer_notes_carried', 'overseer_notes_requeued',
+  'overseer_pane_parked',
+  // The Feed's own read stamp (#704). Reading the feed is not news on it.
+  'feed_read',
 ])
 
 // The events lastAgentEvent must not count (#236) — see _apply.
 const NOTE_EVENTS = new Set([
   'agent_note', 'agent_notes_drained', 'agent_notes_expired', 'agent_note_refused', 'agent_note_interrupted',
+  'agent_note_taken_back', 'agent_notes_requeued',
+  'overseer_notes_carried', 'overseer_notes_requeued',
+  'conversation_turn_recorded', 'conversation_turn_taken_back',
 ])
 
 // The label a cross-check verdict rides under on the note queue (#165). It is
@@ -107,6 +123,8 @@ export const VERDICT_LABEL = 'cross-check verdict'
 // words are curia's own mechanics, and a builder that read them as an operator
 // note would answer them instead of obeying them (ADR-0013).
 export const CROSS_CHECK_LABEL = 'cross-check started'
+
+const conversationTurnHash = (text) => crypto.createHash('sha256').update(String(text)).digest('hex')
 
 export class Reduction {
   constructor(dataDir, { log = () => {} } = {}) {
@@ -124,8 +142,23 @@ export class Reduction {
     this.overseerNotes = new Map() // thread id -> pending synthetic lines (#94)
     this.agentNotes = new Map() // agent session -> pending operator notes (#108 item 14)
     this.overseerSessions = new Map() // thread id -> SDK session id (#92)
-    this.transcriptLandings = new Map() // session -> rewind landing parent (#689, ADR-0024)
     this.pendingOverseerSessions = new Map() // thread id -> first pane launch id (#688)
+    // Which conversations hold a LIVE pane, and how recently each was used
+    // (#710, ADR-0024).
+    //
+    // THE ORDER IS A COUNTER AND NOT A CLOCK. Two of these events land in the
+    // same millisecond often enough — a pane starts and takes its first message
+    // at once — and a tie on a timestamp falls back to insertion order, which
+    // is the one order that is wrong here: `Map.set` on a key that is already
+    // there keeps its original position, so a conversation speaking for the
+    // second time would report as the oldest one there. The journal replays in
+    // order, so the count is the same on this process and on the next one.
+    //
+    // Journalled rather than held in memory because tmux survives a daemon
+    // restart and this process does not: a boot that forgot which panes are
+    // live would park nothing until every one of them had spoken again.
+    this.livePanes = new Map() // conversation key -> the touch number of its last start, resume or message
+    this.paneTouch = 0
     this.consoleConversations = new Map() // console key -> the live browser conversation (#333)
     this.consoleSpent = new Set() // every console key ever minted, deleted ones included (#333)
     this.ticketThreads = new Map() // ticket -> Discord thread id (#93)
@@ -134,11 +167,14 @@ export class Reduction {
     this.lastThreadTickets = new Map() // thread id -> last ticket ever bound to it, the same way round (#257)
     this.mapCharters = new Map() // map number -> the chat handle that charted it (#241, read by #326)
     this.ticketRepos = new Map() // ticket -> repo of its last dispatch (#235)
+    this.ticketTitles = new Map() // ticket -> title of its last dispatch (#690)
+    this.agentOpenings = new Set() // sessions whose current dispatch opened its work story (#690)
     this.lastAgentEvents = new Map() // agent session -> last journal event about it (#236)
     this.notes = new Map() // note id -> every note ever queued, pending or not (#252)
     this.handoffNotes = new Map() // escalation id -> the note its recorded answer rides on (#369)
     this.recent = [] // the last RECENT_EVENTS journal lines, oldest first (#262)
     this.outcomes = { cancelled: [], finished: [], died: [] } // the last RECENT_OUTCOMES of each (#289)
+    this.agentConversations = new Map() // every retained agent transcript, keyed by its real session name (#684)
     this.pullRequests = new Map() // agent session -> the pull request its CURRENT dispatch pushed (#289)
     this.limitResumes = new Map() // ticket -> the limit resume curia still owes it (#346)
     this.spawnFailures = new Map() // ticket -> its consecutive failed spawns (#444)
@@ -149,14 +185,23 @@ export class Reduction {
     this.coolings = { models: new Map(), providers: new Map() } // the caps that have LANDED, key -> reset instant (#377)
     this.tokenWarnings = new Map() // credential key -> the last warning curia said about it (#380)
     this.openLogins = new Map() // provider -> the re-authentication the journal has started and not ended (#671)
+    this.feedReads = new Map() // operator login -> the instant that login last read the Feed (#704)
     this.pendingTurns = new Map() // conversation key -> the overseer turn still in flight (#388)
     this.droppedTurns = new Map() // conversation key -> the last turn a restart killed (#388)
     this.turnStarts = new Map() // conversation key -> when its last turn started (#388)
     this.lintRejects = new Map() // `<agent>|<kind>` -> the rejections the lint gate still holds (#418)
     this.backupAlarm = null // the journal-backup failure that still stands, or null (#436)
+    this.aistackAlarm = null // the aistack-sync failure that still stands, or null (#695)
+    this.aistackAt = null // when the last aistack sync attempt finished, or null (#695)
+    this.aistackLast = null // how the last aistack sync attempt ENDED, or null (#706)
+    this.aistackMachine = null // the registration this box holds, or null (#706)
     this.mapAlarms = new Map() // "repo#map" -> the stranded-map alarm that still stands (#485)
+    this.transcriptLandings = new Map() // session -> rewind landing and transcript tail (#689)
+    this.conversationTurns = new Map() // session -> sent operator turns and the queued notes each one carried (#702)
+    this.carriedNotes = new Map() // session -> overseer notes a pane message took but no turn record has claimed yet (#702)
     this.seq = 0
     this.noteSeq = 0
+    this.turnSeq = 0
     this.rebuild()
   }
 
@@ -236,6 +281,34 @@ export class Reduction {
       const list = this.outcomes[outcome]
       list.push({ kind: outcome, repo: ev.repo ?? null, ticket: String(ev.ticket ?? '') })
       if (list.length > RECENT_OUTCOMES) list.shift()
+    }
+    if (ev.type === 'agent_spawned' && ev.agent) {
+      const previous = this.agentConversations.get(ev.agent) ?? {}
+      this.agentConversations.set(ev.agent, {
+        ...previous,
+        session: ev.agent,
+        repo: ev.repo ?? previous.repo ?? null,
+        ticket: String(ev.ticket ?? previous.ticket ?? ''),
+        model: ev.model ?? previous.model ?? null,
+        harness: ev.harness ?? previous.harness ?? null,
+        reviewer: ev.kind === 'reviewer' || previous.reviewer === true,
+        state: 'active',
+        updated_at: ev.ts ?? previous.updated_at ?? null,
+      })
+    }
+    if (outcome || ev.type === 'agent_abnormal_exit') {
+      const session = ev.agent ?? (ev.ticket == null ? null : `curia-${ev.ticket}`)
+      if (session) {
+        const previous = this.agentConversations.get(session) ?? {}
+        this.agentConversations.set(session, {
+          ...previous,
+          session,
+          repo: ev.repo ?? previous.repo ?? null,
+          ticket: String(ev.ticket ?? previous.ticket ?? ''),
+          state: outcome ?? 'failed',
+          updated_at: ev.ts ?? previous.updated_at ?? null,
+        })
+      }
     }
     // A spawn CLEARS the pull request (#253): the session name is reused by
     // every dispatch of a ticket, so a fresh agent must not inherit the link
@@ -385,6 +458,38 @@ export class Reduction {
     if (ev.type === 'journal_backup_failed') this.backupAlarm = { ...ev, at: ev.ts ?? null }
     if (ev.type === 'journal_backup') this.backupAlarm = null
 
+    // The aistack sync (#695). Two facts, both reduced for the reason the
+    // backup's alarm is: a deploy happens between a failure and the operator
+    // acting on it, and the daemon must not re-say the alarm or re-spawn the
+    // command line interface on every boot. So the alarm survives a restart, and
+    // so does the instant of the last attempt, which is what the check interval
+    // measures from.
+    if (ev.type === 'aistack_sync_failed') this.aistackAlarm = { ...ev, at: ev.ts ?? null }
+    if (ev.type === 'aistack_sync') this.aistackAlarm = null
+    if (ev.type === 'aistack_sync' || ev.type === 'aistack_sync_failed') {
+      const at = ev.ts ? Date.parse(ev.ts) : NaN
+      if (Number.isFinite(at)) this.aistackAt = at
+      // The VERDICT of the last attempt (#706), which the alarm alone cannot
+      // give: a standing alarm says a failure is unrepaired, and its absence
+      // says nothing about whether this box ever published. Settings shows this
+      // one, so a success and a silence stay two different readings.
+      this.aistackLast = {
+        ok: ev.type === 'aistack_sync',
+        at: Number.isFinite(at) ? at : null,
+        published: ev.published ?? null,
+        message: ev.message ?? null,
+      }
+    }
+
+    // The registration (#706). A fact rather than the registration object's own
+    // memory, so the machine name survives the restart the operator does right
+    // after registering. The credential file records no name, so this is the
+    // name the box PROPOSED, and the screen says as much.
+    if (ev.type === 'aistack_registered') {
+      const at = ev.ts ? Date.parse(ev.ts) : NaN
+      this.aistackMachine = { machine: ev.machine ?? null, at: Number.isFinite(at) ? at : null }
+    }
+
     // The stranded-map alarm (#485). A reduction for the reason the backup's is
     // one: it must not be re-said at every boot or every frontier pass. The
     // clearing event is explicit, because the fact that ends it — the map
@@ -392,6 +497,33 @@ export class Reduction {
     // frontier read is what observes it.
     if (ev.type === 'map_stranded') this.mapAlarms.set(`${ev.repo}#${ev.map}`, { ...ev, at: ev.ts ?? null })
     if (ev.type === 'map_stranded_cleared') this.mapAlarms.delete(`${ev.repo}#${ev.map}`)
+    // The empty-map verdict (#698) stands on the same entry, because it is the
+    // same fact carried further: #485 raised an alarm about a map, and #698
+    // asks a question about it. Both `asked` and `answered` are merged onto
+    // whatever stands, so a boot rebuilds a question already out and an answer
+    // already given — the two things a restart must not lose. Only the same
+    // `map_stranded_cleared` erases it, and only when the fact itself is gone.
+    if (ev.type === 'map_verdict_asked' || ev.type === 'map_verdict_answered') {
+      const key = `${ev.repo}#${ev.map}`
+      const prior = this.mapAlarms.get(key) ?? { repo: ev.repo, map: ev.map, title: ev.title ?? null }
+      this.mapAlarms.set(key, ev.type === 'map_verdict_asked'
+        ? { ...prior, asked: ev.id, at: ev.ts ?? prior.at ?? null }
+        : { ...prior, answered: ev.answer ?? null, closed: ev.closed ?? false })
+    }
+
+    // The active transcript head during the gap between a rewind and its next
+    // message (#689). The receipt records both the chosen parent and the old
+    // transcript tail. The reader stops using the landing when a new tail
+    // appears, so no cleanup event has to race the harness write.
+    if (ev.type === 'transcript_landed' && ev.session && ev.landing_uuid) {
+      this.transcriptLandings.set(ev.session, {
+        uuid: ev.landing_uuid,
+        tailUuid: ev.tail_uuid ?? null,
+      })
+    }
+    if (ev.type === 'transcript_landing_cleared' && ev.session) {
+      this.transcriptLandings.delete(ev.session)
+    }
 
     if (ev.type === 'token_warned' || ev.type === 'token_cleared') {
       const key = ev.fault === 'expiring'
@@ -446,6 +578,26 @@ export class Reduction {
         // record too, and clearing there is right: the question reached the
         // operator, which is the only thing the count was protecting.
         this.lintRejects.delete(`${ev.agent}|${ev.kind}`)
+        break
+      }
+      case 'map_fog_verdict_posted': {
+        const r = this.escalations.get(ev.id)
+        if (r) r.verdict_posted_at = ev.ts
+        break
+      }
+      case 'map_fog_cleared': {
+        const r = this.escalations.get(ev.id)
+        if (r) r.fog_cleared_at = ev.ts
+        break
+      }
+      case 'map_fog_closed': {
+        const r = this.escalations.get(ev.id)
+        if (r) r.map_closed_at = ev.ts
+        break
+      }
+      case 'map_fog_reset': {
+        const r = this.escalations.get(ev.id)
+        if (r) r.workflow_reset_at = ev.ts
         break
       }
       // The lint gate's ledger (#418, ADR-0005). The daemon counts, because an
@@ -578,9 +730,63 @@ export class Reduction {
         this.agentNotes.set(ev.agent, arr)
         break
       }
+      case 'overseer_notes_carried': {
+        const carried = this.carriedNotes.get(ev.agent) ?? { key: ev.key ?? null, texts: [] }
+        carried.key = ev.key ?? carried.key
+        carried.texts.push(...(ev.texts ?? []))
+        this.carriedNotes.set(ev.agent, carried)
+        break
+      }
+      case 'overseer_notes_requeued': {
+        const texts = ev.texts ?? []
+        if (texts.length) {
+          this.overseerNotes.set(ev.key, [...texts, ...(this.overseerNotes.get(ev.key) ?? [])])
+        }
+        const turn = (this.conversationTurns.get(ev.agent) ?? []).find((item) => item.id === ev.turn)
+        if (turn) turn.overseer_notes = []
+        break
+      }
+      case 'conversation_turn_recorded': {
+        const turns = this.conversationTurns.get(ev.agent) ?? []
+        const carried = ev.overseer_notes ?? this.carriedNotes.get(ev.agent)?.texts ?? []
+        const turn = {
+          id: ev.id, agent: ev.agent,
+          text: ev.text ?? null,
+          text_hash: ev.text_hash ?? conversationTurnHash(ev.text ?? ''),
+          note_ids: [], taken_back: false,
+          overseer_key: ev.overseer_key ?? this.carriedNotes.get(ev.agent)?.key ?? null,
+          overseer_notes: [...carried],
+        }
+        this.carriedNotes.delete(ev.agent)
+        turns.push(turn)
+        this.conversationTurns.set(ev.agent, turns)
+        const n = Number(String(ev.id).split('-').at(-1))
+        if (Number.isFinite(n) && n >= this.turnSeq) this.turnSeq = n
+        break
+      }
+      case 'conversation_turn_taken_back': {
+        const turn = (this.conversationTurns.get(ev.agent) ?? []).find((item) => item.id === ev.id)
+        if (turn) turn.taken_back = true
+        break
+      }
       case 'agent_notes_drained': {
         const arr = this.agentNotes.get(ev.agent) ?? []
-        for (const n of arr.splice(0, ev.count)) n.pending = false
+        const drained = arr.splice(0, ev.count)
+        for (const n of drained) n.pending = false
+        const turn = (this.conversationTurns.get(ev.agent) ?? []).find((item) => item.id === ev.turn)
+        if (turn) turn.note_ids.push(...(ev.note_ids ?? drained.map((note) => note.id)).filter(Boolean))
+        break
+      }
+      case 'agent_notes_requeued': {
+        const arr = this.agentNotes.get(ev.agent) ?? []
+        const restored = []
+        for (const id of ev.note_ids ?? []) {
+          const note = this.notes.get(id)
+          if (!note || note.pending) continue
+          note.pending = true
+          restored.push(note)
+        }
+        this.agentNotes.set(ev.agent, [...restored, ...arr])
         break
       }
       case 'agent_notes_expired': {
@@ -598,6 +804,13 @@ export class Reduction {
       // the pane as a user turn. The note is no longer pending, so it can never
       // also ride a tool result — one fact, one delivery.
       case 'agent_note_interrupted': {
+        const arr = this.agentNotes.get(ev.agent) ?? []
+        const note = this.notes.get(ev.id)
+        if (note) note.pending = false
+        this.agentNotes.set(ev.agent, arr.filter((n) => n.id !== ev.id))
+        break
+      }
+      case 'agent_note_taken_back': {
         const arr = this.agentNotes.get(ev.agent) ?? []
         const note = this.notes.get(ev.id)
         if (note) note.pending = false
@@ -623,6 +836,7 @@ export class Reduction {
         break
       }
       case 'dispatch_claimed':
+      case 'agent_dispatching':
       case 'agent_spawned': {
         // The repo behind a ticket number (#235): the thread label's repo
         // field reads it lazily, and the lazy path outlives the dispatcher's
@@ -630,6 +844,29 @@ export class Reduction {
         // index. Last dispatch wins, the same rule the thread binding lives
         // under.
         if (ev.repo && ev.ticket != null) this.ticketRepos.set(String(ev.ticket), ev.repo)
+        if (ev.title && ev.ticket != null) this.ticketTitles.set(String(ev.ticket), ev.title)
+        if (ev.agent) this.agentOpenings.delete(ev.agent)
+        break
+      }
+      case 'agent_opening': {
+        if (ev.agent) this.agentOpenings.add(ev.agent)
+        break
+      }
+      // ---- the live pane, and the park (#710, ADR-0024) --------------------
+      //
+      // A pane is a cache in front of a durable conversation. These four events
+      // are the cache's own bookkeeping: three that make a conversation live
+      // and touch its clock, and one that ends it. Nothing here touches the
+      // resume id, the notes or the token — parking is a process ending, not a
+      // conversation ending, and that difference is the whole decision.
+      case 'overseer_pane_started':
+      case 'overseer_pane_resumed':
+      case 'overseer_pane_message': {
+        if (ev.key) this.livePanes.set(ev.key, ++this.paneTouch)
+        break
+      }
+      case 'overseer_pane_parked': {
+        this.livePanes.delete(ev.key)
         break
       }
       case 'overseer_session': {
@@ -675,6 +912,7 @@ export class Reduction {
         this.overseerNotes.delete(ev.key)
         this.pendingTurns.delete(ev.key)
         this.droppedTurns.delete(ev.key)
+        this.livePanes.delete(ev.key)
         break
       }
       // ---- the turn a restart can kill (#388, ADR-0015) --------------------
@@ -723,6 +961,14 @@ export class Reduction {
       // by `_append`, so an unreadable `ts` means a record nothing can put a
       // deadline on, and inventing one would either kill a live login early or
       // hand it a second window. It is stepped over instead.
+      // The since-you-left marker's one fact (#704): the instant each operator
+      // login last opened the Feed. Durable because it is journalled, and one
+      // per login rather than per browser, so a phone and a laptop under the
+      // same login agree on where "you left" was.
+      case 'feed_read': {
+        if (typeof ev.by === 'string' && ev.by.trim() && ev.ts) this.feedReads.set(ev.by.trim().toLowerCase(), ev.ts)
+        break
+      }
       case 'reauth_started': {
         const startedAt = Date.parse(ev.ts ?? '')
         if (!ev.provider || !Number.isFinite(startedAt)) break
@@ -810,8 +1056,14 @@ export class Reduction {
     // records of one kind, but a journal written before this rule can carry
     // several, and a corpse this call walks past stays on the Needs-You list
     // forever.
+    const mapFogAction = action?.verb === MAP_FOG_VERB
+    const sameMapFogAction = (r) => r.action?.verb === MAP_FOG_VERB
+      && r.action?.repo === action?.repo
+      && Number(r.action?.map) === Number(action?.map)
     const superseded_all = [...this.escalations.values()].filter((r) => {
       if (r.status !== 'open') return false
+      if (mapFogAction) return r.kind === kind && sameMapFogAction(r)
+      if (r.action?.verb === MAP_FOG_VERB) return false
       return kind === CONFIRM_KIND
         ? r.kind === CONFIRM_KIND && sharesInstance(r)
         : r.kind === kind && r.agent === agent
@@ -970,11 +1222,30 @@ export class Reduction {
     return this.overseerSessions.get(threadId)
   }
 
-  // The active parent while a rewind has no transcript line of its own.
-  // The rewind flow journals the first event and clears it after the next
-  // transcript message starts the new branch.
-  transcriptLanding(agent) {
-    return this.transcriptLandings.get(agent) ?? null
+  // ---- the live-pane cache (#710, ADR-0024) --------------------------------
+
+  // Which conversations hold a live pane, LEAST RECENTLY USED FIRST. That order
+  // is the parking decision: the cap is reached, and the pane at the head of
+  // this list is the one whose operator has been away longest.
+  //
+  // The count is the order, so a pane that started and never spoke again sits
+  // at the head of this list — which is exactly what "least recently used"
+  // means and exactly the pane worth parking.
+  livePaneKeys() {
+    return [...this.livePanes.entries()].sort((a, b) => a[1] - b[1]).map(([key]) => key)
+  }
+
+  hasLivePane(key) {
+    return this.livePanes.has(key)
+  }
+
+  // The pane stopped and the conversation stayed whole. `reason` says what
+  // stopped it — the cap, a deploy curia ordered, or a restart that had already
+  // killed it. Nothing here touches the resume id, the notes or the token:
+  // parking is a process ending, not a conversation ending, and that difference
+  // is the whole decision.
+  parkOverseerPane({ key, pane = null, reason = null }) {
+    this._append({ type: 'overseer_pane_parked', key, pane, reason })
   }
 
   // ---- the turn a restart can kill (#388, ADR-0015) -------------------------
@@ -1147,6 +1418,13 @@ export class Reduction {
     return note
   }
 
+  takeBackAgentNote(id, { by = null } = {}) {
+    const note = this.notes.get(id)
+    if (!note?.pending) return null
+    this._append({ type: 'agent_note_taken_back', id, agent: note.agent, by })
+    return note
+  }
+
   // The hand-off half of #139: an answer that settled an escalation nothing
   // was waiting on (the resolver died with a previous daemon process, or the
   // agent itself is gone) re-queues as an agent note, so the next agent on
@@ -1235,10 +1513,82 @@ export class Reduction {
     return stale
   }
 
+  // The words the OPERATOR typed, not the paste that carried them (#702). A
+  // pane message composes the checkout verdict and the queued notes in front of
+  // those words, so the transcript's prompt is not what the operator wrote. The
+  // rewind puts text back in a composer and quotes a landing point, and both
+  // have to be the operator's own words. The hash stays for the records written
+  // before this text did.
+  recordConversationTurn(agent, text) {
+    const id = `conversation-turn-${++this.turnSeq}`
+    this._append({
+      type: 'conversation_turn_recorded', id, agent,
+      text: String(text ?? ''), text_hash: conversationTurnHash(text),
+    })
+    return this.conversationTurns.get(agent)?.at(-1) ?? null
+  }
+
+  // Every operator turn on this conversation that still stands, newest first.
+  // The rewind reads it to tell the operator's words apart from the frame a
+  // pane message pasted around them.
+  conversationTurnTexts(agent) {
+    return [...(this.conversationTurns.get(agent) ?? [])]
+      .reverse()
+      .filter((turn) => !turn.taken_back && turn.text)
+      .map((turn) => turn.text)
+  }
+
+  // The notes a pane message took off the overseer queue (#702). A pane message
+  // drains them BEFORE the operator's turn is recorded, so they are carried
+  // here and the next turn record claims them. That binding is what lets a
+  // rewind put them back: an overseer note is plain text with no id of its own,
+  // so the turn that carried it is the only record that it left the queue.
+  carryOverseerNotes(agent, key, texts) {
+    if (!texts?.length) return
+    this._append({ type: 'overseer_notes_carried', agent, key, texts: [...texts] })
+  }
+
+  takeBackConversationTurn(agent, text) {
+    const turn = [...(this.conversationTurns.get(agent) ?? [])]
+      .reverse()
+      .find((item) => !item.taken_back && item.text_hash === conversationTurnHash(text))
+    if (!turn) return []
+    // The overseer queue's half. Read before the event, because the reducer
+    // clears the binding when it lands.
+    const carried = turn.overseer_key ? [...(turn.overseer_notes ?? [])] : []
+    if (carried.length) {
+      this._append({
+        type: 'overseer_notes_requeued', agent, key: turn.overseer_key,
+        turn: turn.id, texts: carried,
+      })
+    }
+    const notes = turn.note_ids
+      .map((id) => this.notes.get(id))
+      .filter((note) => note && !note.pending)
+    if (notes.length) {
+      this._append({
+        type: 'agent_notes_requeued', agent, turn: turn.id,
+        note_ids: notes.map((note) => note.id),
+      })
+    }
+    this._append({ type: 'conversation_turn_taken_back', id: turn.id, agent })
+    // One list, because the receipt counts notes and not queues.
+    return [...notes, ...carried.map((text) => ({ text, overseer: true }))]
+  }
+
+
   takeAgentNotes(agent, instance = null) {
     this.expireAgentNotes(agent, instance, 'is running as a fresh instance')
     const notes = [...(this.agentNotes.get(agent) ?? [])]
-    if (notes.length) this._append({ type: 'agent_notes_drained', agent, count: notes.length })
+    if (notes.length) {
+      const turn = [...(this.conversationTurns.get(agent) ?? [])]
+        .reverse()
+        .find((item) => !item.taken_back)
+      this._append({
+        type: 'agent_notes_drained', agent, count: notes.length,
+        note_ids: notes.map((note) => note.id), turn: turn?.id ?? null,
+      })
+    }
     return notes
   }
 
@@ -1334,6 +1684,14 @@ export class Reduction {
     return this.ticketRepos.get(String(ticket))
   }
 
+  titleForTicket(ticket) {
+    return this.ticketTitles.get(String(ticket))
+  }
+
+  hasAgentOpening(agent) {
+    return this.agentOpenings.has(agent)
+  }
+
   boundTickets() {
     return [...this.ticketThreads.keys()]
   }
@@ -1363,9 +1721,30 @@ export class Reduction {
     return [...this.outcomes.cancelled, ...this.outcomes.finished, ...this.outcomes.died]
   }
 
+  retainedAgentConversations() {
+    return [...this.agentConversations.values()].map((conversation) => ({ ...conversation }))
+  }
+
   // Every credential warning still standing, oldest first (#380). A copy, for
   // the reason `recentEvents` hands out one: the route serializes it while the
   // watch keeps appending.
+  // Every login's last Feed read, as `{ login: iso }` (#704). A copy, for the
+  // reason `recentEvents` hands out one.
+  lastFeedReads() {
+    return Object.fromEntries(this.feedReads)
+  }
+
+  // Stamp one login's Feed read. Answers the previous stamp, which is what the
+  // page draws the marker at: the read that just happened is not "since you
+  // left" until the next visit.
+  markFeedRead(by) {
+    const login = String(by ?? '').trim().toLowerCase()
+    if (!login) throw new Error('a feed read names the login that read it')
+    const previous = this.feedReads.get(login) ?? null
+    const rec = this._append({ type: 'feed_read', by: login })
+    return { ok: true, by: login, at: rec.ts, previous }
+  }
+
   standingTokenWarnings() {
     return [...this.tokenWarnings.values()].map((w) => ({ ...w }))
   }
@@ -1383,6 +1762,30 @@ export class Reduction {
     return this.backupAlarm ? { ...this.backupAlarm } : null
   }
 
+  // The aistack-sync failure that still stands, or null (#695).
+  standingAistackAlarm() {
+    return this.aistackAlarm ? { ...this.aistackAlarm } : null
+  }
+
+  // When the last aistack sync attempt finished, in milliseconds, or null on a
+  // box that has never attempted one (#695). A failed attempt counts, so a
+  // failing sync backs off to the check interval instead of running on every
+  // tick.
+  lastAistackSyncAt() {
+    return this.aistackAt
+  }
+
+  // How the last aistack sync attempt ended, or null on a box that has never
+  // attempted one (#706). The Settings section shows this as the sync verdict.
+  lastAistackSync() {
+    return this.aistackLast ? { ...this.aistackLast } : null
+  }
+
+  // The aistack registration this box holds, or null (#706).
+  registeredAistackMachine() {
+    return this.aistackMachine ? { ...this.aistackMachine } : null
+  }
+
   // Every stranded-map alarm that still stands (#485). The frontier read
   // clears the ones whose fact is gone, and a boot inherits the rest.
   standingStrandedMaps() {
@@ -1394,6 +1797,34 @@ export class Reduction {
   strandedMap(repo, map) {
     const a = this.mapAlarms.get(`${repo}#${map}`)
     return a ? { ...a } : null
+  }
+
+  transcriptLanding(session) {
+    const landing = this.transcriptLandings.get(session)
+    if (typeof landing === 'string') return landing
+    return landing ? { ...landing } : null
+  }
+
+  // The newest durable empty-map question for one map. The question, answer,
+  // and completed GitHub effects all rebuild from the journal, so a restart
+  // resumes the first incomplete effect instead of asking or acting twice.
+  mapFogQuestion(repo, map) {
+    const record = [...this.escalations.values()]
+      .filter((r) => r.action?.verb === MAP_FOG_VERB)
+      .filter((r) => r.action?.repo === repo && Number(r.action?.map) === Number(map))
+      .at(-1)
+    return record && !record.workflow_reset_at ? { ...record } : null
+  }
+
+  standingMapFogQuestions() {
+    const latest = new Map()
+    for (const r of this.escalations.values()) {
+      if (r.action?.verb !== MAP_FOG_VERB) continue
+      latest.set(`${r.action.repo}#${r.action.map}`, r)
+    }
+    return [...latest.values()]
+      .filter((r) => !r.workflow_reset_at)
+      .map((r) => ({ ...r }))
   }
 
   // The pull request an agent's CURRENT dispatch pushed, or null (#289). This

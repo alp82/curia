@@ -10,6 +10,7 @@ import { parse as parseYaml } from 'yaml'
 import {
   seedConfigDir, agentEnv, retiredAgentTokenKeys, hostStorageDir, installSkills, defaultSkillsRoot, DEFAULT_SKILLS,
   writeConnectionSettings, removeCredentials, untrustedProjectConfig, plantedSkills, MCP_SERVER_NAME,
+  CLAUDE_API_KEY_TAIL_LENGTH, claudeApiKeyApproval,
   checkoutTicketBranch, remoteBranchExists, defaultBranchOf,
   // #649, ADR-0028
   hasUncommittedChanges, hasUnpushedCommits, salvageBranchFor, salvageLocalOnlyWork,
@@ -31,9 +32,27 @@ describe('per-agent config dir (#53)', () => {
     assert.equal(claudeJson.hasCompletedOnboarding, true)
     assert.equal(claudeJson.projects[wtPath].hasTrustDialogAccepted, true)
     assert.ok(fs.existsSync(path.join(cfgDir, 'settings.json')))
+    const settings = JSON.parse(fs.readFileSync(path.join(cfgDir, 'settings.json'), 'utf8'))
+    assert.equal(settings.cleanupPeriodDays, 36500)
 
     assert.equal(fs.existsSync(path.join(cfgDir, '.credentials.json')), false,
       'a snapshotted token is the #34 failure — nothing may be written here')
+  })
+
+  test('seeding approves only the measured Claude API key tail', () => {
+    const cfgDir = path.join(tmp, 'cfg', 'curia-1-key')
+    const apiKey = `sk-ant-${'a'.repeat(24)}${'tail'.repeat(5)}`
+    seedConfigDir(cfgDir, path.join(tmp, 'wt', '1-key'), null, 'claude', { apiKey })
+
+    const claudeJson = JSON.parse(fs.readFileSync(path.join(cfgDir, '.claude.json'), 'utf8'))
+    assert.equal(CLAUDE_API_KEY_TAIL_LENGTH, 20)
+    assert.deepEqual(claudeJson.customApiKeyResponses, {
+      approved: [apiKey.slice(-20)],
+      rejected: [],
+    })
+    assert.equal(JSON.stringify(claudeJson).includes(apiKey), false)
+    assert.equal(claudeApiKeyApproval(null), null)
+    assert.throws(() => claudeApiKeyApproval('short'), /shorter than 20 characters/)
   })
 
   // #180. The credential is shared on purpose, and the account's connectors ride
@@ -774,6 +793,18 @@ describe('the codex agent harness (#39)', () => {
     for (const f of [path.join(wtPath, '.mcp.json'), path.join(wtPath, '.claude', 'settings.json')]) {
       assert.equal(fs.statSync(f).mode & 0o077, 0, `${f} carries the token and must not be world-readable`)
     }
+  })
+
+  test('the claude harness states the routed effort in its project settings', () => {
+    const { cfgDir, wtPath } = dirs(16)
+    fs.mkdirSync(wtPath, { recursive: true })
+    seedConfigDir(cfgDir, wtPath, null, 'claude')
+    writeConnectionSettings({
+      wtPath, cfgDir, agent: 'curia-16', ticket: 16, daemonPort: 4271,
+      harness: 'claude', reasoningEffort: 'ultracode', token: TOKEN,
+    })
+    const settings = JSON.parse(fs.readFileSync(path.join(wtPath, '.claude', 'settings.json'), 'utf8'))
+    assert.equal(settings.env.CLAUDE_CODE_EFFORT_LEVEL, 'ultracode')
   })
 
   // There is no safe default for a secret, so the harness refuses rather than

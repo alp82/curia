@@ -97,7 +97,9 @@ describe('the review gate payload', () => {
 
   test('it carries the question, both agent statements, and every link', () => {
     const { text } = reviewGateText(base)
-    assert.match(text, /\*\*Is o\/r#42 done\?\*\* — a ticket/)
+    assert.match(text, /❓ \*\*Is o\/r#42 done\?\*\* - a ticket/)
+    assert.match(text, /\*\*What changed\*\*/)
+    assert.match(text, /\*\*Charting\*\*/)
     assert.match(text, /did the thing/)
     assert.match(text, /remove the fog line about X/)
     assert.match(text, /- Ticket: https:\/\/github\.com\/o\/r\/issues\/42/)
@@ -123,8 +125,8 @@ describe('the review gate payload', () => {
       ...base,
       body: '**Typed ask_human and request_review.**\n\nDetails: ||The lint is daemon/src/lint.mjs.||',
     })
-    assert.match(text, /\*\*Is o\/r#42 done\?\*\* — a ticket\n\n\*\*Typed ask_human and request_review\.\*\*/)
-    assert.ok(text.indexOf('Typed ask_human') < text.indexOf('**What the agent did**'))
+    assert.match(text, /❓ \*\*Is o\/r#42 done\?\*\* - a ticket\n\n\*\*Typed ask_human and request_review\.\*\*/)
+    assert.ok(text.indexOf('Typed ask_human') < text.indexOf('**What changed**'))
     assert.match(text, /Details: \|\|The lint is daemon\/src\/lint\.mjs\.\|\|/)
   })
 

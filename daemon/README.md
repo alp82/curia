@@ -84,7 +84,7 @@ The catalogue grew on #91. A repo argument is fuzzy everywhere it appears: any u
 
 **The chat handle (#241).** An agent that no issue answers for is named `chat-1`, `chat-2` — the lowest index free **on the box**, because a restarted daemon holds no agents map and tmux is the authority the dispatch locks already ask. The handle stands wherever a ticket number stands: the session `curia-chat-<i>`, the worktree, the thread, and the argument `attach`, `cancel` and `resume` take. `status` takes no argument and lists the handle beside the ticket numbers. A `resume` keeps the same handle, because the thread, the worktree and the journal epoch all answer to it — but a chat that already adopted a map refuses the resume and points at `map <that number> …`, which is the verb for a map that now exists. There is no lock on a handle, so several of these run at once, each in its own thread. Today the new-map dispatch is the only kind of agent that gets one.
 
-- `review <n>` (`model=x` optional) — the cross-check (#164, [ADR-0010](../docs/adr/0010-the-cross-check.md)): spawn a reviewer on the OTHER provider, let it read the pushed diff, and capture its verdict. The pairing comes from `review:` in `routing.yaml` — an anthropic builder gets `gpt`, an openai builder gets `opus` — and a `review-model:<name>` label on the ticket beats it. With every model on the other provider cooling it runs on the builder's own and stamps the verdict "same provider — cross-provider was cooling". The reviewer is a full agent: its own tmux session `curia-review-<n>`, its own status line in the ticket thread, attachable through `attach <n>`, sandboxed like any agent. It writes nothing — curia refuses `open_pull_request`, `request_review`, `publish_preview` and `ask_human` for it by name — and its `report_result` summary lands as `data/verdicts/<n>.json`. This verb is the daemon-side entry point over `POST /command`; the operator's own surface is the third button below.
+- `review <n>` (`model=x` optional) starts the cross-check (#164). The reviewer uses the other provider and reads the pushed diff. The ticket status shows the cross-check through the builder. The reviewer keeps its own `curia-review-<n>` session and sandbox. Curia refuses every reviewer write. The verdict lands in `data/verdicts/<n>.json`.
 
 ## The dashboard sidecar (#263, per [#249](https://github.com/alp82/curia/issues/249))
 
@@ -164,14 +164,14 @@ It sends the message again only for a turn that crossed the seam zero times. Thr
 
 ## The per-agent status line (#108 item 8, #146)
 
-Each agent gets one Discord message in its ticket thread that says what it is doing now: dispatched, working, waiting on an escalation, awaiting review, cross-checking, executing approved writes, or resolving. `statusline.mjs` builds it from the journal's own events through the reduction's append hook, so no transition needs a callback threaded through the dispatcher. The daemon composes every string. Agent text never lands here as it was written. A state change deletes the message and reposts it at the thread bottom (item 17). Everything else edits it in place.
+Each ticket gets one Discord status message. The status line carries dispatch, image build, composer, work, waits, review, and resolution. `statusline.mjs` builds the status from journal events. A state change moves the message to the thread bottom. Other changes edit the message in place.
 
-The line carries LIVE state only (#253, [ADR-0013](../docs/adr/0013-one-voice-per-fact.md)). A terminal event deletes the line. It does not draw a last state onto it. The terminal events are the ending, an abnormal exit, a death, a cancel, and a watchdog failure. Each one already carries its own CuriaBot message, and a 🏁 beside that message narrated one event twice.
+Successful completion settles the status line into the receipt (#690). The last edit keeps final meters, Chat, and ticket links. Abnormal exits, deaths, cancellations, and watchdog failures retire the status line.
 
 Since #146 the line also carries **meters** beside the state:
 
 ```
-▶️ `curia-49` · working · **opus** · ctx 88% · **5h** 🟥 ▓▓▓┃███░░░░ 62% · **7d** 🟩 ▓▓▓▓░░░░┃░░ 41%
+🧭 `reads call sites` · **opus** · ctx 88% · **5h** 🟥 ▓▓▓┃███░░░░ 62% · **7d** 🟩 ▓▓▓▓░░░░┃░░ 41%
 ```
 
 | Meter | Source |
@@ -208,8 +208,8 @@ A meter tick refreshes the live lines once a minute and edits only when a number
 
 Three events used to speak twice or more. The cold read of 131 threads counted them in `docs/research/discord-thread-surprises.md`, sections 3 and 4. Each one collapses to one voice.
 
-- **The ending is two messages, in this order.** First comes the agent's report, in the `curia-<n>` webhook voice. It says what the work came to. The daemon appends the pull-request link to it, because that report is the one place the link unfurls. Then comes one CuriaBot receipt, in small print. It merges the old resolved, done and finished lines into one sentence: what the tracker step did, then what the session teardown did. Every url in it is wrapped in `<>`, so the same GitHub embed never renders twice. The tracker sentence rides its own journal event (`ticket_resolved.summary` and its siblings). A restart between `report_result` and the Stop hook does not silence the ending.
-- **The spawn is CuriaBot's line alone.** The composer-ready message announces the dispatch. The overseer never narrates a dispatch it triggered. The overseer owns the CHOICE, so it may say which ticket it picked and why. It says nothing about the agent's state.
+- **The ending uses a report and the status line.** The `curia` report leads with the typed headline. The status line then settles into the receipt. The receipt keeps the final meters and durable links.
+- **The status line carries the spawn.** Dispatch, image build, composer arrival, and working phases edit one message. No separate composer message posts.
 - **A button answer is the card.** The bridge acknowledges the press silently and edits the card in place. No interaction reply follows it. The mark on the card carries what the reply used to add. That includes the dead ids a routed answer came through.
 
 ## Preview links (#40, implementing #8)
@@ -481,6 +481,40 @@ A restore is rare and destructive, and a human picks which dump. So there is no 
    ```
 
 The daemon sets `journal_mode` and `synchronous` when it opens the journal, so the restored file takes WAL at that boot. It also finds `events.db` present, so the migration does not run again. The loss is every event curia journaled after that dump.
+
+### The aistack sync
+
+[Publish recurring box usage to aistack (#695)](https://github.com/alp82/curia/issues/695) rules it, and `src/aistack.mjs` holds it. The box is an aistack machine: once a day, the daemon publishes the rolling 30-day token usage of every harness it can see, so the agents' spend joins the operator's measured layer on aistack.to.
+
+- **The credential is the switch.** The daemon syncs only when `<workspace_root>/home/.config/aistack/credentials.json` exists. That file holds a bearer token, it lives under curia's own HOME, and no checkout ever carries it. An unregistered box runs nothing and says nothing.
+- **The roots are built per run.** Every agent gets its own config directory under `<workspace_root>/cfg/<session>`, and teardown deletes it. So each run enumerates `cfg/*`, passes every directory holding `projects/` as the comma-separated `CLAUDE_CONFIG_DIR` list, and passes the newest directory holding `sessions/` as `CODEX_HOME`. `CODEX_HOME` names one directory only, so codex rollouts spread over several config directories cannot be aggregated in one run.
+- **It rides the dispatch tick.** Curia keeps one clock ([#345](https://github.com/alp82/curia/issues/345)). A publish files no ticket, so it runs beside the liveness sweep in the dispatcher's tick rather than behind a second timer. `aistack.interval_hours` bounds how often that tick spends a process, and the stack's own auto-sync frequency bounds how often a run publishes.
+- **The command is pinned.** `aistack.cli_version` in `config/curia.yaml` names the version. The stock aistack hook runs `@latest`, which changes behavior on a box nobody touched.
+- **A success says nothing.** Each run journals `aistack_sync` with the root counts and the published link. Only a failure reaches Discord, only when it is news, and it names the two commands that repair it. The alarm stands as `aistack_sync_failed` and a landed sync clears it, so a deploy repeats nothing.
+
+What a sync can never show is bounded twice, and both bounds are the measured layer's: a torn-down config directory takes its transcripts with it, and the measured layer stores windows rather than increments.
+
+#### Registering the box
+
+Registration is a one-time operator ceremony, because the approval needs a signed-in browser. [Register the Curia box with aistack from Settings (#706)](https://github.com/alp82/curia/issues/706) took the ssh out of it, and `src/aistackreg.mjs` holds that half: **Settings → aistack** presses **Register this box**, the daemon spawns the same `login` below and shows the code and the approval link it prints, and the operator approves on whatever screen they are already holding. **Grant standing permission** is step 3 as a press. Who approves does not change — nothing on the box can do it, and the token the approval returns is written to a file under curia's own HOME that no response body ever carries.
+
+The commands below are the same ceremony at a terminal, and the Settings section prints them too.
+
+1. Start the device-code login. The command prints a code and a URL, then polls for three minutes.
+
+   ```sh
+   HOME=/home/alp/curia-work/home npx -y @use-aistack/cli@0.7.2 login
+   ```
+
+2. Open the URL on any machine, name the machine, pick the stack, and approve. The CLI writes the token to `<HOME>/.config/aistack/credentials.json`.
+
+3. Grant the standing auto-sync permission on the stack. This path prompts for nothing, so it runs on a box with no terminal.
+
+   ```sh
+   HOME=/home/alp/curia-work/home npx -y @use-aistack/cli@0.7.2 sync --auto on
+   ```
+
+The daemon picks the credential up on its next tick, whichever way the ceremony ran. To revoke the machine, use `aistack.to/settings/machines` and delete the credentials file — Settings refuses a second registration while the credential is there, because a rival login would only mint a code beside a token that already works. Each run appends one line to `<HOME>/.config/aistack/sync.log`, which is the first place to read when the alarm fires.
 
 ### The Node pin
 

@@ -4,14 +4,14 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  composeCard, composeReviewBody, composeResultBody, composeResultReport, composeNotify, NOTIFY_KINDS,
+  composeCard, composeReviewBody, composeResultBody, composeResultReport, composeNotify, composeOpening, NOTIFY_KINDS,
   visualBlock, optionLabels, composeVerdict, composeVerdictReport,
 } from '../src/card.mjs'
 import { lintReply, CHUNK_LIMIT } from '../src/messaging.mjs'
 
 const CHOICE = {
   headline: 'A restart forgets every cooling. Re-arm it at boot, and from what?',
-  visual: '09:00  cap lands, cooling until 14:20\n13:02  deploy, memory wiped',
+  diagram: '09:00  cap lands, cooling until 14:20\n13:02  deploy, memory wiped',
   options: [
     {
       label: 'From the journal.',
@@ -31,7 +31,7 @@ describe('composeCard: a choice', () => {
     assert.equal(body.split('\n')[0], `**${CHOICE.headline}**`)
   })
 
-  test('the visual rides a fence curia wrote', () => {
+  test('the diagram rides a fence curia wrote', () => {
     assert.ok(body.includes('```\n09:00  cap lands, cooling until 14:20\n13:02  deploy, memory wiped\n```'))
   })
 
@@ -140,7 +140,7 @@ describe('optionLabels', () => {
 })
 
 describe('composeReviewBody', () => {
-  test('the gate body is the headline, the visual and the spoiler', () => {
+  test('the gate body is the headline, the table and the spoiler', () => {
     const body = composeReviewBody({ headline: 'Typed ask_human.', detail: 'The lint module is daemon/src/lint.mjs.' })
     assert.equal(body, '**Typed ask_human.**\n\nDetails: ||The lint module is daemon/src/lint.mjs.||')
   })
@@ -154,37 +154,38 @@ describe('composeResultReport: the ending report (#419)', () => {
   const REPORT = {
     status: 'resolved',
     headline: 'The ending report is typed, and curia lays it out.',
-    summary: 'The report takes a headline, a summary, a detail and a visual.',
+    summary: 'The report takes a headline, a summary, a detail and a table.',
     detail: 'The composer is daemon/src/card.mjs.',
-    visual: 'headline  150\nsummary   600',
+    table: 'headline  150\nsummary   600',
   }
 
-  test('the parts read top down: headline, visual, summary, spoiler', () => {
+  test('the parts read top down: headline, table, summary, spoiler', () => {
     assert.equal(composeResultBody(REPORT), [
       '**The ending report is typed, and curia lays it out.**',
       '```\nheadline  150\nsummary   600\n```',
-      'The report takes a headline, a summary, a detail and a visual.',
+      'The report takes a headline, a summary, a detail and a table.',
       'Details: ||The composer is daemon/src/card.mjs.||',
     ].join('\n\n'))
   })
 
-  test('the status leads, because it is what the operator reads this message for', () => {
+  test('the typed headline leads beside the resolved status', () => {
     const post = composeResultReport('resolved', REPORT)
-    assert.equal(post.split('\n')[0], '✅ reports **resolved**')
-    assert.ok(post.includes(composeResultBody(REPORT)))
+    assert.equal(post.split('\n')[0], '✅ **resolved** - **The ending report is typed, and curia lays it out.**')
+    assert.equal(post.match(/The ending report is typed/g).length, 1, 'the headline appears once')
+    assert.ok(post.includes(REPORT.summary))
   })
 
   test('a report with no headline keeps the one line the thread has read since #253', () => {
     assert.equal(composeResultReport('blocked', { summary: 'the token was missing' }),
-      '✅ reports **blocked**: the token was missing')
+      '✅ **blocked**: the token was missing')
   })
 
   test('a report with no prose at all is still a status', () => {
-    assert.equal(composeResultReport('aborted', {}), '✅ reports **aborted**')
+    assert.equal(composeResultReport('aborted', {}), '✅ **aborted**')
   })
 
-  test('curia writes the fence, so an agent that fenced its visual is not fenced twice', () => {
-    const body = composeResultBody({ visual: '```\na\nb\n```' })
+  test('curia writes the fence, so an agent that fenced its table is not fenced twice', () => {
+    const body = composeResultBody({ table: '```\na\nb\n```' })
     assert.equal(body, '```\na\nb\n```')
   })
 })
@@ -193,10 +194,10 @@ describe('composeNotify: the status line (#420)', () => {
   const LINE = {
     message: 'The lint reads the notify fields now. The gate refuses a fault.',
     detail: 'The composer is daemon/src/card.mjs.',
-    visual: 'message  600\ndetail   500',
+    table: 'message  600\ndetail   500',
   }
 
-  test('the parts read top down: message, visual, spoiler', () => {
+  test('the parts read top down: message, table, spoiler', () => {
     assert.equal(composeNotify(LINE), [
       '⚙️ The lint reads the notify fields now. The gate refuses a fault.',
       '```\nmessage  600\ndetail   500\n```',
@@ -238,8 +239,20 @@ describe('composeNotify: the status line (#420)', () => {
     assert.equal(composeNotify({}), '')
   })
 
-  test('curia writes the fence, so an agent that fenced its visual is not fenced twice', () => {
-    assert.equal(composeNotify({ message: 'a', visual: '```\nx\n```' }), '⚙️ a\n\n```\nx\n```')
+  test('curia writes the fence, so an agent that fenced its table is not fenced twice', () => {
+    assert.equal(composeNotify({ message: 'a', table: '```\nx\n```' }), '⚙️ a\n\n```\nx\n```')
+  })
+})
+
+describe('composeOpening: the ticket story (#690)', () => {
+  test('the goal and first step render as one two-line work message', () => {
+    assert.equal(composeOpening({
+      goal: 'I’ll make each ticket thread tell one quiet story.',
+      first_step: 'I’ll trace the dispatch events into the status line first.',
+    }), [
+      '⚙️ I’ll make each ticket thread tell one quiet story.',
+      'I’ll trace the dispatch events into the status line first.',
+    ].join('\n'))
   })
 })
 
@@ -252,7 +265,7 @@ describe('composeVerdict: the cross-check verdict (#421)', () => {
       { text: 'daemon/src/card.mjs:52 could name the marker helper once.', severity: 'note', out_of_scope: true },
     ],
     detail: 'The suite ran 71 files.',
-    visual: 'blocker  1\nnote     1',
+    table: 'blocker  1\nnote     1',
   }
 
   test('the grade leads under the headline, and curia derives it', () => {
@@ -267,7 +280,7 @@ describe('composeVerdict: the cross-check verdict (#421)', () => {
     assert.ok(body.includes('**2. note** (out of scope)'), 'the scope mark is rendered, never left in the prose')
   })
 
-  test('the parts read top down: headline, grade, visual, summary, findings, spoiler', () => {
+  test('the parts read top down: headline, grade, table, summary, findings, spoiler', () => {
     const body = composeVerdict(VERDICT)
     const at = (s) => body.indexOf(s)
     assert.ok(at('**fail**') < at('```'))
@@ -292,11 +305,11 @@ describe('composeVerdict: the cross-check verdict (#421)', () => {
 
   test('the reviewer ending post wears the cross-check signal, not an ending tick', () => {
     const post = composeVerdictReport('resolved', VERDICT)
-    assert.equal(post.split('\n')[0], '🔎 the cross-check reports **resolved**')
+    assert.equal(post.split('\n')[0], '🔎 the cross-check found **resolved**')
     assert.ok(post.includes(composeVerdict(VERDICT)), 'no finding is dropped from the thread')
   })
 
   test('a reviewer that could not read the diff still leads with its status', () => {
-    assert.equal(composeVerdictReport('blocked', {}), '🔎 the cross-check reports **blocked**')
+    assert.equal(composeVerdictReport('blocked', {}), '🔎 the cross-check found **blocked**')
   })
 })

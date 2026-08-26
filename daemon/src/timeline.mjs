@@ -43,8 +43,8 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { assertServe, serveOff, attachBase, validSessionName } from './attach.mjs'
 import { paneTail } from './dispatch.mjs'
-import { sendText, sendKey, capturePane } from './tmux.mjs'
-import { detectHarness, findTranscript, transcriptForSession, readActiveMessages } from './transcript.mjs'
+import { sendText, sendKey, sendDialogOption, capturePane } from './tmux.mjs'
+import { detectHarness, findTranscript, transcriptForSession, readActiveTranscript } from './transcript.mjs'
 
 const DIR = path.dirname(fileURLToPath(import.meta.url))
 
@@ -61,7 +61,7 @@ export const DEFAULT_TIMELINE_INDEX = path.resolve(DIR, '..', 'assets', 'timelin
 // every request, and a mismatch refuses loudly rather than serving a surface
 // nobody agreed to. It also refuses an operator-pointed index that was never
 // written against this server at all.
-export const TIMELINE_PROTO = 3
+export const TIMELINE_PROTO = 4
 export const STAMP_NAME = 'curia-timeline'
 const STAMP_RE = new RegExp(`<meta name="${STAMP_NAME}" content="proto=(\\d+)">`)
 
@@ -93,8 +93,9 @@ const KEYS = { escape: 'Escape', 'ctrl-c': 'C-c', enter: 'Enter', up: 'Up', tab:
 // is blind to it — and a /send while one owns the pane is typed INTO the
 // dialog, where the trailing Enter answers it blind, or is swallowed outright
 // (#75's live incident: the operator's own approval of #74 vanished this way,
-// with no trace on the page, the agent, or the journal). The surface must not
-// render or answer the dialog itself — only stop being silent about it.
+// with no trace on the page, the agent, or the journal). #715 keeps this guard
+// and adds cards only for daemon-parsed dialog families with passing harness
+// integration checks. Everything else stays terminal-only.
 //
 // Detection is pane-text, the same evidence #25 recorded these prompts leave
 // (they read as false-`idle` to state probes, so text is all there is). Every
@@ -128,6 +129,72 @@ export function detectDialog(pane, composerRe = null) {
   return { hint: hit.trim().replace(/·$/, '').trim() }
 }
 
+const DIALOG_OPTION_RE = /^\s*([❯›>]?)[ \t]*(?:([☐☑])\s*)?(\d+)[.)]\s+(.+?)\s*$/
+const DIALOG_CHROME_RE = /^(?:[-─═]+|Enter to |Press enter to |↑\/↓ to navigate)/i
+const FREE_TEXT_OPTION_RE = /^(?:type something|other)(?:\.|…)?$/i
+const DIALOG_LETTERS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+
+// Native dialogs are untrusted pane text. This parser runs only after the
+// narrow footer and composer checks in detectDialog. It emits the same choice
+// payload shape Chat uses for a Curia card. Unsupported dialog families keep
+// the terminal guard and expose no answer controls.
+export function parseNativeDialog(pane, harness, composerRe = null) {
+  const detected = detectDialog(pane, composerRe)
+  if (!detected) return null
+
+  const tail = paneTail(pane)
+  const rows = tail.split('\n')
+  const parsed = rows.map((row, rowIndex) => {
+    const match = DIALOG_OPTION_RE.exec(row)
+    if (!match) return null
+    return {
+      rowIndex,
+      selected: Boolean(match[1]),
+      multiSelect: Boolean(match[2]),
+      index: Number(match[3]),
+      label: match[4].trim(),
+    }
+  }).filter(Boolean)
+
+  const base = { hint: detected.hint, card: null }
+  if (!['claude', 'codex'].includes(harness)) {
+    return { ...base, reason: `the ${harness || 'unknown'} harness has no passing native dialog integration check` }
+  }
+  if (!parsed.length) {
+    return { ...base, reason: `curia could not parse options from the native ${harness} dialog` }
+  }
+  if (parsed.some((option) => option.multiSelect || FREE_TEXT_OPTION_RE.test(option.label))) {
+    return { ...base, reason: 'the Claude multiSelect free-text path has no passing integration check' }
+  }
+  const selected = parsed.filter((option) => option.selected)
+  if (selected.length !== 1) {
+    return { ...base, reason: `curia could not measure the selected option in the native ${harness} dialog` }
+  }
+
+  const firstOption = parsed[0].rowIndex
+  const headline = rows.slice(0, firstOption)
+    .map((row) => row.trim().replace(/^>\s*/, ''))
+    .filter((row) => row && !DIALOG_CHROME_RE.test(row) && !/^You are in\s/i.test(row))
+    .at(-1) ?? `Native ${harness} dialog`
+  const options = parsed.map((option, offset) => ({
+    index: option.index,
+    marker: offset < DIALOG_LETTERS.length ? DIALOG_LETTERS[offset] : String(offset + 1),
+    label: option.label,
+    handle: option.label,
+  }))
+  const key = JSON.stringify({ harness, headline, options: options.map(({ index, label }) => ({ index, label })) })
+  return {
+    hint: detected.hint,
+    key,
+    card: {
+      kind: 'choice',
+      headline,
+      options,
+      selected_index: selected[0].index,
+    },
+  }
+}
+
 // While a dialog is up, Escape and Ctrl-C still pass — dismissing or
 // interrupting is how a phone gets unstuck, and neither answers the dialog.
 // Enter/Up/Tab would drive its selection blind, so they refuse like /send.
@@ -157,6 +224,7 @@ export class TimelineSurface {
     this.dialogProbeMs = dialogProbeMs
     this.deps = {
       assertServe, serveOff, attachBase, sendText, sendKey, capturePane,
+      answerDialog: sendDialogOption,
       // composerFor(harness): the per-harness ready regex (#39) — the veto in
       // detectDialog. Null skips the veto, never the marker match.
       composerFor: () => null,
@@ -184,9 +252,17 @@ export class TimelineSurface {
       // escalationHistoryFor(session): every escalation record for this
       // agent, any status — the full-fidelity interleave (#108 item 1).
       escalationHistoryFor: () => [],
-      // landingPointFor(session): the parent identity on the latest rewind
-      // receipt. Null outside the window before the next transcript message.
-      landingPointFor: () => null,
+      // landingFor(session): the parent identity saved with a take-back
+      // receipt. It temporarily replaces the transcript tail until the next
+      // message records the fork. Agent and overseer sessions use this seam.
+      landingFor: () => null,
+      // takeBack(request): the shared pane runtime. The surface supplies the
+      // active transcript and returns its composer draft and receipt unchanged.
+      takeBack: null,
+      // correct(request): sends edited text with Curia's correction framing.
+      correct: null,
+      // recordTurn(request): binds queued note drains to this operator turn.
+      recordTurn: null,
       // identityCheck(headers): the #151 gate — a refusal reason, or null to
       // admit. The default REFUSES: this is a security control, so an
       // unconfigured surface must fail closed rather than inherit the
@@ -314,14 +390,19 @@ export class TimelineSurface {
     if (!s) {
       s = {
         harness: null, file: null, offset: 0, rest: '', lines: [], items: [],
-        landingUuid: null,
+        activeKey: null, activeFailures: new Set(),
         clients: new Set(), draft: '',
+        correction: null,
         parse: null, // { reason, file, dropped } — current loud failure, if any
         journalled: new Set(), // parse failures journalled once per file+reason
         parseFailures: new Set(), // line-keyed failures already counted for this file
         escalations: '[]', // last broadcast snapshot, serialized
         escHistory: '[]', // last full-history snapshot, serialized (#108 item 1)
-        dialog: null, // { hint } while a terminal dialog owns the pane (#75)
+        dialog: null, // daemon-parsed native dialog while one owns the pane
+        dialogSeq: 0,
+        dialogAnswer: null, // id claimed synchronously by the first valid tap
+        dialogReceipt: null, // one outcome replayed to every Chat client
+        dialogAnsweredKey: null, // suppresses one stale TUI repaint after Enter
         dialogAt: 0, // last probe, for the throttle
         dialogProbing: false, // one in-flight capture at a time
       }
@@ -362,10 +443,35 @@ export class TimelineSurface {
     s.rest = ''
     s.lines = []
     s.items = []
-    s.landingUuid = null
+    s.activeKey = null
+    s.activeFailures = new Set()
     s.parse = null
     s.parseFailures.clear()
     this.#broadcast(s, 'reset', { file })
+  }
+
+  #publishActive(name, s) {
+    const landing = this.deps.landingFor(name)
+    const landingUuid = typeof landing === 'string' ? landing : landing?.uuid ?? null
+    const landingTailUuid = typeof landing === 'string' ? null : landing?.tailUuid ?? null
+    const key = `${s.lines.length}\0${landingUuid ?? ''}\0${landingTailUuid ?? ''}`
+    if (key === s.activeKey) return
+    s.activeKey = key
+
+    const read = readActiveTranscript(s.harness, s.lines, { landingUuid, landingTailUuid })
+    for (const reason of read.failures) {
+      if (s.activeFailures.has(reason)) continue
+      s.activeFailures.add(reason)
+      this.#parseFailure(name, s, reason)
+    }
+
+    const next = read.items.map((item, seq) => ({ ...item, seq }))
+    const prefix = s.items.length <= next.length
+      && s.items.every((item, i) => JSON.stringify(item) === JSON.stringify(next[i]))
+    if (!prefix) this.#broadcast(s, 'reset', { file: s.file, branch: true })
+    const fresh = prefix ? next.slice(s.items.length) : next
+    s.items = next
+    if (fresh.length) this.#broadcast(s, 'items', fresh)
   }
 
   #pump(name) {
@@ -385,8 +491,7 @@ export class TimelineSurface {
     let st
     try { st = fs.statSync(s.file) } catch { return }
     if (st.size < s.offset) this.#reset(s, s.file) // truncated: same file, new run
-    const landingUuid = this.deps.landingPointFor(name) ?? null
-    if (st.size === s.offset && landingUuid === s.landingUuid) return
+    if (st.size === s.offset) return this.#publishActive(name, s)
 
     if (st.size !== s.offset) {
       let buf
@@ -408,29 +513,7 @@ export class TimelineSurface {
       s.rest = lines.pop() ?? '' // a half-written line waits for the next read
       s.lines.push(...lines)
     }
-    s.landingUuid = landingUuid
-
-    const active = readActiveMessages(s.harness, s.lines, { landingUuid })
-    for (const failure of active.failures) {
-      if (s.parseFailures.has(failure.key)) continue
-      s.parseFailures.add(failure.key)
-      this.#parseFailure(name, s, failure.reason)
-    }
-
-    const sameItem = (a, b) => {
-      const { seq: _seq, ...old } = a
-      return JSON.stringify(old) === JSON.stringify(b)
-    }
-    const extendsCurrent = s.items.length <= active.items.length
-      && s.items.every((item, index) => sameItem(item, active.items[index]))
-    if (!extendsCurrent) {
-      s.items = []
-      this.#broadcast(s, 'reset', { file: s.file })
-    }
-    const fresh = active.items.slice(s.items.length)
-    for (const [seq, item] of active.items.entries()) item.seq = seq
-    s.items = active.items
-    if (fresh.length) this.#broadcast(s, 'items', fresh)
+    this.#publishActive(name, s)
   }
 
   // Open escalations for the session, from the daemon's own record (#31). The
@@ -472,14 +555,51 @@ export class TimelineSurface {
     return s.harness ? this.deps.composerFor(s.harness) : null
   }
 
-  #setDialog(name, s, dialog) {
-    if ((s.dialog?.hint ?? null) === (dialog?.hint ?? null)) return
-    s.dialog = dialog
+  #dialogPayload(dialog) {
+    if (!dialog) return { up: false }
+    return {
+      up: true,
+      hint: dialog.hint,
+      reason: dialog.reason ?? null,
+      card: dialog.card ? { ...dialog.card, id: dialog.id } : null,
+    }
+  }
+
+  #setDialog(name, s, dialog, receipt = null) {
+    if (!dialog) {
+      if (!s.dialog && !receipt) return
+      s.dialog = null
+      s.dialogAnswer = null
+      if (receipt) s.dialogReceipt = receipt
+      this.#broadcast(s, 'dialog', { up: false, ...(receipt ? { receipt } : {}) })
+      return
+    }
+
+    const semanticKey = dialog.key ?? `guard:${dialog.hint}:${dialog.reason ?? ''}`
+    const sameDialog = s.dialog?.semanticKey === semanticKey
+    const next = {
+      ...dialog,
+      semanticKey,
+      id: sameDialog ? s.dialog.id : `native-${++s.dialogSeq}`,
+    }
+    if (sameDialog && JSON.stringify(this.#dialogPayload(s.dialog)) === JSON.stringify(this.#dialogPayload(next))) return
+    s.dialog = next
+    if (!sameDialog) {
+      s.dialogAnswer = null
+      s.dialogReceipt = null
+    }
     // Journalled on the rising edge: #75's incident had nothing to grep
     // anywhere, and the dialog's appearance is the first fact that went
     // unrecorded.
-    if (dialog) this.deps.journal('timeline_dialog', { session: name, hint: dialog.hint })
-    this.#broadcast(s, 'dialog', dialog ? { up: true, hint: dialog.hint } : { up: false })
+    if (!sameDialog) {
+      this.deps.journal('timeline_dialog', {
+        session: name,
+        hint: next.hint,
+        card: next.card?.kind ?? null,
+        parse_failure: next.reason ?? null,
+      })
+    }
+    this.#broadcast(s, 'dialog', this.#dialogPayload(next))
   }
 
   // Fresh pane evidence for a write, and the banner state as a side effect. A
@@ -491,7 +611,11 @@ export class TimelineSurface {
   async #probeDialog(name, s) {
     try {
       const pane = await this.deps.capturePane(name)
-      this.#setDialog(name, s, detectDialog(pane, this.#composerRe(name, s)))
+      const parsed = parseNativeDialog(pane, s.harness, this.#composerRe(name, s))
+      const semanticKey = parsed?.key ?? (parsed ? `guard:${parsed.hint}:${parsed.reason ?? ''}` : null)
+      if (semanticKey && semanticKey === s.dialogAnsweredKey) return s.dialog
+      if (!semanticKey || semanticKey !== s.dialogAnsweredKey) s.dialogAnsweredKey = null
+      this.#setDialog(name, s, parsed)
     } catch { /* indeterminate — keep the last known state */ }
     return s.dialog
   }
@@ -589,6 +713,10 @@ export class TimelineSurface {
       // Pump BEFORE this client joins the broadcast set, or the first tick's
       // items reach it once as a broadcast and once again in the backlog.
       try { this.#pump(session) } catch { /* first pump may race the session's creation */ }
+      // The dialog event is daemon-parsed and belongs in the initial SSE
+      // reading. A phone opening Chat must not wait for the background probe
+      // before it learns that a card or terminal guard owns the composer.
+      if (!this.#driver(session)) await this.#probeDialog(session, s)
       const client = { res, id: url.searchParams.get('client') ?? String(Math.random()) }
       s.clients.add(client)
       // A late joiner replays the whole run for free: the backlog problem a
@@ -596,7 +724,8 @@ export class TimelineSurface {
       this.#send(res, 'hello', { session, file: s.file, harness: s.harness, clients: s.clients.size, draft: s.draft })
       if (s.items.length) this.#send(res, 'items', s.items)
       if (s.parse) this.#send(res, 'parse', s.parse)
-      if (s.dialog) this.#send(res, 'dialog', { up: true, hint: s.dialog.hint })
+      if (s.dialog) this.#send(res, 'dialog', this.#dialogPayload(s.dialog))
+      else if (s.dialogReceipt) this.#send(res, 'dialog', { up: false, receipt: s.dialogReceipt })
       this.#send(res, 'escalations', JSON.parse(s.escalations))
       this.#send(res, 'esc_history', JSON.parse(s.escHistory))
       this.#pumpEscalations(session)
@@ -616,6 +745,91 @@ export class TimelineSurface {
       return
     }
 
+    if (url.pathname === '/take-back' && req.method === 'POST') {
+      const b = await readBody(req)
+      if (!validSessionName(String(b.session ?? ''))) return json(400, { error: 'bad session' })
+      if (!this.deps.takeBack) return json(501, { error: 'message take back is not configured' })
+      const s = this.#state(b.session)
+      try { this.#pump(b.session) } catch { /* the runtime reports transcript failures */ }
+      try {
+        const result = await this.deps.takeBack({
+          session: b.session,
+          role: this.#driver(b.session) ? 'overseer' : 'agent',
+          harness: s.harness,
+          source: s.lines.join('\n'),
+          landing: this.deps.landingFor(b.session),
+          target: b.target ?? null,
+        })
+        s.draft = result.composer ?? ''
+        s.correction = result.correction?.kind === 'note' ? result.correction : null
+        this.#broadcast(s, 'draft', { text: s.draft, by: b.client ?? null })
+        return json(200, result)
+      } catch (e) {
+        return json(e.status ?? 502, { error: e.message })
+      }
+    }
+
+    if (url.pathname === '/dialog-answer' && req.method === 'POST') {
+      const b = await readBody(req)
+      if (!validSessionName(String(b.session ?? ''))) return json(400, { error: 'bad session' })
+      const s = this.#state(b.session)
+      const dialogId = String(b.dialog ?? '')
+      const targetIndex = Number(b.index)
+
+      if (s.dialogReceipt?.dialog === dialogId) {
+        return json(409, { error: 'this native dialog already has an answer', receipt: s.dialogReceipt })
+      }
+      const dialog = await this.#probeDialog(b.session, s)
+      if (!dialog?.card) {
+        return json(409, {
+          error: `${dialog?.reason ?? 'curia could not parse this native dialog'}; open the terminal to answer it`,
+          terminal: `/terminal/?arg=${encodeURIComponent(b.session)}`,
+        })
+      }
+      if (!dialogId || dialog.id !== dialogId) {
+        return json(409, { error: 'this native dialog changed; use the current card' })
+      }
+      if (!Number.isInteger(targetIndex)) return json(400, { error: 'the option index must be an integer' })
+      const option = dialog.card.options.find((candidate) => candidate.index === targetIndex)
+      if (!option) return json(400, { error: 'that option index is not on this native dialog' })
+      if (s.dialogAnswer === dialogId) {
+        return json(409, { error: 'the first valid native dialog answer is still being sent' })
+      }
+
+      // Claim before the first await. Two Chat clients can tap the same card
+      // together, and only one may reach tmux.
+      s.dialogAnswer = dialogId
+      try {
+        await this.deps.answerDialog(b.session, {
+          currentIndex: dialog.card.selected_index,
+          targetIndex,
+          harness: s.harness,
+        })
+      } catch (error) {
+        s.dialogAnswer = null
+        this.deps.journal('native_dialog_answer_failed', {
+          session: b.session, dialog: dialogId, index: targetIndex, error: error.message,
+        })
+        return json(502, { error: `curia could not answer the native dialog: ${error.message}` })
+      }
+
+      const receipt = {
+        dialog: dialogId,
+        index: targetIndex,
+        marker: option.marker,
+        answer: option.label,
+        by: String(b.client ?? 'atlas'),
+        at: new Date().toISOString(),
+      }
+      this.deps.journal('native_dialog_answered', {
+        session: b.session, dialog: dialogId, index: targetIndex,
+        answer: option.label, by: receipt.by, harness: s.harness,
+      })
+      s.dialogAnsweredKey = dialog.semanticKey
+      this.#setDialog(b.session, s, null, receipt)
+      return json(200, { ok: true, receipt })
+    }
+
     if (url.pathname === '/send' && req.method === 'POST') {
       const b = await readBody(req)
       if (!validSessionName(String(b.session ?? ''))) return json(400, { error: 'bad session' })
@@ -623,6 +837,27 @@ export class TimelineSurface {
       if (!text.trim()) return json(400, { error: 'empty' })
       const s = this.#state(b.session)
       const by = b.client ?? null
+      if (s.correction) {
+        if (!this.deps.correct) return json(501, { error: 'message correction is not configured' })
+        try {
+          await this.deps.correct({
+            session: b.session,
+            role: this.#driver(b.session) ? 'overseer' : 'agent',
+            correction: s.correction,
+            text,
+          })
+        } catch (e) {
+          return json(e.status ?? 502, { error: e.message })
+        }
+        this.deps.journal('timeline_send', {
+          session: b.session, by, outcome: 'corrected', target: s.correction.id, text: clip(text),
+        })
+        s.correction = null
+        s.draft = ''
+        this.#broadcast(s, 'draft', { text: '', by })
+        this.#broadcast(s, 'sent', { text, by })
+        return json(200, { ok: true })
+      }
       // A driven session takes the words as a TURN (#267). There is no pane, so
       // the #75 dialog guard has nothing to guard: it exists because keystrokes
       // land wherever the pane's focus is, and a turn lands in exactly one
@@ -637,6 +872,7 @@ export class TimelineSurface {
           this.deps.journal('timeline_send', { session: b.session, by, outcome: 'failed', error: e.message, text: clip(text) })
           return json(502, { error: e.message })
         }
+        this.deps.recordTurn?.({ session: b.session, role: 'overseer', text })
         this.deps.journal('timeline_send', { session: b.session, by, outcome: 'sent', text: clip(text) })
         s.draft = ''
         this.#broadcast(s, 'draft', { text: '', by })
@@ -659,6 +895,7 @@ export class TimelineSurface {
           return json(409, { error: 'the pane stayed active, so curia did not send the text' })
         }
         if (delivery?.status === 'unconfirmed') {
+          this.deps.recordTurn?.({ session: b.session, role: 'agent', text })
           this.deps.journal('timeline_send', { session: b.session, by, outcome: 'unconfirmed', text: clip(text) })
           s.draft = ''
           this.#broadcast(s, 'draft', { text: '', by })
@@ -668,6 +905,7 @@ export class TimelineSurface {
         this.deps.journal('timeline_send', { session: b.session, by, outcome: 'failed', error: e.message, text: clip(text) })
         return json(502, { error: e.message })
       }
+      this.deps.recordTurn?.({ session: b.session, role: 'agent', text })
       // The journal line #75 had to infer from four absences: whether the
       // send even fired, one grep away.
       this.deps.journal('timeline_send', { session: b.session, by, outcome: 'sent', text: clip(text) })

@@ -44,45 +44,58 @@ import { REVIEW_KIND, RESULT_KIND, NOTIFY_KIND } from './lifecycle.mjs'
 import { sameDigest } from './diffdigest.mjs'
 import { CommandRouter } from './commands.mjs'
 import { SelfDeploy } from './deploy.mjs'
-import { OverseerClient, OverseerTurns, serveVerbMcp } from './overseerclient.mjs'
+import { OverseerClient, OverseerTurns, serveConversationMcp, serveVerbMcp } from './overseerclient.mjs'
+import { OverseerPaneHost } from './overseerpane.mjs'
+import { OVERSEER_CONVERSATION_PARAM, revokeConversationToken } from './overseeridentity.mjs'
 import { OVERSEER_MCP_PATH } from './overseerturn.mjs'
+import { ConversationRuntime } from './conversationruntime.mjs'
 import { hasSession } from './tmux.mjs'
 import { retiredAgentTokenKeys } from './workspace.mjs'
-import { APP_ID_KEY, APP_KEY_FILE_KEY, minterFrom } from './githubapp.mjs'
+import { APP_ID_KEY, APP_KEY_FILE_KEY, GitHubAppSetup, minterFrom } from './githubapp.mjs'
+import { AppSetup, minterForAdopted } from './appsetup.mjs'
 import { CodexCredentialBroker, AnthropicCredentialStore, anthropicStoreFile } from './credentials.mjs'
 import {
   OVERSEER_ENV_FILE, overseerEnvPath, loadOverseerEnv, daemonOnlyKeys, retiredTokenKeys,
 } from './overseertoken.mjs'
 import { TOKEN_HEADER, AGENT_ROUTES, tokensDir, agentTokenMatches } from './agenttoken.mjs'
-import { viewerLogin, ghJSONL, repoMaps, mapFrontier, blockedByOf } from './github.mjs'
+import { gh, viewerLogin, ghJSONL, repoMaps, mapFrontier, blockedByOf } from './github.mjs'
 import { MapSnapshot, readMapSnapshot } from './mapsnapshot.mjs'
 import { setDaemonTokenSource } from './daemongh.mjs'
 import { TokenWatch } from './tokenwatch.mjs'
 import { JournalBackup } from './backup.mjs'
+import { AistackSync } from './aistack.mjs'
+import { AistackRegistration } from './aistackreg.mjs'
 import {
-  probeTtyd, assertServe, serveOff, attachBase, attachSessionUrl, validSessionName,
+  probeTtyd, serveOff, attachBase, atlasTerminalUrl, validSessionName,
   isConsoleKey, consoleKeyForSession, sessionForConsoleKey,
 } from './attach.mjs'
 import { probeOverseer } from './overseerservice.mjs'
 import { replayKilledTurns, replayLine } from './overseerreplay.mjs'
 import { LIVE_PATHS, DISPATCH_KEYS, liveSettings, liveDiff, frozenDifference } from './settings.mjs'
 import { TimelineSurface } from './timeline.mjs'
-import { IdentityProxy, identityRefusal, hostsForPorts, tailnetSelf } from './identity.mjs'
-import { detectHarness } from './transcript.mjs'
+import { identityRefusal, hostsForPorts, tailnetSelf } from './identity.mjs'
+import { detectHarness, findTranscript } from './transcript.mjs'
 import { promptTitle, elapsedLabel, speakerName, smallPrint, handOffLine } from './messaging.mjs'
 import {
   isTyped, floorFaults, hasText, lintAskHuman, lintRequestReview, reviewFloorFaults,
   lintResult, resultFloorFaults,
   lintNotify, notifyFloorFaults, notifyHasText,
-  lintVerdict, verdictFloorFaults, VERDICT_SEVERITIES,
+  lintVerdict, verdictFloorFaults, VERDICT_SEVERITIES, hasVisualField,
 } from './lint.mjs'
 import {
-  composeCard, composeReviewBody, composeResultReport, optionLabels, derivedRecommended,
+  composeCard, composeReviewBody, composeResultReport, composeOpening, optionLabels, derivedRecommended,
   composeNotify, NOTIFY_KINDS, composeVerdictReport,
 } from './card.mjs'
 import { LintGate, flaggedResultText, flaggedNotifyText } from './lintgate.mjs'
 import { StatusLine } from './statusline.mjs'
 import { remainingRenderRetries } from './renderretry.mjs'
+import { MAP_FOG_VERB } from './mapfog.mjs'
+import { GlobalSearch } from './search.mjs'
+import { githubSearchSource, journalSearchSource, transcriptSearchSource } from './searchsources.mjs'
+import {
+  compositeSendFaults, compositeSendSchemaFaults, renderCompositeSend,
+} from './composite.mjs'
+import { trackerWriteWaves } from './trackerwrites.mjs'
 import {
   AccountUsage, AnthropicCredentialHealth, ModelWindows,
   agentMeters, ctxOnWire, consoleConversationsOnWire,
@@ -259,7 +272,9 @@ function checkWatchedCredentials() {
 // nobody can place. NO app is a different thing and stays legal: a box can watch
 // and read before its operator finishes the checklist, and the refusal it gets
 // at the first dispatch names the step that was missed.
-const appMinter = minterFrom({ daemonRoot: ROOT, log })
+// `let`, because #694 adopts a converted app in process: the setup flow puts a
+// new minter here and hands it to the dispatcher without a restart.
+let appMinter = minterFrom({ daemonRoot: ROOT, log })
 if (!appMinter) {
   log(`no GitHub App configured — set ${APP_ID_KEY} and ${APP_KEY_FILE_KEY} in daemon/.env.daemon (docs/github-app.md). No agent can be dispatched until it is`)
 } else {
@@ -284,6 +299,19 @@ function checkAppInstallations() {
     }
   }).catch((e) => log(`could not read the GitHub App's installations (${e.message}) — that is a fact about GitHub rather than about the install`))
 }
+
+const githubAppSetup = new GitHubAppSetup({
+  daemonRoot: ROOT,
+  adopt: ({ appId, keyFile }) => {
+    appMinter = minterFrom({
+      daemonRoot: ROOT,
+      env: { [APP_ID_KEY]: appId, [APP_KEY_FILE_KEY]: keyFile },
+      log,
+    })
+    dispatcher.minter = appMinter
+    checkAppInstallations()
+  },
+})
 
 // #390: the DAEMON cuts over. Every `gh` child it spawns for a named repo now
 // carries that owner's minted write token, so the frontier reads, the claims,
@@ -448,8 +476,8 @@ const metersFor = (session, model) => agentMeters({
 })
 
 const statusLine = new StatusLine({
-  post: (ticket, text) => (bridge ? bridge.postStatus(ticket, text) : null),
-  edit: (ids, text) => (bridge ? bridge.editStatus(ids, text) : false),
+  post: (ticket, text, opts) => (bridge ? bridge.postStatus(ticket, text, opts) : null),
+  edit: (ids, text, opts) => (bridge ? bridge.editStatus(ids, text, opts) : false),
   remove: (ids) => (bridge ? bridge.deleteStatus(ids) : null),
   // The thread-name state glyph (#199): the status line derives the state,
   // the bridge renders it. With the bridge down the flag is dropped — the
@@ -781,13 +809,51 @@ function askHumanGate(agentName, kind, raw) {
         questions: raw.questions,
         options: raw.options,
         detail: raw.detail,
-        visual: raw.visual,
+        picture: raw.picture,
+        table: raw.table,
+        diagram: raw.diagram,
         timeline: raw.timeline,
         preview_url: raw.preview_url,
       },
     }
     : { kind, prompt, options: raw.options, preview_url: raw.preview_url, recommended: raw.recommended }
   return { open, flags: verdict.flags ?? null, note: verdict.note ?? null }
+}
+
+function compositeAskHumanGate(agentName, messages, maxMessages) {
+  const schemaFaults = compositeSendSchemaFaults(messages, { maxMessages })
+  const rendered = Array.isArray(messages) ? renderCompositeSend(messages) : []
+  const deciding = rendered.at(-1)
+  const decisionFaults = deciding?.deciding
+    ? []
+    : ['messages: `ask_human` needs one deciding message last. Use `notify` when no answer blocks the work.']
+  const faults = [...compositeSendFaults(messages, { maxMessages }), ...decisionFaults]
+  const verdict = lintGate.judge({
+    agent: agentName,
+    kind: 'composite-ask',
+    faults,
+    schema: schemaFaults.length > 0 || decisionFaults.length > 0,
+    hasText: Boolean(deciding?.deciding && rendered.some((message) => message.content)),
+    prompt: deciding?.content ?? null,
+    payload: Array.isArray(messages) ? { messages } : null,
+  })
+  if (verdict.reject || verdict.refuse) return { stop: verdict.reject ?? verdict.refuse }
+
+  const payload = deciding.payload
+  return {
+    open: {
+      kind: deciding.kind,
+      prompt: deciding.content,
+      options: optionLabels(payload),
+      preview_url: payload.preview_url,
+      recommended: derivedRecommended(deciding.kind, payload),
+      payload,
+    },
+    preludes: rendered.slice(0, -1),
+    attachments: deciding.attachments,
+    flags: verdict.flags ?? null,
+    note: verdict.note ?? null,
+  }
 }
 
 // handlers the bridge (and REST) call into — the single first-valid-wins gate
@@ -809,7 +875,8 @@ const gate = {
     const result = reduction.answer(id, { answer, attachments, by, via })
     if (result.ok) {
       log(`escalation ${result.record.id} answered via ${via}${attachments.length ? ` (+${attachments.length} attachment${attachments.length > 1 ? 's' : ''})` : ''}${result.routed_from?.length ? ` (routed from ${result.routed_from.join('→')})` : ''}`)
-      const delivered = settle(result.record, answer, attachments)
+      const mapFogVerdict = result.record.action?.verb === MAP_FOG_VERB
+      const delivered = mapFogVerdict ? false : settle(result.record, answer, attachments)
       if (bridge) bridge.markAnswered(result.record, { routedFrom: result.routed_from ?? [] }).catch(() => {})
       // The executing path of a button confirm (#94): button → HERE → the
       // dispatcher, never through the model. The record is already closed
@@ -817,11 +884,24 @@ const gate = {
       if (result.record.kind === CONFIRM_KIND) {
         dispatcher.onConfirmAnswered(result.record)
           .catch((e) => log(`confirm ${result.record.id} execution failed: ${e.message}`))
+      } else if (mapFogVerdict) {
+        dispatcher.onMapFogAnswered(result.record)
+          .catch((e) => log(`empty-map verdict ${result.record.id} execution failed: ${e.message}`))
       } else if (!delivered || result.record.agent_died) {
         // A resolver on a dead agent's record "delivered" into a closed
         // transport — the agent_died mark, not the resolver, is the truth.
         handOffAnswer(result.record)
       }
+      result.next_needs = reduction.openEscalations()
+        .sort((a, b) => String(a.opened_at ?? '').localeCompare(String(b.opened_at ?? '')))
+        .slice(0, 3)
+        .map((record) => ({
+          id: record.id,
+          agent: record.agent,
+          ticket: record.ticket,
+          kind: record.kind,
+          headline: record.payload?.headline ?? promptTitle(record.prompt),
+        }))
     }
     return result
   },
@@ -877,9 +957,19 @@ const gate = {
   // #118 item 4 / #108 item 22: the surface links escalation messages carry as
   // buttons. Each throws or returns null on a dead surface; the bridge fails
   // soft per button.
-  timelineLink: (ticket) => attachApi.timelineLink(ticket),
-  terminalLink: (ticket) => attachApi.link(ticket),
-  previewUrl: (ticket) => previews.get(String(ticket))?.url ?? null,
+  async statusLinks(ticket, { settled = false } = {}) {
+    const links = []
+    const preview = previews.get(String(ticket))?.url ?? null
+    if (preview && !settled) links.push({ label: '🔗 preview', url: preview })
+    try {
+      links.push({ label: 'chat', url: await attachApi.timelineLink(ticket, { archive: settled }) })
+    } catch { /* unavailable while the session starts */ }
+    const repo = reduction.repoForTicket(ticket)
+    if (repo && /^\d+$/.test(String(ticket))) {
+      links.push({ label: 'ticket', url: `https://github.com/${repo}/issues/${ticket}` })
+    }
+    return links
+  },
   // #108 item 14, positive half: text in an agent-bound thread outside an open
   // escalation queues for the agent instead of being refused. Returns null
   // when no agent owns the thread — the bridge falls back to the overseer.
@@ -996,6 +1086,20 @@ function openConfirm({ ticket, prompt, action, originThreadId }) {
   return record
 }
 
+function openMapQuestion({ ticket, kind, prompt, options, payload, action }) {
+  const { record, superseded_all } = reduction.open({
+    agent: 'overseer', ticket, kind, prompt, options, payload, action, awaited: false,
+  })
+  log(`empty-map question ${record.id} open for ${action.repo}#${action.map}`)
+  for (const dead of superseded_all) {
+    clearRenderRetries(dead.id)
+    if (bridge) bridge.markSuperseded(reduction.get(dead.id)).catch(() => {})
+  }
+  armRenderRetries(record)
+  renderEscalation(record)
+  return record
+}
+
 function lapseEscalation(id, reason) {
   const r = reduction.lapse(id, reason)
   if (r.ok) {
@@ -1071,8 +1175,59 @@ const threads = {
   },
 }
 
+// The recurring aistack sync (#695). It is built here, beside the credential
+// watch and the journal backup, because it needs the same two things they do:
+// the reduction, which remembers the alarm that still stands and when the last
+// attempt finished, and the bridge, which is where the operator reads. `bridge`
+// is read per call for the reason theirs is, and the dispatcher runs it on the
+// tick it already has.
+const aistackSync = new AistackSync({
+  root: curiaConfig.dispatch.workspace_root,
+  version: curiaConfig.aistack.cli_version,
+  intervalHours: curiaConfig.aistack.interval_hours,
+  journal: (type, detail) => reduction.journal(type, detail),
+  announce: (text) => (bridge ? bridge.announce(text).then(() => true) : false),
+  standing: () => reduction.standingAistackAlarm(),
+  lastAt: () => reduction.lastAistackSyncAt(),
+  log: (line) => log(line),
+})
+
+// The registration behind that sync (#706). It spawns the same two commands the
+// README documents and hands the browser their device code and approval link;
+// the approval itself stays a human act in a signed-in browser, which is what
+// #695 settled. It journals, so a registration survives the restart the
+// operator tends to do right after making one.
+const aistackReg = new AistackRegistration({
+  root: curiaConfig.dispatch.workspace_root,
+  version: curiaConfig.aistack.cli_version,
+  journal: (type, detail) => reduction.journal(type, detail),
+  log: (line) => log(line),
+})
+
+// The one shape the Settings section reads (#706): the registration, plus what
+// the recurring sync did last. Composed here rather than in either module,
+// because the verdict belongs to the reduction and the flow belongs to the
+// registration, and joining them anywhere else would give one of them a
+// reference to the other for no other reason.
+function aistackStatus() {
+  const alarm = reduction.standingAistackAlarm()
+  return {
+    ok: true,
+    ...aistackReg.status({ machine: reduction.registeredAistackMachine() }),
+    sync: {
+      last: reduction.lastAistackSync(),
+      // The unrepaired failure, if there is one. Its message is the CLI's, and
+      // the screen shows it beside the act that fixes it.
+      alarm: alarm ? { message: alarm.message ?? null, at: alarm.at ?? null } : null,
+      interval_hours: curiaConfig.aistack.interval_hours,
+      cli_version: curiaConfig.aistack.cli_version,
+    },
+  }
+}
+
 const dispatcher = new Dispatcher({
   config: curiaConfig,
+  aistack: aistackSync,
   routing: routingConfig,
   reduction,
   notify: notifyThread,
@@ -1081,6 +1236,7 @@ const dispatcher = new Dispatcher({
   // null at boot and the wedge watchdog replaces it whole.
   announce: (text) => (bridge ? bridge.announce(text).then(() => true) : false),
   openConfirm,
+  openMapQuestion,
   lapseEscalation,
   // a confirm outcome lands next to its own buttons, whatever thread they are in
   confirmNote: (record, text) => {
@@ -1207,13 +1363,11 @@ reduction.onNotesExpired = (ev) => dispatcher.announceExpiredNotes(ev)
 // own name"), which is the right posture during the window before tailscale has
 // answered: a surface that does not yet know its own name cannot admit anyone.
 const identityAllow = new Set(curiaConfig.identity.allow)
-const attachHosts = new Set()
 const timelineHosts = new Set()
 
 async function resolveServeHosts() {
   const self = await tailnetSelf()
   for (const [set, ports] of [
-    [attachHosts, [curiaConfig.attach.serve_port]],
     // TWO ports for the timeline (#267): its own, and the console's. The chat
     // is this surface, served under the sidecar's address, so those requests
     // arrive here carrying the console's Host. The alternative was for the
@@ -1231,27 +1385,16 @@ async function resolveServeHosts() {
 // (it is not fatal to anything but attach), and every path that hands out a
 // link is async and passes through here first.
 async function ensureServeHosts() {
-  if (attachHosts.size && timelineHosts.size) return
+  if (timelineHosts.size) return
   await resolveServeHosts()
 }
 
 const timelineIdentityCheck = (headers) =>
   identityRefusal(headers, { allow: identityAllow, hosts: timelineHosts })
 
-// The terminal surface's half. ttyd is a C process with nowhere to put a
-// check, so the rule published to the tailnet points HERE and this reaches
-// ttyd on loopback.
-const identityProxy = new IdentityProxy({
-  port: curiaConfig.identity.proxy_port,
-  targetPort: curiaConfig.attach.ttyd_port,
-  allow: identityAllow,
-  hosts: attachHosts,
-  log,
-  journal: (type, detail) => reduction.journal(type, detail),
-})
-
 // /attach continuation: daemon-side whitelist refusal + liveness check, then
-// the runtime-derived tailnet URL (never hardcoded).
+// the same-origin Atlas URL. The dashboard owns the identity check and ttyd
+// proxy. The legacy standalone terminal address stays withdrawn.
 const attachApi = {
   // `session` names WHICH agent on this ticket (#164): the builder by default,
   // the cross-check reviewer when the caller asks for it. Everything below is
@@ -1261,48 +1404,27 @@ const attachApi = {
   async link(ticket, { session = `curia-${ticket}` } = {}) {
     if (!validSessionName(session)) throw new Error(`"${session}" is not a valid curia session name`)
     if (!(await hasSession(session))) throw new Error(`no live session \`${session}\` — /status to see what runs`)
-    // Same rule as reconcile's #assertAttachSurface: publish only over a live,
-    // agreed surface (#260: compose runs ttyd; the daemon health-checks it).
-    // The #151 identity proxy is what the serve rule points at, so a proxy that
-    // is not up is exactly as disqualifying as a dead ttyd — publishing ttyd
-    // directly would hand the tailnet the un-gated terminal this ticket closed.
-    const { verified } = identityProxy.listening
-      ? await probeTtyd({ ttydPort: curiaConfig.attach.ttyd_port, index: curiaConfig.attach.index, log })
-      : { verified: false }
+    const { verified } = await probeTtyd({
+      ttydPort: curiaConfig.attach.ttyd_port,
+      index: curiaConfig.attach.index,
+      log,
+    })
     if (!verified) {
-      // Refusing alone withdraws nothing: /attach runs on every request, so
-      // THIS is the path that detects a verified→unverified flip first (there
-      // is no periodic reconcile — startAutoLoop's tick only dispatches and
-      // sweeps agent liveness), and the persisted serve rule still points at
-      // 127.0.0.1:<ttyd_port> — a foreign listener that took the port would
-      // stay live tailnet-wide at a URL already sitting in the Discord
-      // thread. Same posture as reconcile's #assertAttachSurface: actively
-      // withdraw the rule, then refuse.
       try {
         await serveOff({ servePort: curiaConfig.attach.serve_port, log })
-        log(`attach: the ttyd surface on port ${curiaConfig.attach.ttyd_port} is not publishable — serve rule for :${curiaConfig.attach.serve_port} withdrawn`)
       } catch (e) {
-        log(`WARNING: the ttyd surface on port ${curiaConfig.attach.ttyd_port} is not publishable and withdrawing the serve rule failed (${e.message}) — if a rule for :${curiaConfig.attach.serve_port} exists, a dead or unagreed surface REMAINS PUBLISHED tailnet-wide; run \`tailscale serve --https=${curiaConfig.attach.serve_port} off\` by hand`)
+        log(`WARNING: withdrawing the retired standalone terminal rule failed (${e.message}). Run \`tailscale serve --https=${curiaConfig.attach.serve_port} off\` by hand.`)
       }
-      throw new Error(identityProxy.listening
-        ? `the attach surface on ttyd port ${curiaConfig.attach.ttyd_port} is down or stale — is the compose ttyd service up? see the daemon log`
-        : `the attach identity proxy is not up on port ${curiaConfig.identity.proxy_port} — refusing to publish the terminal surface without its identity check; see the daemon log for the bind failure`)
+      throw new Error(`the attach surface on ttyd port ${curiaConfig.attach.ttyd_port} is down or stale. Is the compose ttyd service up? See the daemon log.`)
     }
-    // Resolved before the rule goes up, not before the verification: the proxy
-    // refuses every caller until it knows which host names it answers to, so
-    // publishing first would put a surface on the tailnet that 403s the
-    // operator. A failure here throws without withdrawing — an unresolved proxy
-    // is closed, not open, so nothing is exposed by leaving the rule alone.
-    await ensureServeHosts()
-    await assertServe({ servePort: curiaConfig.attach.serve_port, targetPort: curiaConfig.identity.proxy_port })
     const base = await attachBase()
-    return attachSessionUrl(base, curiaConfig.attach.serve_port, session)
+    return atlasTerminalUrl(base, curiaConfig.dashboard.serve_port, session)
   },
   // The timeline half of /attach (#74): same liveness gate, then the surface
   // composes its own link — or refuses, independently of the terminal half.
-  async timelineLink(ticket, { session = `curia-${ticket}` } = {}) {
+  async timelineLink(ticket, { session = `curia-${ticket}`, archive = false } = {}) {
     if (!validSessionName(session)) throw new Error(`"${session}" is not a valid curia session name`)
-    if (!(await hasSession(session))) throw new Error(`no live session \`${session}\` — /status to see what runs`)
+    if (!archive && !(await hasSession(session))) throw new Error(`no live session \`${session}\`. Run \`/status\` to see what runs.`)
     // Same invariant the terminal half holds: never hand out a link to a
     // surface whose identity check does not yet know the names it serves, or
     // the operator opens it and gets a 403 from their own daemon.
@@ -1354,6 +1476,48 @@ dispatcher.previews = previews // constructed after the dispatcher; teardown + s
 // ask_human blocks (measured on #74), so open escalations are overlaid from
 // the reduction or the surface shows a working agent as idle at the exact moment
 // a human is needed.
+const overseerPanes = new OverseerPaneHost({
+  reduction,
+  repoRoot: path.dirname(ROOT),
+  workspaceRoot: curiaConfig.dispatch.workspace_root,
+  dataDir: DATA,
+  daemonPort: PORT,
+  daemonHost: GUEST_DAEMON_HOST,
+  // Read PER PARKING DECISION, the same way and for the same reason as the
+  // watch list below: `overseer.live_pane_cap` is in the reload's live set, so
+  // a save moves it under a daemon that keeps running. A number captured here
+  // would leave the screen reporting a cap nothing enforces.
+  livePaneCap: () => curiaConfig.overseer.live_pane_cap,
+  watchRepos: () => curiaConfig.watch.map((entry) => entry.repo),
+  log,
+})
+
+const conversationRuntime = new ConversationRuntime({
+  reduction,
+  prepare: (session, role) => {
+    if (role !== 'overseer') return null
+    const key = consoleKeyForSession(session)
+    if (!key) throw new Error(`the overseer conversation ${session} has no durable key`)
+    return overseerPanes.ensure(key)
+  },
+  reopenCard: async (record) => {
+    const { record: fresh, answered } = openEscalation({
+      agent: record.agent,
+      ticket: record.ticket,
+      kind: record.kind,
+      prompt: record.prompt,
+      options: record.options,
+      preview_url: record.preview_url,
+      recommended: record.recommended,
+      diff: record.diff,
+      diff_error: record.diff_error,
+      payload: record.payload,
+      lint_flags: record.lint_flags,
+    })
+    return { id: fresh.id, answered }
+  },
+})
+
 const timeline = new TimelineSurface({
   port: curiaConfig.timeline.port,
   servePort: curiaConfig.timeline.serve_port,
@@ -1370,19 +1534,16 @@ const timeline = new TimelineSurface({
     composerFor: (harness) => routingConfig.harnesses[harness]?.readyRe ?? null,
     escalationsFor: (session) => reduction.openEscalations().filter((r) => r.agent === session),
     escalationHistoryFor: (session) => reduction.escalationsForAgent(session),
-    // The rewind itself writes no transcript line. Its journal receipt holds
-    // the active parent until the next message starts the fork (#689).
-    landingPointFor: (session) => reduction.transcriptLanding(session),
+    landingFor: (session) => reduction.transcriptLanding(session),
+    takeBack: (request) => conversationRuntime.takeBack(request),
+    correct: (request) => conversationRuntime.correct(request),
+    recordTurn: (request) => conversationRuntime.recordTurn(request),
     // The #151 identity check. The timeline is the daemon's own server, so it
     // carries the same predicate the terminal's proxy does, in-process.
     identityCheck: timelineIdentityCheck,
-    // The console chat (#267): one session on this surface is not a pane. It is
-    // a browser conversation of the overseer, and a message to it is a turn
-    // rather than a keystroke. Since the cutover (#315) the turn runs in the
-    // overseer CONTAINER; the transcript reaches this surface because the
-    // container's config dir mounts at the same host path the daemon reads.
-    // `overseerContainer` is const below and read at request time, never at
-    // construction.
+    // The console chat now sends through the same pane adapter as an agent.
+    // This driver keeps the overseer's role-specific config and durable
+    // identity. The host keeps its lifecycle separate from an agent's.
     //
     // #332: the conversation's live session id rides along, read from the
     // journal on every call. It is what names the transcript file — the
@@ -1401,19 +1562,21 @@ const timeline = new TimelineSurface({
       return {
         cfgDir: overseerContainer.configDir,
         sessionId: reduction.overseerSession(key) ?? null,
-        send: (text) => overseerContainer.browserTurn(key, text),
+        // #708, ADR-0024: the message goes into the conversation's own live
+        // pane. The host also preserves the conversation's durable identity.
+        send: (text) => overseerPaneMessage(key, text),
       }
     },
   },
 })
 dispatcher.timeline = timeline // reconcile asserts/withdraws its serve rule alongside attach's
-dispatcher.identityProxy = identityProxy // #151: reconcile publishes the proxy, never ttyd itself
 
 // The self-deploy seam (#270): the verb orders, a sibling container executes,
 // resolvePending() below announces whichever outcome the sibling wrote.
 const selfDeploy = new SelfDeploy({
   repoRoot: path.dirname(ROOT), dataDir: DATA, reduction, log, port: PORT,
   workRoot: curiaConfig.dispatch.workspace_root,
+  parkOverseerPanes: () => overseerPanes.parkForDeploy(),
 })
 
 const router = new CommandRouter({ dispatcher, attach: attachApi, deploy: selfDeploy, log })
@@ -1423,10 +1586,9 @@ const router = new CommandRouter({ dispatcher, attach: attachApi, deploy: selfDe
 // `/overseer/mcp`, so every effect crosses the same `gate.command` seam the
 // slash verbs and REST use — journalled, logged and routed identically.
 //
-// This is the ONLY brain. The in-daemon host (#92) is gone: both doors — the
-// bridge's `overseerTurn` and the Chat screen's `driverFor` — route here, and
-// the container boundary of ADR-0014 replaced the tool-surface boundary the
-// in-process host lived behind.
+// Discord still uses the request boundary while the shared message renderer
+// moves over. Atlas uses the hosted pane and keeps this client for config and
+// transcript metadata during that cutover.
 const overseerTurns = new OverseerTurns()
 const overseerContainer = new OverseerClient({
   reduction,
@@ -1448,6 +1610,24 @@ const overseerContainer = new OverseerClient({
   onModelCallFailed: () => dispatcher.checkAnthropicCredential({ trigger: 'overseer_turn' }),
   log,
 })
+
+// One browser conversation message (#333, on the pane lane since #708). The
+// deleted-key refusal is the same one the turn lane carried: a key whose
+// conversation is gone must never reach tmux, or the operator reads a tmux
+// error about their own deleted chat.
+async function overseerPaneMessage(key, text, { replay = false } = {}) {
+  if (!reduction.hasConsoleConversation(key)) {
+    throw new Error(`there is no conversation \`${key}\` — it was deleted, and its number is spent; open a new one from the Chat screen`)
+  }
+  const out = await overseerPanes.deliver(key, text, {
+    onNote: (note) => log(`[overseer] ${key}: ${note}`),
+    replay,
+  })
+  if (out.delivery?.status === 'not-sent') {
+    throw new Error('curia is still on your last message — one message at a time in a conversation')
+  }
+  return out
+}
 
 // The turns the restart killed (#388, ADR-0015). Read HERE, before the listener
 // binds and before the bridge starts, because after that a pending turn is one
@@ -1525,7 +1705,40 @@ function startKeepAlive(extra, id, label = null) {
 // inside your workspace" — pointed it straight at the form that got dropped.
 // It also names the allowed types, from the same list the check enforces: an
 // agent does not attach the diff it never learned it could send (#430).
-const FILES_HINT = `Files inside your workspace to show the human: a screenshot, a render, a diff, a note. Allowed: ${ALLOWED_EXTENSIONS.join(', ')}. Give a path relative to your workspace, or an absolute path under ${GUEST_WT}/.`
+const FILES_HINT = `Files inside your workspace for the human to DOWNLOAD: a screenshot, a render, a diff, a note. Allowed: ${ALLOWED_EXTENSIONS.join(', ')}. Give a path relative to your workspace, or an absolute path under ${GUEST_WT}/.`
+
+// The three visual fields of ADR-0026 (#640), declared once for the four tools
+// that take them. One home, so a wording that drifts on one surface cannot say
+// something else on another.
+//
+// The retired `visual` stays declared for the reason `prompt` does: zod strips
+// a key it does not declare, and a stripped `visual` would take the agent's
+// rows with it. Declared, it reaches the floor, which refuses the call and says
+// where the rows go.
+const VISUAL_SHAPE = {
+  visual: z.string().optional().describe('RETIRED. Send `table` for a table, `diagram` for a drawing, or `picture` for an image. Curia refuses a call that carries this.'),
+  picture: z.string().optional().describe('One image the human LOOKS AT in place: a screenshot, a render, a mock. A path, as `attachments` takes.'),
+  table: z.string().optional().describe('A table, as rows. Curia writes the fence. At most 42 columns by 20 lines, and the columns must line up.'),
+  diagram: z.string().optional().describe('An ASCII drawing, as rows. Curia writes the fence. At most 42 columns by 20 lines.'),
+}
+
+// `images` was renamed `attachments` by ADR-0026 (#640): the field has taken a
+// .patch, a .diff, a .md, a .txt and a .log since it shipped, so the name has
+// never been true. The old one stays declared so a call that carries it is
+// named rather than stripped.
+const ATTACHMENT_SHAPE = {
+  images: z.array(z.string()).optional().describe('RETIRED. Send the same paths under `attachments`. Curia refuses a call that carries this.'),
+  attachments: z.array(z.string()).optional().describe(FILES_HINT),
+}
+
+// Every path an outbound file arrives on, in one list (ADR-0026). `picture` is
+// what a reader looks at and `attachments` is what a reader downloads, and both
+// are files this box has to contain and hand to Discord. One helper, so neither
+// one is dropped on the surface that forgot to name it.
+const sentFiles = (raw, attachments) => [
+  ...(raw?.picture ? [raw.picture] : []),
+  ...(attachments ?? []),
+]
 
 function buildMcpServer(agent, ticket) {
   const server = new McpServer({ name: 'curia-daemon', version: '0.1.0' }, { capabilities: { logging: {} } })
@@ -1566,7 +1779,7 @@ function buildMcpServer(agent, ticket) {
   // `recommended` boolean over.
   server.tool(
     'notify',
-    'Fire-and-forget status update to the human. Returns immediately.'
+    'Fire-and-forget opening, working phase, or milestone for the human. Returns immediately.'
     + ' `kind` says what the operator must DO: `progress` needs nothing from them, `look` puts a file or a page in front of their eyes now, and `ask` wants a reply they can send whenever they get to it.'
     + ' An `ask` blocks nothing — use `ask_human` when you cannot go on without the answer.'
     + ' READ WHAT THIS CALL RETURNS. Curia lints your words and refuses the call when they break a rule. Rewrite the named field and call again. You get three attempts, and the fourth text goes out flagged.',
@@ -1577,10 +1790,25 @@ function buildMcpServer(agent, ticket) {
       message: z.string().optional().describe('What happened, in plain words, at most 600 characters. The thread reads this.'),
       kind: z.enum(NOTIFY_KINDS).optional().describe('What the operator must do: `progress` (nothing), `look` (open something now), `ask` (reply when they can). Defaults to `progress`.'),
       detail: z.string().optional().describe('Short FACTS, rendered as a spoiler. One line, 500 characters.'),
-      visual: z.string().optional().describe('A table or an ASCII diagram, as rows. Curia writes the fence. At most 42 columns by 20 lines.'),
-      images: z.array(z.string()).optional().describe(FILES_HINT),
+      ...VISUAL_SHAPE,
+      opening: z.object({
+        goal: z.string().optional().describe('Your reading of the ticket goal, in one line.'),
+        first_step: z.string().optional().describe('Your first step, in one line.'),
+      }).optional().describe('Your one work opening. Send it on the first notify call only.'),
+      phase: z.union([
+        z.object({
+          icon: z.string().describe('Use 🧭, 💭, 🔨, 🚦, 🩹, or 🚢.'),
+          label: z.string().describe('Current work in at most 20 characters. One line. Curia adds code marks.'),
+        }),
+        z.string().describe('Your working phase: explore, think, build, test, fix, or ship.'),
+      ]).optional().describe('Edit routine progress into the live status line without adding a thread message.'),
+      label: z.string().optional().describe('What you are doing now, in one line of at most 20 characters.'),
+      ...ATTACHMENT_SHAPE,
     },
-    async ({ images, ...raw }) => {
+    async ({ attachments, ...raw }) => {
+      if (raw.opening && reduction.hasAgentOpening(agent)) {
+        return { content: [{ type: 'text', text: 'opening: already sent for this dispatch.' }] }
+      }
       // The same gate as the other surfaces, on its own key, so a rejected
       // status line and a rejected question never spend each other's attempts.
       const floor = notifyFloorFaults(raw)
@@ -1592,25 +1820,40 @@ function buildMcpServer(agent, ticket) {
         return { content: [{ type: 'text', text: verdict.reject ?? verdict.refuse }] }
       }
       const flags = verdict.flags ?? null
-      const { files, refusals } = outboundFiles(agent, images)
+      const { files, refusals } = outboundFiles(agent, sentFiles(raw, attachments))
       reduction.journal('notify', {
-        agent, ticket, ...raw, images: files.map((f) => f.attachment), refusals,
+        agent, ticket, ...raw, attachments: files.map((f) => f.attachment), refusals,
         ...(flags ? { lint_flags: flags } : {}),
       })
+      if (raw.phase && typeof raw.phase === 'object') {
+        reduction.journal('agent_phase', { agent, ticket, phase: raw.phase })
+      } else if (raw.phase && raw.label) {
+        reduction.journal('agent_progress', { agent, ticket, phase: raw.phase, label: raw.label })
+      }
+      if (raw.opening) {
+        reduction.journal('agent_opening', { agent, ticket, ...raw.opening })
+      }
       // The body is never empty here: a call with no words at all fails the
       // floor, and one that reaches the cap with none is the dead end the gate
       // refuses for good rather than posts.
       if (bridge) {
-        bridge.notify(ticket, composeNotify(raw), { files, as: speaker }).catch(() => {})
+        let sends = raw.opening
+          ? statusLine.settle().then(() => bridge.notify(ticket, composeOpening(raw.opening), { as: speaker }))
+          : Promise.resolve()
+        const body = composeNotify(raw)
+        if (raw.message || raw.detail || hasVisualField(raw) || files.length) {
+          sends = sends.then(() => bridge.notify(ticket, body, { files, as: speaker }))
+        }
         // A flagged send is CURIA's fact about the agent's text, so curia says
         // it in its own voice, under the line it is about (ADR-0013) — the same
         // shape the ending report's flagged send takes (#419).
         if (flags?.length) {
-          bridge.notify(ticket, smallPrint([
+          sends = sends.then(() => bridge.notify(ticket, smallPrint([
             `⚠️ curia sent this status line after ${flags.length} lint fault(s) the agent did not fix:`,
             ...flags,
-          ].join('\n'))).catch(() => {})
+          ].join('\n'))))
         }
+        sends.catch(() => {})
       }
       const said = refusals.length ? `ok (${refusals.length} file(s) refused)\n${refusals.join('\n')}` : 'ok'
       const flagNote = verdict.note ? [{ type: 'text', text: flaggedNotifyText(flags) }] : []
@@ -1660,11 +1903,6 @@ function buildMcpServer(agent, ticket) {
       // scroll-back hunt. Bot voice on purpose: link buttons are components,
       // which the speaker webhook cannot carry — and the composed link is
       // curia's record, not the agent's prose.
-      if (bridge) {
-        bridge.notify(ticket, `🔗 \`${agent}\` ${r.reused ? 'updated the' : 'published a'} preview (dev server on :${dev_port})`, {
-          links: [{ label: '🔗 open preview', url: r.url }],
-        }).catch(() => {})
-      }
       // #239: publish probed the page, and a status that is not a 2xx is worth
       // a sentence — the link works, but the page the agent named answered 404
       // or 500, and the agent is the one who can fix that before the human
@@ -1700,7 +1938,7 @@ function buildMcpServer(agent, ticket) {
   // differ, and the daemon composes every one of them from its own records.
   server.tool(
     'request_review',
-    'THE review gate: ask the human "is this done?" and BLOCK until they answer. curia shows them the pull request, the preview and the ticket — you do not pass links, it knows them. On approval you merge the pull request and then resolve the ticket. A rejection comes back as the human\'s own words: fix, commit, open_pull_request again, and call this again.',
+    'THE review gate: ask the human "is this done?" and BLOCK until they answer. curia shows them the pull request, the preview and the ticket — you do not pass links, it knows them. On approval you merge the pull request and then resolve the ticket. A rejection comes back as the human\'s own words: fix, commit, open_pull_request again, and call this again. If your diff changed a page — markup, styles, a component or a template — publish_preview FIRST: curia checks for one here, and a first call without it comes back asking for one.',
     {
       // #418, ADR-0019: `summary` and `charting` are Grade B block prose, and
       // the operator reads both on every ticket. Optional to zod for the same
@@ -1709,7 +1947,13 @@ function buildMcpServer(agent, ticket) {
       charting: z.string().optional().describe('CONCRETE map changes you propose, as a numbered list — one line per change: ticket titles to create, fog lines to remove, edges to wire, anything to rule out of scope. At most 600 characters. Name each change; put full ticket bodies and long Decisions-so-far lines in the work you do AFTER approval, not here. Write "none" if there are none. A vague answer here makes the approval a rubber stamp.'),
       headline: z.string().optional().describe('The whole change in one line, at most 150 characters. It sits under the gate heading, so the operator reads it first.'),
       detail: z.string().optional().describe('Short FACTS, rendered as a spoiler. One line, 500 characters.'),
-      visual: z.string().optional().describe('A table or an ASCII diagram, as rows. Curia writes the fence. At most 42 columns by 20 lines.'),
+      ...VISUAL_SHAPE,
+      tracker_writes: z.array(z.object({
+        id: z.string().describe('Temporary stable id used by `after`. Curia displays a card number instead.'),
+        title: z.string().describe('Exact proposed issue title.'),
+        labels: z.array(z.string()).optional().describe('Every label proposed for this issue.'),
+        after: z.array(z.string()).optional().describe('Ids of proposed issues that block this issue through native blocked-by edges.'),
+      })).optional().describe('Every proposed tracker write. Curia validates edges, numbers items, and groups them into dispatch waves.'),
     },
     async (raw, extra) => {
       // The same gate as `ask_human`, keyed on the same agent-and-kind pair the
@@ -1725,8 +1969,14 @@ function buildMcpServer(agent, ticket) {
       }
       const stopKeepAlive = startKeepAlive(extra, `${agent}/review`)
       try {
+        let charting = raw.charting ?? ''
+        if (raw.tracker_writes?.length) {
+          const writes = trackerWriteWaves(raw.tracker_writes)
+          charting = [charting, writes].filter((part) => part.trim()).join('\n\n')
+        }
         const r = await dispatcher.requestReview(agent, {
-          summary: raw.summary ?? '', charting: raw.charting ?? '', body: composeReviewBody(raw),
+          summary: raw.summary ?? '', charting, body: composeReviewBody(raw),
+          trackerWrites: raw.tracker_writes ?? null,
         })
         const flagNote = verdict.note ? [{ type: 'text', text: verdict.note }] : []
         return { content: [...flagNote, { type: 'text', text: r.text }, ...drainNotes()] }
@@ -1764,6 +2014,7 @@ function buildMcpServer(agent, ticket) {
       questions: z.array(z.object({
         text: z.string().optional().describe('One question of the round. One line, 250 characters.'),
         recommendation: z.string().optional().describe('Your recommended answer to THIS question. One line, 300 characters.'),
+        background: z.string().optional().describe('What this question rests on, in small print under its line. Block prose, 600 characters. Write one only where the question cannot be answered without it.'),
       })).optional().describe('free-text only: the round, one entry per question. Curia numbers them.'),
       options: z.union([
         // The bare-string form is RETIRED with the other two, and it is
@@ -1772,29 +2023,41 @@ function buildMcpServer(agent, ticket) {
         z.array(z.string()),
         z.array(z.object({
           label: z.string().optional().describe('The choice, by its name. One line, 80 characters, which is what a select menu carries whole.'),
+          handle: z.string().optional().describe('Short button text. One line, 20 characters. The card body keeps the full label and consequence.'),
           consequence: z.string().optional().describe('What picking this option costs. One line, 300 characters. Mandatory on a choice.'),
           example: z.string().optional().describe('One concrete case for this option. Block prose, 300 characters. Write one only where it earns its line.'),
           recommended: z.boolean().optional(),
         })),
       ]).optional(),
       detail: z.string().optional().describe('Short FACTS, rendered as a spoiler. One line, 500 characters. Reasoning belongs on the timeline, not here.'),
-      visual: z.string().optional().describe('A table or an ASCII diagram, as rows. Curia writes the fence. At most 42 columns by 20 lines.'),
+      ...VISUAL_SHAPE,
       timeline: z.boolean().optional().describe('Point the operator at the timeline for the reasoning. Curia composes the link.'),
       preview_url: z.string().optional(),
-      images: z.array(z.string()).optional().describe(FILES_HINT),
+      ...ATTACHMENT_SHAPE,
+      messages: z.array(z.record(z.string(), z.any())).optional().describe('One ordered composite send. Each entry has its own `format`, `label`, content fields, and `attachments`. At most four messages. Put the one deciding message last.'),
     },
-    async ({ images, ...raw }, extra) => {
+    // `attachments` is bound aside, because the ANSWER carries a field of that
+    // name too (#34): the files the human replied with.
+    async ({ attachments: sent, messages, ...input }, extra) => {
       // #164: the reviewer asks nobody. ADR-0010 gives it one output — the
       // verdict — and a question in the ticket thread would put a second voice
       // in front of the operator on a ticket the reviewer is not building.
       const refused = dispatcher.toolRefusal(agent, 'ask_human')
       if (refused) return { content: [{ type: 'text', text: refused }] }
-      // The kind DEFAULTS rather than refuses, for the reason above: a call that
-      // forgot its kind still has a question in it, and -32602 would eat both.
-      const kind = raw.kind ?? 'free-text'
-      const gated = askHumanGate(agent, kind, raw)
+      let raw = input
+      let kind = raw.kind ?? 'free-text'
+      if (messages && (raw.images?.length || sent?.length)) {
+        return { content: [{ type: 'text', text: '❌ curia refused this call. Put each file path in the `attachments` of the message it belongs to.' }] }
+      }
+      const composite = messages
+        ? compositeAskHumanGate(agent, messages, curiaConfig.dispatch.messages_per_send ?? 4)
+        : null
+      const gated = composite ?? askHumanGate(agent, kind, raw)
       if (gated.stop) return { content: [{ type: 'text', text: gated.stop }] }
       const { open, flags, note } = gated
+      kind = open.kind
+      raw = open.payload ?? raw
+      const decidingFiles = messages ? (gated.attachments ?? []) : sentFiles(raw, sent)
       // #165, ADR-0010: the FIRST question after a cross-check verdict is the
       // builder's judgement of it, and it lands as a second pull-request comment
       // under the verdict. Fire-and-forget on purpose — a gh round-trip must not
@@ -1819,7 +2082,8 @@ function buildMcpServer(agent, ticket) {
         // The card is what shows a file, and no card opened. Said rather than
         // swallowed: an agent that thinks the operator saw a screenshot or a
         // diff reads the answer as being about it.
-        if (images?.length) lines.push(`(curia opened no card, so the ${images.length} file(s) you sent with this call were not shown.)`)
+        const shown = decidingFiles
+        if (shown.length) lines.push(`(curia opened no card, so the ${shown.length} file(s) you sent with this call were not shown.)`)
         return {
           content: [
             { type: 'text', text: `${lines.join('\n')}\n\n${recorded.record.answer}` },
@@ -1827,7 +2091,18 @@ function buildMcpServer(agent, ticket) {
           ],
         }
       }
-      const { files, refusals } = outboundFiles(agent, images)
+      const preludeRefusals = []
+      if (messages) reduction.journal('composite_send', { agent, ticket, messages })
+      if (gated.preludes?.length) {
+        for (const prelude of gated.preludes) {
+          const outbound = outboundFiles(agent, prelude.attachments)
+          preludeRefusals.push(...outbound.refusals)
+          if (bridge) await bridge.notify(ticket, prelude.content, { files: outbound.files, as: speaker })
+          else log(`[notify ticket-${ticket}] ${prelude.content}`)
+        }
+      }
+      const { files, refusals } = outboundFiles(agent, decidingFiles)
+      refusals.unshift(...preludeRefusals)
       const { record, answered } = openEscalation({ agent, ticket, ...open, lint_flags: flags, files })
       const stopKeepAlive = startKeepAlive(extra, record.id, promptTitle(open.prompt))
       // Images the human replies with come back as real content blocks, so the
@@ -1884,7 +2159,7 @@ function buildMcpServer(agent, ticket) {
       summary: z.string().optional().describe('What the work came to, in plain words, at most 600 characters. The thread reads this, and curia records it on the ticket.'),
       headline: z.string().optional().describe('What the work came to, in one line, at most 150 characters. No markdown and no link.'),
       detail: z.string().optional().describe('Short FACTS, rendered as a spoiler. One line, 500 characters.'),
-      visual: z.string().optional().describe('A table or an ASCII diagram, as rows. Curia writes the fence. At most 42 columns by 20 lines.'),
+      ...VISUAL_SHAPE,
       // ADR-0019 rule 3: a free record. No surface renders it and no lint reads
       // it, so it stays the one field an agent may shape for itself.
       details: z.record(z.string(), z.any()).optional(),
@@ -2152,6 +2427,7 @@ const wireEscalation = (r) => ({
   kind: r.kind,
   prompt: r.prompt,
   options: r.options ?? null,
+  option_handles: r.payload?.options?.map((option, index) => String(option?.handle ?? r.options?.[index] ?? '')) ?? null,
   preview_url: r.preview_url ?? null,
   // #266: the console draws the same buttons the Discord card draws, so it
   // needs the one field that decides whether a free-text round carries the ✅
@@ -2292,6 +2568,12 @@ async function overview() {
   }
   const health = bridge ? bridge.status() : null
   const open = reduction.openEscalations()
+  let appInstallations = []
+  let appError = null
+  if (appMinter) {
+    try { appInstallations = await appMinter.installations() } catch (e) { appError = e.message }
+  }
+  const installedOwners = new Set(appInstallations.map((row) => String(row.owner ?? '').toLowerCase()))
   return {
     at: new Date().toISOString(),
     daemon: {
@@ -2326,6 +2608,17 @@ async function overview() {
     // code, because a one-time auth code in a chat log is a credential in a
     // chat log.
     credentials: dispatcher.credentialsStatus(),
+    github_app: {
+      ...githubAppSetup.status(),
+      configured: Boolean(appMinter),
+      error: appError,
+      owners: [...WATCHED_OWNERS].map((owner) => ({
+        owner,
+        installed: installedOwners.has(owner.toLowerCase()),
+        install_url: 'https://github.com/settings/installations',
+      })),
+      manual_url: 'https://github.com/settings/apps/new',
+    },
     // The gate is its own list, not a kind to filter for. It is the one
     // escalation the daemon opens about an agent's ENDING, it carries the pull
     // request nothing else carries, and the page draws it as its own card.
@@ -2350,6 +2643,11 @@ async function overview() {
     bridge: health?.state ?? 'down',
     bridge_health: health ?? { state: 'down', since: null, unhealthy_for_s: 0, last_error: null },
     usage: providerUsage(),
+    // ONE VERDICT ABOUT THIS BOX (#706). The registration and the sync verdict
+    // both come out of the journal, so this route and the Settings section read
+    // the same facts and cannot disagree — and a restart, which is what an
+    // operator does right after registering, does not blank either of them.
+    aistack: aistackStatus(),
     // The pre-emptive holds standing now (#384). The strip above says how full
     // a window is; this says curia has STOPPED dispatching on it, which is a
     // different fact and gets its own banner.
@@ -2362,6 +2660,7 @@ async function overview() {
     // the token — the half a Discord line cannot do, because a message scrolls
     // away and a dying token does not.
     token_warnings: reduction.standingTokenWarnings(),
+    feed_reads: reduction.lastFeedReads(),
     events: reduction.recentEvents(),
     maps: mapSnapshotOnWire,
     frontier: dispatcher.frontierSnapshot(),
@@ -2375,9 +2674,38 @@ async function overview() {
 // The browser conversations, on the wire (#333). Everything about the shape
 // lives in usage.mjs beside `ctxOnWire`; what stays here is the wiring — the
 // reduction this daemon holds and the overseer container's config dir and model.
+function ticketConversationOnWire({ session, repo, ticket, title = null, model = null, state, reviewer = false, cfgDir = null, harness = null }) {
+  const root = cfgDir ?? cfgDirFor(curiaConfig.dispatch.workspace_root, session)
+  const detected = harness ?? detectHarness(root)
+  const transcript = detected ? findTranscript(detected, root) : null
+  let lastTurnAt = null
+  try { if (transcript) lastTurnAt = new Date(fs.statSync(transcript).mtimeMs).toISOString() } catch { lastTurnAt = null }
+  return {
+    kind: 'ticket',
+    key: reviewer ? `review:${repo}#${ticket}` : `${repo}#${ticket}`,
+    session,
+    label: title || `${repo}#${ticket}`,
+    repo,
+    ticket,
+    state,
+    reviewer,
+    deletable: false,
+    last_turn_at: lastTurnAt,
+    ...ctxOnWire(() => agentMeters({
+      harness: detected,
+      cfgDir: root,
+      model,
+      routing: routingConfig,
+      account: accountUsage,
+      models: modelWindows,
+      transcript,
+    })),
+  }
+}
+
 function consoleOnWire() {
   const cfgDir = overseerContainer.configDir
-  return consoleConversationsOnWire({
+  const overseer = consoleConversationsOnWire({
     conversations: reduction.consoleConversationList(),
     sessionIdFor: (key) => reduction.overseerSession(key),
     droppedFor: (key) => reduction.droppedOverseerTurn(key),
@@ -2387,8 +2715,66 @@ function consoleOnWire() {
     routing: routingConfig,
     account: accountUsage,
     models: modelWindows,
+  }).map((conversation) => ({
+    ...conversation,
+    kind: 'overseer',
+    state: 'conversation',
+    deletable: true,
+  }))
+  const active = [...dispatcher.agents.values()].map((agent) => ticketConversationOnWire(agent))
+  const activeSessions = new Set(active.map((conversation) => conversation.session))
+  const archivedBySession = new Map()
+  for (const outcome of reduction.retainedAgentConversations()) {
+    const conversation = ticketConversationOnWire({
+      ...outcome,
+      state: outcome.state,
+    })
+    if (!activeSessions.has(conversation.session)) archivedBySession.set(conversation.session, conversation)
+  }
+  const archived = [...archivedBySession.values()]
+  return [...active, ...overseer, ...archived]
+}
+
+async function searchIssues(repo, query) {
+  const out = await gh([
+    'search', 'issues', query, '--repo', repo, '--limit', '20',
+    '--json', 'number,title,body,url,updatedAt,labels,repository',
+  ], { repo })
+  return JSON.parse(out).map((issue) => ({ ...issue, repo }))
+}
+
+function atlasSearch() {
+  return new GlobalSearch({
+    github: githubSearchSource({ repos: () => curiaConfig.watch.map((entry) => entry.repo), searchIssues }),
+    journal: journalSearchSource(reduction.db.db),
+    transcripts: transcriptSearchSource({
+      workspaceRoot: curiaConfig.dispatch.workspace_root,
+      overseerSessions: () => reduction.consoleConversationList().map((conversation) => ({
+        key: conversation.key,
+        session: reduction.overseerSession(conversation.key),
+      })).filter((row) => row.session),
+    }),
   })
 }
+
+// The GitHub App setup (#694, building the spec at #684).
+//
+// The daemon owns the conversion because the conversion response carries the
+// private key, and neither the sidecar nor the browser may hold it. Adoption is
+// in process: the minter this file holds is replaced, the dispatcher is handed
+// the new one, and the installation read runs again — so the operator's next
+// act is installing the app rather than restarting the box.
+const appSetup = new AppSetup({
+  daemonRoot: ROOT,
+  log,
+  adopt: ({ appId, key, keyFile }) => {
+    appMinter = minterForAdopted({ appId, key, keyFile, log })
+    dispatcher.minter = appMinter
+    reduction.journal('github_app_adopted', { app_id: appId })
+    log(`GitHub App ${appId} adopted in process — key at ${keyFile}`)
+    checkAppInstallations()
+  },
+})
 
 async function handleRequest(req, res, { fromContainer = false } = {}) {
   const url = new URL(req.url, `http://127.0.0.1:${PORT}`)
@@ -2441,6 +2827,33 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
     if (req.method !== 'POST') return json(405, { error: 'stateless server: POST only' })
     const id = url.searchParams.get('turn') ?? ''
     const body = await readBody(req)
+    // A hosted conversation pane (#701). It carries no turn, because a pane
+    // outlives every turn it takes: it names its conversation and proves the
+    // name with the durable token the daemon wrote into its own connection
+    // settings. The destination comes from that conversation and from nothing
+    // on the request.
+    const conversation = url.searchParams.get(OVERSEER_CONVERSATION_PARAM) ?? ''
+    if (!id && conversation) {
+      return serveConversationMcp({
+        dataDir: DATA,
+        key: conversation,
+        presented: req.headers[TOKEN_HEADER],
+        command: (text, ctx) => gate.command(text, 'overseer', ctx),
+        log,
+        refuse: (error) => {
+          reduction.journal('overseer_conversation_refused', {
+            key: conversation, from: fromContainer ? 'container' : 'loopback', presented: Boolean(req.headers[TOKEN_HEADER]),
+          })
+          return json(403, { error })
+        },
+        serve: async (mcp) => {
+          const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined })
+          res.on('close', () => { transport.close() })
+          await mcp.connect(transport)
+          await transport.handleRequest(req, res, body)
+        },
+      })
+    }
     return serveVerbMcp({
       turns: overseerTurns,
       id,
@@ -2521,6 +2934,39 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
     return json(200, await overview())
   }
 
+  if (url.pathname === '/search' && req.method === 'GET') {
+    try {
+      return json(200, await atlasSearch().query(url.searchParams.get('q')))
+    } catch (e) {
+      return json(400, { error: e.message })
+    }
+  }
+
+  if (url.pathname === '/github-app/start' && req.method === 'POST') {
+    const { name, redirect_url: redirectUrl } = await readBody(req)
+    try {
+      const started = githubAppSetup.start({ name, redirectUrl })
+      reduction.journal('github_app_setup_started', { expires_at: started.expires_at })
+      return json(200, started)
+    } catch (e) {
+      return json(400, { error: e.message })
+    }
+  }
+
+  if (url.pathname === '/github-app/complete' && req.method === 'GET') {
+    try {
+      const completed = await githubAppSetup.complete({
+        code: url.searchParams.get('code'),
+        state: url.searchParams.get('state'),
+      })
+      reduction.journal('github_app_setup_completed', { app: completed.app, replay: !completed.ok })
+      return json(200, completed)
+    } catch (e) {
+      reduction.journal('github_app_setup_failed', { error: e.message })
+      return json(400, { error: e.message })
+    }
+  }
+
   // ---- the diff, on demand (#355) --------------------------------------------
   //
   // ONE route, and the browser addresses it by NAMING A THING curia already
@@ -2593,6 +3039,10 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
     if (!reduction.deleteConsoleConversation(key)) {
       return json(409, { ok: false, error: `there is no conversation \`${key}\` — it may already be deleted` })
     }
+    // The tool identity goes with the conversation (#701). A pane still
+    // running on the old token loses the verbs on its next call, which is what
+    // a spent number should mean at the transport too.
+    revokeConversationToken(DATA, key)
     log(`console: deleted browser conversation ${key} — its number is spent`)
     return json(200, { ok: true, key })
   }
@@ -2602,7 +3052,7 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
     const agent = body.agent ?? 'synthetic'
     // Same containment as the MCP path: /escalate is loopback-only, but it must
     // not be the softer way to hand the bridge an arbitrary file.
-    const { files } = outboundFiles(agent, body.images ?? body.files)
+    const { files } = outboundFiles(agent, body.attachments ?? body.images ?? body.files)
     // `?wait` is what makes this call a blocked one, so it is also what the
     // record says about itself (#489). Without it the caller has its answer
     // already — the id — and the boot sweep must not read this record as an
@@ -2648,6 +3098,16 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
     if (!validSessionName(agent)) return json(400, { error: `\`${agent}\` is not a curia session name` })
     if (!text.trim()) return json(400, { error: 'a note with no words is not a note' })
     return json(200, await gate.noteAgent(agent, text, { mode, by: named(body.by) }))
+  }
+
+  // The Feed's read stamp (#704). One login opened the Feed; the journal keeps
+  // the instant so the since-you-left marker survives a browser, a phone and a
+  // restart. `rest` is a transport, not a reader, so an unnamed read is refused.
+  if (url.pathname === '/feed/read' && req.method === 'POST') {
+    const body = await readBody(req)
+    const by = typeof body.by === 'string' ? body.by.trim() : ''
+    if (!by) return json(400, { error: 'a feed read names the operator login that read it' })
+    return json(200, reduction.markFeedRead(named(by)))
   }
 
   if (url.pathname === '/cancel' && req.method === 'POST') {
@@ -2749,6 +3209,57 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
   // live object reference — `this.config.dispatch`, `this.config.watch`,
   // `resolveModel(this.routing, …)`, `isActive(this.routing, …)`. Only
   // `poll_interval_s` is captured, by the interval `startAutoLoop` arms.
+  // ---- the GitHub App setup (#694) ---------------------------------------
+  //
+  // Two routes, and between them the browser learns a manifest and a state and
+  // nothing else. The conversion response never crosses back: what the second
+  // route answers is the set of facts already public on the app's own settings
+  // page, plus where to install it.
+  if (url.pathname === '/app/setup' && req.method === 'POST') {
+    const body = await readBody(req).catch(() => ({}))
+    try {
+      return json(200, appSetup.begin({ name: body?.name, redirectUrl: body?.redirect_url }))
+    } catch (e) {
+      if (e?.refusal) return json(409, { ok: false, error: e.message })
+      throw e
+    }
+  }
+  if (url.pathname === '/app/convert' && req.method === 'POST') {
+    const body = await readBody(req).catch(() => ({}))
+    try {
+      return json(200, await appSetup.convert({ code: body?.code, state: body?.state }))
+    } catch (e) {
+      reduction.journal('github_app_setup_failed', { error: e.message, refusal: Boolean(e?.refusal) })
+      log(`the GitHub App setup failed: ${e.message}`)
+      // A refusal is the operator's own to fix and reads as one; anything else
+      // is this box failing, and it answers 500 so the two never read the same.
+      return json(e?.refusal ? 409 : 500, { ok: false, error: e.message })
+    }
+  }
+
+  // ---- the aistack registration (#706) -----------------------------------
+  //
+  // Four routes, and none of them can carry the bearer: the read composes a
+  // status out of a device code, a link, a hostname and the reduced sync
+  // verdict, and the two acts spawn the CLI and answer what it said. The token
+  // stays in the file the CLI writes under curia's HOME.
+  if (url.pathname === '/aistack' && req.method === 'GET') {
+    return json(200, aistackStatus())
+  }
+  if (url.pathname === '/aistack/register' && req.method === 'POST') {
+    const out = await aistackReg.begin()
+    return json(out.ok === false ? 409 : 200, out.ok === false ? out : aistackStatus())
+  }
+  if (url.pathname === '/aistack/cancel' && req.method === 'POST') {
+    const out = aistackReg.cancel()
+    return json(out.ok === false ? 409 : 200, out.ok === false ? out : aistackStatus())
+  }
+  if (url.pathname === '/aistack/optin' && req.method === 'POST') {
+    const out = await aistackReg.optIn()
+    if (out.ok === false) return json(409, out)
+    return json(200, { ok: true, said: out.said, ...aistackStatus() })
+  }
+
   if (url.pathname === '/reload' && req.method === 'POST') {
     const body = await readBody(req).catch(() => ({}))
     const by = named(body?.by)
@@ -2792,6 +3303,7 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
     // the process reading the old one.
     for (const key of DISPATCH_KEYS) curiaConfig.dispatch[key] = nextCuria.dispatch[key]
     curiaConfig.watch = nextCuria.watch
+    curiaConfig.overseer.live_pane_cap = nextCuria.overseer.live_pane_cap
     for (const [type, model] of Object.entries(nextRouting.defaults)) routingConfig.defaults[type] = model
     for (const [name, m] of Object.entries(nextRouting.models)) routingConfig.models[name].active = m.active
     configLoadedAt = new Date().toISOString()
@@ -2866,7 +3378,7 @@ httpServer.listen(PORT, '127.0.0.1', () => {
     .catch((e) => log(`no container-facing listener at boot (${e.message}) — the next sandboxed dispatch binds it, and refuses itself if it cannot`))
     .then(() => resolveServeHosts())
     .catch((e) => log(`WARNING: could not resolve this box's tailnet names (${e.message}) — both attach surfaces refuse every caller until this succeeds`))
-    .then(() => Promise.all([timeline.start(), identityProxy.start()]))
+    .then(() => timeline.start())
     // boot reconcile (#33): re-derive live agents from GitHub + tmux + journal,
     // sweep orphans, release dead claims, void restart-orphaned overseer
     // confirms, assert the attach + timeline surfaces — then start the auto
@@ -2915,23 +3427,38 @@ selfDeploy.resolvePending({ announce: selfDeploy.announce })
 // takes down beside this process. It runs off the boot rather than inside it:
 // nothing else waits for it, and a conversation with nothing pending costs one
 // journal read.
-replayKilledTurns({
-  killed: killedTurns,
-  reduction,
-  bootAt,
-  probe: () => probeOverseer({ port: curiaConfig.overseer.port }),
-  // A turn already in flight on this key means the operator got here first.
-  live: (key) => overseerContainer.busy.has(key),
-  discord: {
-    ready: () => Boolean(bridge),
-    // Optional on purpose: the wedge watchdog throws the bridge away and builds
-    // a new one, so a bridge that was up when the wait ended can be gone here.
-    say: (threadId, text) => bridge?.sayInThread(threadId, text) ?? false,
-    replay: (threadId, prompt) => bridge?.replayOverseerTurn(threadId, prompt, replayLine()) ?? false,
-  },
-  browser: { replay: (key, prompt) => overseerContainer.browserTurn(key, prompt, { replay: true }) },
-  log,
-}).catch((e) => log(`the killed-turn replay failed: ${e.message}`))
+// #710, ADR-0024: whatever killed this daemon killed every pane with it, and a
+// routine deploy recreates the overseer service on purpose. That is a FORCED
+// PARK, and the journal has to be told: a conversation the cap still counts as
+// live holds a pane that no longer exists. Recorded before the replay below,
+// because a replay rehydrates a pane and the count has to be honest first.
+overseerPanes.reconcile()
+  .catch((e) => log(`the pane reconcile failed: ${e.message}`))
+  .then(() => replayKilledTurns({
+    killed: killedTurns,
+    reduction,
+    bootAt,
+    probe: () => probeOverseer({ port: curiaConfig.overseer.port }),
+    // A turn already in flight on this key means the operator got here first —
+    // on either lane. #710 put the browser conversation in a pane, and this pass
+    // runs off the boot for up to two minutes while it waits for the container,
+    // so a message sent during that wait must not have an older one land behind
+    // it.
+    live: (key) => overseerContainer.busy.has(key) || overseerPanes.busy(key),
+    discord: {
+      ready: () => Boolean(bridge),
+      // Optional on purpose: the wedge watchdog throws the bridge away and builds
+      // a new one, so a bridge that was up when the wait ended can be gone here.
+      say: (threadId, text) => bridge?.sayInThread(threadId, text) ?? false,
+      replay: (threadId, prompt) => bridge?.replayOverseerTurn(threadId, prompt, replayLine()) ?? false,
+    },
+    // #710: the browser conversation is a pane, so the message goes back in the
+    // way every other one does — the same door, the same deleted-key refusal, the
+    // same completion signal. It carries `replay` so the drop rules can see that
+    // curia has already sent this message again once and never do it twice.
+    browser: { replay: (key, prompt) => overseerPaneMessage(key, prompt, { replay: true }) },
+    log,
+  })).catch((e) => log(`the killed-turn replay failed: ${e.message}`))
 
 // #56 bridge health. The outage clock lives HERE rather than on the bridge
 // object, because a wedge recovery throws the bridge away and builds a new one —
@@ -3024,6 +3551,8 @@ if (process.env.DISCORD_BOT_TOKEN) {
           lastTicketOf: (threadId) => reduction.lastTicketForThread(threadId),
           // the label's repo field (#235), read lazily off the journal
           repoOf: (ticket) => reduction.repoForTicket(ticket),
+          // a lazy thread still opens with its tracker title (#690)
+          titleOf: (ticket) => reduction.titleForTicket(ticket),
         },
         log,
         onHealth: onBridgeHealth,

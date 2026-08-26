@@ -116,18 +116,33 @@ describe('the `overseer:` config block', () => {
   const fail = (msg) => { throw new Error(msg) }
 
   test('it defaults, so a config predating the container still boots', () => {
-    assert.deepEqual(readOverseer({}, fail), { port: DEFAULT_OVERSEER.port })
+    assert.deepEqual(readOverseer({}, fail), DEFAULT_OVERSEER)
+    assert.equal(DEFAULT_OVERSEER.live_pane_cap, 3, 'ADR-0024 sets the pane cap at three')
   })
 
   test('a bad shape refuses rather than defaulting quietly', () => {
     assert.throws(() => readOverseer({ overseer: [] }, fail), /must be a mapping/)
     assert.throws(() => readOverseer({ overseer: { port: 'x' } }, fail), /must be a port number/)
     assert.throws(() => readOverseer({ overseer: { port: 99999 } }, fail), /must be a port number/)
+    // A cap of zero is a conversation that can never be spoken to, not "no
+    // limit": every message would park the pane it just started.
+    assert.throws(() => readOverseer({ overseer: { live_pane_cap: 0 } }, fail), /live_pane_cap must be a positive integer/)
+    assert.throws(() => readOverseer({ overseer: { live_pane_cap: 2.5 } }, fail), /live_pane_cap must be a positive integer/)
+  })
+
+  test('the live pane cap defaults to three and accepts a stated positive integer', () => {
+    assert.equal(readOverseer({}, fail).live_pane_cap, 3)
+    assert.equal(readOverseer({ overseer: { live_pane_cap: 5 } }, fail).live_pane_cap, 5)
   })
 
   test('the shipped config names it, and it collides with nothing', () => {
     const cfg = loadCuriaConfig(path.join(REPO, 'config', 'curia.yaml'), { checkPaths: false })
     assert.equal(cfg.overseer.port, DEFAULT_OVERSEER.port)
+    // ADR-0024 took both numbers in one ruling and kept them apart: an agent
+    // slot is a container and three sandbox ports, and a live pane is a share
+    // of one container held open for a conversation nobody may come back to.
+    assert.equal(cfg.overseer.live_pane_cap, 3)
+    assert.equal(cfg.dispatch.max_concurrent, 10)
     const others = [
       cfg.attach.ttyd_port, cfg.attach.serve_port, cfg.identity.proxy_port,
       cfg.timeline.port, cfg.timeline.serve_port, cfg.dashboard.port, cfg.dashboard.serve_port,

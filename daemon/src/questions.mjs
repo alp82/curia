@@ -235,6 +235,7 @@ export class Questions {
     this.db = db
     this.stmts = {}
     this.mapSnapshotStmts = new Map()
+    this.searchStmts = new Map()
     for (const [name, sql] of Object.entries(SQL)) this.stmts[name] = db.prepare(sql)
   }
 
@@ -424,5 +425,39 @@ select w.ticket,
       })
       // An opener with no agent names nobody, and a keystroke needs a pane.
       .filter((park) => park.agent && park.ticket)
+  }
+
+  // The global search's journal source (#693). Every event whose verbatim line
+  // holds all of the operator's terms, newest first.
+  //
+  // This is the one question that is deliberately proportional to history, like
+  // question 12: a substring search over `body` has no index to ride, and an
+  // FTS table would be a second copy of the record ADR-0017 keeps in one place.
+  // The `limit` bounds the answer, and the lens asks it once per keystroke
+  // burst rather than once per tick.
+  //
+  // `like` is case-insensitive for ASCII in SQLite, which is what the operator
+  // types. `escape` keeps a `%` or a `_` in a term as a literal character.
+  searchEvents(query, { limit = 40 } = {}) {
+    const terms = String(query ?? '').toLowerCase().split(/\s+/).filter(Boolean)
+    if (!terms.length) return []
+    let stmt = this.searchStmts.get(terms.length)
+    if (!stmt) {
+      const where = terms.map((_, index) => `body like :q${index} escape '\\'`).join(' and ')
+      stmt = this.db.prepare(`
+select id, ts, type, ticket, repo, body from events
+ where ${where}
+ order by id desc limit :limit`)
+      this.searchStmts.set(terms.length, stmt)
+    }
+    const params = { limit: Number(limit) || 40 }
+    terms.forEach((term, index) => {
+      params[`q${index}`] = `%${term.replace(/[\\%_]/g, (c) => `\\${c}`)}%`
+    })
+    try {
+      return stmt.all(params)
+    } catch (e) {
+      throw new Error(`events journal is unreadable: ${e.message}`)
+    }
   }
 }

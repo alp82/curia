@@ -12,8 +12,15 @@ import { fileURLToPath } from 'node:url'
 
 import http from 'node:http'
 
-import { detectHarness, findTranscript, transcriptForSession, firstPrompt, parseLine } from '../src/transcript.mjs'
-import { TimelineSurface, pageRefusal, detectDialog, DEFAULT_TIMELINE_INDEX, TIMELINE_PROTO } from '../src/timeline.mjs'
+import {
+  detectHarness, findTranscript, transcriptForSession, firstPrompt,
+  parseLine, readActiveTranscript,
+} from '../src/transcript.mjs'
+import {
+  TimelineSurface, pageRefusal, detectDialog, parseNativeDialog,
+  DEFAULT_TIMELINE_INDEX, TIMELINE_PROTO,
+} from '../src/timeline.mjs'
+import { Reduction } from '../src/reduction.mjs'
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 
@@ -28,6 +35,14 @@ const PANE_TRUST = [
 ].join('\n')
 const PANE_MODEL_PICKER = '   Enter to set as default · s to use this session only · Esc to cancel'
 const PANE_ASK_QUESTION = '   Enter to select · ↑/↓ to navigate'
+const PANE_ASK_OPTIONS = [
+  ' Which branch should the release use?',
+  '',
+  ' ❯ 1. Stable',
+  '   2. Preview',
+  '',
+  ' Enter to select · ↑/↓ to navigate',
+].join('\n')
 const PANE_COMPOSER = [
   '❯ ',
   '────────',
@@ -58,6 +73,19 @@ const PANE_CODEX_MODEL_PICKER = [
   '  2. gpt-5.6-terra          Balanced agentic coding model for everyday work.',
   '  Press enter to confirm or esc to go back',
 ].join('\n')
+const PANE_CLAUDE_MULTI_SELECT = [
+  ' Which checks should run?',
+  '',
+  ' ❯ ☐ 1. Unit tests',
+  '   ☐ 2. Type something.',
+  '',
+  ' Enter to select · ↑/↓ to navigate',
+].join('\n')
+const PANE_CLAUDE_MULTI_SELECT_REVIEW = [
+  ' Review your answers',
+  ' Unit tests',
+  ' custom: smoke test',
+].join('\n')
 const PANE_CODEX_COMPOSER = [
   '› Run /review on my current changes',
   '  gpt-5.6-sol default · /root/wt/curia-176',
@@ -71,6 +99,10 @@ const CODEX_COMPOSER_RE = /·\s[~/]/ // routing.yaml harnesses.codex.ready
 let tmp
 before(() => { tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-timeline-')) })
 after(() => { fs.rmSync(tmp, { recursive: true, force: true }) })
+const recordedTranscript = (name) => fs.readFileSync(
+  new URL(`../../prototypes/overseer-pane/evidence/${name}`, import.meta.url),
+  'utf8',
+)
 
 // ---------------------------------------------------------------------------
 // readers
@@ -146,6 +178,85 @@ describe('claude reader', () => {
 
   test('a non-JSON line is malformed, not skipped', () => {
     assert.deepEqual(parseLine('claude', 'not json at all'), { malformed: true })
+  })
+})
+
+describe('active transcript branch (#689)', () => {
+  const prompts = (read) => read.items
+    .filter((item) => item.kind === 'prompt')
+    .map((item) => item.text)
+
+  test('a recorded linear transcript reads every message in order', () => {
+    const read = readActiveTranscript('claude', recordedTranscript('transcript-1-after-rewind.jsonl'))
+
+    assert.deepEqual(prompts(read), [
+      'Which agents run right now?',
+      'Park the maps effort until Monday.',
+      '[curia note] The deploy of curia 1.4 finished at 17:20.\nGood. Now rename the maps effort to Atlas.',
+    ])
+  })
+
+  test('a journaled landing reads the rewound branch before the next message', () => {
+    const read = readActiveTranscript('claude', recordedTranscript('transcript-1-after-rewind.jsonl'), {
+      landingUuid: 'd0a31952-1600-42c2-913c-572e2944d035',
+    })
+
+    assert.deepEqual(prompts(read), [
+      'Which agents run right now?',
+      'Park the maps effort until Monday.',
+    ])
+    assert.equal(read.headUuid, 'd0a31952-1600-42c2-913c-572e2944d035')
+  })
+
+  test('a landing expires when the next transcript message records the fork', () => {
+    const read = readActiveTranscript('claude', recordedTranscript('transcript-2-after-fork.jsonl'), {
+      landingUuid: 'd0a31952-1600-42c2-913c-572e2944d035',
+      landingTailUuid: '4fd009e6-5cd9-4bdf-abaf-9d4a7d0ebefd',
+    })
+
+    assert.ok(prompts(read).includes('Rename the maps effort to Atlas Prime.'))
+    assert.equal(read.headUuid, '67577835-fdaf-4868-94d9-9f337ed16568')
+  })
+
+  test('a recorded fork follows parent identity and excludes the abandoned branch', () => {
+    const read = readActiveTranscript('claude', recordedTranscript('transcript-2-after-fork.jsonl'))
+
+    assert.deepEqual(prompts(read), [
+      'Which agents run right now?',
+      'Park the maps effort until Monday.',
+      'Rename the maps effort to Atlas Prime.',
+    ])
+    assert.ok(!read.items.some((item) => String(item.text ?? '').includes('Good. Now rename')))
+  })
+
+  test('the same interface serves agent and overseer transcript files', () => {
+    const source = recordedTranscript('transcript-2-after-fork.jsonl')
+    const agent = readActiveTranscript('claude', source)
+    const overseer = readActiveTranscript('claude', source)
+
+    assert.deepEqual(agent, overseer)
+  })
+
+  test('Reduction rebuilds the journaled landing for either conversation role', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-transcript-landing-'))
+    try {
+      const first = new Reduction(dir)
+      first.journal('transcript_landed', {
+        session: 'curia-89',
+        landing_uuid: 'd0a31952-1600-42c2-913c-572e2944d035',
+        tail_uuid: '4fd009e6-5cd9-4bdf-abaf-9d4a7d0ebefd',
+      })
+      first.close()
+
+      const rebuilt = new Reduction(dir)
+      assert.deepEqual(rebuilt.transcriptLanding('curia-89'), {
+        uuid: 'd0a31952-1600-42c2-913c-572e2944d035',
+        tailUuid: '4fd009e6-5cd9-4bdf-abaf-9d4a7d0ebefd',
+      })
+      rebuilt.close()
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
   })
 })
 
@@ -460,9 +571,50 @@ describe('detectDialog', () => {
   })
 })
 
+describe('native dialog cards (#715)', () => {
+  test('the measured Claude choice becomes one typed choice card', () => {
+    const dialog = parseNativeDialog(PANE_ASK_OPTIONS, 'claude', COMPOSER_RE)
+    assert.equal(dialog.card.kind, 'choice')
+    assert.equal(dialog.card.headline, 'Which branch should the release use?')
+    assert.deepEqual(dialog.card.options.map((option) => ({ index: option.index, marker: option.marker, label: option.label })), [
+      { index: 1, marker: 'A', label: 'Stable' },
+      { index: 2, marker: 'B', label: 'Preview' },
+    ])
+    assert.equal(dialog.card.selected_index, 1)
+  })
+
+  test('the measured Codex choice uses the same typed card contract', () => {
+    const dialog = parseNativeDialog(PANE_CODEX_MODEL_PICKER, 'codex', CODEX_COMPOSER_RE)
+    assert.equal(dialog.card.kind, 'choice')
+    assert.equal(dialog.card.headline, 'Select Model and Effort')
+    assert.deepEqual(dialog.card.options.map((option) => option.index), [1, 2])
+    assert.equal(dialog.card.selected_index, 1)
+  })
+
+  test('the unmeasured multiSelect free-text path keeps the guard and enables no card', () => {
+    const dialog = parseNativeDialog(PANE_CLAUDE_MULTI_SELECT, 'claude', COMPOSER_RE)
+    assert.equal(dialog.card, null)
+    assert.match(dialog.reason, /multiSelect free-text path has no passing integration check/)
+  })
+
+  test('a multiSelect review screen without dialog chrome clears the guard', () => {
+    assert.equal(parseNativeDialog(PANE_CLAUDE_MULTI_SELECT_REVIEW, 'claude', COMPOSER_RE), null)
+  })
+})
+
 describe('pageRefusal', () => {
   test('the shipped asset passes', () => {
     assert.equal(pageRefusal(DEFAULT_TIMELINE_INDEX), null)
+  })
+
+  test('the shipped Chat page renders daemon-parsed native cards and posts the option index', () => {
+    const page = fs.readFileSync(DEFAULT_TIMELINE_INDEX, 'utf8')
+    assert.match(page, /function renderNativeDialog/)
+    assert.match(page, /post\('\/dialog-answer'/)
+    assert.match(page, /\/terminal\/\?arg=/)
+    assert.match(page, /id="take-back"/)
+    assert.match(page, /post\('\/take-back'/)
+    assert.match(page, /receipt\.remains/)
   })
 
   test('a missing file, an unstamped page and a wrong proto each refuse by name', () => {
@@ -498,9 +650,9 @@ describe('TimelineSurface', () => {
   let port
   const journal = []
   const sent = []
+  const dialogAnswers = []
   let escalations = []
   let escHistory = []
-  const landingPoints = new Map()
   let pane = PANE_COMPOSER // what capturePane returns; a function to throw
   let delivery = null
   const workspaceRoot = () => path.join(tmp, 'work')
@@ -522,6 +674,19 @@ describe('TimelineSurface', () => {
   // The conversation key's live session id, as the daemon journals it (#332).
   // Read per driverFor call, exactly as index.mjs reads it off the reduction.
   let drivenSessionId = 'browser-1111'
+  const landings = new Map()
+  const takeBackCalls = []
+  const correctionCalls = []
+  const recordedTurns = []
+  let takeBackReply = {
+    ok: true,
+    composer: 'Keep this exact text.',
+    receipt: {
+      headline: 'Took back your last message.',
+      landing: 'The conversation continues after “Start here.”',
+      remains: ['The tree stands.'],
+    },
+  }
 
   before(async () => {
     fs.mkdirSync(path.join(tmp, 'work', 'cfg'), { recursive: true })
@@ -539,14 +704,25 @@ describe('TimelineSurface', () => {
         identityCheck: () => null,
         escalationsFor: () => escalations,
         escalationHistoryFor: () => escHistory,
-        landingPointFor: (session) => landingPoints.get(session) ?? null,
+        landingFor: (session) => landings.get(session) ?? null,
+        takeBack: async (request) => {
+          takeBackCalls.push(request)
+          return takeBackReply
+        },
+        correct: async (request) => { correctionCalls.push(request); return { ok: true } },
+        recordTurn: (request) => { recordedTurns.push(request) },
+        harnessFor: (session) => session === 'curia-codex' ? 'codex' : 'claude',
         sendText: async (session, text) => {
           sent.push({ session, text })
           return delivery
         },
         sendKey: async (session, key) => sent.push({ session, key }),
+        answerDialog: async (session, answer) => {
+          dialogAnswers.push({ session, ...answer })
+          if (session !== 'curia-slow-dialog') pane = PANE_COMPOSER
+        },
         capturePane: async () => (typeof pane === 'function' ? pane() : pane),
-        composerFor: () => COMPOSER_RE,
+        composerFor: (harness) => harness === 'codex' ? CODEX_COMPOSER_RE : COMPOSER_RE,
         assertServe: async () => {},
         serveOff: async () => {},
         attachBase: async () => 'box.tailnet.ts.net',
@@ -579,7 +755,7 @@ describe('TimelineSurface', () => {
   test('a session name outside the whitelist is refused on every route', async () => {
     const { res } = await sse(port, 'session=root-shell')
     assert.equal(res.status, 400)
-    for (const route of ['/send', '/draft', '/key']) {
+    for (const route of ['/send', '/draft', '/key', '/take-back', '/dialog-answer']) {
       const r = await fetch(`http://127.0.0.1:${port}${route}`, {
         method: 'POST', body: JSON.stringify({ session: 'root-shell', text: 'x', key: 'escape' }),
       })
@@ -608,6 +784,99 @@ describe('TimelineSurface', () => {
     assert.equal(journal.filter((j) => j.type === 'timeline_parse_failure').length, 1)
   })
 
+  test('the timeline uses a durable landing before the next fork message', async () => {
+    const session = 'curia-89'
+    const cfg = path.join(workspaceRoot(), 'cfg', session, 'projects', 'p')
+    const file = path.join(cfg, 'run.jsonl')
+    fs.mkdirSync(cfg, { recursive: true })
+    fs.writeFileSync(file, recordedTranscript('transcript-1-after-rewind.jsonl'))
+    landings.set(session, {
+      uuid: 'd0a31952-1600-42c2-913c-572e2944d035',
+      tailUuid: '4fd009e6-5cd9-4bdf-abaf-9d4a7d0ebefd',
+    })
+    try {
+      const rewound = await sse(port, `session=${session}`)
+      const before = rewound.events.filter((e) => e.event === 'items').flatMap((e) => e.data)
+      assert.ok(before.some((item) => item.text === 'Park the maps effort until Monday.'))
+      assert.ok(!before.some((item) => String(item.text ?? '').includes('Good. Now rename')))
+
+      fs.writeFileSync(file, recordedTranscript('transcript-2-after-fork.jsonl'))
+      const forked = await sse(port, `session=${session}`)
+      const after = forked.events.filter((e) => e.event === 'items').flatMap((e) => e.data)
+      assert.ok(after.some((item) => item.text === 'Rename the maps effort to Atlas Prime.'))
+      assert.ok(!after.some((item) => String(item.text ?? '').includes('Good. Now rename')))
+    } finally {
+      landings.delete(session)
+    }
+  })
+
+  test('POST /take-back returns the composer text and world-state receipt', async () => {
+    const session = 'curia-702'
+    const cfg = path.join(workspaceRoot(), 'cfg', session, 'projects', 'p')
+    fs.mkdirSync(cfg, { recursive: true })
+    fs.writeFileSync(path.join(cfg, 'run.jsonl'), recordedTranscript('transcript-1-after-rewind.jsonl'))
+
+    const res = await fetch(`http://127.0.0.1:${port}/take-back`, {
+      method: 'POST',
+      body: JSON.stringify({ session, target: null }),
+    })
+
+    assert.equal(res.status, 200)
+    assert.deepEqual(await res.json(), {
+      ok: true,
+      composer: 'Keep this exact text.',
+      receipt: {
+        headline: 'Took back your last message.',
+        landing: 'The conversation continues after “Start here.”',
+        remains: ['The tree stands.'],
+      },
+    })
+    assert.equal(takeBackCalls.at(-1).session, session)
+    assert.equal(takeBackCalls.at(-1).role, 'agent')
+    assert.equal(takeBackCalls.at(-1).harness, 'claude')
+    assert.match(takeBackCalls.at(-1).source, /Good\. Now rename the maps effort to Atlas\./)
+  })
+
+  test('the next send delivers a read-note correction with Curia framing', async () => {
+    takeBackReply = {
+      ok: true,
+      composer: 'Use staging.',
+      correction: { kind: 'note', id: 'note-4', prefix: 'Correction to the note above:' },
+      receipt: {
+        headline: 'Started a correction for your note.',
+        landing: 'The conversation did not rewind.',
+        remains: ['The note and all later work stand.'],
+      },
+    }
+    try {
+      const taken = await fetch(`http://127.0.0.1:${port}/take-back`, {
+        method: 'POST', body: JSON.stringify({ session: 'curia-9', target: { kind: 'note', id: 'note-4' } }),
+      })
+      assert.equal(taken.status, 200)
+
+      const res = await fetch(`http://127.0.0.1:${port}/send`, {
+        method: 'POST', body: JSON.stringify({ session: 'curia-9', text: 'Use production instead.' }),
+      })
+
+      assert.equal(res.status, 200)
+      assert.deepEqual(correctionCalls.at(-1), {
+        session: 'curia-9', role: 'agent',
+        correction: { kind: 'note', id: 'note-4', prefix: 'Correction to the note above:' },
+        text: 'Use production instead.',
+      })
+    } finally {
+      takeBackReply = {
+        ok: true,
+        composer: 'Keep this exact text.',
+        receipt: {
+          headline: 'Took back your last message.',
+          landing: 'The conversation continues after “Start here.”',
+          remains: ['The tree stands.'],
+        },
+      }
+    }
+  })
+
   test('a forked transcript backlog excludes the abandoned branch', async () => {
     installRecordedTranscript('curia-10', 'transcript-2-after-fork.jsonl')
 
@@ -620,14 +889,14 @@ describe('TimelineSurface', () => {
   test('the journaled landing point hides a rewound turn before the fork', async () => {
     const session = 'curia-11'
     installRecordedTranscript(session, 'transcript-1-after-rewind.jsonl')
-    landingPoints.set(session, 'd0a31952-1600-42c2-913c-572e2944d035')
+    landings.set(session, 'd0a31952-1600-42c2-913c-572e2944d035')
     try {
       const { events } = await sse(port, `session=${session}`)
       const items = events.filter((e) => e.event === 'items').flatMap((e) => e.data)
       assert.ok(items.some((i) => /Park the maps effort/.test(i.text ?? '')))
       assert.ok(!items.some((i) => /deploy of curia 1\.4/.test(i.text ?? '')))
     } finally {
-      landingPoints.delete(session)
+      landings.delete(session)
     }
   })
 
@@ -688,6 +957,9 @@ describe('TimelineSurface', () => {
     })
     assert.equal(same.status, 200)
     assert.deepEqual(sent.at(-1), { session: 'curia-9', text: 'hello agent' })
+    assert.deepEqual(recordedTurns.at(-1), {
+      session: 'curia-9', role: 'agent', text: 'hello agent',
+    })
   })
 
   test('the key route knows its keys', async () => {
@@ -726,7 +998,9 @@ describe('TimelineSurface', () => {
       // the banner reaches a late joiner in the backlog
       const { events } = await sse(port, 'session=curia-9')
       const d = events.find((e) => e.event === 'dialog')
-      assert.deepEqual(d.data, { up: true, hint: 'Enter to select' })
+      assert.equal(d.data.up, true)
+      assert.equal(d.data.hint, 'Enter to select')
+      assert.equal(d.data.card, null)
     } finally {
       pane = PANE_COMPOSER
     }
@@ -783,6 +1057,102 @@ describe('TimelineSurface', () => {
       assert.equal(esc.status, 200)
       assert.deepEqual(sent.at(-1), { session: 'curia-9', key: 'Escape' })
       assert.equal(journal.findLast((x) => x.type === 'timeline_key').outcome, 'sent')
+    } finally {
+      pane = PANE_COMPOSER
+    }
+  })
+
+  test('the first valid native card tap sends its option index and every later tap gets one receipt', async () => {
+    pane = PANE_ASK_OPTIONS
+    try {
+      const { events } = await sse(port, 'session=curia-9')
+      const shown = events.find((event) => event.event === 'dialog')?.data
+      assert.equal(shown.up, true)
+      assert.equal(shown.card.kind, 'choice')
+
+      const first = await post('/dialog-answer', {
+        session: 'curia-9', dialog: shown.card.id, index: 2, client: 'phone',
+      })
+      assert.equal(first.status, 200)
+      const receipt = (await first.json()).receipt
+      assert.equal(receipt.answer, 'Preview')
+      assert.deepEqual(dialogAnswers.at(-1), {
+        session: 'curia-9', currentIndex: 1, targetIndex: 2, harness: 'claude',
+      })
+
+      const second = await post('/dialog-answer', {
+        session: 'curia-9', dialog: shown.card.id, index: 1, client: 'desktop',
+      })
+      assert.equal(second.status, 409)
+      assert.deepEqual((await second.json()).receipt, receipt)
+      assert.equal(dialogAnswers.length, 1)
+
+      const replay = await sse(port, 'session=curia-9')
+      assert.deepEqual(replay.events.find((event) => event.event === 'dialog')?.data.receipt, receipt)
+    } finally {
+      pane = PANE_COMPOSER
+    }
+  })
+
+  test('parse failure keeps the guard and the terminal fallback', async () => {
+    pane = PANE_MODEL_PICKER
+    try {
+      const { events } = await sse(port, 'session=curia-55')
+      const shown = events.find((event) => event.event === 'dialog')?.data
+      assert.equal(shown.up, true)
+      assert.equal(shown.card, null)
+      assert.match(shown.reason, /could not parse/)
+
+      const answer = await post('/dialog-answer', {
+        session: 'curia-55', dialog: 'not-a-card', index: 1,
+      })
+      assert.equal(answer.status, 409)
+      assert.match((await answer.json()).error, /open the terminal/)
+    } finally {
+      pane = PANE_COMPOSER
+    }
+  })
+
+  test('the Codex integration sends the tapped option index through the same route', async () => {
+    pane = PANE_CODEX_MODEL_PICKER
+    try {
+      const { events } = await sse(port, 'session=curia-codex')
+      const card = events.find((event) => event.event === 'dialog')?.data.card
+      assert.equal(card.kind, 'choice')
+      assert.equal(card.headline, 'Select Model and Effort')
+
+      const answer = await post('/dialog-answer', {
+        session: 'curia-codex', dialog: card.id, index: 2, client: 'phone',
+      })
+      assert.equal(answer.status, 200)
+      assert.deepEqual(dialogAnswers.at(-1), {
+        session: 'curia-codex', currentIndex: 1, targetIndex: 2, harness: 'codex',
+      })
+    } finally {
+      pane = PANE_COMPOSER
+    }
+  })
+
+  test('a slow pane repaint cannot reopen the native card after its answer', async () => {
+    pane = PANE_ASK_OPTIONS
+    try {
+      const opened = await sse(port, 'session=curia-slow-dialog')
+      const card = opened.events.find((event) => event.event === 'dialog').data.card
+      const answer = await post('/dialog-answer', {
+        session: 'curia-slow-dialog', dialog: card.id, index: 1, client: 'phone',
+      })
+      assert.equal(answer.status, 200)
+
+      const stalePane = await sse(port, 'session=curia-slow-dialog')
+      const outcome = stalePane.events.find((event) => event.event === 'dialog').data
+      assert.equal(outcome.up, false)
+      assert.equal(outcome.receipt.answer, 'Stable')
+
+      pane = PANE_COMPOSER
+      await sse(port, 'session=curia-slow-dialog')
+      pane = PANE_ASK_OPTIONS
+      const reopened = await sse(port, 'session=curia-slow-dialog')
+      assert.notEqual(reopened.events.find((event) => event.event === 'dialog').data.card.id, card.id)
     } finally {
       pane = PANE_COMPOSER
     }

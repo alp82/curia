@@ -326,6 +326,11 @@ export function attachSessionUrl(base, servePort, session) {
   return `https://${base}:${servePort}/?arg=${session}`
 }
 
+export function atlasTerminalUrl(base, servePort, session) {
+  if (!validSessionName(session)) throw new Error(`refusing terminal URL for invalid session "${session}"`)
+  return `https://${base}:${servePort}/terminal/?arg=${session}`
+}
+
 export function attachUrl(base, servePort, n) {
   return attachSessionUrl(base, servePort, `curia-${n}`)
 }

@@ -30,18 +30,20 @@ const tmp = () => {
 after(() => { for (const d of dirs) fs.rmSync(d, { recursive: true, force: true }) })
 
 describe('every post into a ticket thread reports itself (#480)', () => {
-  let bridge, reduction, reported, posts, threads, hookSends
+  let bridge, reduction, reported, posts, edits, threads, hookSends
 
   const makeThread = (id) => ({
     id,
     name: `🎫 ${id}`,
-    send: async (payload) => { posts.push({ where: id, content: payload?.content ?? payload }); return { id: `m-${id}` } },
+    send: async (payload) => { posts.push({ where: id, payload }); return { id: `m-${id}` } },
+    messages: { fetch: async () => ({ edit: async (payload) => { edits.push({ where: id, payload }) } }) },
     setName: async () => {},
   })
 
   beforeEach(() => {
     reported = []
     posts = []
+    edits = []
     hookSends = []
     threads = new Map()
     reduction = new Reduction(tmp())
@@ -55,13 +57,23 @@ describe('every post into a ticket thread reports itself (#480)', () => {
       allowedUsers: [],
       dataDir: tmp(),
       log: () => {},
-      handlers: { ticketPosted: (ticket) => reported.push(ticket) },
+      handlers: {
+        ticketPosted: (ticket) => reported.push(ticket),
+        statusLinks: async (_ticket, { settled }) => settled
+          ? [{ label: 'chat', url: 'https://chat' }, { label: 'ticket', url: 'https://ticket' }]
+          : [
+              { label: '🔗 preview', url: 'https://preview' },
+              { label: 'chat', url: 'https://chat' },
+              { label: 'ticket', url: 'https://ticket' },
+            ],
+      },
       bindings: {
         get: (t) => reduction.threadForTicket(t),
         bind: (t, id) => reduction.bindTicketThread(t, id),
         release: (t, r) => reduction.releaseTicketThread(t, r),
         last: (t) => reduction.lastThreadForTicket(t),
         ticketOf: (id) => reduction.ticketForThread(id),
+        repoOf: () => 'alp82/curia',
       },
     })
     bridge.guild = { id: 'G' }
@@ -110,6 +122,16 @@ describe('every post into a ticket thread reports itself (#480)', () => {
   test('postStatus reports nothing', async () => {
     await bridge.postStatus('208', '▶️ · **opus**')
     assert.deepEqual(reported, [])
+  })
+
+  test('the status transport owns active and settled link buttons', async () => {
+    const ids = await bridge.postStatus('208', '-# 🧭 `reads the ticket`', { settled: false })
+    const active = posts.at(-1).payload.components[0].components.map((button) => button.data.label)
+    assert.deepEqual(active, ['🔗 preview', 'chat', 'ticket'])
+
+    await bridge.editStatus(ids, '-# ✅ resolved', { ticket: '208', settled: true })
+    const settled = edits.at(-1).payload.components[0].components.map((button) => button.data.label)
+    assert.deepEqual(settled, ['chat', 'ticket'])
   })
 
   test('an escalation in the ticket thread reports that ticket', async () => {

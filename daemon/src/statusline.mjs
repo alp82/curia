@@ -1,7 +1,7 @@
-// Per-agent live status line (#108 item 8, absorbing the Discord side of
-// items 2/3/13): one message per agent thread through daemon-witnessed
-// states — dispatched → working → waiting on esc-N ("title", elapsed) →
-// awaiting review → executing approved writes → 🏁 done. A state change
+// Ticket live status line (#108 item 8, absorbing the Discord side of
+// items 2/3/13): one message per ticket thread through daemon-witnessed
+// states: dispatched, working, waiting, review, and resolution. Success settles
+// the message into its receipt. A state change
 // repositions the message to the thread bottom (item 17); every other refresh
 // edits in place.
 //
@@ -18,14 +18,12 @@
 // (no transcript yet, no configured window, an account reading the daemon may
 // not refresh) drops that one meter and never the line.
 //
-// #253, ADR-0013: the line carries LIVE state only. A terminal state retires
-// it — see #retire. The dispatcher already posts one message for every ending
-// (the ending receipt, the abnormal-exit line, the death line, the watchdog
-// line, the cancel line), and a 🏁 beside each one said the same fact twice.
+// #690 settles a successful lifecycle into this message. Abnormal endings
+// still retire the live line because their dispatcher messages carry the news.
 
 import { REVIEW_KIND } from './lifecycle.mjs'
 import { CONFIRM_KIND } from './reduction.mjs'
-import { promptTitle, elapsedLabel } from './messaging.mjs'
+import { promptTitle, elapsedLabel, smallPrint } from './messaging.mjs'
 import { meterParts } from './usage.mjs'
 
 // The gap between groups on the line (#146). U+2003 EM SPACE, not two plain
@@ -58,7 +56,7 @@ export const TITLE_FLOOR = 24
 // budget exists to answer a question about columns.
 export function visibleWidth(text) {
   let width = 0
-  for (const ch of String(text).replace(/\*\*|`/g, '')) {
+  for (const ch of String(text).replace(/^-# /gm, '').replace(/\*\*|`/g, '')) {
     const cp = ch.codePointAt(0)
     // A variation selector renders nothing itself, but it promotes the
     // character before it to emoji width — so counting it as 1 makes the pair
@@ -73,11 +71,21 @@ export function visibleWidth(text) {
 // live state with no live context to meter.
 const METERED = new Set(['dispatched', 'working', 'waiting', 'awaiting-review', 'cross-checking', 'executing'])
 
+export const PHASE_ICONS = {
+  explore: '🧭',
+  think: '💭',
+  build: '🔨',
+  test: '🚦',
+  fix: '🩹',
+  ship: '🚢',
+}
+
+const DEFAULT_PROGRESS = { phase: 'explore', label: 'reads the ticket' }
+
 // The events that END a session. Each one already carries its own CuriaBot
 // message from the dispatcher, so the line retires instead of drawing a
 // terminal state beside it (#253).
 const TERMINAL = new Set([
-  'lifecycle_closed',
   'agent_abnormal_exit',
   'reviewer_abnormal_exit',
   'agent_died',
@@ -85,6 +93,16 @@ const TERMINAL = new Set([
   'agent_ready_timeout',
   'agent_exited_early',
 ])
+
+const PHASE_BY_ICON = new Map(Object.entries(PHASE_ICONS).map(([phase, icon]) => [icon, phase]))
+
+function validPhase(phase) {
+  const label = String(phase?.label ?? '').trim()
+  const name = PHASE_BY_ICON.get(phase?.icon)
+  if (!name || !label || Array.from(label).length > 20) return null
+  if (/\r|\n|`/.test(label)) return null
+  return { phase: name, label }
+}
 
 // The literal the 🔎 button sends (#165). Matched here rather than imported as
 // the regex, because this file reads the ANSWER off a journal event and an
@@ -218,17 +236,51 @@ export class StatusLine {
   }
 
   onEvent(ev) {
+    if (ev.kind === 'reviewer' || String(ev.agent ?? '').startsWith('curia-review-')) {
+      return this.#retire(ev.agent)
+    }
     // Every ending is the dispatcher's own message (#253) — this line adds
     // nothing to it and steps out of the way. Checked before the switch so one
     // rule covers every terminal event, whatever it is called.
     if (TERMINAL.has(ev.type)) return this.#retire(ev.agent)
     switch (ev.type) {
-      case 'agent_spawned':
+      case 'lifecycle_closed':
+        return ev.receipt ? this.#settle(ev.agent, ev.ticket, ev.receipt) : undefined
+      case 'agent_dispatching':
+        return this.#set(ev.agent, ev.ticket, 'dispatched', { model: ev.model, stage: 'dispatch' })
+      case 'agent_image_building':
+        return this.#set(ev.agent, ev.ticket, 'dispatched', { model: ev.model, stage: 'image' })
+      case 'agent_spawned': {
+        const current = this.agents.get(ev.agent)
+        if (current?.state === 'working') {
+          return this.#set(ev.agent, ev.ticket, 'working', {
+            ...current.detail, model: ev.model,
+          })
+        }
+        return this.#set(ev.agent, ev.ticket, 'dispatched', { model: ev.model, stage: 'composer' })
+      }
+      case 'dispatch_status':
         return this.#set(ev.agent, ev.ticket, 'dispatched', { model: ev.model })
       case 'agent_ready':
         // The spawn command carries the prompt, so the composer marker means
         // the agent is already at work — ready and working are one state.
         return this.#set(ev.agent, ev.ticket, 'working', { model: ev.model, at: ev.ts })
+      case 'agent_phase': {
+        const phase = validPhase(ev.phase)
+        const w = this.agents.get(ev.agent)
+        if (!phase || !w || !['dispatched', 'working'].includes(w.state)) return
+        return this.#set(ev.agent, w.ticket, 'working', { ...w.detail, ...phase }, { small: false })
+      }
+      case 'thread_settled':
+        return this.#settleLine(ev)
+      case 'agent_progress':
+        return this.#set(ev.agent, ev.ticket, 'working', { phase: ev.phase, label: ev.label })
+      case 'preview': {
+        if (!ev.ok) return
+        const w = this.agents.get(ev.agent)
+        if (!w) return
+        return this.#set(ev.agent, ev.ticket, w.state, w.detail, { force: true })
+      }
       case 'esc_open': {
         if (ev.kind === CONFIRM_KIND) return
         const state = ev.kind === REVIEW_KIND ? 'awaiting-review' : 'waiting'
@@ -311,18 +363,8 @@ export class StatusLine {
     }
   }
 
-  // A terminal state is not a status (#253, ADR-0013). The line answers "what
-  // is this agent doing now", and when the answer is "nothing" the
-  // dispatcher's own message is the record — the ending receipt, the
-  // abnormal-exit line, the death line, the watchdog line, the cancel line.
-  // Each of those is already one CuriaBot message, so a 🏁 or a ⚰️ drawn here
-  // beside it narrated one event twice. The #107 ending spoke four times in
-  // eighteen seconds and this line was one of the four.
-  //
-  // The live message is DELETED and the session forgotten. Nothing is lost:
-  // the journal holds the history, the ending message stands in the thread,
-  // and a respawn draws a fresh line at the bottom — under the ending, which
-  // is where the operator is reading.
+  // Abnormal endings retire the live status. A successful ending uses #settle
+  // instead, so the `curia` receipt remains in the thread.
   #retire(session) {
     const w = this.agents.get(session)
     if (!w) return
@@ -331,6 +373,39 @@ export class StatusLine {
     // not repost the line after this delete.
     const done = w.chain.then(() => (w.ids ? this.remove(w.ids) : null)).catch((e) => {
       this.log(`status line retire for ${session} failed: ${e.message}`)
+    })
+    this.retiring.add(done)
+    done.then(() => this.retiring.delete(done))
+    return done
+  }
+
+  #settleLine(ev) {
+    const w = this.agents.get(ev.agent)
+    if (!w) {
+      return this.#settle(ev.agent, ev.ticket, ev.receipt)
+    }
+    if (ev.model) w.model = ev.model
+    try {
+      w.finalMeters = meterParts(this.meters(ev.agent, w.model))
+    } catch (e) {
+      this.log(`status line final meters for ${ev.agent} failed: ${e.message}`)
+    }
+    return this.#settle(ev.agent, ev.ticket, ev.receipt)
+  }
+
+  // A successful ending keeps the status message as its receipt. The final
+  // meter reading stays visible, while active links leave the settled row.
+  #settle(session, ticket, receipt) {
+    const w = this.agents.get(session) ?? {
+      ticket, text: null, ids: null, chain: Promise.resolve(), finalMeters: [],
+    }
+    this.agents.delete(session)
+    const lines = [receipt, (w.finalMeters ?? []).join(GROUP_SEP)].filter(Boolean)
+    const text = lines.map((line) => smallPrint(line)).join('\n')
+    const done = w.chain.then(() => this.#apply(w, text, {
+      move: false, force: true, settled: true,
+    })).catch((e) => {
+      this.log(`status line settle for ${session} failed: ${e.message}`)
     })
     this.retiring.add(done)
     done.then(() => this.retiring.delete(done))
@@ -354,9 +429,11 @@ export class StatusLine {
   #base(session, state, detail, model) {
     switch (state) {
       case 'dispatched':
-        return `⚙️ dispatched on **${model}** — waiting for the composer`
+        if (detail.stage === 'image') return '🧱 building the agent image, about four minutes'
+        if (detail.stage === 'composer') return `⚙️ dispatched on **${model}** - waiting for the composer`
+        return `⚙️ dispatched on **${model}**`
       case 'working':
-        return '▶️'
+        return `${PHASE_ICONS[detail.phase] ?? PHASE_ICONS.explore} \`${detail.label ?? DEFAULT_PROGRESS.label}\``
       case 'waiting': {
         const waited = elapsedLabel(detail.esc.opened_at, this.now())
         return `⏳ waiting on **[${detail.esc.id}]** — ${detail.esc.title}${waited ? ` — ${waited}` : ''}`
@@ -403,7 +480,7 @@ export class StatusLine {
     return this.#base(session, state, { ...detail, esc }, model)
   }
 
-  #text(session, state, detail, model) {
+  #text(session, state, detail, model, worker) {
     if (!METERED.has(state)) return this.#base(session, state, detail, model)
     let parts
     let named = model
@@ -413,6 +490,7 @@ export class StatusLine {
       // carried, on the meter run AND in the base sentence (#179).
       named = m?.model ?? model
       parts = meterParts(m)
+      worker.finalMeters = parts
     } catch (e) {
       this.log(`status line meters for ${session} failed: ${e.message}`)
       return this.#base(session, state, detail, model)
@@ -430,10 +508,14 @@ export class StatusLine {
 
   // One line per agent, edits serialized per agent so a fast transition
   // never lands under a slower one's edit.
-  #set(session, ticket, state, detail) {
+  #set(session, ticket, state, detail, { force = false, small = true } = {}) {
     let w = this.agents.get(session)
     if (!w) {
-      w = { ticket, model: null, state, detail, text: null, ids: null, flag: null, bumping: false, chain: Promise.resolve() }
+      w = {
+        ticket, model: null, state, detail, progress: DEFAULT_PROGRESS,
+        text: null, ids: null, flag: null, bumping: false, finalMeters: [],
+        chain: Promise.resolve(),
+      }
       this.agents.set(session, w)
     }
     // #108 item 17: a state CHANGE repositions the line to the thread bottom
@@ -443,6 +525,13 @@ export class StatusLine {
     const move = state !== w.state
     w.ticket = ticket ?? w.ticket
     w.state = state
+    if (state === 'working') {
+      w.progress = {
+        phase: detail.phase ?? w.progress.phase,
+        label: detail.label ?? w.progress.label,
+      }
+      detail = { ...detail, ...w.progress }
+    }
     w.detail = detail
     // The model is sticky: only the spawn events carry it, and every state
     // after them still wants to say which model is running. A retry down the
@@ -467,25 +556,27 @@ export class StatusLine {
         this.log(`thread flag for ${session} failed: ${e.message}`)
       })
     }
-    const text = this.#text(session, state, detail, w.model)
-    w.chain = w.chain.then(() => this.#apply(w, text, { move })).catch((e) => {
+    const composed = this.#text(session, state, detail, w.model, w)
+    const text = small ? smallPrint(composed) : composed
+    w.chain = w.chain.then(() => this.#apply(w, text, { move, force })).catch((e) => {
       this.log(`status line for ${session} failed: ${e.message}`)
     })
     return w.chain
   }
 
-  async #apply(w, text, { move }) {
+  async #apply(w, text, { move, force = false, settled = false }) {
     if (move && w.ids) {
       await this.remove(w.ids)
       w.ids = null
-    } else if (w.ids && text === w.text) {
+    } else if (w.ids && text === w.text && !force) {
       // The meter tick runs every minute against numbers that move in single
       // digits per hour. An edit that changes nothing is a Discord call for
       // nothing, so identical text is the tick's normal outcome (#146).
       return
     }
     w.text = text
-    if (w.ids && await this.edit(w.ids, text)) return
-    w.ids = (await this.post(w.ticket, text)) ?? null
+    const opts = { ticket: w.ticket, settled }
+    if (w.ids && await this.edit(w.ids, text, opts)) return
+    w.ids = (await this.post(w.ticket, text, opts)) ?? null
   }
 }

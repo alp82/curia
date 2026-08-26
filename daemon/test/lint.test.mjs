@@ -5,7 +5,7 @@ import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   CAPS, VISUAL_COLUMNS, VISUAL_LINES, SENTENCE_WORDS,
-  gradeA, gradeB, lintVisual, unfence, isTyped, floorFaults, lintAskHuman,
+  gradeA, gradeB, lintGeometry, lintTable, lintPicture, retiredFieldFaults, unfence, isTyped, floorFaults, lintAskHuman,
   lintRequestReview, reviewFloorFaults, hasText,
   isTypedResult, lintResult, resultFloorFaults,
   lintNotify, notifyFloorFaults, notifyHasText,
@@ -117,35 +117,35 @@ describe('grade B: block prose', () => {
   })
 })
 
-describe('the visual: geometry, never words', () => {
+describe('the geometry fields: never words', () => {
   test('rows inside the box pass', () => {
-    assert.deepEqual(lintVisual('09:00  cap lands\n13:02  deploy'), [])
+    assert.deepEqual(lintGeometry('diagram', '09:00  cap lands\n13:02  deploy'), [])
   })
 
   test('a row over the column cap is refused', () => {
-    assert.match(names(lintVisual('x'.repeat(VISUAL_COLUMNS + 1))), new RegExp(`${VISUAL_COLUMNS + 1} columns over the ${VISUAL_COLUMNS} cap`))
+    assert.match(names(lintGeometry('diagram', 'x'.repeat(VISUAL_COLUMNS + 1))), new RegExp(`${VISUAL_COLUMNS + 1} columns over the ${VISUAL_COLUMNS} cap`))
   })
 
-  test('a visual over the line cap is refused', () => {
+  test('a diagram over the line cap is refused', () => {
     const tall = new Array(VISUAL_LINES + 1).fill('row').join('\n')
-    assert.match(names(lintVisual(tall)), new RegExp(`${VISUAL_LINES + 1} lines over the ${VISUAL_LINES} cap`))
+    assert.match(names(lintGeometry('diagram', tall)), new RegExp(`${VISUAL_LINES + 1} lines over the ${VISUAL_LINES} cap`))
   })
 
-  test('a visual the agent fenced itself is measured on its rows', () => {
-    assert.deepEqual(lintVisual('```\nshort row\n```'), [])
+  test('a diagram the agent fenced itself is measured on its rows', () => {
+    assert.deepEqual(lintGeometry('diagram', '```\nshort row\n```'), [])
     assert.equal(unfence('```\nshort row\n```'), 'short row')
     assert.equal(unfence('short row'), 'short row')
   })
 
   test('a fence inside the rows is refused: it would close the fence curia writes', () => {
-    assert.match(names(lintVisual('row one\n```\nrow two')), /a code fence inside the rows/)
+    assert.match(names(lintGeometry('diagram', 'row one\n```\nrow two')), /a code fence inside the rows/)
   })
 
-  test('the visual takes no grade: a semicolon in a diagram passes', () => {
-    assert.deepEqual(lintVisual('a; b; c'), [])
+  test('a diagram takes no grade: a semicolon in it passes', () => {
+    assert.deepEqual(lintGeometry('diagram', 'a; b; c'), [])
   })
 
-  test('the geometry cap keeps a visual under the code-block cap', () => {
+  test('the geometry cap keeps a diagram under the code-block cap', () => {
     assert.ok(VISUAL_COLUMNS * VISUAL_LINES < 1000)
   })
 })
@@ -275,7 +275,7 @@ describe('lintAskHuman', () => {
         { label: 'From a fresh reading.', consequence: 'It answers "am I near the cap", not "did I hit one".' },
       ],
       detail: 'The daemon has journalled provider_cooling with reset_at since #175.',
-      visual: '09:00  cap lands\n13:02  deploy',
+      diagram: '09:00  cap lands\n13:02  deploy',
     })
     assert.deepEqual(faults, [])
   })
@@ -345,9 +345,9 @@ describe('lintResult: the ending report (#419)', () => {
     ticket: '419',
     status: 'resolved',
     headline: 'The ending report is typed, and the lint reads its named fields.',
-    summary: 'The report takes a headline, a summary, a detail and a visual. Curia lays them out.',
+    summary: 'The report takes a headline, a summary, a detail and a table. Curia lays them out.',
     detail: 'The lint module is daemon/src/lint.mjs and the composer is daemon/src/card.mjs.',
-    visual: 'headline  one line, 150\nsummary   block prose, 600',
+    table: 'headline  one line, 150\nsummary   block prose, 600',
   }
 
   test('a typed report passes every grade', () => {
@@ -369,9 +369,9 @@ describe('lintResult: the ending report (#419)', () => {
     assert.match(names(faults), /never cuts it/)
   })
 
-  test('the visual keeps its geometry check and no grade', () => {
-    assert.match(names(lintResult({ visual: 'x'.repeat(VISUAL_COLUMNS + 1) })), /visual: 43 columns/)
-    assert.deepEqual(lintResult({ visual: 'a; b — c' }), [], 'a diagram is not prose')
+  test('the geometry fields keep their check and no grade', () => {
+    assert.match(names(lintResult({ diagram: 'x'.repeat(VISUAL_COLUMNS + 1) })), /diagram: 43 columns/)
+    assert.deepEqual(lintResult({ diagram: 'a; b — c' }), [], 'a diagram is not prose')
   })
 
   test('`details` is a free record: ADR-0019 rule 3, and no lint reads it', () => {
@@ -393,7 +393,7 @@ describe('lintResult: the ending report (#419)', () => {
     assert.equal(isTypedResult({ summary: 'what changed' }), false)
     assert.equal(isTypedResult({ headline: 'h' }), true)
     assert.equal(isTypedResult({ detail: 'd' }), true)
-    assert.equal(isTypedResult({ visual: 'v' }), true)
+    assert.equal(isTypedResult({ diagram: 'v' }), true)
   })
 
   test('a report carrying a summary has text, so the cap ends in a flagged send', () => {
@@ -421,20 +421,55 @@ describe('the status line (#420)', () => {
     assert.match(names(lintNotify({ ...LINE, detail: 'see https://example.com' })), /detail: a link/)
   })
 
-  test('the visual keeps its geometry check and no grade', () => {
-    assert.match(names(lintNotify({ ...LINE, visual: 'x'.repeat(VISUAL_COLUMNS + 1) })), /visual: 43 columns/)
-    assert.deepEqual(lintNotify({ ...LINE, visual: 'a; b — c' }), [], 'a diagram is not prose')
+  test('the geometry fields keep their check and no grade', () => {
+    assert.match(names(lintNotify({ ...LINE, diagram: 'x'.repeat(VISUAL_COLUMNS + 1) })), /diagram: 43 columns/)
+    assert.deepEqual(lintNotify({ ...LINE, diagram: 'a; b — c' }), [], 'a diagram is not prose')
   })
 
   test('the floor is the message, because the schema required it before this ticket', () => {
     assert.deepEqual(notifyFloorFaults(LINE), [])
     assert.match(names(notifyFloorFaults({ detail: 'facts' })), /message: missing/)
+    assert.deepEqual(notifyFloorFaults({ phase: { icon: '🧭', label: 'reads the call sites' } }), [],
+      'a phase-only update edits the live status line')
+  })
+
+  test('the phase uses the curated icons and a 20-character inline label', () => {
+    assert.deepEqual(lintNotify({ phase: { icon: '🧭', label: 'reads the call sites' } }), [])
+    assert.match(names(lintNotify({ phase: { icon: '🧭', label: 'this label is more than twenty characters' } })),
+      /phase.label: .*20 characters cap/)
+    assert.match(names(lintNotify({ phase: { icon: '🏁', label: 'ships' } })), /phase.icon: use one of/)
+    assert.match(names(lintNotify({ phase: { icon: '🚢', label: 'ships\nnow' } })), /phase.label: one line/)
   })
 
   test('a status line with words has text, so its cap ends in a flagged send', () => {
     assert.equal(notifyHasText(LINE), true)
-    assert.equal(notifyHasText({ visual: 'a  b' }), true, 'a visual alone still says something')
+    assert.equal(notifyHasText({ diagram: 'a  b' }), true, 'a diagram alone still says something')
+    assert.equal(notifyHasText({ phase: { icon: '🚦', label: 'runs daemon tests' } }), true)
     assert.equal(notifyHasText({ images: ['a.png'] }), false, 'a file is not prose, so it is the dead end')
+  })
+
+  test('an opening and a phase update pass without a milestone message', () => {
+    const opening = {
+      opening: {
+        goal: 'I’ll make each ticket thread tell one quiet story.',
+        first_step: 'I’ll trace dispatch events into the status line first.',
+      },
+      phase: 'explore',
+      label: 'reads the events',
+    }
+    assert.deepEqual(notifyFloorFaults(opening), [])
+    assert.deepEqual(lintNotify(opening), [])
+    assert.equal(notifyHasText(opening), true)
+    assert.deepEqual(notifyFloorFaults({ phase: 'build', label: 'writes the status' }), [])
+  })
+
+  test('the opening, phase, and label faults name their fields', () => {
+    assert.match(names(notifyFloorFaults({ opening: { goal: 'I read the goal.' } })), /opening.first_step: missing/)
+    assert.match(names(notifyFloorFaults({ phase: 'build' })), /label: missing/)
+    assert.match(names(notifyFloorFaults({ label: 'writes the status' })), /phase: missing/)
+    assert.match(names(lintNotify({ phase: 'guess', label: 'reads' })), /phase: "guess"/)
+    assert.match(names(lintNotify({ phase: 'think', label: 'x'.repeat(21) })), /label: 21 characters over the 20 cap/)
+    assert.match(names(lintNotify({ opening: { goal: 'one\ntwo', first_step: 'reads' } })), /opening.goal: a newline/)
   })
 })
 
@@ -500,5 +535,99 @@ describe('the cross-check verdict (#421)', () => {
 
   test('the three severities, most serious first', () => {
     assert.deepEqual(VERDICT_SEVERITIES, ['blocker', 'concern', 'note'])
+  })
+})
+
+// ---- ADR-0026 (#691): the field vocabulary that replaced `visual` ------------
+
+describe('the table: geometry, and the columns line up', () => {
+  test('a table whose columns line up passes', () => {
+    assert.deepEqual(lintTable('kind      what you must do\nlook      open it now\nprogress  nothing'), [])
+  })
+
+  test('a column that starts where no column of the first row starts is refused', () => {
+    assert.match(names(lintTable('kind      what you must do\nlook    open it now')), /row 2 starts a column at character 9/)
+  })
+
+  test('a row with more columns than the first row is refused', () => {
+    assert.match(names(lintTable('kind      what\nlook      open  now')), /row 2 has 3 columns where the first row has 2/)
+  })
+
+  test('a blank cell is a real row, so fewer columns pass on the offsets that are there', () => {
+    assert.deepEqual(lintTable('kind      what      when\nlook                now'), [])
+  })
+
+  test('a title or a rule line is not a row, so it is skipped', () => {
+    assert.deepEqual(lintTable('the kinds\nkind      what\n--------  ----'), [])
+  })
+
+  test('the table keeps the geometry check every block takes', () => {
+    assert.match(names(lintTable('x'.repeat(VISUAL_COLUMNS + 1))), new RegExp(`table: ${VISUAL_COLUMNS + 1} columns`))
+  })
+})
+
+describe('the picture: one image file', () => {
+  test('an image path passes', () => {
+    assert.deepEqual(lintPicture('picture', 'renders/home.png'), [])
+    assert.deepEqual(lintPicture('picture', '/workspace/a.WEBP'), [])
+  })
+
+  test('a download is not a picture, and the fault says where it goes', () => {
+    const faults = names(lintPicture('picture', 'notes/reading.md'))
+    assert.match(faults, /is not an image/)
+    assert.match(faults, /`attachments`/)
+  })
+
+  test('a second picture is a second message, not a second line', () => {
+    assert.match(names(lintPicture('picture', 'a.png\nb.png')), /a newline/)
+  })
+})
+
+describe('the fields ADR-0026 retired, on every surface', () => {
+  const surfaces = {
+    'ask_human': (p) => floorFaults('free-text', p),
+    notify: notifyFloorFaults,
+    report_result: resultFloorFaults,
+    verdict: verdictFloorFaults,
+    request_review: reviewFloorFaults,
+  }
+
+  for (const [surface, floor] of Object.entries(surfaces)) {
+    test(`\`visual\` is refused on ${surface}, and the rows are named rather than dropped`, () => {
+      const payload = { visual: 'a  b\nc  d' }
+      const faults = names(floor(payload))
+      assert.match(faults, /visual: retired by ADR-0026/)
+      assert.match(faults, /`diagram`/)
+      assert.equal(payload.visual, 'a  b\nc  d', 'the rows are still on the payload')
+    })
+
+    test(`\`images\` is refused on ${surface}, and the paths are named`, () => {
+      assert.match(names(floor({ images: ['/workspace/a.png'] })), /images: renamed to `attachments`/)
+    })
+  }
+
+  test('an empty payload carries neither fault', () => {
+    assert.deepEqual(retiredFieldFaults({}), [])
+    assert.deepEqual(retiredFieldFaults({ table: 'a  b', attachments: [] }), [])
+  })
+})
+
+describe('the question background (ADR-0026)', () => {
+  const round = (background) => ({
+    headline: 'Which cap?',
+    questions: [{ text: 'Which cap re-arms at boot?', background }],
+  })
+
+  test('a background inside the cap passes, and it keeps its sentences', () => {
+    assert.deepEqual(lintAskHuman('free-text', round('The cap landed at 09:00. Cooling ran until 14:20.')), [])
+  })
+
+  test('the background is refused over 600, and it is refused rather than cut', () => {
+    const long = 'x'.repeat(CAPS.background + 1)
+    assert.match(names(lintAskHuman('free-text', round(long))), new RegExp(`questions\\[0\\].background: ${CAPS.background + 1} characters over the ${CAPS.background} cap`))
+  })
+
+  test('the background is block prose, so a list of separable facts passes', () => {
+    assert.deepEqual(lintAskHuman('free-text', round('- the cap landed at 09:00\n- cooling ran until 14:20')), [])
   })
 })

@@ -27,6 +27,8 @@ export const SIGNALS = {
   dead: '⚰️',
   link: '🔗',
   ask: '❓',
+  // ADR-0026 (#640) added the ninth: the background of a question.
+  background: '💡',
 }
 
 // Discord renders `-# ` as small print — the meta register (#89). Applied per
@@ -53,8 +55,14 @@ export function clampList(lines, max = 10) {
 // without crossing the cap (#119). Decision-bearing text is never silently
 // truncated: a long composed message becomes consecutive chunks, split at
 // paragraph boundaries first, then lines, then a hard slice as the last
-// resort (a single 1600-char line is code, not prose).
-export const CHUNK_LIMIT = 1600
+// resort (a single 1700-char line is code, not prose).
+//
+// ADR-0026 (#640) moved it from 1600 to 1700. The prose message of a composite
+// send caps at 1600, and the rail line curia writes rides the same Discord
+// message, so a full prose field arrives at about 1620. The old limit cut it.
+// 1700 is still 300 under Discord's own 2000, so the margin that keeps a code
+// fence off a split survives.
+export const CHUNK_LIMIT = 1700
 
 // ---- fenced code blocks (#432) ----------------------------------------------
 //
@@ -200,22 +208,12 @@ export function promptTitle(prompt, max = 80) {
   return `${(cut.includes(' ') ? cut.slice(0, cut.lastIndexOf(' ')) : cut).trimEnd()}…`
 }
 
-// Webhook speaker name: the session name, alone (#254). #108 item 15 moved
-// the multi-agent shape out of the prose and into the speaker label, and hung
-// the ticket title off it: `curia-9 · <ticket title>`. Discord caps a webhook
-// username at SPEAKER_NAME_LIMIT, so a long title was cut and given an
-// ellipsis, and nine agents in the #245 cold read spoke under a mangled
-// identity. The budget was also one char short of its own cap — a name of 81
-// chars, which Discord REFUSES, so the longest identities collapsed into the
-// bot voice instead of speaking at all.
-//
-// A session name is `curia-<n>` or `curia-review-<n>`. It always fits, one
-// agent wears one name for its whole life, and a reviewer adopted after a
-// restart wears the same name as before it. The title is not lost: the thread
-// is bound to the ticket, and the agent's own prose says what it did.
+// Every ticket thread has one Curia speaker. Session names remain internal
+// routing keys, while Discord receives the same webhook name and avatar seed
+// for builders and reviewers.
 export const SPEAKER_NAME_LIMIT = 80
-export function speakerName(agent) {
-  return String(agent)
+export function speakerName(_agent) {
+  return 'curia'
 }
 
 // "how long has this been waiting" for reminders and keepalives (#118).

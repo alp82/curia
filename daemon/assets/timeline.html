@@ -7,7 +7,7 @@
 <!-- The protocol handshake with the daemon (#74, the #70 stamp one layer up):
      the server refuses to serve or publish this page unless the proto here
      matches its own constant. Bump BOTH when the SSE/POST protocol changes. -->
-<meta name="curia-timeline" content="proto=3">
+<meta name="curia-timeline" content="proto=4">
 <title>curia timeline</title>
 <style>
   :root {
@@ -50,14 +50,23 @@
   }
   #parse.on { display: block; }
 
-  /* #75: a native terminal dialog is invisible on this surface — the banner is
-     all the timeline may do about it (it must not render or answer the dialog) */
+  /* #715: a measured native choice is a typed Chat card. An unmeasured dialog
+     keeps the guard and the embedded terminal fallback. */
   #dialog {
     display: none; background: var(--escbg); color: var(--esc);
     border-bottom: 1px solid var(--esc);
     padding: .4rem .75rem; font-size: .85rem;
   }
   #dialog.on { display: block; }
+  #dialog.card { background: var(--card); color: var(--fg); border-color: var(--line); }
+  #dialog .dialog-wrap { max-width: 62rem; margin: 0 auto; }
+  #dialog .dialog-kind { color: var(--dim); font-size: .75rem; font-weight: 600; }
+  #dialog .dialog-headline { display: block; margin: .15rem 0 .45rem; }
+  #dialog .dialog-options { display: flex; flex-wrap: wrap; gap: .4rem; }
+  #dialog .dialog-options button { min-height: 2.2rem; padding: .35rem .65rem; }
+  #dialog .dialog-options button.selected { border-color: var(--accent); }
+  #dialog .dialog-note { color: var(--dim); font-size: .75rem; margin-top: .35rem; }
+  #dialog a { color: inherit; font-weight: 600; }
 
   /* open escalations from the daemon's own record — the claude harness writes
      nothing to its transcript while ask_human blocks (#74 item 5, measured) */
@@ -139,7 +148,8 @@
 
 <div class="mirror" id="mirror"></div>
 <footer>
-  <textarea id="box" rows="1" placeholder="type here — shared box"></textarea>
+  <textarea id="box" rows="1" placeholder="type here, shared box"></textarea>
+  <button id="take-back" title="take back your last message">take back</button>
   <button id="esc" title="send Escape to the agent">esc</button>
   <button id="send" class="primary">send</button>
 </footer>
@@ -326,12 +336,7 @@ function connect() {
     $('parse').textContent = `⚠ this timeline is INCOMPLETE — ${d.reason} (${d.dropped} line${d.dropped > 1 ? 's' : ''} dropped). The agent may not be quiet; check the terminal surface.`
   })
   es.addEventListener('dialog', (e) => {
-    const d = JSON.parse(e.data)
-    const el = $('dialog')
-    el.className = d.up ? 'on' : ''
-    el.textContent = d.up
-      ? `🖥 the agent is in a terminal dialog (“${d.hint}”) this page cannot show — open the terminal surface (/attach) to answer it. Sends are refused while it is up.`
-      : ''
+    renderNativeDialog(JSON.parse(e.data))
   })
   es.addEventListener('escalations', (e) => renderEscalations(JSON.parse(e.data)))
   es.addEventListener('esc_history', (e) => upsertEscCards(JSON.parse(e.data)))
@@ -359,6 +364,67 @@ function connect() {
   es.onerror = () => { $('conn').textContent = 'reconnecting'; $('conn').className = 'bad' }
 }
 connect()
+
+function terminalDialogLink() {
+  const link = document.createElement('a')
+  link.href = '/terminal/?arg=' + encodeURIComponent(SESSION)
+  link.textContent = 'Open the terminal'
+  return link
+}
+
+function renderNativeDialog(d) {
+  const el = $('dialog')
+  el.innerHTML = ''
+  if (d.receipt) {
+    el.className = 'on card'
+    const wrap = document.createElement('div'); wrap.className = 'dialog-wrap'
+    const line = document.createElement('div')
+    line.textContent = `✔ answered · ${d.receipt.by} · ${fmt(d.receipt.at)} · ${d.receipt.marker} · ${d.receipt.answer}`
+    wrap.appendChild(line); el.appendChild(wrap)
+    return
+  }
+  if (!d.up) {
+    el.className = ''
+    return
+  }
+
+  el.className = d.card ? 'on card' : 'on'
+  const wrap = document.createElement('div'); wrap.className = 'dialog-wrap'
+  if (!d.card) {
+    const line = document.createElement('span')
+    line.textContent = `⚠ A native dialog owns the terminal. ${d.reason || 'Curia cannot parse its controls.'} `
+    wrap.append(line, terminalDialogLink())
+    const note = document.createElement('div'); note.className = 'dialog-note'
+    note.textContent = 'Chat sends stay blocked while this dialog is open.'
+    wrap.appendChild(note); el.appendChild(wrap)
+    return
+  }
+
+  const kind = document.createElement('div'); kind.className = 'dialog-kind'
+  kind.textContent = 'native dialog · choice'
+  const headline = document.createElement('strong'); headline.className = 'dialog-headline'
+  headline.textContent = d.card.headline
+  const options = document.createElement('div'); options.className = 'dialog-options'
+  for (const option of d.card.options) {
+    const button = document.createElement('button')
+    button.textContent = `${option.marker} · ${option.handle || option.label}${option.index === d.card.selected_index ? ' · selected now' : ''}`
+    if (option.index === d.card.selected_index) button.className = 'selected'
+    button.onclick = async () => {
+      for (const control of options.querySelectorAll('button')) control.disabled = true
+      const answer = await post('/dialog-answer', { dialog: d.card.id, index: option.index })
+      if (answer.receipt) return renderNativeDialog({ up: false, receipt: answer.receipt })
+      const note = document.createElement('div'); note.className = 'dialog-note'
+      note.textContent = answer.error || 'Curia could not answer this native dialog.'
+      wrap.appendChild(note)
+      for (const control of options.querySelectorAll('button')) control.disabled = false
+    }
+    options.appendChild(button)
+  }
+  const note = document.createElement('div'); note.className = 'dialog-note'
+  note.textContent = 'The first valid tap wins. The same receipt reaches every open Chat.'
+  wrap.append(kind, headline, options, note, terminalDialogLink())
+  el.appendChild(wrap)
+}
 
 let draftTimer
 box.addEventListener('input', () => {
@@ -392,7 +458,38 @@ async function submit() {
   }
 }
 
+function showTakeBackReceipt(receipt, error = null) {
+  const note = document.createElement('div')
+  note.className = 'item note'
+  if (error) {
+    note.style.color = 'var(--warn)'
+    note.textContent = `take back failed: ${error}`
+  } else {
+    note.textContent = [receipt.headline, receipt.landing, ...(receipt.remains || [])].filter(Boolean).join(' ')
+  }
+  log.appendChild(note)
+  scroll()
+}
+
+async function takeBack() {
+  const button = $('take-back')
+  button.disabled = true
+  try {
+    const r = await post('/take-back', { target: null })
+    if (r.error) return showTakeBackReceipt(null, r.error)
+    box.value = r.composer || ''
+    box.style.height = 'auto'
+    box.style.height = Math.min(box.scrollHeight, window.innerHeight * 0.3) + 'px'
+    await post('/draft', { text: box.value })
+    showTakeBackReceipt(r.receipt)
+    box.focus()
+  } finally {
+    button.disabled = false
+  }
+}
+
 $('send').onclick = submit
+$('take-back').onclick = takeBack
 $('esc').onclick = () => post('/key', { key: 'escape' })
 box.addEventListener('keydown', (e) => {
   // desktop: Enter sends, Shift+Enter newlines. On a phone the on-screen

@@ -137,12 +137,12 @@ describe('notify carries the typed fields and the lint gate (#420, real boot)', 
     fs.rmSync(tmp, { recursive: true, force: true })
   })
 
-  test('a typed status line lands with its kind, its spoiler and its visual', async () => {
+  test('a typed status line lands with its kind, its spoiler and its table', async () => {
     const text = await call('curia-420', '420', {
       kind: 'look',
       message: 'The prototype is up. The page is the one this ticket changed.',
       detail: 'The demo is prototypes/select-menu/index.html.',
-      visual: 'kind   you must do\nlook   open it now',
+      table: 'kind   you must do\nlook   open it now',
     })
 
     assert.match(text, /^ok/m)
@@ -150,7 +150,59 @@ describe('notify carries the typed fields and the lint gate (#420, real boot)', 
     const line = events.findLast((e) => e.type === 'notify' && e.agent === 'curia-420')
     assert.equal(line.kind, 'look')
     assert.equal(line.detail, 'The demo is prototypes/select-menu/index.html.')
-    assert.match(line.visual, /look   open it now/)
+    assert.match(line.table, /look   open it now/)
+  })
+
+  test('a phase-only update reaches the editable status line', async () => {
+    const text = await call('curia-420-phase', '420', {
+      phase: { icon: '🚦', label: 'runs daemon tests' },
+    })
+
+    assert.match(text, /^ok/m)
+    const events = journalEvents(path.join(tmp, 'data'))
+    const phase = events.findLast((event) => event.type === 'agent_phase' && event.agent === 'curia-420-phase')
+    assert.deepEqual(phase.phase, { icon: '🚦', label: 'runs daemon tests' })
+  })
+
+  test('an unrecognized phase icon reaches the lint refusal', async () => {
+    const text = await call('curia-420-bad-phase', '420', {
+      phase: { icon: '🏁', label: 'done' },
+    })
+
+    assert.match(text, /curia refused this call/)
+    assert.match(text, /phase\.icon: use one of/)
+    const events = journalEvents(path.join(tmp, 'data'))
+    assert.ok(!events.some((event) => event.type === 'agent_phase' && event.agent === 'curia-420-bad-phase'))
+  })
+
+  test('an opening and phase update travel through the notify tool', async () => {
+    const text = await call('curia-420-opening', '420', {
+      opening: {
+        goal: 'I’ll make the ticket thread tell one quiet story.',
+        first_step: 'I’ll trace dispatch events into the status line first.',
+      },
+      phase: 'explore',
+      label: 'reads the events',
+    })
+
+    assert.match(text, /^ok/m)
+    const events = journalEvents(path.join(tmp, 'data'))
+    const opening = events.findLast((e) => e.type === 'agent_opening' && e.agent === 'curia-420-opening')
+    const progress = events.findLast((e) => e.type === 'agent_progress' && e.agent === 'curia-420-opening')
+    assert.equal(opening.goal, 'I’ll make the ticket thread tell one quiet story.')
+    assert.equal(progress.phase, 'explore')
+    assert.equal(progress.label, 'reads the events')
+
+    const duplicate = await call('curia-420-opening', '420', {
+      opening: { goal: 'I’ll repeat the opening.', first_step: 'I’ll post it again.' },
+      phase: 'build',
+      label: 'repeats opening',
+    })
+    assert.match(duplicate, /opening: already sent for this dispatch/)
+    assert.equal(
+      journalEvents(path.join(tmp, 'data')).filter((e) => e.type === 'agent_opening' && e.agent === 'curia-420-opening').length,
+      1,
+    )
   })
 
   test('a message whose words break a rule is refused, and nothing is posted', async () => {

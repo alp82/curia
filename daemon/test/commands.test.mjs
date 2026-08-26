@@ -43,6 +43,7 @@ import { spawnSync } from 'node:child_process'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parseCommand, CommandRouter } from '../src/commands.mjs'
+import { expandCommand } from '../src/bridge.mjs'
 import { validSessionName } from '../src/attach.mjs'
 import { lintReply } from '../src/messaging.mjs'
 
@@ -105,6 +106,14 @@ describe('parseCommand', () => {
 
   test('status', () => {
     assert.equal(parseCommand('status').verb, 'status')
+  })
+
+  test('model names one active ticket and one target routing label', () => {
+    assert.deepEqual(parseCommand('model 42 gpt'), {
+      verb: 'model', ticket: '42', model: 'gpt',
+    })
+    assert.equal(parseCommand('model 42'), null)
+    assert.equal(parseCommand('model 42 gpt extra'), null)
   })
 
   test('start with just a ticket', () => {
@@ -578,6 +587,34 @@ describe('CommandRouter harness refusal (#177)', () => {
     const calls = []
     assert.equal(await makeRouter(calls).handle('resume 42', 'user-1'), 'resumed')
     assert.equal(calls[0][1].model, undefined)
+  })
+})
+
+describe('CommandRouter live model switch (#717)', () => {
+  test('Discord expands required ticket and model fields into the exact command', () => {
+    const values = { ticket: '42', model: 'gpt' }
+    const interaction = {
+      commandName: 'model',
+      options: { getString: (name) => values[name] ?? null },
+    }
+
+    assert.equal(expandCommand(interaction), 'model 42 gpt')
+  })
+
+  test('the exact model command reaches the dispatcher without a model turn', async () => {
+    const calls = []
+    const dispatcher = {
+      config: { watch: [] },
+      routing: { harnesses: {} },
+      switchModel: async (ticket, opts) => {
+        calls.push({ ticket, ...opts })
+        return 'switched'
+      },
+    }
+    const router = new CommandRouter({ dispatcher, attach: {}, log: () => {} })
+
+    assert.equal(await router.handle('model 42 gpt', 'operator-1'), 'switched')
+    assert.deepEqual(calls, [{ ticket: '42', model: 'gpt', by: 'operator-1' }])
   })
 })
 

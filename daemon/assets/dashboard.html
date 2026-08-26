@@ -1,8 +1,9 @@
 <!doctype html>
 <meta charset="utf-8">
 <!-- The console (#263 the shell, #264 the read screens, #265 the settings write,
-     #266 the operator verbs, #661 the Credentials screen), on the look settled
-     by the prototype (#248): dark-first tokens, system mono for data, one
+     #266 the operator verbs, #661 the Credentials screen, #686 the Atlas frame,
+     #699 the drill-in sections and the save dock), on the look settled by the
+     prototypes (#248, #525): dark-first tokens, system mono for data, one
      accent.
 
      THE STAMP BELOW IS LOAD-BEARING. This page and daemon/src/dashboard.mjs are
@@ -37,7 +38,7 @@
      2. Null is not empty. An unreadable fleet is not an idle box, and a frontier
         nobody has computed is not an empty frontier. Every section that can fail
         on its own says which of the two it is. -->
-<meta name="curia-dashboard" content="proto=7">
+<meta name="curia-dashboard" content="proto=12">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark light">
 <title>Atlas · Curia</title>
@@ -54,6 +55,10 @@
     /* The diff's own two colors (#355) — a patch's vocabulary, not the
        attention marking. Deliberately not --ok/--bad. */
     --diff-add: #6fbf73; --diff-del: #d98b84;
+    /* The blocked group's own red (#700, F1 in the #588 prototype). It is the
+       texture the operator accepted for "behind something", not the attention
+       marking, so it is deliberately not --bad. */
+    --blocked-edge: rgba(240,122,122,.45); --blocked-wash: rgba(240,122,122,.10);
   }
   @media (prefers-color-scheme: light) {
     :root:not([data-theme="dark"]) {
@@ -65,6 +70,7 @@
       --chip-warn-bg: #f4e8cf; --chip-bad-bg: #f6ddda; --chip-ok-bg: #d9efe7;
       --shadow: 0 6px 24px rgba(30,40,35,.12);
       --diff-add: #1f7a34; --diff-del: #a3352c;
+      --blocked-edge: rgba(179,50,58,.40); --blocked-wash: rgba(179,50,58,.07);
     }
   }
   * { box-sizing: border-box; }
@@ -102,6 +108,25 @@
   .shell main { padding: 18px 22px; min-width: 0; }
   .shell main h2 { font-size: 15px; }
   .screen-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+  .screen-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .search-lens { border: 1px solid var(--line); border-radius: 999px; background: var(--bg-raise); color: var(--ink-dim); padding: 5px 11px; font-size: 12px; }
+  .search-sheet { position: fixed; z-index: 50; inset: 0; overflow-y: auto; background: color-mix(in srgb, var(--bg) 96%, transparent); padding: 22px max(16px, calc((100vw - 820px) / 2)); }
+  .search-box { display: flex; gap: 8px; position: sticky; top: 0; z-index: 1; background: var(--bg); padding: 8px 0 14px; }
+  .search-box input { flex: 1; width: 100%; font-size: 17px; padding: 10px 14px; }
+  .search-results { border-top: 1px solid var(--line); }
+  .search-result { display: grid; grid-template-columns: 82px 1fr auto; gap: 14px; align-items: start; color: var(--ink); padding: 14px 4px; border-bottom: 1px solid var(--line); }
+  .search-result:hover { text-decoration: none; background: var(--bg-raise); }
+  .search-result .kind { color: var(--ink-faint); font: 700 10px ui-monospace, Menlo, monospace; text-transform: uppercase; }
+  .search-result .kind.needs { color: var(--warn); }
+  .search-result .title { display: block; font-weight: 700; }
+  .search-result .snippet { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; color: var(--ink-dim); font-size: 12px; margin-top: 3px; }
+  .search-result .meta { text-align: right; color: var(--ink-faint); font: 10px ui-monospace, Menlo, monospace; }
+  .search-result .meta span { display: block; }
+  .search-result mark { background: transparent; color: var(--accent); font-weight: 700; }
+  @media (max-width: 620px) {
+    .search-result { grid-template-columns: 70px 1fr; }
+    .search-result .meta { grid-column: 2; display: flex; gap: 8px; text-align: left; }
+  }
   @media (max-width: 760px) {
     .shell { grid-template-columns: 1fr; }
     .drawer { display: none; }
@@ -128,6 +153,50 @@
     .notchbar .agents-key .nav-icon { color: var(--warn); font-size: 16px; }
     .notchbar .agents-key .nav-label { display: block; color: var(--ink-dim); font-size: 7px; }
   }
+
+  /* ---------- the drill-in section frame (#699, on the #525 decision) ----------
+     A page that is a LIST OF SECTIONS draws one list and one open section. A
+     phone shows the list, and a pick replaces it with that section and a way
+     back. A desktop shows both, and the back link is the only thing width
+     changes — the HTML is the same on either, so nothing in the script reads a
+     viewport. Settings is the first page here; Maps, Agents, Feed and Chat
+     land in the same frame. */
+  .drill { display: grid; grid-template-columns: 270px minmax(0, 1fr); gap: 0 44px; align-items: start; }
+  .drill-row {
+    display: flex; align-items: center; gap: 14px; width: 100%; text-align: left;
+    border: 0; border-top: 1px solid var(--line); background: none; color: var(--ink);
+    padding: 15px 2px;
+  }
+  .drill-list .drill-row:first-child { border-top: 0; }
+  .drill-row .t { display: block; font-size: 15px; font-weight: 600; }
+  .drill-row .g { display: block; margin-top: 4px; font-size: 11.5px; color: var(--ink-dim); font-family: ui-monospace, Menlo, monospace; }
+  .drill-row.on .t { color: var(--accent); }
+  .drill-row .chev { margin-left: auto; color: var(--ink-faint); font-size: 17px; }
+  .drill-body { min-width: 0; max-width: 620px; }
+  .drill-body h3 { font-size: 10px; letter-spacing: .3em; text-transform: uppercase; color: var(--ink-dim); }
+  .drill-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+  .drill-back { display: none; }
+  @media (max-width: 760px) {
+    .drill { grid-template-columns: 1fr; }
+    .drill[data-open] .drill-list { display: none; }
+    .drill:not([data-open]) .drill-body { display: none; }
+    .drill-back { display: inline-block; margin: 2px 0 16px; font-size: 13.5px; }
+    .dock { bottom: calc(88px + env(safe-area-inset-bottom)); }
+  }
+
+  /* One row of controls, roomy, with its explanation behind a `?` (#525): the
+     row stays short, and the words arrive when they are asked for. */
+  .rows .row { display: flex; align-items: center; gap: 14px; padding: 13px 0; border-top: 1px solid var(--line); font-size: 13.5px; }
+  .rows .row:first-child { border-top: 0; }
+  .rows .key { font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; }
+  .rows .grow { flex: 1; min-width: 0; }
+  .qq {
+    flex: none; width: 24px; height: 24px; border: 1px solid var(--line); border-radius: 50%;
+    background: none; color: var(--ink-dim); font: 600 12px ui-monospace, Menlo, monospace;
+    display: inline-flex; align-items: center; justify-content: center; padding: 0;
+  }
+  .qq:hover, .qq.on { color: var(--ink); border-color: var(--ink-dim); }
+  .qhint { font-size: 12.5px; line-height: 1.6; color: var(--ink-dim); padding: 0 0 12px; max-width: 520px; }
 
   /* ---------- the reading's own age ---------- */
   .readbar {
@@ -171,6 +240,21 @@
   .tile .l { font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--ink-faint); margin-top: 2px; }
   .tile.warn { border-color: var(--warn); } .tile.warn .v { color: var(--warn); }
   .tile .v.none { color: var(--ink-faint); }
+  .home-verdict { display: grid; grid-template-columns: 190px 1fr; gap: 28px; align-items: center; margin: 6px 0 20px; }
+  .verdict-ring { width: 172px; height: 172px; border: 3px solid var(--line); border-top-color: var(--warn); border-radius: 50%; display: grid; place-items: center; text-align: center; }
+  .verdict-ring .v { display: block; font: 700 42px ui-monospace, Menlo, monospace; color: var(--warn); }
+  .verdict-ring .k { display: block; color: var(--ink-dim); font-size: 11px; text-transform: uppercase; letter-spacing: .1em; }
+  .home-glance { display: grid; grid-template-columns: repeat(3, minmax(100px, 1fr)); gap: 18px; }
+  .home-glance .v { font: 700 22px ui-monospace, Menlo, monospace; }
+  .home-glance .k { color: var(--ink-faint); font-size: 10px; text-transform: uppercase; letter-spacing: .08em; }
+  .home-map { padding: 8px 0; }
+  .home-map .line { display: flex; justify-content: space-between; gap: 12px; font-size: 12.5px; }
+  .home-map .track { height: 6px; background: var(--bg-inset); border-radius: 5px; margin-top: 6px; overflow: hidden; }
+  .home-map .track i { display: block; height: 100%; background: var(--accent); }
+  @media (max-width: 620px) {
+    .home-verdict { grid-template-columns: 1fr; justify-items: center; text-align: center; }
+    .home-glance { width: 100%; }
+  }
 
   .split-cols { display: grid; grid-template-columns: 5fr 7fr; gap: 22px; align-items: start; margin-top: 16px; }
   .split-cols > div { min-width: 0; }
@@ -187,6 +271,9 @@
   .att-item .opts { margin-top: 5px; font-size: 12.5px; color: var(--ink-dim); }
   .att-item.gate { border-left-color: var(--accent); background: var(--chip-ok-bg); }
   .att-item.limit { border-left-color: var(--bad); background: var(--chip-bad-bg); }
+  .need-rank.compact .att-item { padding: 6px 10px; background: transparent; border-left-color: var(--line); color: var(--ink-dim); }
+  .need-rank.compact .att-item .diff, .need-rank.compact .att-item .act-row, .need-rank.compact .att-item .opts { display: none; }
+  .need-rank.aged .att-item { border-left-color: var(--warn); }
   /* A credential that is dying reads as bad, not as a warning: nothing on this
      page fixes it, and an agent meets it as a failed first `gh` call (#380). */
   .att-item.token { border-left-color: var(--bad); background: var(--chip-bad-bg); }
@@ -297,6 +384,29 @@
   table.agents .over { color: var(--warn); }
   .esc-row td { background: var(--chip-warn-bg); }
   .statusbar { display: flex; gap: 18px; font-size: 12.5px; color: var(--ink-dim); margin-bottom: 14px; font-family: ui-monospace, Menlo, monospace; flex-wrap: wrap; }
+  .agent-focus { display: grid; grid-template-columns: minmax(260px, 5fr) minmax(320px, 7fr); gap: 0 48px; align-items: start; }
+  .agent-roster .agent-pick { width: 100%; display: flex; align-items: center; gap: 10px; border: 0; border-bottom: 1px solid var(--line); background: none; color: var(--ink); text-align: left; padding: 11px 6px; }
+  .agent-roster .agent-pick.on { border-left: 3px solid var(--accent); padding-left: 10px; background: var(--bg-raise); }
+  .agent-pick .main { flex: 1; min-width: 0; }
+  .agent-pick .main b, .agent-pick .main span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .agent-pick .main span { color: var(--ink-dim); font-size: 11px; margin-top: 3px; }
+  .agent-detail { position: sticky; top: 24px; border-left: 1px solid var(--line); padding-left: 28px; }
+  .agent-detail .agent-title { font-size: 18px; font-weight: 700; }
+  .agent-detail .state-line { margin-top: 8px; color: var(--ink-dim); }
+  .agent-detail .state-line .needs { color: var(--warn); font-weight: 700; }
+  .agent-meters { display: grid; grid-template-columns: repeat(auto-fit, minmax(75px, 1fr)); gap: 16px; margin: 20px 0; }
+  .agent-meters .v { font: 700 16px ui-monospace, Menlo, monospace; }
+  .agent-meters .k { color: var(--ink-faint); font-size: 9px; text-transform: uppercase; letter-spacing: .08em; }
+  .agent-story { margin-top: 20px; }
+  .agent-story .line { display: grid; grid-template-columns: 44px 1fr; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
+  .agent-story time { color: var(--ink-faint); }
+  .agent-ended { grid-column: 1; margin-top: 24px; }
+  .agent-ended .line { font-size: 12px; color: var(--ink-dim); padding: 6px 0; }
+  .legacy-controls { margin-top: 26px; color: var(--ink-faint); }
+  @media (max-width: 800px) {
+    .agent-focus { grid-template-columns: 1fr; }
+    .agent-detail { position: static; border-left: 0; padding: 24px 0 0; }
+  }
 
   /* ---------- feed ---------- */
   .feed-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
@@ -307,6 +417,34 @@
   .feed-list .tag { font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: var(--ink-dim); }
   .feed-list li.warn .tag { color: var(--warn); }
   .feed-list li.bad .tag { color: var(--bad); }
+  .feed-density { display: grid; grid-template-columns: repeat(24, 1fr); gap: 3px; height: 34px; align-items: end; margin: 10px 0 6px; }
+  .density-cell { min-height: 3px; border-radius: 2px; background: var(--line); }
+  .density-cell.active { background: var(--accent); }
+  .feed-wire { max-width: 760px; }
+  .feed-pulse { display: flex; align-items: flex-end; gap: 14px; margin-top: 10px; }
+  .feed-pulse .k { flex: none; font: 10px ui-monospace, Menlo, monospace; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-faint); padding-bottom: 2px; }
+  .feed-pulse .feed-density { flex: 1; margin: 0; }
+  .feed-chips { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0 6px; }
+  .feed-chip { border: 1px solid var(--line); background: none; color: var(--ink-dim); border-radius: 999px; padding: 4px 10px; font: 600 10px ui-monospace, Menlo, monospace; letter-spacing: .1em; text-transform: uppercase; cursor: pointer; }
+  .feed-chip.on { color: var(--ink); border-color: var(--ink-dim); background: var(--bg-raise); }
+  .feed-news .l2 { font: 11px ui-monospace, Menlo, monospace; color: var(--ink-faint); margin-top: 3px; }
+  .feed-news.ok { border-left: 2px solid var(--ok); padding-left: 12px; margin-left: -14px; }
+  .feed-news.bad { border-left: 2px solid var(--bad); padding-left: 12px; margin-left: -14px; }
+  .feed-news.warn:not(.needs) { border-left: 2px solid var(--warn); padding-left: 12px; margin-left: -14px; }
+  .feed-fold { padding: 2px 0; }
+  .feed-fold summary { cursor: pointer; color: var(--ink-faint); font: 11px ui-monospace, Menlo, monospace; padding: 5px 0 5px 60px; list-style: none; }
+  .feed-fold summary::before { content: "▸ "; }
+  .feed-fold[open] summary::before { content: "▾ "; }
+  .feed-news { display: grid; grid-template-columns: 48px 1fr auto; gap: 12px; align-items: start; padding: 13px 0; border-bottom: 1px solid var(--line); }
+  .feed-news.needs { background: var(--chip-warn-bg); margin: 0 -10px; padding: 13px 10px; }
+  .feed-news.focus, .feed-mechanic.focus { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .feed-news time, .feed-mechanic time { color: var(--ink-faint); font: 11px ui-monospace, Menlo, monospace; }
+  .feed-news .story { font-size: 13px; }
+  .feed-news .word { display: block; color: var(--ink-faint); font-size: 10px; text-transform: uppercase; letter-spacing: .08em; margin-bottom: 3px; }
+  .feed-news.needs .word { color: var(--warn); font-weight: 700; }
+  .feed-mechanic { display: grid; grid-template-columns: 48px 1fr; gap: 12px; padding: 4px 0; color: var(--ink-faint); font-size: 11px; }
+  .since-marker { color: var(--warn); font: 700 10px ui-monospace, Menlo, monospace; letter-spacing: .08em; text-transform: uppercase; border-top: 1px solid var(--warn); padding-top: 5px; margin: 10px 0; }
+  .legacy-feed { margin-top: 24px; color: var(--ink-faint); }
 
   /* ---------- frontier ---------- */
   .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--bg-raise); }
@@ -349,6 +487,61 @@
   .fr-kid::before { content: "└─"; position: absolute; left: -16px; color: var(--ink-faint); font-family: ui-monospace, Menlo, monospace; }
   .fr-kid .t { font-family: ui-monospace, Menlo, monospace; margin-right: 6px; }
 
+  /* ---------- maps ---------- */
+  .map-filter { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+  .map-filter button { border: 1px solid var(--line); border-radius: 999px; background: var(--bg-raise); color: var(--ink-dim); padding: 4px 12px; font-size: 12px; }
+  .map-filter button.on { border-color: var(--accent); color: var(--accent); }
+  .map-layout { display: grid; grid-template-columns: minmax(0, 5fr) minmax(280px, 4fr); gap: 0 56px; align-items: start; }
+  .map-card { margin-top: 34px; }
+  .map-head { display: flex; gap: 16px; align-items: center; }
+  .map-fraction { flex: none; font: 700 23px ui-monospace, Menlo, monospace; }
+  .map-fraction .total, .map-fraction .fog-count { color: var(--ink-dim); font-weight: 400; }
+  .map-fraction .fog-count { font-size: 14px; }
+  .map-title { min-width: 0; }
+  .map-title b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .map-title .meta { display: block; color: var(--ink-faint); font: 10px ui-monospace, Menlo, monospace; margin-top: 4px; }
+  .map-band { display: flex; gap: 3px; margin-top: 14px; min-height: 38px; }
+  .map-seg { flex: 1 1 0; min-width: 45px; border: 0; border-radius: 5px; padding: 5px; background: var(--accent); color: var(--accent-ink); font: 700 11px ui-monospace, Menlo, monospace; }
+  .map-seg span { display: block; font-size: 9px; font-weight: 500; }
+  .map-seg.in-flight { background: var(--ok); }
+  .map-seg.in-flight.needs { background: var(--warn); }
+  .map-seg.takeable { border: 2px solid var(--accent); background: transparent; color: var(--accent); }
+  .map-seg.blocked { background: repeating-linear-gradient(45deg, var(--line) 0 4px, transparent 4px 8px); color: var(--ink-dim); }
+  .map-seg.fog { border: 2px dotted var(--ink-dim); background: transparent; color: var(--ink-dim); }
+  .map-seg.on { outline: 2px solid var(--ink-dim); outline-offset: 3px; }
+  .map-detail { position: sticky; top: 24px; margin-top: 34px; }
+  .map-detail h3 { color: var(--ink-faint); font: 600 10px ui-monospace, Menlo, monospace; letter-spacing: .16em; text-transform: uppercase; margin-bottom: 8px; }
+  .map-detail-list { border-left: 2px solid var(--line); padding-left: 16px; }
+  .map-detail-row { padding: 9px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+  .map-detail-row:last-child { border-bottom: 0; }
+  .map-detail-row .sub { display: block; color: var(--ink-dim); font-size: 11px; margin-top: 4px; }
+  /* The frontier rule the takeable group sits under (#588 F1). */
+  .map-front { display: flex; align-items: center; gap: 10px; margin: 2px 0 6px; }
+  .map-front .lbl { flex: none; color: var(--accent); font: 700 10px ui-monospace, Menlo, monospace; letter-spacing: .24em; text-transform: uppercase; }
+  .map-front .rule { flex: 1; height: 2px; background: var(--accent); }
+  /* Blocked wears thin red dashes and names every key; fog wears the grey
+     diagonal stripes. Both are boxed, and both are the accepted cut. */
+  .map-detail-list.blocked { border-left: 0; padding: 4px 14px; border: 1px solid var(--blocked-edge); border-radius: 8px;
+    background: repeating-linear-gradient(0deg, var(--blocked-wash) 0 2px, transparent 2px 9px); }
+  .map-detail-list.blocked .map-detail-row { border-bottom-color: var(--blocked-edge); }
+  .map-detail-list.blocked .sub { color: var(--bad); }
+  .map-detail-list.fog { border-left: 0; padding: 4px 14px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink-dim);
+    background: repeating-linear-gradient(45deg, var(--line) 0 4px, transparent 4px 8px); }
+  .map-back { display: none; }
+  @media (max-width: 900px) {
+    .map-layout { grid-template-columns: 1fr; }
+    .map-card { margin-top: 28px; }
+    .map-band { overflow-x: auto; padding: 3px; }
+    /* The phone's half of the split is a ROUTE (#700): the detail is its own
+       hash, so it opens over the list and the browser's back leaves it. Both
+       halves are always rendered and this decides which the width shows —
+       nothing in the script measures a viewport. */
+    .map-detail { display: none; }
+    .map-layout[data-open] .map-cards { display: none; }
+    .map-layout[data-open] .map-detail { display: block; position: static; margin-top: 8px; }
+    .map-back { display: inline-block; margin-bottom: 10px; color: var(--ink-dim); font-size: 12px; }
+  }
+
   /* ---------- settings (#265, on the #248 look) ---------- */
   .btn {
     border: 1px solid var(--line); background: var(--bg-raise); color: var(--ink);
@@ -370,33 +563,28 @@
   input[type=number] { width: 5.5em; }
   input[type=checkbox] { accent-color: var(--accent); }
 
-  .set-subnav { display: flex; gap: 4px; margin-bottom: 14px; border-bottom: 1px solid var(--line); overflow-x: auto; }
-  .set-subnav button { border: 0; background: none; color: var(--ink-dim); padding: 7px 14px; font-size: 13px; border-bottom: 2px solid transparent; margin-bottom: -1px; white-space: nowrap; }
-  .set-subnav button.on { color: var(--ink); font-weight: 600; border-bottom-color: var(--accent); }
-  .set-block { border: 1px solid var(--line); border-radius: 9px; background: var(--bg-raise); padding: 12px 14px; }
-  .set-block h3 { font-size: 13px; margin-bottom: 8px; }
-  .set-block .hint { font-size: 12px; color: var(--ink-dim); margin: 0 0 10px; }
-  .set-block table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
-  .set-block td, .set-block th { padding: 5px 8px 5px 0; text-align: left; vertical-align: middle; }
-  .set-block th { color: var(--ink-faint); font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
-  .set-block tr.inactive td { color: var(--ink-faint); }
-  .set-block .right { text-align: right; }
-  .model-mgr { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); font-size: 12.5px; }
+  .model-mgr { margin-top: 6px; }
+  .model-mgr .row.inactive .key { color: var(--ink-faint); }
   .gh-connect { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--ink-dim); margin-bottom: 10px; flex-wrap: wrap; }
 
-  /* The banner sits at the TOP and states one act (#248, collapsed by #362):
-     the save, and what the daemon did with it. */
-  .save-banner {
-    display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
-    background: var(--bg-raise); border: 1px solid var(--line); border-radius: 9px;
-    padding: 9px 14px; margin-bottom: 14px;
+  /* ---------- the save dock (#699, on the #525 decision) ----------
+     A clean screen carries NO save chrome. The dock rises on the first edit,
+     sticks to the bottom of the screen, and every outcome speaks in that same
+     place: unsaved, saved, declined, refused, offline. A button appears only
+     where it is the mitigation. */
+  .dock {
+    position: sticky; bottom: 14px; z-index: 6; width: max-content; max-width: 100%;
+    margin: 26px auto 0; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    background: var(--bg-raise); border: 1px solid var(--line); border-radius: 14px;
+    padding: 10px 14px; box-shadow: var(--shadow);
   }
-  .save-banner.saved { border-color: var(--accent); background: var(--chip-ok-bg); }
-  .save-banner.refused { border-color: var(--bad); background: var(--chip-bad-bg); }
-  .save-banner .toast { font-size: 12.5px; color: var(--ink-dim); }
-  .save-banner.saved .toast { color: var(--ok); }
-  .save-banner.refused .toast { color: var(--bad); }
-  .save-banner .toast.why { font-family: ui-monospace, Menlo, monospace; font-size: 12px; flex-basis: 100%; }
+  .dock.saved { border-color: var(--ok); }
+  .dock.refused { border-color: var(--bad); background: var(--chip-bad-bg); }
+  .dock .toast { font-size: 12.5px; color: var(--ink-dim); }
+  .dock .toast.bad { color: var(--bad); }
+  .dock .ok-word { font: 600 12.5px ui-monospace, Menlo, monospace; color: var(--ok); }
+  .dock .why { flex-basis: 100%; font-family: ui-monospace, Menlo, monospace; font-size: 12px; color: var(--ink-dim); }
+  .dock.refused .why { color: var(--bad); }
 
   /* ---------- the operator verbs (#266, on the #248 shapes) ----------
      No new color. A verb sits inside the card that already carries the fact it
@@ -478,6 +666,8 @@
   /* The turn a restart killed on this conversation (#388). A browser
      conversation has no thread, so its row is where that line goes. */
   table.chats .killed { display: block; margin: 3px 0 0; font-size: 12px; color: var(--warn); }
+  .terminal-pane { margin: 0 0 14px; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; background: #111; }
+  .terminal-pane iframe { display: block; width: 100%; height: min(68vh, 720px); border: 0; }
 
   /* ---------- the screens that land later ---------- */
   .later {
@@ -500,7 +690,7 @@
    named tickets below draw their own. */
 const SCREENS = {
   home:     ["Home",     screenHome],
-  maps:     ["Maps",     screenFrontier],
+  maps:     ["Maps",     screenMaps],
   agents:   ["Agents",   screenAgents],
   feed:     ["Feed",     screenFeed],
   chat:     ["Chat",     screenChat],
@@ -523,11 +713,25 @@ const REVIEW_KIND = "review-gate";
 var UI = {
   screen: "home",
   fr: { view: "cards", repo: "all", type: "all" },
+  /* The maps page's own state (#700): which project the list is filtered to,
+     which map and group the detail half shows, and whether the phone is on
+     that detail instead of the list. `open` is the route's, never a width's. */
+  maps: { repo: "all", selected: null, open: false },
+  agents: { selected: null },
+  feed: { lastRead: null, operator: null, focus: null, family: "all" },
+  search: { open: false, q: "", loading: false, error: null, result: null },
   /* The settings screen's own state (#265). `phase` is what the banner says:
      clean and dirty before a save, then the three outcomes a save can have
      (#362) — applied, declined, offline — plus the three that interrupt them:
      restarting, refused, unread. */
-  set: { section: "routing", models: false, phase: "clean", error: null, busy: false, note: null },
+  set: { models: false, phase: "clean", error: null, busy: false, note: null },
+  /* The drill-in frame's own state (#699), one entry per page that is a list
+     of sections: which section is open, and whether the phone is on the list
+     in front of it. */
+  drill: {},
+  /* Which `?` explanations are open, by row id. Page-wide, because the frame
+     hands the same affordance to every section on every page. */
+  hints: {},
   /* The operator verbs (#266). `busy` names the ONE press in flight, keyed to
      the control it came from; `said` is what curia answered, shown at that same
      control. `note` and `tele` name the agent whose box is open, and `mode` is
@@ -540,6 +744,8 @@ var settings = null;  /* the last read of curia.yaml + routing.yaml off disk */
 var draft = null;     /* the same, with the operator's unsaved edits on it */
 var repos = null;     /* the watchable repos, read through the daemon on demand */
 var conversations = null; /* the browser conversations (#333), read on the Chat screen only */
+var aistack = null;   /* the aistack registration and sync verdict (#706), read on that section only */
+var aistackAct = { busy: null, said: null, poll: null }; /* which aistack press is in flight, and what it answered */
 
 /* ---- words ---------------------------------------------------------------- */
 
@@ -695,7 +901,11 @@ function refuse(key, text) {
 function outcome(b) {
   if (typeof b.reply === "string") return b.reply;
   if (b.mode) return noteOutcome(b);
-  if (b.ok) return "Answered — it is with the agent.";
+  if (b.ok) {
+    const next = (b.next_needs ?? []).slice(0, 3);
+    const more = next.length ? `\nNext ${next.length} needs:\n${next.map((need, i) => `${i + 1}. ${need.headline} · ${need.agent} · ticket ${need.ticket}`).join("\n")}` : "";
+    return "Answered. It is with the agent." + more;
+  }
   return "Done.";
 }
 /* A note says which delivery it got, because the delivery is the half the
@@ -807,7 +1017,107 @@ function readbar(p) {
 /* Every screen opens the same way, and no screen draws before the first read
    lands. */
 function head(p, title, right) {
-  return `<div class="screen-head"><h2>${esc(title)}</h2>${right ?? ""}</div>${readbar(p)}`;
+  return `<div class="screen-head"><h2>${esc(title)}</h2><div class="screen-actions">${right ?? ""}
+    <button class="search-lens" onclick="openSearch()">⌕ Search</button></div></div>${readbar(p)}`;
+}
+
+function searchMark(value, query) {
+  const source = esc(value);
+  const q = String(query ?? "").trim();
+  if (!q) return source;
+  const re = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "ig");
+  return source.replace(re, (hit) => `<mark>${hit}</mark>`);
+}
+
+function searchLanding(row) {
+  const landing = row.landing ?? {};
+  if (landing.surface === "chat") return { href: chatHref(landing.conversation), word: "Chat" };
+  if (landing.surface === "maps") return { href: "#maps", word: "Maps", action: `searchGo('maps','${js(landing.map)}')` };
+  if (landing.surface === "feed") return { href: "#feed", word: "Feed", action: `searchGo('feed','${js(landing.event)}')` };
+  return { href: landing.url ?? "#", word: "GitHub" };
+}
+
+function searchOverlay() {
+  const state = UI.search;
+  if (!state.open) return "";
+  let body = `<div class="dim-note">Search tickets, maps, decisions, the journal, and Chat.</div>`;
+  if (state.loading) body = `<div class="later">Searching…</div>`;
+  else if (state.error) body = `<div class="unread">${esc(state.error)}</div>`;
+  else if (state.result) {
+    const rows = state.result.results;
+    if (rows === null) body = `<div class="unread">Search could not reach Curia.</div>`;
+    else body = rows.length ? `<div class="search-results">${rows.map((row) => {
+      const landing = searchLanding(row);
+      const kind = row.attention || row.kind;
+      return `<a class="search-result" href="${esc(landing.href)}"${landing.action ? ` onclick="${landing.action};return false"` : ""}><span class="kind${row.attention ? " needs" : ""}">${esc(kind)}</span>
+        <span><span class="title">${searchMark(row.title, state.q)}</span><span class="snippet">${searchMark(row.snippet, state.q)}</span></span>
+        <span class="meta"><span>${esc(dur(row.age_s))}</span><span>${esc(landing.word)}</span></span></a>`;
+    }).join("")}</div>` : `<div class="empty">Nothing matches.</div>`;
+  }
+  return `<section class="search-sheet" role="dialog" aria-label="Global search"><div class="search-box">
+    <input id="atlas-search" type="search" value="${esc(state.q)}" placeholder="tickets · decisions · journal · Chat" oninput="searchType(this.value)" autofocus>
+    <button class="btn" onclick="closeSearch()">Close</button></div>${body}</section>`;
+}
+
+let searchTimer = null;
+let searchGeneration = 0;
+function openSearch() { UI.search.open = true; render(); }
+function closeSearch() {
+  UI.search.open = false;
+  UI.search.loading = false;
+  searchGeneration += 1;
+  clearTimeout(searchTimer);
+  render();
+}
+function searchGo(surface, ref) {
+  if (surface === "maps") {
+    const map = mapsOf(payload?.overview).find((row) => String(row.number) === String(ref));
+    if (map) {
+      const group = mapNeeds(payload.overview, map) ? "in_flight" : map.counts?.takeable ? "takeable" : map.counts?.walked ? "walked" : "fog";
+      UI.maps.repo = "all";
+      UI.maps.selected = { repo: map.repo, map: map.number, group };
+      UI.maps.open = true;
+      UI.search.open = false;
+      enter("maps");
+      location.hash = mapRoute(map.repo, map.number, group);
+      render();
+      return false;
+    }
+  }
+  if (surface === "feed") UI.feed.focus = { id: String(ref), query: UI.search.q.trim().toLowerCase() };
+  UI.search.open = false;
+  enter(surface);
+  location.hash = surface;
+  render();
+  return false;
+}
+function searchType(query) {
+  UI.search.q = query;
+  const generation = ++searchGeneration;
+  clearTimeout(searchTimer);
+  if (!String(query).trim()) { UI.search.result = null; UI.search.error = null; UI.search.loading = false; render(); return; }
+  searchTimer = setTimeout(() => runSearch(generation), 220);
+}
+async function runSearch(generation = ++searchGeneration) {
+  const query = UI.search.q.trim();
+  if (!query) return;
+  UI.search.loading = true;
+  UI.search.error = null;
+  render();
+  try {
+    const res = await fetch("/api/search?q=" + encodeURIComponent(query), { headers: { accept: "application/json" }, cache: "no-store" });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || ("the sidecar answered " + res.status));
+    if (generation !== searchGeneration) return;
+    UI.search.result = body;
+  } catch (error) {
+    if (generation !== searchGeneration) return;
+    UI.search.result = null;
+    UI.search.error = error.message;
+  }
+  if (generation !== searchGeneration) return;
+  UI.search.loading = false;
+  render();
 }
 function noSnapshot(p, title, right) {
   return `${head(p, title, right)}<div class="later">No snapshot yet. The sidecar is up and has not read the daemon successfully even once.</div>`;
@@ -1004,7 +1314,7 @@ function answerButtons(r) {
     b.push(btn("✅ Approve", APPROVE, "primary"), btn("❌ Reject", REJECT, "danger"));
   }
   if (r.kind === "confirm") b.push(btn("✅ Approve", APPROVE, "danger"), btn("❌ Decline", REJECT));
-  if (r.kind === "choice") for (const o of r.options ?? []) b.push(btn(snip(o, 80), o));
+  if (r.kind === "choice") for (const [i, o] of (r.options ?? []).entries()) b.push(btn(snip(r.option_handles?.[i] || o, 80), o));
   if (r.kind === "free-text" && r.recommended) b.push(btn("✅ All as recommended", ALL_AS_RECOMMENDED, "primary"));
   return b.length ? `<div class="act-row">${b.join("")}</div>` : "";
 }
@@ -1342,26 +1652,38 @@ function credLink(words) {
 
    A spent usage window is NOT here. It never was answerable, and this is the
    answer surface: it rolls on its own clock, and no operator act ends it. It
-   reaches the top of Home as a banner instead, beside the pre-emptive hold. */
+   reaches the top of Home as a banner instead, beside the pre-emptive hold.
+
+   Waiting time and downstream work rank the answerable items. The first three
+   keep their full controls, while later items remain visible as compact rows. */
 function attentionItems(o) {
-  return [
-    ...credentialPointers(o),
-    ...(o?.escalations ?? []).map(escCard),
-    ...(o?.review_gate ?? []).map(gateCard),
-    ...(o?.token_warnings ?? []).map(tokenCard),
+  const waitMinutes = (opened) => opened ? Math.max(0, Math.floor((Date.now() - Date.parse(opened)) / 60_000)) : 0;
+  const effectiveWait = (row, gate = false) => {
+    const unblocks = Array.isArray(row?.unblocks) ? row.unblocks.length : Number(row?.unblocks ?? 0);
+    return waitMinutes(row?.opened_at ?? row?.at) + unblocks * 90 + (gate ? 20 : 0);
+  };
+  const items = [
+    ...credentialPointers(o).map((html) => ({ html, score: 100_000, aged: false })),
+    ...(o?.escalations ?? []).map((row) => ({ html: escCard(row), score: effectiveWait(row), aged: waitMinutes(row.opened_at) >= 240 })),
+    ...(o?.review_gate ?? []).map((row) => ({ html: gateCard(row), score: effectiveWait(row, true), aged: waitMinutes(row.opened_at) >= 240 })),
+    ...(o?.token_warnings ?? []).map((row) => ({ html: tokenCard(row), score: 50_000, aged: false })),
     /* The tickets the auto loop steps over (#444). On this list where a spent
        window is not, by this list's own test: an operator act is what ends one.
        Nothing lifts it on a clock, and the ticket sits on the frontier
        untouched until somebody fixes the cause and dispatches it. */
-    ...(o?.dispatch_holds ?? []).map(dispatchHoldCard),
+    ...(o?.dispatch_holds ?? []).map((row) => ({ html: dispatchHoldCard(row), score: 50_000, aged: false })),
   ];
+  items.sort((a, b) => b.score - a.score);
+  return items;
 }
 
 /* The column itself. It carries no count of its own any more: the number has one
    home, `needsYou`, and a second one here is how the two drifted. */
 function attentionList(o) {
   const items = attentionItems(o);
-  return items.length ? items.join("") : `<div class="empty">Nothing wants you.</div>`;
+  return items.length
+    ? items.map((item, index) => `<div class="need-rank ${index < 3 ? "full" : "compact"}${item.aged ? " aged" : ""}">${item.html}</div>`).join("")
+    : `<div class="empty">Nothing wants you.</div>`;
 }
 
 /* ---- the feed -------------------------------------------------------------- */
@@ -1556,14 +1878,28 @@ function statTiles(o) {
 function screenHome(p) {
   const o = p?.overview;
   if (!o) return noSnapshot(p, "Home");
-  /* The list header reads `needsYou` like the tile, the badge and the tab title
-     do (#677). It is the same number the column beneath it draws — both come
-     off `attentionItems` — and saying it in the same word is what stops the
-     next surface from growing its own arithmetic. */
+  /* The list header reads `needsYou` like the tile, the badge, and the tab title
+     do. Both the count and the column come from `attentionItems`. */
   const n = needsYou(o);
+  const maps = mapsOf(o);
+  const event24h = (o.events ?? []).filter((event) => Date.now() - Date.parse(event.ts ?? 0) <= 86_400_000).length;
+  const types = new Map();
+  maps.flatMap((map) => map.takeable ?? []).forEach((item) => types.set(item.type ?? typeOf(item), (types.get(item.type ?? typeOf(item)) ?? 0) + 1));
+  const typeMix = [...types.entries()].map(([type, count]) => `${count} ${esc(type)}`).join(" · ") || "no takeable work";
+  const progress = maps.map((map) => {
+    const total = mapTotal(map);
+    const closed = map.counts?.walked ?? 0;
+    const pct = total ? Math.round(closed * 100 / total) : 0;
+    return `<div class="home-map"><div class="line"><span>${esc(map.title)}</span><span class="mono">${closed}/${total} · ${esc(map.counts?.fog ?? 0)} fog</span></div>
+      <div class="track" aria-label="${closed} of ${total} walked"><i style="width:${pct}%"></i></div></div>`;
+  }).join("") || `<div class="empty">No open map.</div>`;
   return `${head(p, "Home")}
     ${spentBanner(o)}
     ${holdBanner(o)}
+    <div class="home-verdict"><div class="verdict-ring"><div><span class="v">${esc(needsYou(o))}</span><span class="k">needs you</span></div></div>
+      <div class="home-glance"><div><span class="v">${esc(o.agents?.length ?? "unknown")}</span><span class="k">agents live</span></div>
+      <div><span class="v">${esc(maps.length)}</span><span class="k">open maps</span></div>
+      <div><span class="v">${esc(event24h)}</span><span class="k">events in 24h</span></div></div></div>
     ${statTiles(o)}
     <div class="split-cols">
       <div>
@@ -1573,6 +1909,9 @@ function screenHome(p) {
       </div>
       <div>
         <div class="h-sect"><h3>Fleet${o.agents == null ? "" : ` (${o.agents.length})`}</h3>${fleetTable(o)}</div>
+        <div class="h-sect"><h3>Maps</h3>${progress}</div>
+        <div class="h-sect"><h3>Momentum</h3><div class="dim-note">${event24h} events in 24h · ${esc(o.recent?.length ?? 0)} recent endings</div></div>
+        <div class="h-sect"><h3>Type mix</h3><div class="dim-note">${typeMix}</div></div>
         ${provStrip(o)}
         ${deployCard(o)}
       </div>
@@ -1618,8 +1957,42 @@ function screenAgents(p) {
     <span>bridge ${esc(o.bridge)}</span>
     <span>daemon :${esc(d.port)} up ${esc(dur(d.uptime_s))}</span>
   </div>`;
-  return `${head(p, "Agents", chat)}${bar}${agentsTable(o)}${untrackedLine(o)}${recentLine(o)}`;
+  return `${head(p, "Agents", chat)}${bar}${agentFocus(o)}
+    <details class="legacy-controls"><summary>Operator controls</summary>${agentsTable(o)}${untrackedLine(o)}</details>${recentLine(o)}`;
 }
+
+function agentFocus(o) {
+  if (o.agents == null) return agentsTable(o);
+  const roster = [...o.agents].sort((a, b) => (wantsYou(b) ? 1 : 0) - (wantsYou(a) ? 1 : 0));
+  if (!roster.length) return `${agentsTable(o)}${recentLine(o)}`;
+  const selected = roster.find((agent) => agent.session === UI.agents.selected) ?? roster[0];
+  const story = [...(o.events ?? [])]
+    .filter((event) => event.agent === selected.session || (event.ticket != null && String(event.ticket) === String(selected.ticket)))
+    .reverse().slice(0, 6);
+  const rows = roster.map((agent) => `<button class="agent-pick${agent.session === selected.session ? " on" : ""}" onclick="agentSelect('${js(agent.session)}')">
+    ${wantsYou(agent) ? `<span class="eyebrow" style="color:var(--warn)">Needs you</span>` : agentDot(agent)}
+    <span class="main"><b>${esc(agent.title ?? agent.session)}</b><span>${esc(agent.session)} · ${esc(stateWord(agent))} · ${esc(dur(agent.uptime_s))}</span></span></button>`).join("");
+  const storyRows = story.map((event) => {
+    const line = eventLine(event);
+    return `<div class="line"><time>${esc(clock(event.ts))}</time><span>${line.html}</span></div>`;
+  }).join("") || `<div class="empty">No recent story is on this reading.</div>`;
+  const recent = (o.recent ?? []).map((row) => `<div class="line">${esc(row.kind)} ${esc(ticketName(row.repo, row.ticket))}</div>`).join("")
+    || `<div class="empty">No agent ended today.</div>`;
+  return `<div class="agent-focus"><div class="agent-roster"><h3>Agents</h3>${rows}</div>
+    <article class="agent-detail"><span class="eyebrow">Selected</span><div class="agent-title">${esc(selected.title ?? selected.session)}</div>
+      <div class="dim-note">${esc(ticketName(selected.repo, selected.ticket))} · ${esc(selected.session)}</div>
+      <div class="state-line"><span class="${wantsYou(selected) ? "needs" : ""}">${esc(stateWord(selected))}</span> · ${wantsYou(selected) ? "waiting for you" : `contact ${esc(dur(selected.last_contact_s))} ago`}</div>
+      <div class="agent-meters"><div><span class="v">${esc(selected.model ?? "unknown")}</span><span class="k">model</span></div>
+        <div><span class="v">${esc(selected.ctx_pct == null ? "unknown" : selected.ctx_pct + "%")}</span><span class="k">context</span></div>
+        <div><span class="v">${esc(dur(selected.uptime_s))}</span><span class="k">elapsed</span></div>
+        <div><span class="v">${esc(dur(selected.last_contact_s))}</span><span class="k">contact</span></div></div>
+      <div class="agent-story"><h3>Story</h3>${storyRows}</div>
+      <div class="links" style="margin-top:16px"><a href="${chatHref(selected.session)}">open Chat →</a>
+        <a href="https://github.com/${esc(selected.repo)}/issues/${esc(selected.ticket)}">ticket →</a></div></article>
+    <div class="agent-ended"><h3>Ended today</h3>${recent}</div></div>`;
+}
+
+function agentSelect(session) { UI.agents.selected = session; render(); }
 
 function agentsTable(o) {
   if (o.agents == null) {
@@ -1730,11 +2103,216 @@ function recentLine(o) {
   return `<p class="dim-note">Recently: ${o.recent.map((r) => `${esc(r.kind)} ${esc(ticketName(r.repo, r.ticket))}`).join(" · ")}</p>`;
 }
 
+/* ---- maps -----------------------------------------------------------------
+
+   ONE MAP READING (#700). Every map fact on this page comes from
+   `overview.maps` — the complete snapshot `readMapSnapshot` computes (#687) —
+   and from nowhere else. `overview.frontier` is the takeable reading the start
+   controls sit on; it says nothing about walked work, blockers, or fog.
+
+   The snapshot is three fields: `computed_at`, `maps`, and `error`. Null maps
+   with an error is NOT an empty map set — it is a reading curia could not take,
+   and the page says which of the two it is holding. */
+
+function mapSnapshot(o) {
+  return o?.maps ?? { computed_at: null, maps: null, error: null };
+}
+function mapsOf(o) {
+  return mapSnapshot(o).maps ?? [];
+}
+/* The fog is a list of facts, each with its own text — never a bare string,
+   so a later reading can hang more on a patch without moving this page. */
+const fogText = (note) => String(note?.text ?? note ?? "");
+/* The snapshot names each ticket's type, and a ticket with no `wayfinder:`
+   label has none. `untyped` is what the page says then, and it is a word about
+   the label rather than a type guessed from somewhere else. */
+const mapType = (item) => item?.type ?? "untyped";
+
+function mapNeeds(o, map) {
+  const tickets = new Set([
+    ...(o.escalations ?? []).map((row) => String(row.ticket)),
+    ...(o.review_gate ?? []).map((row) => String(row.ticket)),
+    ...(o.agents ?? []).filter(wantsYou).map((agent) => String(agent.ticket)),
+  ]);
+  return (map.in_flight ?? []).some((item) => tickets.has(String(item.number)));
+}
+
+function visibleMaps(o) {
+  return mapsOf(o)
+    .filter((map) => UI.maps.repo === "all" || map.repo === UI.maps.repo)
+    .sort((a, b) => Number(mapNeeds(o, b)) - Number(mapNeeds(o, a))
+      || Date.parse(b.latest_event_at ?? 0) - Date.parse(a.latest_event_at ?? 0));
+}
+
+function selectedMapGroup(o, maps) {
+  const chosen = UI.maps.selected;
+  const map = maps.find((row) => row.repo === chosen?.repo && String(row.number) === String(chosen?.map));
+  if (map && ["walked", "in_flight", "takeable", "blocked", "fog"].includes(chosen.group)) return { map, group: chosen.group };
+  const first = maps[0];
+  if (!first) return null;
+  const group = mapNeeds(o, first) ? "in_flight" : first.counts?.takeable ? "takeable" : first.counts?.walked ? "walked" : "fog";
+  return { map: first, group };
+}
+
+const MAP_GROUPS = [
+  ["walked", "walked"],
+  ["in_flight", "in flight"],
+  ["takeable", "takeable"],
+  ["blocked", "blocked"],
+  ["fog", "fog"],
+];
+
+function mapBand(o, map, selected) {
+  return `<div class="map-band">${MAP_GROUPS.map(([key, word]) => {
+    const needs = key === "in_flight" && mapNeeds(o, map);
+    const on = selected?.map.repo === map.repo && String(selected.map.number) === String(map.number) && selected.group === key;
+    return `<button class="map-seg ${key.replace("_", "-")}${needs ? " needs" : ""}${on ? " on" : ""}"
+      aria-label="${esc(map.counts?.[key] ?? 0)} ${esc(word)}" onclick="mapSelect('${js(map.repo)}','${js(map.number)}','${key}')">
+      ${esc(map.counts?.[key] ?? 0)}<span>${needs ? "in flight · needs you" : esc(word)}</span></button>`;
+  }).join("")}</div>`;
+}
+
+function mapDetailRows(o, map, group) {
+  if (group === "fog") {
+    return (map.fog ?? []).map((note) => `<div class="map-detail-row">${esc(fogText(note))}<span class="sub">not yet specified</span></div>`).join("")
+      || `<div class="empty">No retained fog.</div>`;
+  }
+  const items = map[group] ?? [];
+  /* An empty frontier is a sentence, not a blank (#588). The way is elsewhere,
+     and saying where beats leaving the operator to guess it. */
+  if (!items.length) {
+    if (group === "takeable") return `<div class="empty">Nothing is takeable. The way is in flight or behind a blocker.</div>`;
+    return `<div class="empty">Nothing is ${group.replace("_", " ")}.</div>`;
+  }
+  return items.map((item) => {
+    const issue = `<a href="https://github.com/${esc(map.repo)}/issues/${esc(item.number)}">#${esc(item.number)}</a> ${esc(item.title)}`;
+    if (group === "takeable") {
+      /* A PAUSED MAP OFFERS NO START. `wayfinder:deferred` means the map is
+         paused, and a pause is only ever ended by hand (github.mjs
+         `mapCloseBlockers`). The tickets stay listed, because hiding a pause
+         is how a pause becomes a disappearance - it is the BUTTON that goes. */
+      const start = map.deferred
+        ? `<div class="act-row"><span class="dim-note">this map is paused (<span class="mono">wayfinder:deferred</span>), and a pause is only ever ended by hand</span></div>`
+        : startRow(o, map.repo, item);
+      return `<div class="map-detail-row">${issue}
+      <span class="sub">${esc(mapType(item))} · routed to ${esc(item.model ?? "unknown")}</span>${start}</div>`;
+    }
+    if (group === "blocked") {
+      /* EVERY blocker, never a count of them: the operator's next question is
+         which ticket to take, and only the names answer it. */
+      const blockers = (item.blockers ?? []).map((blocker) => `#${esc(blocker.number)} ${esc(blocker.title)}`).join(", ");
+      return `<div class="map-detail-row">${issue}<span class="sub">behind ${blockers || "an unread blocker"}</span></div>`;
+    }
+    if (group === "in_flight") {
+      /* The snapshot names the agent on the ticket and the model it runs on
+         (#687); the fleet reading is the fallback when it holds neither. */
+      const agent = item.agent ?? agentOn(o, map.repo, item.number);
+      const who = (item.assignees ?? []).join(", ");
+      return `<div class="map-detail-row">${issue}<span class="sub">${
+        mapNeeds(o, { ...map, in_flight: [item] }) ? "needs you" : "in flight"}${
+        who ? ` · ${esc(who)}` : ""}${agent?.model ? ` · ${esc(agent.model)}` : ""}</span></div>`;
+    }
+    return `<div class="map-detail-row">${issue}<span class="sub">walked</span></div>`;
+  }).join("");
+}
+
+/* The detail half of the split. One element for both widths: the desktop shows
+   it beside the cards, and the phone shows it INSTEAD of them, on its own
+   route. The back link is the phone's way out and the CSS hides it elsewhere. */
+function mapDetail(o, selected) {
+  if (!selected) return "";
+  const name = MAP_GROUPS.find(([key]) => key === selected.group)?.[1] ?? selected.group;
+  const front = selected.group === "takeable"
+    ? `<div class="map-front"><span class="lbl">the frontier</span><span class="rule"></span></div>` : "";
+  return `<aside class="map-detail">
+    <a class="map-back" href="#maps" onclick="mapBack();return false">\u2039 maps</a>
+    <h3>${esc(selected.map.title)} · ${esc(name)}</h3>${front}
+    <div class="map-detail-list ${esc(selected.group)}">${mapDetailRows(o, selected.map, selected.group)}</div></aside>`;
+}
+
+/* The walked fraction is the snapshot's own total (#687), never a sum this
+   page adds up. Fog is not part of it: an uncharted patch is not a ticket, so
+   counting it would move the denominator every time the fog was written. */
+const mapTotal = (map) => map.counts?.total ?? ["walked", "in_flight", "takeable", "blocked"]
+  .reduce((sum, key) => sum + Number(map.counts?.[key] ?? 0), 0);
+
+function screenMaps(p) {
+  const o = p?.overview;
+  if (!o) return noSnapshot(p, "Maps");
+  const snap = mapSnapshot(o);
+  /* A reading curia could not take is not an empty map set, and this page must
+     not draw one as the other. The error stands with the last stamp beside it,
+     so the operator knows how old the maps under it are. */
+  const failed = snap.error
+    ? `<div class="unread">The map snapshot could not be read \u2014 ${esc(snap.error)}. This is not an empty map set: there may be open maps curia cannot see right now.</div>`
+    : "";
+  if (!snap.computed_at && !snap.maps) {
+    return `${head(p, "Atlas \u00b7 Maps")}${failed}${
+      failed ? "" : `<div class="later">No map snapshot has been computed yet. Reconcile computes it on the credentials that pass already holds, and stamps the instant it did.</div>`}`;
+  }
+  const maps = visibleMaps(o);
+  const selected = selectedMapGroup(o, maps);
+  const repos = [...new Set(mapsOf(o).map((map) => map.repo))];
+  const filters = `<div class="map-filter"><button class="${UI.maps.repo === "all" ? "on" : ""}" onclick="mapRepo('all')">all projects</button>
+    ${repos.map((repo) => `<button class="${UI.maps.repo === repo ? "on" : ""}" onclick="mapRepo('${js(repo)}')">${esc(shortRepo(repo))}</button>`).join("")}
+    <span class="dim-note">computed ${esc(ago(snap.computed_at))}</span></div>`;
+  const cards = maps.map((map) => {
+    const total = mapTotal(map);
+    const walked = map.counts?.walked ?? 0;
+    return `<section class="map-card"><div class="map-head">
+      <div class="map-fraction">${esc(walked)}<span class="total">/${esc(total)}</span>${map.counts?.fog ? `<span class="fog-count">+${esc(map.counts.fog)}</span>` : ""}</div>
+      <div class="map-title"><b>${esc(map.title)}</b><span class="meta">${esc(map.repo)} · ${esc(ago(map.latest_event_at))} · <a href="${esc(mapUrl(map))}">#${esc(map.number)}</a>${map.deferred ? " · paused" : ""}</span></div>
+      </div>${mapBand(o, map, selected)}</section>`;
+  }).join("") || `<div class="empty">No open map matches this project.</div>`;
+  return `${head(p, "Atlas \u00b7 Maps")} ${filters}${failed}<div class="map-layout"${
+    UI.maps.open && selected ? " data-open" : ""}><div class="map-cards">${cards}</div>${mapDetail(o, selected)}</div>`;
+}
+
+const mapUrl = (map) => map.url ?? `https://github.com/${map.repo}/issues/${map.number}`;
+
+/* THE DETAIL IS A ROUTE (#700). `#maps/<owner>/<name>/<number>/<group>` names
+   one group of one map, so the phone's detail view has a back, a refresh, and
+   a link an operator can send: the same three things every other Atlas screen
+   gets from its own hash. `#maps` on its own is the list. */
+const mapRoute = (repo, number, group) => `maps/${repo}/${number}/${group}`;
+
+function applyMapRoute(parts) {
+  if (parts.length >= 5) {
+    UI.maps.selected = { repo: `${parts[1]}/${parts[2]}`, map: parts[3], group: parts[4] };
+    UI.maps.open = true;
+  } else {
+    UI.maps.open = false;
+  }
+}
+
+function mapSelect(repo, map, group) {
+  UI.maps.selected = { repo, map, group };
+  UI.maps.open = true;
+  location.hash = mapRoute(repo, map, group);
+  render();
+}
+function mapBack() {
+  UI.maps.open = false;
+  location.hash = "maps";
+  render();
+}
+function mapRepo(repo) {
+  UI.maps.repo = repo;
+  UI.maps.selected = null;
+  UI.maps.open = false;
+  location.hash = "maps";
+  render();
+}
+
 /* ---- frontier -------------------------------------------------------------- */
 
 /* The ticket type is the `wayfinder:` label and nothing else — a ticket with no
    such label has no type, and saying so beats guessing one from another label. */
 function typeOf(item) {
+  /* The map snapshot names the type outright (#700); the frontier items carry
+     labels instead. Either way the answer is the `wayfinder:` label and
+     nothing else, and a ticket without one is untyped rather than guessed. */
+  if (item?.type) return String(item.type);
   const l = (item.labels ?? []).find((x) => String(x).startsWith("wayfinder:"));
   return l ? String(l).slice("wayfinder:".length) : "untyped";
 }
@@ -1860,7 +2438,206 @@ function screenFeed(p) {
   if (!o) return noSnapshot(p, "Feed");
   const n = o.events?.length ?? 0;
   return `${head(p, "Feed", `<span class="dim-note">the journal's last ${esc(n)} event(s)</span>`)}
-    <div style="max-width:720px">${feedList(o.events)}</div>`;
+    ${atlasFeed(o)}<details class="legacy-feed"><summary>Journal rows</summary>${feedList(o.events)}</details>`;
+}
+
+/* The Wire (#523): news at full size, everything else compressed between.
+   News is what the operator would want to have read: a gate, an ask, a
+   verdict, a death, a deploy, a hold. */
+const FEED_NEWS = new Set([
+  "esc_open", "agent_blocked_on_human", "review_requested", "review_answered", "ticket_resolved",
+  "lifecycle_closed", "agent_died", "agent_died_released", "agent_cancelled", "agent_abnormal_exit",
+  "result", "deploy_landed", "deploy_rolled_back", "deploy_merge_refused", "dispatch_held",
+  "death_resume_held", "stall_escalated", "provider_precooling", "token_warned", "bridge_wedged",
+]);
+const FEED_NEEDS = new Set(["esc_open", "agent_blocked_on_human", "review_requested", "stall_escalated"]);
+/* The family chips (#523). One family visible, or all. `need` is a family of
+   its own because it is the one the operator narrows to first. */
+const FEED_FAMILIES = [["all", "all"], ["agent", "agents"], ["need", "needs you"], ["deploy", "deploys"], ["command", "commands"], ["system", "system"]];
+const FEED_SYSTEM_RE = /^(config_|bridge_|token_|credential_|reauth_|journal_|restart_|reconcile$|aistack_|provider_|model_cooling|github_app_|deploy_unresolved)/;
+function feedFamily(event) {
+  const type = String(event.type ?? "");
+  if (FEED_NEEDS.has(type)) return "need";
+  if (type === "command") return "command";
+  if (/^deploy_(requested|landed|rolled_back|merge_refused)$/.test(type)) return "deploy";
+  if (FEED_SYSTEM_RE.test(type)) return "system";
+  return "agent";
+}
+
+function feedDensity(events) {
+  const bins = Array(24).fill(0);
+  const now = Date.now();
+  for (const event of events ?? []) {
+    const age = now - Date.parse(event.ts ?? 0);
+    if (age < 0 || age >= 86_400_000) continue;
+    bins[23 - Math.floor(age / 3_600_000)] += 1;
+  }
+  const total = bins.reduce((a, b) => a + b, 0);
+  const max = Math.max(1, ...bins);
+  return `<div class="feed-pulse"><span class="k">24 h · ${esc(total)} event${total === 1 ? "" : "s"}</span><div class="feed-density" aria-label="24-hour event density">${bins.map((count) => `<span class="density-cell${count ? " active" : ""}" style="height:${Math.max(3, Math.round(count * 100 / max))}%" aria-label="${count} event${count === 1 ? "" : "s"}"></span>`).join("")}</div></div>`;
+}
+
+function feedChips() {
+  const on = UI.feed.family ?? "all";
+  return `<div class="feed-chips" role="group" aria-label="Event family">${FEED_FAMILIES.map(([key, label]) =>
+    `<button class="feed-chip${on === key ? " on" : ""}" onclick="feedFilter('${key}')" aria-pressed="${on === key}">${label}</button>`).join("")}</div>`;
+}
+function feedFilter(family) {
+  UI.feed = { ...UI.feed, family };
+  render();
+}
+
+/* Where an entry lands (#526, #704): the owning Chat when it names an agent,
+   the map when it names one, else the GitHub record. */
+function feedLink(event) {
+  if (event.agent) return `<a href="${chatHref(event.agent)}">Chat →</a>`;
+  if (event.map != null && event.repo) return `<a href="#${mapRoute(event.repo, event.map, "walked")}">Map →</a>`;
+  if (event.url) return `<a href="${esc(event.url)}">GitHub →</a>`;
+  if (event.repo && event.ticket != null) return `<a href="https://github.com/${esc(event.repo)}/issues/${esc(event.ticket)}">GitHub →</a>`;
+  return "";
+}
+
+/* The second line of a news row: who, which ticket, how long ago. */
+function feedDetail(event) {
+  const parts = [];
+  if (event.ticket != null && event.ticket !== "") parts.push(esc(ticketName(event.repo, event.ticket)));
+  if (event.agent) parts.push(esc(event.agent));
+  if (event.model) parts.push(esc(event.model));
+  if (event.by) parts.push(esc(event.by));
+  parts.push(esc(ago(event.ts)));
+  return parts.join(" · ");
+}
+
+/* Consecutive mechanics fold when there are enough to hide news (#523).
+   Nothing is dropped, only paced: the group names its count, its span and
+   its kinds, and opens on a press. A family filter opens every group. */
+const FEED_FOLD_AT = 4;
+function feedMechanics(group, open) {
+  const rows = group.map(({ event, line, focus }) =>
+    `<div class="feed-mechanic${focus ? " focus" : ""}" data-family="${feedFamily(event)}"><time>${esc(clock(event.ts))}</time><span>${esc(line.tag)} · ${line.html}</span></div>`);
+  if (group.length < FEED_FOLD_AT || group.some((g) => g.focus)) return rows.join("");
+  const kinds = [...new Set(group.map((g) => g.line.tag))].slice(0, 5).join(", ");
+  const last = group[group.length - 1].event.ts, first = group[0].event.ts;
+  return `<details class="feed-fold"${open ? " open" : ""}><summary>${group.length} mechanics · ${esc(clock(last))} – ${esc(clock(first))} — ${esc(kinds)}</summary>${rows.join("")}</details>`;
+}
+
+function atlasFeed(o) {
+  const family = UI.feed.family ?? "all";
+  const all = [...(o.events ?? [])].reverse();
+  const events = family === "all" ? all : all.filter((e) => feedFamily(e) === family);
+  const top = feedDensity(o.events) + feedChips();
+  if (!events.length) return `<div class="feed-wire">${top}<div class="empty">${all.length ? "No " + esc(FEED_FAMILIES.find(([k]) => k === family)?.[1] ?? family) + " events in the journal tail." : "The journal tail is empty."}</div></div>`;
+  const lastRead = UI.feed?.lastRead ? Date.parse(UI.feed.lastRead) : null;
+  const marker = `<div class="since-marker">Since you left · your last visit ${esc(ago(UI.feed.lastRead))} at ${esc(clock(UI.feed.lastRead))}</div>`;
+  let marked = false;
+  const rows = [];
+  let pending = [];
+  const flush = () => { if (pending.length) rows.push(feedMechanics(pending, family !== "all")); pending = []; };
+  for (const event of events) {
+    const stamp = Date.parse(event.ts ?? 0);
+    if (!marked && lastRead && stamp <= lastRead) { flush(); rows.push(marker); marked = true; }
+    const line = eventLine(event);
+    const focus = Boolean(UI.feed.focus && (String(event.id ?? "") === UI.feed.focus.id
+      || (UI.feed.focus.query && JSON.stringify(event).toLowerCase().includes(UI.feed.focus.query))));
+    if (!FEED_NEWS.has(event.type)) { pending.push({ event, line, focus }); continue; }
+    flush();
+    const needs = FEED_NEEDS.has(event.type);
+    rows.push(`<div class="feed-news${needs ? " needs" : ""}${focus ? " focus" : ""}${!needs && line.cls ? " " + line.cls : ""}" data-family="${feedFamily(event)}"><time>${esc(clock(event.ts))}</time>
+        <div class="story"><span class="word">${needs ? "Needs you" : esc(line.tag)}</span>${line.html}<div class="l2">${feedDetail(event)}</div></div>${feedLink(event)}</div>`);
+  }
+  flush();
+  if (!marked && lastRead) rows.push(marker);
+  return `<div class="feed-wire">${top}${rows.join("")}</div>`;
+}
+
+/* ---- the drill-in section frame (#699) --------------------------------------
+
+   Settings is the first Atlas page built as a LIST OF SECTIONS, and it is not
+   meant to be the last. So the frame lives here, above Settings, and Settings
+   is one registration in it.
+
+   A page registers an ordered array of sections under its screen name in
+   `DRILL_PAGES`, next to where that array is written. A section is:
+
+     key       the name the drill state and the tests use. Unique per page.
+     title     the row's word, and the heading of the open section.
+     gist(p)   one short line under the title on the list, already escaped, or
+               "" for a section that has nothing worth saying at a glance.
+     body(p)   the open section itself.
+     hint      optional. The words behind the `?` beside the heading.
+     enter()   optional. Runs when the operator opens the section — this is
+               where a section takes a read of its own, so the page does not
+               fetch for sections nobody opened.
+
+   A page that also WRITES adds three more, and Settings is the one that does:
+   `patch(out)` folds this section's unsaved edits into the save patch,
+   `count(patch)` says how many changes that is in the operator's own units,
+   and `restarts(patch)` names the key paths in it that a save cannot apply
+   live — the dock says those before the operator presses Save.
+
+   The state is one open key per page plus `list`, which is the phone's half of
+   it. Both halves are always RENDERED — one list, one open body — and the CSS
+   decides which a given width shows, so nothing here measures a viewport. */
+var DRILL_PAGES = {};
+const drillState = (page) => (UI.drill[page] ??= { open: null, list: true });
+const drillSections = (page) => DRILL_PAGES[page] ?? [];
+
+/* The open section, defaulted. A desktop shows a section beside the list at
+   all times, so "nothing open" is a phone state only, and the first section
+   sits under it. */
+function drillOpen(page) {
+  const sections = drillSections(page);
+  const d = drillState(page);
+  if (!sections.some((x) => x.key === d.open)) d.open = sections[0]?.key ?? null;
+  return sections.find((x) => x.key === d.open) ?? null;
+}
+
+/* One section at a time. `enter` runs on the arrival, not on the render, so a
+   read a section takes costs one call rather than one per poll. */
+function openSection(page, key) {
+  const section = drillSections(page).find((x) => x.key === key);
+  const d = drillState(page);
+  if (section) d.open = section.key;
+  d.list = false;
+  if (section?.enter) section.enter();
+  render();
+}
+function backToList(page) {
+  drillState(page).list = true;
+  render();
+}
+
+/* The `?` and the words behind it. The id is the row's, so two sections may
+   carry the same explanation without sharing one open state. */
+function toggleHint(id) {
+  UI.hints[id] = !UI.hints[id];
+  render();
+}
+const qq = (id) => `<button class="qq${UI.hints[id] ? " on" : ""}" aria-expanded="${
+  UI.hints[id] ? "true" : "false"}" title="explain" onclick="toggleHint('${esc(id)}')">?</button>`;
+const qhint = (id, words) => (UI.hints[id] ? `<div class="qhint">${words}</div>` : "");
+
+function drillIn(page, p) {
+  const sections = drillSections(page);
+  const open = drillOpen(page);
+  const d = drillState(page);
+  const rows = sections.map((x) => {
+    const gist = x.gist ? x.gist(p) : "";
+    return `<button class="drill-row${open?.key === x.key ? " on" : ""}" onclick="openSection('${esc(page)}', '${esc(x.key)}')">
+      <span><span class="t">${esc(x.title)}</span>${gist ? `<span class="g">${gist}</span>` : ""}</span>
+      <span class="chev" aria-hidden="true">\u203a</span></button>`;
+  }).join("");
+  const heading = open
+    ? `<div class="drill-head"><h3>${esc(open.title)}</h3>${open.hint ? qq(page + "-" + open.key) : ""}</div>
+       ${open.hint ? qhint(page + "-" + open.key, open.hint) : ""}`
+    : "";
+  return `<div class="drill"${d.list ? "" : ` data-open="${esc(open?.key ?? "")}"`}>
+    <div class="drill-list">${rows}</div>
+    <div class="drill-body">
+      <a class="drill-back" href="#${esc(page)}" onclick="backToList('${esc(page)}');return false">\u2039 ${esc(SCREENS[page][0].toLowerCase())}</a>
+      ${heading}${open ? open.body(p) : ""}
+    </div>
+  </div>`;
 }
 
 /* ---- settings (#265) -------------------------------------------------------
@@ -1882,54 +2659,132 @@ function screenFeed(p) {
       means is measured: the daemon reports the settings it is RUNNING, and
       this screen compares them against the file it read. */
 
-const SET_SECTIONS = { routing: "Routing", projects: "Projects", dispatch: "Dispatch", maintenance: "Maintenance" };
-const SET_HINTS = {
-  routing: "The model each ticket type gets when no label on the ticket says otherwise.",
-  projects: "The repos curia watches. It dispatches against these and no others.",
-  dispatch: "Whether curia starts work, how many agents run, how often it checks, and how many prototype variations it offers.",
-  maintenance: "Whether the daemon runs what the files say, and the restart for the keys a save cannot apply.",
-};
+/* The six sections, in the order the list draws them. Each one is a whole
+   setting in the operator's vocabulary: what a section shows, what it writes,
+   and what a save of it costs. A later row lands as a field inside one of
+   these or as another entry here — the pane and message rows (#716), the
+   GitHub App rows (#705) — and nothing outside this array has to be told
+   about it. */
+const SET_SECTIONS = [
+  {
+    key: "routing", title: "Routing", gist: gistRouting, body: setRouting,
+    hint: "The model each ticket type gets when no label on the ticket says otherwise.",
+    patch: patchRouting, count: countRouting,
+  },
+  {
+    key: "projects", title: "Projects", gist: gistProjects, body: setProjects,
+    hint: "The repos curia watches. It dispatches against these and no others.",
+    patch: patchWatch, count: countWatch,
+    /* The repo list costs the daemon a GitHub call, so it is taken when this
+       section is opened and not before. */
+    enter: () => { if (repos === null) loadRepos(); },
+  },
+  {
+    key: "dispatch", title: "Dispatch", gist: gistDispatch, body: setDispatch,
+    hint: "Whether curia starts work, how many agents run, how often it checks, and how many prototype variations it offers.",
+    patch: patchDispatch, count: countDispatch,
+  },
+  {
+    key: "connections", title: "Connections", gist: gistConnections, body: setConnections,
+    hint: "The GitHub App and repository access for each watched owner.",
+  },
+  {
+    key: "aistack", title: "aistack", gist: gistAistack, body: setAistack,
+    hint: "Whether this box publishes its token usage to your aistack stack, and the registration that decides it.",
+    /* Its own read, and only when asked for: it is a daemon file read that the
+       other sections have no use for. Re-read on every arrival rather than
+       once, because the thing it reports can be changed on aistack.to. */
+    enter: () => { loadAistack(); },
+  },
+  {
+    key: "maintenance", title: "Maintenance", gist: gistMaintenance, body: setMaintenance,
+    hint: "Whether the daemon runs what the files say, and the restart for the keys a save cannot apply.",
+  },
+];
+DRILL_PAGES.settings = SET_SECTIONS;
 const DISPATCH_FIELDS = [
   ["max_concurrent", "How many agents may run at once. Each one costs a container, and three sandbox ports."],
   ["poll_interval_s", "How often curia reads the frontier of every watched repo."],
   ["prototype_variations", "How many variations each prototype round offers by default."],
+  ["messages_per_send", "How many typed messages one composite send may contain. The maximum is four."],
 ];
 
 const clone = (x) => JSON.parse(JSON.stringify(x));
 
-/* What the operator has changed and not yet saved. The banner counts these and
+/* What the operator has changed and not yet saved. The dock counts these and
    the save posts them; both read this one function, so the count can never
-   disagree with what lands on disk. */
+   disagree with what lands on disk.
+
+   Each section folds in its OWN keys. A section that adds a row adds it here
+   and nowhere else, and a section that writes nothing — Maintenance — declares
+   no `patch` and contributes none. */
 function settingsPatch() {
   if (!settings || !draft) return {};
-  const p = {};
+  const out = {};
+  for (const section of SET_SECTIONS) if (section.patch) section.patch(out);
+  return out;
+}
+
+function patchDispatch(out) {
   const d = {};
   for (const k of Object.keys(draft.dispatch)) {
     if (draft.dispatch[k] !== settings.dispatch[k]) d[k] = draft.dispatch[k];
   }
-  if (Object.keys(d).length) p.dispatch = d;
-  if (JSON.stringify(draft.watch) !== JSON.stringify(settings.watch)) p.watch = draft.watch;
+  if (Object.keys(d).length) out.dispatch = d;
+  if ((draft.overseer?.live_pane_cap ?? 3) !== (settings.overseer?.live_pane_cap ?? 3)) {
+    out.overseer = { live_pane_cap: draft.overseer.live_pane_cap };
+  }
+}
+function patchWatch(out) {
+  if (JSON.stringify(draft.watch) !== JSON.stringify(settings.watch)) out.watch = draft.watch;
+}
+function patchRouting(out) {
   const defaults = {};
   draft.routing.defaults.forEach((row, i) => {
-    if (row.model !== settings.routing.defaults[i]?.model) defaults[row.type] = row.model;
+    const before = settings.routing.defaults[i];
+    if (row.model !== before?.model || (row.effort ?? null) !== (before?.effort ?? null)) {
+      defaults[row.type] = row.effort ? { model: row.model, effort: row.effort } : row.model;
+    }
   });
   const models = {};
   draft.routing.models.forEach((m, i) => {
     if (m.active !== settings.routing.models[i]?.active) models[m.name] = { active: m.active };
   });
   if (Object.keys(defaults).length || Object.keys(models).length) {
-    p.routing = {};
-    if (Object.keys(defaults).length) p.routing.defaults = defaults;
-    if (Object.keys(models).length) p.routing.models = models;
+    out.routing = {};
+    if (Object.keys(defaults).length) out.routing.defaults = defaults;
+    if (Object.keys(models).length) out.routing.models = models;
   }
-  return p;
 }
+
+/* The count the dock says, in the operator's units rather than in yaml keys:
+   the watch list replaces whole (config.mjs states that rule), so it is one
+   change however many repos moved inside it. */
+function countDispatch(p) { return Object.keys(p.dispatch ?? {}).length + (p.overseer ? 1 : 0); }
+function countWatch(p) { return p.watch ? 1 : 0; }
+function countRouting(p) { return Object.keys(p.routing?.defaults ?? {}).length + Object.keys(p.routing?.models ?? {}).length; }
+
 function changeCount() {
   const p = settingsPatch();
-  return Object.keys(p.dispatch ?? {}).length
-    + (p.watch ? 1 : 0)
-    + Object.keys(p.routing?.defaults ?? {}).length
-    + Object.keys(p.routing?.models ?? {}).length;
+  let n = 0;
+  for (const section of SET_SECTIONS) n += section.count ? section.count(p) : 0;
+  return n;
+}
+
+/* What this save cannot apply without a restart, named BEFORE the operator
+   presses Save. Every row the screen writes today is inside the reload's
+   closed set (settings.mjs LIVE_PATHS), so this is empty — and it is a seam
+   rather than an absence because the rows landing next are not all live, and
+   an operator must never learn about a restart from the outcome.
+
+   A hand edit that rode along outside the live set is a different fact: this
+   screen cannot see it, and the daemon's own refusal is what names it, in the
+   dock's declined state below. */
+function restartNeeds() {
+  const p = settingsPatch();
+  const out = [];
+  for (const section of SET_SECTIONS) for (const key of (section.restarts ? section.restarts(p) : [])) out.push(key);
+  return out;
 }
 
 /* ---- what the daemon is running (#362) --------------------------------------
@@ -1950,8 +2805,12 @@ function runningDiff(p) {
   for (const k of Object.keys(settings.dispatch)) {
     if (!sameJSON(settings.dispatch[k], run.dispatch?.[k])) out.push("dispatch." + k);
   }
+  if (!sameJSON(settings.overseer?.live_pane_cap, run.overseer?.live_pane_cap)) out.push("overseer.live_pane_cap");
   if (!sameJSON(settings.watch, run.watch)) out.push("watch");
-  const rows = (list) => new Map((list ?? []).map((r) => [r.type, r.model]));
+  const rows = (list) => new Map((list ?? []).map((r) => [r.type, {
+    model: typeof r.model === "object" ? r.model?.model : r.model,
+    effort: r.effort ?? (typeof r.model === "object" ? r.model?.effort : null) ?? null,
+  }]));
   const [fileRows, runRows] = [rows(settings.routing.defaults), rows(run.routing?.defaults)];
   for (const type of new Set([...fileRows.keys(), ...runRows.keys()])) {
     if (!sameJSON(fileRows.get(type), runRows.get(type))) out.push("routing.defaults." + type);
@@ -1964,116 +2823,137 @@ function runningDiff(p) {
   return out;
 }
 
-/* ---- the save banner: one act, at the top (#362) ---- */
+/* ---- the save dock: one act, at the bottom (#525's decision, #699) ---------
 
-function saveBanner() {
+   A clean screen carries no save chrome at all. The dock rises on the first
+   edit with the count, the Save and a discard, and it names the restart the
+   pending edits will need. After the press it stays in the same place and
+   states the outcome the daemon reported — applied, declined, offline — or the
+   refusal, which moved nothing on disk. A button appears only where it IS the
+   mitigation, so the one the dock offers is always the one to press. */
+
+function saveDock() {
   const n = changeCount();
   const s = UI.set;
-  const save = (on) => `<button class="btn${on ? " primary" : ""}" ${on && !s.busy ? "" : "disabled"} onclick="doSave()">${
-    s.busy ? "Saving…" : "Save"}</button>`;
-  /* One button, one shape: the banner offers a restart only where it is the
-     mitigation, so the one it offers is always the loud one. */
-  const restart = () => `<button class="btn restart-hot" ${s.busy ? "disabled" : ""} onclick="doRestart()">Restart to apply</button>`;
-  const line = (cls, body) => `<div class="save-banner${cls ? " " + cls : ""}">${body}</div>`;
+  const dock = (cls, body) => `<div class="dock${cls ? " " + cls : ""}">${body}</div>`;
+  const save = `<button class="btn primary" ${s.busy ? "disabled" : ""} onclick="doSave()">Save</button>`;
+  const discard = `<a href="#settings" onclick="discardEdits();return false">discard</a>`;
+  const restart = `<button class="btn restart-hot" ${s.busy ? "disabled" : ""} onclick="doRestart()">Restart to apply</button>`;
 
-  /* The bar is just Save. The restart left this banner with #362 and lives in
-     Maintenance, because it is now a rare act about a hand edit — the one place
-     it still belongs here is a save the daemon declined, where it is the
-     mitigation for that save. */
+  /* The file could not be read, which is the one state with no draft behind
+     it. It stands whatever else is true. */
   if (s.phase === "unread") {
-    return line("refused", `${save(false)}
-      <span class="toast">The settings could not be read.</span>
-      <span class="toast why">${esc(s.error)}</span>`);
+    return dock("refused", `<span class="toast bad">The settings could not be read.</span>
+      <span class="why">${esc(s.error)}</span>`);
+  }
+  if (s.busy) return dock("", `<button class="btn" disabled>Saving\u2026</button>`);
+  if (s.phase === "restarting") {
+    return dock("", `<span class="toast">The daemon exited nonzero and the supervisor respawns it.
+      This page serves its last snapshot meanwhile.</span>`);
   }
   if (s.phase === "refused") {
     /* The loaders refused the candidate, so nothing on disk moved. The draft
        stays on screen: the operator fixes the value they typed, they do not
        type it again. */
-    return line("refused", `${save(n > 0)}
-      <span class="toast">Refused — nothing was written.</span>
-      <span class="toast why">${esc(s.error)}</span>`);
+    return dock("refused", `<span class="toast bad">Refused \u2014 nothing was written.</span>
+      ${n ? save : ""}<span class="why">${esc(s.error)}</span>`);
   }
-  if (s.phase === "restarting") {
-    return line("", `${save(n > 0)}
-      <span class="toast">The daemon exited nonzero and the supervisor respawns it. This page serves its last snapshot meanwhile.</span>`);
+  if (n > 0) {
+    const needs = restartNeeds();
+    return dock("", `<span class="toast"><b class="num">${n}</b> unsaved change${n === 1 ? "" : "s"}</span>
+      ${save}${discard}
+      <span class="why">${needs.length
+        ? `a restart applies ${needs.map(esc).join(", ")} \u2014 every other change lands at once`
+        : "every change here lands at once, with no restart"}</span>`);
   }
-  /* The three outcomes a save can have. Each one states what happened to the
-     daemon, and carries a button only where a button is the mitigation. */
   if (s.phase === "applied") {
-    return line("saved", `<button class="btn" disabled>Saved ✓</button>
+    return dock("saved", `<span class="ok-word">saved \u2713</span>
       <span class="toast">${esc(s.note ?? "Saved.")} The daemon is running it.</span>`);
   }
   if (s.phase === "declined") {
     /* The file moved a key a reload cannot apply, so the daemon kept the config
        it booted with. The restart is the mitigation, and it is the loud one. */
-    return line("saved", `<button class="btn" disabled>Saved ✓</button>${restart()}
-      <span class="toast">${esc(s.note ?? "Saved.")} The daemon did not apply it.</span>
-      <span class="toast why">${esc(s.error)}</span>`);
+    return dock("saved", `<span class="ok-word">saved \u2713</span>${restart}
+      <span class="toast">The daemon did not apply it.</span>
+      <span class="why">${esc(s.error)}</span>`);
   }
   if (s.phase === "offline") {
     /* No button: a restart is not the mitigation for a daemon that is already
        not answering, and pressing one would be an order nobody takes. */
-    return line("saved", `<button class="btn" disabled>Saved ✓</button>
-      <span class="toast">${esc(s.note ?? "Saved.")} The daemon is not answering, so it takes this file at its next boot.
+    return dock("saved", `<span class="ok-word">saved \u2713</span>
+      <span class="toast">The daemon is not answering, so it takes this file at its next boot.
         If it refuses to boot, the daemon log names the key.</span>
-      <span class="toast why">${esc(s.error)}</span>`);
+      <span class="why">${esc(s.error)}</span>`);
   }
-  if (n === 0) {
-    return line("", `${save(false)}
-      <span class="toast">${esc(s.note ?? "No unsaved changes.")}</span>`);
-  }
-  return line("", `${save(true)}
-    <span class="toast">${n} unsaved change${n === 1 ? "" : "s"}.</span>`);
+  /* A save that found the files already saying it. Worth one sentence, and
+     nothing to press. */
+  if (s.note) return dock("", `<span class="toast">${esc(s.note)}</span>`);
+  /* Clean, and nothing has been pressed. No dock at all. */
+  return "";
 }
 
-/* ---- the three sections ---- */
+/* ---- the five sections ------------------------------------------------------
 
-const setBlock = (title, hint, body) => `<div class="set-block"><h3>${esc(title)}</h3>
-  <p class="hint">${esc(hint)}</p>${body}</div>`;
+   Each one is a body and a gist. The gist is what the list row says at a
+   glance, so an operator picks the section they want without opening three. */
 
-/* Routing. The ticket-type table leads and the model list sits behind one
-   click, because the row an operator changes is the default, and the model
-   list is the thing they set once. */
+const activeModels = () => draft.routing.models.filter((m) => m.active);
+
+function gistRouting() {
+  const untyped = draft.routing.defaults.find((r) => r.type === "untyped");
+  const models = draft.routing.models;
+  return esc(`${untyped ? untyped.model + " untyped \u00b7 " : ""}${activeModels().length} of ${models.length} models on`);
+}
+
+/* Routing. The ticket-type rows lead and the model list sits behind one click,
+   because the row an operator changes is the default, and the model list is
+   the thing they set once. */
 function setRouting() {
   const models = draft.routing.models;
-  const active = models.filter((m) => m.active);
+  const active = activeModels();
   const rows = draft.routing.defaults.map((row, i) => {
     const known = active.some((m) => m.name === row.model);
-    return `<tr><td class="mono">${esc(row.type)}</td>
-      <td><select onchange="setDefault(${i}, this.value)">
+    return `<div class="row"><span class="key grow">${esc(row.type)}</span>
+      <select onchange="setDefault(${i}, this.value)">
         ${active.map((m) => `<option ${m.name === row.model ? "selected" : ""}>${esc(m.name)}</option>`).join("")}
         ${known ? "" : `<option selected>${esc(row.model)}</option>`}
-      </select>${known ? "" : ` <span class="dim-note">switched off — the daemon refuses this config</span>`}</td></tr>`;
+      </select>
+      <select aria-label="${esc(row.type)} reasoning effort" onchange="setDefaultEffort(${i}, this.value)">
+        <option value="" ${row.effort ? "" : "selected"}>model default</option>
+        ${["low", "medium", "high", "xhigh", "max", "ultra"].map((effort) =>
+          `<option ${row.effort === effort ? "selected" : ""}>${effort}</option>`).join("")}
+      </select>${known ? "" : `<span class="dim-note">Switched off. The daemon refuses this config.</span>`}</div>`;
   }).join("");
-  const mgr = `<div class="model-mgr">
-    <a href="#settings" onclick="UI.set.models=!UI.set.models;render();return false">${
-      active.length} of ${models.length} models active · ${UI.set.models ? "close" : "manage"}</a>
-    ${UI.set.models ? `<table style="margin-top:10px"><tr><th>active</th><th>model</th><th>runs on</th></tr>
-      ${models.map((m, i) => `<tr class="${m.active ? "" : "inactive"}">
-        <td><input type="checkbox" id="set-model-${esc(m.name)}" ${m.active ? "checked" : ""} onchange="setModelActive(${i}, this.checked)"></td>
-        <td class="mono">${esc(m.name)}${m.id ? ` <span class="dim-note">${esc(m.id)}</span>` : ""}</td>
-        <td class="mono">${esc(m.provider ?? "?")} · ${esc(m.harness ?? "?")}</td></tr>`).join("")}</table>
-      <p class="hint" style="margin:8px 0 0">A model switched off keeps its whole entry in routing.yaml. It leaves the
-        dispatch vocabulary: no default may name it, a fallback chain steps over it, and a <code>model:</code> label on it is refused.</p>` : ""}
-  </div>`;
-  return setBlock("Routing", SET_HINTS.routing,
-    `<table><tr><th>ticket type</th><th>default model</th></tr>${rows}</table>${mgr}`);
+  const mgr = `<div class="row"><span class="grow"><a href="#settings"
+      onclick="UI.set.models=!UI.set.models;render();return false">${
+      active.length} of ${models.length} models active \u00b7 ${UI.set.models ? "close" : "manage"}</a></span>
+    ${qq("set-models")}</div>
+    ${qhint("set-models", `A model switched off keeps its whole entry in <span class="mono">routing.yaml</span>. It leaves the
+      dispatch vocabulary: no default may name it, a fallback chain steps over it, and a <code>model:</code> label on it is refused.`)}`;
+  const table = UI.set.models
+    ? `<div class="rows model-mgr">${models.map((m, i) => `<div class="row${m.active ? "" : " inactive"}">
+        <input type="checkbox" id="set-model-${esc(m.name)}" ${m.active ? "checked" : ""} onchange="setModelActive(${i}, this.checked)">
+        <span class="key grow">${esc(m.name)}${m.id ? ` <span class="dim-note">${esc(m.id)}</span>` : ""}</span>
+        <span class="key dim-note">runs on ${esc(m.provider ?? "?")} \u00b7 ${esc(m.harness ?? "?")}</span></div>`).join("")}</div>`
+    : "";
+  return `<div class="rows">${rows}${mgr}</div>${table}`;
 }
+
+function gistProjects() { return esc(`${draft.watch.length} repo${draft.watch.length === 1 ? "" : "s"} watched`); }
 
 /* Projects. The repo list comes from the daemon, which holds the GitHub login;
    this page holds no credential at all. */
 function setProjects() {
   const watched = draft.watch.map((w) => w.repo);
-  const rows = draft.watch.map((w, i) => `<tr><td class="mono">${esc(w.repo)}</td>
-    <td class="dim-note">${esc(w.mode)}</td>
-    <td class="right"><button class="btn sm" ${draft.watch.length < 2 ? "disabled" : ""}
-      onclick="removeRepo(${i})">remove</button></td></tr>`).join("");
+  const rows = draft.watch.map((w, i) => `<div class="row"><span class="key grow">${esc(w.repo)}</span>
+    <span class="dim-note">${esc(w.mode)}</span>
+    <button class="btn sm" ${draft.watch.length < 2 ? "disabled" : ""} onclick="removeRepo(${i})">remove</button></div>`).join("");
   let connect;
-  if (repos === null) connect = `<div class="gh-connect"><span class="dot off"></span>reading the GitHub login…</div>`;
+  if (repos === null) connect = `<div class="gh-connect"><span class="dot off"></span>reading the GitHub login\u2026</div>`;
   else if (repos.error) {
     /* Null is not empty: curia could not ask, which is a different fact from
        an account with no repos. The typed field below still works. */
-    connect = `<div class="unread">curia could not read your repos from GitHub — ${esc(repos.error)}. Type a repo below instead.</div>`;
+    connect = `<div class="unread">curia could not read your repos from GitHub \u2014 ${esc(repos.error)}. Type a repo below instead.</div>`;
   } else {
     connect = `<div class="gh-connect"><span class="dot"></span>GitHub connected as
       <b class="mono">${esc(repos.login ?? "?")}</b>
@@ -2082,36 +2962,80 @@ function setProjects() {
   const choices = (repos?.repos ?? []).filter((r) => !watched.includes(r));
   const picker = choices.length
     ? `<select id="set-repo-pick" onchange="addRepo(this.value); this.value=''">
-        <option value="">add a repo…</option>${choices.map((r) => `<option>${esc(r)}</option>`).join("")}</select>`
+        <option value="">add a repo\u2026</option>${choices.map((r) => `<option>${esc(r)}</option>`).join("")}</select>`
     : "";
-  return setBlock("Projects", SET_HINTS.projects, `${connect}
-    <table>${rows}
-    <tr><td colspan="3">${picker}
-      <input type="text" id="set-repo-typed" placeholder="owner/name" size="22">
-      <button class="btn sm" onclick="addTypedRepo()">add</button></td></tr></table>
-    <p class="hint" style="margin:10px 0 0">The last repo cannot be removed: curia dispatches only against watched repos.</p>`);
+  return `${connect}<div class="rows">${rows}
+    <div class="row"><span class="grow">${picker}
+      <input type="text" id="set-repo-typed" placeholder="owner/name" size="20">
+      <button class="btn sm" onclick="addTypedRepo()">add</button></span>${qq("set-watch")}</div>
+    ${qhint("set-watch", "The last repo cannot be removed: curia dispatches only against watched repos.")}</div>`;
+}
+
+function gistDispatch() {
+  const d = draft.dispatch;
+  return esc(`${d.auto_dispatch ? "auto" : "manual"} \u00b7 ${d.max_concurrent} agents \u00b7 ${d.poll_interval_s}s`);
 }
 
 function setDispatch() {
-  const auto = draft.dispatch.auto_dispatch;
-  const rows = DISPATCH_FIELDS.map(([key, why]) => `<tr>
-    <td class="mono">${esc(key)}<span class="hint" style="display:block;margin:2px 0 0">${esc(why)}</span></td>
-    <td><input type="number" id="set-${esc(key)}" min="1" value="${esc(draft.dispatch[key] ?? "")}"
-      oninput="setDispatchField('${esc(key)}', this.value)"></td></tr>`).join("");
-  return setBlock("Dispatch", SET_HINTS.dispatch, `<table>
-    <tr><td><label for="set-auto"><b>auto_dispatch</b></label>
-      <span class="hint" style="display:block;margin:2px 0 0">On, curia starts the next takeable ticket by itself. Off, every dispatch is one the operator ordered.</span></td>
-      <td><input type="checkbox" id="set-auto" ${auto ? "checked" : ""} onchange="setDispatchField('auto_dispatch', this.checked)"></td></tr>
-    ${rows}</table>
-    <p class="hint" style="margin:10px 0 0">A save applies at once. It cancels no running agent:
+  const rows = DISPATCH_FIELDS.map(([key, why]) => `<div class="row">
+    <label class="key grow" for="set-${esc(key)}">${esc(key)}</label>
+    <input type="number" id="set-${esc(key)}" min="1" value="${esc(draft.dispatch[key] ?? "")}"
+      oninput="setDispatchField('${esc(key)}', this.value)">${qq("set-" + key)}</div>
+    ${qhint("set-" + key, esc(why))}`).join("");
+  return `<div class="rows">
+    <div class="row"><label class="key grow" for="set-auto">auto_dispatch</label>
+      <input type="checkbox" id="set-auto" ${draft.dispatch.auto_dispatch ? "checked" : ""}
+        onchange="setDispatchField('auto_dispatch', this.checked)">${qq("set-auto")}</div>
+    ${qhint("set-auto", "On, curia starts the next takeable ticket by itself. Off, every dispatch is one the operator ordered.")}
+    ${rows}
+    <div class="row"><label class="key grow" for="set-live_pane_cap">live_pane_cap</label>
+      <input type="number" id="set-live_pane_cap" min="1" value="${esc(draft.overseer?.live_pane_cap ?? 3)}"
+        oninput="setOverseerField('live_pane_cap', this.value)">${qq("set-live_pane_cap")}</div>
+    ${qhint("set-live_pane_cap", "How many overseer conversations keep a live pane. Curia rehydrates parked conversations when needed.")}</div>
+    <p class="qhint" style="padding-top:10px">A save applies at once. It cancels no running agent:
       auto_dispatch off leaves every live agent running, and a max_concurrent below the live count
       starts nothing new until the count falls. A model change reaches the next dispatch, never a
-      running one.</p>`);
+      running one.</p>`;
 }
 
-/* Maintenance (#362). Last of the four, because it is the section an operator
+function gistConnections(p) {
+  const app = p?.overview?.github_app;
+  if (!app) return `<span class="dim-note">state unavailable</span>`;
+  if (!app.configured) return `<span style="color:var(--warn)">setup needed</span>`;
+  const missing = (app.owners ?? []).filter((owner) => !owner.installed).length;
+  return missing
+    ? `<span style="color:var(--warn)">${esc(missing)} owner${missing === 1 ? "" : "s"} missing access</span>`
+    : `<span style="color:var(--ok)">installed</span>`;
+}
+
+function setConnections(p) {
+  const app = p?.overview?.github_app;
+  if (!app) return `<p class="unread">Curia hasn't reported the GitHub App state.</p>`;
+  const state = app.configured
+    ? `<p class="qhint"><b>GitHub App configured.</b> Curia adopts new credentials without exposing the private key to Atlas.</p>`
+    : app.status === "pending"
+      ? `<p class="unread">GitHub App setup is pending until ${esc(ago(app.expires_at))}.</p>`
+      : `<p class="unread">No GitHub App is configured. Create one from Atlas.</p>`;
+  const create = app.configured ? "" : `<p><input id="github-app-name" value="curia-box" aria-label="GitHub App name">
+    <button class="btn primary" ${anyBusy() ? "disabled" : ""} onclick="doGitHubAppSetup()">Create GitHub App</button></p>
+    ${said("github-app")}`;
+  const owners = (app.owners ?? []).map((owner) => `<div class="row">
+    <span class="key grow">${esc(owner.owner)}</span>
+    <span>${owner.installed ? "installed" : "missing access"}</span>
+    <span>${owner.installed ? "" : `<a href="${esc(owner.install_url)}">Manage installation</a>`}</span></div>`).join("");
+  return `${state}${create}<div class="rows">${owners}</div>`;
+}
+
+/* Maintenance (#362). Last, because it is the section an operator
    reads rather than edits. It says one thing — whether the daemon runs the
    file — and carries the one act that answers a no. */
+function gistMaintenance(p) {
+  const differs = runningDiff(p);
+  if (differs === null) return `<span class="dim-note">curia cannot tell</span>`;
+  if (differs.length) return `<span style="color:var(--warn)">${esc(differs.length)} key${differs.length === 1 ? "" : "s"} not running</span>`;
+  return `<span style="color:var(--ok)">in step</span>`;
+}
+
 function setMaintenance(p) {
   const differs = runningDiff(p);
   const run = p?.overview?.daemon?.config;
@@ -2123,15 +3047,215 @@ function setMaintenance(p) {
     state = `<p class="unread">The daemon is NOT running the files. These differ:
       <span class="mono">${differs.map(esc).join(", ")}</span>. A restart takes them.</p>`;
   } else {
-    state = `<p class="hint">The daemon is running these files. It read them ${esc(ago(run?.loaded_at))}.</p>`;
+    state = `<p class="qhint">The daemon is running these files. It read them ${esc(ago(run?.loaded_at))}.</p>`;
   }
-  return setBlock("Maintenance", SET_HINTS.maintenance, `${state}
-    <button class="btn${differs?.length ? " restart-hot" : ""}" ${UI.set.busy ? "disabled" : ""}
-      onclick="doRestart()">Restart daemon</button>
-    <p class="hint" style="margin:10px 0 0">A restart is for the keys a save cannot apply: the ports,
+  /* #292: the screen reads two layers and writes only the top one. Said here,
+     because "I saved and git shows nothing changed" must not be a puzzle the
+     operator has to solve on the box. */
+  const writes = settings.writes
+    ? `A save writes <span class="mono">${esc(fileName(settings.writes.curia))}</span> and
+       <span class="mono">${esc(fileName(settings.writes.routing))}</span>, beside the tracked files.
+       Git does not track those, so the box's checkout stays clean and a deploy never collides with a
+       save. They hold what this box answers differently, and nothing else.`
+    : "";
+  return `${state}<div class="rows">
+    <div class="row"><span class="grow"><button class="btn${differs?.length ? " restart-hot" : ""}"
+      ${UI.set.busy ? "disabled" : ""} onclick="doRestart()">Restart daemon</button></span>${qq("set-restart")}</div>
+    ${qhint("set-restart", `A restart is for the keys a save cannot apply: the ports,
       <span class="mono">workspace_root</span>, <span class="mono">sandbox</span>,
       <span class="mono">identity</span>, and every routing key this screen does not write.
-      Agent panes live in their own container, so they survive it.</p>`);
+      Agent panes live in their own container, so they survive it.`)}
+    ${writes ? `<div class="row"><span class="grow dim-note">where a save lands</span>${qq("set-writes")}</div>${qhint("set-writes", writes)}` : ""}
+  </div>`;
+}
+
+/* ---- aistack (#706) ---------------------------------------------------------
+
+   The section that guides a headless registration and then reports what came
+   of it. Three facts shape it, and each one is a thing this section does NOT
+   do.
+
+   1. IT DOES NOT APPROVE. #695 settled that the approval is a human act in a
+      signed-in browser, and nothing on the box can perform it. So this section
+      starts the CLI's device flow and shows the two things only the box knows
+      — the code and the link — and the operator finishes it on whatever screen
+      they are already holding. That deletes the ssh from the ceremony without
+      moving the approval anywhere.
+   2. IT DOES NOT SEE THE CREDENTIAL. The token lives in a file under curia's
+      HOME and never leaves the daemon. What arrives here is a code meant to be
+      read aloud, a link meant to be opened, a proposed machine name, and the
+      hosts the credential file is keyed by. There is no field on this wire
+      that could carry a bearer.
+   3. IT WRITES NO CONFIGURATION, so it declares no `patch`, `count` or
+      `restarts` and the save dock never rises for it. The credential IS the
+      switch (#695): an `enabled` key here would be a second answer to a
+      question that already has one.
+
+   The read is its own, taken when the section is opened and after every press,
+   never on the poll: it costs the daemon a file read and the other sections
+   have no use for it. While a login waits for approval the section re-reads on
+   a short timer, because the thing it is waiting for happens on a different
+   device and nothing else would tell it. */
+
+const AISTACK_MACHINES_URL = "https://aistack.to/settings/machines";
+/* The approval window is the CLI's own: it polls for three minutes. */
+const AISTACK_WAIT_MS = 5000;
+
+const agoMs = (ms) => (ms ? ago(new Date(ms).toISOString()) : "never");
+
+async function loadAistack() {
+  try {
+    const res = await fetch("/api/aistack", { headers: { accept: "application/json" }, cache: "no-store" });
+    if (!res.ok) throw new Error("the sidecar answered " + res.status);
+    aistack = await res.json();
+  } catch (e) {
+    aistack = { ok: false, error: e.message };
+  }
+  aistackWatch();
+  render();
+}
+
+/* One timer, armed only while a login is actually waiting. The section is a
+   settings row on a page that re-renders on every poll, so a timer armed per
+   render would multiply. */
+function aistackWatch() {
+  if (aistackAct.poll) { clearTimeout(aistackAct.poll); aistackAct.poll = null; }
+  if (aistack?.flow?.phase !== "waiting") return;
+  aistackAct.poll = setTimeout(() => { aistackAct.poll = null; loadAistack(); }, AISTACK_WAIT_MS);
+}
+
+async function aistackDo(act) {
+  if (aistackAct.busy) return;
+  aistackAct.busy = act;
+  aistackAct.said = null;
+  render();
+  try {
+    const res = await fetch("/api/aistack/" + act, {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: "{}",
+    });
+    const b = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(b.error || ("the sidecar answered " + res.status));
+    aistack = b;
+    if (b.said) aistackAct.said = { ok: true, text: b.said };
+  } catch (e) {
+    aistackAct.said = { ok: false, text: e.message };
+  }
+  aistackAct.busy = null;
+  aistackWatch();
+  render();
+}
+
+/* What the last sync attempt came to, in one clause. Absent is not the same as
+   failing and neither is the same as never having run, so all three have their
+   own words. */
+function aistackVerdict(a) {
+  const last = a?.sync?.last ?? null;
+  if (a?.sync?.alarm) return { ok: false, text: "the last sync failed " + agoMs(a.sync.alarm.at) };
+  if (!last) return { ok: null, text: "no sync has run yet" };
+  if (!last.ok) return { ok: false, text: "the last sync failed " + agoMs(last.at) };
+  return { ok: true, text: (last.published ? "published " : "synced ") + agoMs(last.at) };
+}
+
+function gistAistack() {
+  if (!aistack) return `<span class="dim-note">not read yet</span>`;
+  if (aistack.ok === false) return `<span class="dim-note">curia cannot tell</span>`;
+  if (aistack.flow?.phase === "waiting") return `<span style="color:var(--warn)">waiting for approval</span>`;
+  if (!aistack.registered) return `<span class="dim-note">not registered</span>`;
+  const v = aistackVerdict(aistack);
+  return `<span style="color:${v.ok === false ? "var(--warn)" : v.ok ? "var(--ok)" : "var(--ink-dim)"}">${esc(v.text)}</span>`;
+}
+
+function setAistack() {
+  if (!aistack) return `<p class="qhint">reading…</p>`;
+  if (aistack.ok === false) {
+    return `<p class="unread">curia cannot say whether this box is registered: ${esc(aistack.error ?? "the daemon is not answering")}.
+      The registration lives on the daemon, so this section is blank exactly while the daemon is.</p>`;
+  }
+  const said = aistackAct.said
+    ? `<p class="${aistackAct.said.ok ? "qhint" : "unread"}">${esc(aistackAct.said.text)}</p>`
+    : "";
+  const flow = aistack.flow ?? {};
+  const busy = aistackAct.busy;
+  const btn = (act, label, extra) => `<button class="btn${extra ? " " + extra : ""}"${
+    busy ? " disabled" : ""} onclick="aistackDo('${esc(act)}')">${esc(busy === act ? "…" : label)}</button>`;
+
+  /* The waiting half. The code and the link are the whole of what the operator
+     needs, so they are the whole of what is on the screen — big enough to read
+     off a phone across a room, and the link is the one the CLI printed rather
+     than one this page composed. */
+  if (flow.phase === "waiting") {
+    return `${said}<p class="unread">Approve this box on aistack. The code below is live for about three minutes;
+      after that, start a new registration.</p>
+      <div class="rows">
+        <div class="row"><span class="key">code</span><span class="grow mono" style="font-size:22px;letter-spacing:2px">${esc(flow.code ?? "—")}</span></div>
+        <div class="row"><span class="key">approve at</span><span class="grow"><a href="${esc(flow.url ?? "#")}" target="_blank" rel="noopener">${esc(flow.url ?? "—")}</a></span></div>
+        <div class="row"><span class="grow">${btn("cancel", "Stop waiting")}</span>${qq("set-aistack-wait")}</div>
+        ${qhint("set-aistack-wait", `Open the link on any signed-in machine, name this box, pick the stack, and approve.
+          The approval cannot happen here: it needs a browser signed in to aistack, and the box has none.
+          This section re-reads itself while it waits, so it will say so on its own.`)}
+      </div>`;
+  }
+
+  /* The unregistered half. One button, plus the same two commands over ssh for
+     the operator who would rather type them — they are the daemon README's,
+     and curia states them rather than making anyone go and find them. */
+  if (!aistack.registered) {
+    const why = ["failed", "expired", "cancelled"].includes(flow.phase)
+      ? `<p class="unread">The last registration ${esc(flow.phase)}: ${esc(flow.message ?? "no reason given")}.
+         ${flow.phase === "failed" ? `Read <span class="mono">${esc(aistack.log_file ?? "")}</span> on the box.` : ""}
+         Start a new one — a new login mints a new code.</p>`
+      : `<p class="qhint">This box is not an aistack machine, so curia publishes nothing and says nothing about it.
+         Registering it puts the agents' rolling 30-day token spend on your measured layer.</p>`;
+    return `${said}${why}<div class="rows">
+      <div class="row"><span class="grow">${btn("register", "Register this box")}</span>${qq("set-aistack-reg")}</div>
+      ${qhint("set-aistack-reg", `Curia runs the aistack CLI's device login on the box and shows you its code and link.
+        You approve in a browser that is signed in to aistack. The token it hands back is written to a file under curia's
+        own home, outside every checkout — it never reaches this page and no commit ever carries it.`)}
+      ${aistackCommands(aistack)}
+    </div>`;
+  }
+
+  /* The registered half: who this box is on aistack, and what the recurring
+     sync last did. */
+  const m = aistack.machine ?? {};
+  const v = aistackVerdict(aistack);
+  const alarm = aistack.sync?.alarm ?? null;
+  const state = alarm
+    ? `<p class="unread">The sync is failing: ${esc(alarm.message ?? "no reason given")}.
+       Read <span class="mono">${esc(aistack.log_file ?? "")}</span> on the box. If the machine is gone from
+       <a href="${esc(AISTACK_MACHINES_URL)}" target="_blank" rel="noopener">aistack.to/settings/machines</a>,
+       delete the credential on the box and register it again; if it is still there, grant the standing permission below.</p>`
+    : `<p class="qhint">This box is registered. Curia checks every
+       ${esc(aistack.sync?.interval_hours ?? "?")}h; the stack's own frequency decides how often a check actually publishes.</p>`;
+  const published = aistack.sync?.last?.published ?? null;
+  return `${said}${state}<div class="rows">
+    <div class="row"><span class="key">machine</span><span class="grow mono">${esc(m.proposed ?? "unknown")}</span>${qq("set-aistack-machine")}</div>
+    ${qhint("set-aistack-machine", `The name this box PROPOSED at registration, which is its hostname. The approval page can rename a
+      machine and the credential file records no name, so the name aistack shows is the one on
+      <a href="${esc(AISTACK_MACHINES_URL)}" target="_blank" rel="noopener">aistack.to/settings/machines</a>. That page is also where you revoke it.`)}
+    <div class="row"><span class="key">stack</span><span class="grow mono">${esc((m.servers ?? []).join(", ") || "—")}</span></div>
+    <div class="row"><span class="key">registered</span><span class="grow dim-note">${esc(m.at ? agoMs(m.at) : "before curia started recording it")}</span></div>
+    <div class="row"><span class="key">last sync</span><span class="grow" style="color:${
+      v.ok === false ? "var(--warn)" : v.ok ? "var(--ok)" : "var(--ink-dim)"}">${esc(v.text)}${
+      published ? ` — <a href="${esc(published)}" target="_blank" rel="noopener">the stack</a>` : ""}</span></div>
+    <div class="row"><span class="grow">${btn("optin", "Grant standing permission")}</span>${qq("set-aistack-optin")}</div>
+    ${qhint("set-aistack-optin", `The second half of the ceremony, and the one a registration alone does not do: it tells the stack this
+      machine may publish without anyone present. A box that is registered but never granted this syncs nothing and fails
+      with a permission message. Pressing it twice is harmless.`)}
+    ${aistackCommands(aistack)}
+  </div>`;
+}
+
+/* The same two acts as shell lines, for the operator at a terminal. Behind a
+   `?`, because the point of this section is that nobody has to type them. */
+function aistackCommands(a) {
+  const c = a?.commands;
+  if (!c) return "";
+  return `<div class="row"><span class="grow dim-note">the same thing over ssh</span>${qq("set-aistack-ssh")}</div>
+    ${qhint("set-aistack-ssh", `<span class="mono">${esc(c.login)}</span><br><span class="mono">${esc(c.opt_in)}</span><br>
+      Run them as curia's own HOME, which is what those lines say. Curia picks the credential up on its next tick either way.`)}`;
 }
 
 /* ---- the chat (#267, many conversations by #333) ----------------------------
@@ -2167,13 +3291,27 @@ function screenChat(p) {
       <code>start 256</code> and it dispatches.</p>
     ${down ? `<p class="unread">The chat is down while the daemon restarts. Your message reaches the overseer through it.</p>` : ""}`;
   const count = conversations?.conversations?.length ?? null;
-  return `${head(p, "Chat", count == null ? "" : `<span class="dim-note num">${count} conversation${count === 1 ? "" : "s"}</span>`)}
+  const tools = `<button class="btn sm" type="button" onclick="toggleTerminal()">Terminal</button>${count == null ? "" : `<span class="dim-note num">${count} conversation${count === 1 ? "" : "s"}</span>`}`;
+  return `${head(p, "Chat", tools)}
+    <div id="terminal-pane" class="terminal-pane" hidden></div>
     <div class="door">${lead}${chatList()}
       <p class="cannot">It holds a reading shell over a checkout of every watched repo, so it can
         read a file or a diff — but it cannot write one: its GitHub token is read-only, and every
         effect still crosses the daemon. A destructive verb still posts its ✅/❌ card, and that
         card lands on Home.</p>
     </div>`;
+}
+
+function toggleTerminal() {
+  const pane = document.getElementById("terminal-pane");
+  if (!pane) return;
+  pane.hidden = !pane.hidden;
+  if (!pane.hidden && !pane.firstChild) {
+    const frame = document.createElement("iframe");
+    frame.src = "/terminal/";
+    frame.title = "Curia terminal";
+    pane.appendChild(frame);
+  }
 }
 
 /* Null is not empty, the second rule of this page. A list curia could not be
@@ -2221,12 +3359,14 @@ function chatRow(c) {
       /* The commands are the reason when there are any: not said twice. */
       !c.dropped.commands?.length && c.dropped.why ? ` — ${esc(c.dropped.why)}` : ""}.</span>`
     : "";
+  const kind = c.kind === "ticket" ? `ticket · ${esc(c.state ?? "archive")}` : "overseer";
+  const remove = c.deletable === false ? "" : `<button class="btn sm" ${anyBusy() ? "disabled" : ""} onclick="doDeleteConversation('${js(c.key)}')">
+      ${busy(k) ? "…" : "delete"}</button>`;
   return `<tr>
     <td><a href="${esc(chatHref(c.session))}">${label}</a>
-      <span class="dim-note mono" style="display:block;margin:2px 0 0">${esc(c.key)} · ${esc(ago(c.last_turn_at))}</span>${dropped}</td>
+      <span class="dim-note mono" style="display:block;margin:2px 0 0">${kind} · ${esc(c.key)} · ${esc(ago(c.last_turn_at))}</span>${dropped}</td>
     <td class="num">${ctxCell(c)}</td>
-    <td><button class="btn sm" ${anyBusy() ? "disabled" : ""} onclick="doDeleteConversation('${js(c.key)}')">
-      ${busy(k) ? "…" : "delete"}</button></td>
+    <td>${remove}</td>
   </tr>${answer ? `<tr><td colspan="3">${answer}</td></tr>` : ""}`;
 }
 
@@ -2243,6 +3383,24 @@ async function doDeleteConversation(key) {
   if (typeof confirm === "function" && !confirm(ask)) return;
   await verb("chat-del-" + key, "/api/console/delete", { key });
   loadConversations();
+}
+
+async function doGitHubAppSetup() {
+  if (anyBusy()) return;
+  const name = document.getElementById("github-app-name")?.value?.trim();
+  if (!name) return refuse("github-app", "Enter a GitHub App name.");
+  const out = await verb("github-app", "/api/github-app/start", { name });
+  if (!out?.action || !out?.manifest) return;
+  const form = document.createElement("form");
+  form.method = "POST";
+  form.action = out.action;
+  const manifest = document.createElement("input");
+  manifest.type = "hidden";
+  manifest.name = "manifest";
+  manifest.value = JSON.stringify(out.manifest);
+  form.appendChild(manifest);
+  document.body.appendChild(form);
+  form.submit();
 }
 
 /* ---- credentials (#661, the shape the #645 prototype settled) ---------------
@@ -2451,27 +3609,11 @@ function screenCredentials(p) {
 
 function screenSettings(p) {
   if (!settings || !draft) {
-    return `${head(p, "Settings")}${saveBanner()}
-      <div class="later">Reading curia.yaml and routing.yaml…</div>`;
+    return `${head(p, "Settings")}
+      <div class="later">Reading curia.yaml and routing.yaml\u2026</div>${saveDock()}`;
   }
-  const bodies = { routing: setRouting, projects: setProjects, dispatch: setDispatch, maintenance: setMaintenance };
-  if (!bodies[UI.set.section]) UI.set.section = "routing";
-  const files = `<span class="dim-note mono">${esc(fileName(settings.files.curia))} · ${esc(fileName(settings.files.routing))}</span>`;
-  /* #292: the screen reads two layers and writes only the top one. Said here,
-     because "I saved and git shows nothing changed" must not be a puzzle the
-     operator has to solve on the box. */
-  const writes = settings.writes
-    ? `<p class="dim-note" style="max-width:620px">A save writes
-       <span class="mono">${esc(fileName(settings.writes.curia))}</span> and
-       <span class="mono">${esc(fileName(settings.writes.routing))}</span>, beside the files above.
-       Git does not track those, so the box's checkout stays clean and a deploy never collides with a
-       save. They hold what this box answers differently, and nothing else.</p>`
-    : "";
-  return `${head(p, "Settings", files)}${saveBanner()}
-    <div class="set-subnav">${Object.entries(SET_SECTIONS).map(([k, label]) =>
-      `<button class="${UI.set.section === k ? "on" : ""}" onclick="setSection('${k}')">${esc(label)}</button>`).join("")}</div>
-    <div style="max-width:620px">${bodies[UI.set.section](p)}</div>
-    ${writes}`;
+  const files = `<span class="dim-note mono">${esc(fileName(settings.files.curia))} \u00b7 ${esc(fileName(settings.files.routing))}</span>`;
+  return `${head(p, "Settings", files)}${drillIn("settings", p)}${saveDock()}`;
 }
 const fileName = (p) => String(p ?? "").split("/").pop();
 
@@ -2485,15 +3627,25 @@ function dirty() {
   UI.set.note = null;
   render();
 }
-function setSection(k) {
-  UI.set.section = k;
-  if (k === "projects" && repos === null) loadRepos();
+/* The discard the dock offers. It throws away the draft rather than the file:
+   nothing was written, so there is nothing on disk to put back. */
+function discardEdits() {
+  draft = clone(settings);
+  UI.set.phase = "clean";
+  UI.set.error = null;
+  UI.set.note = null;
   render();
 }
 function setDefault(i, model) { draft.routing.defaults[i].model = model; dirty(); }
+function setDefaultEffort(i, effort) { draft.routing.defaults[i].effort = effort || null; dirty(); }
 function setModelActive(i, on) { draft.routing.models[i].active = on; dirty(); }
 function setDispatchField(key, value) {
   draft.dispatch[key] = typeof value === "boolean" ? value : Number(value);
+  dirty();
+}
+function setOverseerField(key, value) {
+  draft.overseer ??= { live_pane_cap: 3 };
+  draft.overseer[key] = Number(value);
   dirty();
 }
 function removeRepo(i) { draft.watch.splice(i, 1); dirty(); }
@@ -2644,6 +3796,7 @@ function render() {
     ${desktopNav(n, stale)}
     <main>${SCREENS[UI.screen][1](payload)}</main>
     ${mobileNav(n, stale)}
+    ${searchOverlay()}
   </div>`;
   document.title = (n ? `(${n}) ` : "") + "Atlas · Curia";
   restoreField(field);
@@ -2708,17 +3861,43 @@ function restoreField(f) {
    Chat re-reads on EVERY arrival, unlike settings. The list carries a context
    percent and a last-turn time, and both move with every turn taken from any
    device, so a held copy would age. */
+function routeParts() { return location.hash.slice(1).split("/").filter(Boolean); }
 function routeName(k) { return k === "frontier" ? "maps" : k; }
 function enter(k) {
   k = routeName(k);
   UI.screen = k;
   if (k === "settings" && !settings) loadSettings();
   if (k === "chat") loadConversations();
+  if (k === "feed") recordFeedVisit();
 }
-function goto(k) { enter(k); location.hash = k; render(); }
+/* The since-you-left marker's fact comes from the daemon (#704): the journal
+   holds the instant each login last opened the Feed, so a phone and a laptop
+   under one login agree, and a cleared browser forgets nothing. Entering the
+   Feed draws the marker at the PREVIOUS stamp and posts this visit; the marker
+   holds still until the next visit, so the page does not move it under the
+   reader on every poll. */
+function recordFeedVisit() {
+  const operator = payload?.operator;
+  if (!operator) return;
+  const previous = payload?.overview?.feed_reads?.[operator] ?? UI.feed.lastRead ?? null;
+  UI.feed = { ...UI.feed, lastRead: previous, operator };
+  fetch("/api/feed/read", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }).catch(() => {});
+}
+/* Arriving at Maps from the nav is the LIST, always. The detail is a route of
+   its own, so a tab press that did not name one must not land on the last one
+   the operator happened to open. */
+function goto(k) { enter(k); if (routeName(k) === "maps") UI.maps.open = false; location.hash = k; render(); }
 window.addEventListener("hashchange", () => {
-  const k = routeName(location.hash.slice(1));
-  if (NAMES.includes(k) && k !== UI.screen) { enter(k); render(); }
+  const parts = routeParts();
+  const k = routeName(parts[0] ?? "");
+  if (!NAMES.includes(k)) return;
+  /* Maps carries its detail in the hash (#700), so its route is re-read on
+     every hash change and not only on a change of screen: back out of a detail
+     view and the list must come back under the same tab. */
+  const moved = k !== UI.screen;
+  if (k === "maps") applyMapRoute(parts);
+  if (moved) enter(k);
+  if (moved || k === "maps") render();
 });
 
 /* ---- the poll -------------------------------------------------------------
@@ -2735,6 +3914,7 @@ async function tick() {
     if (!res.ok) throw new Error("the sidecar answered " + res.status);
     payload = await res.json();
     reachable = true;
+    if (UI.screen === "feed" && UI.feed.operator !== payload.operator) recordFeedVisit();
   } catch {
     /* Keep the last payload on screen: a page that blanks itself is worst
        exactly when the box is worst. */
@@ -2758,7 +3938,9 @@ document.addEventListener("visibilitychange", () => {
    a vm to call the screens directly, and a boot there would fetch nothing and
    render into no document. */
 if (typeof document !== "undefined" && document.getElementById("app")) {
-  const initial = routeName(location.hash.slice(1));
+  const initialParts = routeParts();
+  if (routeName(initialParts[0] ?? "") === "maps") applyMapRoute(initialParts);
+  const initial = routeName(initialParts[0] ?? "");
   enter(NAMES.includes(initial) ? initial : "home");
   /* The file read happens at boot even when the operator lands somewhere else
      (#362): the stale-daemon marker on the Settings nav item compares the two,

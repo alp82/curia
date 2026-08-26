@@ -32,7 +32,10 @@ A GitHub issue labeled `wayfinder:map`. It indexes decisions and points to the c
 A ticket whose parent issue is a map.
 
 **Fog**:
-The map section "Not yet specified": work that is coming but not yet sharp enough to state as a ticket.
+The map section "Not yet specified": work that is coming but not yet sharp enough to state as a ticket. A heading, a blank line and an HTML comment inside that section are shape rather than fog, and `None` or `(empty)` is no fog at all.
+
+**Empty map**:
+An open, non-deferred map with at least one child and no open child left. No dispatch ever fires on it again, so the frontier read is the one thing that can notice it ([#485](https://github.com/alp82/curia/issues/485)) — and #316 sat that way for days because a line saying so is not an act. Curia asks the operator one durable question instead ([#698](https://github.com/alp82/curia/issues/698)): a ✅/❌ confirm carrying the map's fog, asked whether the fog is empty or not, journalled as `map_verdict_asked` so neither a second pass nor a restart asks twice. It is the one confirm a boot does not lapse, because it names a map rather than an agent instance. The answer posts a verdict comment on the map either way, and closes it only when the map as it stands THEN has no open child, no fog and no pause. A map that empties again after gaining a child is a new question.
 
 **Charting**:
 The map changes: new tickets, graduated fog, blocking edges, scope rulings. They land two ways. A ticket agent proposes them at the review gate and writes them after the approval. A charting agent writes them as its whole job.
@@ -115,7 +118,7 @@ The label-based model choice. A `model:<x>` label wins, else the `wayfinder:<typ
 A key under `models:` in `routing.yaml`. It is the dispatch vocabulary that `model:<x>` and `/start <ticket> <label>` speak. It is not a model: the label `gpt` names the model `gpt-5.6-sol`.
 
 **Model name**:
-What curia tells a human is running. Best evidence first: the model the transcript states, then `models.<label>.id`, then the routing label. The status line and the composer-ready message say this. Cooling, fallback and the `status` list keep the routing label, because they speak about dispatch.
+What curia tells a human is running. The status line uses the transcript model, then `models.<label>.id`, then the routing label. Cooling, fallback, and `status` keep the routing label.
 
 **Harness**:
 The program an agent runs under: claude or codex. It is a function of the model: `models.<x>.harness` states one value, and no command overrides it. A pin that disagreed with the model built `codex --model opus`, which is not a model.
@@ -183,8 +186,15 @@ _Avoid_: session (that names the tmux session, which is an agent's identity).
 The identity of one conversation. It keys the resume id, the notes waiting for the next turn, and the one-turn-at-a-time lock. It has two shapes that cannot collide: a Discord thread snowflake, which is all digits, and `console-<n>` for a browser conversation, which starts with a letter. A browser number is never reused, because a reused one would wake a deleted conversation's memory. The daemon owns the key, and the container never learns what one means. See [ADR-0016](docs/adr/0016-the-conversation-key.md).
 _Avoid_: thread id (that names the Discord object, and only one shape of key is one).
 
+**Pane message**:
+One complete operator message into a live conversation pane. Three things ride in it, in this order: the checkout verdict, one line per watched repo from a pass the overseer container runs before every message; the notes curia queued between messages, each in its own `[curia: …]` line; and the operator's own words, last. A pane holds one system prompt for its whole life, so the per-message facts have nowhere else to be — which is why the whole message enters as one bracketed paste, with its newlines intact, instead of as typing that would submit each line as a turn. The send returns when the message is IN, not when the answer is out: the answer reaches the operator off the transcript, and the adapters read the completion signal below. A message the pane refuses puts its drained notes back on the queue. See [ADR-0024](docs/adr/0024-the-overseer-chat-is-a-pane.md) and [#708](https://github.com/alp82/curia/issues/708).
+_Avoid_: overseer turn (that is the HTTP lane of ADR-0015, which Discord still takes).
+
+**Completion signal**:
+The one thing an adapter hangs "finished" off for a pane message. A pane ends no stream and writes no result message, so the pane text is the only witness: curia watches the harness start a turn and stop showing one, then emits exactly one signal — journalled as `overseer_pane_message_ended` and handed to whatever the host was built with. It fires on every ending, including the two failures that have no answer behind them: a pane that never picked the message up, and a harness still working when the message clock ran out. Silence is the one outcome an adapter cannot render. See [ADR-0024](docs/adr/0024-the-overseer-chat-is-a-pane.md) and [#708](https://github.com/alp82/curia/issues/708).
+
 **Pane parking**:
-Stopping an idle conversation's live pane while the conversation stays whole: the process ends, and the journal keeps the key, the resume id, the notes and the transcript identity. The next operator message rehydrates the pane from the journaled session id. Live panes have their own cap, a settings default of 3 and separate from `max_concurrent`, and at the cap curia parks the least recently used pane. A routine deploy is a forced park. See [ADR-0024](docs/adr/0024-the-overseer-chat-is-a-pane.md).
+Stopping an idle conversation's live pane while the conversation stays whole: the process ends, and the journal keeps the key, the resume id, the notes, the durable tool token and the transcript identity. The next operator message rehydrates the pane from the journalled session id, before any model work. Live panes have their own cap, `overseer.live_pane_cap`, which defaults to 3 and is separate from `dispatch.max_concurrent` — the two budgets measure different promises, and the cap bounds the cache rather than the number of conversations, which stays unlimited. At the cap curia parks the least recently used IDLE pane: a pane mid-message is skipped, and a cap where every pane is working parks nothing rather than cutting an answer off. The operator never reads about a park. A routine deploy is a forced park, and the daemon dies with those panes, so it records them on the way back: at boot, every conversation the journal still calls live whose tmux session is gone is parked as forced. A message that was in flight then is a killed turn and falls to the replay rules. See [ADR-0024](docs/adr/0024-the-overseer-chat-is-a-pane.md) and [#710](https://github.com/alp82/curia/issues/710).
 _Avoid_: parked (that names a builder idle inside a cross-check gate).
 
 **Single-use conversation thread**:
@@ -209,6 +219,10 @@ _Avoid_: retry (that names the fallback the in-daemon host ran on a second model
 **Turn secret**:
 What opens the daemon's verb tools to one turn of the overseer container. The daemon mints it per turn, hands it over inside the turn request, and forgets it when the turn ends. It is not an agent token: an agent's is a file, because a restarted daemon adopts the agents its predecessor spawned, and a turn survives no restart at all. See [#314](https://github.com/alp82/curia/issues/314).
 _Avoid_: agent token (that one is per agent, on disk, and it opens a different route).
+
+**Conversation token**:
+What opens the daemon's verb tools to one overseer conversation hosted in a pane. The daemon mints one 32-byte secret per conversation into `daemon/data/overseer-tokens/<key>`, writes it into that pane's own `.mcp.json` file, and reads it back for every call the pane makes. It is durable where the turn secret is not, because a pane outlives many turns, a parking and a deploy, and a rehydrated pane must keep the identity it had. The token is the whole claim: the pane reaches `/overseer/mcp?conversation=<key>`, the daemon compares the stored secret in constant time, and only then loads the destination from the key. A pane that names another conversation presents the wrong secret for it. The pane is never told its key, so the connection settings land in a project directory named by the session id, which is the one handle both sides hold. Deleting a conversation revokes the token, and a sweep clears every token nothing addresses. It widens no authority: it opens the overseer verb catalogue, the daemon still composes every canonical command, and the ✅/❌ confirm stands. See [ADR-0024](docs/adr/0024-the-overseer-chat-is-a-pane.md) and [#701](https://github.com/alp82/curia/issues/701).
+_Avoid_: turn secret (that one lives in memory for one turn of the HTTP turn lane), pane token.
 
 **Overseer checkout**:
 The overseer's own blobless clone of one watched repo, at `<workspace_root>/overseer/repos/<owner>__<repo>`. It is a mirror of origin and holds nothing of its own: no git identity, no local commit, no branch to commit onto. It carries every ref — every branch, so `curia/<n>` is there while an agent works, plus every pull-request head, which is what stays readable after a merge deletes the branch. See [ADR-0014](docs/adr/0014-the-overseer-in-its-own-container.md) and the [live checks](docs/live-checks/312-overseer-checkouts.md).
@@ -259,6 +273,13 @@ The expiry half is a PAT-only fact and it dies holder by holder as [ADR-0018](do
 `tickets`, `next`, `status`, `start`, `map`, `cancel`, `resume`, `attach`, `review`. The whole command surface, identical over Discord and REST. Each verb has one meaning. `start` works a thing, and `map` updates a map.
 _Avoid_: the five verbs (the pre-#81 count, wrong since `next`, `resume` and `review` joined).
 
+**Typed command**:
+A top-level message in the command channel that the parser accepts as a whole line. It runs on the router before any model turn: no conversation thread, and no overseer session. A line the parser refuses, and a line that only starts with a verb, are both prose, and prose opens a conversation. See [ADR-0022](docs/adr/0022-the-overseers-command-understanding.md) and [#692](https://github.com/alp82/curia/issues/692).
+_Avoid_: slash command (that names the Discord manifest, which is another transport onto the same router).
+
+**The map tools**:
+The two tools the overseer reaches the `map` verb through. `map_update` requires an existing map's number. `map_new` has no number field at all and requires the operator's brief. Both compose the same `map` router text, so the grammar, the slash surface and the operator's usage catalogue don't change. The test of which shape to use is a schema rather than prompt prose, so the wrong shape is not a call the model can make. See [ADR-0022](docs/adr/0022-the-overseers-command-understanding.md) and [#692](https://github.com/alp82/curia/issues/692).
+
 **Resume**:
 A fresh agent on a ticket whose agent is gone. It inherits the surviving worktree, the model of the last spawn, which the journal states, and the inherited exchange (#374). It never inherits the conversation. A live agent refuses it: `cancel <n>` is the way to end one.
 
@@ -272,7 +293,7 @@ One harness process, spawned per ticket, that works the ticket to its ending. It
 _Avoid_: worker (the old name, swept in #184).
 
 **Session**:
-The tmux session `curia-<n>`. The session name is the agent's identity everywhere.
+The tmux session `curia-<n>`. The session name is an internal routing identifier. Discord messages use the `curia` identity.
 
 **Chat handle**:
 The name of an agent no issue answers for: `chat-1`, `chat-2`, the lowest free index at dispatch. It stands where a ticket number stands — the session `curia-chat-1`, the worktree, the thread, and the argument `attach`, `cancel` and `resume` take. Today one kind of agent uses it: the new-map dispatch. It names agents only. A browser conversation is keyed `console-<n>`, so the two never collide.
@@ -323,7 +344,7 @@ The boundary around an agent: one Docker container per agent, holding its own cl
 `harnesses.<name>.sandbox` in `routing.yaml`: `docker` or `none`. Per harness. The claude harness is on and soaking, the codex harness follows.
 
 **Agent image**:
-The one image every agent container runs. It carries both harnesses at pinned versions and nothing per-ticket. Its tag is a content address over the Dockerfile and the pins, so a bump names an image the box does not have and the daemon rebuilds.
+The one image every agent container runs. It carries every harness at a pinned version and nothing per-ticket: claude, codex, opencode, and pi ([#696](https://github.com/alp82/curia/issues/696)). The build asks each one for its version as the worker user and fails when the answer isn't the pin, so routing can never select a command line interface the container lacks. Its tag is a content address over the Dockerfile and the pins, so a bump names an image the box does not have and the daemon rebuilds.
 
 **Image pin**:
 A container named `curia-agent-pin`, created against the live agent image and never started. The box's nightly docker cleanup deletes every image no container references, and no label protects one, so the reference is what keeps the image alive overnight. The daemon checks the pin on every dispatch. A new tag moves the pin and then removes every superseded tag of the same repository. See [#337](https://github.com/alp82/curia/issues/337) and [#350](https://github.com/alp82/curia/issues/350).
@@ -401,12 +422,16 @@ _Avoid_: figure, chart, the `visual` field.
 The files an agent hands the operator to download, as workspace paths (`attachments`, renamed from `images` at #640, because the field has accepted `.patch`, `.diff`, `.md`, `.txt` and `.log` since it shipped). A file rides the message it belongs to, and the `files` format is the message for an artifact that stands alone. An attachment is what a reader downloads. A `picture` is what a reader looks at in place.
 _Avoid_: images, uploads.
 
+**Inbound message text**:
+What the operator said, as against what Discord kept in the message ([#697](https://github.com/alp82/curia/issues/697)). Discord's client turns a body past 2000 characters into a short message plus a `message.txt`, so reading `content` alone read the first half of a long request and lost the rest silently. One seam composes the whole thing: the message body first, then each supported text attachment in the order Discord listed it, each segment exactly once. Every inbound path reads it - a top-level turn, a thread turn, an operator note, and an escalation answer - so the four cannot drift. Two caps bound it, a megabyte per file and a megabyte of attached text per message, and past either the file is refused BY NAME rather than truncated, because half a diff read as a whole one is the worse failure. A refusal is visible and costs only its own file: the body and every other segment still arrive, and a line names what is missing. Images are not its business - they keep the disk-path route. Lives in `daemon/src/inbound.mjs`.
+_Avoid_: message content (that names the Discord field, which is only one of the segments).
+
 **Ending report**:
-What `report_result` puts in the thread, in the agent's own voice, as the first of the ending's two messages (#253, #419). It is typed: `headline` says what the work came to in one line, `summary` says what changed, and a `visual` and a `detail` are the agent's judgment. curia lays the parts out and appends the pull-request link. The same headline leads the resolution comment curia writes, and it becomes the gist of the map pointer. A cross-check reviewer's report is a **verdict** instead: it is typed on its own fields (#421), and it wears the 🔎 signal rather than the ✅ of an ending.
+What `report_result` puts in the thread, in the agent's own voice, as the first of the ending's two messages (#253, #419). It is typed: `headline` says what the work came to in one line, `summary` says what changed, and a `table`, a `diagram` and a `detail` are the agent's judgment. curia lays the parts out and appends the pull-request link. The same headline leads the resolution comment curia writes, and it becomes the gist of the map pointer. A cross-check reviewer's report is a **verdict** instead: it is typed on its own fields (#421), and it wears the 🔎 signal rather than the ✅ of an ending.
 _Avoid_: final summary, result message.
 
 **Status line**:
-What `notify` puts in the thread, in the agent's own voice, while the work goes on (#420). It is typed: `message` says what happened, and a `visual` and a `detail` are the agent's judgment. Its `kind` says what the operator must DO, never how the agent rates its own news. `progress` needs nothing from them, `look` puts a file or a page in front of their eyes now, and `ask` wants a reply nothing is blocked on. A status line asks for no decision, so an agent that cannot go on without the answer calls `ask_human` instead.
+What `notify` puts in the thread, in the agent's own voice, while the work goes on (#420). It is typed: `message` says what happened, and a `table`, a `diagram` and a `detail` are the agent's judgment. Its `kind` says what the operator must DO, never how the agent rates its own news. `progress` needs nothing from them, `look` puts a file or a page in front of their eyes now, and `ask` wants a reply nothing is blocked on. A status line asks for no decision, so an agent that cannot go on without the answer calls `ask_human` instead.
 _Avoid_: status update, progress ping.
 
 **Lint gate**:
@@ -423,6 +448,10 @@ _Avoid_: hook fallback.
 
 **Review gate**:
 The one approval before a merge, and its own escalation kind. Only the daemon opens it, and it composes every link from its own records. The ✅ press posts a real GitHub approval on the pull request (#391), under the host `gh` login, because an app cannot approve for a human and GitHub refuses a self-approval. What GitHub carries is what the journal calls approved: a press whose approval fails reads as not approved to the agent, to the Stop hook and to `/status`. Branch protection on the watched repo is what makes the press binding, and it is the operator's own optional act: curia requires no setting in a watched repo, and nothing in the daemon reads the rule.
+
+**Preview expectation**:
+What the review gate asks of a change that has a page to look at (#735). A task is applicable when its diff digest carries at least one **source** file that renders a page — markup, styles, a component or a template; tests, docs and generated files never count, and neither does server code, schema or config. Curia reads that off the digest it already measured, never off the agent's account of its own work. An applicable gate with no preview is bounced once, with the rule and two ways on: publish one, or say in the summary why there is nothing to see. The second call opens the gate either way and the card carries the absence in the link's place. A backend-only task never meets it, and a diff curia could not count never triggers it.
+_Avoid_: preview requirement, mandatory preview.
 
 **Cross-check**:
 The operator's third choice at the review gate. Curia spawns a reviewer on the other provider, and the verdict returns to the builder. The press answers neither way: nothing merges and nothing is rejected.
@@ -485,17 +514,17 @@ The wait before a thread name goes back to 🎫 (#277). Discord answers every re
 Putting the terminal glyph on a thread whose ticket has ended (#257). A rename rides a budget of 2 per thread per 10 minutes, so a ✅ can wait, and the gate that holds it dies with the daemon. Two passes catch what is dropped. A release settles the ticket's last thread even when the binding is already gone. Every bridge start settles each active thread curia once labeled that is bound to nothing and still wears a live glyph.
 
 **Voice ownership**:
-The rule that divides the thread's speakers. CuriaBot states mechanics, the agent voice states meaning, and no fact is said twice in one thread. See [ADR-0013](docs/adr/0013-one-voice-per-fact.md).
+The rule that gives a ticket thread one `curia` identity. Work prose uses first person. Mechanics use small print. No fact appears twice. See [ADR-0021](docs/adr/0021-the-thread-formatting-and-the-one-voice.md).
 
 **Failure line**:
 The daemon's own message about a failure it hit. It is one sentence of prose, and the thread hears it once (#256). The raw error stays in the journal and in the reply the failing agent reads. A retry loop inside the repeat window adds nothing to the thread. A loop that outlasts the window says the line again with a count.
 _Avoid_: error message (that names the raw text, which never reaches the thread).
 
 **Speaker name**:
-The webhook username an agent speaks under: its session name, and nothing else. Discord caps the username at 80 characters, so a name that carries more can truncate, and a truncated identity is a mangled one (#254). The label says who speaks. The thread says which ticket.
+The webhook username for every ticket-thread message: `curia`. Builders and reviewers share the bot avatar. Session names remain internal routing identifiers (#690).
 
 **Notify**:
-A fire-and-forget line of agent prose into the ticket thread.
+A fire-and-forget opening, working phase, or milestone for the ticket thread. Routine phase updates edit the status line.
 _Avoid_: status line (that names the daemon's own line, below).
 
 **Operator note**:
@@ -521,7 +550,7 @@ The whole verdict, posted into the thread when no agent is left to read it. It n
 The ordered close-out of a ticket: commit, pull request, preview, review gate, merge, resolve, result. One structure drives both the prompt and the Stop hook checklist.
 
 **Ending receipt**:
-The one CuriaBot message that ends a ticket thread. In small print, it merges what the tracker step did with what the session teardown did. It carries no bare link. The agent's own report is the message before it, and that report is where the pull request unfurls. See [ADR-0013](docs/adr/0013-one-voice-per-fact.md).
+The status line's final edit. Small print joins the tracker result, session teardown, and final meters. Chat and ticket links remain. See [ADR-0020](docs/adr/0020-the-thread-story.md).
 
 **Charting ending**:
 The ending of a map dispatch. It forks on one fact: did the session write a file? A session that wrote none ends on two steps. It edits the map, then it reports the result. A session whose research subagents wrote findings takes the ordinary ending for them: commit, pull request, review gate, merge, then close those research tickets. The Stop hook holds a session whose findings sit uncommitted under `docs/research/`, because an uncommitted file dies with the workspace. Curia posts the summary on the map either way. That comment states whether the findings reached the default branch. No unassign, and the map itself never closes.
@@ -569,7 +598,7 @@ The harness's own append-only run log. It carries no geometry, so any device lay
 Two ways. What the config dir holds decides which one is right. An agent gets a config dir of its own, so the newest file in it by mtime is that agent's run. A conversation shares one config dir with every other conversation, so only the session id its key is bound to names its file. A key with no session id has no transcript. The honest answer there is nothing, and it is never the newest file. See [ADR-0016](docs/adr/0016-the-conversation-key.md) and the [live checks](docs/live-checks/332-transcript-by-key.md).
 
 **Driven session**:
-A timeline session that is no tmux pane. It names its own config dir, the session id of the conversation it serves, and it takes a message as a turn rather than as keystrokes. The console chat is the first one. A driven session has no dialog guard and takes no key, because neither has a pane to reach.
+A timeline session curia sends through a driver of its own rather than as bare keystrokes. It names its own config dir and the session id of the conversation it serves, and the driver decides what a message means. The console chat is the first one. Since [#708](https://github.com/alp82/curia/issues/708) its driver is the pane message below, so the words do reach a pane in the end — as one paste, through the adapter, never as raw typing. A driven session still has no dialog guard and takes no key.
 
 **Console chat**:
 The timeline attach of one browser conversation, served under the console's own address. The console draws no chat of its own and frames none: there is one chat surface, and it is the timeline.
@@ -584,6 +613,12 @@ _Avoid_: browser thread (there is no Discord thread behind it, and there is more
 
 **Spent number**:
 A browser conversation number that is used up. The daemon journals every key it mints, and it never mints one twice, so a delete spends that number for good. This is the one rule that separates a conversation number from a **Chat handle**: an agent is torn down whole and its index comes back, and a conversation is memory, so a reused number would wake the deleted conversation's own transcript. A delete forgets the key and leaves the file on disk. See [#333](https://github.com/alp82/curia/issues/333).
+
+**Global search**:
+One query over the four indexed sources: the GitHub facts, the decisions a map records under `## Decisions so far`, the journal, and the local chat transcripts. Discord thread bodies stay out of the first index, because Discord is the alert surface and its text is a copy of what the journal and the transcripts already hold. The lens button in every screen header opens it. See [#589](https://github.com/alp82/curia/issues/589) and `daemon/src/search.mjs`.
+
+**Landing target**:
+Where a search result opens, as typed data rather than a URL. A ticket hit and a chat hit land on `chat`, a map hit on `maps`, a journal hit on `feed`, and a decision hit on `github`, at its resolution comment. The query names the surface and its key, and the screen does the routing.
 
 **Preview**:
 A tailnet HTTPS link to an agent's running dev server. The daemon allocates the public port and composes the link.
@@ -604,7 +639,7 @@ Open escalations shown on the timeline from the daemon's record, because a trans
 The timeline's refusal to send text while a native terminal dialog holds the pane.
 
 **Overview**:
-The daemon's one loopback read of itself, `GET /overview`. It joins every section the dashboard draws. Sections include agents, escalations, health, usage, model credentials, warnings, journal events, settings, and deploy status. The Overview also carries the frontier snapshot and a map snapshot. Each map snapshot includes history, agents, frontier facts, blockers, fog, counts, and its latest event stamp. Journal events and each Overview poll invalidate the map snapshot.
+The daemon's one loopback read of itself, `GET /overview`. It joins every section the dashboard draws. Sections include agents, escalations, health, usage, model credentials, warnings, journal events, settings, and deploy status. The Overview also carries the frontier snapshot and a map snapshot. The frontier snapshot is the **takeable** reading and nothing more; the map snapshot is the whole map. Each map snapshot includes history, agents, frontier facts, blockers, fog, counts, and its latest event stamp. Journal events and each Overview poll invalidate the map snapshot. The reconcile pass carried a second copy of every map until [#700](https://github.com/alp82/curia/issues/700) retired it, so one map reading answers to one name.
 
 The map snapshot uses indexed journal questions and GitHub reads. The sidecar polls the Overview without holding secrets or journal access. Each section is nullable, so an unreadable section doesn't hide other sections.
 
@@ -614,11 +649,24 @@ The browser console for the box, on loopback `4273` and Serve `8445`. It draws t
 **Read screen**:
 A dashboard screen whose facts all come from the overview: home, agents, frontier, feed and credentials. The settings screen is the one that reads its own files. Two rules hold across all of them. Color marks attention and nothing else, so a state, a ticket type and a repo are told in words. Null is not empty, so an unreadable fleet never renders as an idle box and an uncomputed frontier never renders as an empty one.
 
+**Maps screen**:
+The dashboard screen for the open maps. Every fact on it comes from the **map snapshot** and from nowhere else, because two readings of one map drift. A map is a card: the walked fraction over the snapshot's own total, the fog counted beside it rather than inside it, and the five-group band - walked, in flight, takeable, blocked, fog - that selects the detail. Maps needing the operator lead the list, and calm maps follow by their latest event.
+
+A **paused map** - one labelled `wayfinder:deferred` - is listed like any other, because hiding a pause is how a pause becomes a disappearance. What the pause costs it is the **start control**: a pause is only ever ended by hand, so the one surface that could dispatch work on a paused map says why it will not.
+
+The detail half carries the cut decided in [#588](https://github.com/alp82/curia/issues/588): takeable rows under the frontier rule with the routed model and a start control, blocked rows in a red-dashed box that names **every** blocker, and fog on the grey striped strip. An empty frontier is a sentence saying where the way went, never a blank.
+
+**Map detail route**:
+The maps detail is a hash of its own, `#maps/<owner>/<name>/<number>/<group>`. Desktop shows the detail beside the list; the phone shows it instead of the list, and the route is what gives that view a back, a refresh, and a link an operator can send. Both halves always render and CSS decides which the width shows, the same rule the **drill-in section frame** follows. Arriving from the nav is always the list. See [#700](https://github.com/alp82/curia/issues/700).
+
 **Credentials screen**:
 The dashboard screen for the model credentials, one row per consumer: state, expiry, last refresh, why, and one action. It answers the question no other surface could take - what is the state of all three? - because the attention list is built to be empty and `valid` and `expiring` are silent by design. `unowned` is a ROW there rather than an absence. Two of the three rows are anthropic and read one provider-keyed store, so each row names its provider and one Sign-in press is offered once for the rows it heals. The live login is a **panel above the table**, never a row inside it: a flow with a countdown, a link, a code and a terminal fallback is a panel whatever it is called. Every row **restacks as a card below 640 px** with the action full width, because a six-column table at 390 px pushes the one button off the screen - on the device the whole no-ssh requirement exists for. There is no API-key field on it, and there is no field on it at all. See [#661](https://github.com/alp82/curia/issues/661) and the prototype that settled the shape, [#645](https://github.com/alp82/curia/issues/645).
 
 **Answer surface**:
 The Needs-you list on the home screen. It is the one place a question or the review gate is answered from the console. The agents table states what an agent waits on and answers none of it, so no operator has to remember which of two surfaces they are looking at. A model credential is the one item on it that is a **pointer** rather than a card: the detail lives on the Credentials screen, and saying it in both places is how two surfaces drift apart. What no operator act can end does not belong here at all - a spent usage window was never answerable, and [#677](https://github.com/alp82/curia/issues/677) moved it to the **Spent-window banner**.
+
+**Feed screen**:
+The journal tail read as attention ([#523](https://github.com/alp82/curia/issues/523), [#704](https://github.com/alp82/curia/issues/704)): one stream, newest first, at two altitudes. News - a gate, an ask, a verdict, a death, a deploy, a hold - draws at full size with a second line naming the ticket, the agent and the age. Every other event is a mechanic, compressed between the news and folded into one named group when four or more run together. Nothing is dropped, only paced. A needs-you row carries the amber wash and the words "Needs you". A 24-hour density strip heads the screen, family chips narrow it to one family, and each entry lands on the owning Chat, map, or GitHub record. The since-you-left marker is drawn at the **feed read stamp**: the instant each operator login last opened the Feed, journalled as the silent `feed_read` event and carried on the overview as `feed_reads`, so a phone and a laptop under one login agree and a cleared browser forgets nothing. Opening the Feed draws the marker at the previous stamp and posts this visit, and the marker holds still until the next visit.
 
 **Needs-you count**:
 `needsYou`, the one function behind the nav badge, the tab title, the Home tile and the Needs-you list header. It counts what an **operator act** ends: escalations, review gates, GitHub credential warnings, dispatch holds, and - since [#661](https://github.com/alp82/curia/issues/661) - the model credentials. **The count IS the list** since [#677](https://github.com/alp82/curia/issues/677): one function, `attentionItems`, yields the items, `needsYou` is its length, and the column draws the same array. It was a sum beside the list before that, and the two drifted twice - once when the credential pointer reached the list and not the sum, once on the spent window. A member class cannot reach one surface alone now. A spent usage window is neither counted nor listed: it rolls on its own clock, nobody can answer it, and the **Answer surface** is where a question is answered - so it is a **Spent-window banner** at the top of Home instead. The credential term counts **pointers, not consumers**: three dead rows behind one provider are one act reached by one visit, and the list shows one line for them. Nothing is hidden by the collapse - the pointer names every consumer behind it, and the screen states each one's own row.
@@ -648,8 +696,11 @@ The operator's Tailscale login, taken from the header the sidecar's identity che
 **Sidecar**:
 The process that serves the dashboard. It runs beside the daemon and never inside it, so it stays up while the daemon restarts. It holds no secret: its container mounts the code and the config directory, and neither the journal nor the `.env.daemon`.
 
+**Drill-in section frame**:
+The shape of an Atlas page that is a list of sections. One list of section rows, each with a gist, and one open section beside it. A phone shows the list, and a pick replaces it with that section and a back link. A desktop shows both, and the back link is the only thing a width changes: the same HTML serves either, and nothing in the page script measures a viewport. A page registers one ordered array of sections in `DRILL_PAGES` and draws itself with `drillIn`. A section states a key, a title, a gist, a body, an optional `?` explanation, and an optional `enter` hook that takes a read of its own on arrival rather than on every poll. Settings is the first page in it. See [#699](https://github.com/alp82/curia/issues/699) and the accepted prototype, [#525](https://github.com/alp82/curia/issues/525).
+
 **Settings screen**:
-The one dashboard screen that writes. Four sections, Routing first, then Projects, Dispatch and Maintenance. It reads `curia.yaml` and `routing.yaml` off disk, never from the poll snapshot, and posts back only what the operator changed.
+The one dashboard screen that writes, drawn in the drill-in section frame. Four sections, Routing first, then Projects, Dispatch and Maintenance. It reads `curia.yaml` and `routing.yaml` off disk, never from the poll snapshot, and posts back only what the operator changed. Each section also owns its own half of the write: it folds its unsaved edits into the save patch, counts them in the operator's own units, and names the key paths in them that a save cannot apply live. So a row landing later is added inside one section, or as a fifth section, and nothing outside that array has to be told about it.
 
 **Settings save**:
 The write itself. The sidecar edits the override file through the yaml document API, so every hand comment survives. It validates the candidate as a layer over the tracked file, with the daemon's own loaders, and renames it into place only after every candidate passes. A refused save answers the loader's own message and leaves every file as it was. It refuses one thing of its own: the removal of a watched repo while an agent runs on it, named. That repo would drop out of reconcile, and nothing would cover the agent's claim.
@@ -663,11 +714,11 @@ The write itself. The sidecar edits the override file through the yaml document 
 **A clean checkout**:
 What `git status` on the box says on an ordinary day, and the reason the override exists. A save leaves the checkout clean, so a dirty tree means one thing: somebody hand-edited a tracked file there. The `deploy` verb refuses a dirty tree and names the files, because a fast-forward would refuse it later and the rollback would discard it.
 
-**Save banner**:
-The settings screen's banner, at the top. It carries one button, Save, and states what the daemon did with the save. Applied is one sentence and no button. Declined names the key that needs a restart and carries the restart. A daemon that is not answering carries no button, because a restart is not the mitigation for a process that is already down.
+**Save dock**:
+The settings screen's dock, at the bottom. A clean screen carries no save chrome at all. The dock rises on the first edit with the change count, Save, a discard, and the restart the pending edits will need. The dock names that restart before the press, so an operator never learns about one from the outcome. After the press it stays in the same place and states what the daemon did with the save. Applied is one sentence and no button. Declined names the key that needs a restart and carries the restart. A daemon that is not answering carries no button, because a restart is not the mitigation for a process that is already down. A refusal moved nothing on disk and keeps the draft on screen. See [#699](https://github.com/alp82/curia/issues/699).
 
 **Live reload**:
-`POST /reload` runs on the daemon. It rereads both config files with the daemon's loaders. It applies `dispatch.auto_dispatch`, `dispatch.max_concurrent`, `dispatch.poll_interval_s`, and `dispatch.prototype_variations`. It also applies `watch`, `routing.defaults.<type>`, and `routing.models.<name>.active`. That set is closed. What a browser can't write, a browser can't apply. A reload applies every change or no change. If a loader rejects a file, the daemon applies nothing and returns the loader message. When any other key changes, the daemon applies nothing and names the key. The sidecar requests a reload after a write lands, and the daemon journals what moved. A stopped daemon misses nothing because boot reads the files.
+`POST /reload` runs on the daemon. It rereads both config files with the daemon's loaders. It applies `dispatch.auto_dispatch`, `dispatch.max_concurrent`, `dispatch.poll_interval_s`, and `dispatch.prototype_variations`. It also applies `watch`, `overseer.live_pane_cap`, `routing.defaults.<type>`, and `routing.models.<name>.active`. That set is closed. What a browser can't write, a browser can't apply. A reload applies every change or no change. If a loader rejects a file, the daemon applies nothing and returns the loader message. When any other key changes, the daemon applies nothing and names the key. The sidecar requests a reload after a write lands, and the daemon journals what moved. A stopped daemon misses nothing because boot reads the files.
 
 **Restart**:
 `POST /restart` on the daemon. It journals the order, answers, and exits 75. The supervisor respawns it, because a nonzero exit is what `restart: on-failure` acts on. Agent panes live in the tmux container, so they survive it. The sidecar orders the restart and never takes it. It is a rare act about a hand edit since the live reload: it lives in the Maintenance section, and it is what applies every key outside the closed set. It restarts THE DAEMON AND NOTHING ELSE: the sidecar, the tmux server, ttyd and the overseer service each keep running. So a setting one of those reads at its own boot is not reached by this button, and the operator who hand-edited one takes a deploy instead. The overseer needs neither, because it re-reads its config every turn. The sidecar's own ports and `identity.allow` are the set that needs the deploy.
@@ -713,6 +764,14 @@ The daemon asks the journal fifteen **questions** about its own past: what a dis
 **Journal backup**:
 A gzipped `.dump` of the journal, under `daemon/data/backups/`. The daemon writes one a day and keeps fourteen ([#357](https://github.com/alp82/curia/issues/357), shipped at [#436](https://github.com/alp82/curia/issues/436)). It is portable SQL text, so it restores into any SQLite. It stays on the box, so it bounds a corrupt journal and a bad Node upgrade. It does not survive the loss of the box. A restore is a hand recipe in [the daemon README](daemon/README.md#the-restore), and curia ships no verb for it. The fourteen are a backup count. They are not journal retention, which stays undecided.
 _Avoid_: snapshot, archive.
+
+**aistack sync**:
+The daemon's recurring publish of the box's rolling 30-day harness usage to the operator's measured layer on aistack.to ([#695](https://github.com/alp82/curia/issues/695)). It runs on the dispatch tick rather than on a clock of its own, and only while a machine credential sits at `<workspace_root>/home/.config/aistack/credentials.json`. Each run builds `CLAUDE_CONFIG_DIR` from every active directory under `<workspace_root>/cfg/` and points `CODEX_HOME` at the newest codex root, because a torn-down config directory takes its transcripts with it. The command is pinned by `aistack.cli_version`. A success journals `aistack_sync` and says nothing. A failure journals `aistack_sync_failed` and names the two commands that repair it. The registration itself is a one-time operator ceremony, in [the daemon README](daemon/README.md#registering-the-box). Aggregate token counts travel. Transcripts, prompts, and paths never do.
+_Avoid_: telemetry, upload.
+
+**aistack registration**:
+The one-time act that turns the box into an aistack machine, and the switch the **aistack sync** reads ([#706](https://github.com/alp82/curia/issues/706)). It is a device-code login on the box plus an approval in a signed-in browser, and it ends with a bearer token in the credential file that no response body ever carries. Settings runs the login and shows its code and approval link; the approval itself stays a human act somewhere else, which is what [#695](https://github.com/alp82/curia/issues/695) settled. A registration alone does not publish: the standing auto-sync permission is a second act, `sync --auto on`. Both are in [the daemon README](daemon/README.md#registering-the-box). Say registration for the login and permission for the opt-in; they fail differently and they are repaired differently.
+_Avoid_: connecting, linking, signing in.
 
 **Journal file**:
 `daemon/data/events.jsonl`, the medium the journal used before the `node:sqlite` database. It never rotated, so it only grew. A historical term since the migration. Name it only where the migration is discussed, and never as a synonym for the journal. The migration left it on disk, unwritten, as the floor a rollback landed on ([#323](https://github.com/alp82/curia/issues/323)). [#427](https://github.com/alp82/curia/issues/427) deleted it from the box, so no such file remains. A rollback regenerates it from `body` by [the daemon README recipe](daemon/README.md#the-rollback).
@@ -777,7 +836,7 @@ One box runs everything. Phones and PCs are pure clients on the tailnet.
 - **tmux**: the live agent sessions.
 - **tailscaled**: the Serve rules for attach, timeline, the dashboard, and previews.
 - **Workspace root** (`~/curia-work`): private clones, review checkouts, agent config dirs, the overseer's checkouts under `overseer/repos/`, and curia's own `HOME` under `home/`. The checkouts are a cache of origin and nothing else, so deleting one costs a re-clone and no work.
-- **Curia's credential stores** (`<workspace_root>/home/.claude`, `.codex`, `.config/gh`, `.gitconfig`): the daemon's own, and curia's rather than the operator's since [#473](https://github.com/alp82/curia/issues/473) — the compose stack reads no tree out of the box owner's home. No agent container reaches them, and how each consumer gets a credential instead is the **Model credential** entry above: the daemon writes the codex one into each live agent's config dir and refreshes it on the tick ([ADR-0027](docs/adr/0027-the-daemon-owns-model-credentials.md)), writes the anthropic one into each live claude agent's config dir on the same tick, and mounts the anthropic store read-only into the overseer, which re-reads it per turn ([#648](https://github.com/alp82/curia/issues/648)). See [ADR-0007](docs/adr/0007-shared-credential-store.md).
+- **Curia's credential stores** (`<workspace_root>/home/.claude`, `.codex`, `.config/gh`, `.gitconfig`, `.config/aistack`): the daemon's own, and curia's rather than the operator's since [#473](https://github.com/alp82/curia/issues/473) — the compose stack reads no tree out of the box owner's home. No agent container reaches them, and how each consumer gets a credential instead is the **Model credential** entry above: the daemon writes the codex one into each live agent's config dir and refreshes it on the tick ([ADR-0027](docs/adr/0027-the-daemon-owns-model-credentials.md)), writes the anthropic one into each live claude agent's config dir on the same tick, and mounts the anthropic store read-only into the overseer, which re-reads it per turn ([#648](https://github.com/alp82/curia/issues/648)). See [ADR-0007](docs/adr/0007-shared-credential-store.md).
 - **docker**: the live agent containers and the two shared cache volumes.
 
 Everything else is a cache that reconcile can rebuild.

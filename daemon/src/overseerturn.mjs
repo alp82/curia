@@ -14,7 +14,7 @@
 //
 // WHY THE VERBS TAKE THE MCP SIDE CHANNEL. See `overseerverbs.mjs`: a route
 // that took canonical text would hand the container the whole router, and a
-// tool call hands it eight verbs with validated arguments. The daemon composes
+// tool call hands it the verb catalogue with validated arguments. The daemon composes
 // the canonical text on its own side, so `/command` still receives text the
 // daemon wrote. Every effect crosses that seam, the daemon executes it, and the
 // ✅/❌ confirm on `cancel` survives untouched.
@@ -39,7 +39,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { query as sdkQuery } from '@anthropic-ai/claude-agent-sdk'
-import { seedConfigDir, agentEnv } from './workspace.mjs'
+import { seedConfigDir, agentEnv, cfgDirFor } from './workspace.mjs'
 import { buildSystemPrompt, toolsFor, checkoutReport } from './overseerprompt.mjs'
 import { syncCheckouts, checkoutsRootFor } from './checkouts.mjs'
 import { installCredentialConfig, unroutedOwners, unroutedNote } from './overseercreds.mjs'
@@ -62,7 +62,7 @@ export const OVERSEER_MCP_PATH = '/overseer/mcp'
 export const MCP_SERVER_NAME = 'curia'
 
 // Sonnet 5, as ADR-0014 decides. Haiku answered the in-daemon host's mapping
-// from prose to eight verbs, and this posture reads code and diffs.
+// from prose to the verbs, and this posture reads code and diffs.
 export const OVERSEER_CONTAINER_MODEL = 'claude-sonnet-5'
 
 // The in-daemon host capped a turn at 12 assistant turns, and that was sized
@@ -81,7 +81,7 @@ export const CONTAINER_MAX_TURNS = 40
 // old tree any more, and the cutover copied no history (ADR-0016), so whatever
 // a box still carries there is dead paper.
 export function overseerConfigDirFor(workspaceRoot) {
-  return path.join(workspaceRoot, 'cfg', 'curia-overseer')
+  return cfgDirFor(workspaceRoot, 'curia-overseer')
 }
 
 // The cwd every turn runs in, and it never moves: `resume` is keyed by cwd

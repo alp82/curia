@@ -4,8 +4,11 @@
 // cleanup from deleting it overnight (#337, built by #350).
 //
 // The tag is a CONTENT ADDRESS, not a name someone bumps by hand. It carries
-// the two CLI versions so a human reading `docker images` sees what an agent
-// runs, and a hash over every build input so nothing else can drift silently:
+// the claude and codex versions so a human reading `docker images` sees what
+// most agents run, and a hash over every build input so nothing else can drift
+// silently. The other two harness pins (#696) ride the hash alone: a tag long
+// enough to name four versions stops being readable, and correctness lives in
+// the hash either way.
 //
 //     curia-agent:2.1.220-0.146.0-3f8a1c2d
 //                  ^claude ^codex  ^sha256(Dockerfile + all build args)
@@ -41,8 +44,8 @@ export const BUILD_CONTEXT = path.dirname(DOCKERFILE)
 export const DOCKER_BIN = process.env.DOCKER_BIN ?? 'docker'
 export const BUILD_CMD = 'npm run build-agent-image --prefix daemon'
 
-// A build pulls a base image, fetches gh, and installs two CLIs that are
-// ~600 MB of native binary between them. Measured at ~4 minutes cold on the
+// A build pulls a base image, fetches gh, and installs four harness CLIs that
+// are ~700 MB of native binary between them. Measured at ~4 minutes cold on the
 // box; ten leaves room for a slow mirror without leaving a dispatch hanging
 // on a wedged builder forever.
 export const BUILD_TIMEOUT_MS = 10 * 60_000
@@ -50,7 +53,10 @@ export const BUILD_TIMEOUT_MS = 10 * 60_000
 // Every ARG the Dockerfile declares, in the order it declares them. Kept as
 // one list because it is the contract between the two files: an ARG added
 // there and missed here would build with the empty string and pin nothing.
-const BUILD_ARGS = ['NODE_VERSION', 'CLAUDE_VERSION', 'CODEX_VERSION', 'GH_VERSION', 'PLAYWRIGHT_VERSION', 'TTYD_VERSION', 'AGENT_UID']
+const BUILD_ARGS = [
+  'NODE_VERSION', 'CLAUDE_VERSION', 'CODEX_VERSION', 'OPENCODE_VERSION',
+  'PI_VERSION', 'GH_VERSION', 'PLAYWRIGHT_VERSION', 'TTYD_VERSION', 'AGENT_UID',
+]
 
 // The pins as they are named in config/curia.yaml, mapped to the ARG each one
 // feeds. `agent_uid` is the one that is not a version: it must match the host
@@ -63,6 +69,8 @@ export const SANDBOX_KEYS = {
   node_version: 'NODE_VERSION',
   claude_version: 'CLAUDE_VERSION',
   codex_version: 'CODEX_VERSION',
+  opencode_version: 'OPENCODE_VERSION',
+  pi_version: 'PI_VERSION',
   gh_version: 'GH_VERSION',
   playwright_version: 'PLAYWRIGHT_VERSION',
   ttyd_version: 'TTYD_VERSION',

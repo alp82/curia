@@ -380,7 +380,7 @@ describe('the tool block', () => {
     // strong prior for ~17 minutes. A positive pointer in the orders is the fix.
     const p = write({ mapNumber: 1 })
     for (const tool of ['ask_human', 'notify', 'publish_preview', 'open_pull_request', 'request_review', 'report_result']) {
-      assert.match(p, new RegExp(`- \`${tool}\` —`), `${tool} is missing from the tool block`)
+      assert.match(p, new RegExp(`- \`${tool}\`(?: —|:)`), `${tool} is missing from the tool block`)
     }
   })
 

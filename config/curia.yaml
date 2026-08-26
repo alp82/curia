@@ -103,6 +103,13 @@ overseer:
   # The container stays on the docker bridge, which keeps its shell away from
   # host loopback and the tailnet.
   port: 4274
+  # #710, ADR-0024: how many conversations may hold a live pane at once. A pane
+  # is a CACHE in front of a durable conversation, not the conversation itself,
+  # so this bounds memory and never the number of conversations. At the cap
+  # curia parks the least recently used idle pane; the next message rehydrates
+  # it from the journalled session id. Separate from dispatch.max_concurrent,
+  # which counts agents.
+  live_pane_cap: 3
 
 usage:
   # #146: the per-agent status-line meters
@@ -121,6 +128,26 @@ usage:
   # The probe rides the cheapest model there is, asked for one token. Name
   # another only if a plan stops serving this one.
   probe_model: claude-haiku-4-5-20251001
+
+aistack:
+  # #695: the recurring publish of this box's harness usage to the operator's
+  # measured layer on aistack.to.
+  #
+  # There is no `enabled` key here on purpose. The switch is the machine
+  # credential at `<workspace_root>/home/.config/aistack/credentials.json`, which
+  # the operator's one-time registration writes and `settings/machines` on
+  # aistack.to revokes. A box that never registered runs nothing and says
+  # nothing.
+  #
+  # A PIN, like every version in the `sandbox:` block. The aistack hook the CLI
+  # installs runs `@latest`, which is a behavior change on a box nobody touched.
+  # Read the current version with `npm view @use-aistack/cli version` before
+  # bumping, and check the sync still publishes afterwards.
+  cli_version: 0.7.2
+  # How long one run stays fresh. This bounds spawned processes, not published
+  # snapshots: the stack's own auto-sync frequency defaults to 24 hours, and the
+  # CLI holds a run back until that window is open.
+  interval_hours: 1
 
 sandbox:
   # #154, building the decision at #148: one shared
@@ -143,11 +170,12 @@ sandbox:
   # run on the Node the daemon runs. The upgrade recipe is in the daemon README,
   # under "The Node pin".
   node_version: 24.19.0
-  # Both pins track what the box itself runs, so an agent and a hand session
-  # meet the same CLI. Read them off the box with `claude --version` and
-  # `codex --version` before bumping.
+  # These pins track the harnesses that routing can select. Read each version
+  # from the matching command before you change a pin.
   claude_version: 2.1.220
   codex_version: 0.146.0
+  opencode_version: 1.18.23
+  pi_version: 0.84.3
   # Debian 12 ships gh 2.23 (2023). Pinned from the upstream release instead,
   # for the same reason: one tracker CLI, one version of it.
   gh_version: 2.97.0

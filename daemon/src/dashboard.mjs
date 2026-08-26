@@ -68,11 +68,20 @@ export const daemonPort = () => Number(process.env.PORT ?? DEFAULT_DAEMON_PORT)
 // owns, and the device link and one-time code of a login in flight. A proto-5
 // sidecar serves an `/overview` with no `credentials` section at all, so the
 // card would render empty at the one moment it is the only thing that matters.
-// Bumped to 7 by #661: the page carries a Credentials screen whose one button
-// POSTs `/api/reauth`, a route a proto-6 sidecar does not serve — so a screen
+// Bumped to 7 by #713: every page now opens `/api/search` through this sidecar.
+// Bumped to 8 by #714: Chat embeds the terminal through `/terminal/`, including
+// its WebSocket upgrade. An older sidecar would leave that pane disconnected.
+// Bumped to 9 by #715: a native dialog card answers through `/dialog-answer`.
+// Bumped to 10 by #661: the page carries a Credentials screen whose one button
+// POSTs `/api/reauth`, a route a proto-9 sidecar does not serve — so a screen
 // built for the 3am no-ssh recovery would answer 404 at the press it exists
-// for. It also reads two fields a proto-6 daemon's `/overview` does not carry.
-export const DASHBOARD_PROTO = 7
+// for. It also reads two fields a proto-9 daemon's `/overview` does not carry.
+// Bumped to 11 by #706: the Settings screen carries an aistack section that
+// reads `/api/aistack` and POSTs three `/api/aistack/*` routes, none of which a
+// proto-10 sidecar serves — so an old server must refuse this page rather than
+// draw a registration flow whose device code never arrives and whose every
+// button answers 404.
+export const DASHBOARD_PROTO = 12
 
 // The Credentials screen's own hash (#661). It is here rather than in the
 // daemon that links to it, because the page's screen names are this file's half
@@ -167,7 +176,12 @@ export function loadDashboardConfig(file) {
     fail(`dashboard.index resolves to ${dashboard.index}, which does not exist — it ships committed in daemon/assets/`)
   }
   const allow = readAllow(cfg.identity, fail)
-  return { dashboard, allow, timelinePort: readTimelinePort(cfg, fail) }
+  return {
+    dashboard,
+    allow,
+    timelinePort: readTimelinePort(cfg, fail),
+    terminalPort: readTerminalPort(cfg, fail),
+  }
 }
 
 // The chat (#267) is the timeline, served under this surface's own address, so
@@ -181,6 +195,13 @@ export function readTimelinePort(cfg, fail) {
   const port = cfg.timeline?.port
   if (port === undefined) return null // no timeline block: the chat says so rather than guessing
   if (!(Number.isInteger(port) && port > 0 && port < 65536)) fail('timeline.port must be a port number')
+  return port
+}
+
+export function readTerminalPort(cfg, fail) {
+  const port = cfg.attach?.ttyd_port
+  if (port === undefined) return null
+  if (!(Number.isInteger(port) && port > 0 && port < 65536)) fail('attach.ttyd_port must be a port number')
   return port
 }
 
@@ -198,6 +219,14 @@ export const ASSERT_MS = 60_000
 // wedged daemon must not wedge the page too: the marker and the last snapshot
 // are the answer, and they need this to return.
 export const POLL_TIMEOUT_MS = 10_000
+
+// What an aistack act (#706) gets instead. A poll must be quick or be dropped,
+// but starting the device flow means `npx` fetching a package before the CLI
+// prints anything, and granting the standing permission means a round trip to
+// aistack.to. This is a hair past the daemon's own wait on each, so the daemon's
+// sentence about what happened is what the operator reads rather than this
+// side's sentence about not having heard.
+export const AISTACK_ACT_TIMEOUT_MS = 150_000
 
 // The one read that may leave the box (#355). Hunks come from the worktree in
 // milliseconds, and from `gh pr diff` over the network when the worktree is
@@ -235,6 +264,14 @@ const VERB_FILE_RE = /^\d{1,4}$/
 // reply the button shows — this only keeps a browser from writing the rest of
 // the line.
 const VERB_PROVIDER_RE = /^[a-z0-9][a-z0-9-]*$/
+// The GitHub App setup (#694). A name GitHub will slugify, and the two fields
+// GitHub redirects back with. Checked here for the reason every field above is:
+// this surface composes the daemon call, so it names the shape it will send —
+// and `code` is composed into a URL on the daemon side.
+const APP_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,33}$/
+const APP_CODE_RE = /^[A-Za-z0-9_-]{1,255}$/
+const APP_STATE_RE = /^[0-9a-f]{64}$/
+
 export const MAX_WORDS = 4000
 
 // Why an answer did not land (#266). The reduction refuses in ONE WORD — `unknown`,
@@ -291,19 +328,21 @@ function words(value, what) {
 // vouches for nothing. The daemon's own host allowlist admits this surface's
 // name, which is what makes that pass (index.mjs resolveServeHosts).
 export const CHAT_PAGE = '/chat'
-const CHAT_ROUTES = new Set(['/events', '/send', '/draft', '/key'])
+const CHAT_ROUTES = new Set(['/events', '/send', '/draft', '/key', '/take-back', '/dialog-answer'])
+export const TERMINAL_PAGE = '/terminal/'
 
 export class DashboardSurface {
   constructor({
     port, servePort, index, allow, daemonPort: dPort = daemonPort(),
     pollIntervalS = DEFAULT_DASHBOARD.poll_interval_s,
-    curiaFile = null, routingFile = null, timelinePort = null,
+    curiaFile = null, routingFile = null, timelinePort = null, terminalPort = null,
     log = console.log, deps = {},
   }) {
     this.port = port
     // Where the timeline listens on loopback. Null means this sidecar was
     // started against a config with no timeline block, and the chat says so.
     this.timelinePort = timelinePort
+    this.terminalPort = terminalPort
     this.servePort = servePort
     this.index = index
     // The two files the settings screen writes (#265). They are the only
@@ -353,6 +392,7 @@ export class DashboardSurface {
           res.end(JSON.stringify({ error: e.message }))
         }
       })
+      server.on('upgrade', (req, socket, head) => this.#upgrade(req, socket, head))
       server.once('error', (e) => {
         this.log(`WARNING: the dashboard could not bind 127.0.0.1:${this.port} (${e.message}) — the surface is DOWN and will not be published`)
         this.listening = false
@@ -708,6 +748,77 @@ export class DashboardSurface {
     req.pipe(up)
   }
 
+  // The terminal shares Atlas's address. HTTP serves ttyd's built page and the
+  // WebSocket carries its PTY. The sidecar checks identity and Origin before it
+  // opens either path, then rewrites the upstream origin to ttyd's loopback
+  // address. ttyd receives no operator identity and holds no Atlas secret.
+  #terminal(req, res, upstreamPath) {
+    if (!this.terminalPort) {
+      res.writeHead(503, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' })
+      return res.end('this sidecar was started against a config with no `attach.ttyd_port`, so it cannot reach the terminal\n')
+    }
+    const headers = {
+      ...req.headers,
+      host: `127.0.0.1:${this.terminalPort}`,
+      origin: `http://127.0.0.1:${this.terminalPort}`,
+    }
+    const up = http.request({
+      host: '127.0.0.1', port: this.terminalPort, method: req.method, path: upstreamPath, headers,
+    }, (upRes) => {
+      res.writeHead(upRes.statusCode, upRes.statusMessage, upRes.headers)
+      upRes.pipe(res)
+    })
+    up.on('error', (e) => {
+      this.log(`dashboard: the terminal could not reach ttyd on :${this.terminalPort} (${e.message})`)
+      if (res.headersSent) return res.destroy()
+      res.writeHead(502, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' })
+      res.end(`the embedded terminal is not answering on :${this.terminalPort} (${e.message})\n`)
+    })
+    res.on('close', () => up.destroy())
+    req.pipe(up)
+  }
+
+  #upgrade(req, socket, head) {
+    const refusal = this.#refusal(req) ?? this.#crossSite(req)
+    const url = new URL(req.url, `http://127.0.0.1:${this.port}`)
+    if (refusal || !url.pathname.startsWith(TERMINAL_PAGE) || !this.terminalPort) {
+      const status = refusal ? '403 Forbidden' : '404 Not Found'
+      socket.end(`HTTP/1.1 ${status}\r\nConnection: close\r\n\r\n`)
+      return
+    }
+    const upstreamPath = `/${url.pathname.slice(TERMINAL_PAGE.length)}${url.search}`
+    const headers = {
+      ...req.headers,
+      host: `127.0.0.1:${this.terminalPort}`,
+      origin: `http://127.0.0.1:${this.terminalPort}`,
+    }
+    const up = http.request({
+      host: '127.0.0.1', port: this.terminalPort, method: 'GET', path: upstreamPath, headers,
+    })
+    up.on('upgrade', (upRes, upSocket, upHead) => {
+      const lines = [`HTTP/1.1 ${upRes.statusCode} ${upRes.statusMessage}`]
+      for (const [name, value] of Object.entries(upRes.headers)) {
+        if (Array.isArray(value)) value.forEach((item) => lines.push(`${name}: ${item}`))
+        else if (value !== undefined) lines.push(`${name}: ${value}`)
+      }
+      socket.write(`${lines.join('\r\n')}\r\n\r\n`)
+      if (head.length) upSocket.write(head)
+      if (upHead.length) socket.write(upHead)
+      upSocket.pipe(socket)
+      socket.pipe(upSocket)
+    })
+    up.on('response', (upRes) => {
+      socket.write(`HTTP/1.1 ${upRes.statusCode} ${upRes.statusMessage}\r\nConnection: close\r\n\r\n`)
+      socket.end()
+      upRes.resume()
+    })
+    up.on('error', (e) => {
+      this.log(`dashboard: terminal WebSocket failed (${e.message})`)
+      socket.end('HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n')
+    })
+    up.end()
+  }
+
   #handle(req, res) {
     const reason = this.#refusal(req)
     if (reason) {
@@ -717,15 +828,22 @@ export class DashboardSurface {
     }
     const url = new URL(req.url, `http://127.0.0.1:${this.port}`)
 
+    if (req.method === 'GET' && (url.pathname === '/terminal' || url.pathname.startsWith(TERMINAL_PAGE))) {
+      const upstreamPath = url.pathname === '/terminal'
+        ? '/'
+        : `/${url.pathname.slice(TERMINAL_PAGE.length)}${url.search}`
+      return this.#terminal(req, res, upstreamPath)
+    }
+
     if (req.method === 'POST') {
       const crossSite = this.#crossSite(req)
       if (crossSite) {
         this.log(`dashboard: REFUSED ${req.method} ${req.url} — ${crossSite}`)
         return this.#json(res, 403, { error: crossSite })
       }
-      // The chat's three writes (#267): the composer, the shared draft and the
-      // key the timeline page sends. They pass the cross-site check above like
-      // every other write here, and the timeline applies its own on top.
+      // The chat's writes include the composer, shared draft, pane key, and
+      // message take back. They pass the cross-site check here. The timeline
+      // applies its own check too.
       if (CHAT_ROUTES.has(url.pathname)) return this.#chat(req, res, url.pathname + url.search)
       // The save (#265). The sidecar writes the file itself: it holds the only
       // read-write mount in this container, and #249 put the edit here so that
@@ -763,6 +881,22 @@ export class DashboardSurface {
           // the interval lasts, at the one moment that is false.
           this.snapshotAt = 0
           return out
+        })
+      }
+      if (url.pathname === '/api/github-app/start') {
+        return this.#verb(res, async () => {
+          const b = await this.#body(req)
+          const name = words(b.name, 'a GitHub App name')
+          // The redirect is THIS surface's own address, composed from curia's
+          // own records (#68) rather than from the request headers. GitHub
+          // sends the conversion code back to this URL, so a caller-named
+          // redirect would be a way to send that code somewhere else. The
+          // `Host` header is whatever the caller wrote; `link()` is what
+          // tailscale says this box is.
+          const redirectUrl = new URL('api/github-app/complete', await this.link()).toString()
+          return this.#daemon({
+            method: 'POST', path: '/github-app/start', body: { name, redirect_url: redirectUrl }, accept: [200, 400],
+          })
         })
       }
       // ---- the operator verbs (#266) ---------------------------------------
@@ -837,6 +971,12 @@ export class DashboardSurface {
       // A note to one agent, in either delivery mode (ADR-0013). Queued is the
       // default and rides the agent's next tool result; interrupt is #252's
       // second mode, and its refusals are the daemon's.
+      // The Feed's read stamp (#704): the page opened the Feed under this
+      // login, and the daemon journals the instant. The snapshot is dropped so
+      // the next poll carries the new stamp back.
+      if (url.pathname === '/api/feed/read') {
+        return this.#verb(res, () => this.#daemon({ method: 'POST', path: '/feed/read', body: { by } }))
+      }
       if (url.pathname === '/api/note') {
         return this.#verb(res, async () => {
           const b = await this.#body(req)
@@ -866,6 +1006,63 @@ export class DashboardSurface {
       // deletes one, and both are composed here out of a shape this file names:
       // `new` sends no field at all, and `delete` sends one key this side
       // validates before the daemon validates it again.
+      // The GitHub App setup (#694), in two presses.
+      //
+      // THE SIDECAR RELAYS CODE AND STATE, and that is the whole of its part.
+      // It holds no secret (#263) and this flow's secret is curia's only
+      // durable one, so the conversion happens on the daemon and what comes
+      // back here is the app's public facts. The manifest and the state go OUT
+      // to the browser because the browser is what posts them to github.com;
+      // the private key never travels this way at all.
+      if (url.pathname === '/api/appsetup/begin') {
+        return this.#write(res, async () => {
+          const b = await this.#body(req)
+          const name = field(b.name, APP_NAME_RE, 'a GitHub App name')
+          // The redirect is THIS surface's own address, composed from curia's
+          // own records (#68) rather than from anything the browser said:
+          // GitHub sends the conversion code to it, and a browser-named
+          // redirect would be a way to send that code somewhere else.
+          const redirect = await this.link()
+          const out = await this.#daemon({
+            method: 'POST', path: '/app/setup', body: { name, redirect_url: redirect }, accept: [200, 409],
+          })
+          if (out.ok === false) throw refuse(out.error)
+          return out
+        })
+      }
+      if (url.pathname === '/api/appsetup/convert') {
+        return this.#verb(res, async () => {
+          const b = await this.#body(req)
+          const code = field(b.code, APP_CODE_RE, 'a GitHub conversion code')
+          const state = field(b.state, APP_STATE_RE, 'a setup state curia minted')
+          const out = await this.#daemon({
+            method: 'POST', path: '/app/convert', body: { code, state }, accept: [200, 409, 500],
+          })
+          if (out.ok === false) throw refuse(out.error)
+          return out
+        })
+      }
+      // The aistack registration (#706), in three presses: start the device
+      // flow, stop waiting for it, and grant the standing permission once the
+      // machine exists.
+      //
+      // THE BROWSER SENDS NOTHING. Each of these is a bare press, and each one
+      // spawns a command whose arguments this box already decided — the pinned
+      // CLI version, curia's own HOME. There is no field for a browser to name
+      // a version, a home, or a server with, which is the whole reason these
+      // are three routes rather than one that takes a command.
+      if (url.pathname === '/api/aistack/register' || url.pathname === '/api/aistack/cancel'
+        || url.pathname === '/api/aistack/optin') {
+        const act = url.pathname.slice('/api/aistack/'.length)
+        return this.#write(res, async () => {
+          const out = await this.#daemon({
+            method: 'POST', path: `/aistack/${act}`, accept: [200, 409],
+            timeout: AISTACK_ACT_TIMEOUT_MS,
+          })
+          if (out.ok === false) throw refuse(out.error)
+          return out
+        })
+      }
       if (url.pathname === '/api/console/new') {
         return this.#verb(res, () => this.#daemon({ method: 'POST', path: '/console/new' }))
       }
@@ -891,8 +1088,32 @@ export class DashboardSurface {
 
     if (url.pathname === '/api/overview') {
       return this.payload().then(
-        (p) => this.#json(res, 200, p),
+        (p) => this.#json(res, 200, { ...p, operator: String(req.headers[LOGIN_HEADER] ?? '').toLowerCase() }),
         (e) => this.#json(res, 500, { error: e.message }),
+      )
+    }
+    if (url.pathname === '/api/github-app/complete') {
+      const q = new URLSearchParams()
+      q.set('code', String(url.searchParams.get('code') ?? ''))
+      q.set('state', String(url.searchParams.get('state') ?? ''))
+      return this.#daemon({ path: `/github-app/complete?${q}`, accept: [200, 400] }).then(
+        (out) => {
+          if (out.error) return this.#json(res, 400, out)
+          res.writeHead(303, { location: '/#settings' })
+          res.end()
+        },
+        (e) => this.#json(res, 500, { error: e.message }),
+      )
+    }
+    if (url.pathname === '/api/search') {
+      const query = String(url.searchParams.get('q') ?? '').trim()
+      if (!query || query.length > 200) {
+        return this.#json(res, 400, { error: 'a search query must contain 1 to 200 characters' })
+      }
+      const q = new URLSearchParams({ q: query })
+      return this.#daemon({ path: `/search?${q}` }).then(
+        (r) => this.#json(res, 200, r),
+        (e) => this.#json(res, 200, { query, results: null, errors: [{ source: 'daemon', error: e.message }] }),
       )
     }
     // The diff, on demand (#355). Never from the poll snapshot and never on the
@@ -946,6 +1167,16 @@ export class DashboardSurface {
       } catch (e) {
         return this.#json(res, 500, { error: e.message })
       }
+    }
+    // The aistack registration and the sync verdict (#706). Straight from the
+    // daemon, which is the process that holds the credential and spawns the
+    // CLI. The sidecar relays and adds nothing: it holds no secret (#263) and
+    // this answer deliberately carries none either.
+    if (url.pathname === '/api/aistack') {
+      return this.#daemon({ path: '/aistack' }).then(
+        (r) => this.#json(res, 200, r),
+        (e) => this.#json(res, 200, { ok: false, error: e.message }),
+      )
     }
     // The repos the operator could watch. The sidecar holds no GitHub
     // credential — that is what #263 means by secret-free — so the list comes

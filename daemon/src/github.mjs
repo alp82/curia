@@ -126,6 +126,14 @@ export function issueComments(repo, n) {
   return ghJSONL(['api', '--paginate', `repos/${repo}/issues/${n}/comments?per_page=100`, '--jq', '.[]'], { repo })
 }
 
+// A ticketless skill run gets one durable record before its agent starts. The
+// record is mechanics, not one of the proposed tracker writes the gate holds.
+export function createIssue(repo, { title, body }) {
+  return withBodyFile(JSON.stringify({ title, body }), async (file) => JSON.parse(await gh([
+    'api', '--method', 'POST', `repos/${repo}/issues`, '--input', file,
+  ], { repo })))
+}
+
 // The open issues blocking one ticket — number and state per blocker, the
 // same native-dependency edge the tracker doc writes with POST. Only called
 // for tickets whose summary says blocked_by > 0.
@@ -259,25 +267,86 @@ export function selectLane(maps, mode = 'auto') {
   return { lane: 'map', maps: active.map((m) => m.number) }
 }
 
-// The stranded map (#485): open, not deferred, with at least one child and
-// every child closed. No dispatch ever fires on it again — no open child
-// remains — so without a watch nobody would ever say so (#316 sat that way
-// for days). At least one child, because a new-map session creates the map
-// moments before its first tickets, and that window must not alarm.
+// The stranded map (#485, widened by #698): open, not deferred, with no open
+// child. This includes a map with no child, because every empty map now needs
+// a durable verdict about its retained fog before Curia may close it.
 export function strandedMaps(maps = [], mapItems = {}) {
   return maps
     .filter((m) => m.state === 'open' && !(m.labels ?? []).some((l) => l.name === 'wayfinder:deferred'))
     .filter((m) => {
       const children = mapItems[m.number] ?? []
-      return children.length > 0 && children.every((c) => c.state === 'closed')
+      return children.every((c) => c.state === 'closed')
     })
     .map((m) => ({ number: m.number, title: m.title ?? '' }))
 }
 
-// CuriaBot's line for one stranded map. It names the acts that end it, the way
-// the backup lines do (#436): close the map, or graduate what the fog holds.
-export function strandedMapLine(repo, { number, title }) {
-  return `⚠️ map ${repo}#${number} “${title}” has no open ticket left, but it is still open. Close it with a verdict comment, or graduate what stands under Not yet specified.`
+// The verb an empty-map question carries on its confirm record (#698). It is
+// the one word `onConfirmAnswered` dispatches on, and the one word the boot
+// sweep reads to leave this record standing.
+export const MAP_CLOSE_VERB = 'map_close'
+
+// The question curia asks about one empty map (#698). It replaced the plain
+// alarm line #485 said: an alarm states a fact and waits for someone to act on
+// it, and #316 proved that nobody does. This asks for a VERDICT, and the
+// operator's answer is what closes the map.
+//
+// The fog rides in the question because it is what the answer is about. An
+// operator reading the card on a phone must not have to open the map to see
+// what is still uncertain, and a map with no fog says so in as many words — a
+// silent absence and an absence nobody looked for read the same.
+export function emptyMapVerdictPrompt(repo, { number, title }, fog = []) {
+  const head = `Map ${repo}#${number} “${title}” has no open ticket left. Is the way walked — does no work remain?`
+  const body = fog.length
+    ? [`Still under Not yet specified (${fog.length}):`, ...fog.map((f) => `• ${f.text ?? f}`)]
+    : ['Nothing stands under Not yet specified.']
+  const tail = '✅ posts the verdict and closes the map. ❌ leaves it open, and I stop asking.'
+  return [head, '', ...body, '', tail].join('\n')
+}
+
+// What still holds an empty map open at the moment the operator approves the
+// close (#698). The question was asked off a frontier read that may be minutes
+// old, so the answer is checked against the map as it stands NOW: a child
+// reopened, fog written, or the map paused since the card went out all mean the
+// close the operator approved is no longer the close curia would make.
+//
+// Returns the reasons as sentences, gravest first. Empty means close it.
+export function mapCloseBlockers({ state = 'open', labels = [], children = [], fog = [] } = {}) {
+  const held = []
+  if (state !== 'open') held.push('the map is already closed')
+  if ((labels ?? []).some((l) => (typeof l === 'string' ? l : l.name) === 'wayfinder:deferred')) {
+    held.push('the map is paused (`wayfinder:deferred`), and a pause is only ever ended by hand')
+  }
+  const open = (children ?? []).filter((c) => !c.pull_request && c.state === 'open')
+  if (open.length) {
+    held.push(`${open.length} child ticket(s) reopened or arrived: ${open.map((c) => `#${c.number}`).join(', ')}`)
+  }
+  if ((fog ?? []).length) {
+    held.push(`${fog.length} line(s) still stand under Not yet specified: ${fog.map((f) => f.text ?? f).join('; ')}`)
+  }
+  return held
+}
+
+// The comment curia posts on the map when the operator says the way is walked.
+export function mapClosedComment() {
+  return [
+    '✅ **Closed on the operator’s verdict.** No open child ticket remains, and nothing stands under Not yet specified.',
+    '',
+    '-# curia asked whether any work remained, the operator answered no, and this map closed on that answer.',
+  ].join('\n')
+}
+
+// The comment curia posts when the operator says work remains, and when the
+// approved close is refused by what the map says now. Both are verdicts, and
+// both leave the map open — so both are written down, because a map that stays
+// open for a reason nobody recorded is exactly what #316 was.
+export function mapHeldComment(reasons) {
+  return [
+    '⏸️ **This map stays open.** It has no open child ticket, and curia asked whether the way is walked.',
+    '',
+    ...reasons.map((r) => `- ${r}`),
+    '',
+    '-# curia will not ask again until this map gains an open child and empties once more.',
+  ].join('\n')
 }
 
 // The HITL-free chain count (#81's tickets view): how many open tickets an

@@ -7,6 +7,27 @@
 // crosses to the other provider), and the usage-limit classifier has to read
 // two vocabularies instead of one.
 
+export const REASONING_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra']
+
+const HARNESS_EFFORTS = {
+  claude: { low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max', ultra: 'ultracode' },
+  codex: { low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max', ultra: 'ultra' },
+  opencode: { low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max', ultra: 'ultra' },
+  pi: { low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max' },
+}
+
+// The CLI-facing spelling, or null when this harness cannot state the effort.
+// Claude's ultracode mode is the measured spelling of the shared ultra tier.
+export function harnessReasoningEffort(harness, effort) {
+  if (!effort) return null
+  return HARNESS_EFFORTS[harness]?.[effort] ?? null
+}
+
+const defaultRoute = (routing, type) => {
+  const route = routing.defaults?.[type]
+  return typeof route === 'string' ? { model: route, effort: null } : route
+}
+
 // Precedence (field-notes contract 2): explicit override > model:<x> label >
 // wayfinder:<type> default > untyped default. `labels` is an array of strings
 // (callers normalise gh's label objects to `.name` first).
@@ -15,10 +36,28 @@ export function resolveModel(routing, labels, override) {
   if (named) return named
   for (const l of labels) {
     if (!l.startsWith('wayfinder:')) continue
-    const byType = routing.defaults[l.slice('wayfinder:'.length)]
-    if (byType) return byType
+    const byType = defaultRoute(routing, l.slice('wayfinder:'.length))
+    if (byType?.model) return byType.model
   }
-  return routing.defaults.untyped
+  return defaultRoute(routing, 'untyped')?.model
+}
+
+// The effort belongs to the ticket type, not to its default model. A model
+// label changes the model without erasing the type's cost and depth choice.
+// The model default remains the answer when the type states no override.
+export function reasoningEffortFor(routing, labels, model) {
+  let route = null
+  for (const label of labels ?? []) {
+    if (!label.startsWith('wayfinder:')) continue
+    route = defaultRoute(routing, label.slice('wayfinder:'.length))
+    if (route) break
+  }
+  route ??= defaultRoute(routing, 'untyped')
+  const harness = routing.models?.[model]?.harness
+  const modelDefault = routing.models?.[model]?.reasoning_effort ?? null
+  const wanted = route?.effort ?? modelDefault
+  if (harnessReasoningEffort(harness, wanted)) return wanted
+  return harnessReasoningEffort(harness, modelDefault) ? modelDefault : null
 }
 
 // The model a HUMAN named, or null when routing picked it from the type table

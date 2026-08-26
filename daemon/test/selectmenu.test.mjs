@@ -59,6 +59,9 @@ describe('a choice card picks its surface by option count (#431)', () => {
     const msg = await render(opts(4))
     assert.equal(menusOf(msg.components).length, 0, 'the buttons fit on one row')
     assert.equal(buttonsOf(msg.components).length, 4)
+    assert.match(msg.content, /^❓ Which one\?/)
+    assert.doesNotMatch(msg.content, /curia-431/, 'the session id is not a second speaker identity')
+    assert.match(msg.content, /-# esc-1/)
   })
 
   test('the fifth option turns the card into one menu', async () => {
@@ -94,11 +97,13 @@ describe('a choice card picks its surface by option count (#431)', () => {
     assert.equal(menus[0].options.length, 25)
   })
 
-  test('the link row rides beside the menu', async () => {
+  test('surface links stay off the decision card', async () => {
     bridge.handlers.previewUrl = () => 'https://example.test/p'
+    bridge.handlers.timelineLink = () => 'https://example.test/chat'
     const msg = await render(opts(MAX_SELECT_OPTIONS))
-    assert.equal(msg.components.length, 2, 'the menu row and the link row')
-    assert.deepEqual(rowsOf(msg.components).at(-1).map((c) => c.label), ['🔗 preview'])
+    assert.equal(msg.components.length, 1, 'the menu is the card\'s only control row')
+    assert.equal(buttonsOf(msg.components).length, 0, 'surface links belong on the status line')
+    assert.equal(rowsOf(msg.components)[0][0].type, 3, 'the menu remains')
   })
 
   test('past the menu cap the numbered list comes back whole', async () => {
@@ -114,6 +119,16 @@ describe('a choice card picks its surface by option count (#431)', () => {
     assert.deepEqual(values, Array.from({ length: 20 }, (_, i) => String(i)))
   })
 
+  test('typed handles keep controls short without changing the answer', async () => {
+    await bridge.renderEscalation({
+      id: 'esc-1', ticket: '431', agent: 'curia-431', kind: 'choice', prompt: 'Which one?',
+      options: ['The full first option', 'The full second option'],
+      payload: { options: [{ handle: 'First' }, { handle: 'Second' }] },
+    })
+    const msg = sent.at(-1)
+    assert.deepEqual(buttonsOf(msg.components).map((button) => button.label), ['First', 'Second'])
+  })
+
   test('two options that read the same still answer apart', async () => {
     // Discord refuses a menu with a repeated value. The index is the value, so
     // a duplicated label costs nothing.
@@ -124,12 +139,13 @@ describe('a choice card picks its surface by option count (#431)', () => {
 })
 
 describe('a pick answers the record (#431)', () => {
-  let bridge, answered, deferred, replies
+  let bridge, answered, deferred, replies, followUps
 
   beforeEach(() => {
     answered = []
     deferred = 0
     replies = []
+    followUps = []
     bridge = new DiscordBridge({
       token: 'x',
       allowedUsers: ['u1'],
@@ -153,6 +169,7 @@ describe('a pick answers the record (#431)', () => {
     user: { id: 'u1' },
     deferUpdate: async () => { deferred++ },
     reply: async (r) => { replies.push(r) },
+    followUp: async (r) => { followUps.push(r) },
   })
 
   test('the picked index resolves to the option text', async () => {
@@ -171,6 +188,23 @@ describe('a pick answers the record (#431)', () => {
     await pick(['0'])
     assert.equal(deferred, 1)
     assert.deepEqual(replies, [])
+  })
+
+  test('an answered card offers the next three needs without duplicating its receipt', async () => {
+    bridge.handlers.answer = () => ({
+      ok: true,
+      next_needs: [
+        { headline: 'Review the map.', agent: 'curia-8', ticket: '8' },
+        { headline: 'Choose the limit.', agent: 'curia-9', ticket: '9' },
+        { headline: 'Approve the preview.', agent: 'curia-10', ticket: '10' },
+      ],
+    })
+    await pick(['0'])
+    assert.equal(deferred, 1)
+    assert.equal(followUps.length, 1)
+    assert.match(followUps[0].content, /Next 3 needs/)
+    assert.match(followUps[0].content, /Approve the preview/)
+    assert.equal(followUps[0].ephemeral, true)
   })
 })
 

@@ -179,6 +179,7 @@ describe('GET /overview (index.mjs, real boot)', () => {
       max_concurrent: 3,
       poll_interval_s: 60,
       prototype_variations: 5,
+      messages_per_send: 4,
     })
     assert.deepEqual(o.daemon.config.watch, [{ repo: 'example/fixture', mode: 'ready-for-agent' }])
     assert.deepEqual(o.daemon.config.routing, {
@@ -376,6 +377,26 @@ describe('the context meter on the wire (#264)', () => {
   })
 })
 
+describe('the Feed read stamp (#704)', () => {
+  let dir
+  before(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-feed-read-')) })
+  after(() => fs.rmSync(dir, { recursive: true, force: true }))
+
+  test('one stamp per login, the previous one answered, durable across a restart, and silent on the ring', () => {
+    const a = new Reduction(dir)
+    a.journal('notify', { n: 1 })
+    const first = a.markFeedRead('Alp@Example.com')
+    assert.equal(first.previous, null)
+    assert.equal(first.by, 'alp@example.com')
+    const second = a.markFeedRead('alp@example.com')
+    assert.equal(second.previous, first.at, 'the marker is drawn at the read BEFORE this one')
+    assert.deepEqual(a.lastFeedReads(), { 'alp@example.com': second.at })
+    assert.deepEqual(a.recentEvents().map((e) => e.type), ['notify'], 'reading the feed is not news on it')
+    assert.deepEqual(new Reduction(dir).lastFeedReads(), { 'alp@example.com': second.at })
+    assert.throws(() => a.markFeedRead('  '), /names the login/)
+  })
+})
+
 describe('the journal tail the feed reads (#262)', () => {
   let dir
   const reduction = () => new Reduction(dir)
@@ -455,6 +476,19 @@ describe('the recent past, answered without the file (#289)', () => {
     const s = reduction()
     s.journal('lifecycle_closed', { repo: 'o/r', ticket: 42 })
     assert.deepEqual(reduction().recentOutcomes(), s.recentOutcomes())
+  })
+
+  test('retained agent conversations are durable and do not use the recent-outcome cap', () => {
+    const s = reduction()
+    for (let i = 1; i <= RECENT_OUTCOMES + 3; i += 1) {
+      s.journal('agent_spawned', { agent: `curia-${i}`, repo: 'o/r', ticket: i, model: 'sonnet', harness: 'claude' })
+      s.journal('lifecycle_closed', { agent: `curia-${i}`, repo: 'o/r', ticket: i })
+    }
+
+    assert.equal(s.retainedAgentConversations().length, RECENT_OUTCOMES + 3)
+    assert.deepEqual(reduction().retainedAgentConversations(), s.retainedAgentConversations())
+    assert.equal(s.retainedAgentConversations()[0].session, 'curia-1')
+    assert.equal(s.retainedAgentConversations().at(-1).state, 'finished')
   })
 
   test('the pull request answers per agent, and a fresh dispatch does not inherit the last one\'s', () => {
@@ -812,10 +846,11 @@ describe('the two-level frontier, and reconcile\'s stamp (#262)', () => {
 
   // A map child, in the gh payload shape the frontier reads: labels and
   // assignees are arrays of OBJECTS.
-  const child = (number, title, { blockedBy = 0, labels = [], assignees = [], state = 'open' } = {}) => ({
+  const child = (number, title, { blockedBy = 0, labels = [], assignees = [], state = 'open', updatedAt = null } = {}) => ({
     number,
     title,
     state,
+    updated_at: updatedAt,
     assignees,
     labels: labels.map((name) => ({ name })),
     issue_dependencies_summary: { blocked_by: blockedBy, blocking: 0, total_blocked_by: blockedBy, total_blocking: 0 },
@@ -855,7 +890,10 @@ describe('the two-level frontier, and reconcile\'s stamp (#262)', () => {
     const d = new Dispatcher({
       config,
       routing: { defaults: { untyped: 'sonnet' }, models: { sonnet: { provider: 'anthropic', harness: 'claude' } }, fallbacks: {}, harnesses: {} },
-      reduction: { journal: () => {}, questions: emptyQuestions(), openEscalations: () => [], answeredExchangeFor: () => [], boundTickets: () => [] },
+      reduction: {
+        journal: () => {}, questions: emptyQuestions(), openEscalations: () => [],
+        answeredExchangeFor: () => [], boundTickets: () => [], recentEvents: () => [],
+      },
       notify: () => {},
       log: () => {},
       dataDir: path.join(tmp, 'data'),
@@ -904,6 +942,35 @@ describe('the two-level frontier, and reconcile\'s stamp (#262)', () => {
     const byNumber = Object.fromEntries((await d.frontier())[0].items.map((i) => [i.number, i.model]))
     assert.equal(byNumber[11], 'opus', 'the wayfinder:task default')
     assert.equal(byNumber[12], 'gpt', 'the wayfinder:grilling default')
+  })
+
+  // #700. This pass used to carry a whole second reading of every map, built
+  // for the dashboard alone. `readMapSnapshot` (#687) is that reading now, and
+  // one fact answering to one name is what keeps the two from disagreeing.
+  test('the frontier is the takeable reading only, and carries no second copy of the map', async () => {
+    const d = makeDispatcher({
+      repoMaps: async () => [{
+        number: 9,
+        title: 'the map',
+        state: 'open',
+        labels: [],
+        updated_at: '2026-08-20T09:00:00.000Z',
+        body: '## Not yet specified\n- Retention policy\n',
+      }],
+      mapFrontier: async () => [
+        child(10, 'already walked', { state: 'closed', updatedAt: '2026-08-20T10:00:00.000Z' }),
+        child(11, 'take this next', { labels: ['wayfinder:task'] }),
+        child(12, 'work in flight', { assignees: [{ login: 'someone' }] }),
+        child(21, 'waits on the frontier', { blockedBy: 1 }),
+      ],
+      blockedByOf: async (repo, n) => n === 21
+        ? [{ number: 11, title: 'take this next', state: 'open' }]
+        : [],
+    })
+
+    const [repo] = await d.frontier()
+    assert.equal(repo.maps, undefined, 'the whole map is the snapshot route\'s to serve')
+    assert.deepEqual(repo.items.map((i) => i.number), [11], 'the takeable reading is unchanged')
   })
 
   test('a `model:` label on the ticket beats the type default, exactly as a dispatch would', async () => {
