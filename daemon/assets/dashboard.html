@@ -274,6 +274,8 @@
   .need-rank.compact .att-item { padding: 6px 10px; background: transparent; border-left-color: var(--line); color: var(--ink-dim); }
   .need-rank.compact .att-item .diff, .need-rank.compact .att-item .act-row, .need-rank.compact .att-item .opts { display: none; }
   .need-rank.aged .att-item { border-left-color: var(--warn); }
+  .need-rank .need-why { font-size: 11.5px; color: var(--ink-dim); padding: 0 0 2px 4px; }
+  .need-rank.aged .need-why { color: var(--warn); }
   /* The handoff sheet (#718): a bottom sheet on the phone, a centered dialog
      on the desktop. Its rows are landings, not answers, so they are plain. */
   .handoff-scrim { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 40; }
@@ -1816,23 +1818,42 @@ function credLink(words) {
    keep their full controls, while later items remain visible as compact rows. */
 function attentionItems(o) {
   const waitMinutes = (opened) => opened ? Math.max(0, Math.floor((Date.now() - Date.parse(opened)) / 60_000)) : 0;
-  const effectiveWait = (row, gate = false) => {
-    const unblocks = Array.isArray(row?.unblocks) ? row.unblocks.length : Number(row?.unblocks ?? 0);
-    return waitMinutes(row?.opened_at ?? row?.at) + unblocks * 90 + (gate ? 20 : 0);
-  };
+  /* THE UNBLOCK TERM READS THE WIRE (#761). No row on `escalations` or
+     `review_gate` ever carried an `unblocks` field: the daemon builds them in
+     `wireEscalation` and the review-gate mapper, and neither writes one. What
+     the daemon does emit is the blocked set of every map, which names its
+     blockers, and the frontier's takeable items, each naming what it unblocks.
+     Both are keyed on the bare ticket number: an escalation carries no repo,
+     so a repo-qualified key would match nothing and score zero for ever, which
+     is the defect this replaces. The bonus is FLAT: one item that unblocks
+     other work is 90 minutes ahead, however many tickets wait behind it. */
+  const unblockers = unblockSet(o);
+  const effectiveWait = (row, gate = false) =>
+    waitMinutes(row?.opened_at ?? row?.at) + (unblockers.has(String(row?.ticket)) ? 90 : 0) + (gate ? 20 : 0);
   /* Each item also carries an `id`, a one-line `line`, and a `landing` (#718):
      the handoff sheet names the next items with these and lands the operator
-     on the card itself. It never carries an answer control of its own. */
+     on the card itself. It never carries an answer control of its own.
+
+     Amber follows the SCORE, not the raw wait (#761): an item that ranks as
+     overdue is marked as overdue, and the mark says the wait in minutes and
+     names the unblock when one is there, so 90 minutes of rank is never
+     unaccountable. */
+  const need = (row, gate = false) => {
+    const score = effectiveWait(row, gate);
+    const waited = waitMinutes(row?.opened_at);
+    const unblocks = unblockers.has(String(row?.ticket));
+    return { score, aged: score >= 240, why: score >= 240 ? `waited ${waited} min · overdue${unblocks ? " · unblocks other work" : ""}` : (unblocks ? "unblocks other work" : "") };
+  };
   const items = [
-    ...credentialPointers(o).map((html, i) => ({ id: "cred-" + i, line: "a model credential wants you", landing: "credentials", html, score: 100_000, aged: false })),
-    ...(o?.escalations ?? []).map((row) => ({ id: row.id, line: `${row.agent} · ${row.kind} · ${ticketName(null, row.ticket)}: ${snip(row.prompt, 90)}`, landing: "home", html: escCard(row), score: effectiveWait(row), aged: waitMinutes(row.opened_at) >= 240 })),
-    ...(o?.review_gate ?? []).map((row) => ({ id: row.id, line: `${row.agent} · review gate · ${ticketName(null, row.ticket)}: ${snip(row.prompt, 90)}`, landing: "home", html: gateCard(row), score: effectiveWait(row, true), aged: waitMinutes(row.opened_at) >= 240 })),
-    ...(o?.token_warnings ?? []).map((row) => ({ id: "token-" + row.key, line: `${row.key} cannot reach ${row.repo}`, landing: "home", html: tokenCard(row), score: 50_000, aged: false })),
+    ...credentialPointers(o).map((html, i) => ({ id: "cred-" + i, line: "a model credential wants you", landing: "credentials", html, score: 100_000, aged: false, why: "" })),
+    ...(o?.escalations ?? []).map((row) => ({ id: row.id, line: `${row.agent} · ${row.kind} · ${ticketName(null, row.ticket)}: ${snip(row.prompt, 90)}`, landing: "home", html: escCard(row), ...need(row) })),
+    ...(o?.review_gate ?? []).map((row) => ({ id: row.id, line: `${row.agent} · review gate · ${ticketName(null, row.ticket)}: ${snip(row.prompt, 90)}`, landing: "home", html: gateCard(row), ...need(row, true) })),
+    ...(o?.token_warnings ?? []).map((row) => ({ id: "token-" + row.key, line: `${row.key} cannot reach ${row.repo}`, landing: "home", html: tokenCard(row), score: 50_000, aged: false, why: "" })),
     /* The tickets the auto loop steps over (#444). On this list where a spent
        window is not, by this list's own test: an operator act is what ends one.
        Nothing lifts it on a clock, and the ticket sits on the frontier
        untouched until somebody fixes the cause and dispatches it. */
-    ...(o?.dispatch_holds ?? []).map((row) => ({ id: `hold-${row.repo}-${row.ticket}`, line: `${ticketName(row.repo, row.ticket)} is held from auto-dispatch`, landing: "home", html: dispatchHoldCard(row), score: 50_000, aged: false })),
+    ...(o?.dispatch_holds ?? []).map((row) => ({ id: `hold-${row.repo}-${row.ticket}`, line: `${ticketName(row.repo, row.ticket)} is held from auto-dispatch`, landing: "home", html: dispatchHoldCard(row), score: 50_000, aged: false, why: "" })),
   ];
   items.sort((a, b) => b.score - a.score);
   return items;
@@ -1840,10 +1861,20 @@ function attentionItems(o) {
 
 /* The column itself. It carries no count of its own any more: the number has one
    home, `needsYou`, and a second one here is how the two drifted. */
+/* The bare ticket numbers whose answer frees other work, from the two places
+   the wire says so: a map's blocked children name their blockers, and a
+   frontier item names what it unblocks. A repo's failed frontier read carries
+   no items and adds nothing. */
+function unblockSet(o) {
+  const set = new Set();
+  for (const m of o?.maps?.maps ?? []) for (const b of m?.blocked ?? []) for (const k of b?.blockers ?? []) if (k?.number != null) set.add(String(k.number));
+  for (const r of o?.frontier?.repos ?? []) for (const i of r?.items ?? []) if (i?.unblocks?.length && i.number != null) set.add(String(i.number));
+  return set;
+}
 function attentionList(o) {
   const items = attentionItems(o);
   return items.length
-    ? items.map((item, index) => `<div class="need-rank ${index < 3 ? "full" : "compact"}${item.aged ? " aged" : ""}" id="need-${esc(item.id)}">${item.html}</div>`).join("")
+    ? items.map((item, index) => `<div class="need-rank ${index < 3 ? "full" : "compact"}${item.aged ? " aged" : ""}" id="need-${esc(item.id)}">${item.why ? `<div class="need-why">${esc(item.why)}</div>` : ""}${item.html}</div>`).join("")
     : `<div class="empty">Nothing wants you.</div>`;
 }
 
