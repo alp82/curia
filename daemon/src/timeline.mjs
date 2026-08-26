@@ -48,6 +48,20 @@ import { detectHarness, findTranscript, transcriptForSession, readActiveTranscri
 
 const DIR = path.dirname(fileURLToPath(import.meta.url))
 
+// The card fields every answer surface renders from one payload (#712,
+// ADR-0025): the per-option handle for a short control, whether the card is
+// typed (letters mark its options; an untyped card counts), whether a round
+// carries the one ✅ tap, and the directory a reply file lands in. The wire on
+// Home carries the same four, composed by index.mjs.
+export function cardFields(r, deps = {}) {
+  return {
+    option_handles: r.payload?.options?.map((option, index) => String(option?.handle ?? r.options?.[index] ?? '')) ?? null,
+    typed: Boolean(r.payload),
+    recommended: Boolean(r.recommended),
+    files_dir: deps.filesDirFor?.(r.id) ?? null,
+  }
+}
+
 export const DEFAULT_TIMELINE_INDEX = path.resolve(DIR, '..', 'assets', 'timeline.html')
 
 // The page and this server are two halves of one protocol (SSE event names,
@@ -553,8 +567,12 @@ export class TimelineSurface {
   // supersede and nudge all just change the snapshot.
   #pumpEscalations(name) {
     const s = this.#state(name)
+    // The typed-card fields ride here too (#712): the Chat room draws the
+    // same card Home and Discord draw, so it needs the handles, whether the
+    // markers are letters, the round's one tap, and where a reply file lands.
     const open = this.deps.escalationsFor(name).map((r) => ({
       id: r.id, kind: r.kind, prompt: r.prompt, options: r.options ?? null,
+      ...cardFields(r, this.deps),
       preview_url: r.preview_url ?? null, opened_at: r.opened_at, nudges: r.nudges,
     }))
     const snapshot = JSON.stringify(open)
@@ -568,6 +586,7 @@ export class TimelineSurface {
     // the transcript's tool line is a clipped brief on both harnesses.
     const history = this.deps.escalationHistoryFor(name).map((r) => ({
       id: r.id, kind: r.kind, prompt: r.prompt, options: r.options ?? null,
+      ...cardFields(r, this.deps),
       preview_url: r.preview_url ?? null, opened_at: r.opened_at,
       closed_at: r.closed_at ?? null, status: r.status,
       answer: r.answer ?? null, answered_by: r.answered_by ?? null,

@@ -26,6 +26,14 @@ const round = (label = 'decision') => ({
   questions: [{ text: 'Should cooling re-arm at boot?', recommendation: 'Yes, from the stored cap.' }],
 })
 
+describe('the per-option handle on a composite choice (#712)', () => {
+  test('the message schema keeps a handle, so the button can be short while the body keeps the words', () => {
+    const parsed = messageSchema.parse({ format: 'choice', headline: 'Which?', options: [{ label: 'Stable, and wait', handle: 'stable' }, { label: 'Preview' }] })
+    assert.equal(parsed.options[0].handle, 'stable')
+    assert.equal(parsed.options[1].handle, undefined)
+  })
+})
+
 describe('the catalog', () => {
   test('the seven formats of ADR-0026, and the four that decide', () => {
     assert.deepEqual(MESSAGE_FORMATS, ['prose', 'round', 'choice', 'approve-reject', 'preview-review', 'visual', 'files'])

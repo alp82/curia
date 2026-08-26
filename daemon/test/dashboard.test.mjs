@@ -1157,6 +1157,42 @@ describe('the operator verbs (#266)', () => {
     }
   })
 
+  test('an index and files ride to the daemon as they are, and words are not owed beside them (#712)', async () => {
+    const res = await press('/api/answer', { id: 'esc-7', index: 1, files: [{ name: 'shot.png', data: 'cG5n' }] })
+    assert.equal(res.status, 200)
+    const body = sent('/answer').body
+    assert.equal(body.index, 1)
+    assert.equal(body.answer, '')
+    assert.deepEqual(body.files, [{ name: 'shot.png', data: 'cG5n' }])
+    calls = []
+    await press('/api/answer', { id: 'esc-7', answer: 'B', index: 'x' })
+    assert.equal(sent('/answer').body.index, null, 'a shape that is no index is no index')
+    assert.deepEqual(sent('/answer').body.files, [])
+  })
+
+  test('a reply of more than ten files is refused before the daemon is asked', async () => {
+    const res = await press('/api/answer', { id: 'esc-7', files: Array.from({ length: 11 }, (_, i) => ({ name: `f${i}.txt`, data: 'eA==' })) })
+    assert.equal(res.status, 409)
+    assert.match(JSON.parse(res.text).error, /at most 10 files/)
+    assert.deepEqual(calls, [])
+  })
+
+  test('a second answer carries the first receipt back to the page (#712)', async () => {
+    reply['/answer'] = [409, { ok: false, reason: 'answered', receipt: { by: 'alp', via: 'button', at: 'T', answer: 'Preview' } }]
+    const res = await press('/api/answer', { id: 'esc-7', answer: 'Stable' })
+    assert.equal(res.status, 409)
+    const body = JSON.parse(res.text)
+    assert.equal(body.refused, true)
+    assert.deepEqual(body.receipt, { by: 'alp', via: 'button', at: 'T', answer: 'Preview' })
+  })
+
+  test('a file refusal from the daemon reads as the daemon wrote it', async () => {
+    reply['/answer'] = [400, { ok: false, reason: 'files', error: 'tool.exe: refused — curia cannot take that file type' }]
+    const res = await press('/api/answer', { id: 'esc-7', answer: 'x', files: [{ name: 'tool.exe', data: 'TVo=' }] })
+    assert.equal(res.status, 409)
+    assert.match(JSON.parse(res.text).error, /tool\.exe: refused/)
+  })
+
   test('a reason nobody wrote a sentence for still reads, rather than rendering blank', async () => {
     reply['/answer'] = [409, { ok: false, reason: 'something-new' }]
     assert.match(JSON.parse((await press('/api/answer', { id: 'esc-7', answer: 'x' })).text).error, /something-new/)

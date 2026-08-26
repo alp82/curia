@@ -34,7 +34,7 @@ import { DiscordBridge } from './bridge.mjs'
 import { installCrashGuard } from './health.mjs'
 import { sayGoodbye, questionGoodbye, deathWasSilent, DAEMON_BOOT } from './goodbye.mjs'
 import { readable } from './logline.mjs'
-import { resolveOutboundFiles, inboundContent, ALLOWED_EXTENSIONS } from './attachments.mjs'
+import { resolveOutboundFiles, inboundContent, ALLOWED_EXTENSIONS, safeLeaf } from './attachments.mjs'
 import { PreviewRegistry } from './preview.mjs'
 import { loadCuriaConfig, loadRoutingConfig, overrideSummary } from './config.mjs'
 import { PROBE_MARK, PROBE_PATH, GUEST_DAEMON_HOST, GUEST_WT, dockerGateway, probeSideChannel } from './sandbox.mjs'
@@ -72,7 +72,7 @@ import {
 import { probeOverseer } from './overseerservice.mjs'
 import { replayKilledTurns, replayLine } from './overseerreplay.mjs'
 import { LIVE_PATHS, DISPATCH_KEYS, liveSettings, liveDiff, frozenDifference } from './settings.mjs'
-import { TimelineSurface } from './timeline.mjs'
+import { TimelineSurface, cardFields } from './timeline.mjs'
 import { identityRefusal, hostsForPorts, tailnetSelf } from './identity.mjs'
 import { detectHarness, findTranscript } from './transcript.mjs'
 import { promptTitle, elapsedLabel, speakerName, smallPrint, handOffLine } from './messaging.mjs'
@@ -130,6 +130,52 @@ const PORT = Number(process.env.PORT ?? 4271)
 // CURIA_DATA_DIR mirrors CURIA_CONFIG_DIR: the boot test points both at a
 // fixture dir so a test run never writes into the real journal.
 const DATA = process.env.CURIA_DATA_DIR ?? path.join(ROOT, 'data')
+
+// Where a reply file lands, per question (#712, ADR-0025). The Discord bridge
+// has written downloaded thread attachments here since #34; a browser answer
+// writes the same directory, so every card names one path and the agent reads
+// one shape. Named on the card, so the path is a fact the operator can see.
+// The one receipt (#712, ADR-0025): the same four facts the card's mark, the
+// Chat room and the record read, so every surface says one sentence.
+const answerReceipt = (record) => ({
+  by: record.answered_by ?? null, via: record.answered_via ?? null,
+  at: record.closed_at ?? null, answer: record.answer ?? null,
+})
+
+const replyFilesDir = (id) => path.join(DATA, 'attachments', String(id))
+
+// A browser reply's files, sent inline as base64 (#712). They are written under
+// the question's own directory with the bridge's naming, and a file whose type
+// curia would refuse on the way out is refused on the way in, by name. The cap
+// is per answer, and it is generous for a screenshot and mean for a tarball.
+const MAX_REPLY_FILE_BYTES = 8 * 1024 * 1024
+function writeReplyFiles(id, files) {
+  const paths = []
+  const refusals = []
+  if (!Array.isArray(files) || !files.length) return { paths, refusals }
+  const dir = replyFilesDir(id)
+  let total = 0
+  let n = 0
+  for (const file of files) {
+    const leaf = safeLeaf(file?.name, 'reply')
+    const ext = path.extname(leaf).toLowerCase()
+    if (!ALLOWED_EXTENSIONS.includes(ext)) {
+      refusals.push(`${leaf}: refused — curia cannot take that file type (allowed: ${ALLOWED_EXTENSIONS.join(', ')})`)
+      continue
+    }
+    const bytes = Buffer.from(String(file?.data ?? ''), 'base64')
+    total += bytes.length
+    if (!bytes.length || total > MAX_REPLY_FILE_BYTES) {
+      refusals.push(`${leaf}: refused — ${bytes.length ? `a reply carries at most ${MAX_REPLY_FILE_BYTES / 1048576} MB of files` : 'the file is empty'}`)
+      continue
+    }
+    fs.mkdirSync(dir, { recursive: true })
+    const dest = path.join(dir, `${leaf.slice(0, leaf.length - ext.length)}-${++n}${ext}`)
+    fs.writeFileSync(dest, bytes)
+    paths.push(dest)
+  }
+  return { paths, refusals }
+}
 // The command channel. The bridge opens it; the dispatcher names it, because a
 // confirm typed outside any thread renders there (#218).
 const CHANNEL = process.env.CURIA_CHANNEL ?? 'curia'
@@ -1536,6 +1582,7 @@ const timeline = new TimelineSurface({
     composerFor: (harness) => routingConfig.harnesses[harness]?.readyRe ?? null,
     escalationsFor: (session) => reduction.openEscalations().filter((r) => r.agent === session),
     escalationHistoryFor: (session) => reduction.escalationsForAgent(session),
+    filesDirFor: replyFilesDir,
     landingFor: (session) => reduction.transcriptLanding(session),
     takeBack: (request) => conversationRuntime.takeBack(request),
     correct: (request) => conversationRuntime.correct(request),
@@ -2431,14 +2478,13 @@ const wireEscalation = (r) => ({
   kind: r.kind,
   prompt: r.prompt,
   options: r.options ?? null,
-  option_handles: r.payload?.options?.map((option, index) => String(option?.handle ?? r.options?.[index] ?? '')) ?? null,
+  ...cardFields(r, { filesDirFor: replyFilesDir }),
   preview_url: r.preview_url ?? null,
   // #266: the console draws the same buttons the Discord card draws, so it
   // needs the one field that decides whether a free-text round carries the ✅
   // All as recommended tap (#285). Without it the console would offer a
   // recommended round a plain text box, and the operator would have to type
   // the fixed word the button sends.
-  recommended: Boolean(r.recommended),
   opened_at: r.opened_at,
   agent_died: Boolean(r.agent_died),
   rendered: Boolean(r.discord),
@@ -3079,11 +3125,24 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
   }
 
   if (url.pathname === '/answer' && req.method === 'POST') {
-    const { id, answer, attachments, by, via } = await readBody(req)
+    const body = await readBody(req)
+    const { id, attachments, by, via, index, files: inline } = body
+    let answer = String(body.answer ?? '')
+    // An option index is the same answer a Discord button sends (#712,
+    // ADR-0025): every surface resolves a pick to the option's own words, so
+    // the record and the agent read one text whichever control was pressed.
+    const live = reduction.resolveLive(String(id ?? '')).record
+    const picked = Number.isInteger(index) ? live?.options?.[index] : undefined
+    if (picked !== undefined) answer = String(picked)
+    // A browser reply's files (#712) are written first, then walk the same
+    // containment gate the bridge's downloads walk, so one path reads them.
+    const written = live?.status === 'open' ? writeReplyFiles(live.id, inline) : { paths: [], refusals: [] }
+    if (written.refusals.length) return json(400, { ok: false, reason: 'files', error: written.refusals.join('; ') })
     // Attachment paths get read and inlined into an agent's context, so they
     // pass the same containment gate as outbound attachments rather than being
     // trusted because the caller reached loopback.
-    const { files } = outboundFiles('rest', attachments)
+    const { files } = outboundFiles('rest', [...(attachments ?? []), ...written.paths])
+    if (written.paths.length) answer = [answer, ...written.paths.map((p) => `[attachment: ${p}]`)].filter(Boolean).join('\n')
     // #266: the console names the operator who pressed and the surface they
     // pressed on, so the journal and the feed say `answered by <login> via
     // dashboard` rather than attributing every browser answer to `rest`. The
@@ -3091,6 +3150,10 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
     const result = gate.answer(id, {
       answer: String(answer), attachments: files.map((f) => f.attachment), by: named(by), via: named(via),
     })
+    // A second answer gets the first receipt (#712, ADR-0025): the refusal
+    // carries who answered, where, when and what, so the surface that lost the
+    // race shows the mark and never a second question. Nothing is journalled.
+    if (!result.ok && result.record?.status === 'answered') result.receipt = answerReceipt(result.record)
     return json(result.ok ? 200 : 409, result)
   }
 

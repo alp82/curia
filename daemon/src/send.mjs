@@ -245,6 +245,7 @@ export const messageSchema = z.object({
   })).optional().describe('round only: one entry per question. Curia numbers them.'),
   options: z.array(z.object({
     label: z.string().optional().describe('The choice, by its name. One line, 80 characters.'),
+    handle: z.string().optional().describe('Short button text. One line, 20 characters. The card body keeps the full label and consequence.'),
     consequence: z.string().optional().describe('What picking this option costs. One line, 300 characters.'),
     example: z.string().optional().describe('One concrete case for this option. Block prose, 300 characters.'),
     recommended: z.boolean().optional(),

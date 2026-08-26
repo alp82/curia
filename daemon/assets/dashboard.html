@@ -38,7 +38,7 @@
      2. Null is not empty. An unreadable fleet is not an idle box, and a frontier
         nobody has computed is not an empty frontier. Every section that can fail
         on its own says which of the two it is. -->
-<meta name="curia-dashboard" content="proto=13">
+<meta name="curia-dashboard" content="proto=14">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark light">
 <title>Atlas · Curia</title>
@@ -694,6 +694,9 @@
   .chat-esc .q { white-space: pre-wrap; }
   .chat-esc .meta { color: var(--ink-dim); font-size: 12px; }
   .chat-esc .ans { white-space: pre-wrap; border-top: 1px solid var(--line); margin-top: 5px; padding-top: 5px; }
+  .opts.numbered { margin: 4px 0 0 18px; padding: 0; font-size: 12.5px; }
+  .act-row.files input[type=file] { font-size: 12px; max-width: 100%; }
+  .act-row select { font: inherit; font-size: 12.5px; max-width: 100%; }
   .chat-dialog { border: 1px solid var(--warn); border-radius: 9px; padding: 7px 10px; margin: 0 0 8px; font-size: 13px; }
   .chat-dialog.card { border-color: var(--line); background: var(--bg-raise); }
   .chat-dialog .dialog-kind { color: var(--ink-dim); font-size: 11.5px; font-weight: 600; }
@@ -924,11 +927,13 @@ async function verb(key, path, body) {
       body: JSON.stringify(body),
     });
     const b = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(b.error || ("the console answered " + res.status));
+    if (!res.ok) throw Object.assign(new Error(b.error || ("the console answered " + res.status)), { receipt: b.receipt ?? null });
     out = b;
     UI.act.said = { key, text: outcome(b), ok: b.ok !== false };
   } catch (e) {
-    UI.act.said = { key, text: e.message, ok: false };
+    /* A second answer shows the first receipt (#712, ADR-0025): the same
+       mark the card carries, in place of a second question or an error. */
+    UI.act.said = { key, text: e.receipt ? receiptLine(e.receipt) : e.message, ok: false };
   }
   UI.act.busy = null;
   render();
@@ -938,6 +943,13 @@ async function verb(key, path, body) {
 function refuse(key, text) {
   UI.act.said = { key, text, ok: false };
   render();
+}
+
+/* The one receipt, in the words the Discord mark uses (ADR-0025). */
+function receiptLine(x) {
+  const via = x.via ? ` via ${x.via}` : "";
+  const at = x.at ? ` ${clock(x.at)}` : "";
+  return `✅ answered by ${x.by ?? "someone"}${via}${at}: ${x.answer ?? ""}`;
 }
 
 function outcome(b) {
@@ -975,12 +987,74 @@ function typed(id) {
 /* ---- the verbs themselves ---- */
 
 const startTicket = (repo, ticket) => verb(`start:${repo}#${ticket}`, "/api/start", { repo, ticket: String(ticket) });
-const answerEsc = (id, answer) => verb("esc:" + id, "/api/answer", { id, answer });
+/* One answer, three shapes (#712, ADR-0025): words, an option index, or
+   files. The index is what a button, a select and a numbered reply all send,
+   so a Discord press and an Atlas tap resolve the same option. Files ride the
+   answer inline, and the daemon writes them where the card said they land. */
+async function answerEsc(id, body) {
+  if (anyBusy()) return null;
+  const answer = typeof body === "string" ? { answer: body } : { ...body };
+  try {
+    answer.files = await replyFilesOf("files-" + id);
+  } catch (e) {
+    return refuse("esc:" + id, e.message);
+  }
+  return verb("esc:" + id, "/api/answer", { id, ...answer });
+}
+function answerIndex(id, index) { return answerEsc(id, { index: Number(index) }); }
+function answerSelect(id, field) {
+  const el = document.getElementById(field);
+  const v = el ? String(el.value ?? "") : "";
+  if (!/^\d+$/.test(v)) return refuse("esc:" + id, "Pick an option first.");
+  answerIndex(id, Number(v));
+}
 
-function answerTyped(id, field) {
+/* The marker every surface prints beside an option (card.mjs marker): a typed
+   card marks with letters, and an untyped card counts. A reply of one marker
+   resolves to the index, so `B` and `2` answer the same way here as in a
+   Discord thread. */
+const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+const optMarker = (r, i) => (r.typed && i < LETTERS.length ? LETTERS[i] : String(i + 1));
+function markerIndex(r, text) {
+  if (r.kind !== "choice" || !r.options?.length) return null;
+  const t = String(text).trim();
+  if (/^\d+$/.test(t) && r.options[Number(t) - 1] !== undefined) return Number(t) - 1;
+  if (r.typed && /^[a-z]$/i.test(t)) {
+    const i = LETTERS.indexOf(t.toUpperCase());
+    return r.options[i] !== undefined ? i : null;
+  }
+  return null;
+}
+
+/* The files a reply carries, read from the card's own input as base64. The
+   size cap is the daemon's, said here before the upload rather than after. */
+const MAX_REPLY_FILE_BYTES = 8 * 1024 * 1024;
+function replyFilesOf(field) {
+  const el = document.getElementById(field);
+  const list = el && el.files ? [...el.files] : [];
+  if (!list.length) return Promise.resolve([]);
+  const total = list.reduce((n, f) => n + f.size, 0);
+  if (total > MAX_REPLY_FILE_BYTES) return Promise.reject(new Error(`A reply carries at most ${MAX_REPLY_FILE_BYTES / 1048576} MB of files.`));
+  return Promise.all(list.map((f) => new Promise((ok, no) => {
+    const rd = new FileReader();
+    rd.onload = () => ok({ name: f.name, data: String(rd.result).replace(/^data:[^,]*,/, "") });
+    rd.onerror = () => no(new Error(`Could not read ${f.name}.`));
+    rd.readAsDataURL(f);
+  })));
+}
+
+function answerTyped(id, field, r) {
   const v = typed(field);
   if (!v) return refuse("esc:" + id, "Type the answer first — an empty reply answers nothing.");
+  const i = r ? markerIndex(r, v) : null;
+  if (i !== null) return answerIndex(id, i);
   answerEsc(id, v);
+}
+/* The record the typed answer resolves its marker against: the open list on
+   Home, or the Chat room's own open list. */
+function escRecord(id) {
+  const home = (payload?.overview?.escalations ?? []).find((r) => r.id === id);
+  return home ?? (chat.open ?? []).find((r) => r.id === id) ?? null;
 }
 /* A rejection IS feedback (#48): the agent gets the operator's own words and
    fixes what they name. So an empty one is refused here rather than sent as a
@@ -1314,9 +1388,43 @@ function answerButtons(r) {
     b.push(btn("✅ Approve", APPROVE, "primary"), btn("❌ Reject", REJECT, "danger"));
   }
   if (r.kind === "confirm") b.push(btn("✅ Approve", APPROVE, "danger"), btn("❌ Decline", REJECT));
-  if (r.kind === "choice") for (const [i, o] of (r.options ?? []).entries()) b.push(btn(snip(r.option_handles?.[i] || o, 80), o));
   if (r.kind === "free-text" && r.recommended) b.push(btn("✅ All as recommended", ALL_AS_RECOMMENDED, "primary"));
-  return b.length ? `<div class="act-row">${b.join("")}</div>` : "";
+  const rows = [];
+  if (b.length) rows.push(`<div class="act-row">${b.join("")}</div>`);
+  if (r.kind === "choice") rows.push(choiceControls(r));
+  return rows.join("");
+}
+
+/* The option bands (ADR-0025): two to four options are buttons, five to 25 are
+   one select, and past 25 the numbered list stays and a reply names a number.
+   Every control sends the INDEX, and the button says the marker and the
+   handle while the card body keeps the consequence. */
+const MAX_BUTTON_OPTIONS = 4, MAX_SELECT_OPTIONS = 25;
+function choiceControls(r) {
+  const opts = r.options ?? [];
+  if (!opts.length) return "";
+  const handle = (i) => r.option_handles?.[i] || opts[i];
+  const label = (i) => `${optMarker(r, i)} · ${snip(handle(i), 80)}`;
+  if (opts.length <= MAX_BUTTON_OPTIONS) {
+    return `<div class="act-row">${opts.map((_, i) => `<button class="btn sm" ${anyBusy() ? "disabled" : ""}
+      onclick="answerIndex('${js(r.id)}',${i})">${esc(label(i))}</button>`).join("")}</div>`;
+  }
+  if (opts.length <= MAX_SELECT_OPTIONS) {
+    const id = "sel-" + r.id;
+    return `<div class="act-row"><select id="${esc(id)}" ${anyBusy() ? "disabled" : ""}>
+      <option value="">pick one…</option>${opts.map((_, i) => `<option value="${i}">${esc(label(i))}</option>`).join("")}</select>
+      <button class="btn sm primary" ${anyBusy() ? "disabled" : ""} onclick="answerSelect('${js(r.id)}','${js(id)}')">Answer</button></div>`;
+  }
+  return `<ol class="opts numbered">${opts.map((o, i) => `<li><b>${esc(optMarker(r, i))}.</b> ${esc(snip(handle(i), 120))}</li>`).join("")}</ol>
+    <div class="dim">Reply with ${r.typed ? "a letter or " : ""}a number.</div>`;
+}
+
+/* Every card names the file path (ADR-0025): a reply may carry files, and
+   this line says where they land. */
+function replyFilesRow(r) {
+  const where = r.files_dir ? ` They land under <code>${esc(r.files_dir)}/</code> and reach the agent as paths.` : "";
+  return `<div class="act-row files"><input type="file" id="files-${esc(r.id)}" multiple ${anyBusy() ? "disabled" : ""}>
+    <span class="dim">A reply may carry files.${where}</span></div>`;
 }
 
 /* Free-form, on every kind. A choice can be answered in words the options do
@@ -1326,8 +1434,8 @@ function answerField(r) {
   const id = "ans-" + r.id;
   return `<div class="act-row">
     <input type="text" id="${esc(id)}" placeholder="answer in your own words…" ${anyBusy() ? "disabled" : ""}>
-    <button class="btn sm primary" ${anyBusy() ? "disabled" : ""} onclick="answerTyped('${js(r.id)}','${js(id)}')">Answer</button>
-  </div>`;
+    <button class="btn sm primary" ${anyBusy() ? "disabled" : ""} onclick="answerTyped('${js(r.id)}','${js(id)}',escRecord('${js(r.id)}'))">Answer</button>
+  </div>${replyFilesRow(r)}`;
 }
 
 function escCard(r) {
@@ -3498,13 +3606,15 @@ function chatRoom(p) {
     </div>`;
 }
 
+/* The open question is the same typed card Home and Discord draw (#712,
+   ADR-0025): one payload, the same markers, and the answer controls in the
+   room. The composer below still queues a message; the card answers. */
 function chatOpenEscalation(r) {
   const bits = [`since ${clock(r.opened_at)}`];
-  if (r.options?.length) bits.push(`options: ${r.options.join(" | ")}`);
   if (r.preview_url) bits.push(r.preview_url);
-  bits.push("answer it on Home or in Discord — the composer below queues a message, it does not answer this");
   return `<div class="chat-esc"><div class="kind">⏳ waiting on you — ${esc(r.kind)} (${esc(r.id)})</div>
-    <div class="q">${esc(r.prompt ?? "")}</div><div class="meta">${esc(bits.join(" · "))}</div></div>`;
+    <div class="q">${esc(r.prompt ?? "")}</div><div class="meta">${esc(bits.join(" · "))}</div>
+    ${answerButtons(r)}${answerField(r)}${said("esc:" + r.id)}</div>`;
 }
 
 /* The transcript items and the daemon's own escalation record, interleaved by
@@ -3551,9 +3661,7 @@ function chatHistoryCard(r) {
   const options = r.options?.length ? `<div class="meta">options: ${esc(r.options.join(" | "))}</div>` : "";
   let ans;
   if (r.status === "answered") {
-    const who = r.answered_by ? ` by ${r.answered_by}` : "";
-    const via = r.answered_via ? ` (${r.answered_via})` : "";
-    ans = `<div class="ans">✔ answered${esc(who)}${esc(via)} ${clock(r.closed_at)}: ${esc(r.answer ?? "")}</div>`;
+    ans = `<div class="ans">${esc(receiptLine({ by: r.answered_by, via: r.answered_via, at: r.closed_at, answer: r.answer }))}</div>`;
   } else if (r.status === "open") {
     ans = `<div class="meta">waiting on you</div>`;
   } else {
