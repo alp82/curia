@@ -155,7 +155,6 @@ function makeDispatcher(deps = {}, {
   // than reach the box's own `~/.codex`.
   credentials = null,
   anthropicHealth = null,
-  maintenance = null,
   // #695: the recurring aistack sync. NULL by default and on purpose - a real
   // one spawns `npx`, and a test that forgot to pass one must run nothing rather
   // than reach the network.
@@ -356,7 +355,6 @@ function makeDispatcher(deps = {}, {
     credentials,
     anthropic,
     anthropicHealth,
-    maintenance,
     aistack,
     deps: { ...base, ...deps },
   })
@@ -2703,18 +2701,6 @@ describe('the limit resume: the window rolls and curia puts the agent back (#346
     clearInterval(d.autoTimer)
 
     assert.ok(!started.includes('42'), 'the armed ticket is the resume\'s, and a start would recreate its worktree')
-  })
-
-  test('the existing tick runs recurring publishers with auto-dispatch off', async () => {
-    let runs = 0
-    const d = makeDispatcher({}, { maintenance: async () => { runs += 1 } })
-    d.config.dispatch.poll_interval_s = 0.05
-
-    d.startAutoLoop()
-    await waitFor(() => runs > 0)
-    d.stopAutoLoop()
-
-    assert.ok(runs > 0)
   })
 
   // #376: #346 closed ONE instance of this and not the class. A ticket whose
@@ -8248,5 +8234,16 @@ describe('the aistack sync rides the dispatch tick (#695)', () => {
 
   test('a dispatcher with no sync holds none', () => {
     assert.equal(makeDispatcher().aistack, null)
+  })
+
+  // #765: the daemon once built two syncs, and the generic `maintenance` hook
+  // that ran the second one disabled the journalled first. One construction,
+  // one hook on the tick, and no second seam for a publisher to ride.
+  test('the daemon constructs one sync, and the dispatcher offers it one seat (#765)', () => {
+    const index = fs.readFileSync(new URL('../src/index.mjs', import.meta.url), 'utf8')
+    assert.equal(index.match(/new AistackSync\(/g).length, 1, 'index.mjs builds the sync once')
+    const d = makeDispatcher({}, { aistack: { pass: async () => null } })
+    assert.equal(d.maintenance, undefined, 'the caller-less maintenance hook is gone')
+    assert.equal(typeof d.aistack.pass, 'function')
   })
 })
