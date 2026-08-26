@@ -5,7 +5,8 @@
 //
 // THREE SOURCES, and the split is the whole design:
 //
-//   model + effort  the routing pick and `models.<name>.reasoning_effort`.
+//   model + effort  the routing pick and the depth the agent was dispatched at
+//                   (the model's `reasoning_effort` when no dispatch record exists).
 //                   The daemon already knows both at dispatch; nothing is read.
 //                   A DISPATCH is not a process, though — #187 measured what a
 //                   restart cost, because the label reached this function only
@@ -1096,10 +1097,13 @@ export function modelName(model, spec, stated = null) {
 // conversation's percent is the defect this argument exists to end, not a
 // fallback. ADR-0016 makes this meter the one signal that a conversation is
 // getting long, so a number about another conversation cannot carry the job.
-export function agentMeters({ harness, cfgDir, model, routing, account, models, transcript, now = Date.now() }) {
+// EFFORT is the depth the agent was dispatched at (#763): the dispatcher's
+// record, which a type route can set away from the model default. Only when
+// no record exists (a re-adopted or lab session) does the model default speak.
+export function agentMeters({ harness, cfgDir, model, effort = null, routing, account, models, transcript, now = Date.now() }) {
   const spec = routing?.models?.[model] ?? null
   const out = {
-    model: modelName(model, spec), effort: spec?.reasoning_effort ?? null, ctxPct: null, ctxOver: false, ctxTokens: null, windows: null,
+    model: modelName(model, spec), effort: effort ?? spec?.reasoning_effort ?? null, ctxPct: null, ctxOver: false, ctxTokens: null, windows: null,
   }
   if (!harness || !cfgDir) return out
 

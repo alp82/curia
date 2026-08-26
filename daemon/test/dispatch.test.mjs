@@ -17,6 +17,7 @@ import path from 'node:path'
 import { Dispatcher, discordTime, paneTail, paneConfirmsStall, paneAcceptedNudge, textCarriesLimitPhrase, parseTicketRef, newExitMarker, parseExitMarker, paneExcerpt } from '../src/dispatch.mjs'
 import { Reduction } from '../src/reduction.mjs'
 import { parseUsageLimit } from '../src/routing.mjs'
+import { agentMeters } from '../src/usage.mjs'
 import { TEST_PINS, containerDeps, fakePrivateClone, seedConfigDirStub, withTestCredential } from './fixtures/sandbox.mjs'
 import { ENV_FILE, GUEST_CFG } from '../src/sandbox.mjs'
 import { GH_DIR, readGhCredentials, writeGhCredentials } from '../src/agentgh.mjs'
@@ -5694,6 +5695,40 @@ describe('live model switching (#717)', () => {
     assert.match(reply, /xhigh\*\* effort/)
     assert.equal(d.agents.get('curia-42').reasoningEffort, 'xhigh')
     assert.equal(d.agents.get('curia-42').model, 'opus')
+  })
+
+  // #763: the status line's meter is built the way `metersFor` builds it in
+  // index.mjs, from the dispatcher's record. A task route dispatches gpt at
+  // xhigh while the model's own default is low, and the meter must say xhigh.
+  test('the status line meter states the depth the type route dispatched, not the model default', async () => {
+    const d = makeDispatcher({
+      listSessions: async () => ['curia-42'],
+      fetchIssue: async () => ({
+        ...OPEN_ISSUE,
+        assignees: [{ login: 'me' }],
+        labels: [{ name: 'wayfinder:task' }],
+      }),
+      containerPorts: async () => [9000, 9001, 9002],
+    }, { routing: SWITCH_ROUTING })
+    d.reduction.journal('agent_spawned', {
+      repo: 'o/r', ticket: '42', agent: 'curia-42',
+      model: 'gpt', requested_model: 'gpt', harness: 'codex',
+      reasoning_effort: 'xhigh', kind: 'ticket',
+    })
+    fakePrivateClone(d.root, 'o/r', '42')
+    await d.reconcile({ boot: false })
+
+    const agent = d.agents.get('curia-42')
+    assert.equal(agent.reasoningEffort, 'xhigh')
+    const meters = (session, model) => agentMeters({
+      harness: agent.harness, cfgDir: null,
+      model: model ?? d.agents.get(session)?.model ?? null,
+      effort: d.agents.get(session)?.reasoningEffort ?? null,
+      routing: SWITCH_ROUTING, account: null,
+    })
+    assert.equal(meters('curia-42', 'gpt').effort, 'xhigh')
+    // No record: the model default is all there is to say.
+    assert.equal(meters('curia-nobody', 'gpt').effort, 'low')
   })
 })
 

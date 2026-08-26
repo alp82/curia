@@ -316,6 +316,10 @@ export class Questions {
       model: ev.model ?? null,
       requested_model: ev.requested_model ?? null,
       harness: ev.harness ?? null,
+      // #763: the depth the agent was dispatched at. Without it a restart
+      // rebuilt the record with no effort, and the status line fell back to
+      // the model default a type route may have overridden.
+      reasoning_effort: ev.reasoning_effort ?? null,
       prompt_carries_limit_text: ev.prompt_carries_limit_text ?? null,
       // ADR-0023: the skill a ticketless run carries. Read by the gate guard
       // and the ending after a restart, when no agent record holds it.
