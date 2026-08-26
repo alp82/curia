@@ -2431,6 +2431,12 @@ bar: 1 bar (round 4 as it stood), 2 named (no hairlines, the name inside each ba
 hairline-thin bar with the ruler, the legend does the talking). The 1 GB system block is still
 unmeasured.
 
+**Round 6.** The operator picked the bar, and the four losing stylings and the rail left the
+file. Three changes: from 16 GB the group labels shorten to S and A, and past 160 columns the
+agent labels drop entirely because nothing fits; the two sliders sit on one three-column grid so
+their tracks align and the value never wraps; and the system legend ends in "Curia" instead of
+"the curia daemon". The 1 GB system block is still unmeasured.
+
 The `.box` and `.lane` classes of the old scene stay, unused by the new markup. Each variation
 prefixes its classes (`st-`, `gg-`, `ro`, `bp`, `lg`), after the fault
 [#773](https://github.com/alp82/curia/issues/773) records. The switcher and the four losing
