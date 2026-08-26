@@ -1103,12 +1103,29 @@ function searchMark(value, query) {
   return source.replace(re, (hit) => `<mark>${hit}</mark>`);
 }
 
+/* Where a row lands (#713). The wire names the surface and its key; this is
+   the whole routing table, and every row shows its landing word. A ticket and
+   a chat hit open the Chat room, a map hit opens the Maps detail route, a
+   journal hit opens the Feed on that event, and a decision opens its
+   resolution comment on GitHub in a new tab, so the search stays behind it. */
 function searchLanding(row) {
   const landing = row.landing ?? {};
-  if (landing.surface === "chat") return { href: chatHref(landing.conversation), word: "Chat" };
+  if (landing.surface === "chat") return { href: chatHref(landing.conversation), word: "Chat", action: `searchGo('chat','${js(landing.conversation)}')` };
   if (landing.surface === "maps") return { href: "#maps", word: "Maps", action: `searchGo('maps','${js(landing.map)}')` };
   if (landing.surface === "feed") return { href: "#feed", word: "Feed", action: `searchGo('feed','${js(landing.event)}')` };
-  return { href: landing.url ?? "#", word: "GitHub" };
+  return { href: landing.url ?? "#", word: "GitHub", external: true };
+}
+
+/* The attention word a row shows instead of its kind (#713). The sources hand
+   over what they know: the search module's `needs_you`, the tracker's own
+   `needs-info` and `ready-for-human` labels, and the journal's `warning`. Only
+   a state that asks something of the operator replaces the kind word. `open`
+   and `closed` are not attention, so those rows keep their kind. */
+const SEARCH_ATTENTION_WORDS = {
+  needs_you: "needs you", "ready-for-human": "needs you", "needs-info": "needs info", warning: "warning",
+};
+function searchAttentionWord(row) {
+  return SEARCH_ATTENTION_WORDS[String(row.attention ?? "")] ?? null;
 }
 
 function searchOverlay() {
@@ -1122,8 +1139,10 @@ function searchOverlay() {
     if (rows === null) body = `<div class="unread">Search could not reach Curia.</div>`;
     else body = rows.length ? `<div class="search-results">${rows.map((row) => {
       const landing = searchLanding(row);
-      const kind = row.attention || row.kind;
-      return `<a class="search-result" href="${esc(landing.href)}"${landing.action ? ` onclick="${landing.action};return false"` : ""}><span class="kind${row.attention ? " needs" : ""}">${esc(kind)}</span>
+      const attention = searchAttentionWord(row);
+      const kind = attention || row.kind;
+      const opens = landing.action ? ` onclick="${landing.action};return false"` : landing.external ? ` target="_blank" rel="noopener"` : "";
+      return `<a class="search-result" href="${esc(landing.href)}"${opens}><span class="kind${attention ? " needs" : ""}">${esc(kind)}</span>
         <span><span class="title">${searchMark(row.title, state.q)}</span><span class="snippet">${searchMark(row.snippet, state.q)}</span></span>
         <span class="meta"><span>${esc(dur(row.age_s))}</span><span>${esc(landing.word)}</span></span></a>`;
     }).join("")}</div>` : `<div class="empty">Nothing matches.</div>`;
@@ -1161,7 +1180,12 @@ function searchGo(surface, ref) {
   if (surface === "feed") UI.feed.focus = { id: String(ref), query: UI.search.q.trim().toLowerCase() };
   UI.search.open = false;
   enter(surface);
-  location.hash = surface;
+  if (surface === "chat" && ref) {
+    applyChatRoute(["chat", encodeURIComponent(String(ref))]);
+    location.hash = chatRoute(String(ref));
+  } else {
+    location.hash = surface;
+  }
   render();
   return false;
 }

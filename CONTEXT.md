@@ -627,7 +627,7 @@ A browser conversation number that is used up. The daemon journals every key it 
 One query over the four indexed sources: the GitHub facts, the decisions a map records under `## Decisions so far`, the journal, and the local chat transcripts. Discord thread bodies stay out of the first index, because Discord is the alert surface and its text is a copy of what the journal and the transcripts already hold. The lens button in every screen header opens it. See [#589](https://github.com/alp82/curia/issues/589) and `daemon/src/search.mjs`.
 
 **Landing target**:
-Where a search result opens, as typed data rather than a URL. A ticket hit and a chat hit land on `chat`, a map hit on `maps`, a journal hit on `feed`, and a decision hit on `github`, at its resolution comment. The query names the surface and its key, and the screen does the routing.
+Where a search result opens, as typed data rather than a URL. A ticket hit and a chat hit land on `chat`, a map hit on `maps`, a journal hit on `feed`, and a decision hit on `github`, at its resolution comment. The query names the surface and its key, and the screen does the routing. A result row shows its kind, a two-line snippet, its age, and its landing word, and the lens overlay takes no navigation slot. A row that asks something of the operator (`needs_you`, the tracker's `ready-for-human` and `needs-info` labels, the journal's `warning`) shows that attention word in place of its kind. `open` and `closed` are not attention, so those rows keep their kind. See [#713](https://github.com/alp82/curia/issues/713).
 
 **Preview**:
 A tailnet HTTPS link to an agent's running dev server. The daemon allocates the public port and composes the link.

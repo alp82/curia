@@ -1357,7 +1357,7 @@ describe('the read screens (#264)', () => {
       page.UI.search = {
         open: true, q: 'atlas', loading: false, error: null,
         result: { query: 'atlas', errors: [], results: [
-          { kind: 'ticket', title: 'Build Atlas', snippet: 'One Atlas address', age_s: 60, attention: 'needs you', landing: { surface: 'chat', conversation: 'curia-684' } },
+          { kind: 'ticket', title: 'Build Atlas', snippet: 'One Atlas address', age_s: 60, attention: 'needs_you', landing: { surface: 'chat', conversation: 'curia-684' } },
           { kind: 'map', title: 'Atlas map', snippet: 'The route', age_s: 120, attention: null, landing: { surface: 'maps', map: 244 } },
           { kind: 'journal', title: 'Agent started', snippet: 'Atlas work began', age_s: 180, attention: null, landing: { surface: 'feed', event: 'event-4' } },
           { kind: 'decision', title: 'Keep one spec', snippet: 'Atlas and Discord', age_s: 240, attention: null, landing: { surface: 'github', url: 'https://github.com/alp82/curia/issues/685' } },
@@ -1381,6 +1381,73 @@ describe('the read screens (#264)', () => {
       page.UI.search.q = 'notes'
       page.searchGo('feed', 'event-4')
       assert.match(page.atlasFeed(page.payload.overview), /class="feed-news needs focus"/)
+    })
+
+    test('a ticket or chat hit opens the Chat room for that conversation', () => {
+      page.payload = payload()
+      page.UI.search = { open: true, q: 'atlas', loading: false, error: null, result: { query: 'atlas', errors: [], results: [
+        { kind: 'chat', title: 'Chat curia-684', snippet: 'One Atlas address', age_s: 5, attention: null, landing: { surface: 'chat', conversation: 'curia-684' } },
+      ] } }
+      assert.match(page.searchOverlay(), /href="#chat\/curia-684"[^>]*onclick="searchGo\('chat','curia-684'\)/)
+
+      page.searchGo('chat', 'curia-684')
+
+      assert.equal(page.UI.screen, 'chat')
+      assert.equal(page.location.hash, 'chat/curia-684')
+      assert.equal(page.chat.session, 'curia-684')
+      assert.equal(page.UI.search.open, false)
+    })
+
+    test('only a state that asks for the operator replaces the kind word', () => {
+      page.UI.search = { open: true, q: 'x', loading: false, error: null, result: { query: 'x', errors: [], results: [
+        { kind: 'ticket', title: 'A', snippet: 's', age_s: 1, attention: 'ready-for-human', landing: { surface: 'chat', conversation: 'curia-1' } },
+        { kind: 'ticket', title: 'B', snippet: 's', age_s: 1, attention: 'needs-info', landing: { surface: 'chat', conversation: 'curia-2' } },
+        { kind: 'ticket', title: 'C', snippet: 's', age_s: 1, attention: 'needs_you', landing: { surface: 'chat', conversation: 'curia-3' } },
+        { kind: 'journal', title: 'D', snippet: 's', age_s: 1, attention: 'warning', landing: { surface: 'feed', event: 'e' } },
+        { kind: 'ticket', title: 'E', snippet: 's', age_s: 1, attention: 'open', landing: { surface: 'chat', conversation: 'curia-4' } },
+        { kind: 'map', title: 'F', snippet: 's', age_s: null, attention: 'closed', landing: { surface: 'maps', map: 9 } },
+      ] } }
+      const html = page.searchOverlay()
+      const t = text(html)
+      assert.match(t, /needs you A s/)
+      assert.match(t, /needs info B s/)
+      assert.match(t, /needs you C s/)
+      assert.match(t, /warning D s/)
+      assert.match(t, /ticket E s/)
+      assert.match(t, /map F s/)
+      assert.equal((html.match(/class="kind needs"/g) ?? []).length, 4)
+    })
+
+    test('a decision opens GitHub in a new tab and a map missing from the snapshot still lands on Maps', () => {
+      page.payload = payload()
+      page.UI.search = { open: true, q: 'x', loading: false, error: null, result: { query: 'x', errors: [], results: [
+        { kind: 'decision', title: 'Keep one spec', snippet: 's', age_s: 1, attention: null, landing: { surface: 'github', url: 'https://github.com/alp82/curia/issues/685#issuecomment-1' } },
+      ] } }
+      assert.match(page.searchOverlay(), /href="https:\/\/github\.com\/alp82\/curia\/issues\/685#issuecomment-1" target="_blank" rel="noopener"/)
+
+      page.searchGo('maps', '999999')
+
+      assert.equal(page.UI.screen, 'maps')
+      assert.equal(page.location.hash, 'maps')
+      assert.equal(page.UI.search.open, false)
+    })
+
+    test('the lens sits in every page header and takes no navigation slot', () => {
+      page.payload = payload()
+      page.UI.search = { open: false, q: '', loading: false, error: null, result: null }
+      const screens = { home: 'screenHome', maps: 'screenMaps', agents: 'screenAgents', feed: 'screenFeed', chat: 'screenChat', credentials: 'screenCredentials', settings: 'screenSettings' }
+      for (const [name, fn] of Object.entries(screens)) {
+        page.UI.screen = name
+        const html = page[fn](page.payload)
+        assert.match(html, /class="search-lens" onclick="openSearch\(\)"/, `${name} has no lens`)
+      }
+      page.UI.screen = 'home'
+      for (const nav of [page.desktopNav(0, ''), page.mobileNav(0, '')]) {
+        assert.doesNotMatch(nav, /search/i)
+      }
+      assert.equal(page.searchOverlay(), '')
+      page.openSearch()
+      assert.match(page.searchOverlay(), /class="search-sheet" role="dialog"/)
     })
 
     test('an older response cannot replace results for a newer query', async () => {
