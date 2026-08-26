@@ -382,11 +382,14 @@ describe('the read screens (#264)', () => {
     })
 
     test('Home ranks every open need by effective wait, with three full rows and compact rows after them', () => {
+      // No row carries an `unblocks` field: the wire never does (#761). Ticket
+      // 265 ranks ahead because the map's blocked set names it as a blocker and
+      // the frontier says it unblocks 267, both in the shared fixture.
       const p = payload({
         usage: [], token_warnings: [], dispatch_holds: [], credentials: { consumers: [], reauth: null },
         escalations: [
           { id: 'old', agent: 'curia-old', ticket: '1', kind: 'free-text', prompt: 'Oldest wait', opened_at: at(15_000) },
-          { id: 'route', agent: 'curia-route', ticket: '2', kind: 'free-text', prompt: 'Unblocks two', opened_at: at(60), unblocks: 2 },
+          { id: 'route', agent: 'curia-route', ticket: '265', kind: 'free-text', prompt: 'Unblocks two', opened_at: at(60) },
           { id: 'plain', agent: 'curia-plain', ticket: '3', kind: 'free-text', prompt: 'Plain thirty', opened_at: at(1_800) },
           { id: 'small', agent: 'curia-small', ticket: '4', kind: 'free-text', prompt: 'Small wait', opened_at: at(120) },
         ],
@@ -397,6 +400,43 @@ describe('the read screens (#264)', () => {
       assert.ok(html.indexOf('Oldest wait') < html.indexOf('Unblocks two'))
       assert.ok(html.indexOf('Unblocks two') < html.indexOf('Plain thirty'))
       assert.match(html, /need-rank full aged/)
+    })
+
+    test('the unblock bonus is derived from the wire and is flat (#761)', () => {
+      const o = payload({ usage: [], token_warnings: [], dispatch_holds: [], credentials: { consumers: [], reauth: null }, escalations: [] }).overview
+      // 265 and 266 block 267 on the map; 265 unblocks 267 on the frontier too.
+      assert.deepEqual([...page.unblockSet(o)].sort(), ['265', '266'])
+      // A fabricated `unblocks` field on the row itself is ignored.
+      o.escalations = [
+        { id: 'fake', agent: 'a', ticket: '9', kind: 'free-text', prompt: 'fabricated', opened_at: at(60), unblocks: [1, 2, 3] },
+        { id: 'one', agent: 'b', ticket: '265', kind: 'free-text', prompt: 'blocks one on the frontier', opened_at: at(60) },
+        { id: 'two', agent: 'c', ticket: '266', kind: 'free-text', prompt: 'blocks one on the map', opened_at: at(60) },
+      ]
+      const items = page.attentionItems(o)
+      const score = (id) => items.find((i) => i.id === id).score
+      assert.equal(score('fake'), 1)
+      assert.equal(score('one'), 91, 'a flat 90 on top of the minute')
+      assert.equal(score('two'), 91, 'the map blocked set alone is enough, and the count does not multiply')
+      // A frontier repo that failed to read adds nothing and throws nothing.
+      o.frontier = { computed_at: null, repos: [{ repo: 'x', error: 'boom' }] }
+      o.maps = { computed_at: null, maps: null, error: 'boom' }
+      assert.equal(page.unblockSet(o).size, 0)
+    })
+
+    test('amber follows the effective score and states the wait and the reason (#761)', () => {
+      const p = payload({
+        usage: [], token_warnings: [], dispatch_holds: [], credentials: { consumers: [], reauth: null }, review_gate: [],
+        escalations: [
+          // 170 minutes raw is under the 240 line, but with the 90 unblock it ranks overdue.
+          { id: 'byrank', agent: 'curia-a', ticket: '265', kind: 'free-text', prompt: 'Amber by rank', opened_at: at(170 * 60) },
+          { id: 'young', agent: 'curia-b', ticket: '4', kind: 'free-text', prompt: 'Young and plain', opened_at: at(60) },
+        ],
+      })
+      const html = page.screenHome(p)
+      const rows = [...html.matchAll(/<div class="need-rank[^"]*" id="need-([^"]+)">(?:<div class="need-why">([^<]*)<\/div>)?/g)].map((m) => [m[1], m[2] ?? ''])
+      assert.deepEqual(rows, [['byrank', 'waited 170 min · overdue · unblocks other work'], ['young', '']])
+      assert.match(html, /need-rank full aged" id="need-byrank"/)
+      assert.doesNotMatch(html, /aged" id="need-young"/)
     })
 
     test('the tiles, the attention list and the fleet all draw one snapshot', () => {
@@ -2456,8 +2496,14 @@ describe('the operator verbs (#266)', () => {
       const p = payload()
       p.overview.escalations.push(
         { id: 'esc-20', agent: 'curia-20', ticket: '20', kind: 'free-text', prompt: 'Five hours old.', options: null, preview_url: null, opened_at: at(5 * 3600), agent_died: false, rendered: true },
-        { id: 'esc-21', agent: 'curia-21', ticket: '21', kind: 'choice', prompt: 'Young, but two tickets wait on it.', options: ['a', 'b'], preview_url: null, opened_at: at(60), agent_died: false, rendered: true, unblocks: [1, 2] },
+        { id: 'esc-21', agent: 'curia-21', ticket: '21', kind: 'choice', prompt: 'Young, but two tickets wait on it.', options: ['a', 'b'], preview_url: null, opened_at: at(60), agent_died: false, rendered: true },
         { id: 'esc-22', agent: 'curia-22', ticket: '22', kind: 'free-text', prompt: 'Young and unblocks nothing.', options: null, preview_url: null, opened_at: at(30), agent_died: false, rendered: true },
+      )
+      // The unblock is on the wire, not on the row (#761): two map children
+      // are blocked by 21.
+      p.overview.maps.maps[0].blocked.push(
+        { number: 31, title: 'Waits on 21', type: 'task', blockers: [{ number: 21, title: 'Young' }] },
+        { number: 32, title: 'Also waits on 21', type: 'task', blockers: [{ number: 21, title: 'Young' }] },
       )
       return p
     }
