@@ -2967,3 +2967,29 @@ The cuts, scene by scene:
 
 The scroll budget at 375×667: 18.1 screens, from 20.5. The arc 5.9 (was 7.2), the ticket run
 3.5 (was 4.3), the atlas 1.5 (was 2.0), the preview 1.2 (was 0.9, the bigger phone).
+
+**Round 3.** The operator, from the phone: the first two scenes push the curia animation up
+and down the screen while scrolling, busy and meaningless; scene 05 could overlay the two
+screens, tilted toward each other, alternating which is in front like flip covers; scene 07
+does not show the screens at all, the narration titles are in the way, and mobile needs a
+different way to tell the story; the close ("just type your rejection reasons", "This page
+itself was planned...") goes; the VPS bars are too thin at 8 GB. Desktop still diffs to zero.
+
+- **The arc on a phone is one pipeline in every beat.** The pile above, curia in the middle,
+  the map at the foot. Nothing changes place between beats: the pile changes shape (a flat
+  ring, then a globe, then it resolves through curia), and the map leaves and comes back by
+  the foot. The desktop keyframes, where the maps stand above in the hero and the pile turns
+  around curia, were what moved curia. Gated on `W < 620`, in the frame after `keyframes()`.
+- **The atlas flips.** Below 40rem both screens share one grid cell, each tilted toward the
+  other, the front one whole and the back one dimmed and a step smaller. A 3.6s timer turns
+  them. Without the script the atlas stays in front.
+- **The ticket run is a stack.** Below 40rem the script moves the ticket under the first
+  title and card k under title k, adds `stack` to the section, and the stage is gone: title,
+  screen, title, screen, in reading order, nothing held. The beat observer still runs, so the
+  ticket's timeline grows as the titles cross the middle. Decided once at load.
+- **The close** is hidden below 40rem. It stands on desktop; the dogfood line is an operator
+  addition of #508 and stays there until the operator rules on it.
+- **The VPS bars** have a floor of 2.4rem per group and label below 40rem, and the free space
+  gives it up.
+
+The scroll budget at 375×667: 17.3 screens.
