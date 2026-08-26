@@ -34,7 +34,7 @@ beforeEach(() => {
 function writeCredential(token = 'x'.repeat(64)) {
   const file = credentialFile(root)
   fs.mkdirSync(path.dirname(file), { recursive: true })
-  fs.writeFileSync(file, JSON.stringify({ servers: { 'https://aistack.to': { token, userId: 'u1' } } }))
+  fs.writeFileSync(file, JSON.stringify({ servers: { 'https://aistack.to': { token, userId: 'user-id-never-on-the-wire' } } }))
   return file
 }
 
@@ -105,7 +105,7 @@ describe('the credential never reaches the browser (#706)', () => {
     const wire = JSON.stringify(s)
     assert.deepEqual(s.machine.servers, ['aistack.to'])
     assert.ok(!wire.includes('secret-token'), 'the bearer is not on this wire')
-    assert.ok(!wire.includes('u1'), 'nor is anything else the file holds')
+    assert.ok(!wire.includes('user-id-never-on-the-wire'), 'nor is anything else the file holds')
   })
 
   test('a credential file that grows new secret fields still yields only keys', () => {

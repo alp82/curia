@@ -38,7 +38,7 @@
      2. Null is not empty. An unreadable fleet is not an idle box, and a frontier
         nobody has computed is not an empty frontier. Every section that can fail
         on its own says which of the two it is. -->
-<meta name="curia-dashboard" content="proto=11">
+<meta name="curia-dashboard" content="proto=12">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark light">
 <title>Atlas · Curia</title>
@@ -417,10 +417,24 @@
   .feed-list .tag { font-family: ui-monospace, Menlo, monospace; font-size: 11px; color: var(--ink-dim); }
   .feed-list li.warn .tag { color: var(--warn); }
   .feed-list li.bad .tag { color: var(--bad); }
-  .feed-density { display: grid; grid-template-columns: repeat(24, 1fr); gap: 3px; height: 34px; align-items: end; margin: 10px 0 18px; }
+  .feed-density { display: grid; grid-template-columns: repeat(24, 1fr); gap: 3px; height: 34px; align-items: end; margin: 10px 0 6px; }
   .density-cell { min-height: 3px; border-radius: 2px; background: var(--line); }
   .density-cell.active { background: var(--accent); }
   .feed-wire { max-width: 760px; }
+  .feed-pulse { display: flex; align-items: flex-end; gap: 14px; margin-top: 10px; }
+  .feed-pulse .k { flex: none; font: 10px ui-monospace, Menlo, monospace; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-faint); padding-bottom: 2px; }
+  .feed-pulse .feed-density { flex: 1; margin: 0; }
+  .feed-chips { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0 6px; }
+  .feed-chip { border: 1px solid var(--line); background: none; color: var(--ink-dim); border-radius: 999px; padding: 4px 10px; font: 600 10px ui-monospace, Menlo, monospace; letter-spacing: .1em; text-transform: uppercase; cursor: pointer; }
+  .feed-chip.on { color: var(--ink); border-color: var(--ink-dim); background: var(--bg-raise); }
+  .feed-news .l2 { font: 11px ui-monospace, Menlo, monospace; color: var(--ink-faint); margin-top: 3px; }
+  .feed-news.ok { border-left: 2px solid var(--ok); padding-left: 12px; margin-left: -14px; }
+  .feed-news.bad { border-left: 2px solid var(--bad); padding-left: 12px; margin-left: -14px; }
+  .feed-news.warn:not(.needs) { border-left: 2px solid var(--warn); padding-left: 12px; margin-left: -14px; }
+  .feed-fold { padding: 2px 0; }
+  .feed-fold summary { cursor: pointer; color: var(--ink-faint); font: 11px ui-monospace, Menlo, monospace; padding: 5px 0 5px 60px; list-style: none; }
+  .feed-fold summary::before { content: "▸ "; }
+  .feed-fold[open] summary::before { content: "▾ "; }
   .feed-news { display: grid; grid-template-columns: 48px 1fr auto; gap: 12px; align-items: start; padding: 13px 0; border-bottom: 1px solid var(--line); }
   .feed-news.needs { background: var(--chip-warn-bg); margin: 0 -10px; padding: 13px 10px; }
   .feed-news.focus, .feed-mechanic.focus { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -704,7 +718,7 @@ var UI = {
      that detail instead of the list. `open` is the route's, never a width's. */
   maps: { repo: "all", selected: null, open: false },
   agents: { selected: null },
-  feed: { lastRead: null, operator: null, focus: null },
+  feed: { lastRead: null, operator: null, focus: null, family: "all" },
   search: { open: false, q: "", loading: false, error: null, result: null },
   /* The settings screen's own state (#265). `phase` is what the banner says:
      clean and dirty before a save, then the three outcomes a save can have
@@ -2427,12 +2441,28 @@ function screenFeed(p) {
     ${atlasFeed(o)}<details class="legacy-feed"><summary>Journal rows</summary>${feedList(o.events)}</details>`;
 }
 
+/* The Wire (#523): news at full size, everything else compressed between.
+   News is what the operator would want to have read: a gate, an ask, a
+   verdict, a death, a deploy, a hold. */
 const FEED_NEWS = new Set([
   "esc_open", "agent_blocked_on_human", "review_requested", "review_answered", "ticket_resolved",
   "lifecycle_closed", "agent_died", "agent_died_released", "agent_cancelled", "agent_abnormal_exit",
   "result", "deploy_landed", "deploy_rolled_back", "deploy_merge_refused", "dispatch_held",
   "death_resume_held", "stall_escalated", "provider_precooling", "token_warned", "bridge_wedged",
 ]);
+const FEED_NEEDS = new Set(["esc_open", "agent_blocked_on_human", "review_requested", "stall_escalated"]);
+/* The family chips (#523). One family visible, or all. `need` is a family of
+   its own because it is the one the operator narrows to first. */
+const FEED_FAMILIES = [["all", "all"], ["agent", "agents"], ["need", "needs you"], ["deploy", "deploys"], ["command", "commands"], ["system", "system"]];
+const FEED_SYSTEM_RE = /^(config_|bridge_|token_|credential_|reauth_|journal_|restart_|reconcile$|aistack_|provider_|model_cooling|github_app_|deploy_unresolved)/;
+function feedFamily(event) {
+  const type = String(event.type ?? "");
+  if (FEED_NEEDS.has(type)) return "need";
+  if (type === "command") return "command";
+  if (/^deploy_(requested|landed|rolled_back|merge_refused)$/.test(type)) return "deploy";
+  if (FEED_SYSTEM_RE.test(type)) return "system";
+  return "agent";
+}
 
 function feedDensity(events) {
   const bins = Array(24).fill(0);
@@ -2442,44 +2472,82 @@ function feedDensity(events) {
     if (age < 0 || age >= 86_400_000) continue;
     bins[23 - Math.floor(age / 3_600_000)] += 1;
   }
+  const total = bins.reduce((a, b) => a + b, 0);
   const max = Math.max(1, ...bins);
-  return `<div class="feed-density" aria-label="24-hour event density">${bins.map((count) => `<span class="density-cell${count ? " active" : ""}" style="height:${Math.max(3, Math.round(count * 100 / max))}%" aria-label="${count} event${count === 1 ? "" : "s"}"></span>`).join("")}</div>`;
+  return `<div class="feed-pulse"><span class="k">24 h · ${esc(total)} event${total === 1 ? "" : "s"}</span><div class="feed-density" aria-label="24-hour event density">${bins.map((count) => `<span class="density-cell${count ? " active" : ""}" style="height:${Math.max(3, Math.round(count * 100 / max))}%" aria-label="${count} event${count === 1 ? "" : "s"}"></span>`).join("")}</div></div>`;
 }
 
+function feedChips() {
+  const on = UI.feed.family ?? "all";
+  return `<div class="feed-chips" role="group" aria-label="Event family">${FEED_FAMILIES.map(([key, label]) =>
+    `<button class="feed-chip${on === key ? " on" : ""}" onclick="feedFilter('${key}')" aria-pressed="${on === key}">${label}</button>`).join("")}</div>`;
+}
+function feedFilter(family) {
+  UI.feed = { ...UI.feed, family };
+  render();
+}
+
+/* Where an entry lands (#526, #704): the owning Chat when it names an agent,
+   the map when it names one, else the GitHub record. */
 function feedLink(event) {
   if (event.agent) return `<a href="${chatHref(event.agent)}">Chat →</a>`;
-  if (event.map != null) return `<a href="#maps">Map →</a>`;
+  if (event.map != null && event.repo) return `<a href="#${mapRoute(event.repo, event.map, "walked")}">Map →</a>`;
   if (event.url) return `<a href="${esc(event.url)}">GitHub →</a>`;
   if (event.repo && event.ticket != null) return `<a href="https://github.com/${esc(event.repo)}/issues/${esc(event.ticket)}">GitHub →</a>`;
   return "";
 }
 
+/* The second line of a news row: who, which ticket, how long ago. */
+function feedDetail(event) {
+  const parts = [];
+  if (event.ticket != null && event.ticket !== "") parts.push(esc(ticketName(event.repo, event.ticket)));
+  if (event.agent) parts.push(esc(event.agent));
+  if (event.model) parts.push(esc(event.model));
+  if (event.by) parts.push(esc(event.by));
+  parts.push(esc(ago(event.ts)));
+  return parts.join(" · ");
+}
+
+/* Consecutive mechanics fold when there are enough to hide news (#523).
+   Nothing is dropped, only paced: the group names its count, its span and
+   its kinds, and opens on a press. A family filter opens every group. */
+const FEED_FOLD_AT = 4;
+function feedMechanics(group, open) {
+  const rows = group.map(({ event, line, focus }) =>
+    `<div class="feed-mechanic${focus ? " focus" : ""}" data-family="${feedFamily(event)}"><time>${esc(clock(event.ts))}</time><span>${esc(line.tag)} · ${line.html}</span></div>`);
+  if (group.length < FEED_FOLD_AT || group.some((g) => g.focus)) return rows.join("");
+  const kinds = [...new Set(group.map((g) => g.line.tag))].slice(0, 5).join(", ");
+  const last = group[group.length - 1].event.ts, first = group[0].event.ts;
+  return `<details class="feed-fold"${open ? " open" : ""}><summary>${group.length} mechanics · ${esc(clock(last))} – ${esc(clock(first))} — ${esc(kinds)}</summary>${rows.join("")}</details>`;
+}
+
 function atlasFeed(o) {
-  const events = [...(o.events ?? [])].reverse();
-  if (!events.length) return `<div class="feed-wire">${feedDensity([])}<div class="empty">The journal tail is empty.</div></div>`;
+  const family = UI.feed.family ?? "all";
+  const all = [...(o.events ?? [])].reverse();
+  const events = family === "all" ? all : all.filter((e) => feedFamily(e) === family);
+  const top = feedDensity(o.events) + feedChips();
+  if (!events.length) return `<div class="feed-wire">${top}<div class="empty">${all.length ? "No " + esc(FEED_FAMILIES.find(([k]) => k === family)?.[1] ?? family) + " events in the journal tail." : "The journal tail is empty."}</div></div>`;
   const lastRead = UI.feed?.lastRead ? Date.parse(UI.feed.lastRead) : null;
+  const marker = `<div class="since-marker">Since you left · your last visit ${esc(ago(UI.feed.lastRead))} at ${esc(clock(UI.feed.lastRead))}</div>`;
   let marked = false;
   const rows = [];
+  let pending = [];
+  const flush = () => { if (pending.length) rows.push(feedMechanics(pending, family !== "all")); pending = []; };
   for (const event of events) {
     const stamp = Date.parse(event.ts ?? 0);
-    if (!marked && lastRead && stamp <= lastRead) {
-      rows.push(`<div class="since-marker">Since you left · ${esc(clock(UI.feed.lastRead))}</div>`);
-      marked = true;
-    }
+    if (!marked && lastRead && stamp <= lastRead) { flush(); rows.push(marker); marked = true; }
     const line = eventLine(event);
-    const news = FEED_NEWS.has(event.type);
-    const needs = ["esc_open", "agent_blocked_on_human", "review_requested", "stall_escalated"].includes(event.type);
-    const focus = UI.feed.focus && (String(event.id ?? "") === UI.feed.focus.id
-      || (UI.feed.focus.query && JSON.stringify(event).toLowerCase().includes(UI.feed.focus.query)));
-    if (news) {
-      rows.push(`<div class="feed-news${needs ? " needs" : ""}${focus ? " focus" : ""}"><time>${esc(clock(event.ts))}</time>
-        <div class="story"><span class="word">${needs ? "Needs you" : esc(line.tag)}</span>${line.html}</div>${feedLink(event)}</div>`);
-    } else {
-      rows.push(`<div class="feed-mechanic${focus ? " focus" : ""}"><time>${esc(clock(event.ts))}</time><span>${esc(line.tag)} · ${line.html}</span></div>`);
-    }
+    const focus = Boolean(UI.feed.focus && (String(event.id ?? "") === UI.feed.focus.id
+      || (UI.feed.focus.query && JSON.stringify(event).toLowerCase().includes(UI.feed.focus.query))));
+    if (!FEED_NEWS.has(event.type)) { pending.push({ event, line, focus }); continue; }
+    flush();
+    const needs = FEED_NEEDS.has(event.type);
+    rows.push(`<div class="feed-news${needs ? " needs" : ""}${focus ? " focus" : ""}${!needs && line.cls ? " " + line.cls : ""}" data-family="${feedFamily(event)}"><time>${esc(clock(event.ts))}</time>
+        <div class="story"><span class="word">${needs ? "Needs you" : esc(line.tag)}</span>${line.html}<div class="l2">${feedDetail(event)}</div></div>${feedLink(event)}</div>`);
   }
-  if (!marked && lastRead) rows.push(`<div class="since-marker">Since you left · ${esc(clock(UI.feed.lastRead))}</div>`);
-  return `<div class="feed-wire"><div class="dim-note">24 hours · ${(o.events ?? []).length} events on this reading</div>${feedDensity(o.events)}${rows.join("")}</div>`;
+  flush();
+  if (!marked && lastRead) rows.push(marker);
+  return `<div class="feed-wire">${top}${rows.join("")}</div>`;
 }
 
 /* ---- the drill-in section frame (#699) --------------------------------------
@@ -3802,12 +3870,18 @@ function enter(k) {
   if (k === "chat") loadConversations();
   if (k === "feed") recordFeedVisit();
 }
+/* The since-you-left marker's fact comes from the daemon (#704): the journal
+   holds the instant each login last opened the Feed, so a phone and a laptop
+   under one login agree, and a cleared browser forgets nothing. Entering the
+   Feed draws the marker at the PREVIOUS stamp and posts this visit; the marker
+   holds still until the next visit, so the page does not move it under the
+   reader on every poll. */
 function recordFeedVisit() {
   const operator = payload?.operator;
-  if (!operator || typeof localStorage === "undefined") return;
-  const key = "atlas.feed.last-read:" + operator;
-  UI.feed = { ...UI.feed, lastRead: localStorage.getItem(key), operator };
-  localStorage.setItem(key, new Date().toISOString());
+  if (!operator) return;
+  const previous = payload?.overview?.feed_reads?.[operator] ?? UI.feed.lastRead ?? null;
+  UI.feed = { ...UI.feed, lastRead: previous, operator };
+  fetch("/api/feed/read", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }).catch(() => {});
 }
 /* Arriving at Maps from the nav is the LIST, always. The detail is a route of
    its own, so a tab press that did not name one must not land on the last one

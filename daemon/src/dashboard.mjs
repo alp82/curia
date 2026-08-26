@@ -81,7 +81,7 @@ export const daemonPort = () => Number(process.env.PORT ?? DEFAULT_DAEMON_PORT)
 // proto-10 sidecar serves — so an old server must refuse this page rather than
 // draw a registration flow whose device code never arrives and whose every
 // button answers 404.
-export const DASHBOARD_PROTO = 11
+export const DASHBOARD_PROTO = 12
 
 // The Credentials screen's own hash (#661). It is here rather than in the
 // daemon that links to it, because the page's screen names are this file's half
@@ -971,6 +971,12 @@ export class DashboardSurface {
       // A note to one agent, in either delivery mode (ADR-0013). Queued is the
       // default and rides the agent's next tool result; interrupt is #252's
       // second mode, and its refusals are the daemon's.
+      // The Feed's read stamp (#704): the page opened the Feed under this
+      // login, and the daemon journals the instant. The snapshot is dropped so
+      // the next poll carries the new stamp back.
+      if (url.pathname === '/api/feed/read') {
+        return this.#verb(res, () => this.#daemon({ method: 'POST', path: '/feed/read', body: { by } }))
+      }
       if (url.pathname === '/api/note') {
         return this.#verb(res, async () => {
           const b = await this.#body(req)
