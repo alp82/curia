@@ -601,8 +601,8 @@ Two ways. What the config dir holds decides which one is right. An agent gets a 
 A timeline session curia sends through a driver of its own rather than as bare keystrokes. It names its own config dir and the session id of the conversation it serves, and the driver decides what a message means. The console chat is the first one. Since [#708](https://github.com/alp82/curia/issues/708) its driver is the pane message below, so the words do reach a pane in the end — as one paste, through the adapter, never as raw typing. A driven session still has no dialog guard and takes no key.
 
 **Console chat**:
-The timeline attach of one browser conversation, served under the console's own address. The console draws no chat of its own and frames none: there is one chat surface, and it is the timeline.
-_Avoid_: Chat screen (that is the picker in front of the chats, not a chat).
+One conversation open in the Atlas Chat room, at `#chat/<session>`. Since [#711](https://github.com/alp82/curia/issues/711) the Atlas page draws the transcript and the composer itself and reads the daemon's timeline listener through the sidecar. The timeline's own Serve rule retired with that ticket. The Chat picker in front of the rooms has a Tickets section and an Overseer section. An ended agent stays readable there and takes no new message. A parked conversation shows no parked state and returns on its next message.
+_Avoid_: timeline page (retired), Chat screen for the room (the picker and the room are two views of one page).
 
 **Conversation picker**:
 The Chat screen of the dashboard. It lists the browser conversations, opens one, and starts a new one. Each row carries the conversation's own context percent, which is the one signal that a conversation is getting long. It lives on the dashboard and not in the chat page, because an agent opens that same page and a conversation switcher there would put console words on the agent surface. It reads `GET /api/console` on arrival, never on the poll. See [#333](https://github.com/alp82/curia/issues/333).

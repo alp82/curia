@@ -12,7 +12,7 @@
 // The screens take the payload as an argument for exactly this reason. A screen
 // that read a global would be a screen this file could not drive.
 
-import { test, describe, before, beforeEach } from 'node:test'
+import { test, describe, before, beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import vm from 'node:vm'
@@ -789,7 +789,7 @@ describe('the read screens (#264)', () => {
       assert.match(t, /waiting · waiting for you · waits 12m/, 'the state sentence says how long the operator has been asked')
       assert.match(t, /gpt-5\.6-sol.*68%.*1\.0h/, 'model, context and elapsed are meters')
       assert.match(t, /Story.*spawned on gpt-5\.6-sol/)
-      assert.match(html, /href="\/chat\?session=curia-255"/)
+      assert.match(html, /href="#chat\/curia-255"/)
       assert.match(html, /href="https:\/\/github\.com\/alp82\/curia\/issues\/255"/)
       assert.match(t, /Ended today.*finished alp82\/curia#261/)
     })
@@ -872,7 +872,7 @@ describe('the read screens (#264)', () => {
       const html = page.screenAgents(payload())
       assert.doesNotMatch(html, /legacy-controls|noteBox\(|openDiff\(|teleport\(|cancelAgent\(/)
       assert.match(text(html), /Notes, cancels and the terminal live in Chat/)
-      assert.match(html, /href="\/chat\?session=curia-255">open Chat →/)
+      assert.match(html, /href="#chat\/curia-255">open Chat →/)
     })
 
     test('today\'s endings read newest first with the clock and a Chat link, and an old ending has fallen off', () => {
@@ -886,7 +886,7 @@ describe('the read screens (#264)', () => {
       const ended = html.slice(html.indexOf('agent-ended'))
       const t = text(ended)
       assert.ok(t.indexOf('cancelled alp82/curia#240') < t.indexOf('finished alp82/curia#261'), 'newest first')
-      assert.match(ended, /href="\/chat\?session=curia-240">chat →/)
+      assert.match(ended, /href="#chat\/curia-240">chat →/)
       assert.doesNotMatch(t, /#199/, 'three days ago is not today')
       assert.match(t, /finished alp82\/curia#100.*no session/, 'an ending journalled before the session rode along is kept')
       assert.match(ended, /<time>\d\d:\d\d<\/time>/)
@@ -1199,7 +1199,7 @@ describe('the read screens (#264)', () => {
       const marker = html.indexOf('Since you left')
       assert.ok(html.indexOf('Two notes race') < marker)
       assert.ok(marker < html.indexOf('spawned on gpt-5.6-sol'))
-      assert.match(html, /href="\/chat\?session=curia-255"/)
+      assert.match(html, /href="#chat\/curia-255"/)
       assert.match(text(html), /Needs you/, 'a needs-you row says so in a word, not only a tint')
     })
 
@@ -1238,7 +1238,7 @@ describe('the read screens (#264)', () => {
         { ts: at(20), type: 'ticket_resolved', repo: 'o/r', ticket: '5', map: 99 },
         { ts: at(10), type: 'lifecycle_closed', repo: 'o/r', ticket: '6' },
       ] }))
-      assert.match(html, /href="\/chat\?session=curia-4">Chat/)
+      assert.match(html, /href="#chat\/curia-4">Chat/)
       assert.match(html, /href="#maps\/o\/r\/99\/walked">Map/)
       assert.match(html, /href="https:\/\/github.com\/o\/r\/issues\/6">GitHub/)
     })
@@ -2375,29 +2375,42 @@ describe('the chat screen (#267, the picker of #333)', () => {
   // list — the two draw differently on purpose.
   const conv = (over) => ({
     key: 'console-2', session: 'curia-console-2', opened_at: at(600),
-    last_turn_at: at(120), label: 'what is takeable on curia', ctx_pct: 31, ctx_over: false, ...over,
+    last_turn_at: at(120), label: 'what is takeable on curia', ctx_pct: 31, ctx_over: false,
+    kind: 'overseer', deletable: true, ...over,
   })
   beforeEach(() => { page.conversations = { conversations: [conv()] } })
 
-  test('a row opens ITS conversation at /chat, keyed on its own session', () => {
+  test('a row opens ITS conversation at #chat/<session>, keyed on its own session', () => {
     const html = page.screenChat(payload())
-    assert.match(html, /href="\/chat\?session=curia-console-2"/)
+    assert.match(html, /href="#chat\/curia-console-2"/)
     const t = text(html)
     assert.match(t, /what is takeable on curia/, 'the label is the operator\'s own first message')
     assert.match(t, /console-2/)
   })
 
-  test('ticket and overseer conversations share the picker', () => {
+  test('the picker has a Tickets section and an Overseer section, each with its own titles', () => {
     page.conversations = { conversations: [
       conv({ kind: 'overseer', deletable: true }),
-      conv({ kind: 'ticket', deletable: false, key: 'alp82/curia#684', session: 'curia-684', state: 'working', label: 'Build Atlas' }),
+      conv({ kind: 'ticket', deletable: false, key: 'alp82/curia#684', session: 'curia-684', state: 'working', label: 'Build Atlas', repo: 'alp82/curia', ticket: 684, live: true }),
+      conv({ kind: 'ticket', deletable: false, key: 'alp82/curia#240', session: 'curia-240', state: 'done', label: 'Old work', repo: 'alp82/curia', ticket: 240, live: false }),
     ] }
     const html = page.screenChat(payload())
     const t = text(html)
-    assert.match(t, /overseer/)
-    assert.match(t, /ticket · working/)
-    assert.match(html, /href="\/chat\?session=curia-684"/)
+    // two sections, tickets first
+    assert.match(t, /Tickets .* Overseer /)
+    const tickets = t.slice(t.indexOf('Tickets'), t.indexOf('Overseer'))
+    const overseer = t.slice(t.indexOf('Overseer'))
+    // a ticket row is titled by its tracker name and issue title
+    assert.match(tickets, /Build Atlas alp82\/curia#684 · working/)
+    // an ended agent stays in the list and says so
+    assert.match(tickets, /Old work alp82\/curia#240 · ended · done/)
+    assert.match(html, /<tr class="ended">[\s\S]*?href="#chat\/curia-240"/)
+    // an overseer row is titled by the operator's own first message
+    assert.match(overseer, /what is takeable on curia console-2/)
+    assert.doesNotMatch(tickets, /what is takeable/)
+    assert.match(html, /href="#chat\/curia-684"/)
     assert.doesNotMatch(html, /doDeleteConversation\('alp82\/curia#684'\)/)
+    assert.match(html, /doDeleteConversation\('console-2'\)/)
   })
 
   test('a row carries its own context percent — ADR-0016 makes that the one signal', () => {
@@ -2416,7 +2429,8 @@ describe('the chat screen (#267, the picker of #333)', () => {
   test('no conversations is an empty list, and nothing is minted by looking', () => {
     page.conversations = { conversations: [] }
     const t = text(page.screenChat(payload()))
-    assert.match(t, /No conversations yet/)
+    assert.match(t, /No agent is running or recently ended/)
+    assert.match(t, /No overseer conversation yet/)
     assert.match(t, /New conversation/, 'the one button is the only way one starts')
     assert.doesNotMatch(t, /console-\d/, 'a page read spends no number')
   })
@@ -2426,14 +2440,14 @@ describe('the chat screen (#267, the picker of #333)', () => {
     const t = text(page.screenChat(payload()))
     assert.match(t, /could not read your conversations/)
     assert.match(t, /the daemon answered 500/)
-    assert.doesNotMatch(t, /No conversations yet/)
+    assert.doesNotMatch(t, /No overseer conversation yet/)
   })
 
   test('the read in flight says so, and claims nothing about the list', () => {
     page.conversations = null
     const t = text(page.screenChat(payload()))
     assert.match(t, /Reading your conversations/)
-    assert.doesNotMatch(t, /No conversations yet/)
+    assert.doesNotMatch(t, /No overseer conversation yet/)
   })
 
   test('the delete says the number is spent, because that is the part nobody can undo', () => {
@@ -2456,6 +2470,117 @@ describe('the chat screen (#267, the picker of #333)', () => {
     const t = text(page.screenChat(p))
     assert.match(t, /The chat is down while the daemon restarts/)
     assert.match(t, /daemon restarting/, 'and the reading marker still says why')
+  })
+
+  // The room (#711). It renders from `chat`, and the stream writes there
+  // through `chatReceive` — so the test feeds the same events the timeline
+  // sends and reads what the screen says.
+  describe('the room', () => {
+    beforeEach(() => {
+      page.applyChatRoute(['chat', 'curia-684'])
+      page.conversations = { conversations: [
+        conv({ kind: 'ticket', deletable: false, key: 'alp82/curia#684', session: 'curia-684', state: 'working', label: 'Build Atlas', repo: 'alp82/curia', ticket: 684, live: true }),
+        conv({ key: 'console-2', session: 'curia-console-2' }),
+      ] }
+    })
+    afterEach(() => { page.applyChatRoute([]) })
+
+    test('#chat/<session> is the room, and the tab press is the picker again', () => {
+      assert.equal(page.chat.session, 'curia-684')
+      const html = page.screenChat(payload())
+      assert.match(text(html), /Build Atlas/)
+      assert.match(text(html), /ticket · curia-684 connecting/)
+      assert.match(html, /href="#chat">← Chat</)
+      assert.match(html, /id="chat-box"/, 'a live agent takes words')
+      page.applyChatRoute(['chat'])
+      assert.equal(page.chat.session, null)
+      assert.match(text(page.screenChat(payload())), /Tickets/)
+    })
+
+    test('the stream draws the active branch: hello, items, a tool result joined to its call, and a reset', () => {
+      page.chatReceive('hello', { session: 'curia-684', file: '/w/cfg/curia-684/projects/x/abc.jsonl', harness: 'claude', clients: 1, draft: '' })
+      page.chatReceive('items', [
+        { kind: 'prompt', text: 'start on #684', at: at(300) },
+        { kind: 'tool', id: 't1', name: 'mcp__curia__notify', text: 'I am reading the map.', at: at(200) },
+        { kind: 'result', forId: 't1', ok: true, brief: 'noted', lines: 1 },
+        { kind: 'say', text: 'The map has three children.', at: at(100) },
+      ])
+      const html = page.screenChat(payload())
+      const t = text(html)
+      assert.match(t, /live/)
+      assert.match(t, /abc\.jsonl/)
+      assert.match(t, /start on #684/)
+      assert.match(t, /curia\.notify I am reading the map\. → noted/)
+      assert.match(t, /The map has three children/)
+      assert.equal(page.chat.items.length, 3, 'the result rides its tool call, not a row of its own')
+      page.chatReceive('reset', { file: '/w/cfg/curia-684/projects/x/def.jsonl', branch: true })
+      assert.doesNotMatch(text(page.screenChat(payload())), /three children/)
+      assert.match(text(page.screenChat(payload())), /def\.jsonl/)
+    })
+
+    test('the daemon\'s escalation record interleaves with the transcript, and an open one is a banner', () => {
+      page.chatReceive('items', [{ kind: 'say', text: 'first', at: at(300) }, { kind: 'say', text: 'third', at: at(100) }])
+      page.chatReceive('esc_history', [{ id: 'esc-7', kind: 'question', prompt: 'Which branch?', options: ['a', 'b'], opened_at: at(200), closed_at: at(150), status: 'answered', answer: 'a', answered_by: 'alp', answered_via: 'dashboard' }])
+      page.chatReceive('escalations', [{ id: 'esc-8', kind: 'question', prompt: 'Ship it?', options: null, opened_at: at(50), nudges: 0 }])
+      const t = text(page.screenChat(payload()))
+      assert.match(t, /first .*Which branch\?.*answered by alp \(dashboard\).*third/s)
+      assert.match(t, /waiting on you — question \(esc-8\) Ship it\?/)
+    })
+
+    test('an ended agent stays readable and refuses new input with one sentence', () => {
+      page.chatReceive('hello', { session: 'curia-684', file: null, harness: 'claude', clients: 1, draft: '', ended: true })
+      page.chatReceive('items', [{ kind: 'say', text: 'the last word', at: at(100) }])
+      const html = page.screenChat(payload())
+      assert.match(text(html), /the last word/)
+      assert.match(text(html), /curia-684 has ended\. Its transcript stays readable, and it takes no new message\./)
+      assert.doesNotMatch(html, /id="chat-box"/, 'no composer')
+      assert.doesNotMatch(html, /\/terminal\/\?arg=/, 'no terminal to open either')
+    })
+
+    test('the picker row\'s `live: false` refuses the same way before the stream answers', () => {
+      page.applyChatRoute(['chat', 'curia-240'])
+      page.conversations = { conversations: [conv({ kind: 'ticket', deletable: false, key: 'alp82/curia#240', session: 'curia-240', state: 'done', label: 'Old work', live: false })] }
+      const html = page.screenChat(payload())
+      assert.match(text(html), /curia-240 has ended/)
+      assert.doesNotMatch(html, /id="chat-box"/)
+    })
+
+    test('a parked overseer conversation is drawn as a conversation, with no parked state', () => {
+      page.applyChatRoute(['chat', 'curia-console-2'])
+      page.chatReceive('hello', { session: 'curia-console-2', file: null, harness: 'claude', clients: 1, draft: '', ended: false })
+      const html = page.screenChat(payload())
+      assert.match(text(html), /overseer · curia-console-2/)
+      assert.match(html, /id="chat-box"/, 'the next message rehydrates the pane')
+      assert.doesNotMatch(text(html), /park/i)
+      assert.doesNotMatch(html, /doChatKey/, 'an overseer conversation has no pane key to send')
+    })
+
+    test('the composer is shared: a draft from the other device mirrors, a sent line is noted', () => {
+      page.chatReceive('draft', { text: 'typing from the phone', by: 'other' })
+      let t = text(page.screenChat(payload()))
+      assert.match(t, /the other device is typing/)
+      assert.match(page.screenChat(payload()), /typing from the phone<\/textarea>/)
+      page.chatReceive('sent', { text: 'start 267', by: 'other' })
+      t = text(page.screenChat(payload()))
+      assert.match(t, /sent from the other device: start 267/)
+      assert.doesNotMatch(t, /the other device is typing/)
+    })
+
+    test('a native dialog is a typed card, and its receipt replaces it', () => {
+      page.chatReceive('dialog', { up: true, hint: 'Enter to select', card: { id: 'native-1', kind: 'choice', headline: 'Which branch?', selected_index: 1, options: [{ index: 1, marker: '1', label: 'Stable' }, { index: 2, marker: '2', label: 'Preview' }] } })
+      let html = page.screenChat(payload())
+      assert.match(html, /doDialogAnswer\('native-1', 2\)/)
+      assert.match(text(html), /Which branch\? 1 · Stable · selected now 2 · Preview/)
+      page.chatReceive('dialog', { up: false, receipt: { dialog: 'native-1', index: 2, marker: '2', answer: 'Preview', by: 'atlas', at: at(1) } })
+      html = page.screenChat(payload())
+      assert.match(text(html), /answered · atlas .* 2 · Preview/)
+      assert.doesNotMatch(html, /doDialogAnswer/)
+    })
+
+    test('a parse failure is a banner, never silence', () => {
+      page.chatReceive('parse', { reason: 'unknown line shape', file: 'x', dropped: 3 })
+      assert.match(text(page.screenChat(payload())), /INCOMPLETE — unknown line shape \(3 lines dropped\)/)
+    })
   })
 
   test('the chat is a screen of the shell now, and no longer the one that lands later', () => {

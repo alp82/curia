@@ -1521,6 +1521,8 @@ const conversationRuntime = new ConversationRuntime({
 const timeline = new TimelineSurface({
   port: curiaConfig.timeline.port,
   servePort: curiaConfig.timeline.serve_port,
+  // The Chat surface is the Atlas page (#711): every chat link lands there.
+  atlasServePort: curiaConfig.dashboard.serve_port,
   index: curiaConfig.timeline.index,
   workspaceRoot: curiaConfig.dispatch.workspace_root,
   log,
@@ -1541,6 +1543,8 @@ const timeline = new TimelineSurface({
     // The #151 identity check. The timeline is the daemon's own server, so it
     // carries the same predicate the terminal's proxy does, in-process.
     identityCheck: timelineIdentityCheck,
+    // A pane that has ended keeps its transcript and takes no words (#711).
+    sessionAlive: (session) => hasSession(session),
     // The console chat now sends through the same pane adapter as an agent.
     // This driver keeps the overseer's role-specific config and durable
     // identity. The host keeps its lifecycle separate from an agent's.
@@ -2674,7 +2678,7 @@ async function overview() {
 // The browser conversations, on the wire (#333). Everything about the shape
 // lives in usage.mjs beside `ctxOnWire`; what stays here is the wiring — the
 // reduction this daemon holds and the overseer container's config dir and model.
-function ticketConversationOnWire({ session, repo, ticket, title = null, model = null, state, reviewer = false, cfgDir = null, harness = null }) {
+function ticketConversationOnWire({ session, repo, ticket, title = null, model = null, state, reviewer = false, cfgDir = null, harness = null, live = true }) {
   const root = cfgDir ?? cfgDirFor(curiaConfig.dispatch.workspace_root, session)
   const detected = harness ?? detectHarness(root)
   const transcript = detected ? findTranscript(detected, root) : null
@@ -2689,6 +2693,9 @@ function ticketConversationOnWire({ session, repo, ticket, title = null, model =
     ticket,
     state,
     reviewer,
+    // Whether a pane still runs for this ticket (#711). An ended agent stays
+    // in the picker so its transcript can be read, and Chat refuses it words.
+    live,
     deletable: false,
     last_turn_at: lastTurnAt,
     ...ctxOnWire(() => agentMeters({
@@ -2728,6 +2735,7 @@ function consoleOnWire() {
     const conversation = ticketConversationOnWire({
       ...outcome,
       state: outcome.state,
+      live: false,
     })
     if (!activeSessions.has(conversation.session)) archivedBySession.set(conversation.session, conversation)
   }
