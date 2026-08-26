@@ -1797,7 +1797,7 @@
     padding: 0.5rem 1rem; font: 800 0.8rem var(--sans); color: #06231a;
     background: var(--st-merged); box-shadow: 0 6px 18px rgba(125, 211, 160, 0.24);
   }
-  #run[data-k="2"] .r10-go { animation: r8start 900ms var(--ease) 520ms; }
+  #run[data-k="2"] #runstart { animation: r8start 900ms var(--ease) 520ms; }
 
   /* the pull request: a title, a state, one commit */
   .r10-t { margin: 0; font-weight: 700; font-size: 1.08em; line-height: 1.3; }
@@ -2324,13 +2324,89 @@
     /* the titles dock under the stage */
     #run .r8-nb { display: block; min-height: 80svh; }
     #run .r8-nb .r16-t { position: sticky; top: calc(68dvh + 0.6rem); display: flex; flex-direction: column; align-items: flex-start; }
-    #run .r8-nb:first-child { min-height: 50svh; }
+    /* every slot clears the dock, or two titles meet on it */
+    #run .r8-nb:first-child { min-height: 80svh; }
     #run .r8-nb:last-child { min-height: 40svh; }
     #run .r8-nb b { font-size: clamp(1.15rem, 5.4vw, 1.5rem); }
     #run[data-v="5"] .r8-stage { background: linear-gradient(0deg, rgba(17, 23, 45, 0.97) 82%, rgba(17, 23, 45, 0.86)); }
   }
   .still .r16-sw { display: none; }
   .still .r8-nb .r16-t { position: static; }
+
+  /* ================================================================
+     Round 2 (#772) — five pairings, and the essentials only.
+
+     The operator's answer to round 1: tilt looks good; 01 and 02
+     showed the same screen and so did 04 and 05; every visual should
+     be on point, less detail, bigger fonts and icons, the ticket most
+     of all. So tilt is the default, every beat deals a card of its
+     own, and everything on every surface is cut to what carries the
+     beat. Type went up again, everywhere.
+     ================================================================ */
+
+  /* ---- type: the essentials, at a size that reads ---- */
+  #run .r12-app { font-size: 0.8rem; }
+  #run .r12-scr { font-size: 0.68rem; }
+  #run .r8-tkt { font-size: 0.78rem; }
+  #run .r8-mk { width: 1.15em; height: 1.15em; }
+  #run .oc { width: 1.15em; height: 1.15em; }
+  #run .r12-bar { font-size: 1.1em; padding: 0.55rem 1rem 0.45rem; }
+  #run .r12-nav { gap: 1.3em; padding: 0 1rem; font-size: 1em; }
+  #run .r12-body { padding: 1rem 1.1rem 1.1rem; gap: 0.8rem; }
+  #run .r10-t { font-size: 1.18em; }
+  #run .r10-tile .t { font-size: 1.12em; }
+  #run .r10-tile.empty { border-left-color: #3a4250; color: #8a93a3; }
+  #run .r10-go.sec { background: #ffffff14; color: #e6edf3; box-shadow: none; }
+  #run .r16-cms li { padding: 0.4em 0.8em; font-size: 1em; }
+  #run .r12-files { display: none; }
+
+  /* the new-issue form, and the candidate rows of the preview */
+  .r16-field { display: grid; gap: 0.25em; }
+  .r16-field .lb { font-size: 0.86em; color: #9198a1; font-weight: 600; }
+  .r16-field .in { border: 1px solid #30363d; border-radius: 6px; padding: 0.5em 0.7em; background: #010409; color: #e6edf3; line-height: 1.35; }
+  .caret { display: inline-block; width: 2px; height: 1em; background: #e6edf3; vertical-align: -0.15em; margin-left: 0.1em; animation: r16caret 1s steps(2) infinite; }
+  @keyframes r16caret { to { opacity: 0; } }
+  .r16-cand { display: flex; align-items: center; gap: 0.8em; padding: 0.55em 0.8em; border: 1px solid #2b323e; border-radius: 8px; background: #0d1117; font-weight: 600; }
+  .r16-cand .q { flex: none; font: 700 0.62rem var(--mono); letter-spacing: 0.1em; text-transform: uppercase; color: #8a93a3; width: 3.6em; }
+  .r16-cand .dim { color: #4b5563; }
+  .r16-cand.mine { border-color: #5ec8e5; box-shadow: 0 0 0 1px #5ec8e5 inset; }
+  .r16-cand.mine .q { color: #5ec8e5; }
+
+  /* ---- the phone: one message is a big thing ---- */
+  #run .r12-log { gap: 0.85rem; padding: 0.7rem 0.7rem; }
+  #run .r10-msg .av { width: 2.4em; height: 2.4em; }
+  #run .r10-msg .b { font-size: 1.04em; line-height: 1.4; }
+  #run .r10-msg .w { font-size: 0.95em; }
+  #run .r10-b { font-size: 1em; padding: 0.5rem 0.8rem; }
+  #run .r12-ch { padding: 0.5rem 0.7rem; font-size: 1.04em; }
+
+  /* ---- the ticket: a title, a state, a label, one line per beat ---- */
+  #run .r13-head { font-size: 0.84rem; padding: 0.55rem 0.9rem; }
+  #run .r13-head .num { font-size: 1em; color: #9198a1; }
+  #run .r13-body { padding: 0.8rem 0.9rem 0.9rem; }
+  #run .r8-tkt .gx-h1 { font-size: 1.34em; }
+  #run .gx-st { font-size: 0.95em; padding: 0.3em 0.9em; }
+  #run .tkt-chip { font-size: 0.9em; padding: 0.15em 0.8em; }
+  #run .r8-tl { margin-top: 0.9em; padding-left: 2.4rem; }
+  #run .r8-tl::before { left: 0.9rem; }
+  #run .r8-tl li { font-size: 1em; margin-bottom: 0.65em; color: #c9d1d9; }
+  #run .r8-tl li b { color: #fff; }
+  #run .gx-tl .nd2 { width: 1.8rem; height: 1.8rem; left: -2.4rem; top: -0.2rem; }
+  #run .r8-tl li .ts { color: #6e7681; }
+  #run .r16-cmp { display: none; }
+
+  @media (min-width: 62rem) {
+    #run .r12-app { font-size: 1.02rem; }
+    #run .r12-scr { font-size: 0.8rem; }
+    #run .r8-tkt { font-size: 0.92rem; }
+    #run .r13-head { font-size: 0.92rem; }
+    #run .pv-wt .wu { font-size: 0.76rem; }
+    #run .r8-card { --pw: clamp(7rem, calc(var(--win-w) * 0.3), 13rem); }
+  }
+  @media (max-width: 61.99rem) {
+    #run .r8-tkt { font-size: 0.74rem; }
+    #run .r8-tl li .ts { display: none; }
+  }
 
   /* ---- the column the claim and the closing lines sit in ---- */
   .runwrap { max-width: 36rem; margin: 0 auto; padding: 0 1.25rem; }
@@ -3146,68 +3222,49 @@
     <div class="r8-track" id="runtrack">
       <div class="r8-stage" id="runstage">
 
-        <!-- The constant, at the TOP. Every row is a real,
-             timestamped event on alp82/curia#587, read off its own
-             timeline. Rows are always laid out and only their
-             visibility moves, so the block never shifts. Round 1 of
-             #772 dresses it as the issue page it is: the repo crumb,
-             the issue-opened octicon on the pill, avatars on the rows. -->
+        <!-- The constant, at the TOP: the issue page of alp82/curia#587,
+             cut to its essentials at round 2 of #772. One row per beat,
+             every row a real timestamped event off its timeline. Rows are
+             always laid out and only their visibility moves. -->
         <article class="gx r8-tkt" id="tkt">
           <span class="r16-stub" aria-hidden="true"><i>issue</i><b>#587</b></span>
           <div class="r16-in">
-          <div class="r13-head">
-            <svg class="r8-mk" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-gh"/></svg>
-            <b>alp82</b><span class="sl">/</span><b>curia</b>
-            <span class="crumb"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-issue"/></svg>Issues</span>
-            <span class="sp"></span>
-            <span class="num">#587</span>
-          </div>
+          <div class="r13-head"><svg class="r8-mk" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-gh"/></svg><b>alp82 / curia</b><span class="sp"></span><span class="num">#587</span></div>
           <div class="r13-body">
-            <h3 class="gx-h1">Choose the words of every scene of the final page <span class="num">#587</span></h3>
+            <h3 class="gx-h1">Choose the words of every scene of the final page</h3>
             <div class="gx-meta">
               <span class="r13-pill">
                 <span class="gx-st open"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-issue"/></svg>Open</span>
                 <span class="gx-st done"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-closed"/></svg>Closed</span>
               </span>
-              <span class="gx-by"><i class="r16-av">A</i><b>alp82</b> opened on Aug 21, 2026</span>
               <span class="tkt-chip">wayfinder:prototype</span>
             </div>
             <ol class="gx-tl r8-tl">
               <li><span class="nd2 av">A</span><b>alp82</b> opened this issue<span class="ts">Aug 21, 15:08</span></li>
-              <li><span class="nd2"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-person"/></svg></span><b>curia-sh</b> assigned this to <b>alp82</b><span class="ts">Aug 21, 18:46</span></li>
-              <li><span class="nd2 av bot"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#mk-curia"/></svg></span><b>curia-sh</b> commented<span class="ts">Aug 21, 18:55</span><span class="cmt">🔗 curia pushed <code>curia/587</code> (1 commit) and opened <a href="https://github.com/alp82/curia/pull/597">#597</a></span></li>
-              <li><span class="nd2 av bot"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#mk-curia"/></svg></span><b>curia-sh</b> commented<span class="ts">Aug 22, 19:10</span><span class="cmt">🔗 curia pushed <code>curia/587</code> (5 commits) and updated <a href="https://github.com/alp82/curia/pull/597">#597</a></span></li>
-              <li><span class="nd2 merged"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-merge"/></svg></span><b>curia-sh</b> merged <a href="https://github.com/alp82/curia/pull/597">#597</a> as <code>a71e154</code> and closed this as completed<span class="ts">Aug 22, 19:13</span></li>
+              <li><span class="nd2"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-person"/></svg></span><b>curia-sh</b> was assigned<span class="ts">Aug 21, 18:46</span></li>
+              <li><span class="nd2"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-pr"/></svg></span><b>curia-sh</b> opened <a href="https://github.com/alp82/curia/pull/597">#597</a><span class="ts">Aug 21, 18:55</span></li>
+              <li><span class="nd2"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-commit"/></svg></span><b>curia-sh</b> pushed 5 commits<span class="ts">Aug 22, 19:10</span></li>
+              <li><span class="nd2 merged"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-merge"/></svg></span><b>curia-sh</b> merged <a href="https://github.com/alp82/curia/pull/597">#597</a> and closed this<span class="ts">Aug 22, 19:13</span></li>
             </ol>
-            <div class="r16-cmp" aria-hidden="true"><i class="r16-av">A</i><span>Add a comment</span></div>
           </div>
           </div>
         </article>
 
         <div class="r8-desk" id="desk">
-        <div class="r8-card on" data-i="1">
+        <!-- beat 1: you open a ticket. GitHub's new-issue form. -->
+        <div class="r8-card" data-i="0">
           <div>
-            <div class="r8-lane" data-app="curia">
+            <div class="r8-lane" data-app="github">
               <div class="pv-win">
-                <div class="pv-wt"><s></s><s></s><s></s><span class="wu"><b>box.tailnet.ts.net</b>/atlas</span></div>
+                <div class="pv-wt"><s></s><s></s><s></s><span class="wu">github.com/alp82/curia/issues/<b>new</b></span></div>
                 <div class="r12-app">
-                  <div class="r12-bar">
-                    <svg class="r8-mk" viewBox="0 0 16 16" aria-hidden="true"><use href="#mk-curia"/></svg>
-                    <b>curia</b>
-                  </div>
-                  <div class="r12-nav"><span class="on">Atlas</span><span>Maps</span><span>Agents</span><span>Settings</span></div>
+                  <div class="r12-bar"><svg class="r8-mk" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-gh"/></svg><b>alp82 / curia</b></div>
+                  <div class="r12-nav"><span>Code</span><span class=on>Issues</span><span>Pull requests</span></div>
                   <div class="r12-body">
-                    <div class="r10-front"><span>The frontier</span><s></s><em>1 takeable</em></div>
-                    <div class="r10-tile">
-                      <p class="t">Choose the words of every scene of the final page</p>
-                      <p class="m"><span class="n">alp82/curia#587</span><span class="tkt-chip">wayfinder:prototype</span></p>
-                      <button class="r10-go" type="button" id="runstart">Start</button>
-                    </div>
-                    <div class="r13-walk">
-                      <span class="lb">Ship the story landing page</span>
-                      <span class="tr"><i style="width:76%"></i></span>
-                      <span class="ct">13 of 17 walked</span>
-                    </div>
+                    <p class="r10-t">New issue</p>
+                    <div class="r16-field"><span class="lb">Title</span><span class="in">Choose the words of every scene of the final page<i class="caret"></i></span></div>
+                    <div class="r16-field"><span class="lb">Labels</span><span class="in"><span class="tkt-chip">wayfinder:prototype</span></span></div>
+                    <button class="r10-go" type="button">Create</button>
                   </div>
                 </div>
               </div>
@@ -3215,8 +3272,27 @@
           </div>
         </div>
 
-        <div class="r8-card" data-i="2">
+        <!-- beat 2: you tell it to start. The atlas, and `start` on the phone. -->
+        <div class="r8-card two" data-i="1">
           <div>
+            <div class="r8-lane" data-app="curia">
+              <div class="pv-win">
+                <div class="pv-wt"><s></s><s></s><s></s><span class="wu"><b>box.tailnet.ts.net</b>/atlas</span></div>
+                <div class="r12-app">
+                  <div class="r12-bar"><svg class="r8-mk" viewBox="0 0 16 16" aria-hidden="true"><use href="#mk-curia"/></svg><b>curia</b></div>
+                  <div class="r12-nav"><span class="on">Atlas</span><span>Maps</span><span>Agents</span></div>
+                  <div class="r12-body">
+                    <div class="r10-front"><span>The frontier</span><s></s><em>1 takeable</em></div>
+                    <div class="r10-tile">
+                      <p class="t">Choose the words of every scene of the final page</p>
+                      <p class="m"><span class="n">#587</span><span class="tkt-chip">wayfinder:prototype</span></p>
+                      <button class="r10-go" type="button" id="runstart">Start</button>
+                    </div>
+                    <div class="r13-walk"><span class="lb">Ship the story landing page</span><span class="tr"><i style="width:76%"></i></span><span class="ct">13 of 17 walked</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
             <div class="r8-lane" data-app="discord">
               <div class="pv-phone">
                 <span class="pv-btn b1"></span><span class="pv-btn b2"></span>
@@ -3224,28 +3300,20 @@
                 <div class="pv-bezel">
                   <div class="pv-screen r12-scr">
                     <span class="pv-island" aria-hidden="true"></span>
-                    <div class="r12-status" aria-hidden="true"><b>09:19</b><span class="ic"><i></i><i></i><i></i><em></em></span></div>
-                    <div class="r12-ch">
-                      <span class="bk" aria-hidden="true">‹</span>
-                      <svg class="r8-mk" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-dc"/></svg>
-                      <b>🎫 587 · prototype</b>
-                    </div>
+                    <div class="r12-status" aria-hidden="true"><b>18:46</b><span class="ic"><i></i><i></i><i></i><em></em></span></div>
+                    <div class="r12-ch"><span class="bk" aria-hidden="true">‹</span><svg class="r8-mk" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-dc"/></svg><b>🎫 587 · prototype</b></div>
                     <div class="r12-log">
+                      <div class="r10-msg"><span class="av me">A</span>
+                        <p class="w"><b>Alper</b><span class="ts">18:46</span></p>
+                        <p class="b">start curia#587</p>
+                      </div>
                       <div class="r10-msg"><span class="av"><svg class="r8-mk" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-dc"/></svg></span>
-                        <p class="w"><b>CuriaBot</b><span class="ap">APP</span><span class="ts">Aug 21, 18:46</span></p>
+                        <p class="w"><b>CuriaBot</b><span class="ap">APP</span><span class="ts">18:46</span></p>
+                        <p class="b">🎫 <b>#587 - Choose the words of every scene of the final page</b></p>
                         <p class="b">⚙️ dispatched on <b>claude-opus-5</b></p>
                       </div>
-                      <div class="r10-msg"><span class="av"><svg class="r8-mk" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-dc"/></svg></span>
-                        <p class="w"><b>CuriaBot</b><span class="ap">APP</span><span class="ts">09:18</span></p>
-                        <p class="b">🔎 <b>round 2 of 4</b> · five candidates per slot</p>
-                        <p class="b lk">Preview: <a>box.tailnet.ts.net/p/587/2</a></p>
-                      </div>
-                      <div class="r10-msg"><span class="av me">A</span>
-                        <p class="w"><b>Alper</b><span class="ts">09:31</span></p>
-                        <p class="b">round 2 is approved. do round 3 with my picks applied</p>
-                      </div>
                     </div>
-                    <div class="r12-comp" aria-hidden="true"><span class="pl">+</span><span class="fd">Message #587</span><span class="em">☺</span></div>
+                    <div class="r12-comp" aria-hidden="true"><span class="pl">+</span><span class="fd">Message</span><span class="em">☺</span></div>
                   </div>
                 </div>
               </div>
@@ -3253,27 +3321,71 @@
           </div>
         </div>
 
+        <!-- beat 3: the agent works. The round 2 preview, and the thread. -->
+        <div class="r8-card two" data-i="2">
+          <div>
+            <div class="r8-lane" data-app="curia">
+              <div class="pv-win">
+                <div class="pv-wt"><s></s><s></s><s></s><span class="wu"><b>box.tailnet.ts.net</b>/p/587/2</span></div>
+                <div class="r12-app">
+                  <div class="r12-bar"><svg class="r8-mk" viewBox="0 0 16 16" aria-hidden="true"><use href="#mk-curia"/></svg><b>curia</b></div>
+                  <div class="r12-nav"><span class="on">Round 2</span><span>five candidates per slot</span></div>
+                  <div class="r12-body">
+                    <p class="r10-t">The headline</p>
+                    <div class="r16-cand"><span class="q">rigor</span><span>Nothing lands without you.</span></div>
+                    <div class="r16-cand"><span class="q">motion</span><span class="dim">…</span></div>
+                    <div class="r16-cand mine"><span class="q">mine</span><span>Coding agents controlled from your phone<i class="caret"></i></span></div>
+                    <button class="r10-go sec" type="button">Copy my picks</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="r8-lane" data-app="discord">
+              <div class="pv-phone">
+                <span class="pv-btn b1"></span><span class="pv-btn b2"></span>
+                <span class="pv-btn b3"></span><span class="pv-btn b4"></span>
+                <div class="pv-bezel">
+                  <div class="pv-screen r12-scr">
+                    <span class="pv-island" aria-hidden="true"></span>
+                    <div class="r12-status" aria-hidden="true"><b>09:31</b><span class="ic"><i></i><i></i><i></i><em></em></span></div>
+                    <div class="r12-ch"><span class="bk" aria-hidden="true">‹</span><svg class="r8-mk" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-dc"/></svg><b>🎫 587 · prototype</b></div>
+                    <div class="r12-log">
+                      <div class="r10-msg"><span class="av"><svg class="r8-mk" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-dc"/></svg></span>
+                        <p class="w"><b>CuriaBot</b><span class="ap">APP</span><span class="ts">09:18</span></p>
+                        <p class="b">🔎 <b>round 2 of 4</b></p>
+                        <p class="b lk">Preview: <a>box.tailnet.ts.net/p/587/2</a></p>
+                      </div>
+                      <div class="r10-msg"><span class="av me">A</span>
+                        <p class="w"><b>Alper</b><span class="ts">09:31</span></p>
+                        <p class="b">round 2 is approved. do round 3 with my picks applied</p>
+                      </div>
+                    </div>
+                    <div class="r12-comp" aria-hidden="true"><span class="pl">+</span><span class="fd">Message</span><span class="em">☺</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- beat 4: it waits for you. The pull request, and the gate. -->
         <div class="r8-card two" data-i="3">
           <div>
             <div class="r8-lane" data-app="github">
               <div class="pv-win">
                 <div class="pv-wt"><s></s><s></s><s></s><span class="wu">github.com/alp82/curia/<b>pull/597</b></span></div>
                 <div class="r12-app">
-                  <div class="r12-bar">
-                    <svg class="r8-mk" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-gh"/></svg>
-                    <b>alp82 / curia</b>
-                  </div>
-                  <div class="r12-nav"><span>Code</span><span>Issues</span><span class="on">Pull requests <i>1</i></span><span>Actions</span></div>
+                  <div class="r12-bar"><svg class="r8-mk" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-gh"/></svg><b>alp82 / curia</b></div>
+                  <div class="r12-nav"><span>Code</span><span>Issues</span><span class=on>Pull requests</span></div>
                   <div class="r12-body">
                     <p class="r10-t">Choose the words of every scene of the final page <span class="n">#597</span></p>
                     <p class="r10-m"><span class="r10-pill open">Open</span><span><b>curia-sh</b> wants to merge 5 commits into <code>main</code></span></p>
-                    <div class="r12-files"><span>5 commits</span><span>3 files changed</span><span class="a">+757</span><span class="d">−0</span></div>
                     <ol class="r16-cms">
-                      <li><code>b952921</code><span>The landing copy prototype: candidates for every scene</span></li>
-                      <li><code>607fa84</code><span>Round 2: five candidates per slot, six headline directions</span></li>
-                      <li><code>72d09df</code><span>Round 3: the operator's picks applied as an overlay</span></li>
+                      <li><code>b952921</code><span>The landing copy prototype</span></li>
+                      <li><code>607fa84</code><span>Round 2: five candidates per slot</span></li>
+                      <li><code>72d09df</code><span>Round 3: the operator's picks applied</span></li>
                       <li><code>8e1db06</code><span>Round 4: round 3 rulings applied</span></li>
-                      <li><code>baa02ff</code><span>The words locked: verdict in NOTES</span></li>
+                      <li><code>baa02ff</code><span>The words locked</span></li>
                     </ol>
                   </div>
                 </div>
@@ -3287,27 +3399,17 @@
                   <div class="pv-screen r12-scr">
                     <span class="pv-island" aria-hidden="true"></span>
                     <div class="r12-status" aria-hidden="true"><b>19:10</b><span class="ic"><i></i><i></i><i></i><em></em></span></div>
-                    <div class="r12-ch">
-                      <span class="bk" aria-hidden="true">‹</span>
-                      <svg class="r8-mk" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-dc"/></svg>
-                      <b>🔎 587 · prototype</b>
-                    </div>
+                    <div class="r12-ch"><span class="bk" aria-hidden="true">‹</span><svg class="r8-mk" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-dc"/></svg><b>🔎 587 · prototype</b></div>
                     <div class="r12-log" id="rungate">
                       <div class="r10-msg"><span class="av"><svg class="r8-mk" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-dc"/></svg></span>
                         <p class="w"><b>CuriaBot</b><span class="ap">APP</span><span class="ts">19:10</span></p>
                         <p class="b"><b>Is alp82/curia#587 done?</b></p>
                         <p class="b">The words of all twelve scenes are locked.</p>
-                        <p class="b sm">✅ Approve to merge and resolve. A reply is a rejection, and I take your words as the change list.</p>
-                        <p class="b sm">🔎 Cross-check answers neither. It starts a reviewer on the other provider, and I wait for its verdict.</p>
-                        <div class="r10-btns">
-                          <button class="r10-b ok" type="button" id="runapprove">✅ Approve</button>
-                          <button class="r10-b no" type="button">❌ Reject</button>
-                          <button class="r10-b sec" type="button">🔎 Cross-check</button>
-                        </div>
+                        <div class="r10-btns"><button class="r10-b ok" type="button" id="runapprove">✅ Approve</button><button class="r10-b no" type="button">❌ Reject</button><button class="r10-b sec" type="button">🔎 Cross-check</button></div>
                         <p class="mk" id="runreceipt">✅ <b>approved</b> by <span class="men">@Alper</span></p>
                       </div>
                     </div>
-                    <div class="r12-comp" aria-hidden="true"><span class="pl">+</span><span class="fd">Message #587</span><span class="em">☺</span></div>
+                    <div class="r12-comp" aria-hidden="true"><span class="pl">+</span><span class="fd">Message</span><span class="em">☺</span></div>
                   </div>
                 </div>
               </div>
@@ -3315,28 +3417,19 @@
           </div>
         </div>
 
+        <!-- beat 5: it finishes. The atlas again, one further, and ✅. -->
         <div class="r8-card two" data-i="4">
           <div>
-            <div class="r8-lane" data-app="github">
+            <div class="r8-lane" data-app="curia">
               <div class="pv-win">
-                <div class="pv-wt"><s></s><s></s><s></s><span class="wu">github.com/alp82/curia/<b>pull/597</b></span></div>
+                <div class="pv-wt"><s></s><s></s><s></s><span class="wu"><b>box.tailnet.ts.net</b>/atlas</span></div>
                 <div class="r12-app">
-                  <div class="r12-bar">
-                    <svg class="r8-mk" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-gh"/></svg>
-                    <b>alp82 / curia</b>
-                  </div>
-                  <div class="r12-nav"><span>Code</span><span>Issues</span><span class="on">Pull requests <i>1</i></span><span>Actions</span></div>
+                  <div class="r12-bar"><svg class="r8-mk" viewBox="0 0 16 16" aria-hidden="true"><use href="#mk-curia"/></svg><b>curia</b></div>
+                  <div class="r12-nav"><span class="on">Atlas</span><span>Maps</span><span>Agents</span></div>
                   <div class="r12-body">
-                    <p class="r10-t">Choose the words of every scene of the final page <span class="n">#597</span></p>
-                    <p class="r10-m"><span class="r10-pill merged">Merged</span><span><b>curia-sh</b> merged 5 commits into <code>main</code></span></p>
-                    <div class="r12-files"><span>5 commits</span><span>3 files changed</span><span class="a">+757</span><span class="d">−0</span></div>
-                    <ol class="r16-cms">
-                      <li><code>b952921</code><span>The landing copy prototype: candidates for every scene</span></li>
-                      <li><code>607fa84</code><span>Round 2: five candidates per slot, six headline directions</span></li>
-                      <li><code>72d09df</code><span>Round 3: the operator's picks applied as an overlay</span></li>
-                      <li><code>8e1db06</code><span>Round 4: round 3 rulings applied</span></li>
-                      <li><code>baa02ff</code><span>The words locked: verdict in NOTES</span></li>
-                    </ol>
+                    <div class="r10-front"><span>The frontier</span><s></s><em>0 takeable</em></div>
+                    <div class="r10-tile empty"><p class="t">Nothing takeable. One agent is on the map.</p></div>
+                    <div class="r13-walk"><span class="lb">Ship the story landing page</span><span class="tr"><i style="width:82%"></i></span><span class="ct">14 of 17 walked</span></div>
                   </div>
                 </div>
               </div>
@@ -3349,24 +3442,15 @@
                   <div class="pv-screen r12-scr">
                     <span class="pv-island" aria-hidden="true"></span>
                     <div class="r12-status" aria-hidden="true"><b>19:13</b><span class="ic"><i></i><i></i><i></i><em></em></span></div>
-                    <div class="r12-ch">
-                      <span class="bk" aria-hidden="true">‹</span>
-                      <svg class="r8-mk" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-dc"/></svg>
-                      <b>✅ 587 · prototype</b>
-                    </div>
+                    <div class="r12-ch"><span class="bk" aria-hidden="true">‹</span><svg class="r8-mk" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-dc"/></svg><b>✅ 587 · prototype</b></div>
                     <div class="r12-log">
-                      <div class="r10-msg"><span class="av"><svg class="r8-mk" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-dc"/></svg></span>
-                        <p class="w"><b>CuriaBot</b><span class="ap">APP</span><span class="ts">19:10</span></p>
-                        <p class="b"><b>Is alp82/curia#587 done?</b></p>
-                        <p class="mk on">✅ <b>approved</b> by <span class="men">@Alper</span></p>
-                      </div>
                       <div class="r10-msg"><span class="av"><svg class="r8-mk" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-dc"/></svg></span>
                         <p class="w"><b>CuriaBot</b><span class="ap">APP</span><span class="ts">19:13</span></p>
                         <p class="b">✅ reports <b>resolved</b></p>
                         <p class="b">#597 merged · #587 closed</p>
                       </div>
                     </div>
-                    <div class="r12-comp" aria-hidden="true"><span class="pl">+</span><span class="fd">Message #587</span><span class="em">☺</span></div>
+                    <div class="r12-comp" aria-hidden="true"><span class="pl">+</span><span class="fd">Message</span><span class="em">☺</span></div>
                   </div>
                 </div>
               </div>
@@ -3918,11 +4002,11 @@ function clampNum(v, a, b) { return v < a ? a : v > b ? b : v; }
   var cards = [].slice.call(document.querySelectorAll('#desk .r8-card'));
   if (!sec || !steps.length || !cards.length) return;
 
-  var k = 1;
+  var k = 0;
   var io = null;
 
   /* Round 1 of #772: five layouts on ?id=1..5, default flat. */
-  var v = (location.search.match(/[?&]id=([1-5])/) || [])[1] || '1';
+  var v = (location.search.match(/[?&]id=([1-5])/) || [])[1] || '2';
   sec.setAttribute('data-v', v);
   var sw = document.getElementById('runsw');
   if (sw) [].forEach.call(sw.children, function (a) { a.classList.toggle('on', a.getAttribute('data-v') === v); });
@@ -3936,7 +4020,7 @@ function clampNum(v, a, b) { return v < a ? a : v > b ? b : v; }
     /* the ticket blinks once when a row lands on it */
     if (tkt) { tkt.classList.remove('tick'); void tkt.offsetWidth; tkt.classList.add('tick'); }
     steps.forEach(function (n, i) { n.classList.toggle('on', i === k - 1); });
-    /* Card i belongs to beat i + 1: the first beat deals none. */
+    /* Card i belongs to beat i + 1, and every beat deals one now (#772 round 2). */
     cards.forEach(function (c) {
       var i = parseInt(c.getAttribute('data-i'), 10);
       c.classList.toggle('on', i === k - 1);
@@ -3993,7 +4077,7 @@ function clampNum(v, a, b) { return v < a ? a : v > b ? b : v; }
 
   /* The arrangement is settled, so there is nothing to switch. What is
      left is the one thing this script owns: the beat. */
-  if (prefersStill) { sec.classList.add('still'); press(); } else { watch(); }
+  if (prefersStill) { sec.classList.add('still'); setK(1); press(); } else { setK(1); watch(); }
 })();
 
 /* ================================================================

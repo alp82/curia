@@ -2548,6 +2548,36 @@ height, and a tall desk made a phone taller than the window beside it. The windo
 needs a phone that still reads. The lone phone of beat 3 caps at 15rem. **And a tall monitor is not
 a taller desk:** the stage stops growing at 64rem of height and sits at the middle of the viewport.
 
+**The operator's answer to round 1**, second part:
+
+> tilt looks good. one problem i see is that 01 and 02 are showing the same screen and 04/05 as
+> well. more variety in the screens we show is totally fine. or we do more pairing with the discord
+> phone? … just want every visual (ticket, screens) to be on point. less detail, bigger fonts and
+> icons, focus on the essentials. especially the ticket
+
+**Round 2.** Tilt is the default. Every beat deals a card of its own, and four of the five pair a
+browser with the phone:
+
+| beat | browser | phone |
+|---|---|---|
+| 01 You open a ticket | GitHub's new-issue form, the title typed, the label set | none |
+| 02 You tell it to start | the atlas, the frontier tile, the Start press | `start curia#587`, then the thread's real opening line `🎫 **#587 - title**` (`bridge.mjs #postTicketTitle`) and `⚙️ dispatched on claude-opus-5` |
+| 03 The agent starts working | the round 2 preview of #587: the headline slot with the rigor line "Nothing lands without you." and the operator's `mine` row "Coding agents controlled from your phone", both off `prototypes/landing-copy/NOTES.md` | the thread: round 2 of 4 with its preview link, and the operator's reply |
+| 04 It waits for your confirmation | the open pull request, five commits | the gate, question and three buttons only |
+| 05 It finishes the work | the atlas again: nothing takeable, the map bar one further at 14 of 17 | ✅ resolved |
+
+01 also fixed a fault of round 1: the first card shipped with `class="on"`, so beat 1 showed beat 2's
+screen until the scroll moved. The script deals from k = 0 now and every beat has a card.
+
+**The essentials.** The ticket lost its crumb, its opener line, the comment boxes on rows and the
+comment box at the foot: a title, a state, a label, and one short line per beat. The pull request
+lost its files line and the commit headlines are cut to their first clause. The gate lost its
+small print on every width, which returns #630's reduction; the scene's own fact line still says
+what it said. Type went up again: the app at 1.02rem past 62rem, the phone at 0.8rem, the ticket at
+0.92rem, and the icons a quarter larger.
+
+**The five layouts stay on `?id=1..5`** for the record, with tilt at `?id=2` as the default.
+
 **How the round was checked.** Headless Chrome on this machine refuses a debugging port, so the
 preview was driven over `--remote-debugging-pipe`: navigate, scroll the window to each beat, wait
 for the turn, capture. Ten frames per width, both widths, every layout at the gate beat.
