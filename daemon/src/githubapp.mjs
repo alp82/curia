@@ -428,7 +428,30 @@ export async function listInstallations({ jwt, fetchImpl = globalThis.fetch } = 
     if (e.status === 401) throw new Error(`GitHub refused curia's app JWT (401) — ${APP_ID_KEY} and the key file must belong to the same app, and the box clock must be right`)
     throw e
   }
-  return (payload ?? []).map((i) => ({ id: i.id, owner: i.account?.login ?? null }))
+  // `account_id` rides along (#762): the app's own install page takes it as
+  // `target_id`, which is what makes a per-owner install link possible.
+  return (payload ?? []).map((i) => ({ id: i.id, owner: i.account?.login ?? null, account_id: i.account?.id ?? null }))
+}
+
+// The app's own settings-page facts, from `/app` on the app JWT (#762). One
+// shape for the Settings section and for the bot login.
+export function appFactsFrom(app) {
+  const slug = String(app?.slug ?? '').trim() || null
+  return {
+    id: app?.id ?? null,
+    slug,
+    name: app?.name ?? null,
+    owner: app?.owner?.login ?? null,
+    settings_url: app?.html_url ? `${app.html_url}` : (slug ? `https://github.com/apps/${slug}` : null),
+  }
+}
+
+// Where an owner installs, or manages, THIS app. With no slug there is no
+// app-specific page, so the generic installations list is the fallback.
+export function installUrlFor({ slug = null, accountId = null } = {}) {
+  if (!slug) return 'https://github.com/settings/installations'
+  const base = `https://github.com/apps/${encodeURIComponent(slug)}/installations`
+  return accountId ? `${base}/new/permissions?target_id=${encodeURIComponent(accountId)}` : `${base}/new`
 }
 
 // How many pages of repositories one installation may state. An installation
@@ -508,6 +531,15 @@ export class TokenMinter {
 
   #bot = null
 
+  #facts = null
+
+  // The last installation read, as a tri-state record (#762): `unread` until
+  // the first read answers, then `read` with the rows or `failed` with the
+  // error, each stamped with the instant it happened. The overview serves this
+  // record and never calls GitHub itself, so an owner whose read failed is
+  // drawn as unknown rather than as absent.
+  reading = { state: 'unread', at: null, installations: [], error: null }
+
   // `<owner>|<role>` → the promise of a mint that has not answered yet (#390).
   #minting = new Map()
 
@@ -533,8 +565,28 @@ export class TokenMinter {
   // one case that matters is an owner added to the watch list and installed the
   // same minute, and `refreshInstallations` is what a restart-free box calls.
   async installations() {
-    if (!this.#installations) this.#installations = await listInstallations({ jwt: this.jwt(), fetchImpl: this.fetchImpl })
+    if (!this.#installations) {
+      try {
+        this.#installations = await listInstallations({ jwt: this.jwt(), fetchImpl: this.fetchImpl })
+        this.reading = { state: 'read', at: new Date(this.now()).toISOString(), installations: this.#installations, error: null }
+      } catch (e) {
+        this.reading = { state: 'failed', at: new Date(this.now()).toISOString(), installations: [], error: e.message }
+        throw e
+      }
+    }
     return this.#installations
+  }
+
+  // The app's identity, read once from `/app` and kept (#762). `facts` is
+  // the cached answer, null until the first read lands, so the overview can
+  // state what it knows without a network call on the poll path.
+  get facts() {
+    return this.#facts
+  }
+
+  async readFacts() {
+    if (!this.#facts) this.#facts = appFactsFrom(await api('/app', { jwt: this.jwt(), fetchImpl: this.fetchImpl }))
+    return this.#facts
   }
 
   async refreshInstallations() {
@@ -620,8 +672,7 @@ export class TokenMinter {
   // whole of GitHub, so another operator's daemon has another bot entirely.
   async botIdentity(token) {
     if (this.#bot) return this.#bot
-    const app = await api('/app', { jwt: this.jwt(), fetchImpl: this.fetchImpl })
-    const slug = String(app?.slug ?? '').trim()
+    const { slug } = await this.readFacts()
     if (!slug) throw new Error('GitHub described curia\'s app without a slug, so its bot login cannot be built')
     const login = `${slug}[bot]`
     const user = await api(`/users/${encodeURIComponent(login)}`, { jwt: token, fetchImpl: this.fetchImpl })
@@ -638,6 +689,7 @@ export class TokenMinter {
     this.#minting.clear()
     this.#installations = null
     this.#bot = null
+    this.#facts = null
   }
 }
 

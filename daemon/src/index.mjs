@@ -51,7 +51,7 @@ import { OVERSEER_MCP_PATH } from './overseerturn.mjs'
 import { ConversationRuntime } from './conversationruntime.mjs'
 import { hasSession } from './tmux.mjs'
 import { retiredAgentTokenKeys } from './workspace.mjs'
-import { APP_ID_KEY, APP_KEY_FILE_KEY, GitHubAppSetup, minterFrom } from './githubapp.mjs'
+import { APP_ID_KEY, APP_KEY_FILE_KEY, GitHubAppSetup, installUrlFor, minterFrom } from './githubapp.mjs'
 import { AppSetup, minterForAdopted } from './appsetup.mjs'
 import { CodexCredentialBroker, AnthropicCredentialStore, anthropicStoreFile } from './credentials.mjs'
 import {
@@ -338,6 +338,9 @@ if (!appMinter) {
 // settings screen must get the reading a booted one gets.
 function checkAppInstallations() {
   if (!appMinter) return
+  // The app's own facts ride the same detached pass (#762): slug, id and
+  // settings page, read once and kept for the Settings section.
+  appMinter.readFacts().catch((e) => log(`could not read the GitHub App's own facts (${e.message})`))
   appMinter.refreshInstallations().then((installs) => {
     for (const { id, owner } of installs) log(`GitHub App installed on ${owner} (installation ${id})`)
     const seen = new Set(installs.map((i) => String(i.owner ?? '').toLowerCase()))
@@ -2699,12 +2702,15 @@ async function overview() {
   }
   const health = bridge ? bridge.status() : null
   const open = reduction.openEscalations()
-  let appInstallations = []
-  let appError = null
-  if (appMinter) {
-    try { appInstallations = await appMinter.installations() } catch (e) { appError = e.message }
-  }
-  const installedOwners = new Set(appInstallations.map((row) => String(row.owner ?? '').toLowerCase()))
+  // The installation reading is the KEPT one (#762), never a call made here:
+  // the overview rides the poll, and GitHub is not on the poll path. The
+  // detached pass at boot, reload, adopt and the refresh route are what write
+  // it. `owners[].installed` is a tri-state: true and false are measured, null
+  // is a reading that has not landed or failed, and the page draws null as
+  // unknown rather than as absent.
+  const reading = appMinter?.reading ?? { state: 'unread', at: null, installations: [], error: null }
+  const installedBy = new Map(reading.installations.map((row) => [String(row.owner ?? '').toLowerCase(), row]))
+  const facts = appMinter?.facts ?? null
   return {
     at: new Date().toISOString(),
     daemon: {
@@ -2742,12 +2748,25 @@ async function overview() {
     github_app: {
       ...githubAppSetup.status(),
       configured: Boolean(appMinter),
-      error: appError,
-      owners: [...WATCHED_OWNERS].map((owner) => ({
-        owner,
-        installed: installedOwners.has(owner.toLowerCase()),
-        install_url: 'https://github.com/settings/installations',
-      })),
+      error: reading.error,
+      app: appMinter ? {
+        id: appMinter.appId,
+        slug: facts?.slug ?? null,
+        name: facts?.name ?? null,
+        bot_login: facts?.slug ? `${facts.slug}[bot]` : null,
+        key_file: appMinter.keyFile,
+        settings_url: facts?.settings_url ?? null,
+      } : null,
+      installations: { state: reading.state, at: reading.at, error: reading.error },
+      owners: [...WATCHED_OWNERS].map((owner) => {
+        const row = installedBy.get(owner.toLowerCase()) ?? null
+        return {
+          owner,
+          installed: reading.state === 'read' ? Boolean(row) : null,
+          installation_id: row?.id ?? null,
+          install_url: installUrlFor({ slug: facts?.slug, accountId: row?.account_id }),
+        }
+      }),
       manual_url: 'https://github.com/settings/apps/new',
     },
     // The gate is its own list, not a kind to filter for. It is the one
@@ -3085,6 +3104,21 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
       return json(200, started)
     } catch (e) {
       return json(400, { error: e.message })
+    }
+  }
+
+  // The re-read (#762). An install on github.com is an act between polls, so
+  // the operator presses once and the kept reading is replaced, awaited here
+  // so the answer states what the press measured.
+  if (url.pathname === '/github-app/installations' && req.method === 'POST') {
+    if (!appMinter) return json(400, { error: 'no GitHub App is configured, so there is nothing to read installations for' })
+    appMinter.readFacts().catch((e) => log(`could not read the GitHub App's own facts (${e.message})`))
+    try {
+      const installs = await appMinter.refreshInstallations()
+      reduction.journal('github_app_installations_read', { owners: installs.map((i) => i.owner) })
+      return json(200, { ok: true, reply: `Read ${installs.length} installation${installs.length === 1 ? '' : 's'}: ${installs.map((i) => i.owner).join(', ') || 'none'}`, installations: appMinter.reading })
+    } catch (e) {
+      return json(200, { ok: false, reply: `The installation read failed: ${e.message}`, installations: appMinter.reading })
     }
   }
 

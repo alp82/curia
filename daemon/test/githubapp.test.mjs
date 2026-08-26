@@ -12,7 +12,7 @@ import {
   WRITE_PERMISSIONS, READ_PERMISSIONS,
   appConfigFrom, readPrivateKey, keyFileIsPrivate, appJwt, permissionsFor,
   listInstallations, listInstallationRepos, mintInstallationToken, TokenMinter, minterFrom,
-  MAX_REPO_PAGES,
+  MAX_REPO_PAGES, appFactsFrom, installUrlFor,
 } from '../src/githubapp.mjs'
 
 let dir
@@ -182,8 +182,8 @@ describe('the API calls (#352)', () => {
       { id: 222, account: { login: 'getalfredo' } },
     ] }])
     assert.deepEqual(await listInstallations({ jwt: 'j', fetchImpl }), [
-      { id: 111, owner: 'alp82' },
-      { id: 222, owner: 'getalfredo' },
+      { id: 111, owner: 'alp82', account_id: null },
+      { id: 222, owner: 'getalfredo', account_id: null },
     ])
     const { url, opts } = fetchImpl.calls[0]
     // per_page, because GitHub's default page is 30 and nothing here paginates
@@ -389,6 +389,50 @@ describe('the app\'s own git identity (#389)', () => {
     const fetchImpl = fakeFetch(answers)
     return { m: new TokenMinter({ appId: '7', key: keyPair.privateKey, fetchImpl }), fetchImpl }
   }
+
+  // #762: the reading is a record with three states, and the facts are read
+  // once and shared with the bot identity.
+  test('the installation reading is unread, then read or failed, each with its instant', async () => {
+    const now = () => Date.parse('2026-08-26T10:00:00.000Z')
+    const fetchImpl = fakeFetch([
+      { status: 500, body: { message: 'down' } },
+      { status: 200, body: [{ id: 111, account: { login: 'alp82', id: 9 } }] },
+    ])
+    const m = new TokenMinter({ appId: '7', key: keyPair.privateKey, fetchImpl, now })
+    assert.deepEqual(m.reading, { state: 'unread', at: null, installations: [], error: null })
+    await assert.rejects(m.installations())
+    assert.equal(m.reading.state, 'failed')
+    assert.equal(m.reading.at, '2026-08-26T10:00:00.000Z')
+    assert.match(m.reading.error, /down/)
+    assert.deepEqual(m.reading.installations, [])
+    await m.refreshInstallations()
+    assert.equal(m.reading.state, 'read')
+    assert.deepEqual(m.reading.installations, [{ id: 111, owner: 'alp82', account_id: 9 }])
+    assert.equal(m.reading.error, null)
+  })
+
+  test('the app facts are read once, and the bot identity reads them rather than /app again', async () => {
+    const { m, fetchImpl } = minter([
+      { status: 200, body: { id: 4610603, slug: 'curia-sh', name: 'Curia', html_url: 'https://github.com/apps/curia-sh', owner: { login: 'alp82' } } },
+      bot,
+    ])
+    assert.equal(m.facts, null)
+    assert.deepEqual(await m.readFacts(), {
+      id: 4610603, slug: 'curia-sh', name: 'Curia', owner: 'alp82', settings_url: 'https://github.com/apps/curia-sh',
+    })
+    await m.readFacts()
+    assert.equal((await m.botIdentity('ghs_x')).name, 'curia-sh[bot]')
+    assert.equal(fetchImpl.calls.filter((c) => c.url.endsWith('/app')).length, 1)
+    m.forget()
+    assert.equal(m.facts, null)
+  })
+
+  test('the install link is the app\'s own page once the slug is known', () => {
+    assert.equal(installUrlFor({}), 'https://github.com/settings/installations')
+    assert.equal(installUrlFor({ slug: 'curia-sh' }), 'https://github.com/apps/curia-sh/installations/new')
+    assert.equal(installUrlFor({ slug: 'curia-sh', accountId: 9 }), 'https://github.com/apps/curia-sh/installations/new/permissions?target_id=9')
+    assert.equal(appFactsFrom({ slug: ' ' }).slug, null)
+  })
 
   test('the slug becomes the login, and the bot id becomes the email', async () => {
     const { m, fetchImpl } = minter([app, bot])
