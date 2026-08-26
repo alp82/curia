@@ -2901,3 +2901,36 @@ five operator rounds.** The frame every scene ticket (#625 to #631) conforms to:
 7. One slab accent: the gate climax claim. Slabs mark importance and stay rare.
 8. The hero stays out of this frame. Its words sit at the bottom, locked at #567, and the
    opening arc ticket [#625](https://github.com/alp82/curia/issues/625) revisits it.
+
+## The whole page on a phone ([#773](https://github.com/alp82/curia/issues/773))
+
+**Round 1.** The first read of the twelve scenes in sequence at 393px (iPhone 15), frame by
+frame, with the page measured at every stop. Five faults, none visible in any one scene's own
+ticket because each one only shows across scenes or across the whole document:
+
+- **The page scrolled sideways.** Four things reached past the right edge: the arc panel
+  frames (`inset: -20px`), the grilling orb (`-25vw`), the preview light (`-18%`), and every
+  right-docked reveal parked at `translateX(2.4rem)` before it comes in. The phone's layout
+  viewport grew to 491px to hold them, so every scene rendered a fifth too small. Every
+  `.scene` and `.arc-flow` clips its own sides now. **The clip must not go on the root:** on
+  `html` it unstuck every sticky stage on the page, measured A/B against the file on `main`.
+- **The grilling window scrolled up through its own claim.** The stage let go at the section's
+  end, but the sticky claim held on to the same end and the window climbed through the words.
+  The claim has its own sticky box now, `.grill-headbox`, which ends a screen above the
+  section, so the claim lets go first and rides off ahead of the window.
+- **A class collision, the third.** Scene 7's bare `.oc { width: 1em }` (its octicons) reached
+  the Discord card's option lines, which carry the same class, and squeezed each one to one em
+  wide, so the text wrapped a word per line over the blocks below. Scoped to `.gx .oc`. The
+  atlas scene's bare `.rl { margin-top }` reached the preview bar and the terminal rail the same
+  way; scoped to `#atlas .rl`.
+- **The terminal never started.** Its observer wrote `seen = true` and `seen` was never
+  declared. Under `'use strict'` that is a `ReferenceError` on the first intersection, thrown
+  before `start()`, so no harness ever typed. Declared.
+- **The setup command clipped** at `--build`. The `pre` wraps now.
+
+The scroll budget at 393×659: 20.6 screens. The opening arc takes 7.2 of them, the ticket run
+4.3, the atlas 2.1, and every other scene one or less.
+
+**Left for the operator:** on a phone the ticket-run scene's Discord phone lane shrinks to a
+sliver beside the atlas window. That is the round 15 arrangement measured against a desk that
+is only a phone wide, and it is a decision, not a fault.

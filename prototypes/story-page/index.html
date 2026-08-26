@@ -104,7 +104,9 @@
      ================================================================ */
   .arc { position: relative; }
   .arc-stage { display: none; }
-  .arc-flow { position: relative; z-index: 1; }
+  /* The arc panel frames reach 20px past the edge; see `.scene` for
+     why that clips here and not on the root (#773). */
+  .arc-flow { position: relative; z-index: 1; overflow-x: clip; }
   .a-hero {
     min-height: 62svh; display: flex; flex-direction: column; justify-content: flex-end;
     padding-bottom: clamp(1.5rem, 5vh, 3.5rem);
@@ -192,7 +194,14 @@
      sides: .sL docks left, .sR docks right, and the evidence leans
      toward the other side.
      ================================================================ */
-  .scene { position: relative; }
+  /* Every scene clips its own sides (#773). Four things reached past
+     the right edge of a phone and each one scrolled the page sideways:
+     the arc panel frames at -20px, the grilling orb at -25vw, the
+     preview light at -18%, and every right-docked reveal parked at
+     +2.4rem before it comes in. The clip must NOT go on the root: there
+     it unstuck every sticky stage on the page. `clip` on a scene makes
+     no scroll container, so the stages inside keep working. */
+  .scene { position: relative; overflow-x: clip; }
   .claim { margin: 0 0 1rem; }
   .claim .bold { margin-bottom: 0; }
   .kick { margin: 0 0 0.55rem; font-family: var(--mono); color: var(--dim); font-size: 0.72rem; }
@@ -279,6 +288,16 @@
      window grows under it. The cap the script sets on the window keeps
      the two apart, so the words never sit on the evidence. */
   .grill-head { position: sticky; top: 3svh; z-index: 3; }
+  /* The claim's own sticky box (#773). It ends a screen above the
+     section, so the claim lets go BEFORE the stage does and rides off
+     ahead of the window. Bounded by the section alone, the claim held
+     on while the stage left, and on a phone the window scrolled up
+     straight through the words. */
+  .grill-headbox {
+    position: absolute; left: 0; right: 0; top: 8vh; bottom: calc(100dvh - 3svh);
+    z-index: 3; pointer-events: none;
+  }
+  .grill-headbox .grill-head { pointer-events: auto; }
 
   /* The track is pulled up under the claim ON PURPOSE. The stage is a
      screen tall and sticks at the top, so it must be stuck ALREADY by
@@ -1186,7 +1205,7 @@
   .at-nm { font-weight: 700; font-size: 0.8rem; min-width: 0; }
   .at-meta { margin: 0.2rem 0 0; font: 0.58rem var(--mono); color: #8a93a3; }
 
-  .rl { margin-top: 0.75rem; }
+  #atlas .rl { margin-top: 0.75rem; }
   .rrow {
     position: relative; display: flex; align-items: center; gap: 0.55rem;
     padding: 0.36rem 0 0.36rem 1.4rem; font-size: 0.74rem;
@@ -1608,7 +1627,10 @@
     font: 0.86em var(--mono); background: #6e768166; border-radius: 4px;
     padding: 0.1em 0.4em; color: var(--gx-ink);
   }
-  .oc { width: 1em; height: 1em; flex: none; vertical-align: -0.15em; }
+  /* Scoped to the GitHub blocks (#773): a bare `.oc` reached the Discord
+     card's option lines, which also carry that class, and squeezed each
+     of them to one em wide. */
+  .gx .oc { width: 1em; height: 1em; flex: none; vertical-align: -0.15em; }
   .gx-h1 {
     margin: 0; font-size: 1.28em; font-weight: 600; line-height: 1.3;
     letter-spacing: -0.01em; color: var(--gx-ink); text-wrap: pretty;
@@ -2259,7 +2281,7 @@
     background: #ffffff08; box-shadow: inset 0 0 0 1px var(--line);
     border-radius: 6px; padding: 0.7rem 0.85rem; overflow-x: auto; margin: 0.55rem 0;
   }
-  .step pre code { background: none; padding: 0; font-size: 0.78rem; }
+  .step pre code { background: none; padding: 0; font-size: 0.78rem; white-space: pre-wrap; overflow-wrap: anywhere; }
   .readmore { color: var(--body); font-size: 0.95rem; }
 
   footer { padding: 3rem 0 4rem; color: var(--dim); font-size: 0.85rem; }
@@ -2285,7 +2307,7 @@
   /* With reduced motion the grilling scene is an ordinary section: no
      track, no sticky, no growth, and the whole card standing. */
   @media (prefers-reduced-motion: reduce) {
-    .grill-head, .grill-stage { position: static; }
+    .grill-head, .grill-headbox, .grill-stage { position: static; }
     .grill-stage { height: auto; padding: 0 0.6rem; }
     .grill-track { height: auto; margin-top: 1.5rem; }
     .grill-stage::before { display: none; }
@@ -2387,12 +2409,14 @@
        in, while the claim rides to the top of the screen. Then the
        press, and the edit that clears the components. -->
   <section class="scene sL grillpin" id="grill-pin" data-stage="agent" data-n="03" data-name="the grilling" style="--g1:#171930;--g2:#0d0e1c">
+    <div class="grill-headbox">
     <div class="wrap grill-head" id="grill-head">
       <header class="claim rv">
         <p class="kick"><span class="kn">03</span><span class="kname">the grilling</span></p>
         <h2 class="bold">Answer from the couch.</h2>
       </header>
       <p class="story rv">An agent hits a real decision and asks you in Discord.</p>
+    </div>
     </div>
 
     <div class="grill-track">
@@ -3696,6 +3720,7 @@ if (prefersStill || !window.IntersectionObserver) {
   /* The run happens once. Scrolling away mid-print settles the pane
      whole rather than leaving it half written. */
   var ran = false;
+  var seen = false;
   function start() {
     if (ran) return;
     ran = true;
