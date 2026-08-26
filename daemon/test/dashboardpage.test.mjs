@@ -191,23 +191,34 @@ const OVERVIEW = () => ({
           { number: 267, title: 'The chat embeds the timeline attach', labels: ['wayfinder:task'] },
         ] },
         { number: 266, title: 'The verbs reach the browser', labels: ['wayfinder:grilling'], model: 'gpt-5.6-sol', map: 244, mapTitle: 'Curia gets a face', unblocks: [] },
-      ], maps: [{
-        repo: 'alp82/curia', number: 244, title: 'Curia gets a face', latest_event_at: at(40),
-        counts: { walked: 18, in_flight: 1, takeable: 2, blocked: 1, fog: 2 },
-        walked: [{ number: 243, title: 'The accepted frame', labels: ['wayfinder:prototype'], type: 'prototype' }],
-        in_flight: [{ number: 255, title: 'The note queue drains in order', labels: ['wayfinder:task'], type: 'task' }],
-        takeable: [
-          { number: 265, title: 'The settings write', labels: ['wayfinder:task'], type: 'task', model: 'claude-opus-5' },
-          { number: 266, title: 'The verbs reach the browser', labels: ['wayfinder:grilling'], type: 'grilling', model: 'gpt-5.6-sol' },
-        ],
-        blocked: [{
-          number: 267, title: 'The chat embeds the timeline attach', labels: ['wayfinder:task'], type: 'task',
-          blockers: [{ number: 265, title: 'The settings write' }, { number: 266, title: 'The verbs reach the browser' }],
-        }],
-        fog: ['The native dialog seam', 'Search result excerpts'],
-      }] },
+      ] },
       { repo: 'alp82/aistack', error: 'gh api failed: HTTP 502' },
     ],
+  },
+  // The complete map snapshot (#687), which is where every map fact the page
+  // draws comes from (#700). `frontier` above is the takeable reading only.
+  maps: {
+    computed_at: at(90),
+    error: null,
+    maps: [{
+      repo: 'alp82/curia', number: 244, title: 'Curia gets a face', latest_event_at: at(40),
+      url: 'https://github.com/alp82/curia/issues/244',
+      counts: { walked: 18, in_flight: 1, takeable: 2, blocked: 1, fog: 2, total: 22 },
+      walked: [{ number: 243, title: 'The accepted frame', type: 'prototype' }],
+      in_flight: [{
+        number: 255, title: 'The note queue drains in order', type: 'task',
+        assignees: ['alp82'], agent: { session: 'curia-255', model: 'gpt-5.6-sol' },
+      }],
+      takeable: [
+        { number: 265, title: 'The settings write', type: 'task', model: 'claude-opus-5' },
+        { number: 266, title: 'The verbs reach the browser', type: 'grilling', model: 'gpt-5.6-sol' },
+      ],
+      blocked: [{
+        number: 267, title: 'The chat embeds the timeline attach', type: 'task',
+        blockers: [{ number: 265, title: 'The settings write' }, { number: 266, title: 'The verbs reach the browser' }],
+      }],
+      fog: [{ text: 'The native dialog seam' }, { text: 'Search result excerpts' }],
+    }],
   },
 })
 
@@ -911,7 +922,7 @@ describe('the read screens (#264)', () => {
 
   describe('maps', () => {
     test('the decided map view carries every state group and the routed start control', () => {
-      page.UI.maps = { repo: 'all', selected: { repo: 'alp82/curia', map: 244, group: 'takeable' } }
+      page.UI.maps = { repo: 'all', selected: { repo: 'alp82/curia', map: 244, group: 'takeable' }, open: false }
       const html = page.screenMaps(payload())
       const t = text(html)
       assert.match(t, /Curia gets a face/)
@@ -926,7 +937,7 @@ describe('the read screens (#264)', () => {
     })
 
     test('blocked detail names every blocker, and fog detail names each retained uncertainty', () => {
-      page.UI.maps = { repo: 'all', selected: { repo: 'alp82/curia', map: 244, group: 'blocked' } }
+      page.UI.maps = { repo: 'all', selected: { repo: 'alp82/curia', map: 244, group: 'blocked' }, open: false }
       let t = text(page.screenMaps(payload()))
       assert.match(t, /behind #265 The settings write, #266 The verbs reach the browser/)
       page.UI.maps.selected.group = 'fog'
@@ -937,13 +948,13 @@ describe('the read screens (#264)', () => {
 
     test('maps needing the operator lead, then calm maps sort by the latest event', () => {
       const p = payload()
-      p.overview.frontier.repos[0].maps.push({
+      p.overview.maps.maps.push({
         repo: 'alp82/curia', number: 300, title: 'A newer calm map', latest_event_at: at(1),
-        counts: { walked: 1, in_flight: 0, takeable: 0, blocked: 0, fog: 0 },
-        walked: [{ number: 301, title: 'Done', labels: [], type: 'untyped' }],
+        counts: { walked: 1, in_flight: 0, takeable: 0, blocked: 0, fog: 0, total: 1 },
+        walked: [{ number: 301, title: 'Done', type: 'untyped' }],
         in_flight: [], takeable: [], blocked: [], fog: [],
       })
-      page.UI.maps = { repo: 'all', selected: null }
+      page.UI.maps = { repo: 'all', selected: null, open: false }
       let html = page.screenMaps(p)
       assert.ok(html.indexOf('Curia gets a face') < html.indexOf('A newer calm map'))
 
@@ -952,6 +963,113 @@ describe('the read screens (#264)', () => {
       p.overview.agents.forEach((agent) => { agent.waiting_on = [] })
       html = page.screenMaps(p)
       assert.ok(html.indexOf('A newer calm map') < html.indexOf('Curia gets a face'))
+    })
+
+    // #700. Two readings used to answer the same question: the dispatcher's
+    // frontier pass carried a second copy of every map, and the page drew that
+    // one. There is one map reading now, and this is the page half of it.
+    test('every map fact comes from the complete snapshot, never from the frontier reading', () => {
+      const p = payload()
+      p.overview.frontier.repos[0].maps = [{
+        repo: 'alp82/curia', number: 999, title: 'A map from the frontier pass',
+        counts: { walked: 0, in_flight: 0, takeable: 0, blocked: 0, fog: 0 },
+        walked: [], in_flight: [], takeable: [], blocked: [], fog: [],
+      }]
+      page.UI.maps = { repo: 'all', selected: null, open: false }
+      const t = text(page.screenMaps(p))
+      assert.match(t, /Curia gets a face/)
+      assert.doesNotMatch(t, /A map from the frontier pass/)
+    })
+
+    test('the walked fraction is the snapshot total, and the fog rides beside it', () => {
+      page.UI.maps = { repo: 'all', selected: null, open: false }
+      assert.match(text(page.screenMaps(payload())), /18 \/22 \+2/)
+    })
+
+    test('a snapshot curia could not read is not an empty map set', () => {
+      const p = payload()
+      p.overview.maps = { computed_at: null, maps: null, error: 'gh api failed: HTTP 502' }
+      const t = text(page.screenMaps(p))
+      assert.match(t, /could not be read/)
+      assert.match(t, /HTTP 502/)
+      assert.match(t, /not an empty map set/)
+      assert.doesNotMatch(t, /No open map matches this project/)
+    })
+
+    test('an uncomputed snapshot reads as uncomputed rather than as no maps', () => {
+      const p = payload()
+      p.overview.maps = { computed_at: null, maps: null, error: null }
+      assert.match(text(page.screenMaps(p)), /No map snapshot has been computed yet/)
+    })
+
+    test('the takeable group sits under the frontier rule, and an empty one says where the way went', () => {
+      const p = payload()
+      page.UI.maps = { repo: 'all', selected: { repo: 'alp82/curia', map: 244, group: 'takeable' }, open: false }
+      assert.match(page.screenMaps(p), /class="map-front"/)
+      p.overview.maps.maps[0].takeable = []
+      assert.match(text(page.screenMaps(p)), /Nothing is takeable\. The way is in flight or behind a blocker\./)
+    })
+
+    test('blocked wears the decided red dashes and fog the grey stripes', () => {
+      page.UI.maps = { repo: 'all', selected: { repo: 'alp82/curia', map: 244, group: 'blocked' }, open: false }
+      assert.match(page.screenMaps(payload()), /class="map-detail-list blocked"/)
+      page.UI.maps.selected.group = 'fog'
+      assert.match(page.screenMaps(payload()), /class="map-detail-list fog"/)
+    })
+
+    test('an in-flight ticket names who holds it and the model it runs on', () => {
+      page.UI.maps = { repo: 'all', selected: { repo: 'alp82/curia', map: 244, group: 'in_flight' }, open: false }
+      assert.match(text(page.screenMaps(payload())), /The note queue drains in order.*alp82.*gpt-5\.6-sol/)
+    })
+
+    // The phone's half of the split is a ROUTE (#700): it opens over the list,
+    // reloads into the same view, and the browser's back leaves it.
+    test('choosing a group routes to that map detail, and back returns to the list', () => {
+      page.UI.maps = { repo: 'all', selected: null, open: false }
+      page.mapSelect('alp82/curia', 244, 'blocked')
+      assert.equal(page.location.hash, 'maps/alp82/curia/244/blocked')
+      assert.equal(page.UI.maps.open, true)
+      assert.match(page.screenMaps(payload()), /<div class="map-layout" data-open>/)
+
+      page.mapBack()
+      assert.equal(page.location.hash, 'maps')
+      assert.equal(page.UI.maps.open, false)
+      assert.doesNotMatch(page.screenMaps(payload()), /data-open/)
+    })
+
+    test('a detail hash opens that group, and the bare maps hash opens the list', () => {
+      page.UI.maps = { repo: 'all', selected: null, open: false }
+      page.applyMapRoute(['maps', 'alp82', 'curia', '244', 'fog'])
+      assert.equal(page.UI.maps.selected.repo, 'alp82/curia')
+      assert.equal(String(page.UI.maps.selected.map), '244')
+      assert.equal(page.UI.maps.selected.group, 'fog')
+      assert.equal(page.UI.maps.open, true)
+      assert.match(text(page.screenMaps(payload())), /The native dialog seam/)
+
+      page.applyMapRoute(['maps'])
+      assert.equal(page.UI.maps.open, false)
+    })
+
+    test('the maps tab lands on the list, never on the last detail opened', () => {
+      page.UI.maps = { repo: 'all', selected: { repo: 'alp82/curia', map: 244, group: 'fog' }, open: true }
+      page.goto('maps')
+      assert.equal(page.UI.maps.open, false)
+      assert.equal(page.location.hash, 'maps')
+    })
+
+    // A pause is only ever ended by hand (github.mjs `mapCloseBlockers`), so the
+    // one surface that could start work on a paused map must not offer to.
+    test('a paused map is listed and says so, and hands out no start control', () => {
+      const p = payload()
+      p.overview.maps.maps[0].deferred = true
+      page.UI.maps = { repo: 'all', selected: { repo: 'alp82/curia', map: 244, group: 'takeable' }, open: false }
+      const html = page.screenMaps(p)
+      const t = text(html)
+      assert.match(t, /Curia gets a face/, 'the map stays listed')
+      assert.match(t, /The settings write/, 'its tickets stay listed')
+      assert.match(t, /paused/)
+      assert.match(t, /only ever ended by hand/)
+      assert.doesNotMatch(html, /startTicket/)
     })
 
     test('the shell exposes every desktop page and the four-tab mobile bar with the Agents key', () => {

@@ -81,7 +81,6 @@ import {
   probeTtyd, assertServe, serveOff, CHAT_HANDLE_RE, isChatHandle, nextChatHandle,
 } from './attach.mjs'
 import { failureProse, FailureLines } from './messaging.mjs'
-import { completeMaps } from './overview.mjs'
 import {
   CLEAR_MAP_FOG, KEEP_MAP_OPEN, MAP_FOG_VERB,
   clearMapFog, mapFog, mapFogQuestion,
@@ -821,21 +820,16 @@ export class Dispatcher {
     const pool = lane === 'map' ? Object.values(mapItems).flat() : flatItems
     const edges = await this.#blockerEdges(entry.repo, lane, pool)
     const unblocks = edges ? directUnblocks({ items: pool, edges }) : {}
+    // The frontier is the TAKEABLE reading and nothing more. The whole map —
+    // walked work, work in flight, blockers, fog, counts — is `readMapSnapshot`
+    // in mapsnapshot.mjs (#687), which `GET /overview` serves under `maps`.
+    // This pass used to carry a second copy of that rule (#700); one map
+    // reading answering to one name is what keeps the two from disagreeing.
     return {
       repo: entry.repo,
       lane,
       numbers,
       agentOnly: this.#agentOnlyCount(lane, pool, edges, numbers),
-      maps: completeMaps({
-        repo: entry.repo,
-        maps,
-        activeMapNumbers: activeMaps,
-        mapItems,
-        edges,
-        routing: this.routing,
-        resolveModel,
-        events: this.reduction.recentEvents?.() ?? [],
-      }),
       items: numbers.map((n) => {
         const e = index.get(n)
         const labels = (e?.item?.labels ?? []).map((l) => l.name)

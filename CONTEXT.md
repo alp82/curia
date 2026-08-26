@@ -639,7 +639,7 @@ Open escalations shown on the timeline from the daemon's record, because a trans
 The timeline's refusal to send text while a native terminal dialog holds the pane.
 
 **Overview**:
-The daemon's one loopback read of itself, `GET /overview`. It joins every section the dashboard draws. Sections include agents, escalations, health, usage, model credentials, warnings, journal events, settings, and deploy status. The Overview also carries the frontier snapshot and a map snapshot. Each map snapshot includes history, agents, frontier facts, blockers, fog, counts, and its latest event stamp. Journal events and each Overview poll invalidate the map snapshot.
+The daemon's one loopback read of itself, `GET /overview`. It joins every section the dashboard draws. Sections include agents, escalations, health, usage, model credentials, warnings, journal events, settings, and deploy status. The Overview also carries the frontier snapshot and a map snapshot. The frontier snapshot is the **takeable** reading and nothing more; the map snapshot is the whole map. Each map snapshot includes history, agents, frontier facts, blockers, fog, counts, and its latest event stamp. Journal events and each Overview poll invalidate the map snapshot. The reconcile pass carried a second copy of every map until [#700](https://github.com/alp82/curia/issues/700) retired it, so one map reading answers to one name.
 
 The map snapshot uses indexed journal questions and GitHub reads. The sidecar polls the Overview without holding secrets or journal access. Each section is nullable, so an unreadable section doesn't hide other sections.
 
@@ -648,6 +648,16 @@ The browser console for the box, on loopback `4273` and Serve `8445`. It draws t
 
 **Read screen**:
 A dashboard screen whose facts all come from the overview: home, agents, frontier, feed and credentials. The settings screen is the one that reads its own files. Two rules hold across all of them. Color marks attention and nothing else, so a state, a ticket type and a repo are told in words. Null is not empty, so an unreadable fleet never renders as an idle box and an uncomputed frontier never renders as an empty one.
+
+**Maps screen**:
+The dashboard screen for the open maps. Every fact on it comes from the **map snapshot** and from nowhere else, because two readings of one map drift. A map is a card: the walked fraction over the snapshot's own total, the fog counted beside it rather than inside it, and the five-group band - walked, in flight, takeable, blocked, fog - that selects the detail. Maps needing the operator lead the list, and calm maps follow by their latest event.
+
+A **paused map** - one labelled `wayfinder:deferred` - is listed like any other, because hiding a pause is how a pause becomes a disappearance. What the pause costs it is the **start control**: a pause is only ever ended by hand, so the one surface that could dispatch work on a paused map says why it will not.
+
+The detail half carries the cut decided in [#588](https://github.com/alp82/curia/issues/588): takeable rows under the frontier rule with the routed model and a start control, blocked rows in a red-dashed box that names **every** blocker, and fog on the grey striped strip. An empty frontier is a sentence saying where the way went, never a blank.
+
+**Map detail route**:
+The maps detail is a hash of its own, `#maps/<owner>/<name>/<number>/<group>`. Desktop shows the detail beside the list; the phone shows it instead of the list, and the route is what gives that view a back, a refresh, and a link an operator can send. Both halves always render and CSS decides which the width shows, the same rule the **drill-in section frame** follows. Arriving from the nav is always the list. See [#700](https://github.com/alp82/curia/issues/700).
 
 **Credentials screen**:
 The dashboard screen for the model credentials, one row per consumer: state, expiry, last refresh, why, and one action. It answers the question no other surface could take - what is the state of all three? - because the attention list is built to be empty and `valid` and `expiring` are silent by design. `unowned` is a ROW there rather than an absence. Two of the three rows are anthropic and read one provider-keyed store, so each row names its provider and one Sign-in press is offered once for the rows it heals. The live login is a **panel above the table**, never a row inside it: a flow with a countdown, a link, a code and a terminal fallback is a panel whatever it is called. Every row **restacks as a card below 640 px** with the action full width, because a six-column table at 390 px pushes the one button off the screen - on the device the whole no-ssh requirement exists for. There is no API-key field on it, and there is no field on it at all. See [#661](https://github.com/alp82/curia/issues/661) and the prototype that settled the shape, [#645](https://github.com/alp82/curia/issues/645).

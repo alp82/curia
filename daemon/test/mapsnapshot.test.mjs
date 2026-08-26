@@ -56,6 +56,9 @@ test('the map snapshot returns walked tickets for every open map', async () => {
       walked: [{ number: 21, title: 'the second walked ticket', type: null }],
     },
   ])
+  // A paused map is still an open map, so it is READ (#700). What the pause
+  // costs it is the start control on every surface, and that needs the flag.
+  assert.deepEqual(maps.map((map) => [map.number, map.deferred]), [[10, false], [20, true]])
 })
 
 test('an assigned open ticket returns its current agent as in flight', async () => {

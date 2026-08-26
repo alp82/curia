@@ -924,7 +924,10 @@ describe('the two-level frontier, and reconcile\'s stamp (#262)', () => {
     assert.equal(byNumber[12], 'gpt', 'the wayfinder:grilling default')
   })
 
-  test('each map carries walked work, active work, frontier, blockers, fog, counts, and its latest event', async () => {
+  // #700. This pass used to carry a whole second reading of every map, built
+  // for the dashboard alone. `readMapSnapshot` (#687) is that reading now, and
+  // one fact answering to one name is what keeps the two from disagreeing.
+  test('the frontier is the takeable reading only, and carries no second copy of the map', async () => {
     const d = makeDispatcher({
       repoMaps: async () => [{
         number: 9,
@@ -932,17 +935,7 @@ describe('the two-level frontier, and reconcile\'s stamp (#262)', () => {
         state: 'open',
         labels: [],
         updated_at: '2026-08-20T09:00:00.000Z',
-        body: [
-          '## Destination',
-          'Ship the map.',
-          '',
-          '## Not yet specified',
-          '- Retention policy',
-          '- Export shape',
-          '',
-          '## Decisions',
-          '- Keep one snapshot.',
-        ].join('\n'),
+        body: '## Not yet specified\n- Retention policy\n',
       }],
       mapFrontier: async () => [
         child(10, 'already walked', { state: 'closed', updatedAt: '2026-08-20T10:00:00.000Z' }),
@@ -954,27 +947,10 @@ describe('the two-level frontier, and reconcile\'s stamp (#262)', () => {
         ? [{ number: 11, title: 'take this next', state: 'open' }]
         : [],
     })
-    d.reduction.recentEvents = () => [{
-      type: 'agent_note', repo: 'o/r', ticket: 12, ts: '2026-08-20T11:00:00.000Z',
-    }]
 
     const [repo] = await d.frontier()
-    assert.equal(repo.maps.length, 1)
-    const [map] = repo.maps
-    assert.deepEqual(map.counts, { walked: 1, in_flight: 1, takeable: 1, blocked: 1, fog: 2 })
-    assert.deepEqual(map.walked.map((i) => i.number), [10])
-    assert.deepEqual(map.in_flight.map((i) => i.number), [12])
-    assert.deepEqual(map.takeable.map((i) => [i.number, i.type, i.model]), [[11, 'task', 'sonnet']])
-    assert.deepEqual(map.blocked, [{
-      number: 21,
-      title: 'waits on the frontier',
-      labels: [],
-      type: 'untyped',
-      blockers: [{ number: 11, title: 'take this next' }],
-    }])
-    assert.deepEqual(map.fog, ['Retention policy', 'Export shape'])
-    assert.equal(map.latest_event_at, '2026-08-20T11:00:00.000Z')
-    assert.deepEqual(repo.items.map((i) => i.number), [11], 'the existing frontier remains unchanged')
+    assert.equal(repo.maps, undefined, 'the whole map is the snapshot route\'s to serve')
+    assert.deepEqual(repo.items.map((i) => i.number), [11], 'the takeable reading is unchanged')
   })
 
   test('a `model:` label on the ticket beats the type default, exactly as a dispatch would', async () => {

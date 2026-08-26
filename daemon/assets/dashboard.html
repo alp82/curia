@@ -55,6 +55,10 @@
     /* The diff's own two colors (#355) — a patch's vocabulary, not the
        attention marking. Deliberately not --ok/--bad. */
     --diff-add: #6fbf73; --diff-del: #d98b84;
+    /* The blocked group's own red (#700, F1 in the #588 prototype). It is the
+       texture the operator accepted for "behind something", not the attention
+       marking, so it is deliberately not --bad. */
+    --blocked-edge: rgba(240,122,122,.45); --blocked-wash: rgba(240,122,122,.10);
   }
   @media (prefers-color-scheme: light) {
     :root:not([data-theme="dark"]) {
@@ -66,6 +70,7 @@
       --chip-warn-bg: #f4e8cf; --chip-bad-bg: #f6ddda; --chip-ok-bg: #d9efe7;
       --shadow: 0 6px 24px rgba(30,40,35,.12);
       --diff-add: #1f7a34; --diff-del: #a3352c;
+      --blocked-edge: rgba(179,50,58,.40); --blocked-wash: rgba(179,50,58,.07);
     }
   }
   * { box-sizing: border-box; }
@@ -496,13 +501,31 @@
   .map-detail-row { padding: 9px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
   .map-detail-row:last-child { border-bottom: 0; }
   .map-detail-row .sub { display: block; color: var(--ink-dim); font-size: 11px; margin-top: 4px; }
-  .map-inline { display: none; }
+  /* The frontier rule the takeable group sits under (#588 F1). */
+  .map-front { display: flex; align-items: center; gap: 10px; margin: 2px 0 6px; }
+  .map-front .lbl { flex: none; color: var(--accent); font: 700 10px ui-monospace, Menlo, monospace; letter-spacing: .24em; text-transform: uppercase; }
+  .map-front .rule { flex: 1; height: 2px; background: var(--accent); }
+  /* Blocked wears thin red dashes and names every key; fog wears the grey
+     diagonal stripes. Both are boxed, and both are the accepted cut. */
+  .map-detail-list.blocked { border-left: 0; padding: 4px 14px; border: 1px solid var(--blocked-edge); border-radius: 8px;
+    background: repeating-linear-gradient(0deg, var(--blocked-wash) 0 2px, transparent 2px 9px); }
+  .map-detail-list.blocked .map-detail-row { border-bottom-color: var(--blocked-edge); }
+  .map-detail-list.blocked .sub { color: var(--bad); }
+  .map-detail-list.fog { border-left: 0; padding: 4px 14px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink-dim);
+    background: repeating-linear-gradient(45deg, var(--line) 0 4px, transparent 4px 8px); }
+  .map-back { display: none; }
   @media (max-width: 900px) {
     .map-layout { grid-template-columns: 1fr; }
-    .map-detail { display: none; }
-    .map-inline { display: block; }
     .map-card { margin-top: 28px; }
     .map-band { overflow-x: auto; padding: 3px; }
+    /* The phone's half of the split is a ROUTE (#700): the detail is its own
+       hash, so it opens over the list and the browser's back leaves it. Both
+       halves are always rendered and this decides which the width shows —
+       nothing in the script measures a viewport. */
+    .map-detail { display: none; }
+    .map-layout[data-open] .map-cards { display: none; }
+    .map-layout[data-open] .map-detail { display: block; position: static; margin-top: 8px; }
+    .map-back { display: inline-block; margin-bottom: 10px; color: var(--ink-dim); font-size: 12px; }
   }
 
   /* ---------- settings (#265, on the #248 look) ---------- */
@@ -676,7 +699,10 @@ const REVIEW_KIND = "review-gate";
 var UI = {
   screen: "home",
   fr: { view: "cards", repo: "all", type: "all" },
-  maps: { repo: "all", selected: null },
+  /* The maps page's own state (#700): which project the list is filtered to,
+     which map and group the detail half shows, and whether the phone is on
+     that detail instead of the list. `open` is the route's, never a width's. */
+  maps: { repo: "all", selected: null, open: false },
   agents: { selected: null },
   feed: { lastRead: null, operator: null, focus: null },
   search: { open: false, q: "", loading: false, error: null, result: null },
@@ -1036,6 +1062,12 @@ function searchGo(surface, ref) {
       const group = mapNeeds(payload.overview, map) ? "in_flight" : map.counts?.takeable ? "takeable" : map.counts?.walked ? "walked" : "fog";
       UI.maps.repo = "all";
       UI.maps.selected = { repo: map.repo, map: map.number, group };
+      UI.maps.open = true;
+      UI.search.open = false;
+      enter("maps");
+      location.hash = mapRoute(map.repo, map.number, group);
+      render();
+      return false;
     }
   }
   if (surface === "feed") UI.feed.focus = { id: String(ref), query: UI.search.q.trim().toLowerCase() };
@@ -1841,7 +1873,7 @@ function screenHome(p) {
   maps.flatMap((map) => map.takeable ?? []).forEach((item) => types.set(item.type ?? typeOf(item), (types.get(item.type ?? typeOf(item)) ?? 0) + 1));
   const typeMix = [...types.entries()].map(([type, count]) => `${count} ${esc(type)}`).join(" · ") || "no takeable work";
   const progress = maps.map((map) => {
-    const total = Object.values(map.counts ?? {}).slice(0, 4).reduce((sum, count) => sum + Number(count ?? 0), 0);
+    const total = mapTotal(map);
     const closed = map.counts?.walked ?? 0;
     const pct = total ? Math.round(closed * 100 / total) : 0;
     return `<div class="home-map"><div class="line"><span>${esc(map.title)}</span><span class="mono">${closed}/${total} · ${esc(map.counts?.fog ?? 0)} fog</span></div>
@@ -2057,11 +2089,30 @@ function recentLine(o) {
   return `<p class="dim-note">Recently: ${o.recent.map((r) => `${esc(r.kind)} ${esc(ticketName(r.repo, r.ticket))}`).join(" · ")}</p>`;
 }
 
-/* ---- maps ----------------------------------------------------------------- */
+/* ---- maps -----------------------------------------------------------------
 
-function mapsOf(o) {
-  return (o?.frontier?.repos ?? []).flatMap((repo) => (repo.maps ?? []).map((map) => ({ ...map, repo: repo.repo })));
+   ONE MAP READING (#700). Every map fact on this page comes from
+   `overview.maps` — the complete snapshot `readMapSnapshot` computes (#687) —
+   and from nowhere else. `overview.frontier` is the takeable reading the start
+   controls sit on; it says nothing about walked work, blockers, or fog.
+
+   The snapshot is three fields: `computed_at`, `maps`, and `error`. Null maps
+   with an error is NOT an empty map set — it is a reading curia could not take,
+   and the page says which of the two it is holding. */
+
+function mapSnapshot(o) {
+  return o?.maps ?? { computed_at: null, maps: null, error: null };
 }
+function mapsOf(o) {
+  return mapSnapshot(o).maps ?? [];
+}
+/* The fog is a list of facts, each with its own text — never a bare string,
+   so a later reading can hang more on a patch without moving this page. */
+const fogText = (note) => String(note?.text ?? note ?? "");
+/* The snapshot names each ticket's type, and a ticket with no `wayfinder:`
+   label has none. `untyped` is what the page says then, and it is a word about
+   the label rather than a type guessed from somewhere else. */
+const mapType = (item) => item?.type ?? "untyped";
 
 function mapNeeds(o, map) {
   const tickets = new Set([
@@ -2109,65 +2160,145 @@ function mapBand(o, map, selected) {
 
 function mapDetailRows(o, map, group) {
   if (group === "fog") {
-    return (map.fog ?? []).map((note) => `<div class="map-detail-row">${esc(note)}<span class="sub">not yet specified</span></div>`).join("")
+    return (map.fog ?? []).map((note) => `<div class="map-detail-row">${esc(fogText(note))}<span class="sub">not yet specified</span></div>`).join("")
       || `<div class="empty">No retained fog.</div>`;
   }
   const items = map[group] ?? [];
-  if (!items.length) return `<div class="empty">Nothing is ${group.replace("_", " ")}.</div>`;
+  /* An empty frontier is a sentence, not a blank (#588). The way is elsewhere,
+     and saying where beats leaving the operator to guess it. */
+  if (!items.length) {
+    if (group === "takeable") return `<div class="empty">Nothing is takeable. The way is in flight or behind a blocker.</div>`;
+    return `<div class="empty">Nothing is ${group.replace("_", " ")}.</div>`;
+  }
   return items.map((item) => {
     const issue = `<a href="https://github.com/${esc(map.repo)}/issues/${esc(item.number)}">#${esc(item.number)}</a> ${esc(item.title)}`;
-    if (group === "takeable") return `<div class="map-detail-row">${issue}
-      <span class="sub">${esc(item.type ?? typeOf(item))} · routed to ${esc(item.model ?? "unknown")}</span>${startRow(o, map.repo, item)}</div>`;
+    if (group === "takeable") {
+      /* A PAUSED MAP OFFERS NO START. `wayfinder:deferred` means the map is
+         paused, and a pause is only ever ended by hand (github.mjs
+         `mapCloseBlockers`). The tickets stay listed, because hiding a pause
+         is how a pause becomes a disappearance - it is the BUTTON that goes. */
+      const start = map.deferred
+        ? `<div class="act-row"><span class="dim-note">this map is paused (<span class="mono">wayfinder:deferred</span>), and a pause is only ever ended by hand</span></div>`
+        : startRow(o, map.repo, item);
+      return `<div class="map-detail-row">${issue}
+      <span class="sub">${esc(mapType(item))} · routed to ${esc(item.model ?? "unknown")}</span>${start}</div>`;
+    }
     if (group === "blocked") {
+      /* EVERY blocker, never a count of them: the operator's next question is
+         which ticket to take, and only the names answer it. */
       const blockers = (item.blockers ?? []).map((blocker) => `#${esc(blocker.number)} ${esc(blocker.title)}`).join(", ");
       return `<div class="map-detail-row">${issue}<span class="sub">behind ${blockers || "an unread blocker"}</span></div>`;
     }
     if (group === "in_flight") {
-      const agent = agentOn(o, map.repo, item.number);
-      return `<div class="map-detail-row">${issue}<span class="sub">${mapNeeds(o, { ...map, in_flight: [item] }) ? "needs you" : "in flight"}${agent ? ` · ${esc(agent.model)}` : ""}</span></div>`;
+      /* The snapshot names the agent on the ticket and the model it runs on
+         (#687); the fleet reading is the fallback when it holds neither. */
+      const agent = item.agent ?? agentOn(o, map.repo, item.number);
+      const who = (item.assignees ?? []).join(", ");
+      return `<div class="map-detail-row">${issue}<span class="sub">${
+        mapNeeds(o, { ...map, in_flight: [item] }) ? "needs you" : "in flight"}${
+        who ? ` · ${esc(who)}` : ""}${agent?.model ? ` · ${esc(agent.model)}` : ""}</span></div>`;
     }
     return `<div class="map-detail-row">${issue}<span class="sub">walked</span></div>`;
   }).join("");
 }
 
-function mapDetail(o, selected, inline = false) {
+/* The detail half of the split. One element for both widths: the desktop shows
+   it beside the cards, and the phone shows it INSTEAD of them, on its own
+   route. The back link is the phone's way out and the CSS hides it elsewhere. */
+function mapDetail(o, selected) {
   if (!selected) return "";
   const name = MAP_GROUPS.find(([key]) => key === selected.group)?.[1] ?? selected.group;
-  return `<aside class="${inline ? "map-inline" : "map-detail"}"><h3>${esc(selected.map.title)} · ${esc(name)}</h3>
-    <div class="map-detail-list">${mapDetailRows(o, selected.map, selected.group)}</div></aside>`;
+  const front = selected.group === "takeable"
+    ? `<div class="map-front"><span class="lbl">the frontier</span><span class="rule"></span></div>` : "";
+  return `<aside class="map-detail">
+    <a class="map-back" href="#maps" onclick="mapBack();return false">\u2039 maps</a>
+    <h3>${esc(selected.map.title)} · ${esc(name)}</h3>${front}
+    <div class="map-detail-list ${esc(selected.group)}">${mapDetailRows(o, selected.map, selected.group)}</div></aside>`;
 }
+
+/* The walked fraction is the snapshot's own total (#687), never a sum this
+   page adds up. Fog is not part of it: an uncharted patch is not a ticket, so
+   counting it would move the denominator every time the fog was written. */
+const mapTotal = (map) => map.counts?.total ?? ["walked", "in_flight", "takeable", "blocked"]
+  .reduce((sum, key) => sum + Number(map.counts?.[key] ?? 0), 0);
 
 function screenMaps(p) {
   const o = p?.overview;
   if (!o) return noSnapshot(p, "Maps");
-  const snap = o.frontier;
-  if (!snap?.computed_at) return `${head(p, "Atlas · Maps")}<div class="later">No map snapshot has been computed yet.</div>`;
+  const snap = mapSnapshot(o);
+  /* A reading curia could not take is not an empty map set, and this page must
+     not draw one as the other. The error stands with the last stamp beside it,
+     so the operator knows how old the maps under it are. */
+  const failed = snap.error
+    ? `<div class="unread">The map snapshot could not be read \u2014 ${esc(snap.error)}. This is not an empty map set: there may be open maps curia cannot see right now.</div>`
+    : "";
+  if (!snap.computed_at && !snap.maps) {
+    return `${head(p, "Atlas \u00b7 Maps")}${failed}${
+      failed ? "" : `<div class="later">No map snapshot has been computed yet. Reconcile computes it on the credentials that pass already holds, and stamps the instant it did.</div>`}`;
+  }
   const maps = visibleMaps(o);
   const selected = selectedMapGroup(o, maps);
   const repos = [...new Set(mapsOf(o).map((map) => map.repo))];
   const filters = `<div class="map-filter"><button class="${UI.maps.repo === "all" ? "on" : ""}" onclick="mapRepo('all')">all projects</button>
     ${repos.map((repo) => `<button class="${UI.maps.repo === repo ? "on" : ""}" onclick="mapRepo('${js(repo)}')">${esc(shortRepo(repo))}</button>`).join("")}
     <span class="dim-note">computed ${esc(ago(snap.computed_at))}</span></div>`;
-  const errors = (snap.repos ?? []).filter((repo) => repo.error && (UI.maps.repo === "all" || UI.maps.repo === repo.repo)).map(frError).join("");
   const cards = maps.map((map) => {
-    const total = Object.values(map.counts ?? {}).slice(0, 4).reduce((sum, count) => sum + Number(count ?? 0), 0);
+    const total = mapTotal(map);
     const walked = map.counts?.walked ?? 0;
     return `<section class="map-card"><div class="map-head">
       <div class="map-fraction">${esc(walked)}<span class="total">/${esc(total)}</span>${map.counts?.fog ? `<span class="fog-count">+${esc(map.counts.fog)}</span>` : ""}</div>
-      <div class="map-title"><b>${esc(map.title)}</b><span class="meta">${esc(map.repo)} · ${esc(ago(map.latest_event_at))} · <a href="https://github.com/${esc(map.repo)}/issues/${esc(map.number)}">#${esc(map.number)}</a></span></div>
-      </div>${mapBand(o, map, selected)}${selected?.map === map ? mapDetail(o, selected, true) : ""}</section>`;
+      <div class="map-title"><b>${esc(map.title)}</b><span class="meta">${esc(map.repo)} · ${esc(ago(map.latest_event_at))} · <a href="${esc(mapUrl(map))}">#${esc(map.number)}</a>${map.deferred ? " · paused" : ""}</span></div>
+      </div>${mapBand(o, map, selected)}</section>`;
   }).join("") || `<div class="empty">No open map matches this project.</div>`;
-  return `${head(p, "Atlas · Maps")} ${filters}${errors}<div class="map-layout"><div>${cards}</div>${mapDetail(o, selected)}</div>`;
+  return `${head(p, "Atlas \u00b7 Maps")} ${filters}${failed}<div class="map-layout"${
+    UI.maps.open && selected ? " data-open" : ""}><div class="map-cards">${cards}</div>${mapDetail(o, selected)}</div>`;
 }
 
-function mapSelect(repo, map, group) { UI.maps.selected = { repo, map, group }; render(); }
-function mapRepo(repo) { UI.maps.repo = repo; UI.maps.selected = null; render(); }
+const mapUrl = (map) => map.url ?? `https://github.com/${map.repo}/issues/${map.number}`;
+
+/* THE DETAIL IS A ROUTE (#700). `#maps/<owner>/<name>/<number>/<group>` names
+   one group of one map, so the phone's detail view has a back, a refresh, and
+   a link an operator can send: the same three things every other Atlas screen
+   gets from its own hash. `#maps` on its own is the list. */
+const mapRoute = (repo, number, group) => `maps/${repo}/${number}/${group}`;
+
+function applyMapRoute(parts) {
+  if (parts.length >= 5) {
+    UI.maps.selected = { repo: `${parts[1]}/${parts[2]}`, map: parts[3], group: parts[4] };
+    UI.maps.open = true;
+  } else {
+    UI.maps.open = false;
+  }
+}
+
+function mapSelect(repo, map, group) {
+  UI.maps.selected = { repo, map, group };
+  UI.maps.open = true;
+  location.hash = mapRoute(repo, map, group);
+  render();
+}
+function mapBack() {
+  UI.maps.open = false;
+  location.hash = "maps";
+  render();
+}
+function mapRepo(repo) {
+  UI.maps.repo = repo;
+  UI.maps.selected = null;
+  UI.maps.open = false;
+  location.hash = "maps";
+  render();
+}
 
 /* ---- frontier -------------------------------------------------------------- */
 
 /* The ticket type is the `wayfinder:` label and nothing else — a ticket with no
    such label has no type, and saying so beats guessing one from another label. */
 function typeOf(item) {
+  /* The map snapshot names the type outright (#700); the frontier items carry
+     labels instead. Either way the answer is the `wayfinder:` label and
+     nothing else, and a ticket without one is untyped rather than guessed. */
+  if (item?.type) return String(item.type);
   const l = (item.labels ?? []).find((x) => String(x).startsWith("wayfinder:"));
   return l ? String(l).slice("wayfinder:".length) : "untyped";
 }
@@ -3662,6 +3793,7 @@ function restoreField(f) {
    Chat re-reads on EVERY arrival, unlike settings. The list carries a context
    percent and a last-turn time, and both move with every turn taken from any
    device, so a held copy would age. */
+function routeParts() { return location.hash.slice(1).split("/").filter(Boolean); }
 function routeName(k) { return k === "frontier" ? "maps" : k; }
 function enter(k) {
   k = routeName(k);
@@ -3677,10 +3809,21 @@ function recordFeedVisit() {
   UI.feed = { ...UI.feed, lastRead: localStorage.getItem(key), operator };
   localStorage.setItem(key, new Date().toISOString());
 }
-function goto(k) { enter(k); location.hash = k; render(); }
+/* Arriving at Maps from the nav is the LIST, always. The detail is a route of
+   its own, so a tab press that did not name one must not land on the last one
+   the operator happened to open. */
+function goto(k) { enter(k); if (routeName(k) === "maps") UI.maps.open = false; location.hash = k; render(); }
 window.addEventListener("hashchange", () => {
-  const k = routeName(location.hash.slice(1));
-  if (NAMES.includes(k) && k !== UI.screen) { enter(k); render(); }
+  const parts = routeParts();
+  const k = routeName(parts[0] ?? "");
+  if (!NAMES.includes(k)) return;
+  /* Maps carries its detail in the hash (#700), so its route is re-read on
+     every hash change and not only on a change of screen: back out of a detail
+     view and the list must come back under the same tab. */
+  const moved = k !== UI.screen;
+  if (k === "maps") applyMapRoute(parts);
+  if (moved) enter(k);
+  if (moved || k === "maps") render();
 });
 
 /* ---- the poll -------------------------------------------------------------
@@ -3721,7 +3864,9 @@ document.addEventListener("visibilitychange", () => {
    a vm to call the screens directly, and a boot there would fetch nothing and
    render into no document. */
 if (typeof document !== "undefined" && document.getElementById("app")) {
-  const initial = routeName(location.hash.slice(1));
+  const initialParts = routeParts();
+  if (routeName(initialParts[0] ?? "") === "maps") applyMapRoute(initialParts);
+  const initial = routeName(initialParts[0] ?? "");
   enter(NAMES.includes(initial) ? initial : "home");
   /* The file read happens at boot even when the operator lands somewhere else
      (#362): the stale-daemon marker on the Settings nav item compares the two,
