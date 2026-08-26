@@ -299,6 +299,10 @@ export class Reduction {
         updated_at: ev.ts ?? previous.updated_at ?? null,
       })
     }
+    if (ev.type === 'agent_model_switched' && ev.agent) {
+      const previous = this.agentConversations.get(ev.agent)
+      if (previous) this.agentConversations.set(ev.agent, { ...previous, model: ev.model ?? previous.model, updated_at: ev.ts ?? previous.updated_at })
+    }
     if (outcome || ev.type === 'agent_abnormal_exit') {
       const session = ev.agent ?? (ev.ticket == null ? null : `curia-${ev.ticket}`)
       if (session) {

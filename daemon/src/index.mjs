@@ -1119,6 +1119,14 @@ const gate = {
   // #252, ADR-0013: the second delivery mode. The bridge presses this from the
   // button under a receipt; the dispatcher owns the grace and the keystrokes.
   interruptNote: (id, by) => dispatcher.interruptNote(id, { by }),
+  // #717: the model button on the status line. The dispatcher composes the
+  // choices and refuses the switch; the bridge only draws and relays.
+  modelChoices: async (ticket) => {
+    const agent = dispatcher.agents.get(`curia-${ticket}`)
+    const choices = dispatcher.modelChoices(ticket)
+    return choices?.map((c) => ({ ...c, crossHarness: Boolean(agent) && c.harness !== agent.harness })) ?? null
+  },
+  switchModel: (ticket, model, by) => dispatcher.switchModel(ticket, { model, by }),
 }
 
 // ---- dispatch loop (#33) ----------------------------------------------------

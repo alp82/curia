@@ -1611,7 +1611,38 @@ export class DiscordBridge {
     } catch (e) {
       this.log(`status links for ${ticket} failed: ${e.message}`)
     }
-    return DiscordBridge.linkRow(links)
+    const rows = DiscordBridge.linkRow(links.slice(0, 4))
+    // The model button (#717, the #553 shape): one more button beside the
+    // links while the agent lives. It opens an ephemeral pick of routing
+    // labels, so the thread carries no menu and no second line for the press.
+    if (!settled && this.handlers.modelChoices) {
+      const button = new ButtonBuilder().setStyle(ButtonStyle.Secondary).setLabel('model').setCustomId(`model|${ticket}|open`)
+      if (rows.length) rows[0].addComponents(button)
+      else rows.push(new ActionRowBuilder().addComponents(button))
+    }
+    return rows
+  }
+
+  // The ephemeral pick a press on the model button opens (#717). The labels
+  // are the routing vocabulary `/start` speaks; the small print under each is
+  // `models.<label>.id`, the name the harness is asked for, and the hold a
+  // cooled label carries. The cooled and cross-harness labels stay in the
+  // menu: the refusal names the hold, which is what the operator learns from.
+  static modelMenu(ticket, choices) {
+    const menu = new StringSelectMenuBuilder()
+      .setCustomId(`model|${ticket}|sel`)
+      .setPlaceholder('Pick a model…')
+    for (const c of choices.slice(0, MAX_SELECT_OPTIONS)) {
+      const note = c.hold
+        ? `cooling${c.hold.reset_at ? ` until ${new Date(c.hold.reset_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}` : ''} (${c.hold.name})`
+        : c.crossHarness ? `on the ${c.harness} harness` : null
+      menu.addOptions({
+        label: `${c.label}${c.running ? ' - running now' : ''}`.slice(0, 100),
+        value: c.label,
+        description: [c.id, note].filter(Boolean).join(' · ').slice(0, 100),
+      })
+    }
+    return [new ActionRowBuilder().addComponents(menu)]
   }
 
   async postStatus(ticket, text, { settled = false } = {}) {
@@ -1767,6 +1798,40 @@ export class DiscordBridge {
         content: interruptedReceipt(i.message.content, { by: i.user.id, session: res.session, graceMs: res.graceMs }),
         components: [],
       }).catch(() => {})
+      return
+    }
+
+    // The model switch from the status line (#717). The press opens an
+    // ephemeral menu; the pick runs the switch and rewrites that same ephemeral
+    // message with the verdict. The thread itself stays quiet: the status line
+    // redraws off the journal, and a refusal is the presser's to read.
+    if (i.isButton() && i.customId.startsWith('model|')) {
+      const [, ticket, action] = i.customId.split('|')
+      if (action !== 'open') return
+      let choices = null
+      try {
+        choices = await this.handlers.modelChoices?.(ticket)
+      } catch (e) {
+        this.log(`model choices for ${ticket} failed: ${e.message}`)
+      }
+      if (!choices?.length) {
+        await i.reply({ content: `⚠️ no live agent on ticket ${ticket} to switch`, ephemeral: true }).catch(() => {})
+        return
+      }
+      await i.reply({
+        content: `Switch \`curia-${ticket}\` to which model? The conversation and the worktree stand either way.`,
+        components: DiscordBridge.modelMenu(ticket, choices),
+        ephemeral: true,
+      }).catch(() => {})
+      return
+    }
+    if (i.isStringSelectMenu?.() && i.customId.startsWith('model|')) {
+      const [, ticket] = i.customId.split('|')
+      const model = i.values?.[0]
+      await i.update({ content: `⏳ switching \`curia-${ticket}\` to \`${model}\`…`, components: [] }).catch(() => {})
+      const reply = await this.handlers.switchModel?.(ticket, model, i.user.id)
+        ?? '❌ this daemon has no model switch path'
+      await i.editReply({ content: reply, components: [] }).catch(() => {})
       return
     }
 

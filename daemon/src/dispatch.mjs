@@ -81,6 +81,9 @@ import {
   probeTtyd, assertServe, serveOff, CHAT_HANDLE_RE, isChatHandle, nextChatHandle,
 } from './attach.mjs'
 import { failureProse, FailureLines } from './messaging.mjs'
+
+// The reset instant of a hold, as the status line's bars say it (#717).
+const fmtReset = (at) => new Date(at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
 import {
   CLEAR_MAP_FOG, KEEP_MAP_OPEN, MAP_FOG_VERB,
   clearMapFog, mapFog, mapFogQuestion,
@@ -479,6 +482,9 @@ export class Dispatcher {
     // behind a second timer. NULL is legal: the suite builds dispatchers that
     // have no business spawning a command line interface.
     this.aistack = aistack ?? null
+    // How long a claude pane may take to answer `/model` (#717): the CLI's
+    // validation probe is one short API call.
+    this.switchReadbackMs = 15_000
     this.deps = { ...DEFAULT_DEPS, ...deps }
     this.root = config.dispatch.workspace_root
     this.agents = new Map() // session -> agent record (disposable cache)
@@ -6502,9 +6508,54 @@ export class Dispatcher {
 
   // ---- resume --------------------------------------------------------------------
 
-  // Switch one live ticket to a configured routing model (#717). The pane is
-  // replaced, but its session name, private clone, config root, and harness
-  // resume command keep the running conversation attached to the same ticket.
+  // The models the status line offers for a live ticket (#717): every active
+  // routing label, with the facts the operator picks on. `running` marks the
+  // one the agent is on, `hold` names a cooling the switch would refuse, and
+  // `harness` lets the surface say when a pick would cross harnesses. Null
+  // when the ticket has no live agent, so the surface draws no menu.
+  modelChoices(n) {
+    const agent = this.agents.get(`curia-${String(n)}`)
+    if (!agent) return null
+    this.judgeReadings()
+    return Object.entries(this.routing.models ?? {})
+      .filter(([label]) => isActive(this.routing, label))
+      .map(([label, spec]) => ({
+        label,
+        id: spawnModelId(this.routing, label),
+        harness: spec.harness,
+        running: label === agent.model,
+        hold: this.#holdOn(label, spec.provider),
+      }))
+  }
+
+  // The hold a switch into `model` would walk into, or null. Named the way
+  // CONTEXT.md names the three kinds, with the reset instant when one exists:
+  // a credential hold ends when a person acts, so it states none.
+  #holdOn(model, provider) {
+    if (!this.cooling.isCool(model, provider)) return null
+    const held = this.cooling.heldFor(provider)
+    if (held) return { kind: 'credential', name: `${provider} credential`, reset_at: null, why: held.why ?? null }
+    const predicted = this.cooling.predictionFor(provider)
+    if (predicted) return { kind: 'predicted', name: `${provider} predicted`, reset_at: predicted.at ?? null }
+    const at = this.cooling.models.get(model)?.at ?? this.cooling.providers.get(provider)?.at ?? null
+    return { kind: 'cooling', name: `${model}/${provider} cooling`, reset_at: at }
+  }
+
+  // Switch one live ticket to a configured routing model (#717). Each harness
+  // takes the path prototypes/model-switch/findings.md proved on a real run:
+  //
+  // - claude takes `/model <id>` in its own composer. The CLI validates the
+  //   target live, asks one confirm, and keeps the process, the transcript and
+  //   the queued composer text (cut with Ctrl+U first, pasted back with Ctrl+Y).
+  // - codex offers only its built-in catalog in the `/model` picker, and the
+  //   picker is driven by arrow position, so its proven path for a routing
+  //   model is the resume: kill the pane and `resume -m <id>`, which beats the
+  //   session record. The session name, the private clone, the config root and
+  //   the resume command keep the conversation attached to the same ticket.
+  //
+  // Both refuse a cooled or cross-harness target BEFORE the pane is touched:
+  // codex accepts any model at the switch and burns the next turn on the API
+  // error, so the daemon's own hold table is the only check that costs nothing.
   async switchModel(n, { model, by } = {}) {
     const ticket = String(n)
     const session = `curia-${ticket}`
@@ -6518,18 +6569,16 @@ export class Dispatcher {
       return `❌ cannot switch \`${session}\` to \`${model}\`. That model is \`active: false\` in routing.yaml.`
     }
     this.judgeReadings()
-    if (this.cooling.isCool(model, target.provider)) {
-      const held = this.cooling.heldFor(target.provider)
-      const predicted = this.cooling.predictionFor(target.provider)
-      const hold = held
-        ? `${target.provider} credential`
-        : predicted
-          ? `${target.provider} predicted`
-          : `${model}/${target.provider} cooling`
-      return `❌ cannot switch \`${session}\` to \`${model}\`. The \`${hold}\` hold is active.`
+    const hold = this.#holdOn(model, target.provider)
+    if (hold) {
+      const until = hold.reset_at ? ` until ${fmtReset(hold.reset_at)}` : ''
+      return `❌ \`${model}\` is cooling - the \`${hold.name}\` hold stands${until}. The switch is refused and \`${session}\` stays on **${spawnModelId(this.routing, agent.model)}**.`
     }
     if (target.harness !== agent.harness) {
       return `❌ cannot switch \`${session}\` to \`${model}\`. Its saved conversation belongs to the ${agent.harness} harness.`
+    }
+    if (model === agent.model) {
+      return `ℹ️ \`${session}\` already runs on **${spawnModelId(this.routing, model)}**.`
     }
 
     try {
@@ -6537,6 +6586,9 @@ export class Dispatcher {
     } catch (e) {
       return `❌ could not clear pending composer text in \`${session}\`: ${failureProse(e.message)}`
     }
+
+    if (agent.harness === 'claude') return this.#switchInPane(agent, model, by)
+
     try {
       await this.deps.killSession(session)
     } catch (e) {
@@ -6557,10 +6609,97 @@ export class Dispatcher {
       const released = await this.#releaseClaim(agent, `operator model switch failed: ${e.message}`)
       return `❌ could not switch \`${session}\` to \`${model}\`: ${failureProse(e.message)}. ${released ? 'The claim is released.' : 'The issue is still assigned.'}`
     }
+    return this.#switchedLine(agent, model, { resumed: true })
+  }
 
+  // The claude in-pane switch. The composer is already cut. The pane answers
+  // in one of three shapes the prototype captured: "Set model to" (done),
+  // "Switch model?" (one confirm, Enter), or an API error line (the CLI's own
+  // live validation refused the target; the old model stands). A pane that
+  // says none of them inside the budget is reported as unconfirmed and the
+  // record is left alone, because a record that names a model the pane never
+  // took is the lie the status line exists to avoid.
+  async #switchInPane(agent, model, by) {
+    const session = agent.session
+    const id = spawnModelId(this.routing, model)
+    const from = agent.model
+    let sent
+    try {
+      sent = await this.deps.sendText(session, `/model ${id}`, { readbackMs: 0 })
+    } catch (e) {
+      return `❌ could not type the switch into \`${session}\`: ${failureProse(e.message)}`
+    }
+    if (sent?.status === 'not-sent') {
+      return `⏳ \`${session}\` is mid-turn, so the switch was not typed. Pick again when the turn ends.`
+    }
+    const verdict = await this.#switchVerdict(session, from)
+    // Whatever the pane said, the cut text goes back: the operator's queued
+    // words are not the switch's to spend.
+    await this.deps.sendKey(session, 'C-y').catch(() => {})
+    if (verdict.status === 'refused') {
+      this.reduction.journal('model_switch_refused', {
+        repo: agent.repo, ticket: agent.ticket, agent: session, model, from, by: by ?? 'unknown', why: verdict.why,
+      })
+      return `❌ \`${session}\` refused **${id}** at the switch: ${verdict.why}. It stays on **${spawnModelId(this.routing, from)}**.`
+    }
+    if (verdict.status !== 'switched') {
+      return `⚠️ \`${session}\` did not confirm the switch to **${id}** in time. It is recorded as still on **${spawnModelId(this.routing, from)}**; the terminal shows what the pane took.`
+    }
+    agent.model = model
+    agent.requestedModel = model
+    agent.provider = this.routing.models[model].provider
+    // The effort belongs to the ticket type and the switch keeps it. An agent
+    // adopted after a restart may carry none in memory, so the journal's last
+    // spawn line answers first, then the type route, as a respawn would.
+    agent.reasoningEffort = agent.reasoningEffort
+      ?? this.reduction.questions.epochSpawnLine?.(session)?.reasoning_effort
+      ?? reasoningEffortFor(this.routing, agent.labels ?? [], model)
+    // The whole spawn line, restated with the new model (#219's rule): the
+    // last line about a session has to describe it whole, because a restart
+    // and a stall respawn read only that line.
+    const last = this.reduction.questions.epochSpawnLine?.(session) ?? {}
+    this.reduction.journal('agent_model_switched', {
+      ...last,
+      repo: agent.repo, ticket: agent.ticket, agent: session,
+      model, switched_from: from, requested_model: model, harness: agent.harness,
+      reasoning_effort: agent.reasoningEffort ?? null, by: by ?? 'unknown', operator_model_switch: true, live: true,
+    })
+    return this.#switchedLine(agent, model, { resumed: false })
+  }
+
+  // Read the pane until it states the switch's outcome. The confirm is
+  // answered here, once: the CLI asks it only after its validation passed.
+  async #switchVerdict(session, from) {
+    const deadline = Date.now() + this.switchReadbackMs
+    let confirmed = false
+    let pane = ''
+    while (true) {
+      try {
+        pane = await this.deps.capturePane(session)
+      } catch {
+        pane = ''
+      }
+      const tail = String(pane ?? '').split('\n').slice(-25).join('\n')
+      if (/Set model to /.test(tail)) return { status: 'switched' }
+      const err = tail.match(/(API error:[^\n]*(?:\n[^\n]*){0,3}|Unable to validate model[^\n]*)/)
+      if (err && !/Switch model\?/.test(tail)) {
+        return { status: 'refused', why: err[1].replace(/\s+/g, ' ').trim().slice(0, 200) }
+      }
+      if (!confirmed && /Switch model\?/.test(tail)) {
+        confirmed = true
+        await this.deps.sendKey(session, 'Enter')
+      }
+      if (Date.now() >= deadline) return { status: 'unconfirmed', pane: tail }
+      await sleepFor(Math.min(250, Math.max(1, deadline - Date.now())))
+    }
+  }
+
+  #switchedLine(agent, model, { resumed }) {
     const name = spawnModelId(this.routing, model)
+    const harness = this.routing.models[model].harness
     const effort = agent.reasoningEffort ? `**${agent.reasoningEffort}** effort` : 'the model default effort'
-    return `⚙️ \`${session}\` switched to **${name}** on the **${target.harness}** harness with ${effort}. Its conversation and worktree continue.`
+    const how = resumed ? 'The pane resumed its conversation on the new model.' : 'The conversation stayed in its pane.'
+    return `🔁 \`${agent.session}\` runs on **${name}** now, on the **${harness}** harness with ${effort}. ${how} The worktree and the queued note stand.`
   }
 
   // The resume contract (#81): a fresh agent on the ticket, inheriting the
