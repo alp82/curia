@@ -2091,6 +2091,247 @@
   .r8-lane[data-app="curia"] { transform: rotateX(8deg) rotate(-0.4deg); transform-origin: 50% 100%; }
   .r8-card:not(.two) .pv-phone { margin-left: auto; margin-right: 6%; }
 
+  /* ================================================================
+     Round 1 (#772) — the shells, the ticket, and the pairing.
+
+     The ticket named four things left rough by #630, and the operator
+     added a fifth by inspiration: the Slack Code page, where one big
+     rounded window sits flat and frontal, a second panel overlaps its
+     corner on a heavy shadow, and everything inside is a few elements
+     at a size that reads. Five layouts on ?id=1..5, one baseline:
+
+       1 flat  the browser frontal, the phone overlapping its corner
+       2 tilt  round 15's front arrangement, redressed
+       3 side  the ticket stands beside the screens (past 62rem)
+       4 stub  the ticket carries a stub and a perforation
+       5 tray  the ticket docks at the bottom of the stage
+
+     Every rule is scoped #run. The devices are still scene 5's, and
+     the two aspect ratios are untouched: what changes is the radius,
+     the chrome, the type size, and what fills the glass.
+     ================================================================ */
+
+  /* ---- the switcher ---- */
+  .r16-sw { display: flex; gap: 0.35rem; justify-content: center; margin: 0 0 1.2rem; }
+  .r16-sw a {
+    font: 600 0.68rem var(--mono); letter-spacing: 0.06em; text-transform: uppercase;
+    color: var(--dim); text-decoration: none; border: 1px solid var(--line);
+    border-radius: 999px; padding: 0.25rem 0.7rem;
+  }
+  .r16-sw a.on { color: #08090c; background: var(--sc); border-color: var(--sc); }
+
+  /* ---- the desk has a ground: one soft pool of the scene's light ---- */
+  #run .r8-desk::before {
+    content: ''; position: absolute; inset: -4% -6% -8%; z-index: 0; pointer-events: none;
+    background: radial-gradient(58% 52% at 52% 62%, rgba(94, 200, 229, 0.13), transparent 72%);
+  }
+
+  /* ---- the browser: bigger radius, a taller chrome, a real address pill ---- */
+  #run .pv-win {
+    border-radius: 14px;
+    box-shadow: 0 2.4rem 4.2rem -1.2rem rgba(0, 0, 0, 0.85), 0 0.4rem 1.2rem rgba(0, 0, 0, 0.35), 0 0 0 1px #ffffff2e;
+  }
+  #run .pv-wt { padding: 0.5rem 0.75rem; gap: 0.42rem; background: #ececf0; }
+  #run .pv-wt s { width: 0.55rem; height: 0.55rem; }
+  #run .pv-wt .wu { font-size: 0.6rem; padding: 0.22rem 0.7rem; border-radius: 7px; margin-left: 0.7rem; margin-right: 2.2rem; }
+  #run .r12-app { font-size: 0.7rem; overflow: hidden; }
+  #run .r12-bar { padding: 0.5rem 0.9rem 0.42rem; font-size: 1.04em; }
+  #run .r12-nav { gap: 1.15em; padding: 0 0.9rem; }
+  #run .r12-nav span { padding: 0.36rem 0 0.44rem; }
+  #run .r12-body { padding: 0.9rem 1rem 1rem; gap: 0.7rem; }
+  #run .r10-tile { padding: 0.75rem 0.9rem; border-radius: 10px; }
+  #run .r10-tile .t { font-size: 1.06em; }
+  #run .r10-go { margin-top: 0.8rem; padding: 0.6rem 1rem; font-size: 0.92rem; border-radius: 9px; }
+  #run .r13-walk { margin-top: 0.4rem; }
+
+  /* the pull request shows its five real commits now, not one */
+  .r16-cms { list-style: none; margin: 0; padding: 0; border: 1px solid #21262d; border-radius: 8px; overflow: hidden; }
+  .r16-cms li {
+    display: flex; align-items: center; gap: 0.7em; padding: 0.32em 0.7em;
+    background: #0d1117; border-top: 1px solid #21262d; color: #c9d1d9; white-space: nowrap;
+  }
+  .r16-cms li:first-child { border-top: none; }
+  .r16-cms li span { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .r16-cms code { font: 0.92em var(--mono); color: #4493f8; flex: none; }
+
+  /* ---- the phone: type that reads, avatars, the Discord furniture ---- */
+  #run .pv-phone {
+    box-shadow: 0 2.2rem 3.6rem -1rem rgba(0, 0, 0, 0.88), 0 0.5rem 1.4rem rgba(0, 0, 0, 0.5), inset 0 0 0 1px rgba(255, 255, 255, 0.28);
+  }
+  #run .r12-scr { font-size: 0.6rem; }
+  #run .r12-status { padding: 0.5rem 0.75rem 0.15rem; }
+  #run .r12-ch { padding: 0.4rem 0.6rem; }
+  #run .r12-log { padding: 0.55rem 0.6rem; gap: 0.7rem; }
+  #run .r12-comp { margin: 0 0.5rem 0.6rem; padding: 0.4rem 0.6rem; }
+  #run .r10-msg { display: grid; grid-template-columns: auto 1fr; column-gap: 0.55em; align-items: start; }
+  #run .r10-msg > * { grid-column: 2; }
+  #run .r10-msg .av {
+    grid-column: 1; grid-row: 1 / span 12; width: 2.2em; height: 2.2em; border-radius: 50%;
+    display: grid; place-items: center; background: #5865f2; color: #fff; margin-top: 0.1em;
+  }
+  #run .r10-msg .av .r8-mk { width: 1.25em; height: 1.25em; color: #fff; }
+  #run .r10-msg .av.me { background: #e0ae4c; color: #08090c; font: 800 0.95em var(--sans); }
+  #run .r10-msg .b.lk a { color: #00a8fc; }
+  #run .r10-msg .b.sm { color: #949ba4; font-size: 0.86em; font-style: italic; }
+  #run .r10-msg .mk.on { display: block; }
+  #run .r10-btns { gap: 0.4rem; margin-top: 0.55rem; }
+  #run .r10-b { padding: 0.42rem 0.7rem; border-radius: 6px; }
+
+  /* ---- the ticket: the issue page, unmistakably ---- */
+  #run .r8-tkt { border-radius: 12px; border-color: #30384d; display: flex; }
+  #run .r16-in { flex: 1 1 auto; min-width: 0; }
+  #run .r13-head { padding: 0.5rem 0.8rem; gap: 0.35em; font-size: 0.72rem; }
+  #run .r13-head .sl { color: #6e7681; }
+  #run .r13-head .crumb { display: inline-flex; align-items: center; gap: 0.3em; color: #9198a1; margin-left: 0.7em; padding-left: 0.7em; border-left: 1px solid #30363d; }
+  #run .r13-head .num { font: 0.94em var(--mono); color: #6e7681; }
+  #run .r13-body { padding: 0.7rem 0.8rem 0.8rem; }
+  #run .r8-tkt .gx-h1 { font-size: 1.16em; }
+  #run .gx-meta { gap: 0.5em 0.7em; }
+  #run .gx-st { font-size: 0.86em; padding: 0.28em 0.8em; }
+  #run .gx-by { display: inline-flex; align-items: center; gap: 0.4em; }
+  .r16-av {
+    display: inline-grid; place-items: center; width: 1.5em; height: 1.5em; border-radius: 50%;
+    background: #e0ae4c; color: #08090c; font: 800 0.72em var(--sans); font-style: normal;
+  }
+  #run .r8-tl { margin-top: 0.7em; padding-left: 2.1rem; }
+  #run .r8-tl li { margin-bottom: 0.55em; }
+  #run .r8-tl li .ts { color: #6e7681; margin-left: 0.5em; white-space: nowrap; }
+  #run .r8-tl li .ts::before { content: '·'; margin-right: 0.5em; }
+  #run .gx-tl .nd2.av { background: #e0ae4c; color: #08090c; font: 800 0.7em var(--sans); }
+  #run .gx-tl .nd2.av.bot { background: #0b0f1c; box-shadow: 0 0 0 4px #0d1117, inset 0 0 0 1px #30363d; }
+  #run .gx-tl .nd2.av.bot .oc { width: 1.05em; height: 1.05em; }
+  #run .r8-tl li .cmt { margin-top: 0.35em; padding: 0.3em 0.6em; border: 1px solid #30363d; border-left-width: 1px; border-radius: 6px; background: #161b22; }
+  /* the tick: one ring of the scene's light when a row lands */
+  #run .r8-tkt.tick { animation: r16tick 900ms var(--ease); }
+  @keyframes r16tick {
+    0% { box-shadow: 0 14px 34px -10px rgba(0, 0, 0, 0.8), 0 0 0 0 rgba(94, 200, 229, 0); }
+    30% { box-shadow: 0 14px 34px -10px rgba(0, 0, 0, 0.8), 0 0 0 0.28rem rgba(94, 200, 229, 0.42); }
+    100% { box-shadow: 0 14px 34px -10px rgba(0, 0, 0, 0.8), 0 0 0 0.6rem rgba(94, 200, 229, 0); }
+  }
+  /* the page ends where an issue page ends: at the comment box */
+  .r16-cmp {
+    display: flex; align-items: center; gap: 0.6em; margin: 0.9em 0 0 0;
+    padding: 0.5em 0.8em; border: 1px solid #30363d; border-radius: 6px; color: #6e7681; background: #0d1117;
+  }
+  /* the stub, drawn for ?id=4 only */
+  .r16-stub { display: none; }
+
+  /* ---- the pairing: a slot is a viewport, the title at its middle ---- */
+  #run .r8-nb { min-height: 88svh; justify-content: center; }
+  #run .r8-nb:first-child { min-height: 56svh; padding-top: 0; }
+  #run .r8-nb:last-child { min-height: 64svh; }
+  #run .r8-stage { gap: 1.3rem; }
+
+  /* ---- motion: the screen's content arrives after the shell, and the
+         phone rises onto the desk a beat later ---- */
+  #run .r8-card.on .r12-body > * { animation: r16in 0.7s var(--ease) both; }
+  #run .r8-card.on .r12-body > :nth-child(2) { animation-delay: 0.16s; }
+  #run .r8-card.on .r12-body > :nth-child(3) { animation-delay: 0.28s; }
+  #run .r8-card.on .r12-body > :nth-child(4) { animation-delay: 0.4s; }
+  #run .r8-card.on .r12-log > * { animation: r16in 0.7s var(--ease) both; }
+  #run .r8-card.on .r12-log > :nth-child(2) { animation-delay: 0.22s; }
+  #run .r8-card.on .r12-log > :nth-child(3) { animation-delay: 0.44s; }
+  #run .r8-card.two.on .r8-lane[data-app="discord"] { animation: r16up 0.9s var(--ease) 0.3s both; }
+  @keyframes r16in { from { opacity: 0; transform: translateY(0.5rem); } }
+  @keyframes r16up { from { opacity: 0; transform: translateY(1.4rem); } }
+
+  /* ---- 1 flat, the baseline: frontal, overlapping, on the shadow ---- */
+  #run:not([data-v="2"]) .r8-lane[data-app] { transform: none; }
+  /* The phone's budget is set on the card, so the window can read it too
+     and leave the phone half its width of room past the window's edge. */
+  /* SIZE RELATIONS. The phone is sized off the BROWSER, never off the
+     desk: a tall desk made a phone taller than the window beside it.
+     Its width is 28% of the window's width, and the window's width is
+     the smaller of the desk's two dimensions read through 16:11, so
+     the phone can never outgrow the desk either. Both carry a floor
+     and a ceiling in rem, so no viewport makes a phone that cannot be
+     read or a window that fills a wall. */
+  #run .r8-card { --win-w: min(100cqw, calc(100cqh * 16 / 11), 46rem); --pw: clamp(6.5rem, calc(var(--win-w) * 0.28), 12rem); }
+  #run .pv-win { width: var(--win-w); margin-left: auto; margin-right: auto; }
+  #run .r8-card.two .pv-phone { width: var(--pw); }
+  #run:not([data-v="2"]) .r8-card.two .pv-win { width: calc(min(var(--win-w), 100%) - var(--pw) * 0.5); margin-left: 0; }
+  #run:not([data-v="2"]) .r8-lane[data-app="discord"] { right: 0; bottom: -0.4rem; }
+  #run[data-v="2"] .r8-card.two .pv-phone { width: var(--pw); }
+  /* an absolute lane is as wide as the desk on a phone, so the device
+     itself keeps to the lane's right edge */
+  #run .r8-card.two .pv-phone { margin-left: auto; }
+  /* the lone phone stands at the middle of the desk, as tall as it allows */
+  #run .r8-card:not(.two) .r8-lane[data-app="discord"] { position: static; height: 100%; --ph-h: 100cqh; }
+  #run .r8-card:not(.two) .pv-phone { margin: 0 auto; width: min(calc(100cqh * 9 / 19.5), 15rem); }
+
+  /* ---- 5 tray: the ticket docks at the bottom of the stage ---- */
+  #run[data-v="5"] .r8-stage { flex-direction: column-reverse; }
+  #run[data-v="5"] .r8-card { transform-origin: 50% 100%; transform: rotateX(22deg) translateY(1.2rem); }
+  #run[data-v="5"] .r8-card.on { transform: none; }
+  #run[data-v="5"] .r8-card.seen { transform: rotateX(-14deg) translateY(-1.4rem); }
+
+  /* ---- 4 stub: a stub and a perforation on the issue page ---- */
+  #run[data-v="4"] .r16-stub {
+    display: flex; flex: none; flex-direction: column; align-items: center; justify-content: center; gap: 0.5rem;
+    width: 2.1rem; background: #fbca04; color: #1f2328; border-right: 2px dashed #0d1220;
+    -webkit-mask: radial-gradient(0.55rem at 100% 0, transparent 97%, #000) top / 100% 51% no-repeat,
+                  radial-gradient(0.55rem at 100% 100%, transparent 97%, #000) bottom / 100% 51% no-repeat;
+    mask: radial-gradient(0.55rem at 100% 0, transparent 97%, #000) top / 100% 51% no-repeat,
+          radial-gradient(0.55rem at 100% 100%, transparent 97%, #000) bottom / 100% 51% no-repeat;
+  }
+  #run[data-v="4"] .r16-stub i, #run[data-v="4"] .r16-stub b {
+    writing-mode: vertical-rl; transform: rotate(180deg); font: 800 0.62rem var(--mono); letter-spacing: 0.14em; text-transform: uppercase;
+  }
+  #run[data-v="4"] .r16-stub i { font-style: normal; font-weight: 500; opacity: 0.7; }
+
+  @media (min-width: 62rem) {
+    #run .r8-stage { gap: 2.2rem; }
+    #run .r12-app { font-size: 0.94rem; }
+    #run .r12-scr { font-size: 0.66rem; }
+    /* the stage is a viewport, but a tall monitor is not a taller desk:
+       past 64rem of height the stage stops growing and the titles
+       still meet it at the middle */
+    #run .r8-stage { height: min(100dvh, 64rem); position: sticky; top: max(0px, calc((100dvh - 64rem) / 2)); }
+    #run .r8-tkt { font-size: 0.82rem; }
+    #run .r13-head { font-size: 0.78rem; }
+    #run .pv-wt .wu { font-size: 0.68rem; }
+    #run .r8-nb { min-height: 100svh; }
+    #run .r8-nb:first-child { min-height: 62svh; }
+    #run .r8-nb:last-child { min-height: 70svh; }
+    /* 3 side: the ticket stands beside the screens */
+    #run[data-v="3"] .r8-stage { display: grid; grid-template-columns: 19rem 1fr; grid-template-rows: 100%; gap: 2rem; align-items: start; }
+    #run[data-v="3"] .r8-tkt { font-size: 0.74rem; }
+    #run[data-v="3"] .r8-desk { height: 100%; }
+  }
+  @media (max-width: 61.99rem) {
+    #run .r8-stage {
+      height: 68dvh; gap: 0.9rem; padding-top: 0.4rem;
+      background: linear-gradient(180deg, rgba(17, 23, 45, 0.97) 88%, rgba(17, 23, 45, 0.9));
+    }
+    /* The ticket is compact on a phone: the timeline is a one-row window
+       and the rows cross-fade through it. Every row is still laid out,
+       stacked in one grid cell, so the card never changes height. */
+    #run .r8-tkt { font-size: 0.66rem; }
+    /* a phone beside a window this small needs more of the window */
+    #run .r8-card { --pw: clamp(8rem, calc(var(--win-w) * 0.42), 11rem); }
+    #run .r13-head { padding: 0.4rem 0.7rem; }
+    #run .r13-body { padding: 0.55rem 0.7rem 0.6rem; }
+    #run .r8-tl { display: grid; margin-top: 0.55em; }
+    #run .r8-tl li { grid-area: 1 / 1; margin: 0; }
+    #run .r8-tl li .cmt { display: inline; margin: 0 0 0 0.4em; padding: 0.1em 0.45em; }
+    #run[data-k="2"] .r8-tl li:not(:nth-child(2)), #run[data-k="3"] .r8-tl li:not(:nth-child(3)),
+    #run[data-k="4"] .r8-tl li:not(:nth-child(4)), #run[data-k="5"] .r8-tl li:not(:nth-child(5)) { visibility: hidden; opacity: 0; }
+    #run .r8-tl::before { display: none; }
+    #run .r16-cmp { display: none; }
+    /* the gate's two small-print lines are cut on a phone only: they
+       push the question itself out of the glass at this height */
+    #run .r10-msg .b.sm { display: none; }
+    /* the titles dock under the stage */
+    #run .r8-nb { display: block; min-height: 80svh; }
+    #run .r8-nb .r16-t { position: sticky; top: calc(68dvh + 0.6rem); display: flex; flex-direction: column; align-items: flex-start; }
+    #run .r8-nb:first-child { min-height: 50svh; }
+    #run .r8-nb:last-child { min-height: 40svh; }
+    #run .r8-nb b { font-size: clamp(1.15rem, 5.4vw, 1.5rem); }
+    #run[data-v="5"] .r8-stage { background: linear-gradient(0deg, rgba(17, 23, 45, 0.97) 82%, rgba(17, 23, 45, 0.86)); }
+  }
+  .still .r16-sw { display: none; }
+  .still .r8-nb .r16-t { position: static; }
+
   /* ---- the column the claim and the closing lines sit in ---- */
   .runwrap { max-width: 36rem; margin: 0 auto; padding: 0 1.25rem; }
   @media (min-width: 62rem) { .runwrap { max-width: 72rem; } }
@@ -2883,6 +3124,8 @@
       <g id="oc-closed" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="6.1"/><path d="m5.3 8.2 1.8 1.8 3.7-4.1" stroke-linecap="round" stroke-linejoin="round"/></g>
       <g id="oc-pr" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="4.3" cy="3.6" r="1.8"/><circle cx="4.3" cy="12.4" r="1.8"/><path d="M4.3 5.4v5.2" stroke-linecap="round"/><circle cx="11.7" cy="12.4" r="1.8"/><path d="M11.7 10.6V6.4A2.1 2.1 0 0 0 9.6 4.3H7.6" stroke-linecap="round"/><path d="M9 2.7 7.5 4.3 9 5.9" stroke-linecap="round" stroke-linejoin="round"/></g>
       <g id="oc-merge" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="4.3" cy="3.6" r="1.8"/><circle cx="4.3" cy="12.4" r="1.8"/><path d="M4.3 5.4v5.2" stroke-linecap="round"/><circle cx="11.7" cy="5.4" r="1.8"/><path d="M9.9 5.8H8.6a4 4 0 0 0-4 4v0.8" stroke-linecap="round"/></g>
+      <g id="oc-issue" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="6.1"/><circle cx="8" cy="8" r="1.4" fill="currentColor" stroke="none"/></g>
+      <g id="oc-person" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="5.2" r="2.7"/><path d="M2.6 14a5.4 5.4 0 0 1 10.8 0" stroke-linecap="round"/></g>
       <g id="oc-commit" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="2.4"/><path d="M1.2 8h4.4M10.4 8h4.4" stroke-linecap="round"/></g>
       <path id="oc-gh" fill="currentColor" d="M8 1a7 7 0 0 0-2.21 13.64c.35.07.48-.15.48-.34l-.01-1.2c-1.95.43-2.36-.94-2.36-.94-.32-.81-.78-1.03-.78-1.03-.64-.44.05-.43.05-.43.7.05 1.07.72 1.07.72.63 1.07 1.65.76 2.05.58.06-.45.25-.76.45-.94-1.57-.18-3.21-.78-3.21-3.48 0-.77.27-1.4.72-1.89-.07-.18-.31-.9.07-1.87 0 0 .59-.19 1.93.72a6.7 6.7 0 0 1 3.52 0c1.34-.91 1.93-.72 1.93-.72.38.97.14 1.69.07 1.87.45.49.72 1.12.72 1.89 0 2.71-1.65 3.3-3.22 3.47.25.22.48.66.48 1.33l-.01 1.97c0 .19.13.42.49.34A7 7 0 0 0 8 1Z"/>
       <path id="oc-dc" fill="currentColor" d="M13.1 3.6a11 11 0 0 0-2.7-.83l-.17.34c.83.2 1.6.5 2.32.87a8.6 8.6 0 0 0-8.11 0c.72-.38 1.5-.68 2.32-.87l-.17-.34c-.96.17-1.86.45-2.7.83C1.63 6.7 1.05 9.7 1.34 12.55A11.1 11.1 0 0 0 4.7 14l.72-1.01c-.4-.15-.78-.34-1.14-.56l.28-.22a7.9 7.9 0 0 0 6.87 0l.28.22c-.36.22-.74.41-1.14.56l.72 1.01a11.1 11.1 0 0 0 3.36-1.45c.35-3.3-.6-6.27-2.55-8.95ZM5.72 10.79c-.66 0-1.2-.6-1.2-1.35 0-.74.53-1.35 1.2-1.35s1.21.61 1.2 1.35c0 .75-.53 1.35-1.2 1.35Zm4.56 0c-.66 0-1.2-.6-1.2-1.35 0-.74.53-1.35 1.2-1.35s1.21.61 1.2 1.35c0 .75-.53 1.35-1.2 1.35Z"/>
@@ -2897,41 +3140,52 @@
     </div>
 
     <div class="runwrap">
+    <p class="r16-sw" id="runsw" aria-label="round 1 layouts">
+      <a href="?id=1#run" data-v="1">flat</a><a href="?id=2#run" data-v="2">tilt</a><a href="?id=3#run" data-v="3">side</a><a href="?id=4#run" data-v="4">stub</a><a href="?id=5#run" data-v="5">tray</a>
+    </p>
     <div class="r8-track" id="runtrack">
       <div class="r8-stage" id="runstage">
 
         <!-- The constant, at the TOP. Every row is a real,
              timestamped event on alp82/curia#587, read off its own
              timeline. Rows are always laid out and only their
-             visibility moves, so the block never shifts. -->
+             visibility moves, so the block never shifts. Round 1 of
+             #772 dresses it as the issue page it is: the repo crumb,
+             the issue-opened octicon on the pill, avatars on the rows. -->
         <article class="gx r8-tkt" id="tkt">
+          <span class="r16-stub" aria-hidden="true"><i>issue</i><b>#587</b></span>
+          <div class="r16-in">
           <div class="r13-head">
             <svg class="r8-mk" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-gh"/></svg>
-            <b>alp82 / curia</b>
+            <b>alp82</b><span class="sl">/</span><b>curia</b>
+            <span class="crumb"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-issue"/></svg>Issues</span>
             <span class="sp"></span>
-            <span class="r13-pill">
-              <span class="gx-st open"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-pr"/></svg>Open</span>
-              <span class="gx-st done"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-closed"/></svg>Closed</span>
-            </span>
+            <span class="num">#587</span>
           </div>
           <div class="r13-body">
             <h3 class="gx-h1">Choose the words of every scene of the final page <span class="num">#587</span></h3>
             <div class="gx-meta">
+              <span class="r13-pill">
+                <span class="gx-st open"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-issue"/></svg>Open</span>
+                <span class="gx-st done"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-closed"/></svg>Closed</span>
+              </span>
+              <span class="gx-by"><i class="r16-av">A</i><b>alp82</b> opened on Aug 21, 2026</span>
               <span class="tkt-chip">wayfinder:prototype</span>
-              <span class="gx-by"><b>alp82</b> opened this issue on Aug 21, 2026</span>
             </div>
             <ol class="gx-tl r8-tl">
-              <li><span class="nd2"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-commit"/></svg></span><b>alp82</b> opened this issue · Aug 21, 15:08</li>
-              <li><span class="nd2"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-commit"/></svg></span><b>curia-sh</b> assigned this to <b>alp82</b> · Aug 21, 18:46</li>
-              <li><span class="nd2"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-pr"/></svg></span><b>curia-sh</b> commented · Aug 21, 18:55<span class="cmt">🔗 curia pushed <code>curia/587</code> (1 commit) and opened <a href="https://github.com/alp82/curia/pull/597">#597</a></span></li>
-              <li><span class="nd2"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-pr"/></svg></span><b>curia-sh</b> commented · Aug 22, 19:10<span class="cmt">🔗 curia pushed <code>curia/587</code> (5 commits) and updated <a href="https://github.com/alp82/curia/pull/597">#597</a></span></li>
-              <li><span class="nd2 merged"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-merge"/></svg></span><b>curia-sh</b> merged <a href="https://github.com/alp82/curia/pull/597">#597</a> as <code>a71e154</code> and closed this as completed · Aug 22, 2026, 19:13</li>
+              <li><span class="nd2 av">A</span><b>alp82</b> opened this issue<span class="ts">Aug 21, 15:08</span></li>
+              <li><span class="nd2"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-person"/></svg></span><b>curia-sh</b> assigned this to <b>alp82</b><span class="ts">Aug 21, 18:46</span></li>
+              <li><span class="nd2 av bot"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#mk-curia"/></svg></span><b>curia-sh</b> commented<span class="ts">Aug 21, 18:55</span><span class="cmt">🔗 curia pushed <code>curia/587</code> (1 commit) and opened <a href="https://github.com/alp82/curia/pull/597">#597</a></span></li>
+              <li><span class="nd2 av bot"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#mk-curia"/></svg></span><b>curia-sh</b> commented<span class="ts">Aug 22, 19:10</span><span class="cmt">🔗 curia pushed <code>curia/587</code> (5 commits) and updated <a href="https://github.com/alp82/curia/pull/597">#597</a></span></li>
+              <li><span class="nd2 merged"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-merge"/></svg></span><b>curia-sh</b> merged <a href="https://github.com/alp82/curia/pull/597">#597</a> as <code>a71e154</code> and closed this as completed<span class="ts">Aug 22, 19:13</span></li>
             </ol>
+            <div class="r16-cmp" aria-hidden="true"><i class="r16-av">A</i><span>Add a comment</span></div>
+          </div>
           </div>
         </article>
 
         <div class="r8-desk" id="desk">
-        <div class="r8-card on" data-i="1" style="--rot:-0.9deg">
+        <div class="r8-card on" data-i="1">
           <div>
             <div class="r8-lane" data-app="curia">
               <div class="pv-win">
@@ -2961,7 +3215,7 @@
           </div>
         </div>
 
-        <div class="r8-card" data-i="2" style="--rot:1.1deg">
+        <div class="r8-card" data-i="2">
           <div>
             <div class="r8-lane" data-app="discord">
               <div class="pv-phone">
@@ -2970,24 +3224,28 @@
                 <div class="pv-bezel">
                   <div class="pv-screen r12-scr">
                     <span class="pv-island" aria-hidden="true"></span>
-                    <div class="r12-status" aria-hidden="true"><b>21:10</b><span class="ic"><i></i><i></i><i></i><em></em></span></div>
+                    <div class="r12-status" aria-hidden="true"><b>09:19</b><span class="ic"><i></i><i></i><i></i><em></em></span></div>
                     <div class="r12-ch">
                       <span class="bk" aria-hidden="true">‹</span>
                       <svg class="r8-mk" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-dc"/></svg>
                       <b>🎫 587 · prototype</b>
                     </div>
                     <div class="r12-log">
-                      <div class="r10-msg">
-                        <p class="w"><b>CuriaBot</b><span class="ap">APP</span><span class="ts">18:41</span></p>
+                      <div class="r10-msg"><span class="av"><svg class="r8-mk" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-dc"/></svg></span>
+                        <p class="w"><b>CuriaBot</b><span class="ap">APP</span><span class="ts">Aug 21, 18:46</span></p>
                         <p class="b">⚙️ dispatched on <b>claude-opus-5</b></p>
                       </div>
-                      <div class="r10-msg">
+                      <div class="r10-msg"><span class="av"><svg class="r8-mk" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-dc"/></svg></span>
                         <p class="w"><b>CuriaBot</b><span class="ap">APP</span><span class="ts">09:18</span></p>
-                        <p class="b">🔎 <b>round 2 of 4</b></p>
-                        <p class="b">five candidates per slot</p>
+                        <p class="b">🔎 <b>round 2 of 4</b> · five candidates per slot</p>
+                        <p class="b lk">Preview: <a>box.tailnet.ts.net/p/587/2</a></p>
+                      </div>
+                      <div class="r10-msg"><span class="av me">A</span>
+                        <p class="w"><b>Alper</b><span class="ts">09:31</span></p>
+                        <p class="b">round 2 is approved. do round 3 with my picks applied</p>
                       </div>
                     </div>
-                    <div class="r12-comp" aria-hidden="true"><span class="pl">+</span><span class="fd">Message</span><span class="em">☺</span></div>
+                    <div class="r12-comp" aria-hidden="true"><span class="pl">+</span><span class="fd">Message #587</span><span class="em">☺</span></div>
                   </div>
                 </div>
               </div>
@@ -2995,7 +3253,7 @@
           </div>
         </div>
 
-        <div class="r8-card two" data-i="3" style="--rot:-0.7deg">
+        <div class="r8-card two" data-i="3">
           <div>
             <div class="r8-lane" data-app="github">
               <div class="pv-win">
@@ -3005,12 +3263,18 @@
                     <svg class="r8-mk" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-gh"/></svg>
                     <b>alp82 / curia</b>
                   </div>
-                  <div class="r12-nav"><span>Code</span><span class="on">Pull requests <i>1</i></span><span>Issues</span><span>Actions</span></div>
+                  <div class="r12-nav"><span>Code</span><span>Issues</span><span class="on">Pull requests <i>1</i></span><span>Actions</span></div>
                   <div class="r12-body">
                     <p class="r10-t">Choose the words of every scene of the final page <span class="n">#597</span></p>
                     <p class="r10-m"><span class="r10-pill open">Open</span><span><b>curia-sh</b> wants to merge 5 commits into <code>main</code></span></p>
                     <div class="r12-files"><span>5 commits</span><span>3 files changed</span><span class="a">+757</span><span class="d">−0</span></div>
-                    <p class="r10-c"><code>baa02ff</code> The words locked: verdict in NOTES</p>
+                    <ol class="r16-cms">
+                      <li><code>b952921</code><span>The landing copy prototype: candidates for every scene</span></li>
+                      <li><code>607fa84</code><span>Round 2: five candidates per slot, six headline directions</span></li>
+                      <li><code>72d09df</code><span>Round 3: the operator's picks applied as an overlay</span></li>
+                      <li><code>8e1db06</code><span>Round 4: round 3 rulings applied</span></li>
+                      <li><code>baa02ff</code><span>The words locked: verdict in NOTES</span></li>
+                    </ol>
                   </div>
                 </div>
               </div>
@@ -3022,17 +3286,19 @@
                 <div class="pv-bezel">
                   <div class="pv-screen r12-scr">
                     <span class="pv-island" aria-hidden="true"></span>
-                    <div class="r12-status" aria-hidden="true"><b>21:10</b><span class="ic"><i></i><i></i><i></i><em></em></span></div>
+                    <div class="r12-status" aria-hidden="true"><b>19:10</b><span class="ic"><i></i><i></i><i></i><em></em></span></div>
                     <div class="r12-ch">
                       <span class="bk" aria-hidden="true">‹</span>
                       <svg class="r8-mk" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-dc"/></svg>
                       <b>🔎 587 · prototype</b>
                     </div>
                     <div class="r12-log" id="rungate">
-                      <div class="r10-msg">
-                        <p class="w"><b>CuriaBot</b><span class="ap">APP</span><span class="ts">21:10</span></p>
+                      <div class="r10-msg"><span class="av"><svg class="r8-mk" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-dc"/></svg></span>
+                        <p class="w"><b>CuriaBot</b><span class="ap">APP</span><span class="ts">19:10</span></p>
                         <p class="b"><b>Is alp82/curia#587 done?</b></p>
                         <p class="b">The words of all twelve scenes are locked.</p>
+                        <p class="b sm">✅ Approve to merge and resolve. A reply is a rejection, and I take your words as the change list.</p>
+                        <p class="b sm">🔎 Cross-check answers neither. It starts a reviewer on the other provider, and I wait for its verdict.</p>
                         <div class="r10-btns">
                           <button class="r10-b ok" type="button" id="runapprove">✅ Approve</button>
                           <button class="r10-b no" type="button">❌ Reject</button>
@@ -3041,7 +3307,7 @@
                         <p class="mk" id="runreceipt">✅ <b>approved</b> by <span class="men">@Alper</span></p>
                       </div>
                     </div>
-                    <div class="r12-comp" aria-hidden="true"><span class="pl">+</span><span class="fd">Message</span><span class="em">☺</span></div>
+                    <div class="r12-comp" aria-hidden="true"><span class="pl">+</span><span class="fd">Message #587</span><span class="em">☺</span></div>
                   </div>
                 </div>
               </div>
@@ -3049,7 +3315,7 @@
           </div>
         </div>
 
-        <div class="r8-card two" data-i="4" style="--rot:1.2deg">
+        <div class="r8-card two" data-i="4">
           <div>
             <div class="r8-lane" data-app="github">
               <div class="pv-win">
@@ -3059,12 +3325,18 @@
                     <svg class="r8-mk" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-gh"/></svg>
                     <b>alp82 / curia</b>
                   </div>
-                  <div class="r12-nav"><span>Code</span><span class="on">Pull requests <i>1</i></span><span>Issues</span><span>Actions</span></div>
+                  <div class="r12-nav"><span>Code</span><span>Issues</span><span class="on">Pull requests <i>1</i></span><span>Actions</span></div>
                   <div class="r12-body">
                     <p class="r10-t">Choose the words of every scene of the final page <span class="n">#597</span></p>
-                    <p class="r10-m"><span class="r10-pill merged">Merged</span><span><b>curia-sh</b> wants to merge 5 commits into <code>main</code></span></p>
+                    <p class="r10-m"><span class="r10-pill merged">Merged</span><span><b>curia-sh</b> merged 5 commits into <code>main</code></span></p>
                     <div class="r12-files"><span>5 commits</span><span>3 files changed</span><span class="a">+757</span><span class="d">−0</span></div>
-                    <p class="r10-c"><code>baa02ff</code> The words locked: verdict in NOTES</p>
+                    <ol class="r16-cms">
+                      <li><code>b952921</code><span>The landing copy prototype: candidates for every scene</span></li>
+                      <li><code>607fa84</code><span>Round 2: five candidates per slot, six headline directions</span></li>
+                      <li><code>72d09df</code><span>Round 3: the operator's picks applied as an overlay</span></li>
+                      <li><code>8e1db06</code><span>Round 4: round 3 rulings applied</span></li>
+                      <li><code>baa02ff</code><span>The words locked: verdict in NOTES</span></li>
+                    </ol>
                   </div>
                 </div>
               </div>
@@ -3076,20 +3348,25 @@
                 <div class="pv-bezel">
                   <div class="pv-screen r12-scr">
                     <span class="pv-island" aria-hidden="true"></span>
-                    <div class="r12-status" aria-hidden="true"><b>21:10</b><span class="ic"><i></i><i></i><i></i><em></em></span></div>
+                    <div class="r12-status" aria-hidden="true"><b>19:13</b><span class="ic"><i></i><i></i><i></i><em></em></span></div>
                     <div class="r12-ch">
                       <span class="bk" aria-hidden="true">‹</span>
                       <svg class="r8-mk" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-dc"/></svg>
                       <b>✅ 587 · prototype</b>
                     </div>
                     <div class="r12-log">
-                      <div class="r10-msg">
-                        <p class="w"><b>CuriaBot</b><span class="ap">APP</span><span class="ts">21:13</span></p>
+                      <div class="r10-msg"><span class="av"><svg class="r8-mk" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-dc"/></svg></span>
+                        <p class="w"><b>CuriaBot</b><span class="ap">APP</span><span class="ts">19:10</span></p>
+                        <p class="b"><b>Is alp82/curia#587 done?</b></p>
+                        <p class="mk on">✅ <b>approved</b> by <span class="men">@Alper</span></p>
+                      </div>
+                      <div class="r10-msg"><span class="av"><svg class="r8-mk" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-dc"/></svg></span>
+                        <p class="w"><b>CuriaBot</b><span class="ap">APP</span><span class="ts">19:13</span></p>
                         <p class="b">✅ reports <b>resolved</b></p>
                         <p class="b">#597 merged · #587 closed</p>
                       </div>
                     </div>
-                    <div class="r12-comp" aria-hidden="true"><span class="pl">+</span><span class="fd">Message</span><span class="em">☺</span></div>
+                    <div class="r12-comp" aria-hidden="true"><span class="pl">+</span><span class="fd">Message #587</span><span class="em">☺</span></div>
                   </div>
                 </div>
               </div>
@@ -3100,13 +3377,16 @@
       </div>
 
       <!-- The explanatory titles. They scroll naturally, on the docking
-           side, and each owns a tall slot so it holds the card it names. -->
+           side. Past 62rem each owns a viewport-tall slot with the title
+           at its middle, level with the desk. Below it a title DOCKS:
+           it rides up to the stage, sticks under it while its slot
+           passes, and the next one pushes it out. -->
       <div class="r8-steps" id="steps">
-        <p class="r8-nb on" data-i="0"><span class="nn">01</span><b>You open a ticket.</b></p>
-        <p class="r8-nb" data-i="1"><span class="nn">02</span><b>You tell it to start.</b></p>
-        <p class="r8-nb" data-i="2"><span class="nn">03</span><b>The agent starts working on it.</b></p>
-        <p class="r8-nb" data-i="3"><span class="nn">04</span><b>It waits for your confirmation.</b></p>
-        <p class="r8-nb" data-i="4"><span class="nn">05</span><b>It finishes the work.</b></p>
+        <p class="r8-nb on" data-i="0"><span class="r16-t"><span class="nn">01</span><b>You open a ticket.</b></span></p>
+        <p class="r8-nb" data-i="1"><span class="r16-t"><span class="nn">02</span><b>You tell it to start.</b></span></p>
+        <p class="r8-nb" data-i="2"><span class="r16-t"><span class="nn">03</span><b>The agent starts working on it.</b></span></p>
+        <p class="r8-nb" data-i="3"><span class="r16-t"><span class="nn">04</span><b>It waits for your confirmation.</b></span></p>
+        <p class="r8-nb" data-i="4"><span class="r16-t"><span class="nn">05</span><b>It finishes the work.</b></span></p>
       </div>
     </div>
 
@@ -3641,11 +3921,20 @@ function clampNum(v, a, b) { return v < a ? a : v > b ? b : v; }
   var k = 1;
   var io = null;
 
+  /* Round 1 of #772: five layouts on ?id=1..5, default flat. */
+  var v = (location.search.match(/[?&]id=([1-5])/) || [])[1] || '1';
+  sec.setAttribute('data-v', v);
+  var sw = document.getElementById('runsw');
+  if (sw) [].forEach.call(sw.children, function (a) { a.classList.toggle('on', a.getAttribute('data-v') === v); });
+  var tkt = document.getElementById('tkt');
+
   function setK(next) {
     next = next < 1 ? 1 : next > steps.length ? steps.length : next;
     if (next === k) return;
     k = next;
     sec.setAttribute('data-k', String(k));
+    /* the ticket blinks once when a row lands on it */
+    if (tkt) { tkt.classList.remove('tick'); void tkt.offsetWidth; tkt.classList.add('tick'); }
     steps.forEach(function (n, i) { n.classList.toggle('on', i === k - 1); });
     /* Card i belongs to beat i + 1: the first beat deals none. */
     cards.forEach(function (c) {
@@ -3656,6 +3945,16 @@ function clampNum(v, a, b) { return v < a ? a : v > b ? b : v; }
     if (k >= 4) press();
   }
 
+  /* Below 62rem the stage holds the top of the screen and the titles
+     pass under it, so the reading line sits under the stage, not at the
+     middle of the viewport where nothing can be seen. */
+  function narrow() { return !(window.matchMedia && window.matchMedia('(min-width: 62rem)').matches); }
+  var wasNarrow = narrow();
+  window.addEventListener('resize', function () {
+    if (narrow() === wasNarrow || !io) return;
+    wasNarrow = narrow(); io.disconnect(); io = null; watch();
+  });
+
   function watch() {
     if (io || !window.IntersectionObserver) return;
     /* A title owns the desk from the moment it crosses the middle of
@@ -3665,7 +3964,7 @@ function clampNum(v, a, b) { return v < a ? a : v > b ? b : v; }
         if (!e.isIntersecting) return;
         setK(parseInt(e.target.getAttribute('data-i'), 10) + 1);
       });
-    }, { rootMargin: '-45% 0px -45% 0px', threshold: 0 });
+    }, { rootMargin: narrow() ? '-70% 0px -22% 0px' : '-45% 0px -45% 0px', threshold: 0 });
     steps.forEach(function (n) { io.observe(n); });
   }
 
