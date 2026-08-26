@@ -920,6 +920,26 @@ describe('the operator verbs (#266)', () => {
     assert.equal(completed.text.includes('PRIVATE KEY'), false)
   })
 
+  // A browser-named redirect is not a field this surface forwards, and a name
+  // GitHub would refuse never reaches the daemon.
+  test('the setup start forwards the name and nothing the browser said about the redirect', async () => {
+    await press('/api/github-app/start', { name: 'curia-box', redirect_url: 'https://evil.example.com/' })
+    assert.equal(sent('/github-app/start').body.redirect_url, 'https://box.tail1234.ts.net:8445/api/github-app/complete')
+    calls = []
+    const bad = await press('/api/github-app/start', { name: '../evil' })
+    assert.equal(bad.status, 409)
+    assert.equal(sent('/github-app/start'), undefined)
+  })
+
+  test('the setup start is a write: no Origin, no setup', async () => {
+    const res = await req(surface.port, '/api/github-app/start', {
+      method: 'POST', headers: served({ 'content-type': 'application/json' }), body: JSON.stringify({ name: 'curia-box' }),
+    })
+    assert.equal(res.status, 403)
+    assert.match(res.text, /must carry an Origin header/)
+    assert.equal(sent('/github-app/start'), undefined)
+  })
+
   // The re-read (#762). The press carries no field the daemon acts on, and the
   // next page read is a fresh one so the owner rows show what was measured.
   test('the installation re-read reaches the daemon as a bare press and drops the snapshot', async () => {

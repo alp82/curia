@@ -187,7 +187,15 @@ export function permissionsFor(role) {
 
 // ---- manifest setup --------------------------------------------------------
 
+// How long a started setup stays convertible. GitHub's own code is good for
+// one hour, and the operator's trip through github.com is minutes.
 export const APP_SETUP_TTL_MS = 60 * 60 * 1000
+
+// What a browser may send back. The code is GitHub's, and it is composed into
+// a URL here, so its shape is named rather than trusted. The state is what
+// `start()` mints, and nothing else is a state.
+export const APP_SETUP_CODE_RE = /^[A-Za-z0-9_-]{1,255}$/
+export const APP_SETUP_STATE_RE = /^[0-9a-f]{64}$/
 
 function atomicWrite(file, text, mode = 0o600) {
   fs.mkdirSync(path.dirname(file), { recursive: true })
@@ -262,8 +270,11 @@ export class GitHubAppSetup {
     try {
       const record = this.#readState()
       if (record.status === 'complete') return { status: 'complete', app: record.app }
+      // `converting` and `converted` are this record's own steps between the
+      // start and the finish. To the page, every one of them is a setup that
+      // is still pending its one press on github.com.
       return {
-        status: this.now() > record.expires_at ? 'expired' : record.status,
+        status: this.now() > record.expires_at ? 'expired' : 'pending',
         expires_at: new Date(record.expires_at).toISOString(),
       }
     } catch (error) {
@@ -327,8 +338,11 @@ export class GitHubAppSetup {
     const text = await response.text()
     let payload
     try { payload = text ? JSON.parse(text) : null } catch { payload = null }
+    // 404 is what an expired or already-converted code answers, and it is the
+    // operator's own sentence rather than a status nobody can place.
+    if (response.status === 404) throw new Error('GitHub does not know that conversion code - it is good for one hour and for one conversion. Start the setup again')
     if (!response.ok) throw new Error(`GitHub answered HTTP ${response.status} while converting the App manifest${payload?.message ? `: ${payload.message}` : ''}`)
-    if (!payload?.id || !payload?.slug || !payload?.pem) throw new Error('GitHub converted the App manifest without an id, slug, or private key')
+    if (!payload?.id || !payload?.slug || !payload?.pem) throw new Error('GitHub converted the App manifest without an id, slug, or private key, so there is nothing to store')
     if (!samePermissions(payload.permissions)) throw new Error('GitHub converted the App with permissions that differ from Curia\'s requested five')
     if (!Array.isArray(payload.events) || payload.events.length) throw new Error('GitHub converted the App with webhook events, but Curia requests none')
     return { id: String(payload.id), slug: String(payload.slug), pem: String(payload.pem) }
@@ -339,7 +353,14 @@ export class GitHubAppSetup {
     fs.mkdirSync(path.dirname(this.keyFile), { recursive: true })
     fs.writeFileSync(temporaryKey, payload.pem, { mode: 0o600 })
     fs.chmodSync(temporaryKey, 0o600)
-    readPrivateKey(temporaryKey)
+    // The same check boot makes, run BEFORE the key file exists: a key that
+    // will not parse leaves no candidate behind and no half-configured app.
+    try {
+      readPrivateKey(temporaryKey)
+    } catch (error) {
+      try { fs.unlinkSync(temporaryKey) } catch { /* the candidate is already gone */ }
+      throw new Error(`GitHub's converted App carries a private key curia cannot read (${error.message})`)
+    }
     fs.renameSync(temporaryKey, this.keyFile)
     let existing = ''
     try { existing = fs.readFileSync(this.envFile, 'utf8') } catch (error) { if (error?.code !== 'ENOENT') throw error }
@@ -349,9 +370,16 @@ export class GitHubAppSetup {
     }))
   }
 
+  // The one conversion. `code` and `state` are the only two things that cross
+  // from the browser, and this is the only place either is read. A conversion
+  // code arrives on a plain redirect, which anything can forge, so the state
+  // is the whole gate: the shape is checked before the record is read, and a
+  // state curia never minted is refused before any call.
   async complete({ code, state } = {}) {
+    const stateValue = String(state ?? '').trim()
+    if (!APP_SETUP_STATE_RE.test(stateValue)) throw new Error('that GitHub App setup carries no state curia minted, so curia did not start it')
     const record = this.#readState()
-    if (String(state ?? '') !== record.state) throw new Error('the GitHub App setup state does not match')
+    if (stateValue !== record.state) throw new Error('the GitHub App setup state does not match')
     if (record.status === 'complete') {
       return { ok: false, reason: 'already completed', app: record.app }
     }
@@ -361,9 +389,20 @@ export class GitHubAppSetup {
     if (record.status === 'converted') {
       converted = readJson(this.secretFile)
     } else {
+      // A redirect replayed while the first conversion is still in flight
+      // must not convert twice, so the record is marked BEFORE the network
+      // call. A conversion that fails hands the record back, because the
+      // operator's next press is the retry.
+      if (record.status === 'converting') throw new Error('that GitHub App setup is being converted right now - a conversion code is good exactly once')
       const temporaryCode = String(code ?? '').trim()
-      if (!temporaryCode) throw new Error('the GitHub App setup returned no temporary code')
-      converted = await this.#convert(temporaryCode)
+      if (!APP_SETUP_CODE_RE.test(temporaryCode)) throw new Error('GitHub sent no usable conversion code back - start the setup again')
+      this.#writeState({ ...record, status: 'converting' })
+      try {
+        converted = await this.#convert(temporaryCode)
+      } catch (error) {
+        this.#writeState({ ...record, status: 'pending' })
+        throw error
+      }
       atomicWrite(this.secretFile, `${JSON.stringify(converted)}\n`)
       this.#writeState({ ...record, status: 'converted' })
     }
