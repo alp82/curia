@@ -38,7 +38,7 @@
      2. Null is not empty. An unreadable fleet is not an idle box, and a frontier
         nobody has computed is not an empty frontier. Every section that can fail
         on its own says which of the two it is. -->
-<meta name="curia-dashboard" content="proto=12">
+<meta name="curia-dashboard" content="proto=13">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark light">
 <title>Atlas · Curia</title>
@@ -656,27 +656,56 @@
   pre.hunks .hl.at { color: var(--accent); }
   pre.hunks .hl.meta { color: var(--ink-faint); }
 
-  /* ---------- the chat (#267) ----------
-     A door, not a room: the chat itself is the timeline page, served under this
-     surface's own address. Nothing here draws a message. */
-  .door { max-width: 620px; border: 1px solid var(--line); border-radius: 9px; background: var(--bg-raise); padding: 14px 16px; }
-  .door p { margin: 0 0 10px; font-size: 13.5px; color: var(--ink-dim); }
-  .door p.lead { color: var(--ink); }
-  .door a.btn { display: inline-block; text-decoration: none; }
-  .door a.btn:hover { text-decoration: none; }
-  .door .cannot { font-size: 12.5px; color: var(--ink-faint); margin: 10px 0 0; }
-  /* The conversation picker (#333). A row is a tap target on a phone before it
-     is a table row, so the label runs full width and the two columns beside it
-     stay as narrow as their content. */
+  /* ---------- the chat (#267, a page of Atlas by #711) ----------
+     The picker is two sections, one per role; the room is one transcript over
+     one composer. Both render from the page state. */
+  .chat-section { max-width: 720px; margin: 0 0 18px; }
+  .chat-section h3 { margin: 0 0 4px; font-size: 15px; }
+  .chat-section > p.dim-note { margin: 0 0 8px; font-size: 12.5px; }
+  .chat-section .cannot { font-size: 12.5px; color: var(--ink-faint); margin: 10px 0 0; }
   table.chats { width: 100%; border-collapse: collapse; font-size: 13px; margin: 0 0 12px; }
   table.chats td { padding: 9px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
   table.chats td + td { padding-left: 12px; text-align: right; white-space: nowrap; width: 1%; }
   table.chats tr:last-child td { border-bottom: 0; }
   table.chats a { display: block; }
+  table.chats tr.ended a b { color: var(--ink-dim); font-weight: 500; }
   table.chats .over { color: var(--warn); }
-  /* The turn a restart killed on this conversation (#388). A browser
-     conversation has no thread, so its row is where that line goes. */
   table.chats .killed { display: block; margin: 3px 0 0; font-size: 12px; color: var(--warn); }
+  .room { display: flex; flex-direction: column; max-width: 860px; min-height: 60vh; }
+  .room-facts { font-size: 12px; margin: 0 0 8px; display: flex; gap: 8px; flex-wrap: wrap; align-items: baseline; }
+  .chat-conn.ok { color: var(--ok, #2f9e44); } .chat-conn.bad { color: var(--warn); }
+  .chat-log { flex: 1; overflow-y: auto; max-height: 62vh; padding: 4px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+  .chat-log .item { margin: 7px 0; overflow-wrap: anywhere; font-size: 13.5px; }
+  .chat-log .say { white-space: pre-wrap; }
+  .chat-log .prompt, .chat-log .queued { white-space: pre-wrap; background: var(--bg-raise); border: 1px solid var(--line); border-radius: 9px; padding: 7px 10px; }
+  .chat-log .queued { opacity: .8; font-style: italic; }
+  .chat-log .think { color: var(--ink-dim); font-size: 12.5px; }
+  .chat-log .pre { white-space: pre-wrap; }
+  .chat-log .tool { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 12px; background: var(--bg-inset); border-left: 3px solid var(--accent); border-radius: 4px; padding: 5px 8px; }
+  .chat-log .tool .name { color: var(--accent); font-weight: 600; }
+  .chat-log .tool .res { display: block; color: var(--ink-dim); margin-top: 3px; }
+  .chat-log .tool .res.err { color: var(--warn); }
+  .chat-log .tool .full { display: block; white-space: pre-wrap; margin-top: 4px; font: 13px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .chat-log .note { color: var(--ink-dim); font-size: 12px; text-align: center; }
+  .chat-log .note.warn { color: var(--warn); }
+  .chat-log .at { color: var(--ink-faint); font-size: 11px; margin-right: 5px; }
+  .chat-esc { border: 1px solid var(--warn); border-radius: 9px; padding: 7px 10px; margin: 7px 0; font-size: 13px; }
+  .chat-esc .kind { color: var(--warn); font-weight: 600; font-size: 12px; }
+  .chat-esc .q { white-space: pre-wrap; }
+  .chat-esc .meta { color: var(--ink-dim); font-size: 12px; }
+  .chat-esc .ans { white-space: pre-wrap; border-top: 1px solid var(--line); margin-top: 5px; padding-top: 5px; }
+  .chat-dialog { border: 1px solid var(--warn); border-radius: 9px; padding: 7px 10px; margin: 0 0 8px; font-size: 13px; }
+  .chat-dialog.card { border-color: var(--line); background: var(--bg-raise); }
+  .chat-dialog .dialog-kind { color: var(--ink-dim); font-size: 11.5px; font-weight: 600; }
+  .chat-dialog .dialog-headline { display: block; margin: 2px 0 7px; }
+  .chat-dialog .dialog-options { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chat-dialog .dialog-options .selected { border-color: var(--accent); }
+  .chat-dialog .dialog-note { color: var(--ink-dim); font-size: 11.5px; margin-top: 5px; }
+  .composer { padding: 8px 0 0; }
+  .composer textarea { width: 100%; resize: vertical; font: inherit; font-size: 16px; background: var(--bg-raise); color: var(--ink); border: 1px solid var(--line); border-radius: 9px; padding: 8px 10px; min-height: 2.6rem; max-height: 30vh; }
+  .composer-row { display: flex; gap: 6px; align-items: center; margin-top: 6px; }
+  .composer-row .grow { flex: 1; }
+  .composer.ended { font-size: 13px; padding: 10px 0; }
   .terminal-pane { margin: 0 0 14px; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; background: #111; }
   .terminal-pane iframe { display: block; width: 100%; height: min(68vh, 720px); border: 0; }
 
@@ -3217,48 +3246,129 @@ function aistackCommands(a) {
       Run them as curia's own HOME, which is what those lines say. Curia picks the credential up on its next tick either way.`)}`;
 }
 
-/* ---- the chat (#267, many conversations by #333) ----------------------------
+/* ---- the chat (#267, many conversations by #333, a page of Atlas by #711) ----
 
-   The console draws no chat of its own and frames none. A chat IS the timeline
-   attach — the same page a phone opens against an agent — pointed at one
-   browser conversation of the overseer and served under this address. One chat
-   surface: the composer, the history and every future thing the timeline grows
-   arrive here for free, and there is no second one to keep in step.
+   Chat is two views under one route. `#chat` is the PICKER: every ticket
+   conversation and every overseer conversation curia holds, in two sections,
+   because the two roles own different work (ADR-0024). `#chat/<session>` is
+   the ROOM: one transcript, read through the daemon's active-branch tailer
+   (#689) over server-sent events, and one composer.
 
-   So this screen is a door, and #333 made it a door with many rooms behind it.
-   ADR-0016 gives the browser many conversations rather than one that grows
-   forever, so this is where the operator picks one and opens a new one. A new
-   conversation is the reset, the same way a new Discord thread is.
+   The room renders from STATE, never from the DOM. The whole page is redrawn
+   on every poll, so the stream writes into `chat` and the screen is a pure
+   function of it - which is also what lets the test drive the room without a
+   browser: it feeds `chatReceive` the same events the stream carries.
 
-   The picker lives HERE and not in the chat page, because the chat page is the
-   timeline and an agent opens the same page. A conversation switcher there
-   would put console words on the agent surface.
-
-   Every row carries its own context percent. ADR-0016 adds no warning that a
-   conversation is long: that number IS the signal, and #332 is what made it
-   true per conversation. */
+   A parked conversation is a conversation (ADR-0024): the pane returns on its
+   next message, and nothing here says "parked". An ENDED agent is different -
+   the pane is gone for good - so its transcript stays readable and the
+   composer says why it takes nothing. Both facts come from curia: `live` on
+   the picker row, `ended` on the stream's hello. */
 const CHAT_PAGE = "/chat";
-const chatHref = (session) => CHAT_PAGE + "?session=" + encodeURIComponent(session);
+const chatRoute = (session) => "chat/" + encodeURIComponent(session);
+const chatHref = (session) => "#" + chatRoute(session);
+const OVERSEER_SESSION_RE = /^curia-console-\d+$/;
+const chatRole = (session) => (OVERSEER_SESSION_RE.test(session ?? "") ? "overseer" : "ticket");
+const ENDED_SENTENCE = (session) => `${session} has ended. Its transcript stays readable, and it takes no new message.`;
+
+function chatFresh(session) {
+  return {
+    session, conn: "connecting", file: null, harness: null, ended: null, clients: 0,
+    items: [], open: [], history: [], parse: null, dialog: null, receipt: null,
+    draft: "", mirror: false, notes: [], lastEdit: 0, stick: true,
+    client: Math.random().toString(36).slice(2, 8), es: null,
+  };
+}
+var chat = chatFresh(null);
+
+/* The route decides the view (#700's rule): a reload and a back press land
+   where they were, and the tab press lands on the picker. */
+function applyChatRoute(parts) {
+  const session = parts.length >= 2 ? decodeURIComponent(parts[1]) : null;
+  if (session === chat.session) return;
+  chatClose();
+  chat = chatFresh(session);
+  chatConnect();
+}
+function chatClose() {
+  if (chat.es) { try { chat.es.close(); } catch { /* already closed */ } }
+  chat.es = null;
+}
+const CHAT_EVENTS = ["hello", "items", "reset", "parse", "dialog", "escalations", "esc_history", "clients", "draft", "sent"];
+function chatConnect() {
+  if (!chat.session || typeof EventSource === "undefined") return;
+  const es = new EventSource(`/events?session=${encodeURIComponent(chat.session)}&client=${chat.client}`);
+  for (const name of CHAT_EVENTS) {
+    es.addEventListener(name, (e) => { chatReceive(name, JSON.parse(e.data)); });
+  }
+  es.onerror = () => { chat.conn = "reconnecting"; render(); };
+  chat.es = es;
+}
+
+/* One stream event into the state. The event names are the timeline's
+   (timeline.mjs), and a name this page does not know is dropped rather than
+   drawn wrong. */
+function chatReceive(name, d) {
+  const c = chat;
+  if (name === "hello") {
+    c.conn = "live"; c.file = d.file ?? null; c.harness = d.harness ?? null;
+    c.ended = d.ended === true; c.clients = d.clients ?? c.clients;
+    if (d.draft && !c.draft) c.draft = d.draft;
+  } else if (name === "items") {
+    for (const it of d) {
+      if (it.kind === "result") {
+        const tool = c.items.find((x) => x.kind === "tool" && x.id && x.id === it.forId);
+        if (tool) { tool.result = it; continue; }
+      }
+      c.items.push(it);
+    }
+    c.stick = true;
+  } else if (name === "reset") {
+    c.items = []; c.parse = null; c.file = d.file ?? null;
+  } else if (name === "parse") {
+    c.parse = d;
+  } else if (name === "dialog") {
+    if (d.receipt) { c.receipt = d.receipt; c.dialog = null; }
+    else if (!d.up) { c.dialog = null; }
+    else { c.dialog = d; c.receipt = null; }
+  } else if (name === "escalations") {
+    c.open = d;
+  } else if (name === "esc_history") {
+    c.history = d;
+  } else if (name === "clients") {
+    c.clients = d.clients;
+  } else if (name === "draft") {
+    if (d.by === c.client) return;
+    if (Date.now() - c.lastEdit < 1500) return;
+    c.draft = d.text; c.mirror = !!d.text;
+  } else if (name === "sent") {
+    c.mirror = false;
+    if (d.by !== c.client) chatNote(`sent from the other device: ${snip(d.text, 80)}`);
+    return render();
+  } else {
+    return;
+  }
+  render();
+}
+function chatNote(text, warn = false) {
+  chat.notes.push({ text, warn, at: new Date().toISOString() });
+  chat.stick = true;
+}
 
 function screenChat(p) {
-  /* The overseer runs in its own container (#315), but every message reaches it
-     THROUGH the daemon, so a daemon that is not answering is still a chat that
-     is not there. The bar above says why; this says what it means. */
+  if (chat.session) return chatRoom(p);
+  return chatPicker(p);
+}
+
+/* ---- the picker ---- */
+function chatPicker(p) {
   const down = p && !p.daemon_up;
-  const lead = `<p class="lead">This is the overseer — the same curia that answers your prose in
-      Discord. It sees every watched repo, and it holds the verbs: ask it what to start, then say
-      <code>start 256</code> and it dispatches.</p>
-    ${down ? `<p class="unread">The chat is down while the daemon restarts. Your message reaches the overseer through it.</p>` : ""}`;
   const count = conversations?.conversations?.length ?? null;
   const tools = `<button class="btn sm" type="button" onclick="toggleTerminal()">Terminal</button>${count == null ? "" : `<span class="dim-note num">${count} conversation${count === 1 ? "" : "s"}</span>`}`;
   return `${head(p, "Chat", tools)}
     <div id="terminal-pane" class="terminal-pane" hidden></div>
-    <div class="door">${lead}${chatList()}
-      <p class="cannot">It holds a reading shell over a checkout of every watched repo, so it can
-        read a file or a diff — but it cannot write one: its GitHub token is read-only, and every
-        effect still crosses the daemon. A destructive verb still posts its ✅/❌ card, and that
-        card lands on Home.</p>
-    </div>`;
+    ${down ? `<p class="unread">The chat is down while the daemon restarts. Your message reaches every conversation through it.</p>` : ""}
+    ${chatList()}`;
 }
 
 function toggleTerminal() {
@@ -3281,16 +3391,27 @@ function chatList() {
     return `<div class="unread">curia could not read your conversations — ${esc(conversations.error ?? "no reason given")}.</div>
       ${newChatButton()}`;
   }
-  const rows = conversations.conversations.map(chatRow).join("");
-  if (!rows) {
-    /* The state after the cutover, and after the last conversation is deleted.
-       Nothing is minted by looking at this screen: a page read must not spend a
-       number, and numbers only go up. */
-    return `<p>No conversations yet. Press below to open the first one.</p>${newChatButton()}`;
-  }
-  return `<table class="chats">${rows}</table>${newChatButton()}
-    <p class="cannot">A new conversation is the reset — the same thing a new thread is in Discord.
-      Open one when the context above reads full. Deleting one spends its number for good.</p>`;
+  const all = conversations.conversations;
+  const tickets = all.filter((c) => c.kind !== "overseer");
+  const overseer = all.filter((c) => c.kind === "overseer");
+  return `<section class="chat-section">
+      <h3>Tickets</h3>
+      <p class="dim-note">One conversation per agent. An ended agent stays readable.</p>
+      ${tickets.length ? `<table class="chats">${tickets.map(chatRow).join("")}</table>` : `<p class="dim-note">No agent is running or recently ended.</p>`}
+    </section>
+    <section class="chat-section">
+      <h3>Overseer</h3>
+      <p class="dim-note">curia itself: it sees every watched repo and holds the verbs. Ask it what to start, then say <code>start 256</code>.</p>
+      ${overseer.length
+        ? `<table class="chats">${overseer.map(chatRow).join("")}</table>`
+        : `<p>No overseer conversation yet. Press below to open the first one.</p>`}
+      ${newChatButton()}
+      <p class="cannot">A new conversation is the reset — the same thing a new thread is in Discord.
+        Open one when the context above reads full. Deleting one spends its number for good.
+        The overseer holds a reading shell over a checkout of every watched repo, so it can
+        read a file or a diff — but it cannot write one: its GitHub token is read-only, and every
+        effect still crosses the daemon.</p>
+    </section>`;
 }
 
 function newChatButton() {
@@ -3299,14 +3420,16 @@ function newChatButton() {
     ${busy(k) ? "Opening…" : "New conversation"}</button></p>${said(k)}`;
 }
 
+/* A row's title is role-specific: a ticket reads as its tracker name and
+   title, an overseer conversation as the operator's own first message. */
+function chatTitle(c) {
+  if (c.kind === "overseer") return c.label ? c.label : null;
+  return c.label || ticketName(c.repo, c.ticket) || c.session;
+}
 function chatRow(c) {
   const k = "chat-del-" + c.key;
-  /* The label is the operator's own first message, read off the transcript by
-     the daemon. A conversation with no turn yet has none, and says so rather
-     than showing a blank row. */
-  const label = c.label
-    ? `<b>${esc(c.label)}</b>`
-    : `<span class="dim-note">no turn yet</span>`;
+  const title = chatTitle(c);
+  const label = title ? `<b>${esc(title)}</b>` : `<span class="dim-note">no turn yet</span>`;
   const answer = said(k);
   /* A browser conversation has no thread, so the line ADR-0015 gives a killed
      turn lands here — on the row the operator picks it from. It clears itself:
@@ -3315,15 +3438,16 @@ function chatRow(c) {
     ? `<span class="killed">⚠️ A restart killed a turn here${
       c.dropped.commands?.length ? `, and it had run ${esc(c.dropped.commands.join(", "))}` : ""
     }. curia did not send your message again${
-      /* The commands are the reason when there are any: not said twice. */
       !c.dropped.commands?.length && c.dropped.why ? ` — ${esc(c.dropped.why)}` : ""}.</span>`
     : "";
-  const kind = c.kind === "ticket" ? `ticket · ${esc(c.state ?? "archive")}` : "overseer";
+  const facts = c.kind === "overseer"
+    ? [c.key, ago(c.last_turn_at)]
+    : [ticketName(c.repo, c.ticket), c.reviewer ? "reviewer" : null, c.live === false ? `ended · ${c.state ?? "archive"}` : (c.state ?? "working"), ago(c.last_turn_at)];
   const remove = c.deletable === false ? "" : `<button class="btn sm" ${anyBusy() ? "disabled" : ""} onclick="doDeleteConversation('${js(c.key)}')">
       ${busy(k) ? "…" : "delete"}</button>`;
-  return `<tr>
+  return `<tr class="${c.live === false ? "ended" : ""}">
     <td><a href="${esc(chatHref(c.session))}">${label}</a>
-      <span class="dim-note mono" style="display:block;margin:2px 0 0">${kind} · ${esc(c.key)} · ${esc(ago(c.last_turn_at))}</span>${dropped}</td>
+      <span class="dim-note mono" style="display:block;margin:2px 0 0">${facts.filter(Boolean).map(esc).join(" · ")}</span>${dropped}</td>
     <td class="num">${ctxCell(c)}</td>
     <td>${remove}</td>
   </tr>${answer ? `<tr><td colspan="3">${answer}</td></tr>` : ""}`;
@@ -3333,7 +3457,7 @@ function chatRow(c) {
    find in a list is two acts where the operator asked for one. */
 async function doNewConversation() {
   const out = await verb("chat-new", "/api/console/new", {});
-  if (out?.session) location.href = chatHref(out.session);
+  if (out?.session) location.hash = chatRoute(out.session);
 }
 
 async function doDeleteConversation(key) {
@@ -3342,6 +3466,221 @@ async function doDeleteConversation(key) {
   if (typeof confirm === "function" && !confirm(ask)) return;
   await verb("chat-del-" + key, "/api/console/delete", { key });
   loadConversations();
+}
+
+/* ---- the room ---- */
+const chatRowFor = (session) => conversations?.conversations?.find((c) => c.session === session) ?? null;
+/* Ended is curia's word, from either of its two mouths: the picker row's
+   `live`, or the stream's `ended`. Either one says so, and the room refuses. */
+const chatEnded = () => chat.ended === true || chatRowFor(chat.session)?.live === false;
+
+function chatRoom(p) {
+  const c = chat;
+  const row = chatRowFor(c.session);
+  const role = row?.kind === "overseer" || chatRole(c.session) === "overseer" ? "overseer" : "ticket";
+  const title = row ? (chatTitle(row) ?? c.session) : c.session;
+  const ended = chatEnded();
+  const conn = c.conn === "live" ? `<span class="chat-conn ok">live</span>` : `<span class="chat-conn bad">${esc(c.conn)}</span>`;
+  const watching = c.clients > 1 ? `<span class="dim-note">${c.clients} devices watching</span>` : "";
+  const terminal = role === "ticket" && !ended
+    ? `<a class="btn sm" href="/terminal/?arg=${encodeURIComponent(c.session)}" target="_blank">Terminal</a>` : "";
+  const tools = `<a class="btn sm" href="#chat">← Chat</a>${terminal}`;
+  return `${head(p, title, tools)}
+    <div class="room" data-role="${role}">
+      <div class="room-facts dim-note mono">${esc(role)} · ${esc(c.session)} ${conn} ${watching}
+        ${c.file ? `<span class="chat-file">${esc(c.file.split("/").pop())}</span>` : `<span>no transcript yet</span>`}</div>
+      ${ended ? `<p class="unread chat-ended">${esc(ENDED_SENTENCE(c.session))}</p>` : ""}
+      ${c.parse ? `<p class="unread">⚠ This transcript is INCOMPLETE — ${esc(c.parse.reason)} (${c.parse.dropped} line${c.parse.dropped > 1 ? "s" : ""} dropped). The agent may not be quiet; check the terminal.</p>` : ""}
+      ${chatDialog(c)}
+      ${c.open.map(chatOpenEscalation).join("")}
+      <div class="chat-log" id="chat-log" onscroll="chatScrolled(this)">${chatLog(c)}</div>
+      ${chatComposer(c, role, ended)}
+    </div>`;
+}
+
+function chatOpenEscalation(r) {
+  const bits = [`since ${clock(r.opened_at)}`];
+  if (r.options?.length) bits.push(`options: ${r.options.join(" | ")}`);
+  if (r.preview_url) bits.push(r.preview_url);
+  bits.push("answer it on Home or in Discord — the composer below queues a message, it does not answer this");
+  return `<div class="chat-esc"><div class="kind">⏳ waiting on you — ${esc(r.kind)} (${esc(r.id)})</div>
+    <div class="q">${esc(r.prompt ?? "")}</div><div class="meta">${esc(bits.join(" · "))}</div></div>`;
+}
+
+/* The transcript items and the daemon's own escalation record, interleaved by
+   instant (#108 item 1): the record keeps the full question, the answer and
+   who gave it, where the transcript's tool line is a clipped brief. The page's
+   own notes (a failed send, a take-back receipt) land at their instant too. */
+function chatLog(c) {
+  const rows = [
+    ...c.items.map((it) => ({ at: it.at ?? null, html: chatItem(it) })),
+    ...c.history.map((r) => ({ at: r.opened_at ?? null, html: chatHistoryCard(r) })),
+    ...c.notes.map((n) => ({ at: n.at, html: `<div class="item note ${n.warn ? "warn" : ""}">${esc(n.text)}</div>` })),
+  ].filter((r) => r.html);
+  /* A stable sort by instant, and an item with no instant keeps its place. */
+  const timed = rows.map((r, i) => ({ ...r, i }));
+  timed.sort((a, b) => (a.at && b.at && a.at !== b.at) ? (a.at < b.at ? -1 : 1) : a.i - b.i);
+  if (!timed.length) return `<div class="item note">${c.conn === "live" ? "Nothing in this transcript yet." : "Connecting…"}</div>`;
+  return timed.map((r) => r.html).join("");
+}
+function chatItem(it) {
+  const at = it.at ? `<span class="at">${clock(it.at)}</span>` : "";
+  if (it.kind === "say") return `<div class="item say">${at}${esc(it.text)}</div>`;
+  if (it.kind === "prompt" || it.kind === "queued") {
+    const text = String(it.text ?? "");
+    if (text.length > 400) {
+      return `<div class="item ${it.kind}"><details><summary>${it.kind === "queued" ? "queued: " : "sent: "}${esc(text.slice(0, 90))}…</summary><div class="pre">${esc(text)}</div></details></div>`;
+    }
+    return `<div class="item ${it.kind}">${esc(text)}</div>`;
+  }
+  if (it.kind === "think") return `<div class="item think"><details><summary>thinking…</summary><div class="pre">${esc(it.text)}</div></details></div>`;
+  if (it.kind === "tool") {
+    const name = String(it.name ?? "").replace("mcp__curia__", "curia.");
+    /* Full curia prose replaces the one-line brief (#108 item 1); ask_human
+       stays a brief here — its escalation card carries the full body. */
+    const body = it.text && !/ask_human$/.test(it.name ?? "")
+      ? `<span class="full">${esc(it.text)}</span>` : `<span class="brief">${esc(it.brief ?? "")}</span>`;
+    const r = it.result;
+    const res = r ? `<span class="res ${r.ok ? "" : "err"}">${r.ok ? "→ " : "✗ "}${esc(r.brief)}${r.lines > 1 ? ` (${r.lines} lines)` : ""}</span>` : "";
+    return `<div class="item tool">${at}<span class="name">${esc(name)}</span> ${body}${res}</div>`;
+  }
+  if (it.kind === "result") return `<div class="item tool">${it.ok ? "→ " : "✗ "}${esc(it.brief)}</div>`;
+  return `<div class="item note">${esc(it.text ?? "")}</div>`;
+}
+function chatHistoryCard(r) {
+  const options = r.options?.length ? `<div class="meta">options: ${esc(r.options.join(" | "))}</div>` : "";
+  let ans;
+  if (r.status === "answered") {
+    const who = r.answered_by ? ` by ${r.answered_by}` : "";
+    const via = r.answered_via ? ` (${r.answered_via})` : "";
+    ans = `<div class="ans">✔ answered${esc(who)}${esc(via)} ${clock(r.closed_at)}: ${esc(r.answer ?? "")}</div>`;
+  } else if (r.status === "open") {
+    ans = `<div class="meta">waiting on you</div>`;
+  } else {
+    ans = `<div class="meta">${esc(r.status)} ${clock(r.closed_at)}</div>`;
+  }
+  return `<div class="item chat-esc" id="esc-h-${esc(r.id)}"><div class="kind">${r.status === "open" ? "⏳" : "❓"} ${esc(r.kind)} (${esc(r.id)}) · asked ${clock(r.opened_at)}</div>
+    <div class="q">${esc(r.prompt ?? "")}</div>${options}${ans}</div>`;
+}
+
+/* #715: a measured native choice is a typed card. An unmeasured dialog keeps
+   the guard and the terminal fallback. */
+function chatDialog(c) {
+  const terminal = `<a href="/terminal/?arg=${encodeURIComponent(c.session)}" target="_blank">Open the terminal</a>`;
+  if (c.receipt) {
+    return `<div class="chat-dialog card">✔ answered · ${esc(c.receipt.by)} · ${clock(c.receipt.at)} · ${esc(c.receipt.marker)} · ${esc(c.receipt.answer)}</div>`;
+  }
+  const d = c.dialog;
+  if (!d) return "";
+  if (!d.card) {
+    return `<div class="chat-dialog">⚠ A native dialog owns the terminal. ${esc(d.reason || "Curia cannot parse its controls.")} ${terminal}
+      <div class="dialog-note">Chat sends stay blocked while this dialog is open.</div></div>`;
+  }
+  const options = d.card.options.map((o) => `<button class="btn sm ${o.index === d.card.selected_index ? "selected" : ""}" ${anyBusy() ? "disabled" : ""}
+      onclick="doDialogAnswer('${js(d.card.id)}', ${Number(o.index)})">${esc(o.marker)} · ${esc(o.handle || o.label)}${o.index === d.card.selected_index ? " · selected now" : ""}</button>`).join("");
+  return `<div class="chat-dialog card"><div class="dialog-kind">native dialog · choice</div>
+    <strong class="dialog-headline">${esc(d.card.headline)}</strong>
+    <div class="dialog-options">${options}</div>
+    <div class="dialog-note">The first valid tap wins. The same receipt reaches every open Chat.</div>${terminal}${said("chat-dialog")}</div>`;
+}
+
+function chatComposer(c, role, ended) {
+  if (ended) return `<div class="composer ended"><span class="dim-note">${esc(ENDED_SENTENCE(c.session))}</span></div>`;
+  const k = "chat-send";
+  return `<div class="composer">
+    ${c.mirror ? `<div class="dim-note">the other device is typing…</div>` : ""}
+    <textarea id="chat-box" rows="1" placeholder="type here, shared box" oninput="chatTyped(this.value)" onkeydown="chatKey(event)">${esc(c.draft)}</textarea>
+    <div class="composer-row">
+      <button class="btn sm" ${anyBusy() ? "disabled" : ""} onclick="doTakeBack()" title="take back your last message">${busy("chat-take-back") ? "…" : "Take back"}</button>
+      ${role === "ticket" ? `<button class="btn sm" ${anyBusy() ? "disabled" : ""} onclick="doChatKey('escape')" title="send Escape to the agent">Esc</button>` : ""}
+      <span class="grow"></span>
+      <button class="btn primary" ${anyBusy() ? "disabled" : ""} onclick="doChatSend()">${busy(k) ? "Sending…" : "Send"}</button>
+    </div>${said(k)}${said("chat-take-back")}${said("chat-key")}</div>`;
+}
+
+/* The shared composer (#73): the draft goes to the other device, 200ms after
+   the last keystroke. The value never rides the DOM across a render. */
+let chatDraftTimer = null;
+function chatTyped(value) {
+  chat.draft = value;
+  chat.lastEdit = Date.now();
+  chat.mirror = false;
+  clearTimeout(chatDraftTimer);
+  chatDraftTimer = setTimeout(() => chatPost("/draft", { text: chat.draft }), 200);
+}
+function chatKey(e) {
+  /* Desktop: Enter sends, Shift+Enter newlines. On a phone the on-screen return
+     key inserts a newline and the Send button is the only submit. */
+  const coarse = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
+  if (e.key === "Enter" && !e.shiftKey && !coarse) { e.preventDefault(); doChatSend(); }
+}
+function chatPost(p, extra) {
+  return fetch(p, {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify({ session: chat.session, client: chat.client, ...extra }),
+  }).then((r) => r.json()).catch((e) => ({ error: e.message }));
+}
+/* The room's presses ride the same busy/said seam every other page uses: one
+   press in flight, its answer shown at the control it came from. A send that
+   failed keeps the words in the composer. */
+async function doChatSend() {
+  const text = chat.draft;
+  if (!text.trim() || anyBusy()) return;
+  if (chatEnded()) return refuse("chat-send", ENDED_SENTENCE(chat.session));
+  UI.act.busy = "chat-send"; UI.act.said = null;
+  chat.draft = "";
+  render();
+  const r = await chatPost("/send", { text });
+  UI.act.busy = null;
+  if (r.error) {
+    if (!r.unconfirmed) chat.draft = text;
+    UI.act.said = { key: "chat-send", ok: false, text: (r.unconfirmed ? "send unconfirmed: " : "send failed: ") + r.error };
+  }
+  chat.stick = true;
+  render();
+}
+async function doTakeBack() {
+  if (anyBusy()) return;
+  UI.act.busy = "chat-take-back"; UI.act.said = null;
+  render();
+  const r = await chatPost("/take-back", { target: null });
+  UI.act.busy = null;
+  if (r.error) {
+    UI.act.said = { key: "chat-take-back", ok: false, text: `take back failed: ${r.error}` };
+  } else {
+    chat.draft = r.composer || "";
+    chatPost("/draft", { text: chat.draft });
+    chatNote([r.receipt?.headline, r.receipt?.landing, ...(r.receipt?.remains || [])].filter(Boolean).join(" "));
+  }
+  render();
+}
+async function doChatKey(key) {
+  if (anyBusy()) return;
+  UI.act.busy = "chat-key"; UI.act.said = null;
+  render();
+  const r = await chatPost("/key", { key });
+  UI.act.busy = null;
+  if (r.error) UI.act.said = { key: "chat-key", ok: false, text: r.error };
+  render();
+}
+async function doDialogAnswer(dialog, index) {
+  if (anyBusy()) return;
+  UI.act.busy = "chat-dialog"; UI.act.said = null;
+  render();
+  const r = await chatPost("/dialog-answer", { dialog, index });
+  UI.act.busy = null;
+  if (r.receipt) chatReceive("dialog", { up: false, receipt: r.receipt });
+  else UI.act.said = { key: "chat-dialog", ok: false, text: r.error || "Curia could not answer this native dialog." };
+  render();
+}
+function chatScrolled(el) {
+  chat.stick = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+}
+/* After a render: the log follows its tail unless the reader scrolled up. */
+function chatAfterRender() {
+  const el = document.getElementById("chat-log");
+  if (el && chat.stick) el.scrollTop = el.scrollHeight;
 }
 
 async function doGitHubAppSetup() {
@@ -3759,6 +4098,7 @@ function render() {
   </div>`;
   document.title = (n ? `(${n}) ` : "") + "Atlas · Curia";
   restoreField(field);
+  if (UI.screen === "chat") chatAfterRender();
   /* The hunks a card just asked for (#355). Started AFTER the page is written,
      so a renderer stays a renderer — and once each, because the marker the
      request left behind is what the next render reads. */
@@ -3824,6 +4164,7 @@ function routeParts() { return location.hash.slice(1).split("/").filter(Boolean)
 function routeName(k) { return k === "frontier" ? "maps" : k; }
 function enter(k) {
   k = routeName(k);
+  if (UI.screen === "chat" && k !== "chat") applyChatRoute([]);
   UI.screen = k;
   if (k === "settings" && !settings) loadSettings();
   if (k === "chat") loadConversations();
@@ -3845,7 +4186,15 @@ function recordFeedVisit() {
 /* Arriving at Maps from the nav is the LIST, always. The detail is a route of
    its own, so a tab press that did not name one must not land on the last one
    the operator happened to open. */
-function goto(k) { enter(k); if (routeName(k) === "maps") UI.maps.open = false; if (k === "agents") UI.agents.open = false; location.hash = k; render(); }
+function goto(k) {
+  enter(k);
+  if (routeName(k) === "maps") UI.maps.open = false;
+  if (k === "agents") UI.agents.open = false;
+  /* The tab press is the picker (#711): a room is a route of its own. */
+  if (k === "chat") applyChatRoute([]);
+  location.hash = k;
+  render();
+}
 window.addEventListener("hashchange", () => {
   const parts = routeParts();
   const k = routeName(parts[0] ?? "");
@@ -3856,8 +4205,9 @@ window.addEventListener("hashchange", () => {
   const moved = k !== UI.screen;
   if (k === "maps") applyMapRoute(parts);
   if (k === "agents") applyAgentsRoute(parts);
+  if (k === "chat") applyChatRoute(parts);
   if (moved) enter(k);
-  if (moved || k === "maps" || k === "agents") render();
+  if (moved || k === "maps" || k === "agents" || k === "chat") render();
 });
 
 /* ---- the poll -------------------------------------------------------------
@@ -3901,6 +4251,7 @@ if (typeof document !== "undefined" && document.getElementById("app")) {
   const initialParts = routeParts();
   if (routeName(initialParts[0] ?? "") === "maps") applyMapRoute(initialParts);
   if (initialParts[0] === "agents") applyAgentsRoute(initialParts);
+  if (initialParts[0] === "chat") applyChatRoute(initialParts);
   const initial = routeName(initialParts[0] ?? "");
   enter(NAMES.includes(initial) ? initial : "home");
   /* The file read happens at boot even when the operator lands somewhere else

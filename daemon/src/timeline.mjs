@@ -41,7 +41,7 @@ import fs from 'node:fs'
 import http from 'node:http'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { assertServe, serveOff, attachBase, validSessionName } from './attach.mjs'
+import { assertServe, serveOff, attachBase, atlasChatUrl, validSessionName } from './attach.mjs'
 import { paneTail } from './dispatch.mjs'
 import { sendText, sendKey, sendDialogOption, capturePane } from './tmux.mjs'
 import { detectHarness, findTranscript, transcriptForSession, readActiveTranscript } from './transcript.mjs'
@@ -212,9 +212,19 @@ async function readBody(req) {
 }
 
 export class TimelineSurface {
-  constructor({ port, servePort, index, workspaceRoot, log = console.log, pollMs = 600, dialogProbeMs = 2000, deps = {} }) {
+  constructor({
+    port, servePort, index, workspaceRoot, atlasServePort = null,
+    log = console.log, pollMs = 600, dialogProbeMs = 2000, deps = {},
+  }) {
     this.port = port
+    // The port the LEGACY rule published this surface on. #711 retired that
+    // rule: Atlas reaches this listener over loopback through the sidecar,
+    // and the port is kept only so reconcile can keep withdrawing what an
+    // older daemon left in tailscaled.
     this.servePort = servePort
+    // Where Atlas is published. Every chat link composes against it now.
+    this.atlasServePort = atlasServePort
+    this.retired = false
     this.index = index
     this.workspaceRoot = workspaceRoot
     this.log = log
@@ -263,6 +273,12 @@ export class TimelineSurface {
       correct: null,
       // recordTurn(request): binds queued note drains to this operator turn.
       recordTurn: null,
+      // sessionAlive(session): does a pane still run for this session (#711).
+      // Null skips the check. A session that has ended keeps its transcript
+      // readable and refuses new input with a sentence, rather than handing
+      // the words to tmux and reporting whatever tmux says about a session
+      // that is gone.
+      sessionAlive: null,
       // identityCheck(headers): the #151 gate — a refusal reason, or null to
       // admit. The default REFUSES: this is a security control, so an
       // unconfigured surface must fail closed rather than inherit the
@@ -275,6 +291,19 @@ export class TimelineSurface {
     this.server = null
     this.listening = false
     this.timer = null
+  }
+
+  // Has this session's pane ended (#711)? Only a pane can end this way; a
+  // driven conversation parks and returns. An unanswerable probe is not
+  // evidence, and reads as alive: the send path's own failure is louder than
+  // a guess here would be.
+  async #ended(session) {
+    if (this.#driver(session) || !this.deps.sessionAlive) return false
+    try { return !(await this.deps.sessionAlive(session)) } catch { return false }
+  }
+
+  #endedRefusal(session) {
+    return { error: `${session} has ended. Its transcript stays readable here, and it takes no new message.`, ended: true }
   }
 
   // A driven session (#267) or a pane. Read per call rather than cached: the
@@ -349,36 +378,39 @@ export class TimelineSurface {
     this.listening = false
   }
 
-  // Reconcile hook, beside #assertAttachSurface and under its rules: the serve
-  // rule is asserted only over a verified surface, and a refused one is
-  // actively withdrawn — `tailscale serve --bg` config persists in tailscaled,
-  // so skipping the assert alone would leave a previous run's rule publishing
-  // a page nobody agreed to (or a foreign listener on our port).
+  // Reconcile hook, beside #assertAttachSurface. Since #711 the hook PUBLISHES
+  // NOTHING: the Chat surface is the Atlas page, and the sidecar pipes its
+  // routes to this listener over loopback. What the hook still does is
+  // withdraw the legacy rule — `tailscale serve --bg` config persists in
+  // tailscaled, so a daemon that skipped this would leave a previous run's
+  // rule publishing the retired page tailnet-wide.
   async assert() {
-    const refusal = this.listening ? pageRefusal(this.index) : `the timeline listener on 127.0.0.1:${this.port} is not up`
-    if (refusal) {
-      this.deps.journal('timeline_surface_withdrawn', { reason: refusal })
-      try {
-        await this.deps.serveOff({ servePort: this.servePort, log: this.log })
-        this.log(`WARNING: ${refusal} — timeline serve rule for :${this.servePort} withdrawn`)
-      } catch (e) {
-        this.log(`WARNING: ${refusal} — and withdrawing the timeline serve rule failed (${e.message}); if a rule for :${this.servePort} exists it REMAINS PUBLISHED tailnet-wide; run \`tailscale serve --https=${this.servePort} off\` by hand`)
-      }
+    if (!this.listening) {
+      this.deps.journal('timeline_surface_withdrawn', { reason: `the timeline listener on 127.0.0.1:${this.port} is not up` })
       return { verified: false }
     }
-    await this.deps.assertServe({ servePort: this.servePort, targetPort: this.port })
+    if (!this.retired) {
+      try {
+        await this.deps.serveOff({ servePort: this.servePort, log: this.log })
+        this.retired = true
+        this.deps.journal('timeline_serve_retired', { serve_port: this.servePort })
+      } catch (e) {
+        this.log(`WARNING: withdrawing the retired timeline serve rule failed (${e.message}); if a rule for :${this.servePort} exists it REMAINS PUBLISHED tailnet-wide; run \`tailscale serve --https=${this.servePort} off\` by hand`)
+      }
+    }
     return { verified: true }
   }
 
   // The composed link (#54/#68's rule: every link a human gets comes from
-  // curia's own records). Runs the same verification the reconcile assert
-  // does, so a link is never handed out for a surface that would refuse.
+  // curia's own records). It lands on the Atlas Chat route (#711), and it is
+  // refused while this listener is down, because that route reads through it.
   async link(session) {
     if (!validSessionName(session)) throw new Error(`"${session}" is not a valid curia session name`)
     const { verified } = await this.assert()
     if (verified === false) throw new Error(`the timeline surface is down — see the daemon log`)
+    if (!this.atlasServePort) throw new Error('the timeline was constructed with no Atlas serve port, so it cannot compose a chat link')
     const base = await this.deps.attachBase()
-    return `https://${base}:${this.servePort}/?session=${session}`
+    return atlasChatUrl(base, this.atlasServePort, session)
   }
 
   // ---------------------------------------------------------------------------
@@ -721,7 +753,12 @@ export class TimelineSurface {
       s.clients.add(client)
       // A late joiner replays the whole run for free: the backlog problem a
       // broker has to solve is solved by the file being a file (#72).
-      this.#send(res, 'hello', { session, file: s.file, harness: s.harness, clients: s.clients.size, draft: s.draft })
+      // `ended` is the pane's word (#711): a session no pane runs for stays
+      // readable and takes no new message. A driven conversation is never
+      // ended this way — a parked pane returns on its next message, and the
+      // page must not show it as anything but a conversation.
+      const ended = await this.#ended(session)
+      this.#send(res, 'hello', { session, file: s.file, harness: s.harness, clients: s.clients.size, draft: s.draft, ended })
       if (s.items.length) this.#send(res, 'items', s.items)
       if (s.parse) this.#send(res, 'parse', s.parse)
       if (s.dialog) this.#send(res, 'dialog', this.#dialogPayload(s.dialog))
@@ -879,6 +916,12 @@ export class TimelineSurface {
         this.#broadcast(s, 'sent', { text, by })
         return json(200, { ok: true })
       }
+      // A pane that has ended takes no words (#711). The refusal is a sentence
+      // about the session, not a tmux error about a missing one.
+      if (await this.#ended(b.session)) {
+        this.deps.journal('timeline_send', { session: b.session, by, outcome: 'refused_ended', text: clip(text) })
+        return json(409, this.#endedRefusal(b.session))
+      }
       // The #75 guard: fresh capture, positive evidence only. Typing into a
       // dialog answers it blind or vanishes without a trace — refusing keeps
       // the text in the composer, and the broadcast pins the banner on every
@@ -942,6 +985,10 @@ export class TimelineSurface {
       if (this.#driver(b.session)) {
         this.deps.journal('timeline_key', { session: b.session, by, key, outcome: 'refused_no_pane' })
         return json(409, { error: `${b.session} is not a terminal — it takes words, and a turn runs to its end, so there is no key to send it` })
+      }
+      if (await this.#ended(b.session)) {
+        this.deps.journal('timeline_key', { session: b.session, by, key, outcome: 'refused_ended' })
+        return json(409, this.#endedRefusal(b.session))
       }
       if (!DIALOG_SAFE_KEYS.has(key)) {
         const dialog = await this.#probeDialog(b.session, s)

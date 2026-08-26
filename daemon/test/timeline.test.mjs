@@ -650,6 +650,8 @@ describe('TimelineSurface', () => {
   let port
   const journal = []
   const sent = []
+  const offs = [] // every serve port the surface withdrew (#711)
+  const endedSessions = new Set() // panes that are gone, as sessionAlive answers
   const dialogAnswers = []
   let escalations = []
   let escHistory = []
@@ -693,6 +695,7 @@ describe('TimelineSurface', () => {
     surface = new TimelineSurface({
       port: 0,
       servePort: 8444,
+      atlasServePort: 8445,
       index: DEFAULT_TIMELINE_INDEX,
       workspaceRoot: workspaceRoot(),
       log: () => {},
@@ -723,9 +726,10 @@ describe('TimelineSurface', () => {
         },
         capturePane: async () => (typeof pane === 'function' ? pane() : pane),
         composerFor: (harness) => harness === 'codex' ? CODEX_COMPOSER_RE : COMPOSER_RE,
-        assertServe: async () => {},
-        serveOff: async () => {},
+        assertServe: async () => { throw new Error('the timeline publishes nothing since #711') },
+        serveOff: async ({ servePort }) => offs.push(servePort),
         attachBase: async () => 'box.tailnet.ts.net',
+        sessionAlive: async (session) => !endedSessions.has(session),
         driverFor: (session) => (session === DRIVEN
           ? {
             cfgDir: drivenCfg(),
@@ -1304,58 +1308,77 @@ describe('TimelineSurface', () => {
     }
   })
 
-  test('link composes from the surface\'s own config and refuses bad names', async () => {
-    assert.equal(await surface.link('curia-9'), `https://box.tailnet.ts.net:8444/?session=curia-9`)
+  test('link lands on the Atlas Chat route, and refuses bad names (#711)', async () => {
+    assert.equal(await surface.link('curia-9'), `https://box.tailnet.ts.net:8445/#chat/curia-9`)
     await assert.rejects(() => surface.link('root-shell'), /not a valid curia session name/)
   })
 
-  test('assert over a stale page withdraws instead of publishing (#70 posture)', async () => {
-    const stale = path.join(tmp, 'stale.html')
-    fs.writeFileSync(stale, `<meta name="curia-timeline" content="proto=${TIMELINE_PROTO + 1}">`)
-    const offs = []
+  test('assert withdraws the legacy serve rule once and publishes nothing (#711)', async () => {
+    offs.length = 0
     const s2 = new TimelineSurface({
-      port: 0, servePort: 8445, index: stale, workspaceRoot: workspaceRoot(), log: () => {},
+      port: 0, servePort: 8444, atlasServePort: 8445, index: DEFAULT_TIMELINE_INDEX, workspaceRoot: workspaceRoot(), log: () => {},
       deps: {
         journal: (type, detail) => journal.push({ type, ...detail }),
-        // #151's check has its own suite (identity.test.mjs); these tests drive
-        // the surface over bare loopback, so the predicate is out of their way.
         identityCheck: () => null,
         serveOff: async ({ servePort }) => offs.push(servePort),
-        assertServe: async () => { throw new Error('must not assert over a stale page') },
+        assertServe: async () => { throw new Error('must not publish the retired page') },
         attachBase: async () => 'box.tailnet.ts.net',
       },
     })
     await s2.start()
     try {
-      const { verified } = await s2.assert()
-      assert.equal(verified, false)
-      assert.deepEqual(offs, [8445])
-      assert.ok(journal.some((j) => j.type === 'timeline_surface_withdrawn'))
-      // the direct hit is refused too, in case a request races the withdrawal
-      const res = await fetch(`http://127.0.0.1:${s2.port}/`)
-      assert.equal(res.status, 503)
-      await assert.rejects(() => s2.link('curia-9'), /timeline surface is down/)
+      assert.equal((await s2.assert()).verified, true)
+      assert.equal((await s2.assert()).verified, true)
+      assert.deepEqual(offs, [8444], 'the withdrawal runs once per process')
+      assert.ok(journal.some((j) => j.type === 'timeline_serve_retired' && j.serve_port === 8444))
     } finally {
       s2.stop()
     }
   })
 
-  test('a surface that never bound refuses to publish', async () => {
+  test('a session whose pane has ended stays readable and refuses words and keys (#711)', async () => {
+    endedSessions.add('curia-gone')
+    try {
+      const { events } = await sse(port, 'session=curia-gone&once=1')
+      const hello = events.find((e) => e.event === 'hello')
+      assert.equal(hello.data.ended, true)
+      const before = sent.length
+      const r = await fetch(`http://127.0.0.1:${port}/send`, {
+        method: 'POST', body: JSON.stringify({ session: 'curia-gone', text: 'anyone there' }),
+      })
+      assert.equal(r.status, 409)
+      const body = await r.json()
+      assert.equal(body.ended, true)
+      assert.match(body.error, /^curia-gone has ended\. Its transcript stays readable here, and it takes no new message\.$/)
+      const k = await fetch(`http://127.0.0.1:${port}/key`, {
+        method: 'POST', body: JSON.stringify({ session: 'curia-gone', key: 'escape' }),
+      })
+      assert.equal(k.status, 409)
+      assert.equal(sent.length, before, 'nothing reached tmux')
+      assert.equal(journal.findLast((x) => x.type === 'timeline_send').outcome, 'refused_ended')
+      // a driven conversation never reads as ended: a parked pane returns on its next message
+      const driven = await sse(port, `session=${DRIVEN}&once=1`)
+      assert.equal(driven.events.find((e) => e.event === 'hello').data.ended, false)
+    } finally {
+      endedSessions.delete('curia-gone')
+    }
+  })
+
+  test('a surface that never bound is not verified, and composes no link', async () => {
     const s3 = new TimelineSurface({
       port: surface.port, // already taken by the first surface
-      servePort: 8446, index: DEFAULT_TIMELINE_INDEX, workspaceRoot: workspaceRoot(), log: () => {},
+      servePort: 8446, atlasServePort: 8445, index: DEFAULT_TIMELINE_INDEX, workspaceRoot: workspaceRoot(), log: () => {},
       deps: {
         journal: (type, detail) => journal.push({ type, ...detail }),
-        // #151's check has its own suite (identity.test.mjs); these tests drive
-        // the surface over bare loopback, so the predicate is out of their way.
         identityCheck: () => null,
         serveOff: async () => {},
-        assertServe: async () => { throw new Error('must not assert over a dead listener') },
+        attachBase: async () => 'box.tailnet.ts.net',
       },
     })
     const { verified } = await s3.start()
     assert.equal(verified, false)
     assert.ok(journal.some((j) => j.type === 'timeline_bind_failed'))
     assert.equal((await s3.assert()).verified, false)
+    await assert.rejects(() => s3.link('curia-9'), /timeline surface is down/)
   })
 })

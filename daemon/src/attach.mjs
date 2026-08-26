@@ -331,6 +331,14 @@ export function atlasTerminalUrl(base, servePort, session) {
   return `https://${base}:${servePort}/terminal/?arg=${session}`
 }
 
+// The Chat route under Atlas (#711). The timeline's own Serve rule retired
+// with that ticket, so every chat link a human gets now lands on the sidecar's
+// address, at the transcript surface for one session.
+export function atlasChatUrl(base, servePort, session) {
+  if (!validSessionName(session)) throw new Error(`refusing chat URL for invalid session "${session}"`)
+  return `https://${base}:${servePort}/#chat/${session}`
+}
+
 export function attachUrl(base, servePort, n) {
   return attachSessionUrl(base, servePort, `curia-${n}`)
 }

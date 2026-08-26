@@ -81,7 +81,11 @@ export const daemonPort = () => Number(process.env.PORT ?? DEFAULT_DAEMON_PORT)
 // proto-10 sidecar serves — so an old server must refuse this page rather than
 // draw a registration flow whose device code never arrives and whose every
 // button answers 404.
-export const DASHBOARD_PROTO = 12
+// Bumped to 13 by #711: Chat is a page of its own now. `/chat` redirects into
+// the `#chat/<session>` route, the page reads the six timeline routes through
+// this sidecar, and it draws an ended agent from the `live` field of
+// `/api/console`, which a proto-12 daemon does not carry.
+export const DASHBOARD_PROTO = 13
 
 // The Credentials screen's own hash (#661). It is here rather than in the
 // daemon that links to it, because the page's screen names are this file's half
@@ -316,11 +320,15 @@ function words(value, what) {
   return s
 }
 
-// The chat (#267). The console does not draw a chat of its own and it does not
-// frame one: it SERVES the timeline, under its own address, and hands the four
-// routes that page speaks straight through to the daemon.
+// The chat (#267, a page of Atlas since #711). The Atlas page draws the
+// transcript and the composer itself, and the six routes it speaks are handed
+// straight through to the daemon's timeline listener on loopback. The
+// timeline's own Serve rule retired with #711: this is the only way in.
 //
 //   browser ──Serve(:8445)──> sidecar ──> daemon timeline(:4272)
+//
+// `/chat` stays as a door for the links an older daemon handed out: it sends
+// the browser to the `#chat/<session>` route of the page.
 //
 // Nothing is rewritten on the way. The Host and the operator's login travel as
 // they arrived, so the timeline applies the #151 predicate in-process to the
@@ -1083,7 +1091,12 @@ export class DashboardSurface {
     // The chat page and its event stream (#267). `/chat` serves the timeline's
     // own page — the daemon re-reads and stamp-checks it per request, so the
     // bytes the console hands out are the ones the daemon agreed to serve.
-    if (url.pathname === CHAT_PAGE) return this.#chat(req, res, '/')
+    if (url.pathname === CHAT_PAGE) {
+      const session = String(url.searchParams.get('session') ?? '')
+      const hash = VERB_SESSION_RE.test(session) ? `#chat/${session}` : '#chat'
+      res.writeHead(303, { location: `/${hash}`, 'cache-control': 'no-store' })
+      return res.end()
+    }
     if (CHAT_ROUTES.has(url.pathname)) return this.#chat(req, res, url.pathname + url.search)
 
     if (url.pathname === '/api/overview') {

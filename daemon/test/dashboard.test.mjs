@@ -37,7 +37,7 @@ function req(port, p, { headers = {}, method = 'GET', body = null } = {}) {
     const r = http.request({ host: '127.0.0.1', port, path: p, method, headers, setHost: false }, (res) => {
       let buf = ''
       res.on('data', (d) => { buf += d })
-      res.on('end', () => resolve({ status: res.statusCode, text: buf }))
+      res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, text: buf }))
     })
     r.on('error', reject)
     if (body !== null) r.write(typeof body === 'string' ? body : JSON.stringify(body))
@@ -1191,13 +1191,14 @@ describe('the operator verbs (#266)', () => {
 // the chat (#267)
 // ---------------------------------------------------------------------------
 //
-// The console serves no chat of its own. It hands the timeline's own page and
-// the four routes that page speaks straight through to the daemon, under this
-// surface's address. What matters here is what the pipe does NOT do: it changes
-// no header, so the identity the timeline checks in-process is the identity the
-// browser sent, and it buffers nothing, so an event stream is still a stream.
+// Chat is a page of Atlas (#711), and the sidecar hands the six routes that
+// page speaks straight through to the daemon's timeline listener. What matters
+// here is what the pipe does NOT do: it changes no header, so the identity the
+// timeline checks in-process is the identity the browser sent, and it buffers
+// nothing, so an event stream is still a stream. `/chat` is a door for the
+// links an older daemon handed out: it lands on the `#chat/<session>` route.
 
-describe('the chat (#267)', () => {
+describe('the chat (#267, a page of Atlas by #711)', () => {
   let surface
   let timeline
   let seen // one entry per request the fake timeline received
@@ -1256,11 +1257,14 @@ describe('the chat (#267)', () => {
     timeline?.close()
   })
 
-  test('/chat serves the timeline\'s own page — the daemon stamp-checks it, this pipe does not', async () => {
+  test('/chat is a door into the Atlas room, and it asks the timeline for nothing', async () => {
     const res = await req(surface.port, '/chat?session=curia-console-2', { headers: served() })
-    assert.equal(res.status, 200)
-    assert.match(res.text, /name="curia-timeline"/)
-    assert.equal(seen.at(-1).url, '/', 'the page is one page; the session rides the browser\'s own query')
+    assert.equal(res.status, 303)
+    assert.equal(res.headers.location, '/#chat/curia-console-2')
+    assert.equal(seen.length, 0)
+    // a session name this sidecar would not relay lands on the picker
+    const bad = await req(surface.port, '/chat?session=root-shell', { headers: served() })
+    assert.equal(bad.headers.location, '/#chat')
   })
 
   test('the six routes the page speaks reach the timeline with their query intact', async () => {
@@ -1304,7 +1308,7 @@ describe('the chat (#267)', () => {
   test('a timeline that is not answering says so — the console itself is still up', async () => {
     await new Promise((done) => timeline.close(done))
     timeline = null
-    const res = await req(surface.port, '/chat', { headers: served() })
+    const res = await req(surface.port, '/events?session=curia-console-2', { headers: served() })
     assert.equal(res.status, 502)
     assert.match(res.text, /not answering/)
     // the rest of the console is unharmed by a dead chat
@@ -1314,7 +1318,7 @@ describe('the chat (#267)', () => {
   test('a sidecar with no timeline port says that, rather than guessing one', async () => {
     const s2 = await makeSurface({ timelinePort: null })
     try {
-      const res = await req(s2.port, '/chat', { headers: served() })
+      const res = await req(s2.port, '/events?session=curia-console-2', { headers: served() })
       assert.equal(res.status, 503)
       assert.match(res.text, /no `timeline:` block/)
     } finally {
