@@ -114,8 +114,40 @@ test('an unassigned unblocked ticket returns its routed model as takeable', asyn
   })
 
   assert.deepEqual(map.takeable, [
-    { number: 11, title: 'the takeable ticket', type: 'task', model: 'gpt-5.6-sol' },
-    { number: 12, title: 'the pinned ticket', type: 'task', model: 'claude-sonnet-5' },
+    { number: 11, title: 'the takeable ticket', type: 'task', model: 'gpt-5.6-sol', unblocks: [] },
+    { number: 12, title: 'the pinned ticket', type: 'task', model: 'claude-sonnet-5', unblocks: [] },
+  ])
+})
+
+test('a takeable ticket names each blocked child it directly unblocks, from the edges already read', async () => {
+  const github = {
+    repoMaps: async () => [issue(10, 'the map')],
+    mapFrontier: async () => [
+      issue(11, 'the key', { labels: ['wayfinder:task'] }),
+      issue(12, 'the other key', { labels: ['wayfinder:task'] }),
+      issue(14, 'waits on the key', { blockedBy: 1 }),
+      issue(15, 'waits on both keys', { blockedBy: 2 }),
+      issue(16, 'waits on a closed one and the key', { blockedBy: 2 }),
+    ],
+    blockedByOf: async (repo, number) => ({
+      14: [issue(11, 'the key')],
+      15: [issue(11, 'the key'), issue(12, 'the other key')],
+      16: [issue(9, 'walked already', { state: 'closed' }), issue(11, 'the key')],
+    })[number],
+  }
+  const journal = { mapSnapshotFacts: async () => new Map() }
+
+  const { maps: [map] } = await readMapSnapshot({
+    watch: [{ repo: 'o/r', mode: 'map' }], routing, github, journal,
+  })
+
+  assert.deepEqual(map.takeable.map((item) => [item.number, item.unblocks]), [
+    [11, [
+      { number: 14, title: 'waits on the key' },
+      { number: 15, title: 'waits on both keys' },
+      { number: 16, title: 'waits on a closed one and the key' },
+    ]],
+    [12, [{ number: 15, title: 'waits on both keys' }]],
   ])
 })
 

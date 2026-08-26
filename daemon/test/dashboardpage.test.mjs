@@ -1,4 +1,4 @@
-// The four read screens (#264) — home, agents, frontier, feed.
+// The read screens (#264) — home, maps, agents, feed.
 //
 // The page has no build step: the file the sidecar serves IS the reviewed
 // source. So its test loads that same file, lifts its one script into a vm, and
@@ -210,8 +210,12 @@ const OVERVIEW = () => ({
         assignees: ['alp82'], agent: { session: 'curia-255', model: 'gpt-5.6-sol' },
       }],
       takeable: [
-        { number: 265, title: 'The settings write', type: 'task', model: 'claude-opus-5' },
-        { number: 266, title: 'The verbs reach the browser', type: 'grilling', model: 'gpt-5.6-sol' },
+        { number: 265, title: 'The settings write', type: 'task', model: 'claude-opus-5', unblocks: [
+          { number: 267, title: 'The chat embeds the timeline attach' },
+        ] },
+        { number: 266, title: 'The verbs reach the browser', type: 'grilling', model: 'gpt-5.6-sol', unblocks: [
+          { number: 267, title: 'The chat embeds the timeline attach' },
+        ] },
       ],
       blocked: [{
         number: 267, title: 'The chat embeds the timeline attach', type: 'task',
@@ -321,7 +325,7 @@ describe('the Atlas frame (#686)', () => {
     const held = payload()
     const screens = [
       page.screenHome,
-      page.screenFrontier,
+      page.screenMaps,
       page.screenAgents,
       page.screenFeed,
       page.screenChat,
@@ -977,69 +981,37 @@ describe('the read screens (#264)', () => {
     })
   })
 
-  describe('frontier — two levels', () => {
-    test('cards draw the takeable set and what it unblocks', () => {
-      page.UI.fr = { view: 'cards', repo: 'all', type: 'all' }
-      const t = text(page.screenFrontier(payload()))
-      assert.match(t, /takeable now \(2\)/)
-      assert.match(t, /#265 task The settings write/)
-      assert.match(t, /unblocks 1/)
-      assert.match(t, /#266 grilling The verbs reach the browser/)
-      assert.match(t, /unblocks nothing yet/)
-      assert.match(t, /unblocked next \(1\)/)
-      assert.match(t, /#267 The chat embeds the timeline attach ↖ #265/)
+  describe('maps — level two (#768)', () => {
+    const takeable = (p = payload()) => {
+      page.UI.maps = { repo: 'all', selected: { repo: 'alp82/curia', map: 244, group: 'takeable' }, open: false }
+      return page.screenMaps(p)
+    }
+
+    test('a takeable row names what it directly unblocks, from the map snapshot', () => {
+      const t = text(takeable())
+      assert.match(t, /#265 The settings write/)
+      assert.match(t, /task · routed to claude-opus-5 · unblocks 1/)
+      assert.match(t, /#267 The chat embeds the timeline attach/)
       assert.match(t, /computed \d+m ago/, 'the page states the age of the reading')
     })
 
-    test('a repo whose read failed is not an empty frontier', () => {
-      const t = text(page.screenFrontier(payload()))
-      assert.match(t, /alp82\/aistack could not be read — gh api failed: HTTP 502/)
-      assert.match(t, /there may be takeable tickets there/)
-    })
-
-    test('the tree says the same two levels', () => {
-      page.UI.fr = { view: 'tree', repo: 'all', type: 'all' }
-      const t = text(page.screenFrontier(payload()))
-      assert.match(t, /alp82\/curia/)
-      assert.match(t, /task #265 The settings write/)
-      assert.match(t, /#267 The chat embeds the timeline attach/)
-      page.UI.fr.view = 'cards'
-    })
-
-    test('the project filter narrows to one repo, and the type filter to one type', () => {
-      page.UI.fr = { view: 'cards', repo: 'alp82/curia', type: 'all' }
-      let t = text(page.screenFrontier(payload()))
-      assert.doesNotMatch(t, /aistack could not be read/, 'a repo out of the filter is out of the page')
-      page.UI.fr.type = 'grilling'
-      t = text(page.screenFrontier(payload()))
-      assert.match(t, /takeable now \(1\)/)
-      assert.match(t, /#266/)
-      assert.doesNotMatch(t, /#265 /)
-      // A filter that matches nothing says so rather than drawing a blank page.
-      page.UI.fr.type = 'research'
-      assert.match(text(page.screenFrontier(payload())), /Nothing is takeable under this filter/)
-      page.UI.fr = { view: 'cards', repo: 'all', type: 'all' }
-    })
-
-    test('picking a project resets the type — an unreachable filter draws an empty page and names no reason', () => {
-      page.UI.fr = { view: 'cards', repo: 'all', type: 'grilling' }
-      page.document.getElementById = () => ({ innerHTML: '' })
-      page.frSet('repo', 'alp82/curia')
-      assert.deepEqual(page.UI.fr, { view: 'cards', repo: 'alp82/curia', type: 'all' })
-      page.document.getElementById = () => null
-      page.UI.fr = { view: 'cards', repo: 'all', type: 'all' }
-    })
-
-    test('a frontier nobody has computed is not an empty frontier', () => {
-      const t = text(page.screenFrontier(payload({ frontier: { computed_at: null, repos: [] } })))
-      assert.match(t, /No frontier has been computed yet/)
-      assert.match(t, /Reconcile computes it/)
-    })
-
-    test('a ticket with no wayfinder label has no type, and none is guessed for it', () => {
+    test('the kids are the snapshot\'s, not the frontier wire\'s', () => {
       const p = payload()
-      p.overview.frontier.repos[0].items[0].labels = ['bug']
-      assert.match(text(page.screenFrontier(p)), /#265 untyped/)
+      p.overview.frontier = { computed_at: null, repos: [] }
+      p.overview.maps.maps[0].takeable[1].unblocks = []
+      const html = takeable(p)
+      assert.match(text(html), /#267 The chat embeds the timeline attach/)
+      assert.match(html, /href="https:\/\/github\.com\/alp82\/curia\/issues\/267"/, 'a kid is a link to its ticket')
+      assert.match(text(html), /grilling · routed to gpt-5\.6-sol · unblocks nothing yet/)
+    })
+
+    test('one Maps screen: the second one, its views, and its state are gone from the page', () => {
+      assert.equal(page.screenFrontier, undefined)
+      assert.equal(page.UI.fr, undefined)
+      const script = pageScript()
+      for (const name of ['screenFrontier', 'FR_VIEWS', 'frCards', 'frTree', 'frSet', 'UI.fr']) {
+        assert.doesNotMatch(script, new RegExp(name.replace('.', '\\.')), `${name} is no longer in the page`)
+      }
     })
   })
 
@@ -2146,53 +2118,44 @@ describe('the operator verbs (#266)', () => {
   before(() => { page = loadPage() })
   beforeEach(() => {
     page.UI.act = { busy: null, said: null, note: null, mode: 'queue', tele: null }
-    page.UI.fr = { view: 'cards', repo: 'all', type: 'all' }
   })
 
   // ---- start ---------------------------------------------------------------
 
-  describe('start, on the frontier', () => {
+  describe('start, on the Maps frontier', () => {
+    const takeable = (p = payload()) => {
+      page.UI.maps = { repo: 'all', selected: { repo: 'alp82/curia', map: 244, group: 'takeable' }, open: false }
+      return page.screenMaps(p)
+    }
+
     test('the button carries the routed model, so the account is named before it is spent', () => {
-      const t = text(page.screenFrontier(payload()))
+      const t = text(takeable())
       assert.match(t, /Start → claude-opus-5 \(task default\)/)
       assert.match(t, /Start → gpt-5\.6-sol \(grilling default\)/)
     })
 
     test('it names the repo and the number, and the sidecar composes the rest', () => {
-      const html = page.screenFrontier(payload())
-      assert.match(html, /startTicket\('alp82\/curia','265'\)/)
+      assert.match(takeable(), /startTicket\('alp82\/curia','265'\)/)
     })
 
     test('a ticket an agent already holds shows the agent instead of a button that only refuses', () => {
       const p = payload()
       p.overview.agents[0].ticket = '265'
-      const t = text(page.screenFrontier(p))
-      assert.match(t, /⧗ dispatched — curia-263/)
-      assert.equal(/startTicket\('alp82\/curia','265'\)/.test(page.screenFrontier(p)), false)
+      const html = takeable(p)
+      assert.match(text(html), /⧗ dispatched — curia-263/)
+      assert.equal(/startTicket\('alp82\/curia','265'\)/.test(html), false)
     })
 
     test('an unreadable fleet is not an idle one: the button stands and says curia cannot tell', () => {
-      const p = payload({ agents: null, fleet_error: 'tmux is wedged' })
-      const t = text(page.screenFrontier(p))
+      const t = text(takeable(payload({ agents: null, fleet_error: 'tmux is wedged' })))
       assert.match(t, /Start/)
       assert.match(t, /cannot say whether this one is already running/)
     })
 
     test('an item carrying no routed model says so, rather than naming a model nobody chose', () => {
       const p = payload()
-      delete p.overview.frontier.repos[0].items[0].model
-      assert.match(text(page.screenFrontier(p)), /the routed model is not on this reading/)
-    })
-
-    test('the tree view starts a ticket too — the view is a way of reading, not a way of acting', () => {
-      page.UI.fr.view = 'tree'
-      assert.match(page.screenFrontier(payload()), /startTicket\('alp82\/curia','266'\)/)
-    })
-
-    test('a repo whose frontier could not be read offers no button there', () => {
-      const t = text(page.screenFrontier(payload()))
-      assert.match(t, /alp82\/aistack could not be read/)
-      assert.match(t, /there may be takeable tickets there/)
+      delete p.overview.maps.maps[0].takeable[0].model
+      assert.match(text(takeable(p)), /the routed model is not on this reading/)
     })
   })
 
@@ -2487,7 +2450,8 @@ describe('the operator verbs (#266)', () => {
   describe('the outcome of a press', () => {
     test('a command reply is curia\'s own sentence, rendered where the press was', () => {
       page.UI.act.said = { key: 'start:alp82/curia#265', text: '⚙️ `curia-265` spawned on **claude-opus-5**', ok: true }
-      const html = page.screenFrontier(payload())
+      page.UI.maps = { repo: 'all', selected: { repo: 'alp82/curia', map: 244, group: 'takeable' }, open: false }
+      const html = page.screenMaps(payload())
       assert.match(html, /<code>curia-265<\/code>/, 'the markdown curia speaks everywhere else reads here too')
       assert.match(html, /<b>claude-opus-5<\/b>/)
     })
@@ -2532,7 +2496,8 @@ describe('the operator verbs (#266)', () => {
 
     test('one act at a time: while a press is in flight every other control is disabled', () => {
       page.UI.act.busy = 'esc:esc-7'
-      assert.match(page.screenFrontier(payload()), /button class="btn sm primary" disabled/)
+      page.UI.maps = { repo: 'all', selected: { repo: 'alp82/curia', map: 244, group: 'takeable' }, open: false }
+      assert.match(page.screenMaps(payload()), /button class="btn sm primary" disabled/)
     })
   })
 
