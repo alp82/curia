@@ -101,6 +101,8 @@ const FEED_SILENT = new Set([
   'conversation_turn_recorded', 'conversation_turn_taken_back', 'agent_notes_requeued',
   'overseer_notes_carried', 'overseer_notes_requeued',
   'overseer_pane_parked',
+  // The Feed's own read stamp (#704). Reading the feed is not news on it.
+  'feed_read',
 ])
 
 // The events lastAgentEvent must not count (#236) — see _apply.
@@ -183,6 +185,7 @@ export class Reduction {
     this.coolings = { models: new Map(), providers: new Map() } // the caps that have LANDED, key -> reset instant (#377)
     this.tokenWarnings = new Map() // credential key -> the last warning curia said about it (#380)
     this.openLogins = new Map() // provider -> the re-authentication the journal has started and not ended (#671)
+    this.feedReads = new Map() // operator login -> the instant that login last read the Feed (#704)
     this.pendingTurns = new Map() // conversation key -> the overseer turn still in flight (#388)
     this.droppedTurns = new Map() // conversation key -> the last turn a restart killed (#388)
     this.turnStarts = new Map() // conversation key -> when its last turn started (#388)
@@ -958,6 +961,14 @@ export class Reduction {
       // by `_append`, so an unreadable `ts` means a record nothing can put a
       // deadline on, and inventing one would either kill a live login early or
       // hand it a second window. It is stepped over instead.
+      // The since-you-left marker's one fact (#704): the instant each operator
+      // login last opened the Feed. Durable because it is journalled, and one
+      // per login rather than per browser, so a phone and a laptop under the
+      // same login agree on where "you left" was.
+      case 'feed_read': {
+        if (typeof ev.by === 'string' && ev.by.trim() && ev.ts) this.feedReads.set(ev.by.trim().toLowerCase(), ev.ts)
+        break
+      }
       case 'reauth_started': {
         const startedAt = Date.parse(ev.ts ?? '')
         if (!ev.provider || !Number.isFinite(startedAt)) break
@@ -1717,6 +1728,23 @@ export class Reduction {
   // Every credential warning still standing, oldest first (#380). A copy, for
   // the reason `recentEvents` hands out one: the route serializes it while the
   // watch keeps appending.
+  // Every login's last Feed read, as `{ login: iso }` (#704). A copy, for the
+  // reason `recentEvents` hands out one.
+  lastFeedReads() {
+    return Object.fromEntries(this.feedReads)
+  }
+
+  // Stamp one login's Feed read. Answers the previous stamp, which is what the
+  // page draws the marker at: the read that just happened is not "since you
+  // left" until the next visit.
+  markFeedRead(by) {
+    const login = String(by ?? '').trim().toLowerCase()
+    if (!login) throw new Error('a feed read names the login that read it')
+    const previous = this.feedReads.get(login) ?? null
+    const rec = this._append({ type: 'feed_read', by: login })
+    return { ok: true, by: login, at: rec.ts, previous }
+  }
+
   standingTokenWarnings() {
     return [...this.tokenWarnings.values()].map((w) => ({ ...w }))
   }

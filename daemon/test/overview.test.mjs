@@ -377,6 +377,26 @@ describe('the context meter on the wire (#264)', () => {
   })
 })
 
+describe('the Feed read stamp (#704)', () => {
+  let dir
+  before(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-feed-read-')) })
+  after(() => fs.rmSync(dir, { recursive: true, force: true }))
+
+  test('one stamp per login, the previous one answered, durable across a restart, and silent on the ring', () => {
+    const a = new Reduction(dir)
+    a.journal('notify', { n: 1 })
+    const first = a.markFeedRead('Alp@Example.com')
+    assert.equal(first.previous, null)
+    assert.equal(first.by, 'alp@example.com')
+    const second = a.markFeedRead('alp@example.com')
+    assert.equal(second.previous, first.at, 'the marker is drawn at the read BEFORE this one')
+    assert.deepEqual(a.lastFeedReads(), { 'alp@example.com': second.at })
+    assert.deepEqual(a.recentEvents().map((e) => e.type), ['notify'], 'reading the feed is not news on it')
+    assert.deepEqual(new Reduction(dir).lastFeedReads(), { 'alp@example.com': second.at })
+    assert.throws(() => a.markFeedRead('  '), /names the login/)
+  })
+})
+
 describe('the journal tail the feed reads (#262)', () => {
   let dir
   const reduction = () => new Reduction(dir)

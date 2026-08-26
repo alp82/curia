@@ -1087,25 +1087,77 @@ describe('the read screens (#264)', () => {
   })
 
   describe('feed', () => {
-    test('the Feed visit stamp persists under the authenticated operator login', () => {
+    test('the Feed marker comes from the journal stamp, and a visit posts the read under the login (#704)', async () => {
       const prior = at(3_600)
-      page.localStorage.setItem('atlas.feed.last-read:alp82@example.com', prior)
-      page.payload = { ...payload(), operator: 'alp82@example.com' }
-      page.enter('feed')
-      assert.equal(page.UI.feed.lastRead, prior)
-      assert.ok(Date.parse(page.localStorage.getItem('atlas.feed.last-read:alp82@example.com')) > Date.parse(prior))
+      const posts = []
+      const p = loadPage({ fetchImpl: async (url, init) => { posts.push([url, init]); return { ok: true, json: async () => ({}) } } })
+      p.payload = { ...payload({ feed_reads: { 'alp82@example.com': prior } }), operator: 'alp82@example.com' }
+      p.enter('feed')
+      assert.equal(p.UI.feed.lastRead, prior, 'the marker is the PREVIOUS read, not the one that just happened')
+      assert.deepEqual(posts.map(([u, i]) => [u, i.method]), [['/api/feed/read', 'POST']])
+      assert.ok(!p.localStorage.getItem('atlas.feed.last-read:alp82@example.com'), 'no browser-local copy: the journal is the one record')
+    })
+
+    test('a first visit under a login draws no marker', () => {
+      const p = loadPage({ fetchImpl: async () => ({ ok: true, json: async () => ({}) }) })
+      p.payload = { ...payload(), operator: 'new@example.com' }
+      p.enter('feed')
+      assert.equal(p.UI.feed.lastRead, null)
+      assert.ok(!/Since you left/.test(p.screenFeed(p.payload)))
     })
 
     test('Feed separates news from mechanics and places the last-visit marker over a 24-hour density strip', () => {
-      page.UI.feed = { lastRead: at(500), operator: 'alp82@example.com' }
+      page.UI.feed = { lastRead: at(500), operator: 'alp82@example.com', family: 'all' }
       const html = page.screenFeed(payload())
       assert.equal((html.match(/class="density-cell/g) ?? []).length, 24)
+      assert.match(html, /24 h · 3 events/)
       assert.match(html, /class="feed-news needs"/)
       assert.match(html, /class="feed-mechanic"/)
       const marker = html.indexOf('Since you left')
       assert.ok(html.indexOf('Two notes race') < marker)
       assert.ok(marker < html.indexOf('spawned on gpt-5.6-sol'))
       assert.match(html, /href="\/chat\?session=curia-255"/)
+      assert.match(text(html), /Needs you/, 'a needs-you row says so in a word, not only a tint')
+    })
+
+    test('a family chip narrows the stream to one family, and says so when nothing is left', () => {
+      page.UI.feed = { lastRead: null, operator: 'alp82@example.com', family: 'need' }
+      const wire = () => { const h = page.screenFeed(payload()); return h.slice(0, h.indexOf('legacy-feed')) }
+      let html = wire()
+      assert.match(html, /class="feed-chip on"[^>]*>needs you</)
+      assert.match(html, /Two notes race/)
+      assert.ok(!/spawned on gpt-5.6-sol/.test(html), 'a spawn is the agents family')
+      page.UI.feed.family = 'deploy'
+      assert.match(text(wire()), /No deploys events in the journal tail/)
+      page.feedFilter('all')
+      assert.equal(page.UI.feed.family, 'all')
+    })
+
+    test('a run of mechanics folds into one named group, and a filter opens it (#523)', () => {
+      page.UI.feed = { lastRead: null, operator: null, family: 'all' }
+      const events = Array.from({ length: 6 }, (_, i) => ({ ts: at(600 - i * 10), type: 'reconcile', boot: false }))
+      events.push({ ts: at(5), type: 'esc_open', id: 'esc-9', agent: 'curia-9', ticket: '9', kind: 'choice', prompt: 'Pick one.' })
+      const wire = () => { const h = page.screenFeed(payload({ events })); return h.slice(0, h.indexOf('legacy-feed')) }
+      let html = wire()
+      assert.match(html, /<details class="feed-fold"><summary>6 mechanics · \d\d:\d\d – \d\d:\d\d — reconcile<\/summary>/)
+      assert.equal((html.match(/class="feed-mechanic"/g) ?? []).length, 6, 'nothing is dropped, only paced')
+      assert.ok(html.indexOf('Pick one.') < html.indexOf('feed-fold'), 'news stays above the fold it precedes')
+      page.UI.feed.family = 'system'
+      html = wire()
+      assert.match(html, /<details class="feed-fold" open>/)
+      assert.ok(!/Pick one/.test(html))
+    })
+
+    test('a news row lands on the owning Chat, map, or GitHub record', () => {
+      page.UI.feed = { lastRead: null, operator: null, family: 'all' }
+      const html = page.screenFeed(payload({ events: [
+        { ts: at(30), type: 'agent_died', agent: 'curia-4', repo: 'o/r', ticket: '4' },
+        { ts: at(20), type: 'ticket_resolved', repo: 'o/r', ticket: '5', map: 99 },
+        { ts: at(10), type: 'lifecycle_closed', repo: 'o/r', ticket: '6' },
+      ] }))
+      assert.match(html, /href="\/chat\?session=curia-4">Chat/)
+      assert.match(html, /href="#maps\/o\/r\/99\/walked">Map/)
+      assert.match(html, /href="https:\/\/github.com\/o\/r\/issues\/6">GitHub/)
     })
 
     test('the journal reads as sentences, newest first', () => {

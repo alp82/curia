@@ -2660,6 +2660,7 @@ async function overview() {
     // the token — the half a Discord line cannot do, because a message scrolls
     // away and a dying token does not.
     token_warnings: reduction.standingTokenWarnings(),
+    feed_reads: reduction.lastFeedReads(),
     events: reduction.recentEvents(),
     maps: mapSnapshotOnWire,
     frontier: dispatcher.frontierSnapshot(),
@@ -3097,6 +3098,16 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
     if (!validSessionName(agent)) return json(400, { error: `\`${agent}\` is not a curia session name` })
     if (!text.trim()) return json(400, { error: 'a note with no words is not a note' })
     return json(200, await gate.noteAgent(agent, text, { mode, by: named(body.by) }))
+  }
+
+  // The Feed's read stamp (#704). One login opened the Feed; the journal keeps
+  // the instant so the since-you-left marker survives a browser, a phone and a
+  // restart. `rest` is a transport, not a reader, so an unnamed read is refused.
+  if (url.pathname === '/feed/read' && req.method === 'POST') {
+    const body = await readBody(req)
+    const by = typeof body.by === 'string' ? body.by.trim() : ''
+    if (!by) return json(400, { error: 'a feed read names the operator login that read it' })
+    return json(200, reduction.markFeedRead(named(by)))
   }
 
   if (url.pathname === '/cancel' && req.method === 'POST') {

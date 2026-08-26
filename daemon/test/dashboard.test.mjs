@@ -809,6 +809,7 @@ describe('the operator verbs (#266)', () => {
       '/command': [200, { reply: '⚙️ `curia-266` spawned on claude-opus-5' }],
       '/answer': [200, { ok: true, record: { id: 'esc-7' } }],
       '/note': [200, { ok: true, agent: 'curia-266', id: 'note-3', after: null, mode: 'queue' }],
+      '/feed/read': [200, { ok: true, by: 'alp@example.com', at: '2026-08-26T09:00:00.000Z', previous: null }],
       '/github-app/start': [200, { action: 'https://github.com/settings/apps/new', manifest: { name: 'curia-box' } }],
       '/github-app/complete?code=one-use&state=expected': [200, { ok: true, app: { id: '42', slug: 'curia-box' } }],
     }
@@ -882,6 +883,13 @@ describe('the operator verbs (#266)', () => {
     calls = []
     await press('/api/note', { agent: 'curia-266', text: 'look again' })
     assert.equal(sent('/note').body.by, 'alp@example.com')
+  })
+
+  test('a Feed read is journalled under the login, and the held snapshot is dropped so the next poll carries it (#704)', async () => {
+    const res = await press('/api/feed/read', {})
+    assert.equal(res.status, 200)
+    assert.equal(sent('/feed/read').body.by, 'alp@example.com')
+    assert.equal(surface.snapshotAt, 0)
   })
 
   test('the note carries the mode the operator chose, and queued is what an unnamed one means', async () => {
