@@ -2157,6 +2157,52 @@ removed the track, the held stage, the titles and the ticket, because the cut ra
 comment headers with live rules between them. Eleven checks went red at once. The same shortcut —
 cut from marker to marker — is what #628, #629 and this file's round 1 each recorded once.
 
+**The operator's answer to round 10**, verbatim, with a screenshot:
+
+> i accidentally merged the PR but we are not done yet, can you bring it back?
+>
+> also the icon looks broken
+>
+> desk looks good
+
+**The staging is settled: desk.** Scene 5's browser tilted back with the phone standing in front of
+it. It is the default now, and a build check asserts the default is the composition that was picked
+rather than whichever one happens to sit first in the list.
+
+**The broken icon was an orphaned class, and it is the most instructive fault of this ticket.**
+Round 10's dead-CSS cut removed the block that held `.r8-mk { width: 0.95em; height: 0.95em }`. The
+mark did not get smaller or plainer when that rule went. **An inline `<svg>` is sized by CSS or by
+its container, and there is no third option** — so curia's ring grew to fill an entire browser
+screen on the operator's phone.
+
+Nothing could have caught it. The markup was valid, the CSS was valid, every class was spelled
+right, and no check asked the one question that mattered. Two now do:
+
+- **A class scene 8 wears with no rule anywhere** is an orphan, and the check names it.
+- **An inline `<svg>` whose class sets no width** takes its container, and that check names it too.
+
+The second is the narrower one and it is the one that would have caught this, because `.r8-mk` was
+not orphaned for long: two colour rules still mentioned it. **A class can be declared and still be
+undressed.**
+
+**Two classes left with the fix**, found by the same sweep: `.cont` on the closing section and `.sm`
+on the kicker, both worn for rounds and neither ever given a rule.
+
+**140 build checks** run against the file and all **83 breaks** that validate them land.
+
+## The merge that arrived early
+
+The operator merged pull request #739 by accident at round 10, before the scene was done. **Nothing
+was lost and nothing needed undoing.** The branch `curia/630` survives on the remote with all of its
+commits, and the squash put the round 10 prototype on main — which is exactly the shape every
+earlier scene ticket left main in, because a prototype living at `prototypes/story-page/` IS where
+this map says prototypes live. The live page is untouched: only
+[#604](https://github.com/alp82/curia/issues/604) copies this file to `docs/`.
+
+So the work carried on where it was, and the next pull request carries only what came after. Curia's
+own record is the thing that made this a non-event: the branch is curia's to push and delete, and it
+had not deleted it.
+
 ## The verdict of the terminal scene ([#629](https://github.com/alp82/curia/issues/629))
 
 **Locked over ten operator rounds**, the longest run of any scene on this page. Every variation

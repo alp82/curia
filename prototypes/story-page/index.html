@@ -1801,6 +1801,15 @@
   #run .pv-screen { border-radius: 1.6rem; background: #0d1117; }
   #run .pv-island { top: 0.34rem; height: 0.72rem; width: 27%; }
 
+  /* The mark's SIZE. An inline <svg> with no width takes whatever its
+     container gives it, so losing this rule did not make the mark
+     smaller or plainer — it made curia's ring fill an entire browser
+     screen. */
+  .r8-mk { width: 0.95em; height: 0.95em; flex: none; }
+  .r10-head[class] .r8-mk { color: inherit; }
+  .r8-lane[data-app="discord"] .r8-mk { color: #5865f2; }
+  .r8-lane[data-app="github"] .r8-mk { color: #e6edf3; }
+
   /* ---- the page inside a shell. Dark, because all three products are,
          and a light window around a dark page is what a browser is. --- */
   .r10-page {
@@ -2738,7 +2747,7 @@
 
        Round 1 offers five readings of the same six events on ?id=1..5:
        1 timeline, 2 lanes, 3 devices, 4 deal, 5 steps. -->
-  <section class="scene run sL v-mix" id="run" data-v="1" data-k="1" data-stage="gate" data-n="07" data-name="one ticket on GitHub" style="--g1:#141b33;--g2:#0c1020">
+  <section class="scene run sL v-desk2" id="run" data-v="1" data-k="1" data-stage="gate" data-n="07" data-name="one ticket on GitHub" style="--g1:#141b33;--g2:#0c1020">
 
     <!-- The octicons and the two product marks. The page ships no
          image and no webfont, so every mark here is drawn (#629). -->
@@ -2754,7 +2763,7 @@
 
     <div class="wrap">
       <header class="claim rv">
-        <p class="kick sm"><span class="kn">07</span><span class="kname">one ticket on GitHub</span></p>
+        <p class="kick"><span class="kn">07</span><span class="kname">one ticket on GitHub</span></p>
         <h2 class="bold">You are in charge</h2>
       </header>
     </div>
@@ -2762,10 +2771,10 @@
     <!-- ROUND 1 DEVICE. It leaves the file with the round that settles
          this scene, the way #624's identity bar did. -->
     <div class="rsw" id="rsw" role="group" aria-label="composition">
-      <button type="button" data-i="1" aria-pressed="true">1 mix</button>
+      <button type="button" data-i="4" aria-pressed="true">4 desk</button>
+      <button type="button" data-i="1" aria-pressed="false">1 mix</button>
       <button type="button" data-i="2" aria-pressed="false">2 win</button>
       <button type="button" data-i="3" aria-pressed="false">3 pocket</button>
-      <button type="button" data-i="4" aria-pressed="false">4 desk</button>
       <button type="button" data-i="5" aria-pressed="false">5 flat</button>
     </div>
 
@@ -2963,7 +2972,7 @@
   </section>
 
   <!-- Scene 8, the close: the fact line and the dogfood line. -->
-  <section class="scene cont sL" data-stage="gate" style="padding-top:0;--g1:#0c1020;--g2:#0c1020">
+  <section class="scene sL" data-stage="gate" style="padding-top:0;--g1:#0c1020;--g2:#0c1020">
     <div class="wrap">
       <p class="fact rv">just type your rejection reasons if you don't agree with the result</p>
       <p class="dogfood rv">This page itself was
@@ -3574,7 +3583,7 @@ function clampNum(v, a, b) { return v < a ? a : v > b ? b : v; }
 
   var id = '';
   try { id = new URL(window.location.href).searchParams.get('id') || ''; } catch (e) { id = ''; }
-  setV(V[id] ? id : '1');
+  setV(V[id] ? id : '4');
 })();
 
 /* ================================================================
