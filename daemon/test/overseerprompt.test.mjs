@@ -34,7 +34,8 @@ describe('the standing orders, with no shell (#328)', () => {
   // TWO CHANGES HAVE LANDED SINCE, both deliberate. First the writing rules,
   // when #133's voice went from Simplified Technical English to the Google
   // developer documentation style. Then #692 (ADR-0022) added the tool-reply
-  // section and split the map verb in two. The fixture was regenerated for
+  // section and split the map verb in two. Then #719 (ADR-0023) added the
+  // `skill` verb and its two-route rule. The fixture was regenerated for
   // each, and for nothing else.
   test('it is byte for byte the text the in-daemon host always sent', () => {
     assert.equal(`${buildSystemPrompt()}\n`, fs.readFileSync(FIXTURE, 'utf8'))
@@ -51,6 +52,25 @@ describe('the standing orders, with no shell (#328)', () => {
     for (const absent of ['origin/pr/', 'git pull', 'checkouts are at', 'never orders']) {
       assert.ok(!SYSTEM_PROMPT.includes(absent), `the no-shell text should not mention "${absent}"`)
     }
+  })
+})
+
+// ADR-0023: a skill asked for in prose has two routes, split by the ticket,
+// and neither one asks the operator to confirm.
+describe('the skill dispatch from prose (#719, ADR-0023)', () => {
+  test('the verb list names skill, and the tool is offered', () => {
+    assert.match(SYSTEM_PROMPT, /verbs: .*attach, skill\./)
+    assert.ok(ALLOWED_TOOLS.includes('mcp__curia__skill'))
+  })
+
+  test('a ticket that carries the skill is started, and no ticket means the skill verb', () => {
+    assert.match(SYSTEM_PROMPT, /When an open ticket already carries that skill[^\n]*`start` that ticket/)
+    assert.match(SYSTEM_PROMPT, /When no ticket carries it, call `skill`/)
+    assert.match(SYSTEM_PROMPT, /nothing reaches the tracker before the operator approves/)
+  })
+
+  test('no confirm press guards a skill dispatch', () => {
+    assert.match(SYSTEM_PROMPT, /Never ask the operator to confirm a skill dispatch/)
   })
 })
 

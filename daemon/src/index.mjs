@@ -2289,6 +2289,9 @@ function buildMcpServer(agent, ticket) {
       headline: z.string().optional().describe('What the work came to, in one line, at most 150 characters. No markdown and no link.'),
       detail: z.string().optional().describe('Short FACTS, rendered as a spoiler. One line, 500 characters.'),
       ...VISUAL_SHAPE,
+      // ADR-0023: a skill run's product is tracker writes, and the receipt
+      // names them by their real numbers. Only a skill run fills this.
+      published: z.array(z.number().int().positive()).optional().describe('Skill runs only: the issue numbers you created after the approved gate, in the order you created them.'),
       // ADR-0019 rule 3: a free record. No surface renders it and no lint reads
       // it, so it stays the one field an agent may shape for itself.
       details: z.record(z.string(), z.any()).optional(),

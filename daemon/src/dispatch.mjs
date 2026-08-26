@@ -4319,6 +4319,26 @@ export class Dispatcher {
       // the moment it matters. A charting agent closes research tickets, never
       // the map — and it closes them after the merge, never before, because a
       // ticket closed on unmerged findings is exactly the map that lies.
+      // ADR-0023: a skill run's product is tracker writes, and there is no pull
+      // request to merge. The approval is what publishes, so the record of WHAT
+      // was approved is written here, before the agent touches the tracker,
+      // and the agent is told to publish exactly that list and nothing else.
+      if (skillName) {
+        if (w) w.trackerWritesApproved = trackerWrites.length
+        this.reduction.journal('tracker_writes_approved', {
+          repo, ticket, agent: agentName, skill: skillName, count: trackerWrites.length, items: trackerWrites,
+        })
+        return {
+          ok: true,
+          approved: true,
+          text: said([
+            `APPROVED by the human. Publish exactly the ${trackerWrites.length} tracker writes the gate showed, wave by wave,`,
+            'with their labels and their native blocked-by edges. Add nothing that was not on the card.',
+            'Then resolve this record issue, and call report_result with every issue number you created in',
+            '`published`, so the receipt can name them.',
+          ].join('\n')),
+        }
+      }
       return {
         ok: true,
         approved: true,
@@ -4329,6 +4349,25 @@ export class Dispatcher {
             'Nothing closes before the merge, and the map itself never closes.',
           ].join('\n')
           : `APPROVED by the human. Now, in order: merge the pull request (\`gh pr merge <url> --repo ${repo} --squash --delete-branch\`), then resolve the ticket, then report_result.`),
+      }
+    }
+    // ADR-0023: a rejected skill run publishes nothing. The journal says so,
+    // and the agent is sent back to the proposal rather than to a pull request.
+    if (skillName) {
+      this.reduction.journal('tracker_writes_withheld', {
+        repo, ticket, agent: agentName, skill: skillName, count: trackerWrites.length,
+      })
+      return {
+        ok: true,
+        approved: false,
+        text: said([
+          'NOT approved. The human said:',
+          feedback || '(nothing beyond the rejection itself — ask them what to change with ask_human)',
+          '',
+          'Publish nothing: no issue, no label, no edge. Nothing from the card exists on the tracker, and',
+          'it stays that way. Revise the proposal from their words, then call request_review again with',
+          'the full `tracker_writes` list.',
+        ].join('\n')),
       }
     }
     return {
@@ -5242,7 +5281,13 @@ export class Dispatcher {
       this.reduction.journal('resolved_unreviewed', { repo, ticket, agent: agentName })
       out.warnings.push('NO approved review gate for this dispatch — this ticket was resolved without anyone approving it')
     }
-    const text = summariseOutcome(out)
+    // ADR-0023: the receipt of a skill run names the tracker writes instead of
+    // a merge, and the real issue numbers appear here for the first time. The
+    // numbers come from the agent's `published` field, checked against the
+    // count the gate approved, so a run that published more or less than the
+    // card, or was never approved at all, says so in small print.
+    const skillName = w?.skillName ?? this.#epochSpawn(agentName)?.skill ?? null
+    const text = skillName ? this.#skillOutcome(out, result, repo, w, agentName) : summariseOutcome(out)
     // `summary` is what the ending receipt says about the tracker (#253). It
     // rides the journal rather than the agent record because report_result and
     // the Stop hook are two calls, and a restart between them must not silence
@@ -5585,6 +5630,30 @@ export class Dispatcher {
   //
   // The 🏁 line is gone with no replacement: it said "done" about the same
   // event this sentence opens with (statusline.mjs, #retire).
+  // What a skill run's ending says about the tracker (ADR-0023). Replaces the
+  // landing sentence, because a skill run has no code to land: its product is
+  // the published issues, and the approved count is the measure of them.
+  #skillOutcome(out, result, repo, w, agentName) {
+    const published = Array.isArray(result?.published)
+      ? [...new Set(result.published.map((n) => String(n).trim()).filter((n) => /^\d+$/.test(n)))]
+      : []
+    const approved = w?.trackerWritesApproved ?? this.reduction.questions.trackerWritesApproved(agentName)
+    const bits = []
+    bits.push(out.close === 'repaired' ? 'record closed by curia' : out.close === 'present' ? 'record closed' : 'record close state unknown')
+    if (out.comment === 'repaired') bits.push('resolution comment recorded by curia')
+    else if (out.comment === 'unknown') bits.push('resolution comment unverified')
+    bits.push(published.length
+      ? `published ${published.length} tracker write${published.length === 1 ? '' : 's'}: ${published.map((n) => `${repo}#${n}`).join(', ')}`
+      : 'no tracker write published')
+    const warnings = [...out.warnings]
+    if (approved == null && published.length) warnings.push('the tracker writes were published with NO approved gate')
+    else if (approved != null && approved !== published.length) {
+      warnings.push(`the gate approved ${approved} tracker write${approved === 1 ? '' : 's'} and the report names ${published.length}`)
+    }
+    const warn = warnings.length ? ` · ⚠️ ${warnings.join(' · ⚠️ ')}` : ''
+    return bits.join(' · ') + warn
+  }
+
   #endingReceipt(agentName, lease) {
     const clause = this.#endingClause(agentName)
     const head = clause ?? '✅ resolved - result recorded'

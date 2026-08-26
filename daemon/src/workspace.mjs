@@ -1913,6 +1913,9 @@ export function writePrompt(cfgDir, issue, {
     '- The product is tracker writes. Before publication, pass every proposed title, label, and native',
     '  dependency edge in `tracker_writes` to `request_review`. Grouping into dispatch waves is done by curia.',
     '- Nothing in `tracker_writes` exists on GitHub before approval. Publish only what the operator approved.',
+    '- A rejected gate publishes nothing. Revise the proposal and pass it through `request_review` again.',
+    '- After approval, publish the list wave by wave, then call `report_result` with every issue number you',
+    '  created in `published`. The receipt names those numbers, and nothing before the receipt does.',
   ]
 
   const params = skill ? skillParams : newMap ? newMapParams : charting ? chartingParams : [

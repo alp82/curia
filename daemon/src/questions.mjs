@@ -138,6 +138,13 @@ select repo from events
   // switch must not put the agent back on the model it left.
   epochSpawn: lastBody('agent = :a', ['agent_spawned', 'agent_model_switched']),
 
+  // 8b — #skillOutcome: how many tracker writes did the gate approve for this
+  // session? Reset at the last spawn, like the ending clause: an approval on
+  // an earlier dispatch of the same record must not license a later one's
+  // publication. ADR-0023.
+  trackerWritesApproved: lastBody('agent = :a', ['tracker_writes_approved'],
+    `\n   and id > ${LAST_SPAWN}`),
+
   // 9 — #epochAdoptedMap: which map did this session report? Reset at the
   // session's last spawn, so a resumed handle never inherits the map of the
   // dispatch before it.
@@ -310,7 +317,16 @@ export class Questions {
       requested_model: ev.requested_model ?? null,
       harness: ev.harness ?? null,
       prompt_carries_limit_text: ev.prompt_carries_limit_text ?? null,
+      // ADR-0023: the skill a ticketless run carries. Read by the gate guard
+      // and the ending after a restart, when no agent record holds it.
+      skill: ev.skill ?? null,
+      skill_target: ev.skill_target ?? null,
     } : null
+  }
+
+  trackerWritesApproved(agent) {
+    const ev = this.#event('trackerWritesApproved', { a: agent })
+    return ev?.count == null ? null : Number(ev.count)
   }
 
   adoptedMap(agent) {

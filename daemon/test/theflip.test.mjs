@@ -204,6 +204,8 @@ describe('an untyped ask_human is refused since the flip (#422, real boot)', () 
       const notify = listed.tools.find((tool) => tool.name === 'notify')
       assert.ok(review.inputSchema.properties.tracker_writes)
       assert.equal(notify.inputSchema.properties.tracker_writes, undefined)
+      const report = listed.tools.find((tool) => tool.name === 'report_result')
+      assert.ok(report.inputSchema.properties.published, 'the receipt reads the real numbers from `published`')
 
       const result = await c.callTool({
         name: 'request_review',
