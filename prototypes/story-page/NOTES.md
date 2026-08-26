@@ -2457,6 +2457,88 @@ one comment header to the next carried live rules off with it at rounds 10, 12, 
 desktop split four times, the mark's width twice. The sweep at this verdict cut by RULE instead,
 selecting only rules whose every class is dead. **A marker is a place. A rule is a thing.**
 
+## The second round on the ticket run scene ([#772](https://github.com/alp82/curia/issues/772))
+
+The shape of #630 is not on the table: the titles scroll on the docking side, the desk is held, a
+card turns onto it, the ticket is the issue page of #587 growing one real row per step, and the
+screens are scene 5's browser and phone. This ticket fleshes that out. The operator's brief, with a
+screenshot of the Slack Code page as the inspiration:
+
+> better design of screen and phone shells and the inside contents
+> better layout of where to display each element
+> better rendering of the sticky ticket that should resemble a ticket much more easily
+> better storytelling by aligning titles with screens and making motion great
+
+**Round 1.** Five layouts on `?id=1..5`, and everything else changed once, under all five.
+
+**What the Slack page does, read off the screenshot.** One big window, flat and frontal, with a
+generous radius. A second panel overlapping its corner, lifted on a heavy shadow. Chat with
+avatars. A few elements at a size that reads, and nothing at the density the real product runs at.
+The tilt of round 15 is the one thing it does not do.
+
+**The shells.** The browser keeps scene 5's `.pv-win` and its 16:11, with a 14px radius, a taller
+chrome, a wider address pill and a deeper shadow. The phone keeps scene 5's `.pv-phone` and its
+9:19.5. The type inside both went up by a third on a phone and by half past 62rem, and the messages
+carry avatars now, the way Discord draws them. Every rule is scoped `#run`, the way round 10 asked.
+
+**What fills the glass.** The three rough spots the ticket named are answered with real things:
+
+| the rough spot | round 1 |
+|---|---|
+| the thread barely develops | beat 3 is three messages: the dispatch, round 2 of 4 with its preview link, and the operator's reply sending it into round 3 |
+| one commit instead of five | the pull request lists all five commits of #597, SHA and headline, read off `gh pr view 597` |
+| the gate lost its small print | both lines are back, verbatim from `bridge.mjs` (`_✅ Approve to merge and resolve…_`, `_🔎 Cross-check answers neither…_`) |
+
+The operator's reply on beat 3 is the one line here that is not a record. It paraphrases what
+round 3 of #587 did (`72d09df`: "the operator's picks applied as an overlay"), in the operator's
+voice. **It needs the operator's own words or a cut.** Everything else on every screen is a fact
+off the tracker or the daemon.
+
+**The ticket.** It reads as the issue page it is: the repo crumb and an Issues tab in the header,
+the issue-opened octicon on the Open pill, an avatar beside the opener, avatars on the rows, and a
+comment box at the foot, because that is where an issue page ends. When a row lands the card rings
+once in the scene's light. `?id=4` adds a stub: a yellow strip in the label's own hex with the
+number set vertically, a perforation, and two notches, for the reader who needs the physical
+ticket to see one.
+
+**The pairing.** Past 62rem a slot is one viewport tall and the title sits at its middle, level
+with the desk, so the words and the screens they name are read on one line. Below 62rem the
+stage holds the top of the screen and the titles pass under it, and round 15's reading line sat at
+the middle of the viewport, which is inside the stage where nothing can be seen. The title DOCKS
+now: it rides up to the stage, sticks under it while its slot passes, and the next one pushes it
+out. The observer's line sits where the dock is. The first cut made the slot itself sticky, and all
+five piled up at the dock, because a sticky element leaves only when its own container does. The
+title is a sticky child of its slot now.
+
+**The motion.** The content of a screen arrives after its shell, one element after another, and the
+phone rises onto the desk a beat after the browser. The turn of round 8 is unchanged.
+
+**The five layouts.**
+
+1. **flat**, the baseline. The browser frontal, the phone overlapping its lower corner by half its
+   width. The window reads the phone's budget off the card and leaves it that room, so the phone
+   covers a shadow and not the commit list.
+2. **tilt**. Round 15's `front` arrangement, in the new shells.
+3. **side**. Past 62rem the ticket stands beside the screens as a tall card. It is cramped by
+   construction: three columns at 1440px leave the desk 400px.
+4. **stub**. Flat, with the stub on the ticket.
+5. **tray**. The ticket docks at the bottom of the stage and the cards turn in from their bottom
+   edge.
+
+**Two things a phone gets and a desktop does not.** The ticket's timeline is a one-row window on a
+phone: every row is still laid out, stacked in one grid cell, and only the row of the current beat
+is visible, so the card is compact and never changes height. And the gate's two small-print lines
+are cut on a phone only, because at that height they push the question itself out of the glass.
+The second is #630's reduction, kept only where it is still forced.
+
+**What is still rough for the next round.** On a phone the pull request window is width-bound to
+the room the phone leaves it, so it shows its title, the state and little else. That is the mobile
+pass of [#773](https://github.com/alp82/curia/issues/773), and it is not hidden here.
+
+**How the round was checked.** Headless Chrome on this machine refuses a debugging port, so the
+preview was driven over `--remote-debugging-pipe`: navigate, scroll the window to each beat, wait
+for the turn, capture. Ten frames per width, both widths, every layout at the gate beat.
+
 ## The verdict of the terminal scene ([#629](https://github.com/alp82/curia/issues/629))
 
 **Locked over ten operator rounds**, the longest run of any scene on this page. Every variation
