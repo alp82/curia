@@ -402,7 +402,7 @@ export class Dispatcher {
   // escalation and returns its record; lapseEscalation closes one as lapsed
   // (journal + message edit); confirmNote posts a line next to a record's
   // buttons; overseerNote journals a synthetic line for a thread's session.
-  constructor({ config, routing, reduction, notify, announce, openConfirm, openMapQuestion, lapseEscalation, confirmNote, overseerNote, askReview, cancelEscalation, threads, log = console.log, cooling, readings, dataDir, daemonPort, previews, attachLinks, attachSessionLink, dashboardLink, channelName, minter, credentials, anthropic, anthropicHealth, maintenance, aistack, deps }) {
+  constructor({ config, routing, reduction, notify, announce, openConfirm, openMapQuestion, lapseEscalation, confirmNote, overseerNote, askReview, cancelEscalation, threads, log = console.log, cooling, readings, dataDir, daemonPort, previews, attachLinks, attachSessionLink, dashboardLink, channelName, minter, credentials, anthropic, anthropicHealth, aistack, deps }) {
     this.config = config
     this.routing = routing
     this.reduction = reduction
@@ -565,9 +565,6 @@ export class Dispatcher {
     // account bars are disabled and no agent is running. It reports terminal
     // evidence through `holdCredentialLane`, so this field owns only scheduling.
     this.anthropicHealth = anthropicHealth ?? null
-    // Recurring publishers share the daemon's existing tick. A publisher owns
-    // no second timer, and a failure cannot stop liveness or dispatch work.
-    this.maintenance = maintenance ?? null
     // The re-authentication flow (#642). It takes the RAW tmux calls above, for
     // the reason the refusal states, and its image is filled in by
     // `startReauth` — an image ref is a per-dispatch build, not a constant.
@@ -8242,7 +8239,6 @@ export class Dispatcher {
   }
 
   async #autoTick() {
-    await this.maintenance?.().catch((e) => this.log('maintenance failed:', e.message))
     // #138: the liveness sweep rides the dispatch tick — dead agents stop
     // lying on every surface before anything new is dispatched.
     await this.livenessSweep().catch((e) => this.log('liveness sweep failed:', e.message))
