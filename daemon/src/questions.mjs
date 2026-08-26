@@ -132,7 +132,11 @@ select repo from events
   // 8 — #epochSpawn: which model and harness is this session actually on?
   // Keyed by session, because a re-dispatch down the fallback chain writes a
   // second `agent_spawned` for the same session and the last one is running.
-  epochSpawn: lastBody('agent = :a', ['agent_spawned']),
+  //
+  // An in-pane model switch (#717) restates the whole spawn line with the new
+  // model, so it takes part here: a restart or a stall respawn after the
+  // switch must not put the agent back on the model it left.
+  epochSpawn: lastBody('agent = :a', ['agent_spawned', 'agent_model_switched']),
 
   // 9 — #epochAdoptedMap: which map did this session report? Reset at the
   // session's last spawn, so a resumed handle never inherits the map of the
@@ -289,6 +293,14 @@ export class Questions {
     const ev = this.#event('epochCharting', { t: String(ticket) })
     if (!ev) return { charting: false, instruction: null, newMap: false }
     return { charting: ev.kind === 'charting', instruction: ev.instruction ?? null, newMap: Boolean(ev.newMap) }
+  }
+
+  // The raw last spawn line of a session, for a writer that restates it whole.
+  epochSpawnLine(agent) {
+    const ev = this.#event('epochSpawn', { a: agent })
+    if (!ev) return null
+    const { id, ts, type, ...body } = ev
+    return body
   }
 
   epochSpawn(agent) {

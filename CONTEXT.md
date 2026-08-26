@@ -120,6 +120,9 @@ A key under `models:` in `routing.yaml`. It is the dispatch vocabulary that `mod
 **Model name**:
 What curia tells a human is running. The status line uses the transcript model, then `models.<label>.id`, then the routing label. Cooling, fallback, and `status` keep the routing label.
 
+**Model switch**:
+The operator's move of a live agent to another routing label, from the `model` button on the Discord status line or the `model <n> <label>` command ([#717](https://github.com/alp82/curia/issues/717), on the [#561](https://github.com/alp82/curia/issues/561) evidence). The daemon refuses a cooled or cross-harness target before the pane is touched, and it names the hold and its reset. The composer is cut first and pasted back after, on every lane. claude switches in its own pane by `/model <id>` plus one confirm, so the process and the transcript stay; codex switches by a kill and `resume -m <id>`, because its picker lists only the built-in catalog. The effort belongs to the ticket type and survives the switch. The switch journals a whole spawn line (`agent_model_switched`), so a restart and a stall respawn read the model the agent is on.
+
 **Harness**:
 The program an agent runs under: claude or codex. It is a function of the model: `models.<x>.harness` states one value, and no command overrides it. A pin that disagreed with the model built `codex --model opus`, which is not a model.
 _Avoid_: backend, lane.

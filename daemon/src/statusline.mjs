@@ -259,6 +259,14 @@ export class StatusLine {
         }
         return this.#set(ev.agent, ev.ticket, 'dispatched', { model: ev.model, stage: 'composer' })
       }
+      // #717: an in-pane switch keeps the process and the state; only the
+      // model on the line changes. The meters still name what the transcript
+      // states, so the name flips when the next turn states it, never before.
+      case 'agent_model_switched': {
+        const w = this.agents.get(ev.agent)
+        if (!w) return
+        return this.#set(ev.agent, w.ticket, w.state, { ...w.detail, model: ev.model }, { force: true })
+      }
       case 'dispatch_status':
         return this.#set(ev.agent, ev.ticket, 'dispatched', { model: ev.model })
       case 'agent_ready':

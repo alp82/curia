@@ -5382,45 +5382,146 @@ describe('live model switching (#717)', () => {
     },
   }
 
-  test('a live ticket clears its composer and resumes on the target model with routed effort', async () => {
+  const CLAUDE_SWITCHED = 'claude\n❯ /model opus\n  ⎿  Set model to opus and saved as your default for new sessions\n❯ \n'
+  const CLAUDE_CONFIRM = 'claude\n❯ /model opus\n  Switch model?\n  ❯ 1. Yes, switch to opus\n    2. No, go back\n'
+  const CLAUDE_REFUSED = 'claude\n❯ /model opus\n  ⎿  API error: 403\n     {"type":"error","error":{"type":"permission_error","message":"You do not have access to the model opus."}}\n❯ \n'
+
+  const claudeDispatcher = (panes, steps, extra = {}) => makeDispatcher({
+    fetchIssue: async () => ({ ...OPEN_ISSUE, labels: [{ name: 'wayfinder:task' }] }),
+    sendKey: async (session, key) => { steps.push({ act: 'key', session, key }) },
+    sendText: async (session, text) => { steps.push({ act: 'text', session, text }); return { status: 'unconfirmed', pane: '' } },
+    killSession: async (session) => { steps.push({ act: 'kill', session }) },
+    newSession: async (opts) => { steps.push({ act: 'spawn', ...opts }) },
+    capturePane: async () => (panes.length > 1 ? panes.shift() : panes[0]) ?? '',
+    ...extra,
+  }, { routing: SWITCH_ROUTING })
+
+  test('a claude ticket switches in its own pane: cut, /model, paste back, and the record follows', async () => {
     const steps = []
-    const d = makeDispatcher({
-      fetchIssue: async () => ({
-        ...OPEN_ISSUE,
-        labels: [{ name: 'wayfinder:task' }],
-      }),
-      sendKey: async (session, key) => { steps.push({ act: 'key', session, key }) },
-      killSession: async (session) => { steps.push({ act: 'kill', session }) },
-      newSession: async (opts) => { steps.push({ act: 'spawn', ...opts }) },
-    }, { routing: SWITCH_ROUTING })
+    const d = claudeDispatcher([CLAUDE_SWITCHED], steps)
+    d.switchReadbackMs = 500
     await d.start('42', { repo: 'o/r', by: 'operator-1' })
     steps.length = 0
 
     const reply = await d.switchModel('42', { model: 'opus', by: 'operator-1' })
+
+    assert.deepEqual(steps, [
+      { act: 'key', session: 'curia-42', key: 'C-u' },
+      { act: 'text', session: 'curia-42', text: '/model opus' },
+      { act: 'key', session: 'curia-42', key: 'C-y' },
+    ], 'no kill and no respawn on the claude lane')
+    assert.match(reply, /runs on \*\*opus\*\* now/)
+    assert.match(reply, /xhigh\*\* effort/)
+    assert.match(reply, /conversation stayed in its pane/)
+    const w = d.agents.get('curia-42')
+    assert.equal(w.model, 'opus')
+    assert.equal(w.requestedModel, 'opus')
+    assert.equal(w.reasoningEffort, 'xhigh', 'the type effort survives the switch')
+    const switched = events.find((event) => event.type === 'agent_model_switched')
+    assert.equal(switched.model, 'opus')
+    assert.equal(switched.switched_from, 'sonnet')
+    assert.equal(switched.harness, 'claude')
+    assert.equal(switched.reasoning_effort, 'xhigh')
+    assert.equal(switched.kind, 'ticket', 'the whole spawn line is restated')
+    assert.equal(d.reduction.questions.epochSpawn('curia-42').model, 'opus', 'a restart reads the switched model')
+  })
+
+  test('the claude confirm is answered once, and only after the pane asks', async () => {
+    const steps = []
+    const d = claudeDispatcher([CLAUDE_CONFIRM, CLAUDE_CONFIRM, CLAUDE_SWITCHED], steps)
+    d.switchReadbackMs = 2_000
+    await d.start('42', { repo: 'o/r', by: 'operator-1' })
+    steps.length = 0
+
+    const reply = await d.switchModel('42', { model: 'opus', by: 'operator-1' })
+
+    assert.match(reply, /runs on \*\*opus\*\* now/)
+    assert.deepEqual(steps.map((s) => s.key ?? s.text), ['C-u', '/model opus', 'Enter', 'C-y'])
+  })
+
+  test('a model the claude CLI refuses at the switch leaves the record on the old model', async () => {
+    const steps = []
+    const d = claudeDispatcher([CLAUDE_REFUSED], steps)
+    d.switchReadbackMs = 500
+    await d.start('42', { repo: 'o/r', by: 'operator-1' })
+    steps.length = 0
+
+    const reply = await d.switchModel('42', { model: 'opus', by: 'operator-1' })
+
+    assert.match(reply, /refused \*\*opus\*\* at the switch/)
+    assert.match(reply, /API error: 403/)
+    assert.match(reply, /stays on \*\*sonnet\*\*/)
+    assert.equal(d.agents.get('curia-42').model, 'sonnet')
+    assert.equal(steps.at(-1).key, 'C-y', 'the cut composer text goes back either way')
+    assert.ok(events.find((event) => event.type === 'model_switch_refused'))
+    assert.ok(!events.find((event) => event.type === 'agent_model_switched'))
+  })
+
+  test('a pane that never answers leaves the record alone and says so', async () => {
+    const steps = []
+    const d = claudeDispatcher(['claude\n❯ \n'], steps)
+    d.switchReadbackMs = 300
+    await d.start('42', { repo: 'o/r', by: 'operator-1' })
+
+    const reply = await d.switchModel('42', { model: 'opus', by: 'operator-1' })
+
+    assert.match(reply, /did not confirm the switch/)
+    assert.equal(d.agents.get('curia-42').model, 'sonnet')
+  })
+
+  test('a mid-turn claude pane is not typed into', async () => {
+    const steps = []
+    const d = claudeDispatcher([''], steps, {
+      sendText: async () => ({ status: 'not-sent', pane: '✻ Baking' }),
+    })
+    await d.start('42', { repo: 'o/r', by: 'operator-1' })
+
+    const reply = await d.switchModel('42', { model: 'opus', by: 'operator-1' })
+
+    assert.match(reply, /mid-turn/)
+    assert.equal(d.agents.get('curia-42').model, 'sonnet')
+  })
+
+  test('a codex ticket clears its composer and resumes on the target model with routed effort', async () => {
+    const steps = []
+    const CODEX_ROUTING = {
+      ...SWITCH_ROUTING,
+      defaults: { untyped: { model: 'gpt', effort: 'high' }, task: { model: 'gpt', effort: 'high' } },
+      models: {
+        ...SWITCH_ROUTING.models,
+        gpt2: { provider: 'openai', harness: 'codex', id: 'gpt-5.5', reasoning_effort: 'low' },
+      },
+    }
+    const d = makeDispatcher({
+      fetchIssue: async () => ({ ...OPEN_ISSUE, labels: [{ name: 'wayfinder:task' }] }),
+      sendKey: async (session, key) => { steps.push({ act: 'key', session, key }) },
+      sendText: async (session, text) => { steps.push({ act: 'text', session, text }) },
+      killSession: async (session) => { steps.push({ act: 'kill', session }) },
+      newSession: async (opts) => { steps.push({ act: 'spawn', ...opts }) },
+    }, { routing: CODEX_ROUTING })
+    await d.start('42', { repo: 'o/r', by: 'operator-1' })
+    steps.length = 0
+
+    const reply = await d.switchModel('42', { model: 'gpt2', by: 'operator-1' })
 
     assert.deepEqual(steps.slice(0, 2), [
       { act: 'key', session: 'curia-42', key: 'C-u' },
       { act: 'kill', session: 'curia-42' },
     ])
     assert.equal(steps[2].act, 'spawn')
-    assert.match(steps[2].shellCmd, /claude --model opus --continue/)
-    assert.match(reply, /opus/)
-    assert.match(reply, /xhigh.*effort/)
-    assert.equal(d.agents.get('curia-42').harness, 'claude')
+    assert.match(steps[2].shellCmd, /codex resume --last --model gpt-5\.5/)
+    assert.ok(!steps.find((s) => s.act === 'text'), 'the codex picker is never typed into')
+    assert.match(reply, /runs on \*\*gpt-5\.5\*\* now/)
+    assert.match(reply, /high\*\* effort/)
+    assert.match(reply, /resumed its conversation/)
     const switched = events.find((event) => event.operator_model_switch)
-    assert.equal(switched.model, 'opus')
-    assert.equal(switched.harness, 'claude')
-    assert.equal(switched.reasoning_effort, 'xhigh')
-    assert.equal(switched.switched_from, 'sonnet')
+    assert.equal(switched.model, 'gpt2')
+    assert.equal(switched.switched_from, 'gpt')
   })
 
   test('a target on another harness is refused before the live pane changes', async () => {
     const steps = []
-    const d = makeDispatcher({
-      fetchIssue: async () => ({ ...OPEN_ISSUE, labels: [{ name: 'wayfinder:task' }] }),
-      sendKey: async (...args) => { steps.push(['key', ...args]) },
-      killSession: async (...args) => { steps.push(['kill', ...args]) },
-    }, { routing: SWITCH_ROUTING })
+    const d = claudeDispatcher([''], steps)
     await d.start('42', { repo: 'o/r', by: 'operator-1' })
     steps.length = 0
 
@@ -5431,31 +5532,55 @@ describe('live model switching (#717)', () => {
     assert.equal(d.agents.get('curia-42').model, 'sonnet')
   })
 
-  test('a cooled target is refused by model and hold name before the pane changes', async () => {
+  test('a cooled target is refused by model, hold name and reset before the pane changes', async () => {
     const steps = []
-    const d = makeDispatcher({
-      fetchIssue: async () => ({
-        ...OPEN_ISSUE,
-        labels: [{ name: 'wayfinder:task' }],
-      }),
-      sendKey: async (session, key) => { steps.push({ act: 'key', session, key }) },
-      killSession: async (session) => { steps.push({ act: 'kill', session }) },
-      newSession: async (opts) => { steps.push({ act: 'spawn', ...opts }) },
-    }, { routing: SWITCH_ROUTING })
+    const d = claudeDispatcher([''], steps)
     await d.start('42', { repo: 'o/r', by: 'operator-1' })
     steps.length = 0
-    d.cooling.coolModel('gpt', new Date(Date.now() + 60_000))
+    const reset = new Date(Date.now() + 60 * 60_000)
+    d.cooling.coolModel('opus', reset)
 
-    const reply = await d.switchModel('42', { model: 'gpt', by: 'operator-1' })
+    const reply = await d.switchModel('42', { model: 'opus', by: 'operator-1' })
 
-    assert.match(reply, /gpt/)
-    assert.match(reply, /hold/)
+    assert.match(reply, /`opus` is cooling/)
+    assert.match(reply, /`opus\/anthropic cooling` hold stands until \d\d:\d\d/)
+    assert.match(reply, /stays on \*\*sonnet\*\*/)
     assert.deepEqual(steps, [])
     assert.equal(d.agents.get('curia-42').model, 'sonnet')
   })
 
+  test('a credential hold is named with no invented reset', async () => {
+    const steps = []
+    const d = claudeDispatcher([''], steps)
+    await d.start('42', { repo: 'o/r', by: 'operator-1' })
+    d.cooling.holdProvider('anthropic', 'the anthropic credential is dead')
+
+    const reply = await d.switchModel('42', { model: 'opus', by: 'operator-1' })
+
+    assert.match(reply, /`anthropic credential` hold stands\./)
+    assert.doesNotMatch(reply, /until/)
+  })
+
+  test('the choices name every active label with its id, the running one and its hold', async () => {
+    const d = claudeDispatcher([''], [])
+    assert.equal(d.modelChoices('42'), null, 'no live agent, no menu')
+    await d.start('42', { repo: 'o/r', by: 'operator-1' })
+    d.cooling.coolModel('gpt', new Date(Date.now() + 60_000))
+
+    const choices = d.modelChoices('42')
+
+    assert.deepEqual(choices.map((c) => c.label), ['sonnet', 'opus', 'gpt'])
+    assert.equal(choices[0].running, true)
+    assert.equal(choices[1].running, false)
+    assert.equal(choices[2].id, 'gpt-5.6-sol')
+    assert.equal(choices[2].harness, 'codex')
+    assert.equal(choices[2].hold.name, 'gpt/openai cooling')
+    assert.ok(choices[2].hold.reset_at instanceof Date)
+    assert.equal(choices[1].hold, null)
+  })
+
   test('a restart-adopted ticket keeps its type effort when it switches', async () => {
-    const spawns = []
+    const steps = []
     const d = makeDispatcher({
       listSessions: async () => ['curia-42'],
       fetchIssue: async () => ({
@@ -5465,8 +5590,10 @@ describe('live model switching (#717)', () => {
       }),
       containerPorts: async () => [9000, 9001, 9002],
       sendKey: async () => {},
+      sendText: async (session, text) => { steps.push(text); return { status: 'unconfirmed' } },
+      capturePane: async () => CLAUDE_SWITCHED,
       killSession: async () => {},
-      newSession: async (opts) => { spawns.push(opts) },
+      newSession: async () => {},
     }, { routing: SWITCH_ROUTING })
     d.reduction.journal('agent_spawned', {
       repo: 'o/r', ticket: '42', agent: 'curia-42',
@@ -5478,9 +5605,10 @@ describe('live model switching (#717)', () => {
     await d.reconcile({ boot: false })
     const reply = await d.switchModel('42', { model: 'opus', by: 'operator-1' })
 
-    assert.equal(spawns.length, 1)
-    assert.match(reply, /xhigh.*effort/)
+    assert.deepEqual(steps, ['/model opus'])
+    assert.match(reply, /xhigh\*\* effort/)
     assert.equal(d.agents.get('curia-42').reasoningEffort, 'xhigh')
+    assert.equal(d.agents.get('curia-42').model, 'opus')
   })
 })
 

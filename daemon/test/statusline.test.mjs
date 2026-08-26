@@ -765,4 +765,26 @@ describe('StatusLine', () => {
       fs.rmSync(dir, { recursive: true, force: true })
     }
   })
+
+  test('an in-pane model switch redraws the line in place with the new model (#717)', async () => {
+    line.onEvent({ type: 'agent_ready', agent: 'curia-544', ticket: '544', model: 'fable', ts: 'T' })
+    await drain()
+    assert.match(posts[0].text, /\*\*fable\*\*/)
+
+    line.onEvent({ type: 'agent_model_switched', agent: 'curia-544', ticket: '544', model: 'opus', switched_from: 'fable' })
+    await drain()
+
+    assert.equal(posts.length, 1, 'the state did not change, so the line stays where it is')
+    assert.equal(edits.length, 1)
+    assert.match(edits[0].text, /\*\*opus\*\*/)
+    assert.doesNotMatch(edits[0].text, /fable/)
+    assert.equal(line.stateOf('curia-544').state, 'working')
+  })
+
+  test('a switch event for a session this line never saw draws nothing', async () => {
+    line.onEvent({ type: 'agent_model_switched', agent: 'curia-9', ticket: '9', model: 'opus' })
+    await drain()
+    assert.equal(posts.length, 0)
+  })
+
 })
