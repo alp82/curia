@@ -104,7 +104,9 @@
      ================================================================ */
   .arc { position: relative; }
   .arc-stage { display: none; }
-  .arc-flow { position: relative; z-index: 1; }
+  /* The arc panel frames reach 20px past the edge; see `.scene` for
+     why that clips here and not on the root (#773). */
+  .arc-flow { position: relative; z-index: 1; overflow-x: clip; }
   .a-hero {
     min-height: 62svh; display: flex; flex-direction: column; justify-content: flex-end;
     padding-bottom: clamp(1.5rem, 5vh, 3.5rem);
@@ -140,6 +142,15 @@
   body.arcon .room { height: 70svh; }
   body.arcon .room.lead { height: 55svh; }
   body.arcon .room.short { height: var(--tail, 440svh); }
+  /* #773 round 2: a phone holds the hero and the mess for less scroll. */
+  @media (max-width: 40rem) {
+    body.arcon .room.lead { height: 40svh; }
+    /* #773 round 4: with the canvas on, a phone reads the hero and then
+       the order beat. Claims 01 and 02 and the room between them go:
+       each one crossing the screen shoved the art out of its way. With
+       no canvas the three panels stand and read as before. */
+    body.arcon #w-mess, body.arcon #w-order, body.arcon .room.mid { display: none; }
+  }
 
   /* Round 3 of #625: the words and the canvas must never sit on top of
      each other. On a wide screen each claim docks to its own side and
@@ -168,6 +179,15 @@
   }
   .cta:active { transform: scale(0.98); }
   .cta.ghost { background: none; color: var(--text); box-shadow: inset 0 0 0 1px var(--line); }
+  /* A phone gives the art the top of the first screen (#773 round 2):
+     the kicker and the skills line go, and the block tightens. */
+  @media (max-width: 40rem) {
+    .a-hero .q-mark, .a-hero .skills { display: none; }
+    h1 { font-size: clamp(1.6rem, 7.2vw, 3.2rem); margin-top: 0; }
+    .lede { font-size: 1rem; margin-top: 0.7rem; }
+    .ctas { margin-top: 1.1rem; }
+    .a-hero { padding-bottom: 1.2rem; }
+  }
 
   /* ================================================================
      The shared scene skeleton. A room is the space an animation owns;
@@ -192,7 +212,14 @@
      sides: .sL docks left, .sR docks right, and the evidence leans
      toward the other side.
      ================================================================ */
-  .scene { position: relative; }
+  /* Every scene clips its own sides (#773). Four things reached past
+     the right edge of a phone and each one scrolled the page sideways:
+     the arc panel frames at -20px, the grilling orb at -25vw, the
+     preview light at -18%, and every right-docked reveal parked at
+     +2.4rem before it comes in. The clip must NOT go on the root: there
+     it unstuck every sticky stage on the page. `clip` on a scene makes
+     no scroll container, so the stages inside keep working. */
+  .scene { position: relative; overflow-x: clip; }
   .claim { margin: 0 0 1rem; }
   .claim .bold { margin-bottom: 0; }
   .kick { margin: 0 0 0.55rem; font-family: var(--mono); color: var(--dim); font-size: 0.72rem; }
@@ -279,6 +306,16 @@
      window grows under it. The cap the script sets on the window keeps
      the two apart, so the words never sit on the evidence. */
   .grill-head { position: sticky; top: 3svh; z-index: 3; }
+  /* The claim's own sticky box (#773). It ends a screen above the
+     section, so the claim lets go BEFORE the stage does and rides off
+     ahead of the window. Bounded by the section alone, the claim held
+     on while the stage left, and on a phone the window scrolled up
+     straight through the words. */
+  .grill-headbox {
+    position: absolute; left: 0; right: 0; top: 8vh; bottom: calc(100dvh - 3svh);
+    z-index: 3; pointer-events: none;
+  }
+  .grill-headbox .grill-head { pointer-events: auto; }
 
   /* The track is pulled up under the claim ON PURPOSE. The stage is a
      screen tall and sticks at the top, so it must be stuck ALREADY by
@@ -495,8 +532,9 @@
   /* A desktop window on a phone is a miniature. Narrowing the rail and
      the channel list buys the chat pane back what it can. */
   @media (max-width: 40rem) {
-    .dc-rail { flex-basis: 3em; }
-    .dc-side { flex-basis: 9.4em; }
+    /* #773 round 2: on a phone the chat pane is the whole window. The
+       guild rail and the channel list carry nothing the story needs. */
+    .dc-rail, .dc-side { display: none; }
   }
 
   /* ---- the channel header. It carries the breadcrumb the client
@@ -1001,6 +1039,12 @@
       radial-gradient(52% 44% at var(--gx) var(--gy), var(--pvglow, transparent), transparent 74%);
     transition: background 0.5s var(--ease);
   }
+  /* #773 round 2: a phone shows the phone alone, larger. The desk
+     window behind it was a thumbnail nobody could read. */
+  @media (max-width: 40rem) {
+    .pv-desk { display: none; }
+    .pv-dev { --pvw: min(54vw, 13rem); justify-self: center; }
+  }
   /* The words never sit in the light (#624 rule 5). */
   #preview .claim, #preview .pv-rail, #preview .fact { position: relative; z-index: 4; }
 
@@ -1106,6 +1150,27 @@
   .at > .claim .bold { text-wrap: balance; }
   .at > .hm-scr { grid-area: hm; }
   .at > .mp-scr { grid-area: mp; }
+  /* #773 round 3: on a phone the two screens share one spot, each tilted
+     toward the other, and take turns in front like flip covers. The
+     script turns them; without it the atlas stays in front. */
+  @media (max-width: 40rem) {
+    .at { grid-template-areas: "claim" "scr"; }
+    .at > .hm-scr, .at > .mp-scr {
+      grid-area: scr; width: 88%;
+      transition: transform 0.7s var(--ease), filter 0.7s var(--ease);
+    }
+    .at > .hm-scr {
+      justify-self: start; z-index: 2;
+      transform: rotateY(12deg) rotate(-1deg) translateX(0);
+    }
+    .at > .mp-scr {
+      justify-self: end; z-index: 1;
+      transform: rotateY(-12deg) rotate(1deg) translateX(0) scale(0.94);
+      filter: brightness(0.72);
+    }
+    .at.flip > .hm-scr { z-index: 1; transform: rotateY(12deg) rotate(-1deg) scale(0.94); filter: brightness(0.72); }
+    .at.flip > .mp-scr { z-index: 2; transform: rotateY(-12deg) rotate(1deg) scale(1); filter: none; }
+  }
 
   /* Each screen is a screen: a bounded card with its own header strip
      that clips what runs past its bottom edge, rather than a list
@@ -1186,7 +1251,7 @@
   .at-nm { font-weight: 700; font-size: 0.8rem; min-width: 0; }
   .at-meta { margin: 0.2rem 0 0; font: 0.58rem var(--mono); color: #8a93a3; }
 
-  .rl { margin-top: 0.75rem; }
+  #atlas .rl { margin-top: 0.75rem; }
   .rrow {
     position: relative; display: flex; align-items: center; gap: 0.55rem;
     padding: 0.36rem 0 0.36rem 1.4rem; font-size: 0.74rem;
@@ -1216,6 +1281,12 @@
   /* The blocked box and the fog strip, as #588 round 5 drew them:
      red rules behind what waits, diagonal grey stripes behind what
      nobody has specified yet. */
+  /* #773 round 2: a phone keeps the dial, the running agent, two maps,
+     the walked line and the frontier. The third map, the five blocked
+     rows and the fog go: the scene is the dashboard, not its depth. */
+  @media (max-width: 40rem) {
+    .hm-maps .quest:nth-child(n + 3), .waitr, .fogs { display: none; }
+  }
   .waitr {
     margin-top: 0.6rem; padding: 0.45rem 0.65rem 0.5rem;
     border: 1px solid rgba(242, 112, 122, 0.45); border-radius: 8px;
@@ -1511,6 +1582,12 @@
 
   /* ---- the control below 60rem: bottom tabs. NEVER both (round 1) ---- */
   .tm-tabs { display: flex; border-top: 1px solid #262d33; background: #0f1116; }
+  /* #773 round 2: a phone drops the browser chrome. The tab and the URL
+     bar are the point on a desk and noise at 7px; the tmux line and
+     the four harness tabs stay, because they are the scene. */
+  @media (max-width: 40rem) {
+    .br { display: none; }
+  }
   .tm-tabs button {
     flex: 1 1 0; min-width: 0; border: 0; background: none; cursor: pointer; color: #8a93a3;
     display: flex; flex-direction: column; align-items: center; gap: 0.2rem;
@@ -1608,7 +1685,10 @@
     font: 0.86em var(--mono); background: #6e768166; border-radius: 4px;
     padding: 0.1em 0.4em; color: var(--gx-ink);
   }
-  .oc { width: 1em; height: 1em; flex: none; vertical-align: -0.15em; }
+  /* Scoped to the GitHub blocks (#773): a bare `.oc` reached the Discord
+     card's option lines, which also carry that class, and squeezed each
+     of them to one em wide. */
+  .gx .oc { width: 1em; height: 1em; flex: none; vertical-align: -0.15em; }
   .gx-h1 {
     margin: 0; font-size: 1.28em; font-weight: 600; line-height: 1.3;
     letter-spacing: -0.01em; color: var(--gx-ink); text-wrap: pretty;
@@ -1692,6 +1772,12 @@
   .r8-nb:first-child { padding-top: 0.4rem; min-height: 44svh; }
   .r8-nb:last-child { min-height: 54svh; }
   .r8-nb { opacity: 0.5; transition: opacity 0.4s var(--ease); }
+  /* #773 round 2: a phone holds each beat for less scroll. */
+  @media (max-width: 40rem) {
+    .r8-nb { min-height: 58svh; }
+    .r8-nb:first-child { min-height: 36svh; }
+    .r8-nb:last-child { min-height: 44svh; }
+  }
   .r8-nb.on { opacity: 1; }
   .r8-nb .nn {
     display: inline-block; align-self: flex-start;
@@ -2090,6 +2176,15 @@
   .r8-lane[data-app="discord"] { position: absolute; right: 1%; bottom: -0.6rem; height: auto; --ph-h: 92cqh; z-index: 3; }
   .r8-lane[data-app="curia"] { transform: rotateX(8deg) rotate(-0.4deg); transform-origin: 50% 100%; }
   .r8-card:not(.two) .pv-phone { margin-left: auto; margin-right: 6%; }
+  /* A phone shows ONE object per beat (#773 round 2). The desk is only
+     a phone wide, so the Discord phone beside the pull request was a
+     sliver. It goes, the pull request stands square, and the held stage
+     gives the titles more of the screen. */
+  @media (max-width: 40rem) {
+    .r8-card.two .r8-lane[data-app="discord"] { display: none; }
+    .r8-lane[data-app="github"] { transform: none; }
+    .r8-stage { height: 52dvh; }
+  }
 
   /* ---- the column the claim and the closing lines sit in ---- */
   .runwrap { max-width: 36rem; margin: 0 auto; padding: 0 1.25rem; }
@@ -2098,6 +2193,8 @@
   /* ---- the two lines that close the scene ---- */
   .caption { color: var(--dim); font-size: 0.85rem; font-style: italic; margin: 1.4rem 0 0; text-align: center; }
   .dogfood { color: var(--body); margin-top: 1.6rem; }
+  /* #773 round 3: the close leaves the phone read. */
+  @media (max-width: 40rem) { .scene.close { display: none; } }
 
   /* ---- the fail-open path. With reduced motion or no script the desk
          lets go, every card stands in order, and the ticket shows its
@@ -2111,6 +2208,26 @@
   .still .r8-lane .win-body, .still .r8-lane .at-body, .still .r8-lane .dcx-log { max-height: none; }
   .still .r8-nb { min-height: 0; opacity: 1; margin-bottom: 2rem; }
   .still .r8-tl li { visibility: visible; opacity: 1; }
+  /* #773 round 3: the stacked story on a phone. The stage is empty and
+     gone; the ticket and the cards stand in the steps column, each
+     under its title, whole. */
+  #run.stack .r8-stage { display: none; }
+  #run.stack .r8-steps { display: grid; gap: 1.2rem; }
+  #run.stack .r8-nb { min-height: 0; opacity: 1; margin: 1.2rem 0 0; }
+  #run.stack .r8-nb:first-child { margin-top: 0; }
+  #run.stack .r8-nb.on { opacity: 1; }
+  #run.stack .r8-tkt { font-size: 0.72rem; }
+  #run.stack .r8-card {
+    position: relative; inset: auto; opacity: 1; pointer-events: auto;
+    transform: none; filter: none; transition: none;
+  }
+  #run.stack .r8-card > * { height: auto; display: block; }
+  #run.stack .r8-lane { height: auto; }
+  #run.stack .r8-lane[data-app="discord"] { position: relative; right: auto; bottom: auto; }
+  #run.stack .r8-card.two .r8-lane[data-app="discord"] { display: none; }
+  #run.stack .pv-win { width: 100%; aspect-ratio: 16 / 11; }
+  #run.stack .pv-phone { width: min(100%, 15rem); margin: 0 auto; }
+  #run.stack .r8-lane .win-body, #run.stack .r8-lane .at-body, #run.stack .r8-lane .dcx-log { max-height: none; }
 
   /* ================================================================
      Scene 9 — your VPS. One box, four lanes, the measured numbers.
@@ -2194,6 +2311,24 @@
   .gg .gg-strip .g { gap: 0; border-radius: 6px; overflow: hidden; background: var(--ch); }
   .gg .gg-strip i { border-radius: 0; background: none; height: 2.4rem; }
   .gg .gg-strip i:last-child { box-shadow: none; }
+  /* #773 round 6: on a phone the strip is a GRID of equal cells, one per
+     0.1 GB, twenty to a row, wrapping. Every width is exact by count:
+     a 0.5 GB system is five cells whether the box has 4 GB or 16, and
+     nothing can run past the row. Rounds 3 to 5 tried a floor under
+     each group, and a floor is a lie: it takes width from another
+     group. The group labels and the ticks go; the legend names the
+     colors. */
+  @media (max-width: 40rem) {
+    .gg .gg-strip { display: flex; flex-wrap: wrap; gap: 2px; margin: 0.5rem 0; }
+    .gg .gg-strip .g { display: contents; }
+    .gg .gg-strip i {
+      flex: 0 0 auto; width: calc((100% - 19 * 2px) / 20); aspect-ratio: 1; height: auto;
+      border-radius: 2px; box-shadow: none; background: var(--ch);
+    }
+    .gg .gg-strip i.p { background: var(--ca); }
+    .gg .gg-strip i.s { background: var(--cs); }
+    .gg-groups, .gg-ticks { display: none; }
+  }
   .gg .gg-strip i.p { background: var(--ca); }
   .gg .gg-strip i.s { background: var(--cs); }
   .gg.dense .gg-strip i { box-shadow: none; }
@@ -2239,7 +2374,7 @@
   .clone {
     font: 0.78rem var(--mono); color: #cfd5de; background: #ffffff08;
     box-shadow: inset 0 0 0 1px var(--line); border-radius: 8px;
-    padding: 0.8rem 0.9rem; overflow-x: auto; white-space: nowrap;
+    padding: 0.8rem 0.9rem; white-space: pre-wrap; overflow-wrap: anywhere;
   }
 
   /* ================================================================
@@ -2259,7 +2394,7 @@
     background: #ffffff08; box-shadow: inset 0 0 0 1px var(--line);
     border-radius: 6px; padding: 0.7rem 0.85rem; overflow-x: auto; margin: 0.55rem 0;
   }
-  .step pre code { background: none; padding: 0; font-size: 0.78rem; }
+  .step pre code { background: none; padding: 0; font-size: 0.78rem; white-space: pre-wrap; overflow-wrap: anywhere; }
   .readmore { color: var(--body); font-size: 0.95rem; }
 
   footer { padding: 3rem 0 4rem; color: var(--dim); font-size: 0.85rem; }
@@ -2285,7 +2420,7 @@
   /* With reduced motion the grilling scene is an ordinary section: no
      track, no sticky, no growth, and the whole card standing. */
   @media (prefers-reduced-motion: reduce) {
-    .grill-head, .grill-stage { position: static; }
+    .grill-head, .grill-headbox, .grill-stage { position: static; }
     .grill-stage { height: auto; padding: 0 0.6rem; }
     .grill-track { height: auto; margin-top: 1.5rem; }
     .grill-stage::before { display: none; }
@@ -2358,7 +2493,7 @@
         </header>
       </section>
 
-      <div class="room" aria-hidden="true"></div>
+      <div class="room mid" aria-hidden="true"></div>
 
       <!-- Scene 3 · maps bring order -->
       <section class="apanel wrap sR" id="w-order">
@@ -2387,12 +2522,14 @@
        in, while the claim rides to the top of the screen. Then the
        press, and the edit that clears the components. -->
   <section class="scene sL grillpin" id="grill-pin" data-stage="agent" data-n="03" data-name="the grilling" style="--g1:#171930;--g2:#0d0e1c">
+    <div class="grill-headbox">
     <div class="wrap grill-head" id="grill-head">
       <header class="claim rv">
         <p class="kick"><span class="kn">03</span><span class="kname">the grilling</span></p>
         <h2 class="bold">Answer from the couch.</h2>
       </header>
       <p class="story rv">An agent hits a real decision and asks you in Discord.</p>
+    </div>
     </div>
 
     <div class="grill-track">
@@ -3218,7 +3355,7 @@
   </section>
 
   <!-- Scene 8, the close: the fact line and the dogfood line. -->
-  <section class="scene sL" data-stage="gate" style="padding-top:0;--g1:#0c1020;--g2:#0c1020">
+  <section class="scene sL close" data-stage="gate" style="padding-top:0;--g1:#0c1020;--g2:#0c1020">
     <div class="wrap">
       <p class="fact rv">just type your rejection reasons if you don't agree with the result</p>
       <p class="dogfood rv">This page itself was
@@ -3426,6 +3563,11 @@ if (prefersStill || !window.IntersectionObserver) {
   (function () {
     var at = document.getElementById('atlas');
     if (!at) return;
+    /* #773 round 3: on a phone the two screens take turns in front. */
+    if (window.matchMedia && window.matchMedia('(max-width: 40rem)').matches) {
+      var grid = document.getElementById('at');
+      if (grid) setInterval(function () { grid.classList.toggle('flip'); }, 3600);
+    }
     var seen = new IntersectionObserver(function (entries) {
       entries.forEach(function (e) {
         if (!e.isIntersecting) return;
@@ -3696,6 +3838,7 @@ if (prefersStill || !window.IntersectionObserver) {
   /* The run happens once. Scrolling away mid-print settles the pane
      whole rather than leaving it half written. */
   var ran = false;
+  var seen = false;
   function start() {
     if (ran) return;
     ran = true;
@@ -3845,6 +3988,21 @@ function clampNum(v, a, b) { return v < a ? a : v > b ? b : v; }
 
   /* The arrangement is settled, so there is nothing to switch. What is
      left is the one thing this script owns: the beat. */
+  /* #773 round 3. A phone tells this scene as a stack: each title, then
+     the screen it names, in reading order, nothing held. The held desk
+     hid the screens under the titles on a phone. The ticket follows
+     the first title and card k follows title k. Decided once, at load:
+     a phone does not change width. */
+  var stack = !prefersStill && window.matchMedia && window.matchMedia('(max-width: 40rem)').matches;
+  if (stack) {
+    sec.classList.add('stack');
+    var tkt = document.getElementById('tkt');
+    if (tkt && steps[0]) steps[0].insertAdjacentElement('afterend', tkt);
+    cards.forEach(function (c) {
+      var i = parseInt(c.getAttribute('data-i'), 10);
+      if (steps[i]) steps[i].insertAdjacentElement('afterend', c);
+    });
+  }
   if (prefersStill) { sec.classList.add('still'); press(); } else { watch(); }
 })();
 
@@ -3922,7 +4080,9 @@ function clampNum(v, a, b) { return v < a ? a : v > b ? b : v; }
      the 16px the client itself uses. */
   function base() {
     var w = dc.clientWidth || 320;
-    return clampNum(w / 40, 7, 16.5);
+    /* A phone window has no rail and no channel list, so its chat pane
+       is the whole width and the type can be bigger (#773 round 2). */
+    return clampNum(w / (w < 640 ? 33 : 40), 7, 16.5);
   }
   function fit() {
     var on = dc.classList.contains('on');
@@ -4263,6 +4423,18 @@ function runArc() {
       ctx.fillStyle = rgb(sc);
       ctx.fill();
     }
+    if (BAR_ROWS) {
+      /* A phone cannot read 11px in a card 90px wide. The row keeps its
+         state dot and shows its words as two bars. */
+      roundRect(x + 25 * s, dy - 2 * s, Math.max(10, (w - 36 * s) * 0.42), 4 * s, 2 * s);
+      ctx.fillStyle = rgba(C.text, st === 0 ? 0.3 : 0.6);
+      ctx.fill();
+      roundRect(x + 25 * s + (w - 36 * s) * 0.5, dy - 2 * s, Math.max(10, (w - 36 * s) * 0.36), 4 * s, 2 * s);
+      ctx.fillStyle = rgba(C.dim, st === 0 ? 0.3 : 0.55);
+      ctx.fill();
+      ctx.restore();
+      return;
+    }
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
     ctx.font = '700 ' + (10.5 * s).toFixed(1) + 'px ' + MONOF;
@@ -4569,6 +4741,9 @@ function runArc() {
      many of them genuinely fit. Never one card because the code said
      so: round 2 called that out on its own. */
   var GAPM = 16;
+  /* Set each frame (#773 round 2): a phone draws ONE map, and its rows
+     as bars with no words. The desktop path never sets either. */
+  var MAX_MAPS = 3, BAR_ROWS = false;
   /* drawMapCard draws nothing under 90 px wide, so no fit may ask for
      less: a map that vanishes is worse than one that crowds. */
   var MIN_S = 92 / MAP_W;
@@ -4576,7 +4751,7 @@ function runArc() {
     var s, n, need, k;
     if (column) {
       s = clamp(availW / MAP_W, MIN_S, 1.0);
-      n = clamp(Math.floor((availH + GAPM) / (mapHeight(s) + GAPM)), 1, 3);
+      n = clamp(Math.floor((availH + GAPM) / (mapHeight(s) + GAPM)), 1, MAX_MAPS);
       need = n * mapHeight(s) + GAPM * (n - 1);
       if (need > availH) s = Math.max(MIN_S, s * (availH / need));
       var ch = mapHeight(s), totalH = ch * n + GAPM * (n - 1);
@@ -4586,7 +4761,7 @@ function runArc() {
       return;
     }
     var minW = 118;
-    n = clamp(Math.floor((availW + GAPM) / (minW + GAPM)), 1, 3);
+    n = clamp(Math.floor((availW + GAPM) / (minW + GAPM)), 1, MAX_MAPS);
     s = clamp(Math.min((availW - GAPM * (n - 1)) / n / MAP_W, availH / mapHeight(1)), MIN_S, 1.05);
     var cw = MAP_W * s, totalW = cw * n + GAPM * (n - 1);
     for (k = 0; k < n; k++) {
@@ -5022,7 +5197,7 @@ function runArc() {
 
      The span is how many screens of scroll the order beat is given, and
      the tail room under the claim is set from it. */
-  var ORDER_SPAN = 4.2;
+  var ORDER_SPAN = window.innerWidth < 620 ? 3.2 : 4.2;   /* a phone: one screen less (#773 round 2) */
   /* EVERY piece of work makes the journey: the mess is cleared out, and
      nothing of it is left standing at the end. */
   var TRAVEL_N = MESS.length;
@@ -5143,12 +5318,21 @@ function runArc() {
     if (arcBox.bottom < -40 || arcBox.top > H + 40) return;
 
     var wide = W >= 620;
+    MAX_MAPS = wide ? 3 : 1;
+    BAR_ROWS = !wide;
     var travelPx = arcEl.offsetHeight - window.innerHeight;
     var arcP = travelPx > 0 ? clamp(-arcBox.top / travelPx, 0, 1) : 0;
     var rise = smooth(0.04, 0.50, panelProgress(messPanel));
     /* how far PAST the order claim the reader has come, in screens */
     var ro = orderPanel ? orderPanel.getBoundingClientRect() : null;
     var fall = ro ? clamp((H * 0.55 - ro.top) / (H * ORDER_SPAN), 0, 1) : 0;
+    if (!wide) {
+      /* #773 round 4: a phone has no mess beat and no claims on the
+         stage. The order beat starts a third of a screen into the
+         scroll and runs for ORDER_SPAN screens. */
+      rise = 0;
+      fall = clamp((-arcBox.top - H * 0.35) / (H * ORDER_SPAN), 0, 1);
+    }
     stageEl.style.setProperty('--warm', (1 - 0.86 * rise * (1 - fall)).toFixed(3));
     stageEl.style.setProperty('--ord', fall.toFixed(3));
 
@@ -5161,6 +5345,24 @@ function runArc() {
     var mapsH = maps.length ? mapHeight(maps[0].w / MAP_W) : 140;
 
     var K = keyframes(b, mapsH);
+    if (!wide) {
+      /* #773 round 3. On a phone the three beats are ONE pipeline: the
+         pile above, curia in the middle, the maps at the foot. Nothing
+         changes place between beats; the pile changes shape, and the
+         maps leave and come back by the foot. The desktop keyframes,
+         where the maps stand above in the hero and the pile turns
+         around curia, pushed curia up and down the screen with every
+         turn of the wheel. */
+      var bh = K.bh, bw = K.bw;
+      var ny = b.y0 + bh * 0.50, nr = clamp(Math.min(bh * 0.13, bw * 0.22), 42, 100);
+      K.hero.nodeY = K.mess.nodeY = K.order.nodeY = ny;
+      K.hero.nodeR = K.mess.nodeR = K.order.nodeR = nr;
+      K.hero.cloudY = b.y0 + bh * 0.20; K.hero.cloudRY = bh * 0.11; K.hero.cloudRX = bw * 0.44;
+      K.hero.mapsY = b.y1 - mapsH / 2;
+      K.mess.cloudY = b.y0 + bh * 0.24; K.mess.cloudRY = bh * 0.20; K.mess.cloudRX = bw * 0.46;
+      K.mess.mapsY = b.y1 + mapsH * 0.9;
+      K.order.cloudY = b.y0 + bh * 0.17;
+    }
     var S = mixkf(mixkf(K.hero, K.mess, rise), K.order, fall);
     S.cx = K.cx;
     /* Measured in screens of scroll, not in a share of the arc: the
@@ -5177,6 +5379,7 @@ function runArc() {
        while the claim is still below the fold and finishes inside half
        a screen. */
     var mapsIn = ro ? smooth(0, 1, clamp((H * 1.15 - ro.top) / (H * 0.62), 0, 1)) : 0;
+    if (!wide) mapsIn = 0;   /* the map never leaves the foot on a phone */
     var mapsA, mi;
     if (mapsIn <= 0.001) {
       S.mapsY = lerp(K.hero.mapsY, K.mess.mapsY, rise);
@@ -5239,6 +5442,9 @@ function runArc() {
         arrivals[MAPOF[i]].push({ i: i, u: u, st: STOF[i] });
       }
       if (u >= 0.999) continue;                 /* it lives in the map now */
+      /* A phone shows two thirds of the pile while it is only a pile.
+         The rest join as they start to travel, under the melt. */
+      if (!wide && u <= 0.001 && i % 3 === 2) continue;
       var slot = MAPOF[i] % Math.max(1, nMaps);
       var mm = maps[slot];
       var it = { i: i, slot: slot, a: 0.95, pop: home.scale };

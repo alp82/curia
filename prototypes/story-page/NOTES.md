@@ -2901,3 +2901,126 @@ five operator rounds.** The frame every scene ticket (#625 to #631) conforms to:
 7. One slab accent: the gate climax claim. Slabs mark importance and stay rare.
 8. The hero stays out of this frame. Its words sit at the bottom, locked at #567, and the
    opening arc ticket [#625](https://github.com/alp82/curia/issues/625) revisits it.
+
+## The whole page on a phone ([#773](https://github.com/alp82/curia/issues/773))
+
+**Round 1.** The first read of the twelve scenes in sequence at 393px (iPhone 15), frame by
+frame, with the page measured at every stop. Five faults, none visible in any one scene's own
+ticket because each one only shows across scenes or across the whole document:
+
+- **The page scrolled sideways.** Four things reached past the right edge: the arc panel
+  frames (`inset: -20px`), the grilling orb (`-25vw`), the preview light (`-18%`), and every
+  right-docked reveal parked at `translateX(2.4rem)` before it comes in. The phone's layout
+  viewport grew to 491px to hold them, so every scene rendered a fifth too small. Every
+  `.scene` and `.arc-flow` clips its own sides now. **The clip must not go on the root:** on
+  `html` it unstuck every sticky stage on the page, measured A/B against the file on `main`.
+- **The grilling window scrolled up through its own claim.** The stage let go at the section's
+  end, but the sticky claim held on to the same end and the window climbed through the words.
+  The claim has its own sticky box now, `.grill-headbox`, which ends a screen above the
+  section, so the claim lets go first and rides off ahead of the window.
+- **A class collision, the third.** Scene 7's bare `.oc { width: 1em }` (its octicons) reached
+  the Discord card's option lines, which carry the same class, and squeezed each one to one em
+  wide, so the text wrapped a word per line over the blocks below. Scoped to `.gx .oc`. The
+  atlas scene's bare `.rl { margin-top }` reached the preview bar and the terminal rail the same
+  way; scoped to `#atlas .rl`.
+- **The terminal never started.** Its observer wrote `seen = true` and `seen` was never
+  declared. Under `'use strict'` that is a `ReferenceError` on the first intersection, thrown
+  before `start()`, so no harness ever typed. Declared.
+- **The setup command clipped** at `--build`. The `pre` wraps now.
+
+The scroll budget at 393×659: 20.6 screens. The opening arc takes 7.2 of them, the ticket run
+4.3, the atlas 2.1, and every other scene one or less.
+
+**Left for the operator:** on a phone the ticket-run scene's Discord phone lane shrinks to a
+sliver beside the atlas window. That is the round 15 arrangement measured against a desk that
+is only a phone wide, and it is a decision, not a fault.
+
+**Round 2.** The operator, from an iPhone SE: "we got lots to do here". The art at the top
+needs more room, and small screens may leave elements out and simplify the visualizations to
+avoid density. The full page went through first at 375×667, scene by scene, and the operator
+took the cuts as proposed, with one rule: desktop stays exactly as it was.
+
+**The rule the round keeps:** one breakpoint, `max-width: 40rem`. Below it a scene shows one
+object per beat and no chrome that is not the point. Above it nothing changes. The canvas
+gates its own cuts on `W < 620`, the flag the arc already had. Proof: eight desktop screens at
+1440×900 diffed pixel for pixel against the file before the round, zero pixels changed.
+
+The cuts, scene by scene:
+
+- **The arc.** The hero drops its kicker and its skills line and tightens, so the art has the
+  top half of the first screen. The canvas draws ONE map on a phone, its rows as bars with the
+  state dot and no words (11px in a 90px card reads as noise), and two thirds of the pile while
+  it is only a pile; the rest join under the melt as they start to travel. The order beat is a
+  screen shorter (`ORDER_SPAN` 3.2 on a phone) and the two rooms hold for less.
+- **The grilling.** The guild rail and the channel list go. The chat pane is the whole window,
+  and the base type grows from `w / 40` to `w / 33` under 640px, which the desktop window never
+  is.
+- **The preview.** The phone alone, at 54vw. The desk window behind it was a thumbnail.
+- **The atlas.** Two maps instead of three; the walked line and the frontier; the five blocked
+  rows and the fog go.
+- **The terminal.** The browser tab and URL bar go. The tmux line and the four harness tabs
+  stay, because they are the scene.
+- **The ticket run.** One object per beat: the Discord phone beside the pull request was a
+  sliver on a desk one phone wide, so on the two-lane cards it goes and the pull request stands
+  square. The stage holds 52dvh instead of 62, and each beat holds for less scroll.
+- **The `git clone` line** wraps instead of clipping.
+
+The scroll budget at 375×667: 18.1 screens, from 20.5. The arc 5.9 (was 7.2), the ticket run
+3.5 (was 4.3), the atlas 1.5 (was 2.0), the preview 1.2 (was 0.9, the bigger phone).
+
+**Round 3.** The operator, from the phone: the first two scenes push the curia animation up
+and down the screen while scrolling, busy and meaningless; scene 05 could overlay the two
+screens, tilted toward each other, alternating which is in front like flip covers; scene 07
+does not show the screens at all, the narration titles are in the way, and mobile needs a
+different way to tell the story; the close ("just type your rejection reasons", "This page
+itself was planned...") goes; the VPS bars are too thin at 8 GB. Desktop still diffs to zero.
+
+- **The arc on a phone is one pipeline in every beat.** The pile above, curia in the middle,
+  the map at the foot. Nothing changes place between beats: the pile changes shape (a flat
+  ring, then a globe, then it resolves through curia), and the map leaves and comes back by
+  the foot. The desktop keyframes, where the maps stand above in the hero and the pile turns
+  around curia, were what moved curia. Gated on `W < 620`, in the frame after `keyframes()`.
+- **The atlas flips.** Below 40rem both screens share one grid cell, each tilted toward the
+  other, the front one whole and the back one dimmed and a step smaller. A 3.6s timer turns
+  them. Without the script the atlas stays in front.
+- **The ticket run is a stack.** Below 40rem the script moves the ticket under the first
+  title and card k under title k, adds `stack` to the section, and the stage is gone: title,
+  screen, title, screen, in reading order, nothing held. The beat observer still runs, so the
+  ticket's timeline grows as the titles cross the middle. Decided once at load.
+- **The close** is hidden below 40rem. It stands on desktop; the dogfood line is an operator
+  addition of #508 and stays there until the operator rules on it.
+- **The VPS bars** have a floor of 2.4rem per group and label below 40rem, and the free space
+  gives it up.
+
+The scroll budget at 375×667: 17.3 screens.
+
+**Round 4.** The operator: the titles 01 and 02 still push the curia animation above and
+below; remove them on a phone and go straight to the animation after 02. And the VPS boxes
+are too wide at 8 and 16 GB (thirty agents ran past the box).
+
+- **A phone reads the hero and then the order beat.** With the canvas on, claims 01 and 02
+  and the room between them are gone below 40rem. The frame forces `rise` to 0 and drives
+  `fall` from the arc's own scroll, a third of a screen in, over `ORDER_SPAN` screens; the
+  map never leaves the foot. Each claim crossing the screen had shoved the art out of its
+  way, and no keyframe change could fix that, because the art's box IS what the words leave.
+  With no canvas the three panels stand and read as before, so the locked words are still on
+  the page.
+- **The bar floor is the even share at most.** The script writes `--gn`, the group count, on
+  the strip and the label row, and the phone floor is `min(2.4rem, 100% / var(--gn))`.
+
+Desktop diffs to zero pixels. The scroll budget at 375×667: 16.2 screens, the arc 4.8.
+
+**Round 5.** The operator: the strip is still too wide at 16 GB. Round 4's floor forgot the
+gaps between groups: thirty of them at 0.42rem are 13rem on their own. The floor is now the
+even share of the row MINUS its gaps, the two rows clip as a backstop, and past a dozen groups
+the agent labels are blank rather than slivers of glyph. Measured on the phone at 16 GB and
+thirty agents: strip 293px in a 293px row. Desktop diffs to zero.
+
+**Round 6.** The operator, at 16 GB and six agents: the widths must always be 100% correct,
+and if the grouping does not work, find another way. It did not work: a floor under a group
+takes its width from another group, so at 16 GB with six agents the 12 GB of free space had
+shrunk to a sliver. The floor is gone. On a phone the strip is a grid of equal cells now, one
+per 0.1 GB, twenty to a row, wrapping: 2 rows at 4 GB, 8 at 16. Every width is exact by count.
+Measured in five states (4/4, 16/6, 16/30, 16/1, 2/1): cells = RAM × 10, every cell 12.75px,
+rows = cells ÷ 20, strip never wider than its row. The group labels and the ticks go on a
+phone; the legend names the colors. Desktop diffs to zero.
