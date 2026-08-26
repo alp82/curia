@@ -2396,6 +2396,12 @@ mounts, two cache volumes, three loopback ports per agent).
 5. **ledger** - the four figures large, then a definition list: the box, always on, per agent,
    what it reaches, what is public.
 
+**Round 2.** The operator picked the gauge. Three changes: the scene is centered, the claim
+included, which is the same deviation from #624 rule 2 the atlas took; the box is 4 GB, the more
+common size, so the strip is eight half-gigabyte blocks with four lit; and the measured peak is
+off the scene. Everything grew: the blocks are 2.6rem tall, the box is 30rem wide and the legend
+reads at 0.84rem. The switcher and the four losing readings left the file with this round.
+
 The `.box` and `.lane` classes of the old scene stay, unused by the new markup. Each variation
 prefixes its classes (`st-`, `gg-`, `ro`, `bp`, `lg`), after the fault
 [#773](https://github.com/alp82/curia/issues/773) records. The switcher and the four losing
