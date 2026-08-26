@@ -2190,6 +2190,57 @@ on the kicker, both worn for rounds and neither ever given a rule.
 
 **140 build checks** run against the file and all **83 breaks** that validate them land.
 
+**The operator's answer to round 11**, verbatim, with two screenshots:
+
+> desk: for this step the phone is not below the ticket
+> all others: the phone is too Shuge and content is not filling it
+>
+> i want to keep desk and only do variations with that as a baseline
+>
+> the screens need the correct proportions for screens, even if we have only little elements to
+> show, we then need to add a proper shell to give context where they are
+
+**Two complaints, one cause.** The phone was given its LANE's width, and a lane is the whole card.
+A 9:19.5 frame at that width is taller than the desk, which is the first complaint. Its three lines
+of content then sat in a corner of all that glass, which is the second complaint seen from inside
+the same mistake.
+
+**A phone is narrow, and it is narrow in EVERY beat.** Round 11 sized and placed it only inside a
+two-lane card, which is exactly why the one beat that deals a phone alone put it wherever it liked.
+It has a width of its own now — `min(9.5rem, 44%)` — and a check refuses a `.pv-phone` rule that
+takes 100% of anything.
+
+**The shell is the answer to the empty glass, and it is the more interesting half.** Three lines do
+not fill a phone, and shrinking the phone until they do would stop it being a phone. So each screen
+carries the furniture its app really has:
+
+| screen | its furniture |
+|--------|---------------|
+| the phone | a status bar with the clock and the signal, a channel header with a back arrow, and a composer pinned at the bottom |
+| GitHub | a page header with the repo path, and the repo nav with Pull requests marked |
+| curia | a site header with the mark, and the nav with Atlas marked |
+
+**A screen is mostly furniture, which is why three lines can fill one.** The log flexes between the
+header and the composer, so the content sits where content sits and the glass is full without a
+single invented word.
+
+**Desk is the baseline** and the five compositions are five arrangements of it: front (the phone
+standing at the browser's lower corner), beside (nothing overlapping), flat (no tilt), lean (both
+leaning the same way), over (the phone standing on the browser).
+
+**149 build checks** run against the file and all **90 breaks** that validate them land.
+
+**The orphan check caught the same fault one round after it was written.** Round 12's first cut
+removed `.r8-mk`'s width rule again, in the same way round 10's did, and the check that round 11
+added went red before the file was served. That is the whole argument for writing a check the moment
+a fault has a name: **the second instance arrived one round later.**
+
+**And four checks were too weak to break, all in the same shape.** A desktop media query that also
+sized the phone kept the proportion check green while the phone was full-width on every phone. A
+composition that still named a device in one surviving rule kept the staging check green. Six marks
+of the wrong product still counted as six marks. The lesson each time is the one this file keeps
+writing down: **a check that reads "somewhere" cannot see a fault that lives in "here".**
+
 ## The merge that arrived early
 
 The operator merged pull request #739 by accident at round 10, before the scene was done. **Nothing
