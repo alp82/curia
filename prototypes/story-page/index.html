@@ -2000,25 +2000,38 @@
 
   /* ---- a card fills the desk, so a screen can be screen-shaped ---- */
   .r8-card { inset: 0; }
-  .r8-card > * { height: 100%; }
-  /* The link the chain was missing. A percentage height resolves only
-     against a DEFINITE one, so a lane with no height of its own made
-     the phone fall back to its content and become a pill. */
-  .r8-lane { min-width: 0; height: 100%; display: flex; align-items: stretch; }
+  .r8-card > * { height: 100%; align-items: end; }
+  /* A lane is a plain block that fills the card. It was a flex box with
+     `align-items: stretch`, and a flex item's stretched height BEATS its
+     aspect-ratio — which is why a 16:11 window came out portrait and a
+     9:19.5 phone came out a sliver. A device sizes itself now, and the
+     lane only gives it the room. */
+  .r8-lane { min-width: 0; height: 100%; position: relative; }
+  /* The desk is the size budget both devices measure against. */
+  .r8-desk { container-type: size; }
+  /* A FIXED aspect ratio means exactly one axis may be constrained. Set
+     the width from whichever of the desk's two dimensions runs out
+     first, and let the ratio give the height. `max-height` alongside a
+     width was the fault: whenever the cap bound, the ratio broke, and
+     which viewport that happened at is what made it look like the
+     shape depended on the window. */
   #run .pv-win {
-    width: 100%; aspect-ratio: 16 / 11; max-height: 100%;
+    aspect-ratio: 16 / 11; height: auto;
+    width: min(100%, calc(100cqh * 16 / 11));
     display: flex; flex-direction: column; border-radius: 9px;
-    /* An edge, so the window reads as a window against a dark scene
-       rather than dissolving into it. */
     box-shadow: 0 1.4rem 3rem -0.8rem rgba(0, 0, 0, 0.75), 0 0 0 1px #ffffff26;
   }
   #run .pv-wt { flex: none; padding: 0.4rem 0.55rem; }
   #run .pv-wt .wu { font-size: 0.54rem; }
   .r12-app { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
   .r12-body { flex: 1 1 auto; }
-  /* A phone is TALL, so height is the handle. Width follows the glass. */
+  /* The same rule, the same way round: the width comes from the height
+     budget, and the ratio gives the height back. `--ph-h` is that
+     budget, so an arrangement can hand the phone less of the desk
+     without ever touching its shape. */
   #run .pv-phone {
-    height: 100%; width: auto; aspect-ratio: 9 / 19.5;
+    aspect-ratio: 9 / 19.5; height: auto;
+    width: min(100%, calc(var(--ph-h, 100cqh) * 9 / 19.5));
     border-radius: 1.6rem; padding: 0.18rem;
   }
   #run .pv-bezel { border-radius: 1.44rem; }
@@ -2090,7 +2103,7 @@
          Round 11's arrangement, with the phone finally phone-sized. --- */
   .v-front .r8-card.two > * { position: relative; display: block; perspective: 1400px; }
   .v-front .r8-lane[data-app="github"] { transform: rotateX(10deg) rotateY(-11deg) rotate(-0.5deg); transform-origin: 62% 100%; }
-  .v-front .r8-lane[data-app="discord"] { position: absolute; right: 1%; bottom: -0.6rem; height: 92%; z-index: 3; }
+  .v-front .r8-lane[data-app="discord"] { position: absolute; right: 1%; bottom: -0.6rem; height: auto; --ph-h: 92cqh; z-index: 3; }
   .v-front .r8-lane[data-app="curia"] { transform: rotateX(8deg) rotate(-0.4deg); transform-origin: 50% 100%; }
   .v-front .r8-card:not(.two) .pv-phone { margin-left: auto; margin-right: 6%; }
 

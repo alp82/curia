@@ -2331,6 +2331,38 @@ box-shadow as a second rule on the same selector made "a browser is a viewport" 
 demanded that EVERY base rule mention the aspect ratio. It asks that one sets it and none unsets it
 now, and the shadow lives in the same rule where it belongs.
 
+**The operator's answer to round 14**, verbatim, with a screenshot:
+
+> the screen and phone should have a fixed aspect ratio. as you can see, it depends on the viewport
+> size
+
+**A fixed aspect ratio means exactly ONE axis may be constrained**, and round 14 constrained two.
+The browser had `width: 100%` and `max-height: 100%` together: whenever the cap bound, the ratio
+broke, and WHICH viewport that happened at is exactly what made the shape look like it depended on
+the window.
+
+**The lane was doing the same thing more quietly.** It was a flex box with `align-items: stretch`,
+and **a flex item's stretched height beats its aspect-ratio** — which is why a 16:11 window came out
+portrait and a 9:19.5 phone came out a sliver. The lane is a plain block now and a device sizes
+itself.
+
+**Both devices set a WIDTH and let the ratio give the height**, and the width is the smaller of what
+the desk has each way:
+
+```
+width: min(100%, calc(100cqh * 16 / 11))
+```
+
+The desk is a size container, so `100cqh` is the room the desk really has. That fits a device both
+ways without ever touching its shape, and it is the same rule for both: the phone reads its budget
+from `--ph-h`, so the `front` arrangement can hand it 92% of the desk without touching its ratio
+either.
+
+**Neither device carries a cap on the axis the ratio owns**, and a check refuses one, because that
+is the fault in one line.
+
+**163 build checks** run against the file and all **104 breaks** that validate them land.
+
 ## The merge that arrived early
 
 The operator merged pull request #739 by accident at round 10, before the scene was done. **Nothing
