@@ -1707,7 +1707,7 @@
   }
   .r8-steps { position: relative; z-index: 2; }
   .r8-nb { min-height: 76svh; display: flex; flex-direction: column; justify-content: flex-start; margin: 0; }
-  .r8-nb:first-child { padding-top: 0.4rem; }
+  .r8-nb:first-child { padding-top: 0.4rem; min-height: 44svh; }
   .r8-nb:last-child { min-height: 54svh; }
   .r8-nb { opacity: 0.5; transition: opacity 0.4s var(--ease); }
   .r8-nb.on { opacity: 1; }
@@ -1806,10 +1806,19 @@
   .r10-front { display: flex; align-items: center; gap: 0.45em; font: 700 0.58rem var(--mono); letter-spacing: 0.1em; text-transform: uppercase; color: #8a93a3; }
   .r10-front s { flex: 1; height: 2px; background: #5ec8e5; box-shadow: 0 0 10px rgba(94, 200, 229, 0.45); }
   .r10-front em { font-style: normal; color: #5ec8e5; }
-  .r10-tile { background: #12141a; border: 1px solid #262b35; border-left: 3px solid #5ec8e5; border-radius: 8px; padding: 0.6rem 0.7rem; }
+  .r10-tile { background: #0d1117; border: 1px solid #2b323e; border-left: 3px solid #5ec8e5; border-radius: 8px; padding: 0.6rem 0.7rem; }
   .r10-tile .t { margin: 0; font-weight: 600; font-size: 1em; line-height: 1.3; }
   .r10-tile .m { margin: 0.4rem 0 0; display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
   .r10-tile .m .n { font: 700 0.58rem var(--mono); color: #8a93a3; }
+  /* The map's own progress, which is real: 13 of the 17 children of
+     alp82/curia#600 are closed. It also fills the page under the
+     frontier, which is what made the window read as empty. */
+  .r13-walk { display: grid; grid-template-columns: 1fr auto; gap: 0.25rem 0.6rem; margin-top: 0.8rem; align-items: center; }
+  .r13-walk .lb { font-weight: 600; color: #cdd6e4; }
+  .r13-walk .ct { font: 0.9em var(--mono); color: #8a93a3; }
+  .r13-walk .tr { grid-column: 1 / -1; height: 0.3rem; border-radius: 999px; background: #ffffff14; overflow: hidden; }
+  .r13-walk .tr i { display: block; height: 100%; border-radius: 999px; background: var(--st-merged); }
+
   .r10-go {
     display: block; width: 100%; margin-top: 0.7rem; border: none; border-radius: 7px;
     padding: 0.5rem 1rem; font: 800 0.8rem var(--sans); color: #06231a;
@@ -1895,7 +1904,16 @@
      ================================================================ */
 
   /* ---- the app shell inside a browser ---- */
-  .r12-app { background: #0d1117; color: #e6edf3; font: 0.62rem/1.5 var(--sans); }
+  .r12-app {
+    background: #12161f; color: #e6edf3; font: 0.62rem/1.5 var(--sans);
+    position: relative;
+  }
+  /* A browser has a scrollbar, and its absence is half of why the window
+     did not read as one. */
+  .r12-app::after {
+    content: ''; position: absolute; top: 0.3rem; right: 0.18rem; width: 0.22rem;
+    height: 34%; border-radius: 2px; background: #ffffff2e;
+  }
   .r12-bar {
     display: flex; align-items: center; gap: 0.4em;
     padding: 0.45rem 0.7rem 0.35rem; background: #010409; border-bottom: 1px solid #21262d;
@@ -1908,7 +1926,7 @@
   .r12-nav span { padding: 0.25rem 0 0.35rem; border-bottom: 2px solid transparent; white-space: nowrap; }
   .r12-nav span.on { color: #e6edf3; font-weight: 600; border-bottom-color: #f78166; }
   .r12-nav i { font-style: normal; background: #6e768133; border-radius: 2em; padding: 0 0.4em; font-size: 0.9em; }
-  .r12-body { padding: 0.65rem 0.7rem; display: grid; gap: 0.5rem; align-content: start; }
+  .r12-body { padding: 0.7rem 0.75rem; display: grid; gap: 0.6rem; align-content: start; }
   .r12-files { display: flex; flex-wrap: wrap; gap: 0.5em; color: #9198a1; }
   .r12-files .a { color: #3fb950; font-weight: 700; font-family: var(--mono); }
   .r12-files .d { color: #f85149; font-weight: 700; font-family: var(--mono); }
@@ -1983,10 +2001,16 @@
   /* ---- a card fills the desk, so a screen can be screen-shaped ---- */
   .r8-card { inset: 0; }
   .r8-card > * { height: 100%; }
-  .r8-lane { min-width: 0; }
+  /* The link the chain was missing. A percentage height resolves only
+     against a DEFINITE one, so a lane with no height of its own made
+     the phone fall back to its content and become a pill. */
+  .r8-lane { min-width: 0; height: 100%; display: flex; align-items: stretch; }
   #run .pv-win {
     width: 100%; aspect-ratio: 16 / 11; max-height: 100%;
     display: flex; flex-direction: column; border-radius: 9px;
+    /* An edge, so the window reads as a window against a dark scene
+       rather than dissolving into it. */
+    box-shadow: 0 1.4rem 3rem -0.8rem rgba(0, 0, 0, 0.75), 0 0 0 1px #ffffff26;
   }
   #run .pv-wt { flex: none; padding: 0.4rem 0.55rem; }
   #run .pv-wt .wu { font-size: 0.54rem; }
@@ -2066,7 +2090,7 @@
          Round 11's arrangement, with the phone finally phone-sized. --- */
   .v-front .r8-card.two > * { position: relative; display: block; perspective: 1400px; }
   .v-front .r8-lane[data-app="github"] { transform: rotateX(10deg) rotateY(-11deg) rotate(-0.5deg); transform-origin: 62% 100%; }
-  .v-front .r8-lane[data-app="discord"] { position: absolute; right: 2%; bottom: -0.8rem; z-index: 3; }
+  .v-front .r8-lane[data-app="discord"] { position: absolute; right: 1%; bottom: -0.6rem; height: 92%; z-index: 3; }
   .v-front .r8-lane[data-app="curia"] { transform: rotateX(8deg) rotate(-0.4deg); transform-origin: 50% 100%; }
   .v-front .r8-card:not(.two) .pv-phone { margin-left: auto; margin-right: 6%; }
 
@@ -2108,6 +2132,7 @@
       background: none; backdrop-filter: none; -webkit-backdrop-filter: none;
     }
     .r8-nb { min-height: 90svh; }
+    .r8-nb:first-child { min-height: 50svh; }
     .r8-nb:last-child { min-height: 60svh; }
     #run .pv-phone { width: min(11rem, 34%); }
     .r12-app { font-size: 0.72rem; }
@@ -3010,6 +3035,11 @@
                       <p class="t">Choose the words of every scene of the final page</p>
                       <p class="m"><span class="n">alp82/curia#587</span><span class="tkt-chip">wayfinder:prototype</span></p>
                       <button class="r10-go" type="button" id="runstart">Start</button>
+                    </div>
+                    <div class="r13-walk">
+                      <span class="lb">Ship the story landing page</span>
+                      <span class="tr"><i style="width:76%"></i></span>
+                      <span class="ct">13 of 17 walked</span>
                     </div>
                   </div>
                 </div>

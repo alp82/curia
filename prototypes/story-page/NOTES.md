@@ -2281,6 +2281,56 @@ under it, an edge and a shadow. And it UPDATES rather than jumping:
 
 **156 build checks** run against the file and all **97 breaks** that validate them land.
 
+**The operator's answer to round 13**, verbatim, with four screenshots:
+
+> 1 front is the way foward
+>
+> screenshots:
+> #1: first image coming too late
+> #2: not enough browser like, maybe the all black bg is not helping here due to missing contrast
+> #3: almost invisible phone, toooo small
+> #4: desktop good, phone again too small (same for step 5)
+
+**The arrangement is settled: front.** The browser tilted back with the phone standing at its lower
+corner.
+
+**The phone was a pill, and the cause is one missing link in a height chain.** A percentage height
+resolves only against a DEFINITE one, and `.r8-lane` had no height of its own — so
+`.pv-phone { height: 100% }` fell back to the phone's own content and became the little capsule in
+screenshot 3. The lane carries `height: 100%` now, and every step of the chain is definite: the
+stage has a height, the desk flexes inside it, the card is `inset: 0` of the desk, the card's grid
+is `height: 100%`, the lane is `height: 100%`, and the phone finally has something real to be 100%
+of.
+
+**That one line is why the phone was too small in every beat**, including the two-lane ones the
+operator flagged separately. It was never a sizing choice.
+
+**A window needs an edge and a scrollbar, and a page needs to not be the colour of the scene.** The
+browser did not read as a browser because it had none of the three: the page was `#0d1117`, which is
+as black as the scene behind it, the window had no border, and nothing on it said it scrolls. The
+page is lifted to `#12161f`, the window carries a hairline edge, and the app draws its own scrollbar.
+
+**And the void under the content is filled with something real.** The atlas page now carries the
+map's own progress: 13 of the 17 children of [#600](https://github.com/alp82/curia/issues/600) are
+closed, which is the count on the tracker today.
+
+**The first screen comes sooner.** The opening title takes a shorter slot than the others, because
+nothing is on the desk while it holds.
+
+**160 build checks** run against the file and all **101 breaks** that validate them land.
+
+**One check was RETIRED this round, and that is worth as much as adding one.** "A lane is never
+squeezed into a fixed box" came from round 5, where a lane at `height: 100%` inside a held 60dvh
+stage with three lanes crammed into it clipped every one of them. Round 13 made the card fill the
+desk, and from that moment the same declaration became the thing that lets a phone be tall enough to
+read. A check that outlives its reason does not go quiet: **it argues for the bug.** It is replaced
+by the rule that still holds — a lane follows the desk and is never pinned to a length.
+
+**And one check was red for a reason that had nothing to do with what it checks.** Adding a
+box-shadow as a second rule on the same selector made "a browser is a viewport" fail, because it
+demanded that EVERY base rule mention the aspect ratio. It asks that one sets it and none unsets it
+now, and the shadow lives in the same rule where it belongs.
+
 ## The merge that arrived early
 
 The operator merged pull request #739 by accident at round 10, before the scene was done. **Nothing
