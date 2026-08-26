@@ -3246,7 +3246,7 @@
         <div class="gg-ticks tw" aria-hidden="true"></div>
         <div class="gg-row"><span>0</span><span class="gg-ram">4 GB</span></div>
         <div class="gg-ctls tw">
-          <label><span>RAM</span><input type="range" min="0" max="4" value="1" step="1" data-k="ram"><b class="gg-ram">4 GB</b></label>
+          <label><span>RAM</span><input type="range" min="0" max="3" value="1" step="1" data-k="ram"><b class="gg-ram">4 GB</b></label>
           <label><span>agents at once</span><input type="range" min="1" max="6" value="4" step="1" data-k="n"><b class="gg-n">4</b></label>
         </div>
         <ul class="gg-leg tw">
@@ -3335,15 +3335,15 @@ if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').m
   if (runSec) runSec.classList.add('still');
 }
 
-/* Scene 9, settled at round 6 as the bar: two sliders. RAM steps 2, 4,
-   8, 16, 32 GB, and the agent count is clamped to what fits after the
+/* Scene 9, settled at round 7 as the bar: two sliders. RAM steps 2, 4,
+   8, 16 GB, and the agent count is clamped to what fits after the
    system's 1 GB. Every column is 0.1 GB, so the strip thins as the box
-   grows, and from 16 GB the group labels shorten to S and A. */
+   grows, and at 16 GB the group labels shorten to S and A. */
 (function () {
   var box = document.querySelector('.vps .gg'); if (!box) return;
   var strip = box.querySelector('.gg-strip'), groups = box.querySelector('.gg-groups'), ticks = box.querySelector('.gg-ticks');
   var ramIn = box.querySelector('input[data-k=ram]'), nIn = box.querySelector('input[data-k=n]');
-  var RAM = [2, 4, 8, 16, 32];
+  var RAM = [2, 4, 8, 16];
   function group(cls, n, colcls, t) {
     var g = document.createElement('span'); g.className = 'g ' + cls; g.setAttribute('data-t', t); g.style.flexGrow = n;
     for (var i = 0; i < n; i++) { var e = document.createElement('i'); e.className = colcls; g.appendChild(e); }
@@ -3358,7 +3358,7 @@ if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').m
     strip.innerHTML = ''; groups.innerHTML = ''; ticks.innerHTML = '';
     var sh = ram >= 16;
     strip.appendChild(group('s', 10, 's', 'system')); groups.appendChild(label(sh ? 'S' : 'system', 's', 10));
-    for (var i = 0; i < n; i++) { strip.appendChild(group('a', 5, 'p', 'agent')); groups.appendChild(label(cols > 160 ? '' : sh ? 'A' : 'agent', 'a', 5)); }
+    for (var i = 0; i < n; i++) { strip.appendChild(group('a', 5, 'p', 'agent')); groups.appendChild(label(sh ? 'A' : 'agent', 'a', 5)); }
     if (free) { strip.appendChild(group('h', free, '', 'free')); groups.appendChild(label('free', 'h', free)); }
     for (var t = 0; t <= ram; t++) ticks.appendChild(document.createElement('i'));
     box.classList.toggle('dense', cols > 80);

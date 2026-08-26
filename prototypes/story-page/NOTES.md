@@ -2437,6 +2437,22 @@ agent labels drop entirely because nothing fits; the two sliders sit on one thre
 their tracks align and the value never wraps; and the system legend ends in "Curia" instead of
 "the curia daemon". The 1 GB system block is still unmeasured.
 
+**Round 7, the verdict.** The operator capped RAM at 16 GB and locked the scene. The RAM stops
+are 2, 4, 8 and 16 GB, so the past-160-columns rule of round 6 went with the 32 GB stop.
+
+The scene as it ships: the claim centered, then one box. A strip of 0.1 GB columns grouped into
+bars: the system first in the agent gold, then one green bar of five columns per agent, then
+free. Two sliders on one grid, RAM and agents at once, and the agent count is clamped to what
+fits after the system. A legend of three lines: the system (Docker, tmux, ttyd, Tailscale,
+Curia), N agents at about 0.5 GB each, and the free gigabytes. The fact line of #587 closes the
+scene unchanged.
+
+**The one unmeasured number.** The system bar is 1 GB. It is a stated estimate for the OS,
+Docker, tmux, ttyd, tailscaled and the daemon together, not a reading from the box. The 0.5 GB
+per agent is the planning number of positioning.md claim 2. [#604](https://github.com/alp82/curia/issues/604)
+carries the estimate: a `free -m` on the box with no agent alive either confirms it or changes
+the ten gold columns before cutover.
+
 The `.box` and `.lane` classes of the old scene stay, unused by the new markup. Each variation
 prefixes its classes (`st-`, `gg-`, `ro`, `bp`, `lg`), after the fault
 [#773](https://github.com/alp82/curia/issues/773) records. The switcher and the four losing
