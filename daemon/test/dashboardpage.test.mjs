@@ -2665,6 +2665,36 @@ describe('the chat screen (#267, the picker of #333)', () => {
       assert.match(text(page.screenChat(payload())), /def\.jsonl/)
     })
 
+    // The composite send (#716). The room draws every message of the sequence
+    // under its rail, and the deciding one is only named, because the card
+    // from the record carries it.
+    test('a composite send draws its sequence under the rails, and the deciding message is the card', () => {
+      page.chatReceive('items', [{
+        kind: 'tool', id: 't2', name: 'mcp__curia__ask_human', brief: 'send of 3: answer · the run · decision', at: at(200),
+        send: [
+          { rail: '-# 1 of 3 · answer', body: '**The cap held.** Cooling ran to 14:20.', deciding: false, format: 'prose', label: 'answer' },
+          { rail: '-# 2 of 3 · the run', body: '```\nboot -> cap\n```', deciding: false, format: 'visual', label: 'the run' },
+          { rail: '-# 3 of 3 · decision', body: '**Keep the cap?**', deciding: true, format: 'choice', label: 'decision' },
+        ],
+      }])
+      const html = page.screenChat(payload())
+      const t = text(html)
+      assert.match(t, /1 of 3 · answer \*\*The cap held\.\*\* Cooling ran to 14:20\./)
+      assert.match(t, /2 of 3 · the run ``` boot -&gt; cap ```/)
+      assert.match(t, /3 of 3 · decision the card follows/)
+      assert.doesNotMatch(t, /Keep the cap\?/, 'the deciding body is the card, drawn from the record')
+      assert.doesNotMatch(html, /-# /, 'the rail loses the Discord small-print mark')
+      assert.equal((html.match(/class="send-msg/g) ?? []).length, 3)
+
+      page.chatReceive('items', [{
+        kind: 'tool', id: 't3', name: 'mcp__curia__notify', brief: 'send of 1: answer', at: at(100),
+        send: [{ rail: '', body: '**One message.** No rail.', deciding: false, format: 'prose', label: 'answer' }],
+      }])
+      const one = page.screenChat(payload())
+      assert.match(text(one), /\*\*One message\.\*\* No rail\./)
+      assert.doesNotMatch(one, /class="rail"[^<]*<\/span>[^<]*One message/)
+    })
+
     test('the daemon\'s escalation record interleaves with the transcript, and an open one is a banner', () => {
       page.chatReceive('items', [{ kind: 'say', text: 'first', at: at(300) }, { kind: 'say', text: 'third', at: at(100) }])
       page.chatReceive('esc_history', [{ id: 'esc-7', kind: 'question', prompt: 'Which branch?', options: ['a', 'b'], opened_at: at(200), closed_at: at(150), status: 'answered', answer: 'a', answered_by: 'alp', answered_via: 'dashboard' }])

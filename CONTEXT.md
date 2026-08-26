@@ -403,7 +403,7 @@ The named fields an agent fills instead of one prose string (#413). One vocabula
 _Avoid_: structured payload, card schema.
 
 **Composite send**:
-One agent call that returns an ordered array of messages (#622). Each entry renders as its own Discord message, with its own typed format and its own optional attachments. At most one message decides, and it posts last, so the buttons sit at the thread bottom. A send carries at most four messages, a `curia.yaml` default with a settings row. The prose message holds the answer to an operator note at up to 1600 characters, and a question of a round may carry a 600-character background block. A message exists when a reader would want to skip it on its own (#640). See [ADR-0026](docs/adr/0026-the-composite-send.md).
+One agent call that returns an ordered array of messages (#622). Each entry renders as its own Discord message, with its own typed format and its own optional attachments. At most one message decides, and it posts last, so the buttons sit at the thread bottom. A send carries at most four messages, a `curia.yaml` default with a settings row. The prose message holds the answer to an operator note at up to 1600 characters, and a question of a round may carry a 600-character background block. A message exists when a reader would want to skip it on its own (#640). `send.mjs` is the contract, `composite.mjs` is the one renderer, and both surfaces read it: Discord posts each rendered message, and Atlas Chat draws the same sequence from the call the transcript carries, with the deciding message drawn as the card from the record (#716). A prose message leads with its conclusion in bold. See [ADR-0026](docs/adr/0026-the-composite-send.md).
 _Avoid_: multi-part response, message batch.
 
 **The rail**:

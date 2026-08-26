@@ -2154,6 +2154,11 @@ export function writePrompt(cfgDir, issue, {
     '  blocks nothing, so use `ask_human` when you cannot go on without the answer.',
     '  Set `phase` for routine progress. Curia edits the live status line instead of posting another message.',
     '- Start with one `notify` message. Put your goal first, then your first step. Use at most two lines.',
+    '- **A SEND is `messages` on either tool** (ADR-0026): an ordered array, each entry its own typed',
+    '  message with a `format`, a rail `label`, and its own `attachments`. A message exists when a reader',
+    '  would want to skip it on its own; anything read together stays one message. A prose message leads',
+    '  with its conclusion in bold, and past 1600 characters you write a second one. At most one message',
+    '  decides, and it goes last, only on `ask_human`. Curia writes the count, and refuses a send over the cap.',
     ...(newMap ? [
       '- `map_created` — tell curia the number of the map you created, the moment it exists. curia checks',
       '  the issue is really an open `wayfinder:map` in this repo, then takes it as this session\'s map:',
@@ -2185,6 +2190,11 @@ export function writePrompt(cfgDir, issue, {
     '  blocks nothing, so use `ask_human` when you cannot go on without the answer.',
     '  Set `phase` for routine progress. Curia edits the live status line instead of posting another message.',
     '- Start with one `notify` message. Put your goal first, then your first step. Use at most two lines.',
+    '- **A SEND is `messages` on either tool** (ADR-0026): an ordered array, each entry its own typed',
+    '  message with a `format`, a rail `label`, and its own `attachments`. A message exists when a reader',
+    '  would want to skip it on its own; anything read together stays one message. A prose message leads',
+    '  with its conclusion in bold, and past 1600 characters you write a second one. At most one message',
+    '  decides, and it goes last, only on `ask_human`. Curia writes the count, and refuses a send over the cap.',
     ...(portLines.length ? [
       '- `publish_preview` — publish a dev server you have started as an HTTPS link. Start the server FIRST,',
       `  bound to \`0.0.0.0\` on one of your three ports (${ports.join(', ')}), then call this with that port`,

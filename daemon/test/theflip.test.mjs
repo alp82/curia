@@ -227,7 +227,7 @@ describe('an untyped ask_human is refused since the flip (#422, real boot)', () 
   test('a composite ask keeps its order and opens only its last decision', async () => {
     const c = await client('curia-422-composite', '422')
     const messages = [
-      { format: 'prose', label: 'answer', text: 'The shared contract is ready.', attachments: [] },
+      { format: 'prose', label: 'answer', prose: '**The shared contract is ready.** One module types it.', attachments: [] },
       {
         format: 'choice', label: 'decision', headline: 'Which surface should answer?', attachments: [],
         options: [
@@ -250,7 +250,42 @@ describe('an untyped ask_human is refused since the flip (#422, real boot)', () 
       body: JSON.stringify({ id: open.id, answer: 'Use Atlas.' }),
     })
     assert.match((await call).content.map((part) => part.text ?? '').join('\n'), /Use Atlas\./)
+    assert.equal(send.tool, 'ask_human')
     await c.close().catch(() => {})
+  })
+
+  // The composite notify (#716). It decides nothing, it posts every message
+  // in order, and it journals once with the tool that sent it.
+  test('a composite notify posts its sequence, decides nothing, and refuses a deciding message', async () => {
+    const c = await client('curia-422-notify', '422')
+    const notify = async (args) => {
+      const r = await c.callTool({ name: 'notify', arguments: args }, undefined, { timeout: 30_000 })
+      return r.content.map((x) => x.text ?? '').join('\n')
+    }
+    try {
+      const messages = [
+        { format: 'prose', label: 'answer', prose: '**The cap held.** Cooling ran to 14:20.', attachments: [] },
+        { format: 'visual', label: 'the run', diagram: 'boot -> cap -> cool', attachments: [] },
+      ]
+      assert.equal(await notify({ messages }), 'ok')
+      const send = journalEvents(path.join(tmp, 'data')).find((event) => event.type === 'composite_send' && event.agent === 'curia-422-notify')
+      assert.deepEqual(send.messages, messages)
+      assert.equal(send.tool, 'notify')
+      assert.deepEqual(await openEscalations(port), [], 'a notify send opens no card')
+
+      const refused = await notify({ messages: [messages[0], {
+        format: 'choice', label: 'decision', headline: 'Which one?', attachments: [],
+        options: [
+          { label: 'The cap.', handle: 'cap', consequence: 'The cap stands.' },
+          { label: 'No cap.', handle: 'none', consequence: 'The cap goes.' },
+        ],
+      }] })
+      assert.match(refused, /`notify` decides nothing, and message 2 is a choice/)
+      assert.match(await notify({ messages, message: 'and a status line' }), /carries only `messages`, and this one also carries message/)
+      assert.match(await notify({ messages: [{ format: 'prose', label: 'answer', prose: 'No bold lead.' }] }), /lead with the conclusion, in bold/)
+    } finally {
+      await c.close().catch(() => {})
+    }
   })
 
   test('a bare string option is refused, and it is named once rather than per field', async () => {
