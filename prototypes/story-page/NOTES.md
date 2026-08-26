@@ -2415,6 +2415,13 @@ the box. The operator either confirms it by reading `free -m` on coinmatica with
 or it changes before the round settles. The 4 GB box itself is the operator's pick at round 2 as
 the common size, not a measurement.
 
+**Round 4.** The operator kept pills and bar, and asked for the system first, a slider for the
+agent count, and the columns grouped per agent. The strip is now groups with a gap between them
+and none inside: ten gold columns for the system, five green per agent, the rest dark. A range
+input under the strip sets one to six agents, and the legend and the free count follow it. The
+group labels read system, agent, free; the ticket numbers left with the ruler. Flat, ruler and
+tall left the file with this round. The 1 GB system block is still unmeasured.
+
 The `.box` and `.lane` classes of the old scene stay, unused by the new markup. Each variation
 prefixes its classes (`st-`, `gg-`, `ro`, `bp`, `lg`), after the fault
 [#773](https://github.com/alp82/curia/issues/773) records. The switcher and the four losing
