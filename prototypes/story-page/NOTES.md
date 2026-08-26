@@ -2241,6 +2241,46 @@ composition that still named a device in one surviving rule kept the staging che
 of the wrong product still counted as six marks. The lesson each time is the one this file keeps
 writing down: **a check that reads "somewhere" cannot see a fault that lives in "here".**
 
+**The operator's answer to round 12**, verbatim, with a screenshot:
+
+> they dont have the right dimensions, a screen should be higher, the phone is too small to read
+> anything
+>
+> bigger padding between the ticket and the screens. a bit longer fade transitions
+>
+> sticky ticket should look more like a ticket card that updates with subtle motion and
+> micro-animations
+
+**The dimensions had one cause, and it is the opposite of round 12's.** A card was
+`inset: 0 0 auto` — anchored to the top of the desk and only as tall as its content — so a browser
+window collapsed to the height of the four lines it held, and the desk under it stayed empty. That
+is the strip in the screenshot, and the void below it.
+
+**A card fills the desk now**, and the devices take their size from it. A browser is `16 / 11`,
+which is a viewport rather than a strip, and its page flexes to fill it.
+
+**The phone is sized by HEIGHT, and that is the whole fix.** Round 12 made it narrow to stop it
+being huge, which was right, and then it was too small to read, which was the price. A width is the
+wrong handle for a device that is 9:19.5: the width that fits beside a browser is not the width that
+makes it tall enough to read. Height is the handle. It stands as tall as the desk allows and its
+width follows its own shape.
+
+**The ticket is a card.** It has a header strip of its own with the repo path and the state, a body
+under it, an edge and a shadow. And it UPDATES rather than jumping:
+
+- a new timeline row slides in from the left as it fades, and only the row that just arrived lands
+  its node — the ones before it are already on the card and must not twitch every time the step
+  moves.
+- the state pill CROSS-FADES. Both states are always laid out in one grid cell, so the header cannot
+  change height when it turns.
+- nothing about the block's size moves while any of it happens, because every row is always laid out
+  and only its visibility changes. That rule has been in this file since round 5 and it is what
+  makes micro-animation safe here at all.
+
+**The fade is longer**, 0.85s, and the gap between the ticket and the screens is 2.4rem.
+
+**156 build checks** run against the file and all **97 breaks** that validate them land.
+
 ## The merge that arrived early
 
 The operator merged pull request #739 by accident at round 10, before the scene was done. **Nothing

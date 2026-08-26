@@ -1722,30 +1722,17 @@
     display: block; margin-top: 0.55rem; text-wrap: balance;
   }
 
-  /* ---- the ticket, at the TOP ---- */
-  .r8-tkt { flex: none; font-size: 0.72rem; z-index: 5; box-shadow: 0 10px 26px rgba(0, 0, 0, 0.55); }
-  .r8-tkt .gx-h1 { font-size: 1.02em; }
-  .r8-tl { margin-top: 0.45em; }
-  /* Every row is always laid out and only its VISIBILITY moves, so the
-     block is as tall as its fullest state from the first frame and
-     nothing is ever added to it. `display` would hand the shift back. */
-  .r8-tl li { font-size: 0.9em; margin-bottom: 0.4em; visibility: hidden; opacity: 0; transition: opacity 0.4s var(--ease); }
-  #run[data-k="1"] .r8-tl li:nth-child(-n+1),
-  #run[data-k="2"] .r8-tl li:nth-child(-n+2),
-  #run[data-k="3"] .r8-tl li:nth-child(-n+3),
-  #run[data-k="4"] .r8-tl li:nth-child(-n+4),
-  #run[data-k="5"] .r8-tl li { visibility: visible; opacity: 1; }
-  .r8-tkt .gx-st.done { display: none; }
-  #run[data-k="5"] .r8-tkt .gx-st.open { display: none; }
-  #run[data-k="5"] .r8-tkt .gx-st.done { display: inline-flex; }
+  /* ---- the ticket, at the TOP. Its card styling and the motion that
+         updates it are in the round 13 block below. ---- */
+  .r8-tkt { flex: none; font-size: 0.72rem; z-index: 5; }
+  .r8-tkt .gx-h1 { font-size: 1.06em; }
+  .r8-tl { margin-top: 0.5em; }
+  .r8-tl li { font-size: 0.9em; margin-bottom: 0.4em; }
 
   /* ---- the desk. The cards hang from its top, off the ticket, and
          they turn in and out in place. ---- */
   .r8-desk { position: relative; flex: 1 1 auto; min-height: 0; }
-  .r8-card {
-    position: absolute; inset: 0 0 auto; opacity: 0; pointer-events: none;
-    transition: opacity 0.5s var(--ease), transform 0.5s var(--ease), filter 0.5s var(--ease);
-  }
+  .r8-card { position: absolute; opacity: 0; pointer-events: none; }
   .r8-card.on { opacity: 1; pointer-events: auto; z-index: 4; }
   .r8-card > * { display: grid; gap: 0.5rem; }
   .r8-lane { min-width: 0; }
@@ -1790,7 +1777,6 @@
      ================================================================ */
 
   /* ---- more gap between the fixed ticket and the screens ---- */
-  #run .r8-stage { gap: 1.7rem; }
 
   /* The mark's SIZE. An inline <svg> with no width takes whatever its
      container gives it, so losing this rule does not make the mark
@@ -1908,19 +1894,6 @@
      of it, which is what the answer asks for.
      ================================================================ */
 
-  /* ---- proportions ---- */
-  #run .pv-phone {
-    /* A phone is narrow. This is the fix for both complaints. */
-    width: min(9.5rem, 44%); aspect-ratio: 9 / 19.5;
-    border-radius: 1.5rem; padding: 0.17rem;
-  }
-  #run .pv-bezel { border-radius: 1.36rem; }
-  #run .pv-screen { border-radius: 1.26rem; background: #313338; }
-  #run .pv-island { top: 0.26rem; height: 0.56rem; width: 30%; }
-  #run .pv-win { border-radius: 9px; }
-  #run .pv-wt { padding: 0.4rem 0.55rem; }
-  #run .pv-wt .wu { font-size: 0.52rem; }
-
   /* ---- the app shell inside a browser ---- */
   .r12-app { background: #0d1117; color: #e6edf3; font: 0.62rem/1.5 var(--sans); }
   .r12-bar {
@@ -1968,6 +1941,121 @@
   .r12-comp .pl { color: #b5bac1; }
   .r12-comp .fd { flex: 1; color: #6d6f78; }
   .r12-comp .em { color: #b5bac1; }
+
+  /* ================================================================
+     Round 13 (#630) — screen-shaped screens, and a ticket that updates.
+
+     The operator's answer to round 12, with a screenshot:
+
+       they dont have the right dimensions, a screen should be higher,
+       the phone is too small to read anything
+
+       bigger padding between the ticket and the screens. a bit longer
+       fade transitions
+
+       sticky ticket should look more like a ticket card that updates
+       with subtle motion and micro-animations
+
+     THE DIMENSIONS HAD ONE CAUSE, and it is the opposite of round 12's.
+     A card was `inset: 0 0 auto` — anchored to the top of the desk and
+     only as tall as its content — so a browser window collapsed to the
+     height of the four lines it held and the desk under it stayed
+     empty. Round 12 then made the phone narrow to fix its being huge,
+     which is right, but a width is the wrong handle for a device that
+     stands beside another one.
+
+     SO A CARD FILLS THE DESK and the devices take their size from it:
+     a browser is `16 / 11`, which is a viewport rather than a strip,
+     and the phone is sized by HEIGHT, so it stands as tall as the
+     desk allows and its width follows its own 9:19.5. That is what
+     makes it readable — a phone is tall, so height is the handle.
+
+     THE TICKET IS A CARD NOW, with a header strip of its own, and it
+     updates rather than jumping: a new timeline row slides in and its
+     node lands, the state pill cross-fades, and nothing about the
+     block's size moves while any of it happens.
+     ================================================================ */
+
+  /* ---- padding, and a longer fade ---- */
+  #run .r8-stage { gap: 2.4rem; }
+  .r8-card { transition: opacity 0.85s var(--ease), transform 0.85s var(--ease), filter 0.85s var(--ease); }
+
+  /* ---- a card fills the desk, so a screen can be screen-shaped ---- */
+  .r8-card { inset: 0; }
+  .r8-card > * { height: 100%; }
+  .r8-lane { min-width: 0; }
+  #run .pv-win {
+    width: 100%; aspect-ratio: 16 / 11; max-height: 100%;
+    display: flex; flex-direction: column; border-radius: 9px;
+  }
+  #run .pv-wt { flex: none; padding: 0.4rem 0.55rem; }
+  #run .pv-wt .wu { font-size: 0.54rem; }
+  .r12-app { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+  .r12-body { flex: 1 1 auto; }
+  /* A phone is TALL, so height is the handle. Width follows the glass. */
+  #run .pv-phone {
+    height: 100%; width: auto; aspect-ratio: 9 / 19.5;
+    border-radius: 1.6rem; padding: 0.18rem;
+  }
+  #run .pv-bezel { border-radius: 1.44rem; }
+  #run .pv-screen { border-radius: 1.32rem; background: #313338; }
+  #run .pv-island { top: 0.28rem; height: 0.6rem; width: 29%; }
+
+  /* ---- the ticket, as a card ---- */
+  .r8-tkt {
+    border-radius: 10px; border: 1px solid #2b3346;
+    background: linear-gradient(180deg, #11162a, #0d1220);
+    box-shadow: 0 14px 34px -10px rgba(0, 0, 0, 0.8), inset 0 1px 0 #ffffff0f;
+    padding: 0; overflow: hidden;
+  }
+  .r13-head {
+    display: flex; align-items: center; gap: 0.45em;
+    padding: 0.4rem 0.7rem; background: #0b0f1c; border-bottom: 1px solid #202840;
+    font: 0.68rem/1.4 var(--sans);
+  }
+  .r13-head b { font-weight: 600; color: #cdd6e4; }
+  .r13-head .sp { flex: 1; }
+  .r13-body { padding: 0.6rem 0.7rem 0.7rem; }
+  /* The pill CROSS-FADES rather than swapping. Both states are always
+     laid out, so the header cannot change height when it turns. */
+  .r13-pill { position: relative; display: inline-grid; }
+  .r13-pill > .gx-st {
+    grid-area: 1 / 1; transition: opacity 0.6s var(--ease), transform 0.6s var(--ease);
+  }
+  .r13-pill > .gx-st.done { opacity: 0; transform: translateY(0.3rem) scale(0.94); }
+  #run[data-k="5"] .r13-pill > .gx-st.open { opacity: 0; transform: translateY(-0.3rem) scale(0.94); }
+  #run[data-k="5"] .r13-pill > .gx-st.done { opacity: 1; transform: none; }
+
+  /* A row slides in and its node lands. Every row is always laid out,
+     so the card never changes height while any of this happens. */
+  .r8-tl li {
+    visibility: hidden; opacity: 0; transform: translateX(-0.55rem);
+    transition: opacity 0.55s var(--ease), transform 0.55s var(--ease);
+  }
+  #run[data-k="1"] .r8-tl li:nth-child(-n+1),
+  #run[data-k="2"] .r8-tl li:nth-child(-n+2),
+  #run[data-k="3"] .r8-tl li:nth-child(-n+3),
+  #run[data-k="4"] .r8-tl li:nth-child(-n+4),
+  #run[data-k="5"] .r8-tl li { visibility: visible; opacity: 1; transform: none; }
+  .r8-tl li .nd2 { transition: transform 0.5s var(--ease), background 0.5s var(--ease); }
+  /* Only the row that just arrived lands. The ones before it are
+     already on the card and must not twitch every time k moves. */
+  #run[data-k="1"] .r8-tl li:nth-child(1) .nd2,
+  #run[data-k="2"] .r8-tl li:nth-child(2) .nd2,
+  #run[data-k="3"] .r8-tl li:nth-child(3) .nd2,
+  #run[data-k="4"] .r8-tl li:nth-child(4) .nd2,
+  #run[data-k="5"] .r8-tl li:nth-child(5) .nd2 { animation: r13land 900ms var(--ease); }
+  @keyframes r13land {
+    0% { transform: scale(0.2); }
+    55% { transform: scale(1.22); }
+    100% { transform: scale(1); }
+  }
+
+  @media (min-width: 62rem) {
+    .r12-app { font-size: 0.74rem; }
+    .r12-scr { font-size: 0.58rem; }
+    .r8-tkt { font-size: 0.76rem; }
+  }
 
   /* ================================================================
      Five arrangements of the desk. Which is what the answer asks for.
@@ -2879,20 +2967,29 @@
              timeline. Rows are always laid out and only their
              visibility moves, so the block never shifts. -->
         <article class="gx r8-tkt" id="tkt">
-          <h3 class="gx-h1">Choose the words of every scene of the final page <span class="num">#587</span></h3>
-          <div class="gx-meta">
-            <span class="gx-st open"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-pr"/></svg>Open</span>
-            <span class="gx-st done"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-closed"/></svg>Closed as completed</span>
-            <span class="tkt-chip">wayfinder:prototype</span>
-            <span class="gx-by"><b>alp82</b> opened this issue on Aug 21, 2026</span>
+          <div class="r13-head">
+            <svg class="r8-mk" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-gh"/></svg>
+            <b>alp82 / curia</b>
+            <span class="sp"></span>
+            <span class="r13-pill">
+              <span class="gx-st open"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-pr"/></svg>Open</span>
+              <span class="gx-st done"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-closed"/></svg>Closed</span>
+            </span>
           </div>
-          <ol class="gx-tl r8-tl">
-          <li><span class="nd2"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-commit"/></svg></span><b>alp82</b> opened this issue · Aug 21, 15:08</li>
-          <li><span class="nd2"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-commit"/></svg></span><b>curia-sh</b> assigned this to <b>alp82</b> · Aug 21, 18:46</li>
-          <li><span class="nd2"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-pr"/></svg></span><b>curia-sh</b> commented · Aug 21, 18:55<span class="cmt">🔗 curia pushed <code>curia/587</code> (1 commit) and opened <a href="https://github.com/alp82/curia/pull/597">#597</a></span></li>
-          <li><span class="nd2"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-pr"/></svg></span><b>curia-sh</b> commented · Aug 22, 19:10<span class="cmt">🔗 curia pushed <code>curia/587</code> (5 commits) and updated <a href="https://github.com/alp82/curia/pull/597">#597</a></span></li>
-          <li><span class="nd2 merged"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-merge"/></svg></span><b>curia-sh</b> merged <a href="https://github.com/alp82/curia/pull/597">#597</a> as <code>a71e154</code> and closed this as completed · Aug 22, 2026, 19:13</li>
-          </ol>
+          <div class="r13-body">
+            <h3 class="gx-h1">Choose the words of every scene of the final page <span class="num">#587</span></h3>
+            <div class="gx-meta">
+              <span class="tkt-chip">wayfinder:prototype</span>
+              <span class="gx-by"><b>alp82</b> opened this issue on Aug 21, 2026</span>
+            </div>
+            <ol class="gx-tl r8-tl">
+              <li><span class="nd2"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-commit"/></svg></span><b>alp82</b> opened this issue · Aug 21, 15:08</li>
+              <li><span class="nd2"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-commit"/></svg></span><b>curia-sh</b> assigned this to <b>alp82</b> · Aug 21, 18:46</li>
+              <li><span class="nd2"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-pr"/></svg></span><b>curia-sh</b> commented · Aug 21, 18:55<span class="cmt">🔗 curia pushed <code>curia/587</code> (1 commit) and opened <a href="https://github.com/alp82/curia/pull/597">#597</a></span></li>
+              <li><span class="nd2"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-pr"/></svg></span><b>curia-sh</b> commented · Aug 22, 19:10<span class="cmt">🔗 curia pushed <code>curia/587</code> (5 commits) and updated <a href="https://github.com/alp82/curia/pull/597">#597</a></span></li>
+              <li><span class="nd2 merged"><svg class="oc" viewBox="0 0 16 16" aria-hidden="true"><use href="#oc-merge"/></svg></span><b>curia-sh</b> merged <a href="https://github.com/alp82/curia/pull/597">#597</a> as <code>a71e154</code> and closed this as completed · Aug 22, 2026, 19:13</li>
+            </ol>
+          </div>
         </article>
 
         <div class="r8-desk" id="desk">
