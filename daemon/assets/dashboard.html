@@ -3242,28 +3242,57 @@ function gistConnections(p) {
   const app = p?.overview?.github_app;
   if (!app) return `<span class="dim-note">state unavailable</span>`;
   if (!app.configured) return `<span style="color:var(--warn)">setup needed</span>`;
-  const missing = (app.owners ?? []).filter((owner) => !owner.installed).length;
+  if (app.installations?.state !== "read") return `<span class="dim-note">installations unread</span>`;
+  const missing = (app.owners ?? []).filter((owner) => owner.installed === false).length;
   return missing
     ? `<span style="color:var(--warn)">${esc(missing)} owner${missing === 1 ? "" : "s"} missing access</span>`
     : `<span style="color:var(--ok)">installed</span>`;
 }
 
+/* The owner row's third state (#762). `installed` is null when the reading
+   has not landed or failed, and that must never read as "missing access":
+   an operator sent to install on an owner that already has the app would
+   be repairing a fact about GitHub's reachability. */
+function ownerState(owner, reading) {
+  if (owner.installed === true) return "installed";
+  if (owner.installed === false) return "missing access";
+  return reading?.state === "failed" ? "unknown (read failed)" : "unknown (not read yet)";
+}
+
 function setConnections(p) {
   const app = p?.overview?.github_app;
   if (!app) return `<p class="unread">Curia hasn't reported the GitHub App state.</p>`;
+  const facts = app.app;
   const state = app.configured
-    ? `<p class="qhint"><b>GitHub App configured.</b> Curia adopts new credentials without exposing the private key to Atlas.</p>`
+    ? `<div class="rows">
+    <div class="row"><span class="key grow">App id</span><span>${esc(facts?.id ?? "")}</span></div>
+    <div class="row"><span class="key grow">Slug</span><span>${facts?.slug ? esc(facts.slug) : `<span class="dim-note">not read yet</span>`}</span></div>
+    <div class="row"><span class="key grow">Bot login</span><span>${facts?.bot_login ? esc(facts.bot_login) : `<span class="dim-note">not read yet</span>`}</span></div>
+    <div class="row"><span class="key grow">Key file</span><span>${esc(facts?.key_file ?? "")}</span></div>
+    ${facts?.settings_url ? `<div class="row"><span class="key grow">Settings</span><span><a href="${esc(facts.settings_url)}" target="_blank" rel="noopener">App settings page on GitHub</a></span></div>` : ""}
+    </div>
+    <p class="qhint">Curia adopts new credentials without exposing the private key to Atlas.</p>`
     : app.status === "pending"
       ? `<p class="unread">GitHub App setup is pending until ${esc(ago(app.expires_at))}.</p>`
       : `<p class="unread">No GitHub App is configured. Create one from Atlas.</p>`;
   const create = app.configured ? "" : `<p><input id="github-app-name" value="curia-box" aria-label="GitHub App name">
     <button class="btn primary" ${anyBusy() ? "disabled" : ""} onclick="doGitHubAppSetup()">Create GitHub App</button></p>
     ${said("github-app")}`;
+  const manual = app.manual_url
+    ? `<p class="qhint"><a href="${esc(app.manual_url)}" target="_blank" rel="noopener">Set up a GitHub App by hand on GitHub</a></p>` : "";
+  const reading = app.installations ?? null;
+  const readLine = !app.configured ? "" : reading?.state === "read"
+    ? `<p class="qhint">Installations read ${esc(ago(reading.at))}.</p>`
+    : reading?.state === "failed"
+      ? `<p class="unread">The installation read failed ${esc(ago(reading.at))}: ${esc(reading.error ?? "")}</p>`
+      : `<p class="unread">Installations have not been read yet.</p>`;
+  const refresh = !app.configured ? "" : `<p><button class="btn" ${anyBusy() ? "disabled" : ""} onclick="doGitHubAppRefresh()">Re-read installations</button></p>
+    ${said("github-app-refresh")}`;
   const owners = (app.owners ?? []).map((owner) => `<div class="row">
     <span class="key grow">${esc(owner.owner)}</span>
-    <span>${owner.installed ? "installed" : "missing access"}</span>
-    <span>${owner.installed ? "" : `<a href="${esc(owner.install_url)}">Manage installation</a>`}</span></div>`).join("");
-  return `${state}${create}<div class="rows">${owners}</div>`;
+    <span>${esc(ownerState(owner, reading))}</span>
+    <span><a href="${esc(owner.install_url)}" target="_blank" rel="noopener">${owner.installed === true ? "Manage installation" : "Install on this owner"}</a></span></div>`).join("");
+  return `${state}${create}${manual}${readLine}<div class="rows">${owners}</div>${refresh}`;
 }
 
 /* Maintenance (#362). Last, because it is the section an operator
@@ -3965,6 +3994,11 @@ function chatScrolled(el) {
 function chatAfterRender() {
   const el = document.getElementById("chat-log");
   if (el && chat.stick) el.scrollTop = el.scrollHeight;
+}
+
+async function doGitHubAppRefresh() {
+  if (anyBusy()) return;
+  await verb("github-app-refresh", "/api/github-app/refresh", {});
 }
 
 async function doGitHubAppSetup() {

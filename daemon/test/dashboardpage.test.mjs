@@ -1878,19 +1878,73 @@ describe('the settings screen (#265)', () => {
     p.overview.github_app = {
       configured: false,
       status: 'idle',
+      app: null,
+      installations: { state: 'unread', at: null, error: null },
+      manual_url: 'https://github.com/settings/apps/new',
       owners: [
-        { owner: 'alp82', installed: true, install_url: 'https://github.com/settings/installations' },
-        { owner: 'getalfredo', installed: false, install_url: 'https://github.com/settings/installations' },
+        { owner: 'alp82', installed: null, install_url: 'https://github.com/settings/installations' },
       ],
     }
     page.UI.drill.settings = { open: 'connections', list: false }
     const html = page.screenSettings(p)
     const t = text(html)
     assert.match(t, /No GitHub App is configured\. Create one from Atlas\./)
-    assert.match(t, /alp82 installed/)
-    assert.match(t, /getalfredo missing access Manage installation/)
+    assert.match(html, /href="https:\/\/github\.com\/settings\/apps\/new"/, 'the manual setup link is reachable')
     assert.match(html, /doGitHubAppSetup\(\)/)
+    assert.doesNotMatch(html, /doGitHubAppRefresh\(\)/, 'nothing to re-read before an app exists')
     assert.match(fs.readFileSync(DEFAULT_DASHBOARD_INDEX, 'utf8'), /manifest\.name = "manifest"/)
+  })
+
+  // #762: the configured section states the app, the reading, and three owner
+  // states, and the third is never drawn as the second.
+  test('Connections states the app identity, the reading, and each owner in three states', () => {
+    const p = payload()
+    p.overview.github_app = {
+      configured: true,
+      status: 'complete',
+      app: {
+        id: '4610603', slug: 'curia-sh', name: 'Curia', bot_login: 'curia-sh[bot]',
+        key_file: '/srv/curia/daemon/github-app.pem', settings_url: 'https://github.com/apps/curia-sh',
+      },
+      installations: { state: 'read', at: p.overview.at, error: null },
+      manual_url: 'https://github.com/settings/apps/new',
+      owners: [
+        { owner: 'alp82', installed: true, installation_id: 111, install_url: 'https://github.com/apps/curia-sh/installations/new/permissions?target_id=9' },
+        { owner: 'getalfredo', installed: false, installation_id: null, install_url: 'https://github.com/apps/curia-sh/installations/new' },
+      ],
+    }
+    page.UI.drill.settings = { open: 'connections', list: false }
+    let html = page.screenSettings(p)
+    let t = text(html)
+    assert.match(t, /App id 4610603/)
+    assert.match(t, /Slug curia-sh/)
+    assert.match(t, /Bot login curia-sh\[bot\]/)
+    assert.match(t, /Key file \/srv\/curia\/daemon\/github-app\.pem/)
+    assert.match(html, /href="https:\/\/github\.com\/apps\/curia-sh"/)
+    assert.match(t, /Installations read/)
+    assert.match(t, /alp82 installed Manage installation/)
+    assert.match(t, /getalfredo missing access Install on this owner/)
+    assert.match(html, /href="https:\/\/github\.com\/apps\/curia-sh\/installations\/new"/)
+    assert.match(html, /doGitHubAppRefresh\(\)/)
+    assert.match(text(page.screenSettings(p)), /1 owner missing access/)
+
+    p.overview.github_app.installations = { state: 'failed', at: p.overview.at, error: 'GitHub answered 502' }
+    p.overview.github_app.owners.forEach((owner) => { owner.installed = null })
+    html = page.screenSettings(p)
+    t = text(html)
+    assert.match(t, /The installation read failed .*GitHub answered 502/)
+    assert.match(t, /alp82 unknown \(read failed\)/)
+    assert.doesNotMatch(t, /missing access/, 'a failed read is not an absent owner')
+
+    p.overview.github_app.installations = { state: 'unread', at: null, error: null }
+    p.overview.github_app.app.slug = null
+    p.overview.github_app.app.bot_login = null
+    t = text(page.screenSettings(p))
+    assert.match(t, /Installations have not been read yet/)
+    assert.match(t, /getalfredo unknown \(not read yet\)/)
+    assert.match(t, /Slug not read yet/)
+    page.UI.drill.settings = { open: null, list: true }
+    assert.match(text(page.screenSettings(p)), /installations unread/)
   })
 
   // ---- aistack (#706) ------------------------------------------------------

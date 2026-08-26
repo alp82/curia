@@ -812,6 +812,7 @@ describe('the operator verbs (#266)', () => {
       '/feed/read': [200, { ok: true, by: 'alp@example.com', at: '2026-08-26T09:00:00.000Z', previous: null }],
       '/github-app/start': [200, { action: 'https://github.com/settings/apps/new', manifest: { name: 'curia-box' } }],
       '/github-app/complete?code=one-use&state=expected': [200, { ok: true, app: { id: '42', slug: 'curia-box' } }],
+      '/github-app/installations': [200, { ok: true, reply: 'Read 1 installation: alp82', installations: { state: 'read' } }],
     }
     daemon = http.createServer((r, res) => {
       let buf = ''
@@ -917,6 +918,18 @@ describe('the operator verbs (#266)', () => {
     const completed = await req(surface.port, '/api/github-app/complete?code=one-use&state=expected', { headers: served() })
     assert.equal(completed.status, 303)
     assert.equal(completed.text.includes('PRIVATE KEY'), false)
+  })
+
+  // The re-read (#762). The press carries no field the daemon acts on, and the
+  // next page read is a fresh one so the owner rows show what was measured.
+  test('the installation re-read reaches the daemon as a bare press and drops the snapshot', async () => {
+    surface.snapshotAt = Date.now()
+    const out = await press('/api/github-app/refresh', { anything: 'ignored' })
+    assert.equal(out.status, 200)
+    assert.equal(sent('/github-app/installations').method, 'POST')
+    assert.deepEqual(sent('/github-app/installations').body, {})
+    assert.equal(surface.snapshotAt, 0)
+    assert.match(out.text, /Read 1 installation: alp82/)
   })
 
   // GitHub sends the one-use conversion code to the redirect URL, so a caller

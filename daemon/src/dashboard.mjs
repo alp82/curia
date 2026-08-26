@@ -920,6 +920,11 @@ export class DashboardSurface {
           })
         })
       }
+      // The re-read of the app's installations (#762). No field crosses: the
+      // press is the whole message.
+      if (url.pathname === '/api/github-app/refresh') {
+        return this.#verb(res, () => this.#daemon({ method: 'POST', path: '/github-app/installations', body: {} }))
+      }
       // ---- the operator verbs (#266) ---------------------------------------
       //
       // Every one of them is a call this file COMPOSES. The browser hands over
