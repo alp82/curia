@@ -3015,3 +3015,12 @@ gaps between groups: thirty of them at 0.42rem are 13rem on their own. The floor
 even share of the row MINUS its gaps, the two rows clip as a backstop, and past a dozen groups
 the agent labels are blank rather than slivers of glyph. Measured on the phone at 16 GB and
 thirty agents: strip 293px in a 293px row. Desktop diffs to zero.
+
+**Round 6.** The operator, at 16 GB and six agents: the widths must always be 100% correct,
+and if the grouping does not work, find another way. It did not work: a floor under a group
+takes its width from another group, so at 16 GB with six agents the 12 GB of free space had
+shrunk to a sliver. The floor is gone. On a phone the strip is a grid of equal cells now, one
+per 0.1 GB, twenty to a row, wrapping: 2 rows at 4 GB, 8 at 16. Every width is exact by count.
+Measured in five states (4/4, 16/6, 16/30, 16/1, 2/1): cells = RAM × 10, every cell 12.75px,
+rows = cells ÷ 20, strip never wider than its row. The group labels and the ticks go on a
+phone; the legend names the colors. Desktop diffs to zero.

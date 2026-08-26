@@ -2311,18 +2311,23 @@
   .gg .gg-strip .g { gap: 0; border-radius: 6px; overflow: hidden; background: var(--ch); }
   .gg .gg-strip i { border-radius: 0; background: none; height: 2.4rem; }
   .gg .gg-strip i:last-child { box-shadow: none; }
-  /* #773 round 3: on a phone a 0.5 GB group at 8 GB was a sliver. Every
-     group and its label get a floor, and the free space gives it up. */
+  /* #773 round 6: on a phone the strip is a GRID of equal cells, one per
+     0.1 GB, twenty to a row, wrapping. Every width is exact by count:
+     a 0.5 GB system is five cells whether the box has 4 GB or 16, and
+     nothing can run past the row. Rounds 3 to 5 tried a floor under
+     each group, and a floor is a lie: it takes width from another
+     group. The group labels and the ticks go; the legend names the
+     colors. */
   @media (max-width: 40rem) {
-    /* The even share is the row minus its gaps, divided by the groups.
-       Round 4 forgot the gaps, and thirty of them at 0.42rem ran the
-       strip past the box. */
-    .gg .gg-strip .g, .gg-groups span {
-      min-width: min(2.4rem, calc((100% - (var(--gn, 3) - 1) * 0.42rem) / var(--gn, 3)));
+    .gg .gg-strip { display: flex; flex-wrap: wrap; gap: 2px; margin: 0.5rem 0; }
+    .gg .gg-strip .g { display: contents; }
+    .gg .gg-strip i {
+      flex: 0 0 auto; width: calc((100% - 19 * 2px) / 20); aspect-ratio: 1; height: auto;
+      border-radius: 2px; box-shadow: none; background: var(--ch);
     }
-    .gg .gg-strip, .gg-groups { overflow: hidden; }
-    /* Past a dozen groups the agent labels are slivers of glyph. */
-    .gg-groups.many span:not(.s):not(.h) { visibility: hidden; }
+    .gg .gg-strip i.p { background: var(--ca); }
+    .gg .gg-strip i.s { background: var(--cs); }
+    .gg-groups, .gg-ticks { display: none; }
   }
   .gg .gg-strip i.p { background: var(--ca); }
   .gg .gg-strip i.s { background: var(--cs); }
@@ -3484,14 +3489,6 @@ if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').m
   function label(t, cls, n) { var l = document.createElement('span'); l.textContent = t; l.className = cls; l.style.flexGrow = n; return l; }
   function all(sel, f) { [].slice.call(box.querySelectorAll(sel)).forEach(f); }
   function draw() {
-    drawStrip();
-    /* #773 round 4: the phone floor under a group is its even share at
-       most, so thirty agents at 16 GB cannot run past the box. */
-    strip.style.setProperty('--gn', strip.children.length);
-    groups.style.setProperty('--gn', groups.children.length);
-    groups.classList.toggle('many', groups.children.length > 12);
-  }
-  function drawStrip() {
     var ram = RAM[+ramIn.value], cols = ram * 10, max = Math.floor((cols - 10) / 5);
     nIn.max = max; if (+nIn.value > max) nIn.value = max;
     var n = +nIn.value, free = cols - 10 - 5 * n;
