@@ -2415,20 +2415,13 @@ describe('the operator verbs (#266)', () => {
       assert.match(page.outcome({ mode: 'interrupt', ok: true, session: 'curia-263', graceMs: 5000 }), /5s of grace/)
     })
 
-    test('an answer keeps the next three needs under the answered card', () => {
+    test('an answer says only that it landed: the next needs are the handoff sheet\'s, not the reply text\'s (#718)', () => {
       const said = page.outcome({
         ok: true,
-        next_needs: [
-          { headline: 'Review the map.', agent: 'curia-8', ticket: '8' },
-          { headline: 'Choose the limit.', agent: 'curia-9', ticket: '9' },
-          { headline: 'Approve the preview.', agent: 'curia-10', ticket: '10' },
-          { headline: 'Hidden fourth.', agent: 'curia-11', ticket: '11' },
-        ],
+        next_needs: [{ headline: 'Review the map.', agent: 'curia-8', ticket: '8' }],
       })
-      assert.match(said, /Next 3 needs/)
-      assert.match(said, /Review the map/)
-      assert.match(said, /Approve the preview/)
-      assert.doesNotMatch(said, /Hidden fourth/)
+      assert.match(said, /Answered/)
+      assert.doesNotMatch(said, /Review the map/, 'the daemon orders next_needs by age, and Atlas ranks as Home does instead')
     })
 
     test('an interrupt curia refused still delivered the words — queued, which is the default anyway', () => {
@@ -2446,6 +2439,112 @@ describe('the operator verbs (#266)', () => {
     test('one act at a time: while a press is in flight every other control is disabled', () => {
       page.UI.act.busy = 'esc:esc-7'
       assert.match(page.screenFrontier(payload()), /button class="btn sm primary" disabled/)
+    })
+  })
+
+  // ---- the handoff sheet (#718) --------------------------------------------
+  //
+  // After one answer, the sheet names the next three items in HOME'S order and
+  // the count that still stands. It reads `attentionItems`, the one source the
+  // ring and the column read, so the two cannot disagree. It answers nothing.
+
+  describe('the handoff sheet leads from one answered item to the next', () => {
+    // Three open items besides esc-7: a gate at 5 minutes, an aged escalation
+    // at 5 hours, and a young one that unblocks two tickets. Home ranks them
+    // aged first, then the unblocker, then the gate, with esc-7 in between.
+    const crowded = () => {
+      const p = payload()
+      p.overview.escalations.push(
+        { id: 'esc-20', agent: 'curia-20', ticket: '20', kind: 'free-text', prompt: 'Five hours old.', options: null, preview_url: null, opened_at: at(5 * 3600), agent_died: false, rendered: true },
+        { id: 'esc-21', agent: 'curia-21', ticket: '21', kind: 'choice', prompt: 'Young, but two tickets wait on it.', options: ['a', 'b'], preview_url: null, opened_at: at(60), agent_died: false, rendered: true, unblocks: [1, 2] },
+        { id: 'esc-22', agent: 'curia-22', ticket: '22', kind: 'free-text', prompt: 'Young and unblocks nothing.', options: null, preview_url: null, opened_at: at(30), agent_died: false, rendered: true },
+      )
+      return p
+    }
+    const answered = (p, id = 'esc-7') => {
+      const local = loadPage({ fetchImpl: async () => ({ ok: true, json: async () => ({ ok: true }) }) })
+      local.payload = p
+      return local.answerEsc(id, 'approve').then(() => local)
+    }
+
+    test('no sheet stands before an answer, and none after a refused one', async () => {
+      const p = crowded()
+      assert.equal(page.handoffSheet(), '')
+      const local = loadPage({ fetchImpl: async () => ({ ok: false, status: 409, json: async () => ({ error: 'already answered', receipt: { by: 'alp', answer: 'x' } }) }) })
+      local.payload = p
+      await local.answerEsc('esc-7', 'approve')
+      assert.equal(local.UI.act.handoff, null)
+      assert.equal(local.handoffSheet(), '')
+    })
+
+    test('one successful answer opens the sheet with the open count and the next three in Home\'s order', async () => {
+      const local = await answered(crowded())
+      assert.equal(local.UI.act.handoff, 'esc-7')
+      const html = local.handoffSheet()
+      const t = text(html)
+      // esc-7 is still on the stale payload; the sheet leaves it out, so the
+      // count is the four others.
+      assert.match(t, /Answered\. 4 items still need you\./)
+      const homeOrder = local.attentionItems(local.payload.overview).map((i) => i.id).filter((id) => id !== 'esc-7')
+      assert.equal(homeOrder.slice(0, 3).join(','), 'esc-20,esc-21,esc-9', 'the fixture ranks as intended')
+      const rows = [...html.matchAll(/<button class="handoff-item[^"]*"[^>]*>.*?<\/button>/g)].map((m) => text(m[0]))
+      assert.equal(rows.length, 3)
+      assert.match(rows[0], /^1 curia-20 · free-text · #20: Five hours old\./)
+      assert.match(rows[1], /^2 curia-21 · choice · #21: Young, but two tickets/)
+      assert.match(rows[2], /^3 curia-261 · review gate · #261: is this done\?/)
+      assert.doesNotMatch(t, /Young and unblocks nothing/, 'the fourth stays off the sheet')
+      assert.doesNotMatch(t, /Two notes race/, 'the answered item is not offered back')
+    })
+
+    test('the sheet carries no answer control: each item is a landing on its own card', async () => {
+      const local = await answered(crowded())
+      const html = local.handoffSheet()
+      assert.doesNotMatch(html, /answerEsc|answerIndex|answerTyped|answerSelect|rejectGate/)
+      assert.doesNotMatch(html, /<input/)
+      assert.match(html, /onclick="handoffGo\(0\)"/)
+      // The card the first row lands on has the anchor the landing scrolls to.
+      assert.match(local.screenHome(local.payload), /id="need-esc-20"/)
+    })
+
+    test('the sheet re-ranks off the fresh poll: an item answered elsewhere leaves, and the count drops', async () => {
+      const local = await answered(crowded())
+      assert.match(text(local.handoffSheet()), /4 items still need you/)
+      const fresh = crowded()
+      fresh.overview.escalations = fresh.overview.escalations.filter((r) => r.id !== 'esc-7' && r.id !== 'esc-20')
+      local.payload = fresh
+      const t = text(local.handoffSheet())
+      assert.match(t, /3 items still need you/)
+      assert.match(t, /1 curia-21 · choice/)
+      assert.doesNotMatch(t, /Five hours old/)
+    })
+
+    test('with nothing left the sheet says so, and offers no list', async () => {
+      const p = payload()
+      p.overview.review_gate = []
+      const local = await answered(p)
+      const t = text(local.handoffSheet())
+      assert.match(t, /Answered\. Nothing else wants you\./)
+      assert.doesNotMatch(local.handoffSheet(), /handoff-item/)
+    })
+
+    test('a landing closes the sheet and moves to the item\'s screen; close closes it', async () => {
+      const local = await answered(crowded())
+      local.handoffGo(2)
+      assert.equal(local.UI.act.handoff, null)
+      assert.equal(local.UI.screen, 'home')
+      const again = await answered(crowded())
+      again.handoffClose()
+      assert.equal(again.UI.act.handoff, null)
+      assert.equal(again.handoffSheet(), '')
+    })
+
+    test('a dead credential ranks first on the sheet as on Home, and lands on Credentials', async () => {
+      const p = crowded()
+      p.overview.credentials = { consumers: [{ consumer: 'claude', provider: 'anthropic', state: 'expired' }], reauth: null }
+      const local = await answered(p)
+      assert.match(text(local.handoffSheet()), /1 a model credential wants you/)
+      local.handoffGo(0)
+      assert.equal(local.UI.screen, 'credentials')
     })
   })
 
