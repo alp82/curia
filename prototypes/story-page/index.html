@@ -2239,15 +2239,25 @@
   #run:not([data-v="2"]) .r8-lane[data-app] { transform: none; }
   /* The phone's budget is set on the card, so the window can read it too
      and leave the phone half its width of room past the window's edge. */
-  #run:not([data-v="2"]) .r8-card.two { --ph-h: 82cqh; }
-  #run:not([data-v="2"]) .r8-card.two .pv-win { width: min(calc(100% - var(--ph-h) * 9 / 19.5 * 0.5), calc(100cqh * 16 / 11)); }
-  #run:not([data-v="2"]) .r8-lane[data-app="discord"] { right: 0; bottom: -0.4rem; --ph-h: inherit; }
+  /* SIZE RELATIONS. The phone is sized off the BROWSER, never off the
+     desk: a tall desk made a phone taller than the window beside it.
+     Its width is 28% of the window's width, and the window's width is
+     the smaller of the desk's two dimensions read through 16:11, so
+     the phone can never outgrow the desk either. Both carry a floor
+     and a ceiling in rem, so no viewport makes a phone that cannot be
+     read or a window that fills a wall. */
+  #run .r8-card { --win-w: min(100cqw, calc(100cqh * 16 / 11), 46rem); --pw: clamp(6.5rem, calc(var(--win-w) * 0.28), 12rem); }
+  #run .pv-win { width: var(--win-w); margin-left: auto; margin-right: auto; }
+  #run .r8-card.two .pv-phone { width: var(--pw); }
+  #run:not([data-v="2"]) .r8-card.two .pv-win { width: calc(min(var(--win-w), 100%) - var(--pw) * 0.5); margin-left: 0; }
+  #run:not([data-v="2"]) .r8-lane[data-app="discord"] { right: 0; bottom: -0.4rem; }
+  #run[data-v="2"] .r8-card.two .pv-phone { width: var(--pw); }
   /* an absolute lane is as wide as the desk on a phone, so the device
      itself keeps to the lane's right edge */
   #run .r8-card.two .pv-phone { margin-left: auto; }
   /* the lone phone stands at the middle of the desk, as tall as it allows */
   #run .r8-card:not(.two) .r8-lane[data-app="discord"] { position: static; height: 100%; --ph-h: 100cqh; }
-  #run .r8-card:not(.two) .pv-phone { margin: 0 auto; }
+  #run .r8-card:not(.two) .pv-phone { margin: 0 auto; width: min(calc(100cqh * 9 / 19.5), 15rem); }
 
   /* ---- 5 tray: the ticket docks at the bottom of the stage ---- */
   #run[data-v="5"] .r8-stage { flex-direction: column-reverse; }
@@ -2272,7 +2282,11 @@
   @media (min-width: 62rem) {
     #run .r8-stage { gap: 2.2rem; }
     #run .r12-app { font-size: 0.94rem; }
-    #run .r12-scr { font-size: 0.74rem; }
+    #run .r12-scr { font-size: 0.66rem; }
+    /* the stage is a viewport, but a tall monitor is not a taller desk:
+       past 64rem of height the stage stops growing and the titles
+       still meet it at the middle */
+    #run .r8-stage { height: min(100dvh, 64rem); position: sticky; top: max(0px, calc((100dvh - 64rem) / 2)); }
     #run .r8-tkt { font-size: 0.82rem; }
     #run .r13-head { font-size: 0.78rem; }
     #run .pv-wt .wu { font-size: 0.68rem; }
@@ -2283,7 +2297,6 @@
     #run[data-v="3"] .r8-stage { display: grid; grid-template-columns: 19rem 1fr; grid-template-rows: 100%; gap: 2rem; align-items: start; }
     #run[data-v="3"] .r8-tkt { font-size: 0.74rem; }
     #run[data-v="3"] .r8-desk { height: 100%; }
-    #run[data-v="3"] .r8-card.two { --ph-h: 62cqh; }
   }
   @media (max-width: 61.99rem) {
     #run .r8-stage {
@@ -2294,6 +2307,8 @@
        and the rows cross-fade through it. Every row is still laid out,
        stacked in one grid cell, so the card never changes height. */
     #run .r8-tkt { font-size: 0.66rem; }
+    /* a phone beside a window this small needs more of the window */
+    #run .r8-card { --pw: clamp(8rem, calc(var(--win-w) * 0.42), 11rem); }
     #run .r13-head { padding: 0.4rem 0.7rem; }
     #run .r13-body { padding: 0.55rem 0.7rem 0.6rem; }
     #run .r8-tl { display: grid; margin-top: 0.55em; }

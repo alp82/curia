@@ -2535,6 +2535,19 @@ The second is #630's reduction, kept only where it is still forced.
 the room the phone leaves it, so it shows its title, the state and little else. That is the mobile
 pass of [#773](https://github.com/alp82/curia/issues/773), and it is not hidden here.
 
+**The operator's answer to round 1**, with a screenshot of the tray layout on a tall viewport:
+
+> aspect ratio for the screens is fine now, but the size relations should be reasonable too.
+> phone is much bigger than the desktop here which looks weird. it should never be that big so we
+> also need min and max sizes + responsive handling
+
+**A phone is sized off the browser, never off the desk.** Round 1 gave the phone 82% of the desk's
+height, and a tall desk made a phone taller than the window beside it. The window's width is now
+`--win-w: min(100cqw, 100cqh * 16 / 11, 46rem)` and the phone's is `--pw: clamp(6.5rem, --win-w *
+0.28, 12rem)` past 62rem and `clamp(8rem, --win-w * 0.42, 11rem)` below it, where a small window
+needs a phone that still reads. The lone phone of beat 3 caps at 15rem. **And a tall monitor is not
+a taller desk:** the stage stops growing at 64rem of height and sits at the middle of the viewport.
+
 **How the round was checked.** Headless Chrome on this machine refuses a debugging port, so the
 preview was driven over `--remote-debugging-pipe`: navigate, scroll the window to each beat, wait
 for the turn, capture. Ten frames per width, both widths, every layout at the gate beat.
