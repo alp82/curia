@@ -3216,9 +3216,6 @@
     </div>
 
     <div class="runwrap">
-    <p class="r16-sw" id="runsw" aria-label="round 1 layouts">
-      <a href="?id=1#run" data-v="1">flat</a><a href="?id=2#run" data-v="2">tilt</a><a href="?id=3#run" data-v="3">side</a><a href="?id=4#run" data-v="4">stub</a><a href="?id=5#run" data-v="5">tray</a>
-    </p>
     <div class="r8-track" id="runtrack">
       <div class="r8-stage" id="runstage">
 
@@ -4005,11 +4002,10 @@ function clampNum(v, a, b) { return v < a ? a : v > b ? b : v; }
   var k = 0;
   var io = null;
 
-  /* Round 1 of #772: five layouts on ?id=1..5, default flat. */
-  var v = (location.search.match(/[?&]id=([1-5])/) || [])[1] || '2';
-  sec.setAttribute('data-v', v);
-  var sw = document.getElementById('runsw');
-  if (sw) [].forEach.call(sw.children, function (a) { a.classList.toggle('on', a.getAttribute('data-v') === v); });
+  /* #772 settled the arrangement at tilt. The four layouts that lost
+     stay in the stylesheet with the round that judged them; nothing
+     switches to them any more. */
+  sec.setAttribute('data-v', '2');
   var tkt = document.getElementById('tkt');
 
   function setK(next) {

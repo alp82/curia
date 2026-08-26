@@ -2578,6 +2578,32 @@ what it said. Type went up again: the app at 1.02rem past 62rem, the phone at 0.
 
 **The five layouts stay on `?id=1..5`** for the record, with tilt at `?id=2` as the default.
 
+**The operator's answer to round 2**, verbatim:
+
+> looks good
+
+**Settled.** The switcher left the file. Tilt is the arrangement, and the script sets it. The four
+layouts that lost stay in the stylesheet, keyed on `data-v` values nothing sets any more, with the
+round that judged them, the way #630's arrangements and #624's identity bar did.
+
+## The verdict of the second round on the ticket run scene ([#772](https://github.com/alp82/curia/issues/772))
+
+**Locked over two operator rounds.** Scene 8 keeps the shape of #630 and fills it:
+
+1. **Every beat deals its own card, and four of five pair a browser with the phone.** New issue;
+   atlas with `start`; the round 2 preview with the thread; the pull request with the gate; the
+   atlas one step further with ✅.
+2. **The ticket is a title, a state, a label, and one line per beat.** One-row window on a phone.
+3. **Scene 5's shells, at a size that reads.** 14px radius, taller chrome, type up by half.
+4. **A phone is sized off the browser, never off the desk**, clamped in rem, and the stage stops
+   growing at 64rem of height.
+5. **Titles meet the desk.** Level with it past 62rem; docking under the stage below it.
+6. **The arrangement is tilt**, round 15's `front`.
+
+**Deviations that ride to [#604](https://github.com/alp82/curia/issues/604):** the operator's
+reply on beat 3 is a paraphrase of commit `72d09df`, not a record; the gate's two small-print lines
+are cut again; the preview page of beat 3 draws two of six candidates.
+
 **How the round was checked.** Headless Chrome on this machine refuses a debugging port, so the
 preview was driven over `--remote-debugging-pipe`: navigate, scroll the window to each beat, wait
 for the turn, capture. Ten frames per width, both widths, every layout at the gate beat.
