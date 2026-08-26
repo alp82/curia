@@ -2775,6 +2775,50 @@ describe('the chat screen (#267, the picker of #333)', () => {
       assert.doesNotMatch(html, /doDialogAnswer/)
     })
 
+    test('an unparsed native dialog keeps the guard banner and the terminal link', () => {
+      page.chatReceive('dialog', { up: true, hint: 'Enter to select', reason: 'curia could not parse options from the native claude dialog', card: null })
+      const html = page.screenChat(payload())
+      assert.match(text(html), /A native dialog owns the terminal\. curia could not parse options from the native claude dialog/)
+      assert.match(html, /href="\/terminal\/\?arg=curia-684"/, 'the terminal is the way through')
+      assert.match(text(html), /Chat sends stay blocked while this dialog is open/)
+      assert.doesNotMatch(html, /doDialogAnswer/, 'no control answers a card curia could not measure')
+      page.chatReceive('dialog', { up: false })
+      assert.doesNotMatch(text(page.screenChat(payload())), /native dialog/)
+    })
+
+    // The tap is the whole seam between the card and the daemon: it sends the
+    // option index for the card the page holds, and a second tap gets the
+    // first receipt (#712's rule) rather than a second answer.
+    test('a tap posts the measured option index, and a second tap shows the first receipt', async () => {
+      const posts = []
+      const receipt = { dialog: 'native-3', index: 2, marker: 'B', answer: 'Preview', by: 'phone', at: at(1) }
+      let answered = false
+      const room = loadPage({ fetchImpl: async (url, init) => {
+        posts.push({ url, body: JSON.parse(init.body) })
+        const first = !answered
+        answered = true
+        return { json: async () => (first ? { ok: true, receipt } : { error: 'this native dialog already has an answer', receipt }) }
+      } })
+      room.applyChatRoute(['chat', 'curia-684'])
+      room.chatReceive('dialog', { up: true, hint: 'Enter to select', card: { id: 'native-3', kind: 'choice', headline: 'Which branch?', selected_index: 1, options: [{ index: 1, marker: 'A', label: 'Stable' }, { index: 2, marker: 'B', label: 'Preview' }] } })
+      await room.doDialogAnswer('native-3', 2)
+      assert.equal(posts.length, 1)
+      assert.equal(posts[0].url, '/dialog-answer')
+      assert.equal(posts[0].body.session, 'curia-684')
+      assert.equal(posts[0].body.dialog, 'native-3')
+      assert.equal(posts[0].body.index, 2, 'the index, not the words')
+      assert.match(text(room.screenChat(payload())), /answered · phone .* B · Preview/)
+
+      room.chat.receipt = null
+      room.chatReceive('dialog', { up: true, hint: 'Enter to select', card: { id: 'native-3', kind: 'choice', headline: 'Which branch?', selected_index: 1, options: [{ index: 1, marker: 'A', label: 'Stable' }, { index: 2, marker: 'B', label: 'Preview' }] } })
+      await room.doDialogAnswer('native-3', 1)
+      assert.equal(posts.length, 2)
+      const html = room.screenChat(payload())
+      assert.match(text(html), /answered · phone .* B · Preview/, 'the first receipt, not an error')
+      assert.doesNotMatch(html, /doDialogAnswer/)
+      room.applyChatRoute([])
+    })
+
     test('a parse failure is a banner, never silence', () => {
       page.chatReceive('parse', { reason: 'unknown line shape', file: 'x', dropped: 3 })
       assert.match(text(page.screenChat(payload())), /INCOMPLETE — unknown line shape \(3 lines dropped\)/)
