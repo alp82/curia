@@ -88,6 +88,15 @@ describe('the built index asset (#70)', () => {
   }
   const stampFor = (ttyd, chrome) => stampMeta({ ttyd, chrome: sha256(chrome) })
 
+  test('#714: the shipped index carries the touch key row, shown on a coarse pointer only', () => {
+    // The embedded terminal in Atlas Chat is this page in an iframe. A phone
+    // gets its Esc, Tab and arrows from here, and a desktop gets no second
+    // row, so Atlas draws none of its own.
+    const built = fs.readFileSync(DEFAULT_INDEX, 'utf8')
+    assert.match(built, /pointer:fine/)
+    assert.match(fs.readFileSync(path.join(path.dirname(DEFAULT_INDEX), CHROME_BASENAME), 'utf8'), /function coarse\(\)/)
+  })
+
   test('the shipped asset is a real built index, and the daemon accepts it', () => {
     // Not a mock: this is the file ttyd is actually spawned with. If the
     // committed asset ever goes stale against the committed chrome source,

@@ -709,8 +709,21 @@
   .composer-row { display: flex; gap: 6px; align-items: center; margin-top: 6px; }
   .composer-row .grow { flex: 1; }
   .composer.ended { font-size: 13px; padding: 10px 0; }
-  .terminal-pane { margin: 0 0 14px; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; background: #111; }
-  .terminal-pane iframe { display: block; width: 100%; height: min(68vh, 720px); border: 0; }
+  /* The terminal dock (#714). It lives OUTSIDE #app on purpose: the poll
+     rewrites #app's innerHTML every few seconds, and an iframe that is moved
+     or rebuilt reconnects its WebSocket, so the frame that carries ttyd has
+     to sit where the redraw never reaches. Same origin, one route: the
+     sidecar proxies /terminal/ to ttyd behind the Atlas identity check. */
+  .terminal-dock { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: flex; flex-direction: column; height: min(60vh, 640px); background: #111; border-top: 1px solid var(--line); box-shadow: 0 -8px 24px rgba(0,0,0,.35); }
+  .terminal-dock .dock-head { display: flex; align-items: center; gap: 8px; padding: 4px 10px; background: var(--bg-raise); color: var(--ink-dim); font-size: 12px; border-bottom: 1px solid var(--line); }
+  .terminal-dock .dock-head .grow { flex: 1; }
+  .terminal-dock iframe { display: block; flex: 1; width: 100%; border: 0; background: #111; }
+  @media (max-width: 760px) {
+    /* On a phone the dock stops at the notch bar, and ttyd's own touch key
+       row rides inside the frame: the attach page shows it on a coarse
+       pointer and hides it on a desktop, so Atlas adds no second row. */
+    .terminal-dock { height: 55vh; height: 55dvh; bottom: calc(70px + env(safe-area-inset-bottom)); }
+  }
 
   /* ---------- the screens that land later ---------- */
   .later {
@@ -3407,7 +3420,7 @@ function chatFresh(session) {
   return {
     session, conn: "connecting", file: null, harness: null, ended: null, clients: 0,
     items: [], open: [], history: [], parse: null, dialog: null, receipt: null,
-    draft: "", mirror: false, notes: [], lastEdit: 0, stick: true,
+    draft: "", mirror: false, notes: [], lastEdit: 0, stick: true, terminal: false,
     client: Math.random().toString(36).slice(2, 8), es: null,
   };
 }
@@ -3420,6 +3433,7 @@ function applyChatRoute(parts) {
   if (session === chat.session) return;
   chatClose();
   chat = chatFresh(session);
+  chatMountTerminal();
   chatConnect();
 }
 function chatClose() {
@@ -3496,23 +3510,40 @@ function screenChat(p) {
 function chatPicker(p) {
   const down = p && !p.daemon_up;
   const count = conversations?.conversations?.length ?? null;
-  const tools = `<button class="btn sm" type="button" onclick="toggleTerminal()">Terminal</button>${count == null ? "" : `<span class="dim-note num">${count} conversation${count === 1 ? "" : "s"}</span>`}`;
+  const tools = count == null ? "" : `<span class="dim-note num">${count} conversation${count === 1 ? "" : "s"}</span>`;
   return `${head(p, "Chat", tools)}
-    <div id="terminal-pane" class="terminal-pane" hidden></div>
     ${down ? `<p class="unread">The chat is down while the daemon restarts. Your message reaches every conversation through it.</p>` : ""}
     ${chatList()}`;
 }
 
-function toggleTerminal() {
-  const pane = document.getElementById("terminal-pane");
-  if (!pane) return;
-  pane.hidden = !pane.hidden;
-  if (!pane.hidden && !pane.firstChild) {
-    const frame = document.createElement("iframe");
-    frame.src = "/terminal/";
-    frame.title = "Curia terminal";
-    pane.appendChild(frame);
-  }
+/* ---- the terminal (#714) ----
+   The room's header opens the live terminal for ITS conversation, and only
+   for one that still runs: an ended agent has no pane to show. The dock is
+   one element under document.body, mounted once per opening and removed on
+   close or on leaving the room, so the attached tmux client goes away with
+   it rather than holding a stale size on the shared window. */
+const terminalSrc = (session) => `/terminal/?arg=${encodeURIComponent(session)}`;
+function terminalDock() {
+  if (!chat.terminal || !chat.session) return "";
+  return `<div class="dock-head mono"><span class="grow">terminal · ${esc(chat.session)}</span>
+      <button class="btn sm" type="button" onclick="chatToggleTerminal()">Close</button></div>
+    <iframe src="${terminalSrc(chat.session)}" title="Terminal for ${esc(chat.session)}"></iframe>`;
+}
+function chatToggleTerminal() {
+  chat.terminal = !chat.terminal && !chatEnded();
+  chatMountTerminal();
+  render();
+}
+function chatMountTerminal() {
+  if (typeof document.createElement !== "function" || !document.body) return;
+  let dock = document.getElementById("terminal-dock");
+  if (!chat.terminal) { dock?.remove(); return; }
+  if (dock) return;
+  dock = document.createElement("div");
+  dock.id = "terminal-dock";
+  dock.className = "terminal-dock";
+  dock.innerHTML = terminalDock();
+  document.body.appendChild(dock);
 }
 
 /* Null is not empty, the second rule of this page. A list curia could not be
@@ -3614,8 +3645,8 @@ function chatRoom(p) {
   const ended = chatEnded();
   const conn = c.conn === "live" ? `<span class="chat-conn ok">live</span>` : `<span class="chat-conn bad">${esc(c.conn)}</span>`;
   const watching = c.clients > 1 ? `<span class="dim-note">${c.clients} devices watching</span>` : "";
-  const terminal = role === "ticket" && !ended
-    ? `<a class="btn sm" href="/terminal/?arg=${encodeURIComponent(c.session)}" target="_blank">Terminal</a>` : "";
+  const terminal = ended ? ""
+    : `<button class="btn sm ${c.terminal ? "on" : ""}" type="button" onclick="chatToggleTerminal()">${c.terminal ? "Hide terminal" : "Terminal"}</button>`;
   const tools = `<a class="btn sm" href="#chat">← Chat</a>${terminal}`;
   return `${head(p, title, tools)}
     <div class="room" data-role="${role}">
