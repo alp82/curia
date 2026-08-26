@@ -2993,3 +2993,19 @@ itself was planned...") goes; the VPS bars are too thin at 8 GB. Desktop still d
   gives it up.
 
 The scroll budget at 375×667: 17.3 screens.
+
+**Round 4.** The operator: the titles 01 and 02 still push the curia animation above and
+below; remove them on a phone and go straight to the animation after 02. And the VPS boxes
+are too wide at 8 and 16 GB (thirty agents ran past the box).
+
+- **A phone reads the hero and then the order beat.** With the canvas on, claims 01 and 02
+  and the room between them are gone below 40rem. The frame forces `rise` to 0 and drives
+  `fall` from the arc's own scroll, a third of a screen in, over `ORDER_SPAN` screens; the
+  map never leaves the foot. Each claim crossing the screen had shoved the art out of its
+  way, and no keyframe change could fix that, because the art's box IS what the words leave.
+  With no canvas the three panels stand and read as before, so the locked words are still on
+  the page.
+- **The bar floor is the even share at most.** The script writes `--gn`, the group count, on
+  the strip and the label row, and the phone floor is `min(2.4rem, 100% / var(--gn))`.
+
+Desktop diffs to zero pixels. The scroll budget at 375×667: 16.2 screens, the arc 4.8.

@@ -144,8 +144,12 @@
   body.arcon .room.short { height: var(--tail, 440svh); }
   /* #773 round 2: a phone holds the hero and the mess for less scroll. */
   @media (max-width: 40rem) {
-    body.arcon .room { height: 52svh; }
     body.arcon .room.lead { height: 40svh; }
+    /* #773 round 4: with the canvas on, a phone reads the hero and then
+       the order beat. Claims 01 and 02 and the room between them go:
+       each one crossing the screen shoved the art out of its way. With
+       no canvas the three panels stand and read as before. */
+    body.arcon #w-mess, body.arcon #w-order, body.arcon .room.mid { display: none; }
   }
 
   /* Round 3 of #625: the words and the canvas must never sit on top of
@@ -2310,7 +2314,7 @@
   /* #773 round 3: on a phone a 0.5 GB group at 8 GB was a sliver. Every
      group and its label get a floor, and the free space gives it up. */
   @media (max-width: 40rem) {
-    .gg .gg-strip .g, .gg-groups span { min-width: 2.4rem; }
+    .gg .gg-strip .g, .gg-groups span { min-width: min(2.4rem, calc(100% / var(--gn, 3))); }
   }
   .gg .gg-strip i.p { background: var(--ca); }
   .gg .gg-strip i.s { background: var(--cs); }
@@ -2476,7 +2480,7 @@
         </header>
       </section>
 
-      <div class="room" aria-hidden="true"></div>
+      <div class="room mid" aria-hidden="true"></div>
 
       <!-- Scene 3 · maps bring order -->
       <section class="apanel wrap sR" id="w-order">
@@ -3472,6 +3476,13 @@ if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').m
   function label(t, cls, n) { var l = document.createElement('span'); l.textContent = t; l.className = cls; l.style.flexGrow = n; return l; }
   function all(sel, f) { [].slice.call(box.querySelectorAll(sel)).forEach(f); }
   function draw() {
+    drawStrip();
+    /* #773 round 4: the phone floor under a group is its even share at
+       most, so thirty agents at 16 GB cannot run past the box. */
+    strip.style.setProperty('--gn', strip.children.length);
+    groups.style.setProperty('--gn', groups.children.length);
+  }
+  function drawStrip() {
     var ram = RAM[+ramIn.value], cols = ram * 10, max = Math.floor((cols - 10) / 5);
     nIn.max = max; if (+nIn.value > max) nIn.value = max;
     var n = +nIn.value, free = cols - 10 - 5 * n;
@@ -5309,6 +5320,13 @@ function runArc() {
     /* how far PAST the order claim the reader has come, in screens */
     var ro = orderPanel ? orderPanel.getBoundingClientRect() : null;
     var fall = ro ? clamp((H * 0.55 - ro.top) / (H * ORDER_SPAN), 0, 1) : 0;
+    if (!wide) {
+      /* #773 round 4: a phone has no mess beat and no claims on the
+         stage. The order beat starts a third of a screen into the
+         scroll and runs for ORDER_SPAN screens. */
+      rise = 0;
+      fall = clamp((-arcBox.top - H * 0.35) / (H * ORDER_SPAN), 0, 1);
+    }
     stageEl.style.setProperty('--warm', (1 - 0.86 * rise * (1 - fall)).toFixed(3));
     stageEl.style.setProperty('--ord', fall.toFixed(3));
 
@@ -5355,6 +5373,7 @@ function runArc() {
        while the claim is still below the fold and finishes inside half
        a screen. */
     var mapsIn = ro ? smooth(0, 1, clamp((H * 1.15 - ro.top) / (H * 0.62), 0, 1)) : 0;
+    if (!wide) mapsIn = 0;   /* the map never leaves the foot on a phone */
     var mapsA, mi;
     if (mapsIn <= 0.001) {
       S.mapsY = lerp(K.hero.mapsY, K.mess.mapsY, rise);
