@@ -99,6 +99,7 @@ const FEED_SILENT = new Set([
   'overseer_session_reserved',
   'overseer_turn_started', 'overseer_turn_ended',
   'conversation_turn_recorded', 'conversation_turn_taken_back', 'agent_notes_requeued',
+  'overseer_notes_carried', 'overseer_notes_requeued',
   'overseer_pane_parked',
 ])
 
@@ -106,6 +107,7 @@ const FEED_SILENT = new Set([
 const NOTE_EVENTS = new Set([
   'agent_note', 'agent_notes_drained', 'agent_notes_expired', 'agent_note_refused', 'agent_note_interrupted',
   'agent_note_taken_back', 'agent_notes_requeued',
+  'overseer_notes_carried', 'overseer_notes_requeued',
   'conversation_turn_recorded', 'conversation_turn_taken_back',
 ])
 
@@ -193,6 +195,7 @@ export class Reduction {
     this.mapAlarms = new Map() // "repo#map" -> the stranded-map alarm that still stands (#485)
     this.transcriptLandings = new Map() // session -> rewind landing and transcript tail (#689)
     this.conversationTurns = new Map() // session -> sent operator turns and the queued notes each one carried (#702)
+    this.carriedNotes = new Map() // session -> overseer notes a pane message took but no turn record has claimed yet (#702)
     this.seq = 0
     this.noteSeq = 0
     this.turnSeq = 0
@@ -724,13 +727,34 @@ export class Reduction {
         this.agentNotes.set(ev.agent, arr)
         break
       }
+      case 'overseer_notes_carried': {
+        const carried = this.carriedNotes.get(ev.agent) ?? { key: ev.key ?? null, texts: [] }
+        carried.key = ev.key ?? carried.key
+        carried.texts.push(...(ev.texts ?? []))
+        this.carriedNotes.set(ev.agent, carried)
+        break
+      }
+      case 'overseer_notes_requeued': {
+        const texts = ev.texts ?? []
+        if (texts.length) {
+          this.overseerNotes.set(ev.key, [...texts, ...(this.overseerNotes.get(ev.key) ?? [])])
+        }
+        const turn = (this.conversationTurns.get(ev.agent) ?? []).find((item) => item.id === ev.turn)
+        if (turn) turn.overseer_notes = []
+        break
+      }
       case 'conversation_turn_recorded': {
         const turns = this.conversationTurns.get(ev.agent) ?? []
+        const carried = ev.overseer_notes ?? this.carriedNotes.get(ev.agent)?.texts ?? []
         const turn = {
           id: ev.id, agent: ev.agent,
+          text: ev.text ?? null,
           text_hash: ev.text_hash ?? conversationTurnHash(ev.text ?? ''),
           note_ids: [], taken_back: false,
+          overseer_key: ev.overseer_key ?? this.carriedNotes.get(ev.agent)?.key ?? null,
+          overseer_notes: [...carried],
         }
+        this.carriedNotes.delete(ev.agent)
         turns.push(turn)
         this.conversationTurns.set(ev.agent, turns)
         const n = Number(String(ev.id).split('-').at(-1))
@@ -1478,10 +1502,39 @@ export class Reduction {
     return stale
   }
 
+  // The words the OPERATOR typed, not the paste that carried them (#702). A
+  // pane message composes the checkout verdict and the queued notes in front of
+  // those words, so the transcript's prompt is not what the operator wrote. The
+  // rewind puts text back in a composer and quotes a landing point, and both
+  // have to be the operator's own words. The hash stays for the records written
+  // before this text did.
   recordConversationTurn(agent, text) {
     const id = `conversation-turn-${++this.turnSeq}`
-    this._append({ type: 'conversation_turn_recorded', id, agent, text_hash: conversationTurnHash(text) })
+    this._append({
+      type: 'conversation_turn_recorded', id, agent,
+      text: String(text ?? ''), text_hash: conversationTurnHash(text),
+    })
     return this.conversationTurns.get(agent)?.at(-1) ?? null
+  }
+
+  // Every operator turn on this conversation that still stands, newest first.
+  // The rewind reads it to tell the operator's words apart from the frame a
+  // pane message pasted around them.
+  conversationTurnTexts(agent) {
+    return [...(this.conversationTurns.get(agent) ?? [])]
+      .reverse()
+      .filter((turn) => !turn.taken_back && turn.text)
+      .map((turn) => turn.text)
+  }
+
+  // The notes a pane message took off the overseer queue (#702). A pane message
+  // drains them BEFORE the operator's turn is recorded, so they are carried
+  // here and the next turn record claims them. That binding is what lets a
+  // rewind put them back: an overseer note is plain text with no id of its own,
+  // so the turn that carried it is the only record that it left the queue.
+  carryOverseerNotes(agent, key, texts) {
+    if (!texts?.length) return
+    this._append({ type: 'overseer_notes_carried', agent, key, texts: [...texts] })
   }
 
   takeBackConversationTurn(agent, text) {
@@ -1489,6 +1542,15 @@ export class Reduction {
       .reverse()
       .find((item) => !item.taken_back && item.text_hash === conversationTurnHash(text))
     if (!turn) return []
+    // The overseer queue's half. Read before the event, because the reducer
+    // clears the binding when it lands.
+    const carried = turn.overseer_key ? [...(turn.overseer_notes ?? [])] : []
+    if (carried.length) {
+      this._append({
+        type: 'overseer_notes_requeued', agent, key: turn.overseer_key,
+        turn: turn.id, texts: carried,
+      })
+    }
     const notes = turn.note_ids
       .map((id) => this.notes.get(id))
       .filter((note) => note && !note.pending)
@@ -1499,8 +1561,10 @@ export class Reduction {
       })
     }
     this._append({ type: 'conversation_turn_taken_back', id: turn.id, agent })
-    return notes
+    // One list, because the receipt counts notes and not queues.
+    return [...notes, ...carried.map((text) => ({ text, overseer: true }))]
   }
+
 
   takeAgentNotes(agent, instance = null) {
     this.expireAgentNotes(agent, instance, 'is running as a fresh instance')

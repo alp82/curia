@@ -633,6 +633,13 @@ export class OverseerPaneHost {
     this.reduction.journal?.('overseer_pane_message', {
       key, session, session_id: sessionId, notes: notes.length, stale: checkouts.repos.filter((r) => !r.ok).length,
     })
+    // AND THE NOTES THIS MESSAGE CARRIED ARE BOUND TO THE OPERATOR'S TURN
+    // (#702). A rewind takes the turn back, and ADR-0024's "curia returns
+    // queued notes to its queue" holds there too — but an overseer note is
+    // plain text with no id, so the turn that carried it out of the queue is
+    // the only record that it left. The turn record itself is written by the
+    // surface after this call returns and claims what is carried here.
+    this.reduction.carryOverseerNotes?.(session, key, notes)
     // Detached on purpose: the surface that sent the message must not hold an
     // HTTP request open for the length of a model's work. The promise is
     // returned so a caller that DOES want to wait — a test, a replay — can.

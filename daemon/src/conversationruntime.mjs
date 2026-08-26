@@ -15,6 +15,23 @@ const oneLine = (text, max = 80) => {
   return line.length > max ? `${line.slice(0, max - 1)}…` : line
 }
 
+// What the operator TYPED, out of what the pane was sent.
+//
+// A pane message pastes the checkout verdict and the queued notes in front of
+// the operator's words (#708), so the transcript's prompt holds a frame the
+// operator never wrote. The daemon records each turn's own words, and every
+// composed message ends with them — so the recorded turn the prompt ends with
+// is the operator's half of it. Newest first, because the same words sent twice
+// should land on the later turn. No match means nothing composed this prompt
+// (a turn typed straight into the pane), and the prompt is the words.
+function typedWords(prompt, recorded) {
+  const text = String(prompt ?? '')
+  for (const words of recorded) {
+    if (words && text.endsWith(words)) return words
+  }
+  return text
+}
+
 function operatorTurns(read) {
   return read.records
     .map((record) => ({
@@ -48,6 +65,9 @@ export class ConversationRuntime {
     }
     const target = turns.at(-1)
     const previous = turns.at(-2)
+    const recorded = this.reduction.conversationTurnTexts?.(session) ?? []
+    const targetWords = typedWords(target.prompt.text, recorded)
+    const previousWords = typedWords(previous.prompt.text, recorded)
     await this.prepare(session, role)
     if (await this.pane.active(session)) await this.pane.key(session, 'Escape')
     await this.#rewind(session, harness)
@@ -59,10 +79,10 @@ export class ConversationRuntime {
         tail_uuid: read.headUuid,
       })
     }
-    const requeued = this.reduction.takeBackConversationTurn?.(session, target.prompt.text) ?? []
+    const requeued = this.reduction.takeBackConversationTurn?.(session, targetWords) ?? []
     const receipt = {
       headline: 'Took back your last message.',
-      landing: `The conversation continues after “${oneLine(previous.prompt.text)}”`,
+      landing: `The conversation continues after “${oneLine(previousWords)}”`,
       remains: harness === 'claude'
         ? [
             'Files restored with the conversation.',
@@ -80,12 +100,12 @@ export class ConversationRuntime {
       session,
       role,
       harness,
-      text: target.prompt.text,
+      text: targetWords,
       landing_uuid: harness === 'claude' ? target.parentUuid : null,
       transcript_tail_uuid: read.headUuid ?? null,
       receipt,
     })
-    return { ok: true, composer: target.prompt.text, receipt }
+    return { ok: true, composer: targetWords, receipt }
   }
 
   async correct({ session, role, correction, text }) {

@@ -41,6 +41,8 @@ describe('conversation message take back (#702)', () => {
       source: recorded('transcript-1-after-rewind.jsonl'),
     })
 
+    // No recorded turn stands behind this transcript, so the prompt IS the
+    // words: a message typed straight into the pane has no frame to strip.
     assert.equal(result.composer,
       '[curia note] The deploy of curia 1.4 finished at 17:20.\nGood. Now rename the maps effort to Atlas.')
     assert.deepEqual(pane.keys, [
@@ -82,7 +84,7 @@ describe('conversation message take back (#702)', () => {
 
   test('a rewind returns notes drained into that operator turn to the queue', async () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-take-back-turn-'))
-    const text = '[curia note] The deploy of curia 1.4 finished at 17:20.\nGood. Now rename the maps effort to Atlas.'
+    const text = 'Good. Now rename the maps effort to Atlas.'
     try {
       const reduction = new Reduction(dir)
       reduction.recordConversationTurn('curia-89', 'Park the maps effort until Monday.')
@@ -100,6 +102,7 @@ describe('conversation message take back (#702)', () => {
         source: recorded('transcript-1-after-rewind.jsonl'),
       })
 
+      assert.equal(result.composer, text)
       assert.equal(reduction.noteById(note.id).pending, true)
       assert.equal(reduction.noteById(earlier.id).pending, false)
       assert.ok(result.receipt.remains.includes('Returned 1 unread note to the queue.'))
@@ -108,6 +111,80 @@ describe('conversation message take back (#702)', () => {
       const rebuilt = new Reduction(dir)
       assert.equal(rebuilt.noteById(note.id).pending, true)
       assert.deepEqual(rebuilt.takeAgentNotes('curia-89').map((item) => item.id), [note.id, later.id])
+      rebuilt.close()
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('a composed pane message gives back only the words the operator typed', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-take-back-composed-'))
+    try {
+      const reduction = new Reduction(dir)
+      const session = 'curia-console-2'
+      const first = 'Park the maps effort until Monday.'
+      const second = 'Good. Now rename the maps effort to Atlas.'
+      reduction.recordConversationTurn(session, first)
+      const note = reduction.queueAgentNote(session, 'The deploy finished.')
+      reduction.recordConversationTurn(session, second)
+      assert.deepEqual(reduction.takeAgentNotes(session).map((item) => item.id), [note.id])
+      const runtime = new ConversationRuntime({ pane: paneDouble(), reduction })
+      // What a pane message actually sends: the checkout verdict, then the
+      // queued notes, then the operator's words last (#708).
+      const message = (uuid, parentUuid, text) => JSON.stringify({
+        type: 'user', uuid, parentUuid, message: { role: 'user', content: text },
+      })
+      const source = [
+        message('m1', null, `Repo checkouts at 17:10\ncuria: clean\n\n${first}`),
+        message('m2', 'm1', `Repo checkouts at 17:20\ncuria: clean\n\n[curia: The deploy finished.]\n\n${second}`),
+      ].join('\n')
+
+      const result = await runtime.takeBack({ session, role: 'overseer', harness: 'claude', source })
+
+      assert.equal(result.composer, second)
+      assert.equal(result.receipt.landing, `The conversation continues after \u201c${first}\u201d`)
+      assert.ok(result.receipt.remains.includes('Returned 1 unread note to the queue.'))
+      assert.equal(reduction.noteById(note.id).pending, true)
+      reduction.close()
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  test('a rewind returns the overseer notes that message carried to their queue', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-take-back-overseer-'))
+    try {
+      const reduction = new Reduction(dir)
+      const session = 'curia-console-2'
+      const key = 'console-2'
+      const first = 'Park the maps effort until Monday.'
+      const second = 'Good. Now rename the maps effort to Atlas.'
+      reduction.recordConversationTurn(session, first)
+      reduction.addOverseerNote(key, 'The deploy of curia 1.4 finished at 17:20.')
+      // What a pane message does, in its order: drain, carry, then the surface
+      // records the turn those notes rode in on.
+      assert.deepEqual(reduction.takeOverseerNotes(key), ['The deploy of curia 1.4 finished at 17:20.'])
+      reduction.carryOverseerNotes(session, key, ['The deploy of curia 1.4 finished at 17:20.'])
+      reduction.recordConversationTurn(session, second)
+      assert.deepEqual(reduction.takeOverseerNotes(key), [])
+      const runtime = new ConversationRuntime({ pane: paneDouble(), reduction })
+      const message = (uuid, parentUuid, text) => JSON.stringify({
+        type: 'user', uuid, parentUuid, message: { role: 'user', content: text },
+      })
+      const source = [
+        message('m1', null, first),
+        message('m2', 'm1', `[curia: The deploy of curia 1.4 finished at 17:20.]\n\n${second}`),
+      ].join('\n')
+
+      const result = await runtime.takeBack({ session, role: 'overseer', harness: 'claude', source })
+
+      assert.equal(result.composer, second)
+      assert.ok(result.receipt.remains.includes('Returned 1 unread note to the queue.'))
+      assert.deepEqual(reduction.overseerNotes.get(key), ['The deploy of curia 1.4 finished at 17:20.'])
+      reduction.close()
+
+      const rebuilt = new Reduction(dir)
+      assert.deepEqual(rebuilt.takeOverseerNotes(key), ['The deploy of curia 1.4 finished at 17:20.'])
       rebuilt.close()
     } finally {
       fs.rmSync(dir, { recursive: true, force: true })
