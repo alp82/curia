@@ -361,19 +361,19 @@ describe('the context meter on the wire (#264)', () => {
   // never a transcript. So the route joins the meter on, and the join is the
   // thing that must not cost a row.
   test('a reading crosses as a percentage, and the over-100 mark crosses with it', () => {
-    assert.deepEqual(ctxOnWire(() => ({ ctxPct: 41, ctxOver: false })), { ctx_pct: 41, ctx_over: false })
+    assert.deepEqual(ctxOnWire(() => ({ ctxPct: 41, ctxOver: false })), { ctx_pct: 41, ctx_over: false, ctx_tokens: null })
     // Over 100% is the daemon's complaint about the denominator (#146), not a
     // reading about the agent. It travels rather than being flattened here.
-    assert.deepEqual(ctxOnWire(() => ({ ctxPct: 118, ctxOver: true })), { ctx_pct: 118, ctx_over: true })
+    assert.deepEqual(ctxOnWire(() => ({ ctxPct: 118, ctxOver: true })), { ctx_pct: 118, ctx_over: true, ctx_tokens: null })
   })
 
   test('no reading is null, never zero — an unmeasured context and an empty one are not one fact', () => {
-    assert.deepEqual(ctxOnWire(() => ({ ctxPct: null, ctxOver: false })), { ctx_pct: null, ctx_over: false })
-    assert.deepEqual(ctxOnWire(() => null), { ctx_pct: null, ctx_over: false })
+    assert.deepEqual(ctxOnWire(() => ({ ctxPct: null, ctxOver: false })), { ctx_pct: null, ctx_over: false, ctx_tokens: null })
+    assert.deepEqual(ctxOnWire(() => null), { ctx_pct: null, ctx_over: false, ctx_tokens: null })
   })
 
   test('a meter that throws costs this one column and never the agent', () => {
-    assert.deepEqual(ctxOnWire(() => { throw new Error('no transcript on disk') }), { ctx_pct: null, ctx_over: false })
+    assert.deepEqual(ctxOnWire(() => { throw new Error('no transcript on disk') }), { ctx_pct: null, ctx_over: false, ctx_tokens: null })
   })
 })
 
@@ -469,7 +469,8 @@ describe('the recent past, answered without the file (#289)', () => {
       'newest last, and the head of a long run has fallen off')
     // A cap PER KIND, not one shared cap: eight endings must not push the one
     // cancellation off a list the operator reads to find it.
-    assert.deepEqual(out[0], { kind: 'cancelled', repo: 'o/r', ticket: '90' })
+    assert.deepEqual(out[0], { kind: 'cancelled', repo: 'o/r', ticket: '90', agent: null, at: out[0].at })
+    assert.ok(out[0].at, 'an ending carries the instant it was journalled (#709)')
   })
 
   test('a restart replays them, so the first poll after a restart is not blank', () => {
@@ -544,9 +545,9 @@ describe('the recent past, answered without the file (#289)', () => {
     })
 
     const { recent } = await d.status()
-    assert.deepEqual(recent, [
-      { kind: 'cancelled', repo: 'o/r', ticket: '3' },
-      { kind: 'finished', repo: 'o/r', ticket: '4' },
+    assert.deepEqual(recent.map(({ at, ...rest }) => rest), [
+      { kind: 'cancelled', repo: 'o/r', ticket: '3', agent: null },
+      { kind: 'finished', repo: 'o/r', ticket: '4', agent: null },
     ])
     assert.equal(d.pullRequestUrlFor('curia-42'), 'https://github.com/o/r/pull/9')
     assert.equal(d.pullRequestUrlFor('curia-77'), null)

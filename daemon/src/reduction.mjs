@@ -279,7 +279,10 @@ export class Reduction {
     const outcome = OUTCOME_KINDS[ev.type]
     if (outcome) {
       const list = this.outcomes[outcome]
-      list.push({ kind: outcome, repo: ev.repo ?? null, ticket: String(ev.ticket ?? '') })
+      // The session and the instant ride along (#709): the Agents page lists
+      // today's endings with a Chat link, and a dead agent's chat stays
+      // readable, so the ending has to name the session it ended.
+      list.push({ kind: outcome, repo: ev.repo ?? null, ticket: String(ev.ticket ?? ''), agent: ev.agent ?? null, at: ev.ts ?? null })
       if (list.length > RECENT_OUTCOMES) list.shift()
     }
     if (ev.type === 'agent_spawned' && ev.agent) {

@@ -1099,7 +1099,7 @@ export function modelName(model, spec, stated = null) {
 export function agentMeters({ harness, cfgDir, model, routing, account, models, transcript, now = Date.now() }) {
   const spec = routing?.models?.[model] ?? null
   const out = {
-    model: modelName(model, spec), effort: spec?.reasoning_effort ?? null, ctxPct: null, ctxOver: false, windows: null,
+    model: modelName(model, spec), effort: spec?.reasoning_effort ?? null, ctxPct: null, ctxOver: false, ctxTokens: null, windows: null,
   }
   if (!harness || !cfgDir) return out
 
@@ -1112,6 +1112,9 @@ export function agentMeters({ harness, cfgDir, model, routing, account, models, 
   // what the API says about the model, which beats what a human wrote in a file
   // months ago and cannot be corrected by anything.
   const window = ctx?.window ?? models?.windowFor(ctx?.model) ?? spec?.context_window ?? null
+  // The absolute count goes out beside the percent (#709): the Agents page
+  // prints it as a meter, and it is a reading even when no window is known.
+  if (ctx?.tokens > 0) out.ctxTokens = ctx.tokens
   if (ctx && window > 0) {
     // NOT clamped. A request larger than its own window is impossible, so a
     // figure above 100% is proof the denominator is wrong — which is exactly
@@ -1155,9 +1158,9 @@ export function ctxOnWire(read) {
   try {
     m = read()
   } catch {
-    return { ctx_pct: null, ctx_over: false }
+    return { ctx_pct: null, ctx_over: false, ctx_tokens: null }
   }
-  return { ctx_pct: m?.ctxPct ?? null, ctx_over: Boolean(m?.ctxOver) }
+  return { ctx_pct: m?.ctxPct ?? null, ctx_over: Boolean(m?.ctxOver), ctx_tokens: m?.ctxTokens ?? null }
 }
 
 // ---- the browser conversations, on the wire (#333, ADR-0016) ---------------

@@ -6713,6 +6713,10 @@ export class Dispatcher {
       ticket: w.ticket,
       title: w.title,
       model: w.model,
+      // The lane and the effort (#709): the Agents page shows them as meters
+      // beside the model, and neither is readable off a transcript.
+      harness: w.harness ?? null,
+      effort: w.reasoningEffort ?? null,
       // #164: two agents can sit on one ticket now, so a row has to say which
       // one it is. Without it `/status` shows the same ticket twice.
       reviewer: Boolean(w.reviewer),
