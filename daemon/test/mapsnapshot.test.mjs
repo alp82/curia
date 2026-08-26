@@ -332,14 +332,14 @@ test('the map snapshot refreshes after invalidation and stays cached otherwise',
     maps: [{ number: reads }],
   }))
 
-  assert.deepEqual(await snapshot.read(), {
+  assert.deepEqual(await snapshot.refresh(), {
     computed_at: 'read-1', maps: [{ number: 1 }], error: null,
   })
-  assert.equal((await snapshot.read()).computed_at, 'read-1')
+  assert.equal((await snapshot.refresh()).computed_at, 'read-1')
 
   snapshot.invalidate()
 
-  assert.deepEqual(await snapshot.read(), {
+  assert.deepEqual(await snapshot.refresh(), {
     computed_at: 'read-2', maps: [{ number: 2 }], error: null,
   })
 })
@@ -354,7 +354,7 @@ test('an invalidation during a refresh returns the newer map snapshot', async ()
     return { computed_at: `read-${reads}`, maps: [] }
   })
 
-  const result = snapshot.read()
+  const result = snapshot.refresh()
   snapshot.invalidate()
   release()
 
@@ -369,10 +369,29 @@ test('a failed map snapshot retries on the next read', async () => {
     return { computed_at: 'recovered', maps: [] }
   })
 
-  assert.deepEqual(await snapshot.read(), {
+  assert.deepEqual(await snapshot.refresh(), {
     computed_at: null, maps: null, error: 'GitHub is unavailable',
   })
-  assert.deepEqual(await snapshot.read(), {
+  assert.deepEqual(await snapshot.refresh(), {
     computed_at: 'recovered', maps: [], error: null,
   })
+})
+
+test('MapSnapshot.read() serves the last value and refreshes in the background', async () => {
+  let resolveRead
+  let reads = 0
+  const snapshot = new MapSnapshot(() => new Promise((resolve) => { reads += 1; resolveRead = resolve }))
+  // Cold: nothing computed yet, and the read does not wait for GitHub.
+  assert.deepEqual(snapshot.read(), { computed_at: null, maps: null, error: null })
+  assert.equal(reads, 1)
+  resolveRead({ computed_at: 't1', maps: [] })
+  await snapshot.pending
+  assert.equal(snapshot.read().computed_at, 't1')
+  assert.equal(reads, 1, 'a clean snapshot costs no read')
+  // Dirty: the poll still gets the old reading at once; the refresh runs behind it.
+  snapshot.invalidate()
+  assert.equal(snapshot.read().computed_at, 't1')
+  assert.equal(reads, 2)
+  resolveRead({ computed_at: 't2', maps: [] })
+  assert.equal((await snapshot.refresh()).computed_at, 't2')
 })

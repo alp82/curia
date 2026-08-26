@@ -150,6 +150,13 @@ export async function readMapSnapshot({ watch, routing, github, journal }) {
   return { computed_at: new Date().toISOString(), maps }
 }
 
+// The map snapshot the poll serves. `read()` NEVER waits on GitHub: it hands
+// back the last computed value and, if a journal event marked it dirty, starts
+// the refresh in the background. One refresh costs a `gh api` call per watched
+// repo, per open map and per blocked child — twenty-odd process spawns on the
+// live box, 18 to 28 seconds — which is why the poll must not sit on it.
+// `refresh()` is the awaiting form, for boot and `/reconcile`, where the caller
+// wants the reading that comes AFTER its own writes.
 export class MapSnapshot {
   constructor(read, { onError = () => {} } = {}) {
     this.readSnapshot = read
@@ -163,9 +170,14 @@ export class MapSnapshot {
     this.dirty = true
   }
 
-  async read() {
-    if (!this.dirty) return this.value
+  read() {
+    if (this.dirty) this.refresh()
+    return this.value
+  }
+
+  refresh() {
     if (this.pending) return this.pending
+    if (!this.dirty) return Promise.resolve(this.value)
     this.pending = (async () => {
       try {
         do {

@@ -2691,8 +2691,10 @@ mapSnapshot = new MapSnapshot(
 )
 
 async function overview() {
-  mapSnapshot.invalidate()
-  const mapSnapshotOnWire = await mapSnapshot.read()
+  // The map snapshot is read from memory, never refreshed here. Journal events
+  // mark it dirty and `read()` refreshes in the background; the poll rides on
+  // the last computed reading and states its `computed_at`.
+  const mapSnapshotOnWire = mapSnapshot.read()
   // The fleet read asks tmux, and an indeterminate tmux is not "no agents" —
   // the evidence rule holds on a page exactly as it holds in reconcile. It must
   // not cost the rest of the page either: the feed, the escalations, the gate
@@ -3348,7 +3350,7 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
   if (url.pathname === '/reconcile' && req.method === 'POST') {
     await dispatcher.reconcile({ boot: false })
     mapSnapshot.invalidate()
-    await mapSnapshot.read()
+    await mapSnapshot.refresh()
     return json(200, { ok: true })
   }
 
@@ -3531,7 +3533,7 @@ httpServer.listen(PORT, '127.0.0.1', () => {
     // confirms, assert the attach + timeline surfaces — then start the auto
     // loop (a no-op while auto_dispatch is false). Not gated on the bridge.
     .then(() => dispatcher.reconcile({ boot: true }))
-    .then(() => mapSnapshot.read())
+    .then(() => mapSnapshot.refresh())
     .then(() => {
       log('boot reconcile done')
       dispatcher.startAutoLoop()
