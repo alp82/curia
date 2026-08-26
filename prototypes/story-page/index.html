@@ -2124,6 +2124,109 @@
     display: flex; justify-content: space-between; gap: 0.5rem;
     font: 600 0.68rem var(--mono); color: var(--dim); margin-bottom: 0.7rem;
   }
+
+  /* ==== Scene 9 · your VPS (#631) round 1: five readings of one box,
+     on ?vps=1..5 and a rail. Every number is measured or counted:
+     four overlapping sessions, 733 MB peak, ~0.5 GB planning per
+     agent, 30 GB on the box, 40 to 50 of headroom, one container,
+     two mounts, two cache volumes, three ports per agent. ==== */
+  .vps { position: relative; }
+  .vps .claim, .vps .fact { text-align: center; }
+  .vps .shot { justify-content: center; }
+  .vps .shot > * { max-width: 30rem; }
+  .vps .box { padding: 1.3rem 1.4rem 1.4rem; }
+  .vps .box .bx-head { font-size: 0.78rem; margin-bottom: 1rem; }
+  .vps .box { font-family: var(--mono); }
+  .vps .k { color: var(--dim); }
+  .vps .m { color: var(--st-merged); }
+  .vps .big { font: 800 1.9rem/1 var(--sans); letter-spacing: -0.03em; color: var(--text); }
+  .vps .big small { font: 600 0.62rem var(--mono); color: var(--dim); margin-left: 0.3rem; letter-spacing: 0; }
+
+  /* 1 stack: the box as layers, top down, agents at the bottom. */
+  .st-l { border: 1px solid var(--line); border-radius: 8px; padding: 0.5rem 0.65rem; margin: 0.4rem 0; font-size: 0.66rem; }
+  .st-l b { display: block; font-weight: 700; color: var(--text); margin-bottom: 0.15rem; }
+  .st-l span { color: var(--dim); }
+  .st-ag { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.35rem; margin-top: 0.35rem; }
+  .st-ag div { border: 1px solid var(--st-merged); border-radius: 6px; padding: 0.35rem 0.3rem; font-size: 0.56rem; line-height: 1.35; text-align: center; }
+  .st-ag div b { display: block; color: var(--st-merged); font-size: 0.6rem; }
+  .st-mem { margin-top: 0.7rem; font-size: 0.62rem; }
+  .st-mem .bar { height: 0.55rem; border-radius: 999px; background: #ffffff10; overflow: hidden; margin: 0.3rem 0; position: relative; }
+  .st-mem .bar i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--st-merged); width: 2.5%; }
+  .st-mem .bar u { position: absolute; left: 0; top: 0; bottom: 0; border-right: 1px dashed var(--st-agent); width: 6.7%; }
+
+  /* 2 gauge, round 3: forty columns of 0.1 GB. Agents in the scene
+     color, the system in the agent gold, free dark. Five stylings on
+     .v1 to .v5 of the box. */
+  .gg { --ca: var(--st-merged); --cs: var(--st-agent); --ch: #ffffff12; }
+  .gg-strip { display: grid; grid-template-columns: repeat(40, 1fr); gap: 0.16rem; margin: 0.5rem 0; }
+  .gg-strip i { height: 2.8rem; background: var(--ch); border-radius: 2px; }
+  .gg-strip i.p { background: var(--ca); }
+  .gg-strip i.s { background: var(--cs); }
+  .gg-groups { display: grid; grid-template-columns: repeat(40, 1fr); gap: 0.16rem; height: 1rem; font: 600 0.56rem/1 var(--mono); color: var(--dim); }
+  .gg-groups span { grid-column: span 5; text-align: center; white-space: nowrap; overflow: hidden; }
+  .gg-groups span.s { grid-column: span 10; color: var(--cs); }
+  .gg-groups span.h { grid-column: span 10; }
+  .gg-row { display: flex; justify-content: space-between; font-size: 0.8rem; color: var(--dim); gap: 0.5rem; }
+  .gg-leg { list-style: none; padding: 0; margin: 1.1rem 0 0; font-size: 0.84rem; line-height: 1.7; }
+  .gg-leg li::before { content: ''; display: inline-block; width: 0.95rem; height: 0.95rem; border-radius: 4px; margin-right: 0.6rem; vertical-align: -0.1rem; background: var(--ch); }
+  .gg-leg .c-a::before { background: var(--ca); }
+  .gg-leg .c-s::before { background: var(--cs); }
+
+  /* the columns are grouped: the system first, then five per agent,
+     then free. A gap between groups, none inside one. */
+  .gg-strip { display: flex; gap: 0.42rem; }
+  .gg-strip .g { display: flex; flex: 1 1 0; min-width: 0; }
+  .gg-strip .g i { flex: 1 1 0; }
+  .gg-groups { display: flex; gap: 0.42rem; }
+  .gg-groups span { flex: 1 1 0; min-width: 0; grid-column: auto; }
+  .gg-groups span.s { overflow: visible; text-align: left; }
+  .gg-ctls { display: grid; grid-template-columns: auto 1fr auto; gap: 0.6rem 0.8rem; align-items: center; margin: 1rem 0 0; font: 600 0.8rem var(--mono); color: var(--dim); }
+  .gg-ctls label { display: contents; }
+  .gg-ctls input { width: 100%; min-width: 0; accent-color: var(--ca); }
+  .gg-ctls b { color: var(--text); text-align: right; white-space: nowrap; }
+
+  .gg-strip .g i { box-shadow: inset -1px 0 0 #0d1015; }
+  .gg-ticks { display: flex; justify-content: space-between; margin-top: 0.3rem; height: 0.5rem; }
+  .gg-ticks i { width: 1px; background: var(--line); }
+  .gg-ticks i:nth-child(2n) { height: 50%; }
+
+  /* all five build on the bar: each group one solid bar. */
+  .gg .gg-strip .g { gap: 0; border-radius: 6px; overflow: hidden; background: var(--ch); }
+  .gg .gg-strip i { border-radius: 0; background: none; height: 2.4rem; }
+  .gg .gg-strip i:last-child { box-shadow: none; }
+  .gg .gg-strip i.p { background: var(--ca); }
+  .gg .gg-strip i.s { background: var(--cs); }
+  .gg.dense .gg-strip i { box-shadow: none; }
+  .gg-ticks { display: none; }
+
+  /* 3 readout: what `docker ps` and `free` say on the box. */
+  .ro pre { margin: 0; font: 0.58rem/1.5 var(--mono); color: var(--text); white-space: pre; overflow-x: auto; }
+  .ro .pr { color: var(--dim); }
+  .ro .pm { color: var(--st-merged); }
+  .ro .ph { color: var(--st-agent); }
+  .ro .cmd { color: var(--dim); margin-top: 0.7rem; }
+  .ro .cmd:first-child { margin-top: 0; }
+
+  /* 4 blueprint: one agent exploded, then times four. */
+  .bp { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; font-size: 0.62rem; }
+  .bp .core { grid-column: 1 / -1; border: 1px solid var(--st-merged); border-radius: 8px; padding: 0.5rem 0.65rem; }
+  .bp .core b { color: var(--st-merged); }
+  .bp .part { border: 1px solid var(--line); border-radius: 8px; padding: 0.45rem 0.6rem; line-height: 1.45; }
+  .bp .part b { display: block; color: var(--text); }
+  .bp .part span { color: var(--dim); }
+  .bp-x { display: flex; align-items: center; gap: 0.6rem; margin-top: 0.8rem; font-size: 0.62rem; color: var(--dim); }
+  .bp-x .tiles { display: flex; gap: 0.25rem; }
+  .bp-x .tiles i { width: 1.4rem; height: 1rem; border: 1px solid var(--st-merged); border-radius: 3px; }
+  .bp-x .tiles i.g { border-color: var(--line); }
+
+  /* 5 ledger: the numbers as figures, the parts as a list. */
+  .lg-fig { display: grid; grid-template-columns: 1fr 1fr; gap: 0.7rem 1rem; margin-bottom: 0.9rem; }
+  .lg-fig p { margin: 0; }
+  .lg-fig .k { display: block; font-size: 0.58rem; margin-top: 0.2rem; }
+  .lg dl { display: grid; grid-template-columns: auto 1fr; gap: 0.3rem 0.8rem; margin: 0; font-size: 0.64rem; line-height: 1.45; }
+  .lg dt { color: var(--dim); }
+  .lg dd { margin: 0; color: var(--text); }
+
   .lane { display: flex; align-items: center; gap: 0.55rem; margin: 0.5rem 0; }
   .lane .id { font: 600 0.68rem var(--mono); color: var(--text); flex: none; width: 5.6rem; }
   .lane .bar { flex: 1; height: 0.45rem; border-radius: 999px; background: #ffffff10; overflow: hidden; }
@@ -3126,20 +3229,31 @@
   </section>
 
   <!-- Scene 9 · your VPS. Four real sessions of this repo's last week. -->
-  <section class="scene sR" data-stage="merged" data-n="08" data-name="your VPS" style="--g1:#0f2013;--g2:#08120b">
+  <section class="scene sR vps" data-stage="merged" data-n="08" data-name="your VPS" style="--g1:#0f2013;--g2:#08120b">
     <div class="wrap">
       <header class="claim rv">
         <p class="kick"><span class="kn">08</span><span class="kname">your VPS</span></p>
         <h2 class="bold">Your VPS is enough.</h2>
       </header>
     </div>
+
+    <!-- round 3: forty columns of 0.1 GB, agents and the system as two colors, five stylings. -->
     <div class="shot rv">
-      <div class="box">
-        <div class="bx-head"><span>one small box</span><span>4 agents · ~2 GB</span></div>
-        <div class="lane tw"><span class="id">curia-610</span><span class="bar"><i style="width:72%"></i></span><span class="gb">~0.5 GB</span></div>
-        <div class="lane tw"><span class="id">curia-611</span><span class="bar"><i style="width:45%"></i></span><span class="gb">~0.5 GB</span></div>
-        <div class="lane tw"><span class="id">curia-612</span><span class="bar"><i style="width:88%"></i></span><span class="gb">~0.5 GB</span></div>
-        <div class="lane tw"><span class="id">curia-614</span><span class="bar"><i style="width:31%"></i></span><span class="gb">~0.5 GB</span></div>
+      <div class="box gg">
+        <div class="bx-head"><span>memory on a <b class="gg-ram">4 GB</b> box</span><span>1 column = 0.1 GB</span></div>
+        <div class="gg-groups tw" aria-hidden="true"></div>
+        <div class="gg-strip tw" aria-hidden="true"></div>
+        <div class="gg-ticks tw" aria-hidden="true"></div>
+        <div class="gg-row"><span>0</span><span class="gg-ram">4 GB</span></div>
+        <div class="gg-ctls tw">
+          <label><span>RAM</span><input type="range" min="0" max="3" value="1" step="1" data-k="ram"><b class="gg-ram">4 GB</b></label>
+          <label><span>agents at once</span><input type="range" min="1" max="6" value="4" step="1" data-k="n"><b class="gg-n">4</b></label>
+        </div>
+        <ul class="gg-leg tw">
+          <li class="c-s"><b>the system</b> · Docker, tmux, ttyd, Tailscale, Curia</li>
+          <li class="c-a"><b><span class="gg-n">4</span> agents</b> · about 0.5 GB each</li>
+          <li class="c-h"><b><span class="gg-free">1 GB</span> free</b></li>
+        </ul>
       </div>
     </div>
     <div class="wrap">
@@ -3221,6 +3335,41 @@ if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').m
   if (runSec) runSec.classList.add('still');
 }
 
+/* Scene 9, settled at round 7 as the bar: two sliders. RAM steps 2, 4,
+   8, 16 GB, and the agent count is clamped to what fits after the
+   system's 1 GB. Every column is 0.1 GB, so the strip thins as the box
+   grows, and at 16 GB the group labels shorten to S and A. */
+(function () {
+  var box = document.querySelector('.vps .gg'); if (!box) return;
+  var strip = box.querySelector('.gg-strip'), groups = box.querySelector('.gg-groups'), ticks = box.querySelector('.gg-ticks');
+  var ramIn = box.querySelector('input[data-k=ram]'), nIn = box.querySelector('input[data-k=n]');
+  var RAM = [2, 4, 8, 16];
+  function group(cls, n, colcls, t) {
+    var g = document.createElement('span'); g.className = 'g ' + cls; g.setAttribute('data-t', t); g.style.flexGrow = n;
+    for (var i = 0; i < n; i++) { var e = document.createElement('i'); e.className = colcls; g.appendChild(e); }
+    return g;
+  }
+  function label(t, cls, n) { var l = document.createElement('span'); l.textContent = t; l.className = cls; l.style.flexGrow = n; return l; }
+  function all(sel, f) { [].slice.call(box.querySelectorAll(sel)).forEach(f); }
+  function draw() {
+    var ram = RAM[+ramIn.value], cols = ram * 10, max = Math.floor((cols - 10) / 5);
+    nIn.max = max; if (+nIn.value > max) nIn.value = max;
+    var n = +nIn.value, free = cols - 10 - 5 * n;
+    strip.innerHTML = ''; groups.innerHTML = ''; ticks.innerHTML = '';
+    var sh = ram >= 16;
+    strip.appendChild(group('s', 10, 's', 'system')); groups.appendChild(label(sh ? 'S' : 'system', 's', 10));
+    for (var i = 0; i < n; i++) { strip.appendChild(group('a', 5, 'p', 'agent')); groups.appendChild(label(sh ? 'A' : 'agent', 'a', 5)); }
+    if (free) { strip.appendChild(group('h', free, '', 'free')); groups.appendChild(label('free', 'h', free)); }
+    for (var t = 0; t <= ram; t++) ticks.appendChild(document.createElement('i'));
+    box.classList.toggle('dense', cols > 80);
+    all('.gg-n', function (e) { e.textContent = n; });
+    all('.gg-ram', function (e) { e.textContent = ram + ' GB'; });
+    box.querySelector('.gg-free').textContent = (free / 10).toFixed(1).replace('.0', '') + ' GB';
+  }
+  ramIn.addEventListener('input', draw); nIn.addEventListener('input', draw);
+  draw();
+})();
+
 var prefersStill = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 /* ---- reveal nets ---- */
@@ -3229,6 +3378,8 @@ function reveal(nodes) {
   nodes.forEach(function (n) { n.classList.add('in'); });
 }
 function revealEverything() {
+
+
   reveal([].slice.call(document.querySelectorAll('.rv, .tw')));
   /* Scenes whose evidence comes in on opacity alone read that class
      rather than .in, so the fail-open path has to set it too. */

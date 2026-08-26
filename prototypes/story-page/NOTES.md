@@ -2372,6 +2372,92 @@ is the fault in one line.
 **Settled.** The switcher and the four arrangements that lost left the file with this round, the way
 #624's identity bar and #629's switchers did.
 
+## The VPS scene ([#631](https://github.com/alp82/curia/issues/631))
+
+The brief of [#551](https://github.com/alp82/curia/issues/551) round 2: the four bars explain
+nothing, and the scene needs more information. The claim stays: four agents at once on a small
+box, about 0.5 GB each. Every number on the scene is measured or counted, and the sources are
+[positioning.md](../../docs/landing-page/positioning.md) claim 2 (four overlapping sessions,
+733 MB peak, ~0.5 GB planning per agent, 30 GB box, 40 to 50 of headroom),
+[ADR-0003](../../docs/adr/0003-tmux-ttyd-tailscale-worker-host.md) (tmux, one ttyd, Tailscale
+Serve) and [ADR-0012](../../docs/adr/0012-one-container-per-worker.md) (one container, two
+mounts, two cache volumes, three loopback ports per agent).
+
+**Round 1.** Five readings of the same box on `?vps=1..5` and a rail under the claim:
+
+1. **stack** - the box as layers top down: tailscaled, ttyd and the daemon, tmux, then the four
+   containers as tiles, and one memory rail with the 733 MB peak against the 2 GB plan on 30 GB.
+2. **gauge** - the whole memory of the box as sixty half-gigabyte blocks: the peak lit, the
+   four planned blocks outlined, the 40 to 50 of headroom shaded, and a legend.
+3. **readout** - what the box says over ssh: `docker ps`, `tmux ls`, `free -m` with the peak,
+   `tailscale serve status`. The uptimes and port numbers are invented, the rest is counted.
+4. **blueprint** - one agent exploded: the container, `/workspace`, `/cfg`, three ports, two
+   caches, then times four with the measured peak.
+5. **ledger** - the four figures large, then a definition list: the box, always on, per agent,
+   what it reaches, what is public.
+
+**Round 2.** The operator picked the gauge. Three changes: the scene is centered, the claim
+included, which is the same deviation from #624 rule 2 the atlas took; the box is 4 GB, the more
+common size, so the strip is eight half-gigabyte blocks with four lit; and the measured peak is
+off the scene. Everything grew: the blocks are 2.6rem tall, the box is 30rem wide and the legend
+reads at 0.84rem. The switcher and the four losing readings left the file with this round.
+
+**Round 3.** The operator asked for the daemon and the parts it needs as a second colored block,
+thinner columns of 0.1 GB, and five stylings. The strip is forty columns: twenty in the scene
+green for the four agents, ten in the agent gold for the system, ten dark and free. Five stylings
+on `?vps=1..5` and a rail: 1 flat (round 2 with thin columns), 2 pills (rounded, the lit ones
+glow), 3 ruler (hairlines, the groups bracketed and named), 4 bar (one solid bar with hairline
+columns through it), 5 tall (no box chrome, the columns are the scene, agents tallest).
+
+**One number on this round is not measured.** The system block draws 1 GB for the OS, Docker,
+tmux, ttyd, tailscaled and the daemon together. Nothing in the repo records what those take on
+the box. The operator either confirms it by reading `free -m` on coinmatica with no agent alive,
+or it changes before the round settles. The 4 GB box itself is the operator's pick at round 2 as
+the common size, not a measurement.
+
+**Round 4.** The operator kept pills and bar, and asked for the system first, a slider for the
+agent count, and the columns grouped per agent. The strip is now groups with a gap between them
+and none inside: ten gold columns for the system, five green per agent, the rest dark. A range
+input under the strip sets one to six agents, and the legend and the free count follow it. The
+group labels read system, agent, free; the ticket numbers left with the ruler. Flat, ruler and
+tall left the file with this round. The 1 GB system block is still unmeasured.
+
+**Round 5.** The operator picked the bar and asked for variations on it, plus a RAM slider. Two
+sliders now: RAM in five stops (2, 4, 8, 16, 32 GB) and the agent count, clamped to what fits
+after the system's 1 GB. A column is always 0.1 GB, so the strip thins as the box grows, and the
+hairlines between columns drop past 80 columns. Five stylings on `?vps=1..5`, all built on the
+bar: 1 bar (round 4 as it stood), 2 named (no hairlines, the name inside each bar), 3 pills
+(rounded ends and a gigabyte ruler), 4 stack (tall bars, labels under them), 5 thin (one
+hairline-thin bar with the ruler, the legend does the talking). The 1 GB system block is still
+unmeasured.
+
+**Round 6.** The operator picked the bar, and the four losing stylings and the rail left the
+file. Three changes: from 16 GB the group labels shorten to S and A, and past 160 columns the
+agent labels drop entirely because nothing fits; the two sliders sit on one three-column grid so
+their tracks align and the value never wraps; and the system legend ends in "Curia" instead of
+"the curia daemon". The 1 GB system block is still unmeasured.
+
+**Round 7, the verdict.** The operator capped RAM at 16 GB and locked the scene. The RAM stops
+are 2, 4, 8 and 16 GB, so the past-160-columns rule of round 6 went with the 32 GB stop.
+
+The scene as it ships: the claim centered, then one box. A strip of 0.1 GB columns grouped into
+bars: the system first in the agent gold, then one green bar of five columns per agent, then
+free. Two sliders on one grid, RAM and agents at once, and the agent count is clamped to what
+fits after the system. A legend of three lines: the system (Docker, tmux, ttyd, Tailscale,
+Curia), N agents at about 0.5 GB each, and the free gigabytes. The fact line of #587 closes the
+scene unchanged.
+
+**The one unmeasured number.** The system bar is 1 GB. It is a stated estimate for the OS,
+Docker, tmux, ttyd, tailscaled and the daemon together, not a reading from the box. The 0.5 GB
+per agent is the planning number of positioning.md claim 2. [#604](https://github.com/alp82/curia/issues/604)
+carries the estimate: a `free -m` on the box with no agent alive either confirms it or changes
+the ten gold columns before cutover.
+
+The `.box` and `.lane` classes of the old scene stay, unused by the new markup. Each variation
+prefixes its classes (`st-`, `gg-`, `ro`, `bp`, `lg`), after the fault
+[#773](https://github.com/alp82/curia/issues/773) records. The switcher and the four losing
+readings leave the file with the round that settles it, the way every switcher before did.
+
 ## The merge that arrived early
 
 The operator merged pull request #739 by accident at round 10, before the scene was done. **Nothing
