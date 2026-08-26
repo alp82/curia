@@ -2372,6 +2372,35 @@ is the fault in one line.
 **Settled.** The switcher and the four arrangements that lost left the file with this round, the way
 #624's identity bar and #629's switchers did.
 
+## The VPS scene ([#631](https://github.com/alp82/curia/issues/631))
+
+The brief of [#551](https://github.com/alp82/curia/issues/551) round 2: the four bars explain
+nothing, and the scene needs more information. The claim stays: four agents at once on a small
+box, about 0.5 GB each. Every number on the scene is measured or counted, and the sources are
+[positioning.md](../../docs/landing-page/positioning.md) claim 2 (four overlapping sessions,
+733 MB peak, ~0.5 GB planning per agent, 30 GB box, 40 to 50 of headroom),
+[ADR-0003](../../docs/adr/0003-tmux-ttyd-tailscale-worker-host.md) (tmux, one ttyd, Tailscale
+Serve) and [ADR-0012](../../docs/adr/0012-one-container-per-worker.md) (one container, two
+mounts, two cache volumes, three loopback ports per agent).
+
+**Round 1.** Five readings of the same box on `?vps=1..5` and a rail under the claim:
+
+1. **stack** - the box as layers top down: tailscaled, ttyd and the daemon, tmux, then the four
+   containers as tiles, and one memory rail with the 733 MB peak against the 2 GB plan on 30 GB.
+2. **gauge** - the whole memory of the box as sixty half-gigabyte blocks: the peak lit, the
+   four planned blocks outlined, the 40 to 50 of headroom shaded, and a legend.
+3. **readout** - what the box says over ssh: `docker ps`, `tmux ls`, `free -m` with the peak,
+   `tailscale serve status`. The uptimes and port numbers are invented, the rest is counted.
+4. **blueprint** - one agent exploded: the container, `/workspace`, `/cfg`, three ports, two
+   caches, then times four with the measured peak.
+5. **ledger** - the four figures large, then a definition list: the box, always on, per agent,
+   what it reaches, what is public.
+
+The `.box` and `.lane` classes of the old scene stay, unused by the new markup. Each variation
+prefixes its classes (`st-`, `gg-`, `ro`, `bp`, `lg`), after the fault
+[#773](https://github.com/alp82/curia/issues/773) records. The switcher and the four losing
+readings leave the file with the round that settles it, the way every switcher before did.
+
 ## The merge that arrived early
 
 The operator merged pull request #739 by accident at round 10, before the scene was done. **Nothing

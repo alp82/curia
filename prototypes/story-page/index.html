@@ -2124,6 +2124,77 @@
     display: flex; justify-content: space-between; gap: 0.5rem;
     font: 600 0.68rem var(--mono); color: var(--dim); margin-bottom: 0.7rem;
   }
+
+  /* ==== Scene 9 · your VPS (#631) round 1: five readings of one box,
+     on ?vps=1..5 and a rail. Every number is measured or counted:
+     four overlapping sessions, 733 MB peak, ~0.5 GB planning per
+     agent, 30 GB on the box, 40 to 50 of headroom, one container,
+     two mounts, two cache volumes, three ports per agent. ==== */
+  .vps { position: relative; }
+  .vps-v { display: none; }
+  .vps-v.on { display: block; }
+  .vps-rail { display: flex; justify-content: center; gap: 0.35rem; margin: 0 0 1.4rem; }
+  .vps-rail button {
+    border: 1px solid var(--line); background: none; color: var(--dim); cursor: pointer;
+    font: 700 0.62rem/1 var(--mono); padding: 0.34rem 0.5rem; border-radius: 6px;
+  }
+  .vps-rail button.on { border-color: var(--st-merged); color: #08090c; background: var(--st-merged); }
+  .vps .box { font-family: var(--mono); }
+  .vps .k { color: var(--dim); }
+  .vps .m { color: var(--st-merged); }
+  .vps .big { font: 800 1.9rem/1 var(--sans); letter-spacing: -0.03em; color: var(--text); }
+  .vps .big small { font: 600 0.62rem var(--mono); color: var(--dim); margin-left: 0.3rem; letter-spacing: 0; }
+
+  /* 1 stack: the box as layers, top down, agents at the bottom. */
+  .st-l { border: 1px solid var(--line); border-radius: 8px; padding: 0.5rem 0.65rem; margin: 0.4rem 0; font-size: 0.66rem; }
+  .st-l b { display: block; font-weight: 700; color: var(--text); margin-bottom: 0.15rem; }
+  .st-l span { color: var(--dim); }
+  .st-ag { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.35rem; margin-top: 0.35rem; }
+  .st-ag div { border: 1px solid var(--st-merged); border-radius: 6px; padding: 0.35rem 0.3rem; font-size: 0.56rem; line-height: 1.35; text-align: center; }
+  .st-ag div b { display: block; color: var(--st-merged); font-size: 0.6rem; }
+  .st-mem { margin-top: 0.7rem; font-size: 0.62rem; }
+  .st-mem .bar { height: 0.55rem; border-radius: 999px; background: #ffffff10; overflow: hidden; margin: 0.3rem 0; position: relative; }
+  .st-mem .bar i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--st-merged); width: 2.5%; }
+  .st-mem .bar u { position: absolute; left: 0; top: 0; bottom: 0; border-right: 1px dashed var(--st-agent); width: 6.7%; }
+
+  /* 2 gauge: the whole memory of the box as one strip. */
+  .gg-strip { display: grid; grid-template-columns: repeat(60, 1fr); gap: 1px; margin: 0.5rem 0 0.4rem; }
+  .gg-strip i { height: 1.1rem; background: #ffffff0c; border-radius: 1px; }
+  .gg-strip i.p { background: var(--st-merged); }
+  .gg-strip i.a { background: none; box-shadow: inset 0 0 0 1px var(--st-agent); }
+  .gg-strip i.h { background: #ffffff18; }
+  .gg-row { display: flex; justify-content: space-between; font-size: 0.6rem; color: var(--dim); gap: 0.5rem; }
+  .gg-leg { list-style: none; padding: 0; margin: 0.8rem 0 0; font-size: 0.64rem; line-height: 1.5; }
+  .gg-leg li::before { content: ''; display: inline-block; width: 0.7rem; height: 0.7rem; border-radius: 2px; margin-right: 0.5rem; vertical-align: -0.1rem; background: var(--c); box-shadow: var(--sh, none); }
+
+  /* 3 readout: what `docker ps` and `free` say on the box. */
+  .ro pre { margin: 0; font: 0.58rem/1.5 var(--mono); color: var(--text); white-space: pre; overflow-x: auto; }
+  .ro .pr { color: var(--dim); }
+  .ro .pm { color: var(--st-merged); }
+  .ro .ph { color: var(--st-agent); }
+  .ro .cmd { color: var(--dim); margin-top: 0.7rem; }
+  .ro .cmd:first-child { margin-top: 0; }
+
+  /* 4 blueprint: one agent exploded, then times four. */
+  .bp { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; font-size: 0.62rem; }
+  .bp .core { grid-column: 1 / -1; border: 1px solid var(--st-merged); border-radius: 8px; padding: 0.5rem 0.65rem; }
+  .bp .core b { color: var(--st-merged); }
+  .bp .part { border: 1px solid var(--line); border-radius: 8px; padding: 0.45rem 0.6rem; line-height: 1.45; }
+  .bp .part b { display: block; color: var(--text); }
+  .bp .part span { color: var(--dim); }
+  .bp-x { display: flex; align-items: center; gap: 0.6rem; margin-top: 0.8rem; font-size: 0.62rem; color: var(--dim); }
+  .bp-x .tiles { display: flex; gap: 0.25rem; }
+  .bp-x .tiles i { width: 1.4rem; height: 1rem; border: 1px solid var(--st-merged); border-radius: 3px; }
+  .bp-x .tiles i.g { border-color: var(--line); }
+
+  /* 5 ledger: the numbers as figures, the parts as a list. */
+  .lg-fig { display: grid; grid-template-columns: 1fr 1fr; gap: 0.7rem 1rem; margin-bottom: 0.9rem; }
+  .lg-fig p { margin: 0; }
+  .lg-fig .k { display: block; font-size: 0.58rem; margin-top: 0.2rem; }
+  .lg dl { display: grid; grid-template-columns: auto 1fr; gap: 0.3rem 0.8rem; margin: 0; font-size: 0.64rem; line-height: 1.45; }
+  .lg dt { color: var(--dim); }
+  .lg dd { margin: 0; color: var(--text); }
+
   .lane { display: flex; align-items: center; gap: 0.55rem; margin: 0.5rem 0; }
   .lane .id { font: 600 0.68rem var(--mono); color: var(--text); flex: none; width: 5.6rem; }
   .lane .bar { flex: 1; height: 0.45rem; border-radius: 999px; background: #ffffff10; overflow: hidden; }
@@ -3126,22 +3197,109 @@
   </section>
 
   <!-- Scene 9 · your VPS. Four real sessions of this repo's last week. -->
-  <section class="scene sR" data-stage="merged" data-n="08" data-name="your VPS" style="--g1:#0f2013;--g2:#08120b">
+  <section class="scene sR vps" data-stage="merged" data-n="08" data-name="your VPS" style="--g1:#0f2013;--g2:#08120b">
     <div class="wrap">
       <header class="claim rv">
         <p class="kick"><span class="kn">08</span><span class="kname">your VPS</span></p>
         <h2 class="bold">Your VPS is enough.</h2>
       </header>
+      <div class="vps-rail rv" aria-label="round 1 variations"></div>
     </div>
-    <div class="shot rv">
+
+    <!-- 1 stack -->
+    <div class="shot rv vps-v" data-v="1" data-name="stack">
       <div class="box">
-        <div class="bx-head"><span>one small box</span><span>4 agents · ~2 GB</span></div>
-        <div class="lane tw"><span class="id">curia-610</span><span class="bar"><i style="width:72%"></i></span><span class="gb">~0.5 GB</span></div>
-        <div class="lane tw"><span class="id">curia-611</span><span class="bar"><i style="width:45%"></i></span><span class="gb">~0.5 GB</span></div>
-        <div class="lane tw"><span class="id">curia-612</span><span class="bar"><i style="width:88%"></i></span><span class="gb">~0.5 GB</span></div>
-        <div class="lane tw"><span class="id">curia-614</span><span class="bar"><i style="width:31%"></i></span><span class="gb">~0.5 GB</span></div>
+        <div class="bx-head"><span>one Linux box · 30 GB</span><span class="m">4 agents alive</span></div>
+        <div class="st-l tw"><b>tailscaled</b><span>Serve publishes the attach page and every preview to your tailnet. Nothing on the public internet.</span></div>
+        <div class="st-l tw"><b>ttyd · curia daemon</b><span>one terminal page for every session, one process that talks to Discord and GitHub</span></div>
+        <div class="st-l tw"><b>tmux</b><span>one session per ticket, named after it</span>
+          <div class="st-ag">
+            <div><b>curia-610</b>container<br>clone · cfg<br>3 ports</div>
+            <div><b>curia-611</b>container<br>clone · cfg<br>3 ports</div>
+            <div><b>curia-612</b>container<br>clone · cfg<br>3 ports</div>
+            <div><b>curia-614</b>container<br>clone · cfg<br>3 ports</div>
+          </div>
+        </div>
+        <div class="st-mem tw">
+          <div class="gg-row"><span>memory in use, four agents overlapping</span><span class="m">733 MB peak</span></div>
+          <div class="bar"><i></i><u></u></div>
+          <div class="gg-row"><span class="k">dashed: the 2 GB planned at ~0.5 GB each</span><span class="k">30 GB</span></div>
+        </div>
       </div>
     </div>
+
+    <!-- 2 gauge -->
+    <div class="shot rv vps-v" data-v="2" data-name="gauge">
+      <div class="box">
+        <div class="bx-head"><span>memory on the box</span><span>30 GB · 1 block = 0.5 GB</span></div>
+        <div class="gg-strip tw" aria-hidden="true"></div>
+        <div class="gg-row"><span>0</span><span>30 GB</span></div>
+        <ul class="gg-leg tw">
+          <li style="--c:var(--st-merged)"><b>733 MB</b> measured peak, four agents overlapping</li>
+          <li style="--c:transparent;--sh:inset 0 0 0 1px var(--st-agent)"><b>4 × ~0.5 GB</b> the planning number per agent</li>
+          <li style="--c:#ffffff18"><b>40 to 50 agents</b> fit before CPU or rate limits bind</li>
+          <li style="--c:#ffffff0c">free</li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- 3 readout -->
+    <div class="shot rv vps-v ro" data-v="3" data-name="readout">
+      <div class="box">
+        <div class="bx-head"><span>ssh box</span><span class="m">what the box says</span></div>
+<pre class="tw"><span class="cmd">$ docker ps --format '{{.Names}}  {{.Status}}  {{.Ports}}'</span>
+<span class="pm">curia-614</span>  Up 12 minutes  <span class="pr">127.0.0.1:</span>3009-3011
+<span class="pm">curia-612</span>  Up 41 minutes  <span class="pr">127.0.0.1:</span>3006-3008
+<span class="pm">curia-611</span>  Up 58 minutes  <span class="pr">127.0.0.1:</span>3003-3005
+<span class="pm">curia-610</span>  Up 2 hours     <span class="pr">127.0.0.1:</span>3000-3002
+<span class="cmd">$ tmux ls</span>
+curia-610  curia-611  curia-612  curia-614
+<span class="cmd">$ free -m</span>
+<span class="pr">       total   used</span>
+Mem:   30720    <span class="ph">733</span>   <span class="pr">← peak, all four alive</span>
+<span class="cmd">$ tailscale serve status</span>
+https://box.tailnet.ts.net  <span class="pr">→ ttyd, one page per session</span>
+https://box.tailnet.ts.net:8501 <span class="pr">→ curia-611 preview</span></pre>
+      </div>
+    </div>
+
+    <!-- 4 blueprint -->
+    <div class="shot rv vps-v" data-v="4" data-name="blueprint">
+      <div class="box">
+        <div class="bx-head"><span>one agent, exploded</span><span class="m">docker run --rm --name curia-611</span></div>
+        <div class="bp">
+          <div class="core tw"><b>one container</b> in one tmux pane. It sees two directories of your box and nothing else: not your home, not your keys, not the other agents.</div>
+          <div class="part tw"><b>/workspace</b><span>its own clone of the repo, on branch curia/611</span></div>
+          <div class="part tw"><b>/cfg</b><span>its harness config and skills, copied in</span></div>
+          <div class="part tw"><b>3 ports</b><span>loopback only, so a preview can be served to your phone</span></div>
+          <div class="part tw"><b>2 caches</b><span>npm and browsers, shared so no ticket downloads twice</span></div>
+        </div>
+        <div class="bp-x tw">
+          <span class="tiles"><i></i><i></i><i></i><i></i><i class="g"></i><i class="g"></i><i class="g"></i></span>
+          <span>× 4 measured at <b class="m">733 MB</b> together · room for 40 to 50 on 30 GB</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 5 ledger -->
+    <div class="shot rv vps-v lg" data-v="5" data-name="ledger">
+      <div class="box">
+        <div class="lg-fig">
+          <p class="tw"><span class="big">4</span><span class="k">agents overlapping, measured</span></p>
+          <p class="tw"><span class="big">733<small>MB</small></span><span class="k">peak, all four together</span></p>
+          <p class="tw"><span class="big">~0.5<small>GB</small></span><span class="k">planned per agent</span></p>
+          <p class="tw"><span class="big">40<small>to 50</small></span><span class="k">fit on a 30 GB box</span></p>
+        </div>
+        <dl class="tw">
+          <dt>the box</dt><dd>one Linux VPS with Docker and Tailscale</dd>
+          <dt>always on</dt><dd>the curia daemon, tmux, one ttyd page, tailscaled</dd>
+          <dt>per agent</dt><dd>one container, one clone, one config dir, three loopback ports</dd>
+          <dt>reaches</dt><dd>GitHub and the web. Not your home, not your keys, not the other agents</dd>
+          <dt>public</dt><dd>nothing. Attach and previews go over your tailnet</dd>
+        </dl>
+      </div>
+    </div>
+
     <div class="wrap">
       <p class="fact rv">four agents at once on a small box · about 0.5 GB each</p>
     </div>
@@ -3221,6 +3379,24 @@ if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').m
   if (runSec) runSec.classList.add('still');
 }
 
+/* Scene 9 round 1: ?vps=1..5 picks a variation, the rail switches it. */
+(function () {
+  var sc = document.querySelector('.vps'); if (!sc) return;
+  var vs = [].slice.call(sc.querySelectorAll('.vps-v')), rail = sc.querySelector('.vps-rail');
+  var strip = sc.querySelector('.gg-strip');
+  if (strip) for (var i = 0; i < 60; i++) { var e = document.createElement('i'); if (i < 2) e.className = 'p'; else if (i < 4) e.className = 'a'; else if (i < 45) e.className = 'h'; strip.appendChild(e); }
+  function pick(n) {
+    vs.forEach(function (v) { v.classList.toggle('on', v.getAttribute('data-v') === String(n)); });
+    [].slice.call(rail.children).forEach(function (b) { b.classList.toggle('on', b.textContent === String(n)); });
+  }
+  vs.forEach(function (v) {
+    var b = document.createElement('button'); b.textContent = v.getAttribute('data-v'); b.title = v.getAttribute('data-name');
+    b.addEventListener('click', function () { pick(b.textContent); history.replaceState(null, '', '?vps=' + b.textContent); });
+    rail.appendChild(b);
+  });
+  var q = /[?&]vps=(\d)/.exec(location.search); pick(q ? q[1] : 1);
+})();
+
 var prefersStill = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 /* ---- reveal nets ---- */
@@ -3229,6 +3405,8 @@ function reveal(nodes) {
   nodes.forEach(function (n) { n.classList.add('in'); });
 }
 function revealEverything() {
+
+
   reveal([].slice.call(document.querySelectorAll('.rv, .tw')));
   /* Scenes whose evidence comes in on opacity alone read that class
      rather than .in, so the fail-open path has to set it too. */
