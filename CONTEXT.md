@@ -66,7 +66,7 @@ The operator's sentence on a map dispatch, in their own words. It rides the `map
 The takeable tickets of a watched repo, in map order.
 
 **Two-level frontier**:
-The frontier plus the tickets each of its members directly unblocks. One level, never a chain. It is what the dashboard draws as a tree, and it comes from the blocking edges the agent-only count already reads.
+The frontier plus the tickets each of its members directly unblocks. One level, never a chain. On the wire it comes from the blocking edges the agent-only count already reads. Atlas Maps draws the same level from the map snapshot, whose takeable facts name the blocked children of their own map that they unblock, walked from the blocker edges the snapshot already holds.
 
 **Frontier snapshot**:
 The two-level frontier as reconcile last computed it, under the instant it did. Reconcile computes it, because that pass already holds the GitHub credentials and the dashboard holds none. The stamp is what makes a served frontier honest: the page states the age of the reading.
