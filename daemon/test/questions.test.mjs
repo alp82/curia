@@ -260,7 +260,7 @@ describe('the last event of a type for a key', () => {
     ])
     assert.deepEqual(q.epochSpawn('curia-42'), {
       model: 'codex-high', requested_model: 'opus', harness: 'codex',
-      prompt_carries_limit_text: true,
+      prompt_carries_limit_text: true, skill: null, skill_target: null,
     })
   })
 
@@ -270,7 +270,7 @@ describe('the last event of a type for a key', () => {
     const q = ask([{ type: 'worker_spawned', ticket: '170', worker: 'curia-170', model: 'opus', backend: 'claude' }])
     assert.deepEqual(q.epochSpawn('curia-170'), {
       model: 'opus', requested_model: null, harness: 'claude',
-      prompt_carries_limit_text: null,
+      prompt_carries_limit_text: null, skill: null, skill_target: null,
     })
     assert.deepEqual([...q.epochs()], [['170', { repo: null }]])
   })

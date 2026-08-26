@@ -426,6 +426,91 @@ describe('ticketless skill dispatch (#684)', () => {
     assert.deepEqual(gateBinding, { agent: 'curia-91', ticket: '91' })
   })
 
+  // ADR-0023, the gate on a run no ticket claims. The record issue is the one
+  // write curia makes itself; every proposed write waits on the press.
+  const skillRun = async (answer) => {
+    const writes = []
+    const d = makeDispatcher({
+      fetchIssue: async (_repo, number) => ({ ...OPEN_ISSUE, number: Number(number), title: 'x' }),
+      createIssue: async (repo, proposal) => {
+        writes.push({ repo, proposal })
+        return {
+          number: 91, title: proposal.title, body: proposal.body,
+          state: 'open', assignees: [], labels: [], html_url: 'https://github.com/o/r/issues/91',
+        }
+      },
+      closeIssue: async () => {},
+    }, {
+      skills: { root: '/skills', install: ['to-tickets'] },
+      askReview: async () => ({ text: answer, status: 'answered' }),
+    })
+    await d.skill('to-tickets', 'o/r#42', { by: 'operator-1' })
+    const proposal = [
+      { id: 'schema', title: 'The retry table', labels: ['ready-for-agent'] },
+      { id: 'worker', title: 'The worker drains the queue', labels: ['ready-for-agent'], after: ['schema'] },
+    ]
+    return { d, writes, proposal }
+  }
+
+  test('a rejected gate withholds every tracker write and sends the agent back to the proposal', async () => {
+    const { d, writes, proposal } = await skillRun('reject: split the worker ticket')
+
+    const r = await d.requestReview('curia-91', { summary: 's', charting: 'c', trackerWrites: proposal })
+
+    assert.equal(r.approved, false)
+    assert.match(r.text, /Publish nothing/)
+    assert.match(r.text, /split the worker ticket/)
+    assert.doesNotMatch(r.text, /merge|open_pull_request/)
+    assert.equal(writes.length, 1, 'the record issue is the only write, before and after the rejection')
+    const withheld = events.find((e) => e.type === 'tracker_writes_withheld')
+    assert.equal(withheld.count, 2)
+    assert.equal(withheld.skill, 'to-tickets')
+    assert.ok(!events.some((e) => e.type === 'tracker_writes_approved'))
+  })
+
+  test('an approved gate records what was approved, and the receipt names the real numbers', async () => {
+    const { d, proposal } = await skillRun('approve')
+
+    const r = await d.requestReview('curia-91', { summary: 's', charting: 'c', trackerWrites: proposal })
+
+    assert.equal(r.approved, true)
+    assert.match(r.text, /Publish exactly the 2 tracker writes/)
+    assert.match(r.text, /`published`/)
+    assert.doesNotMatch(r.text, /merge/)
+    const approved = events.find((e) => e.type === 'tracker_writes_approved')
+    assert.equal(approved.count, 2)
+    assert.deepEqual(approved.items.map((i) => i.id), ['schema', 'worker'])
+    // The journal answers the count after a restart, when no record holds it.
+    assert.equal(d.reduction.questions.trackerWritesApproved('curia-91'), 2)
+    assert.equal(d.reduction.questions.epochSpawn('curia-91').skill, 'to-tickets')
+
+    await d.onResult('curia-91', { ticket: '91', status: 'resolved', summary: 'published', published: [101, 102] })
+
+    const resolved = events.find((e) => e.type === 'ticket_resolved' && e.ticket === '91')
+    assert.match(resolved.summary, /published 2 tracker writes: o\/r#101, o\/r#102/)
+    assert.doesNotMatch(resolved.summary, /no code to land|merged/)
+    assert.doesNotMatch(resolved.summary, /⚠️ the gate approved/)
+  })
+
+  test('a report that names fewer numbers than the gate approved says so on the receipt', async () => {
+    const { d, proposal } = await skillRun('approve')
+    await d.requestReview('curia-91', { summary: 's', charting: 'c', trackerWrites: proposal })
+
+    await d.onResult('curia-91', { ticket: '91', status: 'resolved', summary: 'published', published: [101] })
+
+    const resolved = events.find((e) => e.type === 'ticket_resolved' && e.ticket === '91')
+    assert.match(resolved.summary, /the gate approved 2 tracker writes and the report names 1/)
+  })
+
+  test('numbers published with no approved gate are flagged, never silently accepted', async () => {
+    const { d } = await skillRun('approve')
+
+    await d.onResult('curia-91', { ticket: '91', status: 'resolved', summary: 'published', published: [101] })
+
+    const resolved = events.find((e) => e.type === 'ticket_resolved' && e.ticket === '91')
+    assert.match(resolved.summary, /published with NO approved gate/)
+  })
+
   test('refuses an unconfigured skill before creating a record', async () => {
     let writes = 0
     const d = makeDispatcher({ createIssue: async () => { writes += 1 } }, {
