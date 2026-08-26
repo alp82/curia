@@ -852,7 +852,7 @@ describe('agentMeters', () => {
 
   test('the effort and the model survive an agent with no transcript yet', () => {
     const m = agentMeters({ harness: 'codex', cfgDir: cfgDir(), model: 'gpt', routing, account: null, now: NOW })
-    assert.deepEqual(m, { model: 'gpt-5.6-sol', effort: 'high', ctxPct: null, ctxOver: false, windows: null })
+    assert.deepEqual(m, { model: 'gpt-5.6-sol', effort: 'high', ctxPct: null, ctxOver: false, ctxTokens: null, windows: null })
   })
 
   // #332, building ADR-0016: the meter is the ONE signal that a conversation is

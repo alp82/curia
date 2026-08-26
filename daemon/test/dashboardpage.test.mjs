@@ -780,71 +780,154 @@ describe('the read screens (#264)', () => {
 
   describe('agents', () => {
     test('the Focus roster opens the first Needs-you agent with meters, story, links, and today\'s endings', () => {
-      page.UI.agents = { selected: null }
+      page.UI.agents = { selected: null, open: false }
       const html = page.screenAgents(payload())
       const t = text(html)
       assert.match(html, /class="agent-focus"/)
-      assert.ok(html.indexOf('curia-255') < html.indexOf('curia-263'))
+      assert.ok(html.indexOf('curia-255') < html.indexOf('curia-263'), 'the agent that needs you leads the roster')
       assert.match(t, /Selected.*The note queue drains in order/)
-      assert.match(t, /waiting.*gpt-5\.6-sol.*68%.*1\.0h/)
+      assert.match(t, /waiting · waiting for you · waits 12m/, 'the state sentence says how long the operator has been asked')
+      assert.match(t, /gpt-5\.6-sol.*68%.*1\.0h/, 'model, context and elapsed are meters')
       assert.match(t, /Story.*spawned on gpt-5\.6-sol/)
       assert.match(html, /href="\/chat\?session=curia-255"/)
       assert.match(html, /href="https:\/\/github\.com\/alp82\/curia\/issues\/255"/)
       assert.match(t, /Ended today.*finished alp82\/curia#261/)
     })
 
-    test('the table names the state in words and the meters in numbers', () => {
+    test('the status bar counts the fleet and the needs in words, and the roster names every state', () => {
       const t = text(page.screenAgents(payload()))
       assert.match(t, /agents 3\/3/)
+      assert.match(t, /1 need you/)
       assert.match(t, /bridge up/)
-      assert.match(t, /curia-255 waiting/, 'an open question makes an agent waiting, whatever its record says')
-      assert.match(t, /curia-263 working/, 'ready and working are one state')
-      assert.match(t, /curia-review-263 reviewer/)
-      assert.match(t, /claude-opus-5/)
-      assert.match(t, /Recently: finished alp82\/curia#261/)
+      assert.match(t, /Ask.*The note queue drains in order.*waiting/, 'an open question makes an agent waiting, whatever its record says, and its chip says Ask')
+      assert.match(t, /The sidecar stands up.*working/, 'ready and working are one state')
+      assert.match(t, /Cross-check of curia-263/)
     })
 
-    test('the ctx column reads the meter, and a missing meter is not zero', () => {
+    test('the roster ranks the open question first, then the gate, then calm work', () => {
+      const p = payload()
+      p.overview.agents[0].waiting_on = [{ id: 'esc-9', kind: 'review-gate' }]
+      const html = page.screenAgents(p)
+      const order = ['curia-255', 'curia-263', 'curia-review-263'].map((s) => html.indexOf(`agentSelect('${s}')`))
+      assert.deepEqual([...order].sort((a, b) => a - b), order)
+      assert.match(text(html), /Gate.*The sidecar stands up/)
+      assert.match(text(html), /2 need you/, 'the gate is a need on this page')
+    })
+
+    test('the opened agent carries lane, model, effort, context, tokens, elapsed and contact as meters', () => {
+      const p = payload()
+      Object.assign(p.overview.agents[1], { harness: 'codex', effort: 'high', ctx_tokens: 128_400 })
+      page.UI.agents = { selected: 'curia-255', open: false }
+      const t = text(page.screenAgents(p))
+      assert.match(t, /codex lane/)
+      assert.match(t, /gpt-5\.6-sol model/)
+      assert.match(t, /high effort/)
+      assert.match(t, /68% context/)
+      assert.match(t, /128k tokens/)
+      assert.match(t, /1\.0h elapsed/)
+      assert.match(t, /8m contact/)
+    })
+
+    test('a missing meter is a dash, never zero, and over 100% is marked', () => {
+      page.UI.agents = { selected: 'curia-review-263', open: false }
       const t = text(page.screenAgents(payload()))
-      assert.match(t, /41%/)
-      assert.match(t, /68%/)
-      // curia-review-263 has no transcript reading. "—" is the honest cell.
+      assert.match(t, /— lane/, 'the fixture states no lane for the reviewer')
+      assert.match(t, /— context/, 'curia-review-263 has no transcript reading')
+      assert.match(t, /— tokens/)
       assert.doesNotMatch(t, /0%/)
       const over = payload()
       over.overview.agents[0].ctx_pct = 118
       over.overview.agents[0].ctx_over = true
-      assert.match(text(page.screenAgents(over)), /118% ⚠/, 'over 100% is a complaint about the denominator, and is marked')
+      page.UI.agents = { selected: 'curia-263', open: false }
+      assert.match(text(page.screenAgents(over)), /118% ⚠ context/, 'over 100% is a complaint about the denominator, and is marked')
     })
 
-    test('the contact column reads the silence, and states which null it is (#370)', () => {
-      const t = text(page.screenAgents(payload()))
-      assert.match(t, /12s/, 'an agent heard 12 seconds ago')
-      assert.match(t, /8m/, 'and one heard 8 minutes ago')
-      assert.match(t, /never is an agent that has said nothing since it spawned/, 'the table says what its words mean')
-
+    test('the contact meter reads the silence, and states which null it is (#370)', () => {
+      page.UI.agents = { selected: 'curia-263', open: false }
+      assert.match(text(page.screenAgents(payload())), /12s contact/, 'an agent heard 12 seconds ago')
       const quiet = payload()
-      // spawned by this process and never heard: the mute shape (#194)
       quiet.overview.agents[0].last_contact_s = null
-      // adopted after a restart: no spawn on this process, so no uptime either
-      quiet.overview.agents[1].last_contact_s = null
-      quiet.overview.agents[1].uptime_s = null
       const q = text(page.screenAgents(quiet))
-      assert.match(q, /never/)
-      assert.match(q, /adopted/)
-      assert.doesNotMatch(q, /\b0s\b/, 'no reading is never 0 seconds ago')
+      assert.match(q, /never contact/)
+      assert.match(q, /never is an agent that has said nothing since it spawned/, 'the page says what its words mean')
+      quiet.overview.agents[0].last_contact_s = null
+      quiet.overview.agents[0].uptime_s = null
+      const a = text(page.screenAgents(quiet))
+      assert.match(a, /adopted contact/)
+      assert.match(a, /adopted after a restart/)
+      assert.doesNotMatch(a, /\b0s\b/, 'no reading is never 0 seconds ago')
+    })
+
+    test('the gated agent links its pull request, and nobody else does', () => {
+      const p = payload()
+      p.overview.agents[0].waiting_on = [{ id: 'esc-9', kind: 'review-gate' }]
+      p.overview.review_gate[0].agent = 'curia-263'
+      page.UI.agents = { selected: 'curia-263', open: false }
+      assert.match(page.screenAgents(p), /href="https:\/\/github\.com\/alp82\/curia\/pull\/262">pull request →/)
+      page.UI.agents = { selected: 'curia-255', open: false }
+      assert.doesNotMatch(page.screenAgents(p), /pull request →/)
+    })
+
+    test('every act on an agent hands off to Chat: the page carries no verb of its own', () => {
+      const html = page.screenAgents(payload())
+      assert.doesNotMatch(html, /legacy-controls|noteBox\(|openDiff\(|teleport\(|cancelAgent\(/)
+      assert.match(text(html), /Notes, cancels and the terminal live in Chat/)
+      assert.match(html, /href="\/chat\?session=curia-255">open Chat →/)
+    })
+
+    test('today\'s endings read newest first with the clock and a Chat link, and an old ending has fallen off', () => {
+      const p = payload({ recent: [
+        { kind: 'finished', repo: 'alp82/curia', ticket: '261', agent: 'curia-261', at: at(3600) },
+        { kind: 'cancelled', repo: 'alp82/curia', ticket: '240', agent: 'curia-240', at: at(600) },
+        { kind: 'died', repo: 'alp82/curia', ticket: '199', agent: 'curia-199', at: at(3 * 24 * 3600) },
+        { kind: 'finished', repo: 'alp82/curia', ticket: '100', agent: null, at: null },
+      ] })
+      const html = page.screenAgents(p)
+      const ended = html.slice(html.indexOf('agent-ended'))
+      const t = text(ended)
+      assert.ok(t.indexOf('cancelled alp82/curia#240') < t.indexOf('finished alp82/curia#261'), 'newest first')
+      assert.match(ended, /href="\/chat\?session=curia-240">chat →/)
+      assert.doesNotMatch(t, /#199/, 'three days ago is not today')
+      assert.match(t, /finished alp82\/curia#100.*no session/, 'an ending journalled before the session rode along is kept')
+      assert.match(ended, /<time>\d\d:\d\d<\/time>/)
+    })
+
+    test('the endings stay on the page when the fleet is idle or unreadable', () => {
+      assert.match(text(page.screenAgents(payload({ agents: [] }))), /No agent is running.*Ended today.*finished alp82\/curia#261/)
+      assert.match(text(page.screenAgents(payload({ agents: null }))), /could not be read.*Ended today/)
+    })
+
+    test('the phone shows the roster or the opened agent, and the route decides which (#709)', () => {
+      page.UI.agents = { selected: null, open: false }
+      assert.doesNotMatch(page.screenAgents(payload()), /agent-focus" data-open/, 'arriving from the tab is the list')
+      page.agentSelect('curia-263')
+      assert.equal(page.location.hash, 'agents/curia-263')
+      const html = page.screenAgents(payload())
+      assert.match(html, /class="agent-focus" data-open="curia-263"/)
+      assert.match(text(html), /Selected The sidecar stands up/)
+      page.agentBack()
+      assert.equal(page.location.hash, 'agents')
+      assert.doesNotMatch(page.screenAgents(payload()), /data-open/)
+      page.applyAgentsRoute(['agents', 'curia-255'])
+      assert.match(page.screenAgents(payload()), /data-open="curia-255"/, 'a reload lands where it left')
+      page.applyAgentsRoute(['agents', 'curia-gone'])
+      assert.doesNotMatch(page.screenAgents(payload()), /data-open/, 'a session the fleet no longer has falls back to the list')
+      page.UI.agents = { selected: null, open: false }
+    })
+
+    test('the phone and the desktop read one payload: the split is CSS on the route flag, not a second render', () => {
+      const css = fs.readFileSync(DEFAULT_DASHBOARD_INDEX, 'utf8')
+      assert.match(css, /\.agent-focus\[data-open\] \.agent-roster[^}]*display: none/)
+      assert.match(css, /\.agent-focus:not\(\[data-open\]\) \.agent-detail \{ display: none; \}/)
+      page.UI.agents = { selected: null, open: false }
+      const html = page.screenAgents(payload())
+      assert.match(html, /class="agent-roster"/)
+      assert.match(html, /class="agent-detail"/, 'both halves render from the one call, and CSS chooses')
     })
 
     test('the fleet on home carries the same reading', () => {
       const t = text(page.screenHome(payload()))
       assert.match(t, /12s/)
-    })
-
-    test('only the agent that wants you is marked, and the mark is the only color', () => {
-      const html = page.screenAgents(payload())
-      const rows = html.split('<tr').filter((r) => r.includes('class="sess"'))
-      const marked = rows.filter((r) => r.includes('esc-row'))
-      assert.equal(marked.length, 1)
-      assert.match(marked[0], /curia-255/)
     })
 
     test('an unreadable fleet says so here too', () => {
@@ -2160,104 +2243,6 @@ describe('the operator verbs (#266)', () => {
 
   // ---- the same card, before the gate (#355) --------------------------------
 
-  describe('the diff digest on a live agent row', () => {
-    beforeEach(() => {
-      for (const k of Object.keys(page.diffs)) delete page.diffs[k]
-      page.diffQueue.length = 0
-      page.UI.act.diff = null
-    })
-
-    test('every live row carries the button, beside teleport', () => {
-      const html = page.screenAgents(payload())
-      assert.match(html, /openDiff\('curia-263'\)/)
-    })
-
-    test('a row nobody pressed reads nothing at all', () => {
-      page.screenAgents(payload())
-      assert.deepEqual(plain(page.diffQueue.filter((j) => j.key.startsWith('agent:'))), [])
-      assert.deepEqual(plain(Object.keys(page.diffs).filter((k) => k.startsWith('agent:'))), [])
-    })
-
-    test('an open row waits on the count rather than drawing an empty change', () => {
-      page.UI.act.diff = 'curia-263'
-      assert.match(text(page.screenAgents(payload())), /counting the work so far/)
-    })
-
-    test('the read says it holds committed and uncommitted work together', () => {
-      page.UI.act.diff = 'curia-263'
-      const d = page.diffState('agent:curia-263')
-      d.read = true
-      d.digest = {
-        uncommitted: true, files: 2, added: 9, deleted: 1, capped: false,
-        list: [
-          { path: 'src/app.mjs', added: 7, deleted: 1, status: 'M', binary: false, untracked: false, hunks: 2, from: null },
-          { path: 'src/scratch.mjs', added: 2, deleted: 0, status: 'A', binary: false, untracked: true, hunks: null, from: null },
-        ],
-      }
-      const t = text(page.screenAgents(payload()))
-      assert.match(t, /2 files \+9 −1 — committed and uncommitted work together/)
-      assert.match(t, /new, not committed yet/)
-      assert.match(page.screenAgents(payload()), /toggleDiffFile\('agent:curia-263',1,'\/api\/diff\?agent=curia-263'\)/)
-    })
-  })
-
-  // ---- note, teleport, cancel ----------------------------------------------
-
-  describe('the three per-agent verbs', () => {
-    test('every live agent row carries them', () => {
-      const html = page.screenAgents(payload())
-      assert.match(html, /noteBox\('curia-263'\)/)
-      assert.match(html, /teleport\('curia-263','263'\)/)
-      assert.match(html, /cancelAgent\('curia-263','alp82\/curia','263'\)/)
-    })
-
-    test('the note box states both delivery modes in ADR-0013\'s own terms', () => {
-      page.UI.act.note = 'curia-263'
-      const t = text(page.screenAgents(payload()))
-      assert.match(t, /queue — it reads this with its next tool result/)
-      assert.match(t, /interrupt — a short grace, then the words land as a user turn/)
-      assert.match(page.screenAgents(payload()), /placeholder="say something to curia-263/)
-    })
-
-    test('queued is the default, so the mode nobody chose is the safe one', () => {
-      assert.equal(page.UI.act.mode, 'queue')
-      page.UI.act.note = 'curia-263'
-      const html = page.screenAgents(payload())
-      assert.match(html, /value="queue"|noteMode\('queue'\)/)
-      assert.match(html, /name="nm-curia-263"[^>]*checked[^>]*onchange="noteMode\('queue'\)"/)
-    })
-
-    test('a note with no words is refused on the page, and nothing is sent', () => {
-      page.document.getElementById = () => ({ value: '' })
-      page.sendNote('curia-263', 'note-curia-263')
-      assert.equal(page.UI.act.said.ok, false)
-      assert.match(page.UI.act.said.text, /not a note/)
-      page.document.getElementById = () => null
-    })
-
-    test('one box at a time, and pressing the same verb again closes it', () => {
-      page.noteBox('curia-263')
-      assert.equal(page.UI.act.note, 'curia-263')
-      page.noteBox('curia-263')
-      assert.equal(page.UI.act.note, null)
-    })
-
-    test('teleport shows the copyable command for the box, beside curia\'s own links', () => {
-      page.UI.act.tele = 'curia-263'
-      page.UI.act.said = { key: 'agent:curia-263', text: '🔗 timeline https://box.ts.net:8444/t/263', ok: true }
-      const t = text(page.screenAgents(payload()))
-      assert.match(t, /On the box itself, in a terminal:/)
-      assert.match(page.screenAgents(payload()), /attach -t curia-263/)
-      assert.match(t, /timeline/)
-    })
-
-    test('the copyable line goes in through the tmux container, which is where the server lives (#260)', () => {
-      assert.match(page.attachCmd('curia-263'), /^docker compose .* exec tmux tmux -S \/run\/curia-tmux\/default attach -t curia-263$/)
-    })
-  })
-
-  // ---- what curia said -----------------------------------------------------
-
   describe('the outcome of a press', () => {
     test('a command reply is curia\'s own sentence, rendered where the press was', () => {
       page.UI.act.said = { key: 'start:alp82/curia#265', text: '⚙️ `curia-265` spawned on **claude-opus-5**', ok: true }
@@ -2314,7 +2299,6 @@ describe('the operator verbs (#266)', () => {
     test('one act at a time: while a press is in flight every other control is disabled', () => {
       page.UI.act.busy = 'esc:esc-7'
       assert.match(page.screenFrontier(payload()), /button class="btn sm primary" disabled/)
-      assert.match(page.screenAgents(payload()), /disabled/)
     })
   })
 

@@ -6067,8 +6067,8 @@ describe('the grown verbs (#81, wayfinder #91)', () => {
     const { agents, recent } = await d.status()
     assert.deepEqual(agents[0].waiting_on, [{ id: 'esc-9', kind: 'free-text' }])
     assert.deepEqual(recent, [
-      { kind: 'cancelled', repo: 'o/r', ticket: '3' },
-      { kind: 'finished', repo: 'o/r', ticket: '4' },
+      { kind: 'cancelled', repo: 'o/r', ticket: '3', agent: null, at: null },
+      { kind: 'finished', repo: 'o/r', ticket: '4', agent: null, at: null },
     ])
   })
 })
@@ -6220,7 +6220,8 @@ describe('agent-liveness sweep (#138)', () => {
       JSON.stringify({ type: 'agent_died', repo: 'o/r', ticket: '7', agent: 'curia-7' }) + '\n')
     const d = makeDispatcher()
     const { recent } = await d.status()
-    assert.deepEqual(recent, [{ kind: 'died', repo: 'o/r', ticket: '7' }])
+    assert.deepEqual(recent, [{ kind: 'died', repo: 'o/r', ticket: '7', agent: 'curia-7', at: null }],
+      'an ending names its session, so the Agents page can link its chat (#709)')
   })
 
   test('one auto resume follows a released death, then a second released death holds the ticket', async () => {

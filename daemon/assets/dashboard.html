@@ -300,6 +300,7 @@
   .chip.ok { background: var(--chip-ok-bg); color: var(--ok); }
   .chip.bad { background: var(--chip-bad-bg); color: var(--bad); }
   .chip.idle { background: var(--bg-inset); color: var(--ink-faint); }
+  .chip.warn { background: var(--chip-warn-bg); color: var(--warn); }
 
   /* A held lane is BAD, not warn, and not the `.unread` marking: nothing here
      is a fact about the read. One lane has stopped dispatching and every agent
@@ -401,11 +402,21 @@
   .agent-story .line { display: grid; grid-template-columns: 44px 1fr; gap: 10px; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 12px; }
   .agent-story time { color: var(--ink-faint); }
   .agent-ended { grid-column: 1; margin-top: 24px; }
-  .agent-ended .line { font-size: 12px; color: var(--ink-dim); padding: 6px 0; }
-  .legacy-controls { margin-top: 26px; color: var(--ink-faint); }
+  .agent-ended .line { display: grid; grid-template-columns: 44px 1fr auto; gap: 10px; font-size: 12px; color: var(--ink-dim); padding: 6px 0; border-bottom: 1px solid var(--line); }
+  .agent-ended time { color: var(--ink-faint); }
+  .agent-pick .num { color: var(--ink-faint); font-size: 11px; font-family: ui-monospace, Menlo, monospace; }
+  .agent-pick.need { background: var(--chip-warn-bg); }
+  .agent-meters .v.hot, .statusbar .hot { color: var(--warn); }
+  .agent-back, .agent-roster .phone-hint { display: none; }
   @media (max-width: 800px) {
     .agent-focus { grid-template-columns: 1fr; }
-    .agent-detail { position: static; border-left: 0; padding: 24px 0 0; }
+    .agent-detail { position: static; border-left: 0; padding: 0; }
+    .agent-back { display: inline-block; margin: 2px 0 16px; font-size: 13.5px; }
+    .agent-roster .phone-hint { display: block; margin-top: 10px; font-size: 11px; }
+    /* The route decides which half the phone shows (#709), the same way the
+       drill frame and Maps do. */
+    .agent-focus[data-open] .agent-roster, .agent-focus[data-open] .agent-ended { display: none; }
+    .agent-focus:not([data-open]) .agent-detail { display: none; }
   }
 
   /* ---------- feed ---------- */
@@ -717,7 +728,9 @@ var UI = {
      which map and group the detail half shows, and whether the phone is on
      that detail instead of the list. `open` is the route's, never a width's. */
   maps: { repo: "all", selected: null, open: false },
-  agents: { selected: null },
+  /* Which agent the detail half shows, and whether the phone is on it (#709).
+     `open` is the route's, never a width's. */
+  agents: { selected: null, open: false },
   feed: { lastRead: null, operator: null, focus: null, family: "all" },
   search: { open: false, q: "", loading: false, error: null, result: null },
   /* The settings screen's own state (#265). `phase` is what the banner says:
@@ -947,48 +960,6 @@ function rejectGate(id, field) {
   const v = typed(field);
   if (!v) return refuse("esc:" + id, "A rejection carries your words — say what to change, then press Reject.");
   answerEsc(id, v);
-}
-
-/* Cancel names its consequences before it runs. They are the teardown's own
-   (dispatch.mjs #teardown), not a warning this page invented. */
-function cancelAgent(session, repo, ticket) {
-  const ask = `Cancel ${session}?\n\n`
-    + `• The tmux session is killed and its worktree removed. Anything uncommitted there is lost.\n`
-    + `• The claim on ${ticketName(repo, ticket) || "its ticket"} is released, so the ticket returns to the frontier.\n`
-    + `• Any question it is holding closes unanswered.\n`
-    + `• A cross-check reviewer on the same ticket ends too.`;
-  if (typeof confirm === "function" && !confirm(ask)) return;
-  verb("agent:" + session, "/api/cancel", { ticket: String(ticket) });
-}
-
-/* Teleport. The two links are curia's own (#68): `attach <n>` composes them
-   from its records, so the page asks for them instead of building a URL it
-   cannot vouch for. The shell line beside them is for a terminal on the box —
-   the tmux server lives in its own container (#260), so the command goes in
-   through that one. */
-function teleport(session, ticket) {
-  UI.act.tele = UI.act.tele === session ? null : session;
-  UI.act.said = null;
-  render();
-  if (UI.act.tele) verb("agent:" + session, "/api/teleport", { ticket: String(ticket) });
-}
-function attachCmd(session) {
-  return `docker compose -f deploy/compose.yaml exec tmux tmux -S /run/curia-tmux/default attach -t ${session}`;
-}
-
-function noteBox(session) {
-  UI.act.note = UI.act.note === session ? null : session;
-  UI.act.said = null;
-  render();
-}
-function noteMode(mode) { UI.act.mode = mode; render(); }
-async function sendNote(session, field) {
-  const text = typed(field);
-  if (!text) return refuse("agent:" + session, "A note with no words is not a note.");
-  const out = await verb("agent:" + session, "/api/note", { agent: session, text, mode: UI.act.mode });
-  /* Queued or interrupted, the words are with curia — so the box closes. It
-     stays open only when nothing was taken at all. */
-  if (out && out.id) { UI.act.note = null; render(); }
 }
 
 /* ---- the reading's own age ------------------------------------------------- */
@@ -1412,20 +1383,6 @@ function toggleDiffFile(key, i, query) {
   render();
 }
 
-/* The agent row's button (#355). It presses once and the read is a snapshot of
-   that moment, so `re-read` is beside it: the work moves while you look. */
-function openDiff(session) {
-  UI.act.diff = UI.act.diff === session ? null : session;
-  render();
-  if (!UI.act.diff) return;
-  const key = "agent:" + session;
-  if (!diffState(key).read) loadDigest(key, agentDiffQuery(session));
-}
-function rereadDiff(key, query) {
-  delete diffs[key];
-  loadDigest(key, query);
-}
-const agentDiffQuery = (session) => "/api/diff?agent=" + encodeURIComponent(session);
 const gateDiffQuery = (id) => "/api/diff?esc=" + encodeURIComponent(id);
 
 /* The caption under a path: facts, in words, so a state is never told by color
@@ -1943,7 +1900,38 @@ function deployCard(o) {
     ${!ok && l.log ? `<div class="said">${esc(l.log)}</div>` : ""}</div>`;
 }
 
-/* ---- agents ---------------------------------------------------------------- */
+/* ---- agents ----------------------------------------------------------------
+
+   FOCUS (#521, #709). One roster, one opened agent, and every act on an agent
+   hands off to Chat: this page holds no verb of its own. The roster lists the
+   agents that need the operator first, then the rest, and today's endings sit
+   under it so a finished session stays findable. Every fact here is read off
+   the one overview payload the tab polls; nothing is fetched on the side.
+
+   The phone shows the roster OR the opened agent, and which one is a route
+   fact (`#agents/<session>`), never a width fact — the same rule Maps follows,
+   so a back press returns to the list and a reload lands where it left. */
+
+const agentRoute = (session) => `agents/${encodeURIComponent(session)}`;
+function applyAgentsRoute(parts) {
+  if (parts.length >= 2) {
+    UI.agents.selected = decodeURIComponent(parts[1]);
+    UI.agents.open = true;
+  } else {
+    UI.agents.open = false;
+  }
+}
+function agentSelect(session) {
+  UI.agents.selected = session;
+  UI.agents.open = true;
+  location.hash = agentRoute(session);
+  render();
+}
+function agentBack() {
+  UI.agents.open = false;
+  location.hash = "agents";
+  render();
+}
 
 function screenAgents(p) {
   const o = p?.overview;
@@ -1951,156 +1939,127 @@ function screenAgents(p) {
   if (!o) return noSnapshot(p, "Agents", chat);
   const d = o.daemon ?? {};
   const live = o.agents == null ? "—" : o.agents.length;
+  const needs = o.agents == null ? 0 : o.agents.filter(needsOperator).length;
   const bar = `<div class="statusbar">
     <span>agents ${esc(live)}/${esc(d.max_concurrent ?? "?")}</span>
+    ${needs ? `<span class="hot">${esc(needs)} need you</span>` : ""}
     <span>auto dispatch ${d.auto_dispatch ? "on" : "off"}</span>
     <span>bridge ${esc(o.bridge)}</span>
     <span>daemon :${esc(d.port)} up ${esc(dur(d.uptime_s))}</span>
   </div>`;
-  return `${head(p, "Agents", chat)}${bar}${agentFocus(o)}
-    <details class="legacy-controls"><summary>Operator controls</summary>${agentsTable(o)}${untrackedLine(o)}</details>${recentLine(o)}`;
+  return `${head(p, "Agents", chat)}${bar}${agentFocus(o)}${untrackedLine(o)}`;
+}
+
+/* The gate is a need too on this page: Home keeps it as its own card, but a
+   roster that buried a gated agent under calm work would hide the one session
+   the operator can end. The open question still outranks it, because it is
+   the one that stops the agent cold. */
+const atGate = (a) => (a.waiting_on ?? []).some((w) => w.kind === REVIEW_KIND);
+const needsOperator = (a) => wantsYou(a) || atGate(a);
+const needRank = (a) => (wantsYou(a) ? 0 : atGate(a) ? 1 : 2);
+
+/* The chip is a word beside the color, never the color alone (spec rule). */
+function agentChip(a) {
+  const asks = waitingOn(a).length;
+  if (asks) return `<span class="chip warn">Ask${asks > 1 ? ` · ${esc(asks)}` : ""}</span>`;
+  if (atGate(a)) return `<span class="chip warn">Gate</span>`;
+  return agentDot(a);
+}
+
+/* How long the operator has been asked: the oldest open item bound to the
+   agent, gate included, read off the same records Home's needs list reads. */
+function waitedFor(o, a) {
+  const opened = [...(o.escalations ?? []), ...(o.review_gate ?? [])]
+    .filter((r) => r.agent === a.session && r.opened_at)
+    .map((r) => Date.parse(r.opened_at)).filter((t) => !Number.isNaN(t));
+  if (!opened.length) return null;
+  return Math.max(0, Math.round((Date.now() - Math.min(...opened)) / 1000));
+}
+
+const kTokens = (n) => n == null ? "—" : n >= 1000 ? `${Math.round(n / 1000)}k` : String(n);
+
+/* Today's endings, newest first. An ending without a stamp is one journalled
+   before the stamp rode along; it is kept rather than dropped, because losing
+   an ending is worse than an old one on the list. */
+const ENDED_WINDOW_S = 24 * 3600;
+function endedToday(o) {
+  const now = Date.now();
+  return [...(o.recent ?? [])]
+    .filter((r) => !r.at || now - Date.parse(r.at) <= ENDED_WINDOW_S * 1000)
+    .sort((a, b) => Date.parse(b.at ?? 0) - Date.parse(a.at ?? 0));
+}
+function endedList(o) {
+  const rows = endedToday(o).map((r) => `<div class="line"><time>${esc(clock(r.at))}</time>
+    <span>${esc(r.kind)} ${esc(ticketName(r.repo, r.ticket))}</span>
+    ${r.agent ? `<a href="${chatHref(r.agent)}">chat →</a>` : `<span class="dim-note">no session</span>`}</div>`).join("");
+  return `<div class="agent-ended"><h3>Ended today</h3>${rows || `<div class="empty">No agent ended today.</div>`}</div>`;
 }
 
 function agentFocus(o) {
-  if (o.agents == null) return agentsTable(o);
-  const roster = [...o.agents].sort((a, b) => (wantsYou(b) ? 1 : 0) - (wantsYou(a) ? 1 : 0));
-  if (!roster.length) return `${agentsTable(o)}${recentLine(o)}`;
+  if (o.agents == null) {
+    return `<div class="unread">the fleet could not be read${o.fleet_error ? ` — ${esc(o.fleet_error)}` : ""}. This is an unreadable tmux, not an idle box.</div>${endedList(o)}`;
+  }
+  const roster = [...o.agents].sort((a, b) => needRank(a) - needRank(b));
+  if (!roster.length) return `<div class="empty">No agent is running.</div>${endedList(o)}`;
   const selected = roster.find((agent) => agent.session === UI.agents.selected) ?? roster[0];
+  const open = UI.agents.open && roster.some((agent) => agent.session === UI.agents.selected);
+  const rows = roster.map((agent) => {
+    const wait = needsOperator(agent) ? waitedFor(o, agent) : null;
+    const sub = [agent.harness, stateWord(agent), wait != null ? `waits ${dur(wait)}` : agent.ctx_pct != null ? `${agent.ctx_pct}%` : null].filter(Boolean).join(" · ");
+    return `<button class="agent-pick${agent.session === selected.session ? " on" : ""}${needsOperator(agent) ? " need" : ""}" onclick="agentSelect('${js(agent.session)}')">
+    ${agentChip(agent)}
+    <span class="main"><b>${esc(agent.title ?? agent.session)}</b><span>${esc(sub)}</span></span>
+    <span class="num">${esc(dur(agent.uptime_s))}</span></button>`;
+  }).join("");
+  return `<div class="agent-focus"${open ? ` data-open="${esc(selected.session)}"` : ""}>
+    <div class="agent-roster"><h3>Agents</h3>${rows}<div class="phone-hint dim-note">tap an agent to open it</div></div>
+    ${agentDetail(o, selected)}
+    ${endedList(o)}</div>`;
+}
+
+function agentDetail(o, a) {
   const story = [...(o.events ?? [])]
-    .filter((event) => event.agent === selected.session || (event.ticket != null && String(event.ticket) === String(selected.ticket)))
-    .reverse().slice(0, 6);
-  const rows = roster.map((agent) => `<button class="agent-pick${agent.session === selected.session ? " on" : ""}" onclick="agentSelect('${js(agent.session)}')">
-    ${wantsYou(agent) ? `<span class="eyebrow" style="color:var(--warn)">Needs you</span>` : agentDot(agent)}
-    <span class="main"><b>${esc(agent.title ?? agent.session)}</b><span>${esc(agent.session)} · ${esc(stateWord(agent))} · ${esc(dur(agent.uptime_s))}</span></span></button>`).join("");
+    .filter((event) => event.agent === a.session || (event.ticket != null && String(event.ticket) === String(a.ticket)))
+    .reverse().slice(0, 8);
   const storyRows = story.map((event) => {
     const line = eventLine(event);
     return `<div class="line"><time>${esc(clock(event.ts))}</time><span>${line.html}</span></div>`;
   }).join("") || `<div class="empty">No recent story is on this reading.</div>`;
-  const recent = (o.recent ?? []).map((row) => `<div class="line">${esc(row.kind)} ${esc(ticketName(row.repo, row.ticket))}</div>`).join("")
-    || `<div class="empty">No agent ended today.</div>`;
-  return `<div class="agent-focus"><div class="agent-roster"><h3>Agents</h3>${rows}</div>
-    <article class="agent-detail"><span class="eyebrow">Selected</span><div class="agent-title">${esc(selected.title ?? selected.session)}</div>
-      <div class="dim-note">${esc(ticketName(selected.repo, selected.ticket))} · ${esc(selected.session)}</div>
-      <div class="state-line"><span class="${wantsYou(selected) ? "needs" : ""}">${esc(stateWord(selected))}</span> · ${wantsYou(selected) ? "waiting for you" : `contact ${esc(dur(selected.last_contact_s))} ago`}</div>
-      <div class="agent-meters"><div><span class="v">${esc(selected.model ?? "unknown")}</span><span class="k">model</span></div>
-        <div><span class="v">${esc(selected.ctx_pct == null ? "unknown" : selected.ctx_pct + "%")}</span><span class="k">context</span></div>
-        <div><span class="v">${esc(dur(selected.uptime_s))}</span><span class="k">elapsed</span></div>
-        <div><span class="v">${esc(dur(selected.last_contact_s))}</span><span class="k">contact</span></div></div>
+  const wait = needsOperator(a) ? waitedFor(o, a) : null;
+  const state = needsOperator(a)
+    ? `<span class="needs">${esc(stateWord(a))}</span> · waiting for you${wait != null ? ` · waits ${esc(dur(wait))}` : ""}`
+    : `<span>${esc(stateWord(a))}</span> · ${a.last_contact_s != null ? `contact ${esc(dur(a.last_contact_s))} ago` : a.uptime_s == null ? "adopted after a restart" : "no contact yet"}`;
+  const meter = (v, k, cls) => `<div><span class="v${cls ? ` ${cls}` : ""}">${v}</span><span class="k">${k}</span></div>`;
+  const ctx = a.ctx_pct == null ? "—" : `${esc(a.ctx_pct)}%${a.ctx_over ? ` <span class="over">⚠</span>` : ""}`;
+  const gate = (o.review_gate ?? []).find((r) => r.agent === a.session);
+  const links = [
+    `<a href="${chatHref(a.session)}">open Chat →</a>`,
+    a.ticket ? `<a href="https://github.com/${esc(a.repo)}/issues/${esc(a.ticket)}">ticket →</a>` : "",
+    gate?.pull_request ? `<a href="${esc(gate.pull_request)}">pull request →</a>` : "",
+  ].filter(Boolean).join("");
+  return `<article class="agent-detail">
+      <a class="agent-back" href="#agents" onclick="agentBack();return false">← agents</a>
+      <span class="eyebrow">Selected</span><div class="agent-title">${esc(a.title ?? a.session)}</div>
+      <div class="dim-note">${esc(ticketName(a.repo, a.ticket))} · ${esc(a.session)}${a.reviewer ? " · reviewer" : ""}${a.tmux_live ? "" : " · no tmux session"}</div>
+      <div class="state-line">${state}</div>
+      <div class="agent-meters">
+        ${meter(esc(a.harness ?? "—"), "lane")}
+        ${meter(esc(a.model ?? "unknown"), "model")}
+        ${meter(esc(a.effort ?? "—"), "effort")}
+        ${meter(ctx, "context", a.ctx_pct >= 80 ? "hot" : "")}
+        ${meter(esc(kTokens(a.ctx_tokens)), "tokens")}
+        ${meter(esc(dur(a.uptime_s)), "elapsed")}
+        ${meter(contactCell(a), "contact")}</div>
       <div class="agent-story"><h3>Story</h3>${storyRows}</div>
-      <div class="links" style="margin-top:16px"><a href="${chatHref(selected.session)}">open Chat →</a>
-        <a href="https://github.com/${esc(selected.repo)}/issues/${esc(selected.ticket)}">ticket →</a></div></article>
-    <div class="agent-ended"><h3>Ended today</h3>${recent}</div></div>`;
+      <div class="links" style="margin-top:16px">${links}</div>
+      <div class="dim-note" style="margin-top:12px">Notes, cancels and the terminal live in Chat. ${esc(CONTACT_NOTE)}</div></article>`;
 }
 
-function agentSelect(session) { UI.agents.selected = session; render(); }
-
-function agentsTable(o) {
-  if (o.agents == null) {
-    return `<div class="unread">the fleet could not be read${o.fleet_error ? ` — ${esc(o.fleet_error)}` : ""}. This is an unreadable tmux, not an idle box.</div>`;
-  }
-  if (!o.agents.length) return `<div class="empty">No agent is running.</div>`;
-  const rows = [...o.agents].sort((a, b) => (wantsYou(b) ? 1 : 0) - (wantsYou(a) ? 1 : 0));
-  return `<div class="tbl-wrap"><table class="agents wide">
-    <tr><th>session</th><th>state</th><th>ticket</th><th>model</th><th>ctx</th><th>contact</th><th>up</th><th>waiting on</th><th>do</th></tr>
-    ${rows.map((a) => `<tr class="${wantsYou(a) ? "esc-row" : ""}">
-      <td class="sess">${esc(a.session)}${a.reviewer ? ` <span class="dim-note">reviewer</span>` : ""}</td>
-      <td><span class="state">${agentDot(a)} ${esc(stateWord(a))}</span>${a.tmux_live ? "" : `<div class="dim-note">no tmux session</div>`}</td>
-      <td><span class="t">${esc(ticketName(a.repo, a.ticket))}</span>${esc(a.title ?? "")}</td>
-      <td class="mono">${esc(a.model ?? "—")}</td>
-      <td class="num">${ctxCell(a)}</td>
-      <td class="num">${contactCell(a)}</td>
-      <td class="num">${esc(dur(a.uptime_s))}</td>
-      <td>${waitingCell(a)}</td>
-      <td>${agentVerbs(a)}</td></tr>
-    ${agentBoxes(a)}`).join("")}
-  </table></div><div class="dim-note">${esc(CONTACT_NOTE)}</div>`;
-}
-
-/* The three per-agent verbs (#266). They sit in the row that already names the
-   agent, and the boxes they open sit under it — so the words the operator types
-   are beside the agent they are for.
-
-   An answer is NOT here. The Needs-you list on Home is the one answer surface,
-   and the `waiting on` cell beside this says where to go. */
-function agentVerbs(a) {
-  const key = "agent:" + a.session;
-  const b = (label, call, cls) => `<button class="${cls ?? ""}" ${anyBusy() ? "disabled" : ""} onclick="${call}">${label}</button>`;
-  const s = `'${js(a.session)}'`;
-  return `<div class="links">
-    ${b("note", `noteBox(${s})`)}
-    ${b("diff", `openDiff(${s})`)}
-    ${b("teleport", `teleport(${s},'${js(a.ticket ?? "")}')`)}
-    ${b("cancel", `cancelAgent(${s},'${js(a.repo ?? "")}','${js(a.ticket ?? "")}')`, "bad")}
-  </div>${busy(key) ? `<div class="dim-note">working…</div>` : ""}`;
-}
-
-/* One full-width row under the agent, carrying whatever it has open: the note
-   box, the teleport lines, and what curia said about the last press. */
-function agentBoxes(a) {
-  const key = "agent:" + a.session;
-  const parts = [
-    UI.act.note === a.session ? noteBoxHtml(a) : "",
-    UI.act.diff === a.session ? diffBoxHtml(a) : "",
-    UI.act.tele === a.session ? teleportHtml(a) : "",
-    said(key),
-  ].filter(Boolean);
-  if (!parts.length) return "";
-  return `<tr><td colspan="9">${parts.join("")}</td></tr>`;
-}
-
-/* The two delivery modes, in ADR-0013's own words. Queued is the default and
-   costs the agent nothing until its next tool result. Interrupt aborts the call
-   in flight after a grace, which is why it is the one the operator has to
-   choose. */
-function noteBoxHtml(a) {
-  const id = "note-" + a.session;
-  const radio = (mode, label) => `<label><input type="radio" name="nm-${esc(a.session)}"
-    ${UI.act.mode === mode ? "checked" : ""} onchange="noteMode('${mode}')"> ${esc(label)}</label>`;
-  return `<div class="act-box">
-    <div class="act-row"><input type="text" id="${esc(id)}" placeholder="say something to ${esc(a.session)}…"></div>
-    <div class="act-row">
-      ${radio("queue", "queue — it reads this with its next tool result")}
-      ${radio("interrupt", "interrupt — a short grace, then the words land as a user turn")}
-      <button class="btn sm primary" ${anyBusy() ? "disabled" : ""} onclick="sendNote('${js(a.session)}','${js(id)}')">Send</button>
-    </div>
-  </div>`;
-}
-
-/* The digest before the gate (#355). The same card the gate carries, on a live
-   row, reading the same worktree — committed and uncommitted work together,
-   because that is what the work so far means. You see the shape of the change
-   while a note can still steer it. */
-function diffBoxHtml(a) {
-  const key = "agent:" + a.session;
-  const q = agentDiffQuery(a.session);
-  const d = diffState(key);
-  if (!d.read) return `<div class="act-box"><div class="say">counting the work so far…</div></div>`;
-  return `<div class="act-box">
-    <div class="act-row"><button class="btn sm" ${d.loading ? "disabled" : ""} onclick="rereadDiff('${js(key)}','${js(q)}')">re-read</button>
-      <span class="dim">a snapshot of the worktree, taken when you pressed</span></div>
-    ${diffCard(key, d.digest, d.error, q, null)}</div>`;
-}
-
-function teleportHtml(a) {
-  return `<div class="act-box">
-    <div class="dim-note">On the box itself, in a terminal:</div>
-    <input class="copy" type="text" readonly value="${esc(attachCmd(a.session))}" onclick="this.select()">
-  </div>`;
-}
-function waitingCell(a) {
-  const open = a.waiting_on ?? [];
-  if (!open.length) return `<span class="dim-note">${a.result_received ? "its result is in" : "nothing"}</span>`;
-  return open.map((w) => `<span class="mono">${esc(w.kind)}</span>`).join(" · ");
-}
 /* A tmux session curia does not track. It is an anomaly reconcile owns, so the
    page states it and spends no color on it. */
 function untrackedLine(o) {
   if (!o.untracked?.length) return "";
   return `<p class="dim-note">Untracked sessions: <span class="mono">${o.untracked.map((s) => esc(s)).join(", ")}</span>. Reconcile adopts or sweeps these.</p>`;
-}
-function recentLine(o) {
-  if (!o.recent?.length) return "";
-  return `<p class="dim-note">Recently: ${o.recent.map((r) => `${esc(r.kind)} ${esc(ticketName(r.repo, r.ticket))}`).join(" · ")}</p>`;
 }
 
 /* ---- maps -----------------------------------------------------------------
@@ -3886,7 +3845,7 @@ function recordFeedVisit() {
 /* Arriving at Maps from the nav is the LIST, always. The detail is a route of
    its own, so a tab press that did not name one must not land on the last one
    the operator happened to open. */
-function goto(k) { enter(k); if (routeName(k) === "maps") UI.maps.open = false; location.hash = k; render(); }
+function goto(k) { enter(k); if (routeName(k) === "maps") UI.maps.open = false; if (k === "agents") UI.agents.open = false; location.hash = k; render(); }
 window.addEventListener("hashchange", () => {
   const parts = routeParts();
   const k = routeName(parts[0] ?? "");
@@ -3896,8 +3855,9 @@ window.addEventListener("hashchange", () => {
      view and the list must come back under the same tab. */
   const moved = k !== UI.screen;
   if (k === "maps") applyMapRoute(parts);
+  if (k === "agents") applyAgentsRoute(parts);
   if (moved) enter(k);
-  if (moved || k === "maps") render();
+  if (moved || k === "maps" || k === "agents") render();
 });
 
 /* ---- the poll -------------------------------------------------------------
@@ -3940,6 +3900,7 @@ document.addEventListener("visibilitychange", () => {
 if (typeof document !== "undefined" && document.getElementById("app")) {
   const initialParts = routeParts();
   if (routeName(initialParts[0] ?? "") === "maps") applyMapRoute(initialParts);
+  if (initialParts[0] === "agents") applyAgentsRoute(initialParts);
   const initial = routeName(initialParts[0] ?? "");
   enter(NAMES.includes(initial) ? initial : "home");
   /* The file read happens at boot even when the operator lands somewhere else
