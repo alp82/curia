@@ -574,6 +574,13 @@ describe('timeline config (#74)', () => {
     )
   })
 
+  test('#714: attach.serve_port is optional now — it names only the retired rule to withdraw', () => {
+    const file = writeConfig('')
+    const text = fs.readFileSync(file, 'utf8').replace(/^  serve_port: 8443\n/m, '')
+    fs.writeFileSync(file, text)
+    assert.equal(loadCuriaConfig(file).attach.serve_port, 8443)
+  })
+
   test('a port collision with attach refuses the boot — one surface must not shadow another', () => {
     assert.throws(
       () => loadCuriaConfig(writeConfig(['timeline:', '  serve_port: 8443'].join('\n'))),

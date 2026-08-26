@@ -2674,6 +2674,40 @@ describe('the chat screen (#267, the picker of #333)', () => {
       assert.match(t, /waiting on you — question \(esc-8\) Ship it\?/)
     })
 
+    // The terminal (#714). The header opens it for THIS conversation, in a
+    // dock the page mounts outside #app, and only while the agent runs.
+    test('the header opens the same-origin terminal for the current conversation, and hides it again', () => {
+      let html = page.screenChat(payload())
+      assert.match(html, /onclick="chatToggleTerminal\(\)"/)
+      assert.doesNotMatch(html, /target="_blank"/, 'no separate terminal address')
+      assert.equal(page.terminalDock(), '', 'closed until the header opens it')
+      page.chatToggleTerminal()
+      assert.equal(page.chat.terminal, true)
+      const dock = page.terminalDock()
+      assert.match(dock, /<iframe src="\/terminal\/\?arg=curia-684"/)
+      assert.doesNotMatch(dock, /touch|Esc|Tab/, 'Atlas adds no key row of its own; ttyd\'s page carries it on a coarse pointer')
+      html = page.screenChat(payload())
+      assert.match(text(html), /Hide terminal/)
+      page.chatToggleTerminal()
+      assert.equal(page.chat.terminal, false)
+      assert.equal(page.terminalDock(), '')
+    })
+
+    test('leaving the room closes its terminal, and the next room starts with it closed', () => {
+      page.chatToggleTerminal()
+      assert.equal(page.chat.terminal, true)
+      page.applyChatRoute(['chat', 'curia-console-2'])
+      assert.equal(page.chat.terminal, false)
+      assert.equal(page.terminalDock(), '')
+    })
+
+    test('an ended agent offers no terminal', () => {
+      page.chatReceive('hello', { session: 'curia-684', file: null, harness: 'claude', clients: 1, draft: '', ended: true })
+      assert.doesNotMatch(page.screenChat(payload()), /chatToggleTerminal/)
+      page.chatToggleTerminal()
+      assert.equal(page.chat.terminal, false, 'the toggle refuses too')
+    })
+
     test('an open choice in the room is the same typed card Home draws, answered in place (#712)', () => {
       page.chatReceive('escalations', [{
         id: 'esc-9', kind: 'choice', prompt: '**Which branch?**', typed: true, recommended: false,

@@ -221,6 +221,13 @@ export function loadCuriaConfig(file, { checkPaths = true, localFile, env = proc
 
   const a = cfg.attach
   if (!a || typeof a !== 'object') fail(src, '`attach` section missing')
+  // `serve_port` retired with #714: Atlas serves the terminal on its own
+  // address, and the only thing the daemon does with this port is withdraw
+  // the standalone rule an older daemon asserted. Optional with the port that
+  // rule always used, so a config that drops the line still withdraws it. It
+  // stays in the collision check, because withdrawing a port another surface
+  // is published on would take that surface down.
+  a.serve_port = a.serve_port ?? 8443
   for (const key of ['ttyd_port', 'serve_port']) {
     if (!(Number.isInteger(a[key]) && a[key] > 0 && a[key] < 65536)) fail(src, `attach.${key} must be a port number`)
   }
