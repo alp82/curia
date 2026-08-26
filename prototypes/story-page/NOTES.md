@@ -2934,3 +2934,36 @@ The scroll budget at 393×659: 20.6 screens. The opening arc takes 7.2 of them, 
 **Left for the operator:** on a phone the ticket-run scene's Discord phone lane shrinks to a
 sliver beside the atlas window. That is the round 15 arrangement measured against a desk that
 is only a phone wide, and it is a decision, not a fault.
+
+**Round 2.** The operator, from an iPhone SE: "we got lots to do here". The art at the top
+needs more room, and small screens may leave elements out and simplify the visualizations to
+avoid density. The full page went through first at 375×667, scene by scene, and the operator
+took the cuts as proposed, with one rule: desktop stays exactly as it was.
+
+**The rule the round keeps:** one breakpoint, `max-width: 40rem`. Below it a scene shows one
+object per beat and no chrome that is not the point. Above it nothing changes. The canvas
+gates its own cuts on `W < 620`, the flag the arc already had. Proof: eight desktop screens at
+1440×900 diffed pixel for pixel against the file before the round, zero pixels changed.
+
+The cuts, scene by scene:
+
+- **The arc.** The hero drops its kicker and its skills line and tightens, so the art has the
+  top half of the first screen. The canvas draws ONE map on a phone, its rows as bars with the
+  state dot and no words (11px in a 90px card reads as noise), and two thirds of the pile while
+  it is only a pile; the rest join under the melt as they start to travel. The order beat is a
+  screen shorter (`ORDER_SPAN` 3.2 on a phone) and the two rooms hold for less.
+- **The grilling.** The guild rail and the channel list go. The chat pane is the whole window,
+  and the base type grows from `w / 40` to `w / 33` under 640px, which the desktop window never
+  is.
+- **The preview.** The phone alone, at 54vw. The desk window behind it was a thumbnail.
+- **The atlas.** Two maps instead of three; the walked line and the frontier; the five blocked
+  rows and the fog go.
+- **The terminal.** The browser tab and URL bar go. The tmux line and the four harness tabs
+  stay, because they are the scene.
+- **The ticket run.** One object per beat: the Discord phone beside the pull request was a
+  sliver on a desk one phone wide, so on the two-lane cards it goes and the pull request stands
+  square. The stage holds 52dvh instead of 62, and each beat holds for less scroll.
+- **The `git clone` line** wraps instead of clipping.
+
+The scroll budget at 375×667: 18.1 screens, from 20.5. The arc 5.9 (was 7.2), the ticket run
+3.5 (was 4.3), the atlas 1.5 (was 2.0), the preview 1.2 (was 0.9, the bigger phone).

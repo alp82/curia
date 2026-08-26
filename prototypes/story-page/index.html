@@ -142,6 +142,11 @@
   body.arcon .room { height: 70svh; }
   body.arcon .room.lead { height: 55svh; }
   body.arcon .room.short { height: var(--tail, 440svh); }
+  /* #773 round 2: a phone holds the hero and the mess for less scroll. */
+  @media (max-width: 40rem) {
+    body.arcon .room { height: 52svh; }
+    body.arcon .room.lead { height: 40svh; }
+  }
 
   /* Round 3 of #625: the words and the canvas must never sit on top of
      each other. On a wide screen each claim docks to its own side and
@@ -170,6 +175,15 @@
   }
   .cta:active { transform: scale(0.98); }
   .cta.ghost { background: none; color: var(--text); box-shadow: inset 0 0 0 1px var(--line); }
+  /* A phone gives the art the top of the first screen (#773 round 2):
+     the kicker and the skills line go, and the block tightens. */
+  @media (max-width: 40rem) {
+    .a-hero .q-mark, .a-hero .skills { display: none; }
+    h1 { font-size: clamp(1.6rem, 7.2vw, 3.2rem); margin-top: 0; }
+    .lede { font-size: 1rem; margin-top: 0.7rem; }
+    .ctas { margin-top: 1.1rem; }
+    .a-hero { padding-bottom: 1.2rem; }
+  }
 
   /* ================================================================
      The shared scene skeleton. A room is the space an animation owns;
@@ -514,8 +528,9 @@
   /* A desktop window on a phone is a miniature. Narrowing the rail and
      the channel list buys the chat pane back what it can. */
   @media (max-width: 40rem) {
-    .dc-rail { flex-basis: 3em; }
-    .dc-side { flex-basis: 9.4em; }
+    /* #773 round 2: on a phone the chat pane is the whole window. The
+       guild rail and the channel list carry nothing the story needs. */
+    .dc-rail, .dc-side { display: none; }
   }
 
   /* ---- the channel header. It carries the breadcrumb the client
@@ -1020,6 +1035,12 @@
       radial-gradient(52% 44% at var(--gx) var(--gy), var(--pvglow, transparent), transparent 74%);
     transition: background 0.5s var(--ease);
   }
+  /* #773 round 2: a phone shows the phone alone, larger. The desk
+     window behind it was a thumbnail nobody could read. */
+  @media (max-width: 40rem) {
+    .pv-desk { display: none; }
+    .pv-dev { --pvw: min(54vw, 13rem); justify-self: center; }
+  }
   /* The words never sit in the light (#624 rule 5). */
   #preview .claim, #preview .pv-rail, #preview .fact { position: relative; z-index: 4; }
 
@@ -1235,6 +1256,12 @@
   /* The blocked box and the fog strip, as #588 round 5 drew them:
      red rules behind what waits, diagonal grey stripes behind what
      nobody has specified yet. */
+  /* #773 round 2: a phone keeps the dial, the running agent, two maps,
+     the walked line and the frontier. The third map, the five blocked
+     rows and the fog go: the scene is the dashboard, not its depth. */
+  @media (max-width: 40rem) {
+    .hm-maps .quest:nth-child(n + 3), .waitr, .fogs { display: none; }
+  }
   .waitr {
     margin-top: 0.6rem; padding: 0.45rem 0.65rem 0.5rem;
     border: 1px solid rgba(242, 112, 122, 0.45); border-radius: 8px;
@@ -1530,6 +1557,12 @@
 
   /* ---- the control below 60rem: bottom tabs. NEVER both (round 1) ---- */
   .tm-tabs { display: flex; border-top: 1px solid #262d33; background: #0f1116; }
+  /* #773 round 2: a phone drops the browser chrome. The tab and the URL
+     bar are the point on a desk and noise at 7px; the tmux line and
+     the four harness tabs stay, because they are the scene. */
+  @media (max-width: 40rem) {
+    .br { display: none; }
+  }
   .tm-tabs button {
     flex: 1 1 0; min-width: 0; border: 0; background: none; cursor: pointer; color: #8a93a3;
     display: flex; flex-direction: column; align-items: center; gap: 0.2rem;
@@ -1714,6 +1747,12 @@
   .r8-nb:first-child { padding-top: 0.4rem; min-height: 44svh; }
   .r8-nb:last-child { min-height: 54svh; }
   .r8-nb { opacity: 0.5; transition: opacity 0.4s var(--ease); }
+  /* #773 round 2: a phone holds each beat for less scroll. */
+  @media (max-width: 40rem) {
+    .r8-nb { min-height: 58svh; }
+    .r8-nb:first-child { min-height: 36svh; }
+    .r8-nb:last-child { min-height: 44svh; }
+  }
   .r8-nb.on { opacity: 1; }
   .r8-nb .nn {
     display: inline-block; align-self: flex-start;
@@ -2112,6 +2151,15 @@
   .r8-lane[data-app="discord"] { position: absolute; right: 1%; bottom: -0.6rem; height: auto; --ph-h: 92cqh; z-index: 3; }
   .r8-lane[data-app="curia"] { transform: rotateX(8deg) rotate(-0.4deg); transform-origin: 50% 100%; }
   .r8-card:not(.two) .pv-phone { margin-left: auto; margin-right: 6%; }
+  /* A phone shows ONE object per beat (#773 round 2). The desk is only
+     a phone wide, so the Discord phone beside the pull request was a
+     sliver. It goes, the pull request stands square, and the held stage
+     gives the titles more of the screen. */
+  @media (max-width: 40rem) {
+    .r8-card.two .r8-lane[data-app="discord"] { display: none; }
+    .r8-lane[data-app="github"] { transform: none; }
+    .r8-stage { height: 52dvh; }
+  }
 
   /* ---- the column the claim and the closing lines sit in ---- */
   .runwrap { max-width: 36rem; margin: 0 auto; padding: 0 1.25rem; }
@@ -2261,7 +2309,7 @@
   .clone {
     font: 0.78rem var(--mono); color: #cfd5de; background: #ffffff08;
     box-shadow: inset 0 0 0 1px var(--line); border-radius: 8px;
-    padding: 0.8rem 0.9rem; overflow-x: auto; white-space: nowrap;
+    padding: 0.8rem 0.9rem; white-space: pre-wrap; overflow-wrap: anywhere;
   }
 
   /* ================================================================
@@ -3947,7 +3995,9 @@ function clampNum(v, a, b) { return v < a ? a : v > b ? b : v; }
      the 16px the client itself uses. */
   function base() {
     var w = dc.clientWidth || 320;
-    return clampNum(w / 40, 7, 16.5);
+    /* A phone window has no rail and no channel list, so its chat pane
+       is the whole width and the type can be bigger (#773 round 2). */
+    return clampNum(w / (w < 640 ? 33 : 40), 7, 16.5);
   }
   function fit() {
     var on = dc.classList.contains('on');
@@ -4288,6 +4338,18 @@ function runArc() {
       ctx.fillStyle = rgb(sc);
       ctx.fill();
     }
+    if (BAR_ROWS) {
+      /* A phone cannot read 11px in a card 90px wide. The row keeps its
+         state dot and shows its words as two bars. */
+      roundRect(x + 25 * s, dy - 2 * s, Math.max(10, (w - 36 * s) * 0.42), 4 * s, 2 * s);
+      ctx.fillStyle = rgba(C.text, st === 0 ? 0.3 : 0.6);
+      ctx.fill();
+      roundRect(x + 25 * s + (w - 36 * s) * 0.5, dy - 2 * s, Math.max(10, (w - 36 * s) * 0.36), 4 * s, 2 * s);
+      ctx.fillStyle = rgba(C.dim, st === 0 ? 0.3 : 0.55);
+      ctx.fill();
+      ctx.restore();
+      return;
+    }
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
     ctx.font = '700 ' + (10.5 * s).toFixed(1) + 'px ' + MONOF;
@@ -4594,6 +4656,9 @@ function runArc() {
      many of them genuinely fit. Never one card because the code said
      so: round 2 called that out on its own. */
   var GAPM = 16;
+  /* Set each frame (#773 round 2): a phone draws ONE map, and its rows
+     as bars with no words. The desktop path never sets either. */
+  var MAX_MAPS = 3, BAR_ROWS = false;
   /* drawMapCard draws nothing under 90 px wide, so no fit may ask for
      less: a map that vanishes is worse than one that crowds. */
   var MIN_S = 92 / MAP_W;
@@ -4601,7 +4666,7 @@ function runArc() {
     var s, n, need, k;
     if (column) {
       s = clamp(availW / MAP_W, MIN_S, 1.0);
-      n = clamp(Math.floor((availH + GAPM) / (mapHeight(s) + GAPM)), 1, 3);
+      n = clamp(Math.floor((availH + GAPM) / (mapHeight(s) + GAPM)), 1, MAX_MAPS);
       need = n * mapHeight(s) + GAPM * (n - 1);
       if (need > availH) s = Math.max(MIN_S, s * (availH / need));
       var ch = mapHeight(s), totalH = ch * n + GAPM * (n - 1);
@@ -4611,7 +4676,7 @@ function runArc() {
       return;
     }
     var minW = 118;
-    n = clamp(Math.floor((availW + GAPM) / (minW + GAPM)), 1, 3);
+    n = clamp(Math.floor((availW + GAPM) / (minW + GAPM)), 1, MAX_MAPS);
     s = clamp(Math.min((availW - GAPM * (n - 1)) / n / MAP_W, availH / mapHeight(1)), MIN_S, 1.05);
     var cw = MAP_W * s, totalW = cw * n + GAPM * (n - 1);
     for (k = 0; k < n; k++) {
@@ -5047,7 +5112,7 @@ function runArc() {
 
      The span is how many screens of scroll the order beat is given, and
      the tail room under the claim is set from it. */
-  var ORDER_SPAN = 4.2;
+  var ORDER_SPAN = window.innerWidth < 620 ? 3.2 : 4.2;   /* a phone: one screen less (#773 round 2) */
   /* EVERY piece of work makes the journey: the mess is cleared out, and
      nothing of it is left standing at the end. */
   var TRAVEL_N = MESS.length;
@@ -5168,6 +5233,8 @@ function runArc() {
     if (arcBox.bottom < -40 || arcBox.top > H + 40) return;
 
     var wide = W >= 620;
+    MAX_MAPS = wide ? 3 : 1;
+    BAR_ROWS = !wide;
     var travelPx = arcEl.offsetHeight - window.innerHeight;
     var arcP = travelPx > 0 ? clamp(-arcBox.top / travelPx, 0, 1) : 0;
     var rise = smooth(0.04, 0.50, panelProgress(messPanel));
@@ -5264,6 +5331,9 @@ function runArc() {
         arrivals[MAPOF[i]].push({ i: i, u: u, st: STOF[i] });
       }
       if (u >= 0.999) continue;                 /* it lives in the map now */
+      /* A phone shows two thirds of the pile while it is only a pile.
+         The rest join as they start to travel, under the melt. */
+      if (!wide && u <= 0.001 && i % 3 === 2) continue;
       var slot = MAPOF[i] % Math.max(1, nMaps);
       var mm = maps[slot];
       var it = { i: i, slot: slot, a: 0.95, pop: home.scale };
