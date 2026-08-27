@@ -126,7 +126,20 @@ describe('a choice card picks its surface by option count (#431)', () => {
       payload: { options: [{ handle: 'First' }, { handle: 'Second' }] },
     })
     const msg = sent.at(-1)
-    assert.deepEqual(buttonsOf(msg.components).map((button) => button.label), ['First', 'Second'])
+    assert.deepEqual(buttonsOf(msg.components).map((button) => button.label), ['A · First', 'B · Second'])
+  })
+
+  test('typed buttons keep their markers when a handle falls back to the label', async () => {
+    await bridge.renderEscalation({
+      id: 'esc-1', ticket: '431', agent: 'curia-431', kind: 'choice', prompt: 'Which one?',
+      options: ['The full first option', 'The full second option'],
+      payload: { options: [{ handle: 'First' }, {}] },
+    })
+    const msg = sent.at(-1)
+    assert.deepEqual(
+      buttonsOf(msg.components).map((button) => button.label),
+      ['A · First', 'B · The full second option'],
+    )
   })
 
   test('two options that read the same still answer apart', async () => {

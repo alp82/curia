@@ -1,10 +1,10 @@
 # Curia
 
-**Many repos, one queue, driven from a phone.**
+**Run Matt Pocock's wayfinder from your phone.**
 
-Curia watches your GitHub issues, sends a coding agent at the ones that are ready, and brings
-everything that needs you — a question, a preview, an approval — to whatever device you are holding.
-Your box, your subscription, your repos.
+Curia watches the maps and issues in all your GitHub repositories, sends coding agents at the work
+that is ready, and brings every question, preview, and approval to your phone. Your box, your
+subscription, your repositories.
 
 The page is <https://curia.sh>. It makes the same promise to a reader who has not cloned anything
 yet. This file sets curia up on your machine, and shows you around the code.
@@ -25,7 +25,8 @@ yet. This file sets curia up on your machine, and shows you around the code.
 
 - First commit 2026-07-21. One person runs it. You would be the second.
 - Setup is manual and takes an evening. It gets simpler. There is no package yet.
-- Tailscale and Discord are required. There is no web UI.
+- Tailscale and Discord are required. Atlas gives you a browser view of your maps, agents, and
+  operator conversations.
 - Attach and preview links are open to anything on your tailnet.
 - Agents use your own harness login, so an agent can do what you can do with it.
 
