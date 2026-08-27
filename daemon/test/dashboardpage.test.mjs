@@ -1016,29 +1016,66 @@ describe('the read screens (#264)', () => {
   })
 
   describe('maps', () => {
-    test('the decided map view carries every state group and the routed start control', () => {
-      page.UI.maps = { repo: 'all', selected: { repo: 'alp82/curia', map: 244, group: 'takeable' }, open: false }
+    test('the full rail uses operator vocabulary while the snapshot keeps its wire keys', () => {
+      const p = payload()
+      page.UI.maps = { repo: 'all', selected: { repo: 'alp82/curia', map: 244 }, open: false }
+      assert.ok(p.overview.maps.maps[0].walked)
+      assert.ok(p.overview.maps.maps[0].in_flight)
+      assert.ok(p.overview.maps.maps[0].takeable)
+
+      const html = page.screenMaps(p)
+      const t = text(html)
+      assert.match(t, /18 done/)
+      assert.match(t, /1 running/)
+      assert.match(t, /2 frontier/)
+      assert.doesNotMatch(t, /18 walked/)
+      assert.doesNotMatch(t, /1 in flight/)
+      assert.doesNotMatch(t, /2 takeable/)
+    })
+
+    test('one selected map renders the complete rail from done through fog', () => {
+      page.UI.maps = { repo: 'all', selected: { repo: 'alp82/curia', map: 244 }, open: false }
       const html = page.screenMaps(payload())
       const t = text(html)
       assert.match(t, /Curia gets a face/)
-      assert.match(t, /18 walked/)
-      assert.match(t, /1 in flight/)
-      assert.match(t, /2 takeable/)
-      assert.match(t, /1 blocked/)
-      assert.match(t, /2 fog/)
+      const rail = /<div class="map-rail">([\s\S]*?)<\/aside>/.exec(html)?.[1]
+      assert.ok(rail, 'the detail is one full map rail')
+      for (const group of ['walked', 'in-flight', 'takeable', 'blocked', 'fog']) {
+        assert.match(rail, new RegExp(`class="map-stage ${group}`), `${group} is present in the one rail`)
+      }
+      assert.ok(rail.indexOf('map-stage walked') < rail.indexOf('map-stage in-flight'))
+      assert.ok(rail.indexOf('map-stage in-flight') < rail.indexOf('map-stage takeable'))
+      assert.ok(rail.indexOf('map-stage takeable') < rail.indexOf('map-stage blocked'))
+      assert.ok(rail.indexOf('map-stage blocked') < rail.indexOf('map-stage fog'))
+      assert.match(t, /behind #265 The settings write, #266 The verbs reach the browser/)
+      assert.match(t, /The native dialog seam.*not yet specified/)
+      assert.match(t, /Search result excerpts.*not yet specified/)
       assert.match(t, /The settings write/)
       assert.match(t, /task.*claude-opus-5.*Start/)
       assert.match(html, /startTicket\('alp82\/curia','265'\)/)
     })
 
-    test('blocked detail names every blocker, and fog detail names each retained uncertainty', () => {
-      page.UI.maps = { repo: 'all', selected: { repo: 'alp82/curia', map: 244, group: 'blocked' }, open: false }
-      let t = text(page.screenMaps(payload()))
-      assert.match(t, /behind #265 The settings write, #266 The verbs reach the browser/)
-      page.UI.maps.selected.group = 'fog'
-      t = text(page.screenMaps(payload()))
-      assert.match(t, /The native dialog seam.*not yet specified/)
-      assert.match(t, /Search result excerpts.*not yet specified/)
+    test('the miniature band gives one grid track to every actual item', () => {
+      page.UI.maps = { repo: 'all', selected: { repo: 'alp82/curia', map: 244 }, open: false }
+      const html = page.screenMaps(payload())
+      const band = /<div class="map-band"[^>]*style="[^"]*grid-template-columns:repeat\(24,minmax\(0,1fr\)\)[^"]*"[^>]*>([\s\S]*?)<\/div>/.exec(html)?.[1]
+      assert.ok(band, '18 done + 1 running + 2 frontier + 1 blocked + 2 fog make 24 equal tracks')
+      for (const [group, count] of [['walked', 18], ['in-flight', 1], ['takeable', 2], ['blocked', 1], ['fog', 2]]) {
+        assert.match(band, new RegExp(`class="map-seg ${group}[^\"]*"[^>]*style="[^"]*grid-column:span ${count}`), `${group} spans its count`)
+      }
+    })
+
+    test('a zero-count stage stays in the full rail but consumes no miniature track', () => {
+      const p = payload()
+      p.overview.maps.maps[0].counts.in_flight = 0
+      p.overview.maps.maps[0].in_flight = []
+      page.UI.maps = { repo: 'all', selected: { repo: 'alp82/curia', map: 244 }, open: false }
+      const html = page.screenMaps(p)
+      const band = /<div class="map-band"[^>]*>([\s\S]*?)<\/div>/.exec(html)?.[1]
+      assert.ok(band)
+      assert.doesNotMatch(band, /class="map-seg in-flight/)
+      assert.match(html, /class="map-stage in-flight[^\"]*"/)
+      assert.match(text(html), /0 running/)
     })
 
     test('maps needing the operator lead, then calm maps sort by the latest event', () => {
@@ -1097,32 +1134,44 @@ describe('the read screens (#264)', () => {
       assert.match(text(page.screenMaps(p)), /No map snapshot has been computed yet/)
     })
 
-    test('the takeable group sits under the frontier rule, and an empty one says where the way went', () => {
+    test('frontier tickets are tall two-line rows with their routed Start control', () => {
       const p = payload()
-      page.UI.maps = { repo: 'all', selected: { repo: 'alp82/curia', map: 244, group: 'takeable' }, open: false }
-      assert.match(page.screenMaps(p), /class="map-front"/)
+      page.UI.maps = { repo: 'all', selected: { repo: 'alp82/curia', map: 244 }, open: false }
+      let html = page.screenMaps(p)
+      assert.match(html, /class="map-detail-row frontier-ticket"/)
+      assert.match(html, /class="frontier-copy"[\s\S]*class="frontier-meta"/)
+      assert.match(html, /class="btn sm primary"[^>]*>Start<\/button>/)
+
       p.overview.maps.maps[0].takeable = []
-      assert.match(text(page.screenMaps(p)), /Nothing is takeable\. The way is in flight or behind a blocker\./)
+      p.overview.maps.maps[0].counts.takeable = 0
+      html = page.screenMaps(p)
+      assert.match(text(html), /Nothing is on the frontier\. The way is running or behind a blocker\./)
     })
 
-    test('blocked wears the decided red dashes and fog the grey stripes', () => {
-      page.UI.maps = { repo: 'all', selected: { repo: 'alp82/curia', map: 244, group: 'blocked' }, open: false }
-      assert.match(page.screenMaps(payload()), /class="map-detail-list blocked"/)
-      page.UI.maps.selected.group = 'fog'
-      assert.match(page.screenMaps(payload()), /class="map-detail-list fog"/)
+    test('a running ticket keeps working and needs-you semantics beside its owner and model', () => {
+      page.UI.maps = { repo: 'all', selected: { repo: 'alp82/curia', map: 244 }, open: false }
+      const html = page.screenMaps(payload())
+      assert.match(html, /class="map-stage in-flight needs"/)
+      assert.match(html, /class="activity"[^>]*>working<\/span>/)
+      assert.match(html, /class="needs-badge"[^>]*>needs you<\/span>/)
+      assert.match(text(html), /The note queue drains in order.*needs you.*alp82.*gpt-5\.6-sol/)
     })
 
-    test('an in-flight ticket names who holds it and the model it runs on', () => {
-      page.UI.maps = { repo: 'all', selected: { repo: 'alp82/curia', map: 244, group: 'in_flight' }, open: false }
-      assert.match(text(page.screenMaps(payload())), /The note queue drains in order.*alp82.*gpt-5\.6-sol/)
+    test('the whole map selector supports click and keyboard selection', () => {
+      page.UI.maps = { repo: 'all', selected: null, open: false }
+      const html = page.screenMaps(payload())
+      assert.match(html, /class="map-card[^\"]*"[^>]*role="button"/)
+      assert.match(html, /class="map-card[^\"]*"[^>]*tabindex="0"/)
+      assert.match(html, /class="map-card[^\"]*"[^>]*onclick="mapSelect\('alp82\/curia','244'\)"/)
+      assert.match(html, /class="map-card[^\"]*"[^>]*onkeydown="mapCardKey\(event,'alp82\/curia','244'\)"/)
     })
 
     // The phone's half of the split is a ROUTE (#700): it opens over the list,
     // reloads into the same view, and the browser's back leaves it.
-    test('choosing a group routes to that map detail, and back returns to the list', () => {
+    test('choosing a map routes to its full rail, and back returns to the list', () => {
       page.UI.maps = { repo: 'all', selected: null, open: false }
-      page.mapSelect('alp82/curia', 244, 'blocked')
-      assert.equal(page.location.hash, 'maps/alp82/curia/244/blocked')
+      page.mapSelect('alp82/curia', 244)
+      assert.equal(page.location.hash, 'maps/alp82/curia/244')
       assert.equal(page.UI.maps.open, true)
       assert.match(page.screenMaps(payload()), /<div class="map-layout" data-open>/)
 
@@ -1132,12 +1181,19 @@ describe('the read screens (#264)', () => {
       assert.doesNotMatch(page.screenMaps(payload()), /data-open/)
     })
 
-    test('a detail hash opens that group, and the bare maps hash opens the list', () => {
+    test('a map-only hash opens the full rail, and an old group hash remains compatible', () => {
       page.UI.maps = { repo: 'all', selected: null, open: false }
+      page.applyMapRoute(['maps', 'alp82', 'curia', '244'])
+      assert.equal(page.UI.maps.selected.repo, 'alp82/curia')
+      assert.equal(String(page.UI.maps.selected.map), '244')
+      assert.equal(page.UI.maps.selected.group, undefined)
+      assert.equal(page.UI.maps.open, true)
+      assert.match(text(page.screenMaps(payload())), /The native dialog seam/)
+
       page.applyMapRoute(['maps', 'alp82', 'curia', '244', 'fog'])
       assert.equal(page.UI.maps.selected.repo, 'alp82/curia')
       assert.equal(String(page.UI.maps.selected.map), '244')
-      assert.equal(page.UI.maps.selected.group, 'fog')
+      assert.equal(page.UI.maps.selected.group, undefined)
       assert.equal(page.UI.maps.open, true)
       assert.match(text(page.screenMaps(payload())), /The native dialog seam/)
 
@@ -1146,7 +1202,7 @@ describe('the read screens (#264)', () => {
     })
 
     test('the maps tab lands on the list, never on the last detail opened', () => {
-      page.UI.maps = { repo: 'all', selected: { repo: 'alp82/curia', map: 244, group: 'fog' }, open: true }
+      page.UI.maps = { repo: 'all', selected: { repo: 'alp82/curia', map: 244 }, open: true }
       page.goto('maps')
       assert.equal(page.UI.maps.open, false)
       assert.equal(page.location.hash, 'maps')
@@ -1157,7 +1213,7 @@ describe('the read screens (#264)', () => {
     test('a paused map is listed and says so, and hands out no start control', () => {
       const p = payload()
       p.overview.maps.maps[0].deferred = true
-      page.UI.maps = { repo: 'all', selected: { repo: 'alp82/curia', map: 244, group: 'takeable' }, open: false }
+      page.UI.maps = { repo: 'all', selected: { repo: 'alp82/curia', map: 244 }, open: false }
       const html = page.screenMaps(p)
       const t = text(html)
       assert.match(t, /Curia gets a face/, 'the map stays listed')
@@ -2130,8 +2186,9 @@ describe('the operator verbs (#266)', () => {
 
     test('the button carries the routed model, so the account is named before it is spent', () => {
       const t = text(takeable())
-      assert.match(t, /Start → claude-opus-5 \(task default\)/)
-      assert.match(t, /Start → gpt-5\.6-sol \(grilling default\)/)
+      assert.match(t, /task · routed to claude-opus-5/)
+      assert.match(t, /grilling · routed to gpt-5\.6-sol/)
+      assert.match(t, /Start/)
     })
 
     test('it names the repo and the number, and the sidecar composes the rest', () => {

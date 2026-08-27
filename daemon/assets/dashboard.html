@@ -34,7 +34,9 @@
 
      1. Color marks attention, and nothing else. Warn and bad are spent on an
         open question, the review gate and a spent usage window. A state, a
-        ticket type and a repo are told in words.
+        ticket type and a repo are told in words. The Maps progress rail is the
+        narrow exception: muted color and texture separate its adjacent stages,
+        and every stage still carries its name and count.
      2. Null is not empty. An unreadable fleet is not an idle box, and a frontier
         nobody has computed is not an empty frontier. Every section that can fail
         on its own says which of the two it is. -->
@@ -55,10 +57,9 @@
     /* The diff's own two colors (#355) — a patch's vocabulary, not the
        attention marking. Deliberately not --ok/--bad. */
     --diff-add: #6fbf73; --diff-del: #d98b84;
-    /* The blocked group's own red (#700, F1 in the #588 prototype). It is the
-       texture the operator accepted for "behind something", not the attention
-       marking, so it is deliberately not --bad. */
-    --blocked-edge: rgba(240,122,122,.45); --blocked-wash: rgba(240,122,122,.10);
+    --map-done-bg: #29463b; --map-done-ink: #a9cabc;
+    --map-run-bg: #142b38; --map-run-ink: #a9ddf3; --map-run-line: #65b8db;
+    --map-front-bg: #10252d; --map-fog-a: #2b3037; --map-fog-b: #20242a;
   }
   @media (prefers-color-scheme: light) {
     :root:not([data-theme="dark"]) {
@@ -70,7 +71,9 @@
       --chip-warn-bg: #f4e8cf; --chip-bad-bg: #f6ddda; --chip-ok-bg: #d9efe7;
       --shadow: 0 6px 24px rgba(30,40,35,.12);
       --diff-add: #1f7a34; --diff-del: #a3352c;
-      --blocked-edge: rgba(179,50,58,.40); --blocked-wash: rgba(179,50,58,.07);
+      --map-done-bg: #dcebe4; --map-done-ink: #315f4b;
+      --map-run-bg: #e0f0f7; --map-run-ink: #276a86; --map-run-line: #3f91b2;
+      --map-front-bg: #e4f3f6; --map-fog-a: #d9dde0; --map-fog-b: #eef0f1;
     }
   }
   * { box-sizing: border-box; }
@@ -486,8 +489,12 @@
   .map-filter { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
   .map-filter button { border: 1px solid var(--line); border-radius: 999px; background: var(--bg-raise); color: var(--ink-dim); padding: 4px 12px; font-size: 12px; }
   .map-filter button.on { border-color: var(--accent); color: var(--accent); }
-  .map-layout { display: grid; grid-template-columns: minmax(0, 5fr) minmax(280px, 4fr); gap: 0 56px; align-items: start; }
-  .map-card { margin-top: 34px; }
+  .map-layout { display: grid; grid-template-columns: minmax(340px, 370px) minmax(420px, 1fr); gap: 0 42px; align-items: start; }
+  .map-cards { position: sticky; top: 18px; padding-right: 20px; border-right: 1px solid var(--line); }
+  .map-card { margin-top: 8px; padding: 14px 13px 12px; border: 1px solid transparent; border-radius: 9px; cursor: pointer; }
+  .map-card:first-child { margin-top: 0; }
+  .map-card:hover { background: var(--bg-raise); }
+  .map-card.on { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); background: var(--bg-raise); box-shadow: inset 3px 0 var(--accent); }
   .map-head { display: flex; gap: 16px; align-items: center; }
   .map-fraction { flex: none; font: 700 23px ui-monospace, Menlo, monospace; }
   .map-fraction .total, .map-fraction .fog-count { color: var(--ink-dim); font-weight: 400; }
@@ -495,38 +502,60 @@
   .map-title { min-width: 0; }
   .map-title b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .map-title .meta { display: block; color: var(--ink-faint); font: 10px ui-monospace, Menlo, monospace; margin-top: 4px; }
-  .map-band { display: flex; gap: 3px; margin-top: 14px; min-height: 38px; }
-  .map-seg { flex: 1 1 0; min-width: 45px; border: 0; border-radius: 5px; padding: 5px; background: var(--accent); color: var(--accent-ink); font: 700 11px ui-monospace, Menlo, monospace; }
-  .map-seg span { display: block; font-size: 9px; font-weight: 500; }
-  .map-seg.in-flight { background: var(--ok); }
-  .map-seg.in-flight.needs { background: var(--warn); }
-  .map-seg.takeable { border: 2px solid var(--accent); background: transparent; color: var(--accent); }
-  .map-seg.blocked { background: repeating-linear-gradient(45deg, var(--line) 0 4px, transparent 4px 8px); color: var(--ink-dim); }
-  .map-seg.fog { border: 2px dotted var(--ink-dim); background: transparent; color: var(--ink-dim); }
-  .map-seg.on { outline: 2px solid var(--ink-dim); outline-offset: 3px; }
-  .map-detail { position: sticky; top: 24px; margin-top: 34px; }
-  .map-detail h3 { color: var(--ink-faint); font: 600 10px ui-monospace, Menlo, monospace; letter-spacing: .16em; text-transform: uppercase; margin-bottom: 8px; }
-  .map-detail-list { border-left: 2px solid var(--line); padding-left: 16px; }
+  .map-band { display: grid; gap: 0; margin-top: 11px; height: 25px; }
+  .map-seg { position: relative; min-width: 0; display: flex; align-items: center; justify-content: center; overflow: hidden; border-radius: 3px; padding: 3px; font: 700 9px ui-monospace, Menlo, monospace; }
+  .map-seg + .map-seg { border-left: 3px solid var(--bg); }
+  .map-seg span { display: none; }
+  .map-seg.walked { color: var(--map-done-ink); background: var(--map-done-bg); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--map-done-ink) 16%, transparent); }
+  .map-seg.in-flight { color: var(--map-run-ink); background: var(--map-run-bg); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--map-run-line) 40%, transparent); }
+  .map-seg.in-flight::before { content: ""; position: absolute; inset: 0; transform: translateX(-110%); background: linear-gradient(100deg, transparent 25%, color-mix(in srgb, var(--map-run-line) 28%, transparent) 48%, transparent 72%); animation: map-working 3.1s ease-in-out infinite; }
+  .map-seg.in-flight.needs::after { content: "!"; position: absolute; right: 4px; top: 3px; display: grid; place-items: center; width: 13px; height: 13px; border-radius: 50%; background: var(--warn); color: var(--accent-ink); font-size: 9px; }
+  .map-seg.takeable { color: var(--accent); background: var(--map-front-bg); box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 72%, transparent), 0 0 14px color-mix(in srgb, var(--accent) 8%, transparent); }
+  .map-seg.blocked { color: color-mix(in srgb, var(--bad) 70%, var(--ink-dim)); background-color: color-mix(in srgb, var(--bad) 5%, var(--bg)); background-image: repeating-linear-gradient(0deg, transparent 0 8px, color-mix(in srgb, var(--bad) 25%, transparent) 8px 10px); }
+  .map-seg.fog { color: var(--ink-dim); background: repeating-linear-gradient(45deg, var(--map-fog-a) 0 8px, var(--map-fog-b) 8px 16px); }
+  .map-band-hero { height: 56px; margin: 0 0 30px; }
+  .map-band-hero .map-seg { border-radius: 5px; font-size: 11px; }
+  .map-band-hero .map-seg span { display: block; margin-left: 6px; font-size: 9px; font-weight: 500; }
+  @keyframes map-working { 0%, 22% { transform: translateX(-110%); } 72%, 100% { transform: translateX(110%); } }
+  .map-detail { position: sticky; top: 24px; }
+  .map-detail h3 { color: var(--ink-faint); font: 600 10px ui-monospace, Menlo, monospace; letter-spacing: .16em; text-transform: uppercase; margin-bottom: 16px; }
+  .map-rail { position: relative; padding-left: 30px; }
+  .map-rail::before { content: ""; position: absolute; left: 7px; top: 12px; bottom: 12px; width: 2px; background: var(--line); }
+  .map-stage { position: relative; padding: 0 0 24px 18px; }
+  .map-stage:last-child { padding-bottom: 0; }
+  .map-stage::before { content: ""; position: absolute; left: -28px; top: 4px; z-index: 1; width: 13px; height: 13px; border: 3px solid var(--stage); border-radius: 50%; background: var(--bg); }
+  .map-stage-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding-bottom: 7px; border-bottom: 1px solid var(--line); }
+  .map-stage-head b { color: var(--stage); font: 700 11px ui-monospace, Menlo, monospace; letter-spacing: .12em; text-transform: uppercase; }
+  .map-stage-status { display: flex; align-items: center; justify-content: flex-end; gap: 8px; color: var(--ink-dim); font: 11px ui-monospace, Menlo, monospace; }
+  .activity { display: inline-flex; align-items: center; gap: 6px; color: var(--map-run-line); }
+  .activity::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--map-run-line); box-shadow: 0 0 0 0 color-mix(in srgb, var(--map-run-line) 40%, transparent); animation: map-online 2s ease-out infinite; }
+  .needs-badge { border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--line)); border-radius: 999px; padding: 2px 7px; color: var(--warn); background: color-mix(in srgb, var(--warn) 10%, var(--bg)); font: 700 9px ui-monospace, Menlo, monospace; text-transform: uppercase; }
+  @keyframes map-online { 70%, 100% { box-shadow: 0 0 0 6px transparent; } }
+  .map-stage.walked { opacity: .72; }
+  .map-stage.takeable { margin: 2px 0 24px; padding: 13px 14px 15px 18px; border: 1px solid color-mix(in srgb, var(--accent) 34%, transparent); border-radius: 8px; background: color-mix(in srgb, var(--accent) 7%, transparent); }
+  .map-stage.takeable::before { left: -28px; }
+  .map-detail-list { padding-left: 0; }
   .map-detail-row { padding: 9px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
   .map-detail-row:last-child { border-bottom: 0; }
   .map-detail-row .sub { display: block; color: var(--ink-dim); font-size: 11px; margin-top: 4px; }
-  /* The frontier rule the takeable group sits under (#588 F1). */
-  .map-front { display: flex; align-items: center; gap: 10px; margin: 2px 0 6px; }
-  .map-front .lbl { flex: none; color: var(--accent); font: 700 10px ui-monospace, Menlo, monospace; letter-spacing: .24em; text-transform: uppercase; }
-  .map-front .rule { flex: 1; height: 2px; background: var(--accent); }
-  /* Blocked wears thin red dashes and names every key; fog wears the grey
-     diagonal stripes. Both are boxed, and both are the accepted cut. */
-  .map-detail-list.blocked { border-left: 0; padding: 4px 14px; border: 1px solid var(--blocked-edge); border-radius: 8px;
-    background: repeating-linear-gradient(0deg, var(--blocked-wash) 0 2px, transparent 2px 9px); }
-  .map-detail-list.blocked .map-detail-row { border-bottom-color: var(--blocked-edge); }
-  .map-detail-list.blocked .sub { color: var(--bad); }
-  .map-detail-list.fog { border-left: 0; padding: 4px 14px; border: 1px solid var(--line); border-radius: 8px; color: var(--ink-dim);
-    background: repeating-linear-gradient(45deg, var(--line) 0 4px, transparent 4px 8px); }
+  .frontier-ticket { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; align-items: stretch; min-height: 76px; padding: 12px 0; }
+  .frontier-copy { min-width: 0; }
+  .frontier-meta { display: block; margin-top: 7px; color: var(--ink-dim); font: 10px ui-monospace, Menlo, monospace; }
+  .frontier-ticket .map-start { margin: 0; align-self: stretch; }
+  .frontier-ticket .map-start .btn { min-width: 68px; height: 100%; }
+  .map-stage.in-flight .map-detail-row { border-left: 2px solid var(--map-run-line); padding-left: 9px; }
+  .map-stage.blocked .map-detail-list { padding: 4px 14px; border: 1px solid color-mix(in srgb, var(--bad) 24%, var(--line)); border-radius: 8px; background: repeating-linear-gradient(0deg, transparent 0 8px, color-mix(in srgb, var(--bad) 9%, transparent) 8px 10px); }
+  .map-stage.blocked .map-detail-row { border-bottom-color: color-mix(in srgb, var(--bad) 20%, var(--line)); opacity: .78; }
+  .map-stage.fog { opacity: .68; }
+  .map-stage.fog .map-detail-list { padding: 4px 14px; border: 1px solid var(--line); border-radius: 8px; background: repeating-linear-gradient(45deg, color-mix(in srgb, var(--line) 65%, transparent) 0 8px, transparent 8px 16px); }
   .map-back { display: none; }
+  @media (prefers-reduced-motion: reduce) {
+    .map-seg.in-flight::before, .activity::before { animation: none; }
+  }
   @media (max-width: 900px) {
     .map-layout { grid-template-columns: 1fr; }
-    .map-card { margin-top: 28px; }
-    .map-band { overflow-x: auto; padding: 3px; }
+    .map-cards { position: static; padding-right: 0; border-right: 0; }
+    .map-card { margin-top: 8px; }
     /* The phone's half of the split is a ROUTE (#700): the detail is its own
        hash, so it opens over the list and the browser's back leaves it. Both
        halves are always rendered and this decides which the width shows —
@@ -758,8 +787,8 @@ const REVIEW_KIND = "review-gate";
 var UI = {
   screen: "home",
   /* The maps page's own state (#700): which project the list is filtered to,
-     which map and group the detail half shows, and whether the phone is on
-     that detail instead of the list. `open` is the route's, never a width's. */
+     which map the complete detail rail shows, and whether the phone is on that
+     detail instead of the list. `open` is the route's, never a width's. */
   maps: { repo: "all", selected: null, open: false },
   /* Which agent the detail half shows, and whether the phone is on it (#709).
      `open` is the route's, never a width's. */
@@ -1177,13 +1206,12 @@ function searchGo(surface, ref) {
   if (surface === "maps") {
     const map = mapsOf(payload?.overview).find((row) => String(row.number) === String(ref));
     if (map) {
-      const group = mapNeeds(payload.overview, map) ? "in_flight" : map.counts?.takeable ? "takeable" : map.counts?.walked ? "walked" : "fog";
       UI.maps.repo = "all";
-      UI.maps.selected = { repo: map.repo, map: map.number, group };
+      UI.maps.selected = { repo: map.repo, map: map.number };
       UI.maps.open = true;
       UI.search.open = false;
       enter("maps");
-      location.hash = mapRoute(map.repo, map.number, group);
+      location.hash = mapRoute(map.repo, map.number);
       render();
       return false;
     }
@@ -2353,31 +2381,28 @@ function visibleMaps(o) {
       || Date.parse(b.latest_event_at ?? 0) - Date.parse(a.latest_event_at ?? 0));
 }
 
-function selectedMapGroup(o, maps) {
+function selectedMap(o, maps) {
   const chosen = UI.maps.selected;
   const map = maps.find((row) => row.repo === chosen?.repo && String(row.number) === String(chosen?.map));
-  if (map && ["walked", "in_flight", "takeable", "blocked", "fog"].includes(chosen.group)) return { map, group: chosen.group };
-  const first = maps[0];
-  if (!first) return null;
-  const group = mapNeeds(o, first) ? "in_flight" : first.counts?.takeable ? "takeable" : first.counts?.walked ? "walked" : "fog";
-  return { map: first, group };
+  return map ?? maps[0] ?? null;
 }
 
 const MAP_GROUPS = [
-  ["walked", "walked"],
-  ["in_flight", "in flight"],
-  ["takeable", "takeable"],
+  ["walked", "done"],
+  ["in_flight", "running"],
+  ["takeable", "frontier"],
   ["blocked", "blocked"],
   ["fog", "fog"],
 ];
 
-function mapBand(o, map, selected) {
-  return `<div class="map-band">${MAP_GROUPS.map(([key, word]) => {
+function mapBand(o, map, hero = false) {
+  const total = Math.max(1, MAP_GROUPS.reduce((sum, [key]) => sum + Number(map.counts?.[key] ?? 0), 0));
+  return `<div class="map-band${hero ? " map-band-hero" : ""}" style="grid-template-columns:repeat(${total},minmax(0,1fr))" aria-label="${esc(total)} map items">${MAP_GROUPS.map(([key, word]) => {
+    const count = Number(map.counts?.[key] ?? 0);
+    if (!count) return "";
     const needs = key === "in_flight" && mapNeeds(o, map);
-    const on = selected?.map.repo === map.repo && String(selected.map.number) === String(map.number) && selected.group === key;
-    return `<button class="map-seg ${key.replace("_", "-")}${needs ? " needs" : ""}${on ? " on" : ""}"
-      aria-label="${esc(map.counts?.[key] ?? 0)} ${esc(word)}" onclick="mapSelect('${js(map.repo)}','${js(map.number)}','${key}')">
-      ${esc(map.counts?.[key] ?? 0)}<span>${needs ? "in flight · needs you" : esc(word)}</span></button>`;
+    return `<span class="map-seg ${key.replace("_", "-")}${needs ? " needs" : ""}" style="grid-column:span ${esc(count)}"
+      aria-label="${esc(count)} ${esc(word)}">${esc(count)}<span>${needs ? "running · needs you" : esc(word)}</span></span>`;
   }).join("")}</div>`;
 }
 
@@ -2390,8 +2415,9 @@ function mapDetailRows(o, map, group) {
   /* An empty frontier is a sentence, not a blank (#588). The way is elsewhere,
      and saying where beats leaving the operator to guess it. */
   if (!items.length) {
-    if (group === "takeable") return `<div class="empty">Nothing is takeable. The way is in flight or behind a blocker.</div>`;
-    return `<div class="empty">Nothing is ${group.replace("_", " ")}.</div>`;
+    if (group === "takeable") return `<div class="empty">Nothing is on the frontier. The way is running or behind a blocker.</div>`;
+    const word = MAP_GROUPS.find(([key]) => key === group)?.[1] ?? group.replace("_", " ");
+    return `<div class="empty">Nothing is ${esc(word)}.</div>`;
   }
   return items.map((item) => {
     const issue = `<a href="https://github.com/${esc(map.repo)}/issues/${esc(item.number)}">#${esc(item.number)}</a> ${esc(item.title)}`;
@@ -2402,7 +2428,7 @@ function mapDetailRows(o, map, group) {
          is how a pause becomes a disappearance - it is the BUTTON that goes. */
       const start = map.deferred
         ? `<div class="act-row"><span class="dim-note">this map is paused (<span class="mono">wayfinder:deferred</span>), and a pause is only ever ended by hand</span></div>`
-        : startRow(o, map.repo, item);
+        : startRow(o, map.repo, item, false);
       /* LEVEL TWO (#768). The snapshot names what each takeable ticket
          directly unblocks, one level down and never a closure, so the
          operator reads which press opens the most of this way. A ticket that
@@ -2410,9 +2436,10 @@ function mapDetailRows(o, map, group) {
       const kids = item.unblocks?.length
         ? `<div class="fr-kids">${item.unblocks.map((kid) => `<div class="fr-kid"><a href="https://github.com/${esc(map.repo)}/issues/${esc(kid.number)}"><span class="t">#${esc(kid.number)}</span></a>${esc(kid.title)}</div>`).join("")}</div>`
         : "";
-      return `<div class="map-detail-row">${issue}
-      <span class="sub">${esc(mapType(item))} · routed to ${esc(item.model ?? "unknown")} · ${
-        item.unblocks?.length ? `unblocks ${esc(item.unblocks.length)}` : "unblocks nothing yet"}</span>${kids}${start}</div>`;
+      const model = item.model ? `routed to ${esc(item.model)}` : "the routed model is not on this reading";
+      return `<div class="map-detail-row frontier-ticket"><span class="frontier-copy">${issue}
+      <span class="frontier-meta">${esc(mapType(item))} · ${model} · ${
+        item.unblocks?.length ? `unblocks ${esc(item.unblocks.length)}` : "unblocks nothing yet"}</span>${kids}</span>${start}</div>`;
     }
     if (group === "blocked") {
       /* EVERY blocker, never a count of them: the operator's next question is
@@ -2426,25 +2453,29 @@ function mapDetailRows(o, map, group) {
       const agent = item.agent ?? agentOn(o, map.repo, item.number);
       const who = (item.assignees ?? []).join(", ");
       return `<div class="map-detail-row">${issue}<span class="sub">${
-        mapNeeds(o, { ...map, in_flight: [item] }) ? "needs you" : "in flight"}${
+        mapNeeds(o, { ...map, in_flight: [item] }) ? "needs you" : "working"}${
         who ? ` · ${esc(who)}` : ""}${agent?.model ? ` · ${esc(agent.model)}` : ""}</span></div>`;
     }
-    return `<div class="map-detail-row">${issue}<span class="sub">walked</span></div>`;
+    return `<div class="map-detail-row">${issue}<span class="sub">done</span></div>`;
   }).join("");
 }
 
-/* The detail half of the split. One element for both widths: the desktop shows
-   it beside the cards, and the phone shows it INSTEAD of them, on its own
-   route. The back link is the phone's way out and the CSS hides it elsewhere. */
-function mapDetail(o, selected) {
-  if (!selected) return "";
-  const name = MAP_GROUPS.find(([key]) => key === selected.group)?.[1] ?? selected.group;
-  const front = selected.group === "takeable"
-    ? `<div class="map-front"><span class="lbl">the frontier</span><span class="rule"></span></div>` : "";
+/* The detail half carries every state in one rail. The desktop keeps the map
+   selectors beside it; the phone opens this same element on a map route. */
+function mapDetail(o, map) {
+  if (!map) return "";
   return `<aside class="map-detail">
     <a class="map-back" href="#maps" onclick="mapBack();return false">\u2039 maps</a>
-    <h3>${esc(selected.map.title)} · ${esc(name)}</h3>${front}
-    <div class="map-detail-list ${esc(selected.group)}">${mapDetailRows(o, selected.map, selected.group)}</div></aside>`;
+    <h3>${esc(map.title)} · full map</h3>${mapBand(o, map, true)}<div class="map-rail">${MAP_GROUPS.map(([group, word]) => {
+      const needs = group === "in_flight" && mapNeeds(o, map);
+      const working = group === "in_flight" && (map.in_flight ?? []).some((item) => item.agent ?? agentOn(o, map.repo, item.number));
+      const count = Number(map.counts?.[group] ?? 0);
+      return `<section class="map-stage ${group.replace("_", "-")}${needs ? " needs" : ""}" style="--stage:${
+        group === "walked" ? "var(--map-done-ink)" : group === "in_flight" ? "var(--map-run-line)" : group === "takeable" ? "var(--accent)" : group === "blocked" ? "color-mix(in srgb, var(--bad) 72%, var(--ink-dim))" : "var(--ink-dim)"}">
+        <header class="map-stage-head"><b>${esc(word)}</b><span class="map-stage-status">${
+          group === "in_flight" && working ? `<span class="activity">working</span>` : ""}${needs ? `<span class="needs-badge">needs you</span>` : ""}<span>${esc(count)} ${esc(word)}</span></span></header>
+        <div class="map-detail-list ${group.replace("_", "-")}">${mapDetailRows(o, map, group)}</div></section>`;
+    }).join("")}</div></aside>`;
 }
 
 /* The walked fraction is the snapshot's own total (#687), never a sum this
@@ -2468,7 +2499,7 @@ function screenMaps(p) {
       failed ? "" : `<div class="later">No map snapshot has been computed yet. Reconcile computes it on the credentials that pass already holds, and stamps the instant it did.</div>`}`;
   }
   const maps = visibleMaps(o);
-  const selected = selectedMapGroup(o, maps);
+  const selected = selectedMap(o, maps);
   const repos = [...new Set(mapsOf(o).map((map) => map.repo))];
   const filters = `<div class="map-filter"><button class="${UI.maps.repo === "all" ? "on" : ""}" onclick="mapRepo('all')">all projects</button>
     ${repos.map((repo) => `<button class="${UI.maps.repo === repo ? "on" : ""}" onclick="mapRepo('${js(repo)}')">${esc(shortRepo(repo))}</button>`).join("")}
@@ -2476,10 +2507,11 @@ function screenMaps(p) {
   const cards = maps.map((map) => {
     const total = mapTotal(map);
     const walked = map.counts?.walked ?? 0;
-    return `<section class="map-card"><div class="map-head">
+    const on = selected?.repo === map.repo && String(selected?.number) === String(map.number);
+    return `<section class="map-card${on ? " on" : ""}" role="button" tabindex="0" aria-pressed="${on}" onclick="mapSelect('${js(map.repo)}','${js(map.number)}')" onkeydown="mapCardKey(event,'${js(map.repo)}','${js(map.number)}')"><div class="map-head">
       <div class="map-fraction">${esc(walked)}<span class="total">/${esc(total)}</span>${map.counts?.fog ? `<span class="fog-count">+${esc(map.counts.fog)}</span>` : ""}</div>
-      <div class="map-title"><b>${esc(map.title)}</b><span class="meta">${esc(map.repo)} · ${esc(ago(map.latest_event_at))} · <a href="${esc(mapUrl(map))}">#${esc(map.number)}</a>${map.deferred ? " · paused" : ""}</span></div>
-      </div>${mapBand(o, map, selected)}</section>`;
+      <div class="map-title"><b>${esc(map.title)}</b><span class="meta">${esc(map.repo)} · ${esc(ago(map.latest_event_at))} · <a href="${esc(mapUrl(map))}" onclick="event.stopPropagation()">#${esc(map.number)}</a>${map.deferred ? " · paused" : ""}</span></div>
+      </div>${mapBand(o, map)}</section>`;
   }).join("") || `<div class="empty">No open map matches this project.</div>`;
   return `${head(p, "Atlas \u00b7 Maps")} ${filters}${failed}<div class="map-layout"${
     UI.maps.open && selected ? " data-open" : ""}><div class="map-cards">${cards}</div>${mapDetail(o, selected)}</div>`;
@@ -2487,26 +2519,31 @@ function screenMaps(p) {
 
 const mapUrl = (map) => map.url ?? `https://github.com/${map.repo}/issues/${map.number}`;
 
-/* THE DETAIL IS A ROUTE (#700). `#maps/<owner>/<name>/<number>/<group>` names
-   one group of one map, so the phone's detail view has a back, a refresh, and
-   a link an operator can send: the same three things every other Atlas screen
-   gets from its own hash. `#maps` on its own is the list. */
-const mapRoute = (repo, number, group) => `maps/${repo}/${number}/${group}`;
+/* THE DETAIL IS A ROUTE (#700). `#maps/<owner>/<name>/<number>` names one map,
+   so the phone's full rail has a back, a refresh, and a link an operator can
+   send. The optional group keeps older feed links and bookmarks working; the
+   full rail ignores it. `#maps` on its own is the list. */
+const mapRoute = (repo, number, group) => `maps/${repo}/${number}${group ? `/${group}` : ""}`;
 
 function applyMapRoute(parts) {
-  if (parts.length >= 5) {
-    UI.maps.selected = { repo: `${parts[1]}/${parts[2]}`, map: parts[3], group: parts[4] };
+  if (parts.length >= 4) {
+    UI.maps.selected = { repo: `${parts[1]}/${parts[2]}`, map: parts[3] };
     UI.maps.open = true;
   } else {
     UI.maps.open = false;
   }
 }
 
-function mapSelect(repo, map, group) {
-  UI.maps.selected = { repo, map, group };
+function mapSelect(repo, map) {
+  UI.maps.selected = { repo, map };
   UI.maps.open = true;
-  location.hash = mapRoute(repo, map, group);
+  location.hash = mapRoute(repo, map);
   render();
+}
+function mapCardKey(event, repo, map) {
+  if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
+  event.preventDefault();
+  mapSelect(repo, map);
 }
 function mapBack() {
   UI.maps.open = false;
@@ -2550,16 +2587,16 @@ function agentOn(o, repo, number) {
   if (o?.agents == null) return undefined;
   return o.agents.find((a) => String(a.ticket) === String(number) && (!a.repo || a.repo === repo)) ?? null;
 }
-function startRow(o, repo, n) {
+function startRow(o, repo, n, showModel = true) {
   const live = agentOn(o, repo, n.number);
   const key = `start:${repo}#${n.number}`;
   if (live) return `<div class="act-row"><span class="dim-note mono">⧗ dispatched — ${esc(live.session)}</span></div>`;
   const model = n.model
     ? `<span class="dim-note mono">→ ${esc(n.model)} (${esc(typeOf(n))} default)</span>`
     : `<span class="dim-note">the routed model is not on this reading</span>`;
-  return `<div class="act-row">
+  return `<div class="act-row map-start">
       <button class="btn sm primary" ${anyBusy() ? "disabled" : ""} onclick="startTicket('${js(repo)}','${js(n.number)}')">${
-        busy(key) ? "Starting…" : "Start"}</button>${model}
+        busy(key) ? "Starting…" : "Start"}</button>${showModel ? model : ""}
     </div>
     ${live === undefined ? `<div class="dim-note">the fleet could not be read, so curia cannot say whether this one is already running</div>` : ""}
     ${said(key)}`;
