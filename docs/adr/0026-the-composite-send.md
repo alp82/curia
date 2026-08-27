@@ -46,6 +46,12 @@ A question of a round takes an optional background block: Grade B, 600 character
 
 `ask_human` sends an array with the deciding message last. `notify` sends one with no deciding message, and a prose message carries the answer that never fit the 600-character status line. `request_review` composes one for the reply after a rejection. `report_result` and the verdict stay single messages.
 
+**On `request_review`, the gate card is the decision.** The card is curia's: it composes the pull request, the preview, the diff digest and the tracker-write waves from records no agent can author, so no agent could write it as a `preview-review` message. The send therefore carries the reply and nothing that decides, and the card posts last, under it. That is the ADR-0026 order read on this surface rather than an exception to it, and a send here that carries a deciding message is refused by name.
+
+The send is judged in the gate's own verdict rather than on a key of its own. A send and a gate arrive on one call, so they spend one of the three attempts together, and an agent fixing both reads both faults at once. `summary` still says what changed; the reply to the rejection is the send.
+
+The messages post from inside the gate call, at the instant the card is certain to open. `requestReview` refuses on five paths before it composes anything - a live cross-check, an unjudged verdict, a skill run with no tracker writes, a broken binding, the preview bounce - and posting above the call would leave the agent's reply in the thread with no gate under it. A send that fails to post does not take the card with it: the operator can still judge the diff.
+
 ### The disciplines
 
 `detail` carries facts only. A file carries an artifact: a diff, a mock, a log. The explanation lives in a prose message, never in the spoiler and never in an attached markdown file. A card stands alone without a download.

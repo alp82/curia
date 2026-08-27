@@ -117,6 +117,18 @@ export const reviewSessionFor = (n) => `curia-review-${n}`
 // The Stop hook names the tool, because the model has to make the call again.
 const TOOL_FOR_KIND = { [REVIEW_KIND]: 'request_review', [RESULT_KIND]: 'report_result', [NOTIFY_KIND]: 'notify' }
 
+// The line every rejection ends on (ADR-0026). A rejection is the human's own
+// words, and the next gate is the agent's reply to them — which had no field
+// before the composite send, so the reply went into the `summary` that is
+// supposed to say what CHANGED, or into an attached markdown file the ADR calls
+// counterproductive. This is where the agent is told where the reply goes,
+// because this is the one moment it is about to write one.
+const REPLY_TO_REJECTION = [
+  'Answer their words in that call\'s `messages`: one prose message that leads with its conclusion in',
+  'bold. `summary` stays what changed. The gate card posts last, under your reply, so a send here',
+  'carries nothing that decides.',
+].join('\n')
+
 // The label a CHARTING dispatch needs (#160): `map curia#<n>` on a map's own
 // issue spawns an agent that updates the map, not one that resolves a ticket
 // under it. Since #221 the VERB decides the kind and this label is the check on
@@ -4083,7 +4095,14 @@ export class Dispatcher {
   // preview from the registry that allocated it, the pull request from GitHub,
   // the ticket from the spawn binding. #40 recorded the alternative as a live
   // limit: an agent can hand ask_human any `preview_url` string it likes.
-  async requestReview(agentName, { summary = '', charting = '', body = '', trackerWrites = null } = {}) {
+  // `postPreludes` is the composite send of ADR-0026 (#622): the messages the
+  // agent composed above its gate, awaited at the one instant the card is
+  // certain to open. It is a callback rather than a payload because the files
+  // and the bridge belong to index.mjs, and because every refusal below must
+  // return with the thread untouched.
+  async requestReview(agentName, {
+    summary = '', charting = '', body = '', trackerWrites = null, postPreludes = null,
+  } = {}) {
     // #164: the reviewer is what a gate ASKS ABOUT, never what opens one. A
     // reviewer at the gate would put its own reading in front of the operator as
     // if it were the work, on a ticket it is not building.
@@ -4207,6 +4226,18 @@ export class Dispatcher {
       this.reduction.journal('preview_missing', {
         repo, ticket, agent: agentName, files: expectation.paths.slice(0, 10),
       })
+    }
+
+    // Past every refusal, so the send goes out only with a card under it. A
+    // prelude that fails to post must not take the gate with it: the operator
+    // can still judge the diff from the card, and an agent blocked here would
+    // be blocked on its own reply rather than on their answer.
+    if (postPreludes) {
+      try {
+        await postPreludes()
+      } catch (e) {
+        this.log(`review gate for ${repo}#${ticket}: the composite send failed to post (${e.message})`)
+      }
     }
 
     const { text } = reviewGateText({
@@ -4364,6 +4395,8 @@ export class Dispatcher {
           'Publish nothing: no issue, no label, no edge. Nothing from the card exists on the tracker, and',
           'it stays that way. Revise the proposal from their words, then call request_review again with',
           'the full `tracker_writes` list.',
+          '',
+          REPLY_TO_REJECTION,
         ].join('\n')),
       }
     }
@@ -4376,6 +4409,8 @@ export class Dispatcher {
         '',
         'Do not merge and do not resolve. Make the changes, commit, call open_pull_request again, then',
         'request_review again.',
+        '',
+        REPLY_TO_REJECTION,
       ].join('\n')),
     }
   }

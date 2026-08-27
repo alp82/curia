@@ -165,6 +165,31 @@ export function sendFloorFaults(messages, { cap = MESSAGES_PER_SEND } = {}) {
   return faults
 }
 
+// Which message of a send may decide, per TOOL. This is the one rule the array
+// cannot hold on its own, because it is about the CALL rather than about the
+// messages: `ask_human` needs one decision and blocks on it, `notify` asks
+// nothing at all, and `request_review` decides through the gate card curia
+// composes from its own records, so a decision inside its send would be a
+// second answer surface for one press.
+//
+// It reads as a schema fault on every tool, because a send on the wrong tool is
+// a misplaced field rather than badly chosen words.
+export function sendDecisionFaults(tool, messages) {
+  if (tool === 'ask_human') {
+    const last = Array.isArray(messages) ? messages.at(-1) : null
+    return isDeciding(last)
+      ? []
+      : ['messages: `ask_human` needs one deciding message last. Use `notify` when no answer blocks the work.']
+  }
+  const decides = decidingIndex(Array.isArray(messages) ? messages : [])
+  if (decides < 0) return []
+  const format = messages[decides].format
+  if (tool === 'notify') {
+    return [`messages: \`notify\` decides nothing, and message ${decides + 1} is a ${format}. Use \`ask_human\` when an answer blocks the work.`]
+  }
+  return [`messages: the review gate is this call's decision, and message ${decides + 1} is a ${format}. Curia composes the gate card itself and posts it last, under your send. Put your reply to the rejection in a \`prose\` message.`]
+}
+
 // ---- the words ----------------------------------------------------------------
 
 // A prose message opens with one bold line, and the body comes after it.

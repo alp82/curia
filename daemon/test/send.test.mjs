@@ -10,7 +10,7 @@ import assert from 'node:assert/strict'
 import {
   MESSAGES_PER_SEND, MESSAGE_FORMATS, DECIDING_FORMATS, CONTENT_FIELDS,
   sendFloorFaults, lintSend, sendHasText, sendPrompt, decidingIndex, isComposite,
-  messageSchema, sendSchema,
+  sendDecisionFaults, messageSchema, sendSchema,
 } from '../src/send.mjs'
 import { CAPS } from '../src/lint.mjs'
 
@@ -260,5 +260,51 @@ describe('the shape a tool declares', () => {
     assert.equal(parsed.picture, 'a.png')
     assert.equal(parsed.table, 'a  b')
     assert.equal(parsed.diagram, 'a\nb')
+  })
+})
+
+// ADR-0026 names the tool each send belongs to: "`ask_human` sends an array
+// with the deciding message last. `notify` sends one with no deciding message
+// ... `request_review` composes one for the reply after a rejection."
+//
+// The array cannot check that on its own — the same three messages are a legal
+// `notify` and an illegal `ask_human` — so the rule reads the tool beside them.
+describe('which message of a send may decide, per tool (ADR-0026)', () => {
+  test('`ask_human` needs a decision, and it needs it last', () => {
+    assert.deepEqual(sendDecisionFaults('ask_human', [prose('answer'), round()]), [])
+    assert.match(
+      names(sendDecisionFaults('ask_human', [prose('answer'), prose('detail')])),
+      /`ask_human` needs one deciding message last\. Use `notify`/,
+    )
+    // The place of the decision is the array's own rule, so this one only
+    // reads whether the LAST message decides.
+    assert.match(names(sendDecisionFaults('ask_human', [round(), prose('after')])), /needs one deciding message last/)
+  })
+
+  test('`notify` decides nothing, and the refusal names the tool that does', () => {
+    assert.deepEqual(sendDecisionFaults('notify', [prose('a'), prose('b')]), [])
+    const faults = names(sendDecisionFaults('notify', [prose('answer'), round()]))
+    assert.match(faults, /`notify` decides nothing, and message 2 is a round/)
+    assert.match(faults, /Use `ask_human` when an answer blocks the work/)
+  })
+
+  // The gate card is curia's: it composes the pull request, the preview, the
+  // diff digest and the tracker-write waves from records no agent can author.
+  // So a decision inside a review send would be a second answer surface for
+  // one press, and the refusal points at the prose message instead.
+  test('a `request_review` send decides nothing, because the gate card does', () => {
+    assert.deepEqual(sendDecisionFaults('request_review', [prose('reply'), prose('what changed')]), [])
+    const faults = names(sendDecisionFaults('request_review', [prose('reply'), round()]))
+    assert.match(faults, /the review gate is this call's decision, and message 2 is a round/)
+    assert.match(faults, /Curia composes the gate card itself and posts it last/)
+    assert.match(faults, /Put your reply to the rejection in a `prose` message/)
+  })
+
+  test('an empty or absent send decides nothing on any tool but `ask_human`', () => {
+    for (const tool of ['notify', 'request_review']) {
+      assert.deepEqual(sendDecisionFaults(tool, []), [], tool)
+      assert.deepEqual(sendDecisionFaults(tool, undefined), [], tool)
+    }
+    assert.equal(sendDecisionFaults('ask_human', []).length, 1)
   })
 })

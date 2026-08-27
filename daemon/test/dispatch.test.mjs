@@ -4408,6 +4408,85 @@ describe('open_pull_request (#54 item 1)', () => {
   })
 })
 
+describe('the composite send a review gate carries (ADR-0026)', () => {
+  // "`request_review` composes one for the reply after a rejection." The gate
+  // card stays curia's, so the send is the messages ABOVE it, and the order is
+  // the whole point: the buttons have to sit at the thread bottom.
+  test('the send posts first, and the gate card opens under it', async () => {
+    const order = []
+    const d = makeDispatcher({}, {
+      askReview: async () => { order.push('gate'); return { text: 'approve', status: 'answered' } },
+    })
+    liveAgent(d)
+
+    await d.requestReview('curia-42', {
+      summary: 's', charting: 'none',
+      postPreludes: async () => { order.push('send') },
+    })
+
+    assert.deepEqual(order, ['send', 'gate'])
+  })
+
+  // The failure this seam exists to prevent. `requestReview` refuses on several
+  // paths before it ever composes a card, and a send posted above the call
+  // would leave the agent's reply in the thread with nothing under it — the
+  // operator reading an answer to a rejection and no gate to press.
+  test('a refused gate posts no send at all', async () => {
+    let posted = 0
+    const d = makeDispatcher({}, { askReview: async () => ({ text: 'approve', status: 'answered' }) })
+    // No live agent, so the binding fails before any card is composed.
+    const r = await d.requestReview('curia-42', {
+      summary: 's', charting: 'none',
+      postPreludes: async () => { posted += 1 },
+    })
+
+    assert.equal(r.ok, false)
+    assert.equal(posted, 0, 'a refusal must leave the thread untouched')
+  })
+
+  // A gate is the operator's way to judge the diff. A prelude that cannot post
+  // must not take that away: the card still opens, and the agent waits on their
+  // answer rather than on its own reply.
+  test('a send that fails to post does not take the gate with it', async () => {
+    let asked = null
+    const d = makeDispatcher({}, {
+      askReview: async (a, t, text) => { asked = text; return { text: 'approve', status: 'answered' } },
+    })
+    liveAgent(d)
+
+    const r = await d.requestReview('curia-42', {
+      summary: 'did it', charting: 'none',
+      postPreludes: async () => { throw new Error('discord said no') },
+    })
+
+    assert.ok(asked, 'the gate opened anyway')
+    assert.equal(r.approved, true)
+  })
+
+  // A rejection is the human's own words, and the next gate is the reply to
+  // them. This is the one moment the agent is about to write one, so it is
+  // where curia says where the reply goes — and where it does NOT go.
+  test('a rejection tells the agent to answer in the send, not in the summary', async () => {
+    const d = makeDispatcher({}, { askReview: async () => ({ text: 'reject: the cap is wrong', status: 'answered' }) })
+    liveAgent(d)
+
+    const r = await d.requestReview('curia-42', { summary: 'did it', charting: 'none' })
+
+    assert.equal(r.approved, false)
+    assert.match(r.text, /the cap is wrong/)
+    assert.match(r.text, /Answer their words in that call's `messages`/)
+    assert.match(r.text, /`summary` stays what changed/)
+    assert.match(r.text, /a send here\s+carries nothing that decides/)
+  })
+
+  test('a gate with no send behaves exactly as it did before', async () => {
+    const d = makeDispatcher({}, { askReview: async () => ({ text: 'approve', status: 'answered' }) })
+    liveAgent(d)
+    const r = await d.requestReview('curia-42', { summary: 'did it', charting: 'none' })
+    assert.equal(r.approved, true)
+  })
+})
+
 describe('request_review: the one gate (#54 item 2)', () => {
   test('every link is composed by the daemon — the agent passes none', async () => {
     let asked = null
