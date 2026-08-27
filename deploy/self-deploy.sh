@@ -48,7 +48,7 @@ recreate() {
   # `home/` is curia's own HOME since #473, and it is made here for the same
   # reason. What it does NOT do is fill it: the credentials are the operator's
   # to seed once, and docs/deploy.md says how.
-  [ -n "$WORK" ] && mkdir -p "$WORK/cfg/curia-overseer" "$WORK/overseer/repos" "$WORK/credentials" "$WORK/home"
+  [ -n "$WORK" ] && mkdir -p "$WORK/cfg/curia-overseer" "$WORK/overseer/repos" "$WORK/credentials" "$WORK/home" "$WORK/live-check-723"
   docker compose -f "$REPO/deploy/compose.yaml" up -d --build --force-recreate --no-deps daemon dashboard overseer
 }
 
