@@ -92,9 +92,9 @@ import { MAP_FOG_VERB } from './mapfog.mjs'
 import { GlobalSearch } from './search.mjs'
 import { githubSearchSource, journalSearchSource, transcriptSearchSource } from './searchsources.mjs'
 import {
-  compositeSendFaults, compositeSendSchemaFaults, renderCompositeSend,
+  compositeSendFaults, compositeSendSchemaFaults, lintCompositeSend, renderCompositeSend,
 } from './composite.mjs'
-import { sendSchema, sendHasText, decidingIndex, SEND_HINT } from './send.mjs'
+import { sendSchema, sendHasText, sendDecisionFaults, SEND_HINT } from './send.mjs'
 import { trackerWriteWaves } from './trackerwrites.mjs'
 import {
   AccountUsage, AnthropicCredentialHealth, ModelWindows,
@@ -886,14 +886,7 @@ function compositeGate(agentName, tool, messages, maxMessages) {
   const schemaFaults = compositeSendSchemaFaults(messages, { maxMessages })
   const rendered = Array.isArray(messages) ? renderCompositeSend(messages) : []
   const deciding = rendered.at(-1)
-  const decisionFaults = []
-  if (tool === 'ask_human' && !deciding?.deciding) {
-    decisionFaults.push('messages: `ask_human` needs one deciding message last. Use `notify` when no answer blocks the work.')
-  }
-  const decides = Array.isArray(messages) ? decidingIndex(messages) : -1
-  if (tool === 'notify' && decides >= 0) {
-    decisionFaults.push(`messages: \`notify\` decides nothing, and message ${decides + 1} is a ${messages[decides].format}. Use \`ask_human\` when an answer blocks the work.`)
-  }
+  const decisionFaults = sendDecisionFaults(tool, messages)
   const faults = [...compositeSendFaults(messages, { maxMessages }), ...decisionFaults]
   const verdict = lintGate.judge({
     agent: agentName,
@@ -928,6 +921,35 @@ function compositeAskHumanGate(agentName, messages, maxMessages) {
     attachments: deciding.attachments,
     flags,
     note,
+  }
+}
+
+// The send a `request_review` carries (ADR-0026): "`request_review` composes
+// one for the reply after a rejection." A rejection comes back as the human's
+// own words, and the gate the agent opens next is its reply to them — a reply
+// that had no field before this, so it went in the `summary` that is supposed
+// to say what changed, or in an attached markdown file the ADR calls
+// counterproductive.
+//
+// The gate card stays CURIA's. It composes the pull request, the preview, the
+// diff digest and the tracker-write waves from its own records, and none of
+// those are fields an agent could author into a `preview-review` message. So
+// the send carries the preludes only, and the gate posts last under them —
+// which is the ADR-0026 order read on this surface rather than an exception
+// to it.
+//
+// The faults come back in their two CLASSES rather than judged here, because
+// the gate judges them with its own fields in one verdict: a send and a gate
+// arrive on one call, so they spend one attempt of the three.
+function reviewSendFaults(messages, maxMessages) {
+  const rendered = Array.isArray(messages) ? renderCompositeSend(messages) : []
+  return {
+    rendered,
+    schema: [
+      ...compositeSendSchemaFaults(messages, { maxMessages }),
+      ...sendDecisionFaults('request_review', messages),
+    ],
+    words: lintCompositeSend(messages),
   }
 }
 
@@ -2073,7 +2095,9 @@ function buildMcpServer(agent, ticket) {
   // differ, and the daemon composes every one of them from its own records.
   server.tool(
     'request_review',
-    'THE review gate: ask the human "is this done?" and BLOCK until they answer. curia shows them the pull request, the preview and the ticket — you do not pass links, it knows them. On approval you merge the pull request and then resolve the ticket. A rejection comes back as the human\'s own words: fix, commit, open_pull_request again, and call this again. If your diff changed a page — markup, styles, a component or a template — publish_preview FIRST: curia checks for one here, and a first call without it comes back asking for one.',
+    'THE review gate: ask the human "is this done?" and BLOCK until they answer. curia shows them the pull request, the preview and the ticket — you do not pass links, it knows them. On approval you merge the pull request and then resolve the ticket. A rejection comes back as the human\'s own words: fix, commit, open_pull_request again, and call this again. If your diff changed a page — markup, styles, a component or a template — publish_preview FIRST: curia checks for one here, and a first call without it comes back asking for one.'
+    + ` Answering a rejection is a SEND: put your reply to their words in \`messages\`, as a prose message that leads with its conclusion in bold. ${SEND_HINT} The gate card is this call's decision, so a send here decides nothing — curia posts your messages first and the card last, under them.`
+    + ' `summary` still says what CHANGED. The reply to the rejection is the send, not the summary.',
     {
       // #418, ADR-0019: `summary` and `charting` are Grade B block prose, and
       // the operator reads both on every ticket. Optional to zod for the same
@@ -2089,15 +2113,36 @@ function buildMcpServer(agent, ticket) {
         labels: z.array(z.string()).optional().describe('Every label proposed for this issue.'),
         after: z.array(z.string()).optional().describe('Ids of proposed issues that block this issue through native blocked-by edges.'),
       })).optional().describe('Every proposed tracker write. Curia validates edges, numbers items, and groups them into dispatch waves.'),
+      // The composite send (ADR-0026), with NO deciding message: the gate card
+      // curia composes IS the decision, and these post above it.
+      messages: sendSchema,
     },
-    async (raw, extra) => {
+    async ({ messages, ...raw }, extra) => {
+      const maxMessages = curiaConfig.dispatch.messages_per_send ?? 4
+      const send = messages
+        ? reviewSendFaults(messages, maxMessages)
+        : { rendered: [], schema: [], words: [] }
       // The same gate as `ask_human`, keyed on the same agent-and-kind pair the
       // supersession key uses (#336), so a rejected gate and a rejected question
-      // count apart.
+      // count apart. The send is judged INSIDE this one verdict rather than on a
+      // key of its own: it arrived on this call, so it spends this call's
+      // attempt, and an agent fixing both at once reads both faults at once.
       const floor = reviewFloorFaults(raw)
       const verdict = lintGate.judge({
-        agent, kind: REVIEW_KIND, faults: [...floor, ...lintRequestReview(raw)],
-        schema: floor.length > 0, hasText: hasText(raw), prompt: raw.summary ?? null, payload: raw,
+        agent, kind: REVIEW_KIND,
+        faults: [...floor, ...send.schema, ...lintRequestReview(raw), ...send.words],
+        schema: floor.length > 0 || send.schema.length > 0,
+        // A send carrying words is text that can reach the operator, so a gate
+        // whose own fields are empty is not the dead end it would be alone.
+        //
+        // This surface has no dead end the way `ask_human` does, and that is
+        // right rather than an oversight: the card opens with its own buttons
+        // whatever the send did, so a flagged send here never leaves a question
+        // with nobody. An agent that spends all three attempts on a deciding
+        // message gets the gate anyway, with its card posted as prose above it
+        // and the faults named — curia never drops a message it was given.
+        hasText: hasText(raw) || sendHasText(messages),
+        prompt: raw.summary ?? null, payload: messages ? { ...raw, messages } : raw,
       })
       if (verdict.reject || verdict.refuse) {
         return { content: [{ type: 'text', text: verdict.reject ?? verdict.refuse }] }
@@ -2109,12 +2154,32 @@ function buildMcpServer(agent, ticket) {
           const writes = trackerWriteWaves(raw.tracker_writes)
           charting = [charting, writes].filter((part) => part.trim()).join('\n\n')
         }
+        const refusals = []
+        if (messages) reduction.journal('composite_send', { agent, ticket, tool: 'request_review', messages })
+        // The preludes post from INSIDE the gate call, at the one instant the
+        // card is certain to open. `requestReview` refuses on five paths — a
+        // live cross-check, an unjudged verdict, a skill run with no tracker
+        // writes, a broken binding, the preview bounce — and every one of them
+        // returns before the card. Posting here rather than above the call is
+        // what keeps a refused gate from leaving the agent's reply in the
+        // thread with nothing under it.
         const r = await dispatcher.requestReview(agent, {
           summary: raw.summary ?? '', charting, body: composeReviewBody(raw),
           trackerWrites: raw.tracker_writes ?? null,
+          postPreludes: async () => {
+            for (const prelude of send.rendered) {
+              const outbound = outboundFiles(agent, prelude.attachments)
+              refusals.push(...outbound.refusals)
+              if (bridge) await bridge.notify(ticket, prelude.content, { files: outbound.files, as: speaker })
+              else log(`[notify ticket-${ticket}] ${prelude.content}`)
+            }
+          },
         })
         const flagNote = verdict.note ? [{ type: 'text', text: verdict.note }] : []
-        return { content: [...flagNote, { type: 'text', text: r.text }, ...drainNotes()] }
+        const refusalNote = refusals.length
+          ? [{ type: 'text', text: `(curia refused ${refusals.length} outbound file(s): ${refusals.join('; ')})` }]
+          : []
+        return { content: [...flagNote, ...refusalNote, { type: 'text', text: r.text }, ...drainNotes()] }
       } finally {
         stopKeepAlive()
       }

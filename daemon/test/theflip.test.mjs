@@ -226,6 +226,47 @@ describe('an untyped ask_human is refused since the flip (#422, real boot)', () 
     }
   })
 
+  // ADR-0026: "`request_review` composes one for the reply after a rejection."
+  // The gate card is curia's — it composes the pull request, the preview, the
+  // diff digest and the tracker-write waves from records no agent can author —
+  // so the send carries the reply and the card posts last, under it.
+  test('request_review declares a send, and a send that decides is refused by name', async () => {
+    const c = await client('curia-422-review-send', '422')
+    try {
+      const listed = await c.listTools()
+      const review = listed.tools.find((tool) => tool.name === 'request_review')
+      assert.ok(review.inputSchema.properties.messages, 'the gate takes a send since ADR-0026')
+      assert.match(review.description, /Answering a rejection is a SEND/)
+
+      const result = await c.callTool({
+        name: 'request_review',
+        arguments: {
+          headline: 'The reply is ready.',
+          summary: 'The lint gate now reads the send.',
+          charting: 'none',
+          messages: [
+            { format: 'prose', label: 'reply', prose: '**The cap was the fault.** The chunker reads the fence now.' },
+            {
+              format: 'choice', label: 'decision', headline: 'Which surface should answer?',
+              options: [
+                { label: 'Use Atlas.', handle: 'Atlas', consequence: 'The browser records the answer.' },
+                { label: 'Use Discord.', handle: 'Discord', consequence: 'The thread records the answer.' },
+              ],
+            },
+          ],
+        },
+      }, undefined, { timeout: 30_000 })
+
+      const text = result.content.map((part) => part.text ?? '').join('\n')
+      assert.match(text, /curia refused this call/)
+      assert.match(text, /the review gate is this call's decision, and message 2 is a choice/)
+      assert.match(text, /Put your reply to the rejection in a `prose` message/)
+      assert.deepEqual(await openEscalations(port), [], 'a refused gate asked nobody anything')
+    } finally {
+      await c.close().catch(() => {})
+    }
+  })
+
   test('a composite ask keeps its order and opens only its last decision', async () => {
     const c = await client('curia-422-composite', '422')
     const messages = [
