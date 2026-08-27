@@ -3,10 +3,14 @@
 Prototype for [Prototype the final landing page from the saga baseline](https://github.com/alp82/curia/issues/551),
 on the map [Ship the story landing page](https://github.com/alp82/curia/issues/600).
 
-This directory holds the candidate for https://curia.sh. It is the final build of the story
-page, beside the live page. [Cut over to the story page](https://github.com/alp82/curia/issues/604)
-copies `index.html` to `docs/index.html` after the operator approves the cutover. Until then, the
-live page stands.
+This directory holds the source for https://curia.sh. [Cut over to the story
+page](https://github.com/alp82/curia/issues/604) copies `index.html` to `docs/index.html`.
+
+On August 27, 2026, the operator approved the cutover. The cutover reduced scene 7 to the two
+harnesses that `config/routing.yaml` ships, aligned the README and social metadata with the hero
+promise, rebuilt the Open Graph card, and copied the page to `docs/index.html`. The page waited
+until [Discord choice buttons omit the option letter](https://github.com/alp82/curia/issues/793)
+made the ADR-0025 control shown in scene 4 match the live Discord renderer.
 
 ## What it is
 

@@ -18,8 +18,21 @@ import zlib
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-SANS_BOLD = "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
-MONO = "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf"
+def system_font(*paths):
+    for path in paths:
+        if os.path.exists(path):
+            return path
+    raise FileNotFoundError("none of these system fonts exists: %s" % ", ".join(paths))
+
+
+SANS_BOLD = system_font(
+    "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+    "/usr/share/fonts/liberation/LiberationSans-Bold.ttf",
+)
+MONO = system_font(
+    "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
+    "/usr/share/fonts/liberation/LiberationMono-Regular.ttf",
+)
 
 # The page's own palette (docs/index.html).
 BG = (0x0E, 0x10, 0x13)
@@ -541,7 +554,7 @@ def build():
     draw_text(c, mono, "  self-hosted agent dispatcher", 30, pad + used, y, DIM, tracking=0.6)
 
     # Headline, shrunk until the longest line fits the content width.
-    lines = ["Many repos, one queue,", "driven from a phone."]
+    lines = ["Run Matt Pocock's wayfinder", "from your phone."]
     size = 92.0
     while max(measure(sans, ln, size, -1.2) for ln in lines) > content and size > 40:
         size -= 2.0

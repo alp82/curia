@@ -9,10 +9,9 @@
   claim. The scene tickets (#625 to #631) conform to this frame.
   On the map alp82/curia#600 — Ship the story landing page.
 
-  THE CANDIDATE for https://curia.sh. One self-contained file: no build step,
+  THE PAGE at https://curia.sh. One self-contained file: no build step,
   no CDN, no package, no webfont, no image (docs/landing-page/build.md).
-  The cutover ticket (#604) copies this file to docs/index.html after the
-  operator approves it. Until then the live page stands.
+  The cutover ticket (#604) copies this source to docs/index.html.
 
   The twelve scenes follow the locked storyboard
   (prototypes/landing-storyboard/NOTES.md). The words are the locked copy of
@@ -32,22 +31,24 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>curia — coding agents controlled from your phone</title>
+<title>curia — Run Matt Pocock’s wayfinder from your phone</title>
 <meta name="description" content="Curia is a self-hosted dispatcher for coding agents. It knows about all your projects, tells you what to build next, and helps you dispatch parallel agents without losing track.">
 <link rel="canonical" href="https://curia.sh/">
+<link rel="icon" type="image/png" sizes="192x192" href="/favicon.png">
+<link rel="apple-touch-icon" href="/favicon.png">
 <meta name="theme-color" content="#08090c">
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="curia">
-<meta property="og:title" content="curia — coding agents controlled from your phone">
+<meta property="og:title" content="curia — Run Matt Pocock’s wayfinder from your phone">
 <meta property="og:description" content="Self-hosted dispatcher for coding agents. Your box, your subscription, your keys.">
 <meta property="og:url" content="https://curia.sh/">
 <meta property="og:image" content="https://curia.sh/og.png">
 <meta property="og:image:type" content="image/png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="curia — coding agents controlled from your phone. GitHub issues in, merged pull requests out.">
+<meta property="og:image:alt" content="curia — Run Matt Pocock’s wayfinder from your phone. GitHub issues in, merged pull requests out.">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="curia — coding agents controlled from your phone">
+<meta name="twitter:title" content="curia — Run Matt Pocock’s wayfinder from your phone">
 <meta name="twitter:description" content="Self-hosted dispatcher for coding agents. Your box, your subscription, your keys.">
 <meta name="twitter:image" content="https://curia.sh/og.png">
 <style>
@@ -2903,23 +2904,17 @@
     </div>
   </section>
 
-  <!-- Scene 7 · the harness, live (#629). The four TUIs are the real
-       ones. Every row is the shape of a verbatim tmux capture in this
-       repo, and all four panes are authored at exactly 58 columns, so
+  <!-- Scene 7 · the harness, live (#629). The two shipped TUIs are real
+       curia dispatches. Every row is the shape of a verbatim tmux capture
+       in this repo, and both panes are authored at exactly 58 columns, so
        the box drawing meets once the script scales the font.
 
          Claude Code v2.1.220  prototypes/overseer-pane/evidence/,
                                prototypes/pane-rewind/evidence/claude-*
          Codex 0.146.0         prototypes/pane-rewind/evidence/codex-*
-         pi 0.84.2             prototypes/model-switch/evidence/pi-*
-         opencode 1.18.18      prototypes/model-switch/evidence/opencode-*
-
-       BLOCK ART IS DRAWN, NOT SET. The Claude Code mark and the
-       opencode wordmark are rows of █ ▀ ▛ ▝, and a browser draws those
-       at the FONT's metrics rather than the line box, so two rows do
-       not tile at line height 1: the halves detach and the mark reads
-       as cut off. Each ROW is one SVG of the same rectangles, sized N
-       ch by 1 em, so rows stay rows and the tiling is exact.
+       BLOCK ART IS DRAWN, NOT SET. The Claude Code mark is two rows of
+       rectangles. Each row is one SVG, sized in characters and ems, so
+       the rows stay joined at line height 1.
 
        THE SESSION IS THE TYPE FOUNDRY OF SCENE 4. GRAVITY was locked
        at #627 — "A typeface with weight. Nine weights, two widths, and
@@ -2937,19 +2932,15 @@
        bottom tabs on a phone, and NEVER BOTH. ROUND 2 settled the
        composition: the browser tab the claim names, and the session
        printing once, slowly, then handing over. ROUND 3 settled the
-       corrections and the four harnesses. ROUND 4 fixed the window to
-       30 rows so nothing shifts, and ROUND 5 took the italic out.
+       corrections and the four-harness prototype. On cutover, curia
+       still dispatched through Claude Code and Codex only, so the two
+       unshipped harnesses left the visible controls. ROUND 4 fixed the
+       window to 30 rows so nothing shifts, and ROUND 5 took the italic out.
 
        The scene is ONE composition canvas: the claim, the terminal and
        the fact line are grid items of .tm. No .wrap, no .shot.
-       The opencode pane carries NO WORDMARK, and that is deliberate.
-       prototypes/model-switch/evidence/opencode-1-spawn.txt caught the
-       banner mid-scroll: its first line is already the second row of
-       the mark, so the top row is not in this repo. It cannot be
-       derived either — on the two rows we do have, d, n and o are
-       identical, so the missing row is the only thing telling three of
-       the eight letters apart. The pane starts below the banner
-       instead, which is what the capture itself shows. -->
+       The unshipped panes stay in the source as the prototype record,
+       but no visible control can select them. -->
   <section class="scene sR" id="term-scene" data-stage="agent" data-n="06" data-name="the harness, live" style="--g1:#0e1a14;--g2:#080f0b">
     <div class="tm" id="tm">
       <header class="claim rv">
@@ -2967,8 +2958,6 @@
             <div class="rl">
               <button type="button" data-h="claude" aria-pressed="true"><svg class="hm" viewBox="0 0 22 22" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M11 3.5v15"/><path d="M4.5 7.25l13 7.5"/><path d="M4.5 14.75l13-7.5"/></g></svg><b>Claude Code</b><span>opus</span></button>
               <button type="button" data-h="codex" aria-pressed="false"><svg class="hm" viewBox="0 0 22 22" aria-hidden="true"><path d="M6.5 5.5L12.5 11l-6 5.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><rect x="12" y="14.6" width="6" height="2.4" rx="1.2" fill="currentColor"/></svg><b>Codex</b><span>gpt-5.6-sol</span></button>
-              <button type="button" data-h="pi" aria-pressed="false"><svg class="hm" viewBox="0 0 22 22" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M3.5 6.5h15"/><path d="M8 6.5v10"/><path d="M14.5 6.5v8.2c0 1.4 1 2 2.6 1.6"/></g></svg><b>Pi</b><span>v0.84.2</span></button>
-              <button type="button" data-h="opencode" aria-pressed="false"><svg class="hm" viewBox="0 0 22 22" aria-hidden="true"><g fill="currentColor"><rect x="3" y="5" width="16" height="4.2" rx="0.6"/><rect x="3" y="12.8" width="4.6" height="4.2" rx="0.6"/><rect x="10.2" y="12.8" width="8.8" height="4.2" rx="0.6"/></g></svg><b>Opencode</b><span>v1.18.18</span></button>
             </div>
           </div>
 
@@ -3088,13 +3077,11 @@
           <div class="tm-tabs">
             <button type="button" data-h="claude" aria-pressed="true"><svg class="hm" viewBox="0 0 22 22" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M11 3.5v15"/><path d="M4.5 7.25l13 7.5"/><path d="M4.5 14.75l13-7.5"/></g></svg><b>Claude Code</b></button>
             <button type="button" data-h="codex" aria-pressed="false"><svg class="hm" viewBox="0 0 22 22" aria-hidden="true"><path d="M6.5 5.5L12.5 11l-6 5.5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><rect x="12" y="14.6" width="6" height="2.4" rx="1.2" fill="currentColor"/></svg><b>Codex</b></button>
-            <button type="button" data-h="pi" aria-pressed="false"><svg class="hm" viewBox="0 0 22 22" aria-hidden="true"><g fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M3.5 6.5h15"/><path d="M8 6.5v10"/><path d="M14.5 6.5v8.2c0 1.4 1 2 2.6 1.6"/></g></svg><b>Pi</b></button>
-            <button type="button" data-h="opencode" aria-pressed="false"><svg class="hm" viewBox="0 0 22 22" aria-hidden="true"><g fill="currentColor"><rect x="3" y="5" width="16" height="4.2" rx="0.6"/><rect x="3" y="12.8" width="4.6" height="4.2" rx="0.6"/><rect x="10.2" y="12.8" width="8.8" height="4.2" rx="0.6"/></g></svg><b>Opencode</b></button>
           </div>
         </div>
       </div>
 
-      <p class="fact rv">Claude Code, Codex, Pi and Opencode are supported</p>
+      <p class="fact rv">Claude Code and Codex are supported</p>
     </div>
   </section>
 
@@ -5186,8 +5173,6 @@ function runArc() {
      claim, not by the claim crossing the screen. The claim only takes
      about a screen to cross, and that was the ceiling on the pace.
      ================================================================ */
-
-  
 
   /* How many screens of scroll the whole order beat is given, and how
      many pieces of work make the journey. The rest stay in the orbit,

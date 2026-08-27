@@ -80,6 +80,7 @@ export function selectOption(text, idx, handle = null) {
 }
 
 const optionHandle = (record, idx) => String(record.payload?.options?.[idx]?.handle ?? record.options?.[idx] ?? '')
+const optionButtonLabel = (record, idx) => `${String.fromCharCode(65 + idx)} · ${optionHandle(record, idx)}`
 
 // The round's one-tap answer (#285, ADR-0005). It rides `free-text` and it is
 // pure capture: the press records this word, the agent reads it, and the agent
@@ -1236,7 +1237,7 @@ export class DiscordBridge {
     if (record.kind === 'choice' && (record.options ?? []).length <= MAX_BUTTON_OPTIONS) {
       record.options.forEach((label, idx) => {
         push(new ButtonBuilder().setCustomId(`esc|${record.id}|idx|${idx}`)
-          .setLabel(optionHandle(record, idx).slice(0, 80)).setStyle(ButtonStyle.Primary))
+          .setLabel(optionButtonLabel(record, idx).slice(0, 80)).setStyle(ButtonStyle.Primary))
       })
     }
     // Above the button cap the same options ride one select menu (#431).
