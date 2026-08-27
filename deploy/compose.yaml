@@ -321,7 +321,6 @@ services:
       # Read-only because nothing in here has a reason to write a credential, and
       # the shell in here is the reason to say so.
       - ${CURIA_WORKSPACE_ROOT:-/home/alp/curia-work}/credentials:${CURIA_WORKSPACE_ROOT:-/home/alp/curia-work}/credentials:ro
-      - ${CURIA_WORKSPACE_ROOT:-/home/alp/curia-work}/live-check-723:${CURIA_WORKSPACE_ROOT:-/home/alp/curia-work}/live-check-723:ro
       # The config dir, at the SAME PATH on both sides, because the Chat screen
       # reads the overseer's transcript off it (ADR-0015).
       - ${CURIA_WORKSPACE_ROOT:-/home/alp/curia-work}/cfg/curia-overseer:${CURIA_WORKSPACE_ROOT:-/home/alp/curia-work}/cfg/curia-overseer
