@@ -186,7 +186,7 @@ describe('GET /overview (index.mjs, real boot)', () => {
       defaults: [{ type: 'untyped', model: 'sonnet' }],
       models: [{ name: 'sonnet', active: true }],
     })
-    for (const key of ['agents', 'untracked', 'recent', 'escalations', 'review_gate', 'usage', 'pre_cooling', 'events']) {
+    for (const key of ['agents', 'untracked', 'recent', 'escalations', 'review_gate', 'usage', 'pre_cooling', 'events', 'actions']) {
       assert.ok(Array.isArray(o[key]), `${key} is a list`)
     }
     assert.equal(o.maps.computed_at, null)

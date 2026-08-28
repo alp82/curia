@@ -854,9 +854,10 @@ describe('the operator verbs (#266)', () => {
   // ---- what crosses the wire -----------------------------------------------
 
   test('start composes the command — the browser names a repo and a number, never a line of text', async () => {
-    const res = await press('/api/start', { repo: 'alp82/curia', ticket: '266' })
+    const res = await press('/api/start', { repo: 'alp82/curia', ticket: '266', action_id: '0198f137-5664-7abc-8def-0123456789ab' })
     assert.equal(res.status, 200)
     assert.deepEqual(sent('/command').body.text, 'start alp82/curia#266')
+    assert.equal(sent('/command').body.action_id, '0198f137-5664-7abc-8def-0123456789ab')
     assert.equal(sent('/command').origin, null, 'the daemon refuses every request carrying one')
     assert.match(JSON.parse(res.text).reply, /spawned/, "curia's own sentence comes back whole")
   })

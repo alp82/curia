@@ -43,6 +43,11 @@ export const RECENT_EVENTS = 100
 // ended, per kind and newest last.
 export const RECENT_OUTCOMES = 5
 
+export const RECENT_TERMINAL_ACTIONS = 100
+
+const ACTION_STATUSES = new Set(['accepted', 'progress', 'confirmed', 'refused', 'failed'])
+const TERMINAL_ACTION_STATUSES = new Set(['confirmed', 'refused', 'failed'])
+
 // The three endings those reads count, and what each one is called on a
 // surface. One name for one thing: the journal type is the daemon's word, and
 // the value here is the operator's.
@@ -199,6 +204,8 @@ export class Reduction {
     this.transcriptLandings = new Map() // session -> rewind landing and transcript tail (#689)
     this.conversationTurns = new Map() // session -> sent operator turns and the queued notes each one carried (#702)
     this.carriedNotes = new Map() // session -> overseer notes a pane message took but no turn record has claimed yet (#702)
+    this.actions = new Map() // action_id -> latest daemon-owned Action evidence (#803)
+    this.revision = 0 // journal order, rebuilt identically on every boot (#803)
     this.seq = 0
     this.noteSeq = 0
     this.turnSeq = 0
@@ -253,12 +260,58 @@ export class Reduction {
   }
 
   _apply(ev, { replay }) {
+    this.revision += 1
     // The feed's tail (#262). Every event passes here exactly once, on replay
     // and on append alike, so the ring is right the instant the boot replay
     // ends and stays right for the rest of the run.
     if (!FEED_SILENT.has(ev.type)) {
       this.recent.push(this.#feedShape(ev))
       if (this.recent.length > RECENT_EVENTS) this.recent.shift()
+    }
+
+    if (ev.type === 'action_evidence' && ev.action_id && ACTION_STATUSES.has(ev.status)) {
+      const prior = this.actions.get(String(ev.action_id))
+      this.actions.set(String(ev.action_id), {
+        action_id: String(ev.action_id),
+        kind: ev.kind ?? prior?.kind ?? null,
+        target: ev.target ?? prior?.target ?? null,
+        conflict_key: ev.conflict_key ?? prior?.conflict_key ?? null,
+        status: ev.status,
+        revision: this.revision,
+        started_at: prior?.started_at ?? ev.started_at ?? ev.ts,
+        updated_at: ev.ts,
+        ...(ev.progress != null ? { progress: ev.progress } : {}),
+        ...(ev.reason != null ? { reason: ev.reason } : {}),
+        ...(ev.receipt != null ? { receipt: ev.receipt } : {}),
+      })
+    }
+
+    // Start's authoritative domain events close the tiny crash gap between the
+    // operation and its Action coordinator continuation. On a live run the
+    // coordinator writes the same terminal answer. On rebuild, or after
+    // reconcile releases a claim left mid-preparation, these journalled facts
+    // are enough to settle the recovered Action without guessing.
+    const actionEnding = ev.type === 'agent_spawned'
+      ? { status: 'confirmed' }
+      : ['dispatch_unclaimed', 'unclaim_failed', 'dispatch_failed'].includes(ev.type)
+        ? { status: 'failed', reason: ev.reason ?? ev.error ?? 'dispatch preparation failed' }
+        : null
+    if (actionEnding && ev.repo && ev.ticket != null) {
+      const target = `${ev.repo}#${ev.ticket}`
+      for (const [actionId, prior] of this.actions) {
+        if (prior.target !== target || TERMINAL_ACTION_STATUSES.has(prior.status)) continue
+        this.actions.set(actionId, {
+          action_id: actionId,
+          kind: prior.kind,
+          target: prior.target,
+          conflict_key: prior.conflict_key,
+          status: actionEnding.status,
+          revision: this.revision,
+          started_at: prior.started_at,
+          updated_at: ev.ts,
+          ...(actionEnding.reason ? { reason: actionEnding.reason } : {}),
+        })
+      }
     }
 
     // The last thing the journal says about an agent (#236): the direct answer
@@ -1706,6 +1759,45 @@ export class Reduction {
   // Generic operational events (notify, result, agent_done…) share the journal.
   journal(type, data) {
     return this._append({ type, ...data })
+  }
+
+  recordAction(evidence) {
+    const actionId = String(evidence?.action_id ?? '')
+    if (!actionId) throw new Error('Action evidence needs an action_id')
+    if (!ACTION_STATUSES.has(evidence.status)) throw new Error(`unknown Action status ${evidence.status}`)
+    const prior = this.actions.get(actionId)
+    if (TERMINAL_ACTION_STATUSES.has(prior?.status)) {
+      throw new Error(`terminal Action evidence is immutable (${actionId} is ${prior.status})`)
+    }
+    if (!prior) {
+      for (const key of ['kind', 'target', 'conflict_key']) {
+        if (!String(evidence[key] ?? '')) throw new Error(`Action evidence needs ${key}`)
+      }
+    }
+    this._append({
+      type: 'action_evidence',
+      action_id: actionId,
+      kind: evidence.kind ?? prior?.kind,
+      target: evidence.target ?? prior?.target,
+      conflict_key: evidence.conflict_key ?? prior?.conflict_key,
+      status: evidence.status,
+      ...(evidence.progress != null ? { progress: evidence.progress } : {}),
+      ...(evidence.reason != null ? { reason: evidence.reason } : {}),
+      ...(evidence.receipt != null ? { receipt: evidence.receipt } : {}),
+    })
+    return this.action(actionId)
+  }
+
+  action(actionId) {
+    const evidence = this.actions.get(String(actionId))
+    return evidence ? { ...evidence } : null
+  }
+
+  actionsOnWire() {
+    const all = [...this.actions.values()].sort((a, b) => a.revision - b.revision)
+    const active = all.filter((a) => !TERMINAL_ACTION_STATUSES.has(a.status))
+    const terminal = all.filter((a) => TERMINAL_ACTION_STATUSES.has(a.status)).slice(-RECENT_TERMINAL_ACTIONS)
+    return [...active, ...terminal].map((evidence) => ({ ...evidence }))
   }
 
   // The feed the dashboard draws (#262): the journal's last events, oldest

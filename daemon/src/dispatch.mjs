@@ -1175,7 +1175,7 @@ export class Dispatcher {
   //
   // `reuse` is the resume contract (#81): inherit the surviving worktree
   // instead of recreating it — see #dispatch.
-  async start(ticketArg, { repo, model, by, reuse = false, conversationResume = false, threadId = null } = {}) {
+  async start(ticketArg, { repo, model, by, reuse = false, conversationResume = false, threadId = null, action = null } = {}) {
     const n = String(ticketArg)
     const session = `curia-${n}`
     // Admission guard: synchronous check + insert BEFORE the first await, so a
@@ -1239,7 +1239,7 @@ export class Dispatcher {
       // #dispatch returns null only on exhaustion whose latched notify just
       // fired; the slash caller still deserves a reply.
       return (await this.#dispatch(theRepo, n, issue, {
-        model, by, reuse, conversationResume, threadId,
+        model, by, reuse, conversationResume, threadId, action,
       })) ?? this.#exhaustedReply()
     } finally {
       this.inFlight.delete(session)
@@ -1496,7 +1496,7 @@ export class Dispatcher {
   // recreated from origin; absent one, resume degrades to an ordinary dispatch.
   async #dispatch(repo, n, issue, {
     model, instruction = null, by, reuse = false, conversationResume = false,
-    threadId = null, charting = false, skill = null, skillTarget = null,
+    threadId = null, charting = false, skill = null, skillTarget = null, action = null,
   }) {
     const session = `curia-${n}`
     // #241: a new-map dispatch is charting with no map, so there is no number to
@@ -1601,6 +1601,7 @@ export class Dispatcher {
       this.reduction.journal('dispatch_claimed', {
         repo, ticket: n, title: issue.title, agent: session, by: by ?? 'unknown', kind: 'ticket',
       })
+      action?.accept()
     }
 
     // The ticket label goes on at the claim (#93): `start` binds the thread it
@@ -1619,6 +1620,7 @@ export class Dispatcher {
     this.reduction.journal('agent_dispatching', {
       repo, ticket: n, title: issue.title, agent: session, model: useModel, harness: harnessName,
     })
+    action?.progress('Preparing the agent workspace')
 
     const cfgDir = cfgDirFor(this.root, session)
     // Declared outside the try so the finally can release the pending

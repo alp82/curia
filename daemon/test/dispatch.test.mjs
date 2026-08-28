@@ -524,6 +524,37 @@ describe('ticketless skill dispatch (#684)', () => {
 })
 
 describe('in-flight admission guard (criterion 3)', () => {
+  test('an Action is accepted after the claim and reports progress before slow preparation finishes', async () => {
+    let releaseClone
+    const clone = new Promise((resolve) => { releaseClone = resolve })
+    const evidence = []
+    const d = makeDispatcher({
+      createPrivateClone: async (root, repo, ticket) => {
+        await clone
+        return fakePrivateClone(root, repo, ticket)
+      },
+    })
+
+    const start = d.start('42', {
+      repo: 'o/r', by: 'test',
+      action: {
+        accept: () => evidence.push(['accepted']),
+        progress: (message) => evidence.push(['progress', message]),
+      },
+    })
+    await waitFor(() => evidence.length >= 2)
+
+    assert.deepEqual(evidence, [
+      ['accepted'],
+      ['progress', 'Preparing the agent workspace'],
+    ])
+    assert.ok(events.some((event) => event.type === 'dispatch_claimed'), 'acceptance follows the durable claim')
+    assert.ok(!events.some((event) => event.type === 'agent_spawned'), 'the slow operation is still running')
+
+    releaseClone()
+    assert.match(await start, /dispatched/)
+  })
+
   test('a second start() interleaving with the first is refused, and the ticket is claimed exactly once', async () => {
     let claims = 0
     let spawns = 0

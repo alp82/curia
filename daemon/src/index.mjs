@@ -42,7 +42,8 @@ import { Cooling, providerOf } from './routing.mjs'
 import { Dispatcher } from './dispatch.mjs'
 import { REVIEW_KIND, RESULT_KIND, NOTIFY_KIND } from './lifecycle.mjs'
 import { sameDigest } from './diffdigest.mjs'
-import { CommandRouter } from './commands.mjs'
+import { CommandRouter, actionForCommand } from './commands.mjs'
+import { ActionCoordinator } from './actions.mjs'
 import { SelfDeploy } from './deploy.mjs'
 import { OverseerClient, OverseerTurns, serveConversationMcp, serveVerbMcp } from './overseerclient.mjs'
 import { OverseerPaneHost } from './overseerpane.mjs'
@@ -395,6 +396,7 @@ log(`claims assign ${curiaConfig.dispatch.claim_login} (dispatch.claim_login) �
 // the journal file into the database. `log` is a hoisted function declaration,
 // so the conversion line reaches journalctl even from here.
 const reduction = new Reduction(DATA, { log })
+const actions = new ActionCoordinator(reduction, { log })
 
 // The boot line (#436). The journal is `node:sqlite`, which Node marks Stability
 // 1.2, so a patch update can change the API, the defaults and the bundled SQLite
@@ -2886,6 +2888,7 @@ async function overview() {
     token_warnings: reduction.standingTokenWarnings(),
     feed_reads: reduction.lastFeedReads(),
     events: reduction.recentEvents(),
+    actions: actions.overview(),
     maps: mapSnapshotOnWire,
     frontier: dispatcher.frontierSnapshot(),
     // The last self-deploy and any in-flight one (#562): the outcome used to
@@ -3406,8 +3409,24 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
   // seam Discord uses — two hand-rolled copies of log+journal+dispatch had
   // already drifted apart.
   if (url.pathname === '/command' && req.method === 'POST') {
-    const { text, by } = await readBody(req)
+    const { text, by, action_id: actionId } = await readBody(req)
     if (typeof text !== 'string' || !text.trim()) return json(400, { error: 'body must carry {text}' })
+    if (actionId != null) {
+      let action
+      try {
+        action = actionForCommand(text, actionId)
+      } catch (error) {
+        return json(400, { error: error.message })
+      }
+      const evidence = await actions.run(action, async (controls) => {
+        const reply = await gate.command(text, named(by), { action: controls })
+        const current = actions.get(action.action_id)
+        if (!current) return { status: 'refused', reason: reply }
+        if (/^⚙️ dispatched\b/.test(reply)) return { status: 'confirmed' }
+        return { status: 'failed', reason: reply }
+      })
+      return json(200, { action: evidence })
+    }
     const reply = await gate.command(text, named(by))
     return json(200, { reply })
   }

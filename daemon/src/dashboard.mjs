@@ -38,6 +38,7 @@ import { readSettings, saveSettings } from './settings.mjs'
 import { readLayered } from './config.mjs'
 
 const DIR = path.dirname(fileURLToPath(import.meta.url))
+const ACTION_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/
 
 export const DEFAULT_DASHBOARD_INDEX = path.resolve(DIR, '..', 'assets', 'dashboard.html')
 
@@ -736,8 +737,11 @@ export class DashboardSurface {
   // verb that has a word in the operator's own catalogue goes through it rather
   // than around it, so a press from the console journals the same `command`
   // event a typed one does and lands in the feed for free.
-  #command(text, by) {
-    return this.#daemon({ method: 'POST', path: '/command', body: { text, by } })
+  #command(text, by, actionId = null) {
+    return this.#daemon({
+      method: 'POST', path: '/command',
+      body: { text, by, ...(actionId ? { action_id: actionId } : {}) },
+    })
   }
 
   // The chat, piped (#267). Headers travel unchanged in both directions, and
@@ -947,7 +951,8 @@ export class DashboardSurface {
           const b = await this.#body(req)
           const repo = field(b.repo, VERB_REPO_RE, 'an owner/name repo')
           const ticket = field(b.ticket, VERB_TICKET_RE, 'a ticket number')
-          return this.#command(`start ${repo}#${ticket}`, by)
+          const actionId = b.action_id == null ? null : field(b.action_id, ACTION_ID_RE, 'an Action id')
+          return this.#command(`start ${repo}#${ticket}`, by, actionId)
         })
       }
 
