@@ -550,6 +550,7 @@ const statusLine = new StatusLine({
   post: (ticket, text, opts) => (bridge ? bridge.postStatus(ticket, text, opts) : null),
   edit: (ids, text, opts) => (bridge ? bridge.editStatus(ids, text, opts) : false),
   remove: (ids) => (bridge ? bridge.deleteStatus(ids) : null),
+  find: (ticket) => (bridge ? bridge.findStatus(ticket) : null),
   // The thread-name state glyph (#199): the status line derives the state,
   // the bridge renders it. With the bridge down the flag is dropped — the
   // next transition retries, and the name is display only.

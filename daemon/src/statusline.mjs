@@ -141,12 +141,13 @@ export class StatusLine {
   // get(id) -> escalation record (esc_* events carry only the id)
   // meters(session, model) -> see usage.agentMeters; null drops every meter
   constructor({
-    post, edit, remove = async () => {}, get, log = console.log,
+    post, edit, remove = async () => {}, find = async () => null, get, log = console.log,
     meters = () => null, flag = () => {}, refreshMs = 60_000, now = () => Date.now(),
   }) {
     this.post = post
     this.edit = edit
     this.remove = remove
+    this.find = find
     this.get = get
     this.log = log
     this.meters = meters
@@ -269,6 +270,25 @@ export class StatusLine {
       }
       case 'dispatch_status':
         return this.#set(ev.agent, ev.ticket, 'dispatched', { model: ev.model })
+      case 'action_evidence': {
+        // An Action has a Discord representation only when its domain target
+        // names a ticket thread. Today that is dispatch. Other Action kinds
+        // stay on Atlas rather than teaching this renderer their domains.
+        if (ev.kind !== 'dispatch' || !['accepted', 'progress'].includes(ev.status)) return
+        const ticket = String(ev.target ?? '').match(/#(\d+)$/)?.[1]
+        const progress = String(ev.progress ?? '').trim()
+        if (!ticket || (ev.status === 'progress' && !progress)) return
+        const session = `curia-${ticket}`
+        const w = this.agents.get(session)
+        if (w?.action?.id === ev.action_id && Number(ev.revision) <= w.action.revision) return
+        const detail = ev.status === 'accepted'
+          ? { stage: 'accepted' }
+          : { stage: 'action-progress', progress }
+        const updated = this.#set(session, ticket, 'dispatched', detail, { recover: true })
+        const worker = this.agents.get(session)
+        if (worker) worker.action = { id: ev.action_id, revision: Number(ev.revision) || 0 }
+        return updated
+      }
       case 'agent_ready':
         // The spawn command carries the prompt, so the composer marker means
         // the agent is already at work — ready and working are one state.
@@ -437,6 +457,8 @@ export class StatusLine {
   #base(session, state, detail, model) {
     switch (state) {
       case 'dispatched':
+        if (detail.stage === 'accepted') return '⚙️ dispatch accepted'
+        if (detail.stage === 'action-progress') return `⚙️ ${detail.progress}`
         if (detail.stage === 'image') return '🧱 building the agent image, about four minutes'
         if (detail.stage === 'composer') return `⚙️ dispatched on **${model}** - waiting for the composer`
         return `⚙️ dispatched on **${model}**`
@@ -516,7 +538,7 @@ export class StatusLine {
 
   // One line per agent, edits serialized per agent so a fast transition
   // never lands under a slower one's edit.
-  #set(session, ticket, state, detail, { force = false, small = true } = {}) {
+  #set(session, ticket, state, detail, { force = false, small = true, recover = false } = {}) {
     let w = this.agents.get(session)
     if (!w) {
       w = {
@@ -566,13 +588,13 @@ export class StatusLine {
     }
     const composed = this.#text(session, state, detail, w.model, w)
     const text = small ? smallPrint(composed) : composed
-    w.chain = w.chain.then(() => this.#apply(w, text, { move, force })).catch((e) => {
+    w.chain = w.chain.then(() => this.#apply(w, text, { move, force, recover })).catch((e) => {
       this.log(`status line for ${session} failed: ${e.message}`)
     })
     return w.chain
   }
 
-  async #apply(w, text, { move, force = false, settled = false }) {
+  async #apply(w, text, { move, force = false, settled = false, recover = false }) {
     if (move && w.ids) {
       await this.remove(w.ids)
       w.ids = null
@@ -584,6 +606,7 @@ export class StatusLine {
     }
     w.text = text
     const opts = { ticket: w.ticket, settled }
+    if (!w.ids && recover) w.ids = await this.find(w.ticket)
     if (w.ids && await this.edit(w.ids, text, opts)) return
     w.ids = (await this.post(w.ticket, text, opts)) ?? null
   }
