@@ -656,6 +656,8 @@ describe('TimelineSurface', () => {
   const offs = [] // every serve port the surface withdrew (#711)
   const endedSessions = new Set() // panes that are gone, as sessionAlive answers
   const dialogAnswers = []
+  let dialogAnswerGate = null
+  let dialogAnswerFailure = null
   let escalations = []
   let escHistory = []
   let pane = PANE_COMPOSER // what capturePane returns; a function to throw
@@ -732,6 +734,8 @@ describe('TimelineSurface', () => {
         },
         answerDialog: async (session, answer) => {
           dialogAnswers.push({ session, ...answer })
+          if (dialogAnswerGate) await dialogAnswerGate
+          if (dialogAnswerFailure) throw new Error(dialogAnswerFailure)
           if (session !== 'curia-slow-dialog') pane = PANE_COMPOSER
         },
         capturePane: async () => (typeof pane === 'function' ? pane() : pane),
@@ -1182,6 +1186,82 @@ describe('TimelineSurface', () => {
       const replay = await sse(port, 'session=curia-9')
       assert.deepEqual(replay.events.find((event) => event.event === 'dialog')?.data.receipt, receipt)
     } finally {
+      pane = PANE_COMPOSER
+    }
+  })
+
+  test('two native-dialog Action clients race under one dialog conflict and share the winning receipt', async () => {
+    pane = PANE_ASK_OPTIONS
+    let releaseAnswer
+    dialogAnswerGate = new Promise((resolve) => { releaseAnswer = resolve })
+    try {
+      const opened = await sse(port, 'session=curia-action-race')
+      const card = opened.events.find((event) => event.event === 'dialog').data.card
+      const firstRequest = post('/dialog-answer', {
+        session: 'curia-action-race', dialog: card.id, index: 2, client: 'phone',
+        action_id: 'atlas-dialog-phone',
+      })
+      while (!dialogAnswers.some((answer) => answer.session === 'curia-action-race')) {
+        await new Promise((resolve) => setImmediate(resolve))
+      }
+      const secondRequest = post('/dialog-answer', {
+        session: 'curia-action-race', dialog: card.id, index: 1, client: 'desktop',
+        action_id: 'atlas-dialog-desktop',
+      })
+
+      const second = await secondRequest
+      assert.equal(second.status, 409)
+      const refused = (await second.json()).action
+      assert.equal(refused.status, 'refused')
+      assert.equal(refused.conflict_key, `dialog:curia-action-race:${card.id}`)
+      assert.match(refused.reason, /first valid native dialog answer is still being sent/)
+
+      releaseAnswer()
+      const first = await firstRequest
+      assert.equal(first.status, 202)
+      assert.equal((await first.json()).action.status, 'accepted')
+      const won = await actions.settled('atlas-dialog-phone')
+      assert.equal(won.status, 'confirmed')
+      assert.equal(won.receipt.answer, 'Preview')
+      assert.equal(dialogAnswers.filter((answer) => answer.session === 'curia-action-race').length, 1)
+
+      const refreshed = await sse(port, 'session=curia-action-race')
+      assert.deepEqual(refreshed.events.find((event) => event.event === 'dialog').data.receipt, won.receipt)
+    } finally {
+      releaseAnswer?.()
+      dialogAnswerGate = null
+      pane = PANE_COMPOSER
+    }
+  })
+
+  test('a native-dialog pane-write failure becomes shared evidence and leaves the card retryable', async () => {
+    pane = PANE_ASK_OPTIONS
+    dialogAnswerFailure = 'tmux socket is unavailable'
+    try {
+      const opened = await sse(port, 'session=curia-action-failure')
+      const card = opened.events.find((event) => event.event === 'dialog').data.card
+      const response = await post('/dialog-answer', {
+        session: 'curia-action-failure', dialog: card.id, index: 2, client: 'phone',
+        action_id: 'atlas-dialog-failure',
+      })
+      assert.equal(response.status, 202)
+      assert.equal((await response.json()).action.status, 'accepted')
+
+      const failed = await actions.settled('atlas-dialog-failure')
+      assert.equal(failed.status, 'failed')
+      assert.match(failed.reason, /tmux socket is unavailable/)
+      const refreshed = await sse(port, 'session=curia-action-failure')
+      assert.equal(refreshed.events.find((event) => event.event === 'dialog').data.card.id, card.id)
+
+      dialogAnswerFailure = null
+      const retry = await post('/dialog-answer', {
+        session: 'curia-action-failure', dialog: card.id, index: 1, client: 'desktop',
+        action_id: 'atlas-dialog-retry',
+      })
+      assert.equal(retry.status, 202)
+      assert.equal((await actions.settled('atlas-dialog-retry')).status, 'confirmed')
+    } finally {
+      dialogAnswerFailure = null
       pane = PANE_COMPOSER
     }
   })

@@ -3299,6 +3299,80 @@ describe('the chat screen (#267, the picker of #333)', () => {
     // The tap is the whole seam between the card and the daemon: it sends the
     // option index for the card the page holds, and a second tap gets the
     // first receipt (#712's rule) rather than a second answer.
+    test('a native dialog choice projects immediately under its own dialog conflict', () => {
+      let sent
+      const room = loadPage({ fetchImpl: async (_url, request) => {
+        sent = JSON.parse(request.body)
+        return new Promise(() => {})
+      } })
+      room.applyChatRoute(['chat', 'curia-684'])
+      room.chatReceive('dialog', { up: true, hint: 'Enter to select', card: { id: 'native-3', kind: 'choice', headline: 'Which branch?', selected_index: 1, options: [{ index: 1, marker: 'A', label: 'Stable' }, { index: 2, marker: 'B', label: 'Preview' }] } })
+      room.beginLocalAction('chat-send')
+
+      room.doDialogAnswer('native-3', 2)
+
+      const action = room.actionFor({ conflict_key: 'dialog:curia-684:native-3' })
+      assert.equal(action.kind, 'native-dialog-answer')
+      assert.equal(action.projection.index, 2)
+      assert.equal(sent.action_id, action.action_id)
+      assert.match(text(room.screenChat(payload())), /Choosing B · Preview…/)
+      assert.ok(room.actionFor({ conflict_key: 'chat-send' }), 'an unrelated Chat action stays independent')
+      room.applyChatRoute([])
+    })
+
+    test('a shared native-dialog failure reconciles while its request is still pending', async () => {
+      let actionId
+      const room = loadPage({ fetchImpl: async (url, request) => {
+        if (url === '/dialog-answer') {
+          actionId = JSON.parse(request.body).action_id
+          return new Promise(() => {})
+        }
+        const p = payload()
+        p.overview.actions = [{
+          action_id: actionId, kind: 'native-dialog-answer',
+          target: 'curia-684:native-3', conflict_key: 'dialog:curia-684:native-3',
+          status: 'failed', revision: 12,
+          reason: 'curia could not answer the native dialog: tmux socket is unavailable',
+        }]
+        return { ok: true, json: async () => p }
+      } })
+      room.applyChatRoute(['chat', 'curia-684'])
+      room.chatReceive('dialog', { up: true, hint: 'Enter to select', card: { id: 'native-3', kind: 'choice', headline: 'Which branch?', selected_index: 1, options: [{ index: 1, marker: 'A', label: 'Stable' }, { index: 2, marker: 'B', label: 'Preview' }] } })
+      room.beginLocalAction('chat-send')
+
+      room.doDialogAnswer('native-3', 2)
+      await room.tick()
+
+      assert.equal(room.actionFor({ action_id: actionId }), null)
+      const html = room.screenChat(room.payload)
+      assert.match(html, /class="said bad"/)
+      assert.match(text(html), /tmux socket is unavailable/)
+      assert.match(html, /doDialogAnswer\('native-3', 2\)/, 'the dialog remains available after the failed pane write')
+      assert.ok(room.actionFor({ conflict_key: 'chat-send' }), 'the failure does not block an unrelated Chat action')
+      room.applyChatRoute([])
+    })
+
+    test('refresh recovers another client\'s native-dialog claim until the shared receipt arrives', async () => {
+      const p = payload()
+      p.overview.actions = [{
+        action_id: 'atlas-dialog-phone', kind: 'native-dialog-answer',
+        target: 'curia-684:native-3', conflict_key: 'dialog:curia-684:native-3',
+        status: 'accepted', revision: 11, progress: 'Choosing B · Preview…',
+      }]
+      const room = loadPage({ fetchImpl: async () => ({ ok: true, json: async () => p }) })
+      room.applyChatRoute(['chat', 'curia-684'])
+      room.chatReceive('dialog', { up: true, hint: 'Enter to select', card: { id: 'native-3', kind: 'choice', headline: 'Which branch?', selected_index: 1, options: [{ index: 1, marker: 'A', label: 'Stable' }, { index: 2, marker: 'B', label: 'Preview' }] } })
+
+      await room.tick()
+
+      assert.equal(room.actionFor({ conflict_key: 'dialog:curia-684:native-3' }).action_id, 'atlas-dialog-phone')
+      assert.match(text(room.screenChat(room.payload)), /Choosing B · Preview…/)
+      room.chatReceive('dialog', { up: false, receipt: { dialog: 'native-3', index: 2, marker: 'B', answer: 'Preview', by: 'phone', at: at(1) } })
+      assert.equal(room.actionFor({ action_id: 'atlas-dialog-phone' }), null)
+      assert.match(text(room.screenChat(room.payload)), /answered · phone .* B · Preview/)
+      room.applyChatRoute([])
+    })
+
     test('a tap posts the measured option index, and a second tap shows the first receipt', async () => {
       const posts = []
       const receipt = { dialog: 'native-3', index: 2, marker: 'B', answer: 'Preview', by: 'phone', at: at(1) }

@@ -3689,7 +3689,14 @@ function chatReceive(name, d) {
   } else if (name === "parse") {
     c.parse = d;
   } else if (name === "dialog") {
-    if (d.receipt) { c.receipt = d.receipt; c.dialog = null; }
+    if (d.receipt) {
+      c.receipt = d.receipt; c.dialog = null;
+      for (const action of [...actions.values()]) {
+        if (action.kind === "native-dialog-answer" && action.target === `${c.session}:${d.receipt.dialog}`) {
+          finishAction(action.action_id);
+        }
+      }
+    }
     else if (!d.up) { c.dialog = null; }
     else { c.dialog = d; c.receipt = null; }
   } else if (name === "escalations") {
@@ -3968,12 +3975,16 @@ function chatDialog(c) {
     return `<div class="chat-dialog">⚠ A native dialog owns the terminal. ${esc(d.reason || "Curia cannot parse its controls.")} ${terminal}
       <div class="dialog-note">Chat sends stay blocked while this dialog is open.</div></div>`;
   }
-  const options = d.card.options.map((o) => `<button class="btn sm ${o.index === d.card.selected_index ? "selected" : ""}" ${busy("chat-dialog") ? "disabled" : ""}
+  const dialogAction = actionFor({ conflict_key: `dialog:${c.session}:${d.card.id}` });
+  const options = d.card.options.map((o) => `<button class="btn sm ${o.index === d.card.selected_index ? "selected" : ""}" ${dialogAction ? "disabled" : ""}
       onclick="doDialogAnswer('${js(d.card.id)}', ${Number(o.index)})">${esc(o.marker)} · ${esc(o.handle || o.label)}${o.index === d.card.selected_index ? " · selected now" : ""}</button>`).join("");
+  const progress = dialogAction
+    ? `<div class="dialog-note">${esc(dialogAction.progress || `Choosing ${dialogAction.projection?.marker ?? ""} · ${dialogAction.projection?.answer ?? ""}…`)}</div>`
+    : "";
   return `<div class="chat-dialog card"><div class="dialog-kind">native dialog · choice</div>
     <strong class="dialog-headline">${esc(d.card.headline)}</strong>
     <div class="dialog-options">${options}</div>
-    <div class="dialog-note">The first valid tap wins. The same receipt reaches every open Chat.</div>${terminal}${said("chat-dialog")}</div>`;
+    ${progress}<div class="dialog-note">The first valid tap wins. The same receipt reaches every open Chat.</div>${terminal}${said("chat-dialog")}</div>`;
 }
 
 function chatComposer(c, role, ended) {
@@ -4080,15 +4091,41 @@ function reconcilePaneKeyActions() {
   }
 }
 async function doDialogAnswer(dialog, index) {
-  const action = beginLocalAction("chat-dialog");
+  const session = chat.session;
+  const option = chat.dialog?.card?.id === dialog
+    ? chat.dialog.card.options.find((candidate) => candidate.index === index)
+    : null;
+  if (!option) return;
+  const actionId = `atlas-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
+  const action = beginAction({
+    action_id: actionId, kind: "native-dialog-answer", target: `${session}:${dialog}`,
+    conflict_key: `dialog:${session}:${dialog}`,
+    projection: { index, marker: option.marker, answer: option.handle || option.label },
+  });
   if (!action) return;
   UI.act.said = null;
   render();
-  const r = await chatPost("/dialog-answer", { dialog, index });
-  finishAction(action.action_id);
-  if (r.receipt) chatReceive("dialog", { up: false, receipt: r.receipt });
-  else UI.act.said = { key: "chat-dialog", ok: false, text: r.error || "Curia could not answer this native dialog." };
+  const r = await chatPost("/dialog-answer", { dialog, index, action_id: actionId });
+  observeActions(r.action ? [r.action] : []);
+  reconcileDialogAnswerActions();
+  if (actionFor({ action_id: actionId }) && !r.action) {
+    finishAction(actionId);
+    if (r.receipt) chatReceive("dialog", { up: false, receipt: r.receipt });
+    else UI.act.said = { key: "chat-dialog", ok: false, text: r.error || "Curia could not answer this native dialog." };
+  }
   render();
+}
+function reconcileDialogAnswerActions() {
+  for (const action of [...actions.values()]) {
+    if (action.kind !== "native-dialog-answer" || !TERMINAL_ACTION.has(action.status)) continue;
+    const receipt = action.receipt;
+    if (receipt && action.target === `${chat.session}:${receipt.dialog}`) {
+      chatReceive("dialog", { up: false, receipt });
+    } else if (action.target.startsWith(`${chat.session}:`) && action.status !== "confirmed") {
+      UI.act.said = { key: "chat-dialog", ok: false, text: action.reason || "Curia could not answer this native dialog." };
+    }
+    finishAction(action.action_id);
+  }
 }
 function chatScrolled(el) {
   chat.stick = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
@@ -4648,6 +4685,7 @@ async function tick() {
     observeActions(payload?.overview?.actions);
     reconcileStartActions(payload?.overview);
     reconcilePaneKeyActions();
+    reconcileDialogAnswerActions();
     reachable = true;
     if (UI.screen === "feed" && UI.feed.operator !== payload.operator) recordFeedVisit();
   } catch {

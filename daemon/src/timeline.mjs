@@ -834,59 +834,87 @@ export class TimelineSurface {
       const s = this.#state(b.session)
       const dialogId = String(b.dialog ?? '')
       const targetIndex = Number(b.index)
+      const perform = async (controls = null) => {
+        if (s.dialogReceipt?.dialog === dialogId) {
+          return { status: 'refused', reason: 'this native dialog already has an answer', receipt: s.dialogReceipt }
+        }
+        const dialog = await this.#probeDialog(b.session, s)
+        if (!dialog?.card) {
+          return {
+            status: 'refused',
+            reason: `${dialog?.reason ?? 'curia could not parse this native dialog'}; open the terminal to answer it`,
+            terminal: `/terminal/?arg=${encodeURIComponent(b.session)}`,
+          }
+        }
+        if (!dialogId || dialog.id !== dialogId) {
+          return { status: 'refused', reason: 'this native dialog changed; use the current card' }
+        }
+        if (!Number.isInteger(targetIndex)) return { status: 'bad-request', reason: 'the option index must be an integer' }
+        const option = dialog.card.options.find((candidate) => candidate.index === targetIndex)
+        if (!option) return { status: 'bad-request', reason: 'that option index is not on this native dialog' }
+        if (s.dialogAnswer === dialogId) {
+          return { status: 'refused', reason: 'the first valid native dialog answer is still being sent' }
+        }
 
-      if (s.dialogReceipt?.dialog === dialogId) {
-        return json(409, { error: 'this native dialog already has an answer', receipt: s.dialogReceipt })
-      }
-      const dialog = await this.#probeDialog(b.session, s)
-      if (!dialog?.card) {
-        return json(409, {
-          error: `${dialog?.reason ?? 'curia could not parse this native dialog'}; open the terminal to answer it`,
-          terminal: `/terminal/?arg=${encodeURIComponent(b.session)}`,
+        // Claim before the pane write. Two Chat clients can tap the same card
+        // together, and only one may reach tmux. Shared acceptance is emitted
+        // after that synchronous claim, so Atlas can return while the write is
+        // still pending without weakening first-valid-wins.
+        s.dialogAnswer = dialogId
+        controls?.accept({ progress: `Choosing ${option.marker} · ${option.label}…` })
+        try {
+          await this.deps.answerDialog(b.session, {
+            currentIndex: dialog.card.selected_index,
+            targetIndex,
+            harness: s.harness,
+          })
+        } catch (error) {
+          s.dialogAnswer = null
+          this.deps.journal('native_dialog_answer_failed', {
+            session: b.session, dialog: dialogId, index: targetIndex, error: error.message,
+          })
+          return { status: 'failed', reason: `curia could not answer the native dialog: ${error.message}` }
+        }
+
+        const receipt = {
+          dialog: dialogId,
+          index: targetIndex,
+          marker: option.marker,
+          answer: option.label,
+          by: String(b.client ?? 'atlas'),
+          at: new Date().toISOString(),
+        }
+        this.deps.journal('native_dialog_answered', {
+          session: b.session, dialog: dialogId, index: targetIndex,
+          answer: option.label, by: receipt.by, harness: s.harness,
         })
-      }
-      if (!dialogId || dialog.id !== dialogId) {
-        return json(409, { error: 'this native dialog changed; use the current card' })
-      }
-      if (!Number.isInteger(targetIndex)) return json(400, { error: 'the option index must be an integer' })
-      const option = dialog.card.options.find((candidate) => candidate.index === targetIndex)
-      if (!option) return json(400, { error: 'that option index is not on this native dialog' })
-      if (s.dialogAnswer === dialogId) {
-        return json(409, { error: 'the first valid native dialog answer is still being sent' })
+        s.dialogAnsweredKey = dialog.semanticKey
+        this.#setDialog(b.session, s, null, receipt)
+        return { status: 'confirmed', receipt }
       }
 
-      // Claim before the first await. Two Chat clients can tap the same card
-      // together, and only one may reach tmux.
-      s.dialogAnswer = dialogId
-      try {
-        await this.deps.answerDialog(b.session, {
-          currentIndex: dialog.card.selected_index,
-          targetIndex,
-          harness: s.harness,
-        })
-      } catch (error) {
-        s.dialogAnswer = null
-        this.deps.journal('native_dialog_answer_failed', {
-          session: b.session, dialog: dialogId, index: targetIndex, error: error.message,
-        })
-        return json(502, { error: `curia could not answer the native dialog: ${error.message}` })
+      const actionId = String(b.action_id ?? '')
+      if (actionId && this.deps.actions) {
+        const evidence = await this.deps.actions.run({
+          action_id: actionId,
+          kind: 'native-dialog-answer',
+          target: `${b.session}:${dialogId}`,
+          conflict_key: `dialog:${b.session}:${dialogId}`,
+        }, perform)
+        const code = evidence.status === 'accepted' || evidence.status === 'progress'
+          ? 202
+          : evidence.status === 'confirmed' ? 200 : evidence.status === 'failed' ? 502 : 409
+        return json(code, { action: evidence, ...(evidence.reason ? { error: evidence.reason } : {}) })
       }
 
-      const receipt = {
-        dialog: dialogId,
-        index: targetIndex,
-        marker: option.marker,
-        answer: option.label,
-        by: String(b.client ?? 'atlas'),
-        at: new Date().toISOString(),
-      }
-      this.deps.journal('native_dialog_answered', {
-        session: b.session, dialog: dialogId, index: targetIndex,
-        answer: option.label, by: receipt.by, harness: s.harness,
+      const outcome = await perform()
+      if (outcome.status === 'confirmed') return json(200, { ok: true, receipt: outcome.receipt })
+      const code = outcome.status === 'bad-request' ? 400 : outcome.status === 'failed' ? 502 : 409
+      return json(code, {
+        error: outcome.reason,
+        ...(outcome.receipt ? { receipt: outcome.receipt } : {}),
+        ...(outcome.terminal ? { terminal: outcome.terminal } : {}),
       })
-      s.dialogAnsweredKey = dialog.semanticKey
-      this.#setDialog(b.session, s, null, receipt)
-      return json(200, { ok: true, receipt })
     }
 
     if (url.pathname === '/send' && req.method === 'POST') {
