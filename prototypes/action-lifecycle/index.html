@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Atlas action lifecycle prototype</title>
+<!--
+  THROWAWAY PROTOTYPE.
+  Three variants of Atlas action feedback, switchable with ?variant=, using stubbed evidence.
+  No control sends a request or mutates Curia state.
+-->
+<style>
+* { box-sizing: border-box; }
+:root {
+  --bg:#0b0c10; --raise:#13161d; --inset:#08090c; --line:#292d36;
+  --ink:#e7e9ee; --dim:#9aa2b1; --faint:#697181; --accent:#63cce7;
+  --good:#55d69e; --warn:#efc660; --bad:#ef6b78; --focus:#a8e8f7;
+}
+html, body { margin:0; min-height:100%; background:var(--bg); color:var(--ink); }
+body { font:14px/1.45 Inter, ui-sans-serif, system-ui, sans-serif; }
+button, input { font:inherit; }
+button { cursor:pointer; }
+button:focus-visible, input:focus-visible { outline:3px solid var(--focus); outline-offset:2px; }
+.shell { min-height:100vh; display:grid; grid-template-columns:214px minmax(0,1fr); }
+.side { padding:22px 10px; border-right:1px solid var(--line); background:var(--inset); }
+.brand { margin:0 9px 27px; color:#aab3c2; font:11px ui-monospace, monospace; letter-spacing:.15em; }
+.nav { display:block; width:100%; border:0; border-radius:7px; padding:10px 9px; background:transparent;
+  color:var(--dim); text-align:left; font:600 12px ui-monospace, monospace; }
+.nav.on { color:var(--accent); background:var(--raise); }
+.nav-marker { float:right; min-width:18px; padding:1px 5px; border-radius:999px; background:#263d45; color:var(--accent); text-align:center; }
+.main { min-width:0; padding:20px 24px 110px; }
+.screen-head { display:flex; align-items:center; justify-content:space-between; gap:16px; }
+h1 { margin:0; font-size:16px; }
+.readbar { margin:15px 0 25px; display:flex; justify-content:space-between; gap:18px; padding:9px 12px;
+  border:1px solid var(--line); border-radius:8px; color:var(--dim); background:var(--raise); font:11px ui-monospace, monospace; }
+.live::before { content:""; display:inline-block; width:7px; height:7px; margin-right:8px; border-radius:50%; background:var(--good); }
+.intro { max-width:760px; margin:0 0 20px; color:var(--dim); }
+.workspace { display:grid; grid-template-columns:minmax(0,1fr) 290px; gap:26px; align-items:start; }
+.grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:14px; }
+.card { min-width:0; border:1px solid var(--line); border-radius:11px; padding:15px; background:var(--raise); }
+.card-head { display:flex; align-items:start; justify-content:space-between; gap:12px; }
+.kind { color:var(--faint); font:700 10px ui-monospace, monospace; text-transform:uppercase; letter-spacing:.1em; }
+.card h2 { margin:4px 0 0; font-size:15px; }
+.target { margin:12px 0; padding:12px; border:1px solid var(--line); border-radius:8px; background:var(--inset); }
+.target strong { display:block; }
+.target p { margin:4px 0 0; color:var(--dim); font-size:12px; }
+.choice-row { display:flex; flex-wrap:wrap; gap:7px; }
+.btn { border:1px solid var(--line); border-radius:7px; padding:7px 11px; background:#1a1e26; color:var(--ink); }
+.btn:hover { border-color:#4c5462; }
+.btn.primary { border-color:#347b8e; background:#163d48; color:#bdeff8; }
+.btn.danger { border-color:#75404a; color:#ffafb8; }
+.btn[disabled] { cursor:not-allowed; opacity:.48; }
+.btn.selected { border-color:var(--accent); box-shadow:inset 0 0 0 1px var(--accent); }
+.inline-state { min-height:50px; margin-top:11px; padding:9px 10px; border-left:3px solid var(--tone,var(--line));
+  border-radius:5px; background:color-mix(in srgb,var(--tone,var(--line)) 8%,var(--inset)); }
+.inline-state strong { display:block; color:var(--tone,var(--dim)); font-size:12px; }
+.inline-state span { color:var(--dim); font-size:12px; }
+.pending-target { border-color:color-mix(in srgb,var(--accent) 55%,var(--line)); background:#0c1b20; }
+.pending-target.destructive { border-color:color-mix(in srgb,var(--bad) 60%,var(--line)); background:#201013; }
+.lab { position:sticky; top:18px; border:1px solid #3b424e; border-radius:11px; padding:14px; background:#101218; }
+.lab h2 { margin:0 0 4px; font-size:13px; }
+.lab p { margin:0 0 13px; color:var(--dim); font-size:11px; }
+.lab label { display:block; margin:11px 0 5px; color:var(--dim); font:700 10px ui-monospace, monospace; text-transform:uppercase; }
+.lab select { width:100%; padding:8px; border:1px solid var(--line); border-radius:6px; background:var(--inset); color:var(--ink); }
+.lab .btn { width:100%; margin-top:7px; text-align:left; }
+.lab .btn strong { float:right; color:var(--faint); font-size:10px; }
+.fact { margin-top:12px; padding-top:11px; border-top:1px solid var(--line); color:var(--faint); font-size:11px; }
+.fact output { color:var(--ink); }
+.shelf { position:fixed; z-index:20; right:18px; bottom:78px; width:min(430px,calc(100vw - 36px)); border:1px solid #46505e;
+  border-radius:11px; background:#171b22; box-shadow:0 14px 44px rgba(0,0,0,.5); overflow:hidden; }
+.shelf-head { display:flex; justify-content:space-between; padding:9px 12px; border-bottom:1px solid var(--line); font:700 11px ui-monospace, monospace; }
+.shelf-list { max-height:260px; overflow:auto; }
+.shelf-item { display:grid; grid-template-columns:10px minmax(0,1fr) auto; gap:9px; align-items:start; padding:10px 12px; border-bottom:1px solid #222731; }
+.dot { width:8px; height:8px; margin-top:5px; border-radius:50%; background:var(--tone,var(--dim)); }
+.shelf-item b { display:block; font-size:12px; }
+.shelf-item small { color:var(--dim); }
+.shelf-item code { color:var(--faint); font-size:9px; }
+.timeline-layout { display:grid; grid-template-columns:340px minmax(0,1fr); gap:24px; }
+.action-index { border:1px solid var(--line); border-radius:11px; overflow:hidden; background:var(--raise); }
+.action-pick { width:100%; display:grid; grid-template-columns:11px minmax(0,1fr); gap:9px; border:0; border-bottom:1px solid var(--line);
+  padding:13px; background:transparent; color:var(--ink); text-align:left; }
+.action-pick.on { background:#17242a; box-shadow:inset 3px 0 var(--accent); }
+.action-pick span { display:block; color:var(--dim); font-size:11px; }
+.detail { border:1px solid var(--line); border-radius:11px; padding:18px; background:var(--raise); }
+.detail h2 { margin:0 0 3px; font-size:16px; }
+.detail-sub { color:var(--dim); }
+.rail { position:relative; margin:22px 0 0 7px; padding-left:28px; }
+.rail::before { content:""; position:absolute; left:5px; top:8px; bottom:8px; width:2px; background:var(--line); }
+.step { position:relative; min-height:66px; padding-bottom:16px; }
+.step::before { content:""; position:absolute; left:-28px; top:3px; width:12px; height:12px; border:3px solid var(--tone,var(--line)); border-radius:50%; background:var(--raise); }
+.step b { display:block; color:var(--tone,var(--faint)); font:700 10px ui-monospace, monospace; text-transform:uppercase; letter-spacing:.1em; }
+.step span { color:var(--dim); font-size:12px; }
+.empty-detail { display:grid; place-items:center; min-height:330px; color:var(--faint); text-align:center; }
+.modal-backdrop { position:fixed; z-index:60; inset:0; display:grid; place-items:center; padding:20px; background:rgba(0,0,0,.72); }
+.modal { width:min(430px,100%); border:1px solid #73444c; border-radius:12px; padding:18px; background:#17191f; box-shadow:0 20px 70px #000; }
+.modal h2 { margin:0 0 7px; font-size:17px; }
+.modal p { color:var(--dim); }
+.modal-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:18px; }
+.switcher { position:fixed; z-index:70; left:50%; bottom:18px; transform:translateX(-50%); display:flex; align-items:center; gap:5px;
+  padding:6px; border:1px solid #47505d; border-radius:999px; background:#edf1f5; color:#16191e; box-shadow:0 10px 36px rgba(0,0,0,.6); }
+.switcher button { width:42px; height:38px; border:0; border-radius:999px; background:transparent; }
+.switcher button:hover { background:#d6dce4; }
+.switcher output { min-width:220px; text-align:center; font:700 12px ui-monospace, monospace; }
+.sr { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+@media (max-width:900px) {
+  .shell { grid-template-columns:1fr; } .side { display:none; } .main { padding:16px 12px 105px; }
+  .workspace, .timeline-layout { display:block; } .lab { position:static; margin-top:16px; } .grid { grid-template-columns:1fr; }
+  .action-index { margin-bottom:14px; } .readbar span:last-child { display:none; }
+}
+@media (prefers-reduced-motion:reduce) { * { scroll-behavior:auto !important; } }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<nav class="switcher" aria-label="Prototype variants">
+  <button id="previous" aria-label="Previous variant">←</button><output id="variant-name"></output>
+  <button id="next" aria-label="Next variant">→</button>
+</nav>
+<div id="announcer" class="sr" aria-live="polite"></div>
+<script>
+const VARIANTS = [
+  { key:"A", name:"Context first" },
+  { key:"B", name:"Persistent action shelf" },
+  { key:"C", name:"Focused evidence timeline" }
+]
+const ACTIONS = {
+  start:{ kind:"Workflow transition", title:"Start an agent", target:"Improve Atlas action feedback", detail:"curia#805 · routed to codex", conflict:"dispatch:alp82/curia#805", verb:"Start" },
+  answer:{ kind:"First valid wins", title:"Answer a shared question", target:"Choose the recovery policy", detail:"A. Keep checking · B. Cancel locally", conflict:"answer:esc-action-demo", verb:"Choose A" },
+  destroy:{ kind:"Destructive", title:"Delete a conversation", target:"console-12", detail:"The transcript remains, but this conversation leaves the active list.", conflict:"conversation:console-12", verb:"Delete" },
+  settings:{ kind:"Configuration", title:"Save and apply settings", target:"Routing and repository watch list", detail:"2 edited fields · daemon reload required", conflict:"settings", verb:"Save and apply" }
+}
+const STATUS = {
+  idle:{ label:"Ready", text:"No Action exists yet.", tone:"var(--faint)" },
+  pending:{ label:"Pending locally", text:"The press is visible on the same frame.", tone:"var(--accent)" },
+  accepted:{ label:"Accepted", text:"The daemon reserved the work. You can navigate away.", tone:"var(--accent)" },
+  progress:{ label:"In progress", text:"Meaningful daemon progress updates this text.", tone:"var(--warn)" },
+  checking:{ label:"Checking outcome", text:"The transport ended, but the Action outcome is unknown.", tone:"var(--warn)" },
+  confirmed:{ label:"Confirmed", text:"Shared evidence confirms the requested change.", tone:"var(--good)" },
+  refused:{ label:"Refused", text:"Shared state is restored. The reason stays beside the target.", tone:"var(--bad)" },
+  failed:{ label:"Failed", text:"Accepted work failed. The target is restored in context.", tone:"var(--bad)" }
+}
+let state = Object.fromEntries(Object.keys(ACTIONS).map(k => [k,{status:"idle",revision:0,history:[]}]))
+let selected = "start"
+let modalOpen = false
+let screen = "Maps"
+
+const esc = s => String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
+function variant() {
+  const key = new URLSearchParams(location.search).get("variant") || "A"
+  return VARIANTS.find(v => v.key === key) || VARIANTS[0]
+}
+function announce(text) { document.getElementById("announcer").textContent = text }
+function setStatus(key,status,note) {
+  const item = state[key]
+  item.status = status
+  item.revision += status === "pending" ? 0 : 1
+  item.history.push({status,note:note || STATUS[status].text,revision:item.revision})
+  selected = key
+  announce(`${ACTIONS[key].title}: ${STATUS[status].label}. ${note || STATUS[status].text}`)
+  render()
+}
+function begin(key) {
+  if (key === "destroy" && !modalOpen) { modalOpen = true; render(); requestAnimationFrame(() => document.getElementById("confirm-delete")?.focus()); return }
+  modalOpen = false
+  setStatus(key,"pending", key === "answer" ? "Choice A is selected locally while the daemon decides the winner." : undefined)
+}
+function evidence(status) {
+  const current = state[selected].status
+  if (current === "idle") begin(selected)
+  if (status === "accepted") setStatus(selected,"accepted")
+  if (status === "progress") setStatus(selected,"progress", selected === "start" ? "Preparing the worktree · 3 seconds" : selected === "settings" ? "Files saved · reloading the daemon" : "The accepted work is advancing.")
+  if (status === "confirmed") setStatus(selected,"confirmed")
+  if (status === "refused") setStatus(selected,"refused", selected === "answer" ? "Alper answered B first from Discord at 09:41. Your choice wasn't submitted." : "The daemon didn't accept this change.")
+  if (status === "failed") setStatus(selected,"failed", selected === "destroy" ? "The conversation is still active. The transcript service didn't respond." : "The daemon accepted the Action, but couldn't complete it.")
+  if (status === "checking") setStatus(selected,"checking")
+}
+function resetAll() {
+  state = Object.fromEntries(Object.keys(ACTIONS).map(k => [k,{status:"idle",revision:0,history:[]}]))
+  announce("Prototype state reset")
+  render()
+}
+function refreshView() {
+  Object.values(state).forEach(item => {
+    if (["pending","accepted","progress","checking"].includes(item.status) && !item.history.some(h => h.status === "accepted")) {
+      item.status = "checking"
+      item.history.push({status:"checking",note:"A refresh removed the local projection. Atlas is checking shared evidence.",revision:item.revision})
+    }
+  })
+  announce("View refreshed from stubbed shared evidence")
+  render()
+}
+function navigate(name) { screen = name; announce(`Navigated to ${name}. Active Actions remain visible.`); render() }
+function targetClass(key) {
+  const s = state[key].status
+  if (!["pending","accepted","progress","checking"].includes(s)) return "target"
+  return `target pending-target${key === "destroy" ? " destructive" : ""}`
+}
+function workingLabel(key,status) {
+  if (status === "checking") return "Checking outcome…"
+  if (status === "progress") return key === "start" ? "Preparing worktree…" : key === "settings" ? "Applying settings…" : key === "destroy" ? "Deleting…" : "Submitting answer…"
+  return key === "start" ? "Starting…" : key === "settings" ? "Saving…" : key === "destroy" ? "Deleting…" : "Submitting answer…"
+}
+function inlineFeedback(item) {
+  if (["idle","pending","accepted","progress"].includes(item.status)) return ""
+  const s=STATUS[item.status]
+  return `<div class="inline-state" style="--tone:${s.tone}"><strong>${esc(s.label)}</strong><span>${esc(item.history.at(-1)?.note || s.text)}</span></div>`
+}
+function actionCard(key, compact=false) {
+  const a=ACTIONS[key], item=state[key], s=STATUS[item.status]
+  const blocked=["pending","accepted","progress","checking"].includes(item.status)
+  return `<article class="card" data-key="${key}"><div class="card-head"><div><span class="kind">${esc(a.kind)}</span><h2>${esc(a.title)}</h2></div></div>
+    <div class="${targetClass(key)}"><strong>${esc(a.target)}</strong><p>${esc(a.detail)}</p></div>
+    ${key === "answer" ? `<div class="choice-row"><button class="btn${blocked ? " selected" : ""}" ${blocked ? "disabled" : ""} onclick="begin('answer')">A · Keep checking</button><button class="btn" ${blocked ? "disabled" : ""} onclick="begin('answer')">B · Cancel locally</button></div>` :
+      `<button class="btn ${key === "destroy" ? "danger" : "primary"}" ${blocked ? "disabled" : ""} onclick="begin('${key}')">${blocked ? workingLabel(key,item.status) : esc(a.verb)}</button>`}
+    ${compact ? "" : inlineFeedback(item)}
+  </article>`
+}
+function lab() {
+  return `<aside class="lab" aria-label="Evidence controls"><h2>Evidence lab</h2><p>Select an Action, then inject the evidence that the real daemon would own.</p>
+    <label for="lab-action">Action</label><select id="lab-action" onchange="selected=this.value;render()">${Object.entries(ACTIONS).map(([k,a]) => `<option value="${k}" ${k===selected?"selected":""}>${esc(a.title)}</option>`).join("")}</select>
+    <button class="btn" onclick="evidence('accepted')">Daemon accepts <strong>accepted</strong></button>
+    <button class="btn" onclick="evidence('progress')">Daemon advances <strong>progress</strong></button>
+    <button class="btn" onclick="evidence('confirmed')">Change appears <strong>confirmed</strong></button>
+    <button class="btn" onclick="evidence('refused')">Domain says no <strong>refused</strong></button>
+    <button class="btn" onclick="evidence('failed')">Accepted work stops <strong>failed</strong></button>
+    <button class="btn" onclick="evidence('checking')">Drop the response <strong>transport</strong></button>
+    <button class="btn" onclick="refreshView()">Refresh this view <strong>recovery</strong></button>
+    <button class="btn" onclick="navigate(screen==='Maps'?'Settings':'Maps')">Navigate elsewhere <strong>context</strong></button>
+    <button class="btn" onclick="resetAll()">Reset prototype</button>
+    <div class="fact">Selected: <output>${esc(ACTIONS[selected].title)}</output><br>Independent actions remain enabled.</div></aside>`
+}
+function shelf() {
+  const active=Object.entries(state).filter(([,x]) => x.status!=="idle")
+  return `<aside class="shelf" aria-label="Actions"><div class="shelf-head"><span>Actions</span><span>${active.filter(([,x]) => !["confirmed","refused","failed"].includes(x.status)).length} active</span></div><div class="shelf-list">${active.length ? active.map(([k,item]) => {
+    const s=STATUS[item.status]; return `<button class="action-pick" onclick="selected='${k}';navigate('${k==='settings'?'Settings':'Maps'}')"><i class="dot" style="--tone:${s.tone}"></i><span><b>${esc(ACTIONS[k].title)}</b><span>${esc(item.history.at(-1)?.note || s.text)}</span></span><code>r${item.revision}</code></button>`
+  }).join("") : `<div class="shelf-item"><span></span><small>Actions appear here after a valid press.</small></div>`}</div></aside>`
+}
+function variantA() {
+  return `<div class="workspace"><section class="grid" aria-label="Representative Atlas actions">${Object.keys(ACTIONS).map(k=>actionCard(k)).join("")}</section>${lab()}</div>`
+}
+function variantB() {
+  return `<div class="workspace"><section class="grid" aria-label="Representative Atlas actions">${Object.keys(ACTIONS).map(k=>actionCard(k,true)).join("")}</section>${lab()}</div>${shelf()}`
+}
+function variantC() {
+  const picks=Object.entries(ACTIONS).map(([k,a]) => { const item=state[k], s=STATUS[item.status]; return `<button class="action-pick${k===selected?" on":""}" onclick="selected='${k}';render()"><i class="dot" style="--tone:${s.tone}"></i><span><b>${esc(a.title)}</b><span>${esc(s.label)} · ${esc(a.target)}</span></span></button>` }).join("")
+  const item=state[selected], a=ACTIONS[selected]
+  const history=item.history.length ? item.history : [{status:"idle",note:STATUS.idle.text,revision:0}]
+  return `<div class="workspace"><section class="timeline-layout"><div><div class="action-index">${picks}</div><div style="margin-top:14px">${actionCard(selected,true)}</div></div><article class="detail"><span class="kind">${esc(a.kind)}</span><h2>${esc(a.title)}</h2><span class="detail-sub">${esc(a.target)}</span><div class="rail">${history.map(h=>`<div class="step" style="--tone:${STATUS[h.status].tone}"><b>${esc(STATUS[h.status].label)}</b><span>${esc(h.note)}</span></div>`).join("")}</div></article></section>${lab()}</div>`
+}
+function modal() {
+  if (!modalOpen) return ""
+  return `<div class="modal-backdrop" role="presentation" onclick="if(event.target===this){modalOpen=false;render()}"><section class="modal" role="alertdialog" aria-modal="true" aria-labelledby="delete-title"><h2 id="delete-title">Delete conversation console-12?</h2><p>The conversation leaves the active list. Its transcript remains available. Atlas won't imply deletion until daemon evidence confirms it.</p><div class="modal-actions"><button class="btn" onclick="modalOpen=false;render()">Keep conversation</button><button id="confirm-delete" class="btn danger" onclick="begin('destroy')">Delete conversation</button></div></section></div>`
+}
+function render() {
+  const v=variant()
+  const content=v.key==="A"?variantA():v.key==="B"?variantB():variantC()
+  const active=Object.values(state).filter(x => !["idle","confirmed","refused","failed"].includes(x.status)).length
+  document.getElementById("app").innerHTML=`<div class="shell"><nav class="side" aria-label="Primary"><div class="brand">curia · atlas</div>${["Home","Maps","Agents","Feed","Chat","Credentials","Settings"].map(n=>`<button class="nav${screen===n?" on":""}" onclick="navigate('${n}')">${n}${active&&n!==screen?`<span class="nav-marker">${active}</span>`:""}</button>`).join("")}</nav><main class="main"><header class="screen-head"><h1>Atlas · ${esc(screen)}</h1><button class="btn">⌕ Search</button></header><div class="readbar"><span class="live">read 0s ago</span><span>stubbed overview · refresh remains available</span></div><p class="intro"><b>${esc(v.name)}.</b> Four risk classes share one evidence vocabulary. Try two independent Actions before completing either one, navigate, refresh, and inject each terminal outcome.</p>${content}</main></div>${modal()}`
+  document.getElementById("variant-name").textContent=`${v.key} · ${v.name}`
+}
+function cycle(delta) {
+  const current=VARIANTS.findIndex(v=>v.key===variant().key)
+  const next=VARIANTS[(current+delta+VARIANTS.length)%VARIANTS.length]
+  const url=new URL(location.href); url.searchParams.set("variant",next.key); history.replaceState({},"",url); render()
+}
+document.getElementById("previous").onclick=()=>cycle(-1)
+document.getElementById("next").onclick=()=>cycle(1)
+addEventListener("keydown",e=>{
+  if (modalOpen && e.key==="Escape") { modalOpen=false; render(); return }
+  if (["INPUT","TEXTAREA","SELECT"].includes(e.target.tagName) || e.target.isContentEditable) return
+  if (e.key==="ArrowLeft") cycle(-1)
+  if (e.key==="ArrowRight") cycle(1)
+})
+render()
+</script>
+</body>
+</html>
