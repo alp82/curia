@@ -104,6 +104,22 @@ function validPhase(phase) {
   return { phase: name, label }
 }
 
+function actionWords(value, fallback = '') {
+  const text = String(value ?? '').replace(/\s+/g, ' ').trim()
+  return (text || fallback).replace(/@/g, '@\u200b')
+}
+
+function winningReceipt(receipt) {
+  if (!receipt || typeof receipt !== 'object') return ''
+  const by = actionWords(receipt.by)
+  const via = actionWords(receipt.via)
+  const at = actionWords(receipt.at)
+  const answer = actionWords(receipt.answer)
+  if (!by && !via && !at && !answer) return ''
+  const actor = [by && `by ${by}`, via && `via ${via}`, at && `at ${at}`].filter(Boolean).join(' ')
+  return ` - first valid result${actor ? ` ${actor}` : ''}${answer ? `: ${answer}` : ''}`
+}
+
 // The literal the 🔎 button sends (#165). Matched here rather than imported as
 // the regex, because this file reads the ANSWER off a journal event and an
 // operator may have typed the word instead of pressing the button.
@@ -274,17 +290,26 @@ export class StatusLine {
         // An Action has a Discord representation only when its domain target
         // names a ticket thread. Today that is dispatch. Other Action kinds
         // stay on Atlas rather than teaching this renderer their domains.
-        if (ev.kind !== 'dispatch' || !['accepted', 'progress'].includes(ev.status)) return
+        if (ev.kind !== 'dispatch' || !['accepted', 'progress', 'refused', 'failed'].includes(ev.status)) return
         const ticket = String(ev.target ?? '').match(/#(\d+)$/)?.[1]
         const progress = String(ev.progress ?? '').trim()
         if (!ticket || (ev.status === 'progress' && !progress)) return
         const session = `curia-${ticket}`
         const w = this.agents.get(session)
         if (w?.action?.id === ev.action_id && Number(ev.revision) <= w.action.revision) return
+        const terminal = ['refused', 'failed'].includes(ev.status)
         const detail = ev.status === 'accepted'
           ? { stage: 'accepted' }
-          : { stage: 'action-progress', progress }
-        const updated = this.#set(session, ticket, 'dispatched', detail, { recover: true })
+          : ev.status === 'progress'
+            ? { stage: 'action-progress', progress }
+            : {
+                stage: `action-${ev.status}`,
+                reason: actionWords(ev.reason, 'no reason supplied'),
+                receipt: winningReceipt(ev.receipt),
+              }
+        const updated = this.#set(session, ticket, 'dispatched', detail, {
+          recover: true, settled: terminal,
+        })
         const worker = this.agents.get(session)
         if (worker) worker.action = { id: ev.action_id, revision: Number(ev.revision) || 0 }
         return updated
@@ -459,6 +484,8 @@ export class StatusLine {
       case 'dispatched':
         if (detail.stage === 'accepted') return '⚙️ dispatch accepted'
         if (detail.stage === 'action-progress') return `⚙️ ${detail.progress}`
+        if (detail.stage === 'action-refused') return `❌ dispatch refused: ${detail.reason}${detail.receipt}`
+        if (detail.stage === 'action-failed') return `❌ dispatch failed: ${detail.reason}${detail.receipt}`
         if (detail.stage === 'image') return '🧱 building the agent image, about four minutes'
         if (detail.stage === 'composer') return `⚙️ dispatched on **${model}** - waiting for the composer`
         return `⚙️ dispatched on **${model}**`
@@ -538,7 +565,9 @@ export class StatusLine {
 
   // One line per agent, edits serialized per agent so a fast transition
   // never lands under a slower one's edit.
-  #set(session, ticket, state, detail, { force = false, small = true, recover = false } = {}) {
+  #set(session, ticket, state, detail, {
+    force = false, small = true, recover = false, settled = false,
+  } = {}) {
     let w = this.agents.get(session)
     if (!w) {
       w = {
@@ -588,7 +617,7 @@ export class StatusLine {
     }
     const composed = this.#text(session, state, detail, w.model, w)
     const text = small ? smallPrint(composed) : composed
-    w.chain = w.chain.then(() => this.#apply(w, text, { move, force, recover })).catch((e) => {
+    w.chain = w.chain.then(() => this.#apply(w, text, { move, force, recover, settled })).catch((e) => {
       this.log(`status line for ${session} failed: ${e.message}`)
     })
     return w.chain
