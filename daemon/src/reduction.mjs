@@ -23,6 +23,7 @@ import { nextConsoleKey } from './attach.mjs'
 import { openJournal, normalizeEvent } from './journal.mjs'
 import { Questions } from './questions.mjs'
 import { MAP_FOG_VERB } from './mapfog.mjs'
+import { spawnIdentity } from './harnesses.mjs'
 
 // The button-confirm kind (#94, per #89's messaging discipline). Its own kind
 // because a confirm behaves unlike every other escalation: no reminder, no
@@ -412,6 +413,7 @@ export class Reduction {
     }
     if (ev.type === 'agent_spawned' && ev.agent) {
       const previous = this.agentConversations.get(ev.agent) ?? {}
+      const identity = spawnIdentity(ev)
       this.agentConversations.set(ev.agent, {
         ...previous,
         session: ev.agent,
@@ -419,6 +421,9 @@ export class Reduction {
         ticket: String(ev.ticket ?? previous.ticket ?? ''),
         model: ev.model ?? previous.model ?? null,
         harness: ev.harness ?? previous.harness ?? null,
+        adapter: identity.adapter ?? previous.adapter ?? null,
+        configLayoutVersion: identity.configLayoutVersion,
+        legacyConfigLayout: identity.legacy,
         reviewer: ev.kind === 'reviewer' || previous.reviewer === true,
         state: 'active',
         updated_at: ev.ts ?? previous.updated_at ?? null,

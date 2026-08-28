@@ -701,7 +701,7 @@ describe('a sandboxed dispatch (#156)', () => {
   test('the prompt tells the agent the path it can actually see', async () => {
     const { d } = makeDispatcher()
     await d.start('42', { repo: 'o/r' })
-    const prompt = fs.readFileSync(path.join(tmp, 'work', 'cfg', 'curia-42', 'prompt.md'), 'utf8')
+    const prompt = fs.readFileSync(path.join(tmp, 'work', 'cfg', 'curia-42', 'claude', 'prompt.md'), 'utf8')
     assert.match(prompt, new RegExp(`Your worktree is ${GUEST_WT}`))
     assert.ok(!prompt.includes(path.join(tmp, 'work', 'repos')), 'the prompt names a host path the container cannot reach')
   })
@@ -724,7 +724,7 @@ describe('a sandboxed dispatch (#156)', () => {
   test('the env file holds no model credential, and the config dir holds the file instead', async () => {
     const { d, spawns } = makeDispatcher()
     await d.start('42', { repo: 'o/r' })
-    const cfg = path.join(tmp, 'work', 'cfg', 'curia-42')
+    const cfg = path.join(tmp, 'work', 'cfg', 'curia-42', 'claude')
     const env = fs.readFileSync(path.join(cfg, 'container.env'), 'utf8')
     assert.doesNotMatch(env, /ANTHROPIC_API_KEY/)
     assert.doesNotMatch(env, /CLAUDE_CODE_OAUTH_TOKEN/)
@@ -761,7 +761,7 @@ describe('a sandboxed dispatch (#156)', () => {
   test('the dispatch seeds the kill guard and points BASH_ENV at it (#385)', async () => {
     const { d } = makeDispatcher()
     await d.start('42', { repo: 'o/r' })
-    const cfg = path.join(tmp, 'work', 'cfg', 'curia-42')
+    const cfg = path.join(tmp, 'work', 'cfg', 'curia-42', 'claude')
     const env = fs.readFileSync(path.join(cfg, 'container.env'), 'utf8')
     assert.match(env, /BASH_ENV=\/cfg\/bin\/bashenv\.sh/)
     for (const name of ['kill', 'pkill', 'bashenv.sh']) {
@@ -877,7 +877,7 @@ describe('the agent is told its ports (#157)', () => {
   test('the prompt names the three ports and the address to bind them on', async () => {
     const { d } = makeDispatcher()
     await d.start('42', { repo: 'o/r' })
-    const prompt = fs.readFileSync(path.join(tmp, 'work', 'cfg', 'curia-42', 'prompt.md'), 'utf8')
+    const prompt = fs.readFileSync(path.join(tmp, 'work', 'cfg', 'curia-42', 'claude', 'prompt.md'), 'utf8')
     assert.match(prompt, /\*\*9000, 9001, 9002\*\*/, 'an agent cannot discover its ports — the prompt is the only place they exist for it')
     assert.match(prompt, /bind `0\.0\.0\.0`/, 'a localhost bind inside the container is unreachable, and fails where the agent cannot see it')
     assert.match(prompt, /publish_preview` takes no other port/)
@@ -895,7 +895,7 @@ describe('the agent is told its ports (#157)', () => {
     })
     await d.start('42', { repo: 'o/r' })
     assert.deepEqual(order, ['allocate', 'prompt'])
-    const prompt = fs.readFileSync(path.join(tmp, 'work', 'cfg', 'curia-42', 'prompt.md'), 'utf8')
+    const prompt = fs.readFileSync(path.join(tmp, 'work', 'cfg', 'curia-42', 'claude', 'prompt.md'), 'utf8')
     assert.match(prompt, /9010, 9011, 9012/)
     assert.match(spawns[0].shellCmd, /-p 127\.0\.0\.1:9010:9010/)
   })
@@ -954,7 +954,7 @@ describe('the ports belong to the agent, not to one container (#157)', () => {
     await waitFor(() => spawns.length > 1)
     assert.equal(allocations, 1, 'a second allocation would leave the prompt naming ports nothing publishes')
     assert.match(spawns[1].shellCmd, /-p 127\.0\.0\.1:9010:9010/)
-    const prompt = fs.readFileSync(path.join(tmp, 'work', 'cfg', 'curia-42', 'prompt.md'), 'utf8')
+    const prompt = fs.readFileSync(path.join(tmp, 'work', 'cfg', 'curia-42', 'claude', 'prompt.md'), 'utf8')
     assert.match(prompt, /9010, 9001, 9002/)
     assert.deepEqual(d.agents.get('curia-42').ports, [9010, 9001, 9002])
   })

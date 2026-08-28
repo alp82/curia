@@ -147,6 +147,17 @@ describe('the roots are built per run (#695)', () => {
     assert.equal(env.CODEX_HOME, path.join(root, 'cfg', 'curia-3'))
   })
 
+  test('new per-Harness roots are scanned beside legacy roots', () => {
+    const claude = path.join(root, 'cfg', 'curia-4', 'claude')
+    const codex = path.join(root, 'cfg', 'curia-5', 'codex')
+    fs.mkdirSync(path.join(claude, 'projects'), { recursive: true })
+    fs.mkdirSync(path.join(codex, 'sessions'), { recursive: true })
+    fs.utimesSync(claude, 4, 4)
+    fs.utimesSync(codex, 5, 5)
+    assert.deepEqual(claudeRoots(root), [claude])
+    assert.equal(codexRoot(root), codex)
+  })
+
   test('a harness with no data sets no variable, so the CLI keeps its own default', () => {
     cfg('curia-1', 'claude')
     const env = syncEnv(root, { env: {} })

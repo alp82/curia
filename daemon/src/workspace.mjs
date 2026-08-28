@@ -69,8 +69,13 @@ export function worktreePathFor(root, repo, n) {
 // roots a usage sync scans.
 export const CFG_DIR = 'cfg'
 
-export function cfgDirFor(root, session) {
-  return path.join(root, CFG_DIR, session)
+export function cfgDirFor(root, session, harness = null) {
+  const sessionRoot = path.join(root, CFG_DIR, session)
+  if (harness === null) return sessionRoot
+  if (!HARNESS_NAMES.includes(harness)) {
+    throw new Error(`no configuration root for Harness "${harness}" - known Harnesses: ${HARNESS_NAMES.join(', ')}`)
+  }
+  return path.join(sessionRoot, harness)
 }
 
 export function branchFor(n) {

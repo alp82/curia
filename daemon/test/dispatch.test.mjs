@@ -1907,11 +1907,11 @@ describe('the claim assigns dispatch.claim_login (#390)', () => {
 
 describe('the agent mints its GitHub token (#389)', () => {
   const envFileOf = (session) => {
-    const file = path.join(tmp, 'work', 'cfg', session, ENV_FILE)
+    const file = path.join(tmp, 'work', 'cfg', session, 'claude', ENV_FILE)
     return Object.fromEntries(fs.readFileSync(file, 'utf8').split('\n')
       .filter(Boolean).map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]))
   }
-  const cfgOf = (session) => path.join(tmp, 'work', 'cfg', session)
+  const cfgOf = (session) => path.join(tmp, 'work', 'cfg', session, 'claude')
   const hostsOf = (session) => path.join(cfgOf(session), GH_DIR, 'hosts.yml')
 
   // A minter shaped like the real one and reaching no GitHub: a fresh token per
@@ -2167,12 +2167,12 @@ describe('every spawn path authenticates the agent the same way (#53, #156)', ()
   // is frozen for the agent's life by construction, and a file in the config dir
   // is what the dispatch tick can rewrite under a running agent (#659).
   const envFileOf = (session) => {
-    const file = path.join(tmp, 'work', 'cfg', session, ENV_FILE)
+    const file = path.join(tmp, 'work', 'cfg', session, 'claude', ENV_FILE)
     return Object.fromEntries(fs.readFileSync(file, 'utf8').split('\n')
       .filter(Boolean).map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]))
   }
   const credentialOf = (session) => JSON.parse(
-    fs.readFileSync(path.join(tmp, 'work', 'cfg', session, '.credentials.json'), 'utf8'),
+    fs.readFileSync(path.join(tmp, 'work', 'cfg', session, 'claude', '.credentials.json'), 'utf8'),
   ).claudeAiOauth
 
   test('the initial spawn puts nothing in the pane, no credential in the env file, and the credential in a file', async () => {
@@ -3489,6 +3489,24 @@ describe('reconcile sweeps abandoned credential copies (W6)', () => {
 
     assert.deepEqual(swept, ['curia-77'], 'the codex credential copy outlived its agent')
     assert.ok(events.some((e) => e.type === 'credentials_swept' && e.agent === 'curia-77'))
+  })
+
+  test('a dead agent loses credentials from every per-Harness root', async () => {
+    const sessionRoot = path.join(tmp, 'work', 'cfg', 'curia-77')
+    for (const [harness, file] of [['claude', '.credentials.json'], ['codex', 'auth.json']]) {
+      const dir = path.join(sessionRoot, harness)
+      fs.mkdirSync(dir, { recursive: true })
+      fs.writeFileSync(path.join(dir, file), '{}')
+    }
+    const swept = []
+    const d = makeDispatcher({
+      listSessions: async () => [],
+      removeCredentials: (dir) => swept.push(path.relative(sessionRoot, dir)),
+    })
+
+    await d.reconcile({ boot: false })
+
+    assert.deepEqual(swept.sort(), ['claude', 'codex'])
   })
 
   test('an INDETERMINATE session list sweeps nothing (the W1 interaction)', async () => {
@@ -5843,12 +5861,15 @@ describe('dispatching across two harnesses (#39)', () => {
     await d.start('42', { repo: 'o/r', by: 'test' })
     assert.deepEqual(seeded, ['codex'])
     assert.deepEqual(harnessed, ['codex'])
+    const journalled = events.find((event) => event.type === 'agent_spawned')
+    assert.equal(journalled.adapter, 'codex')
+    assert.equal(journalled.config_layout, 1)
     // the CLI model id, not the routing name
     assert.match(spawn.shellCmd, /codex --model gpt-5\.5/)
     // #195: the pane carries NO environment at all — the container's env file
     // carries CODEX_HOME, and a pane env would show every value in `ps`
     assert.deepEqual(spawn.env, {})
-    assert.match(fs.readFileSync(path.join(tmp, 'work', 'cfg', 'curia-42', ENV_FILE), 'utf8'), /^CODEX_HOME=/m)
+    assert.match(fs.readFileSync(path.join(tmp, 'work', 'cfg', 'curia-42', 'codex', ENV_FILE), 'utf8'), /^CODEX_HOME=/m)
   })
 
   // The bug this ordering fixes: `harness` used to be read off the REQUESTED
@@ -5906,10 +5927,12 @@ describe('dispatching across two harnesses (#39)', () => {
     // #195: the pane carries no environment either time — the claude
     // variables are in the container env file the respawn rewrote
     assert.deepEqual(spawns[1].env, {})
-    const envFile = fs.readFileSync(path.join(tmp, 'work', 'cfg', 'curia-42', ENV_FILE), 'utf8')
+    const envFile = fs.readFileSync(path.join(tmp, 'work', 'cfg', 'curia-42', 'claude', ENV_FILE), 'utf8')
     assert.match(envFile, /^CLAUDE_CONFIG_DIR=/m)
     assert.match(envFile, /^CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT=/m)
     assert.equal(/^CLAUDE_SECURESTORAGE_CONFIG_DIR=/m.test(envFile), false, 'the container denies the host HOME')
+    assert.equal(fs.existsSync(path.join(tmp, 'work', 'cfg', 'curia-42', 'codex')), true,
+      'the fallback preserves the source Harness root instead of reusing its native state')
     // and the watchdog that follows must read the NEW harness's marker
     assert.ok(events.some((e) => e.type === 'agent_spawned' && e.harness === 'claude'))
   })

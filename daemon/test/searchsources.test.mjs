@@ -49,6 +49,17 @@ test('transcript search returns only operator-facing parsed text', async () => {
   assert.equal(rows[0].conversation, 'curia-7')
 })
 
+test('transcript search reads a new per-Harness configuration root', async () => {
+  const dir = path.join(root, 'cfg', 'curia-8', 'claude', 'projects', 'workspace')
+  fs.mkdirSync(dir, { recursive: true })
+  fs.writeFileSync(path.join(dir, 'session.jsonl'), JSON.stringify({
+    type: 'assistant',
+    message: { content: [{ type: 'text', text: 'Nested Harness transcript' }] },
+  }))
+  const rows = await transcriptSearchSource({ workspaceRoot: root }).search('Nested Harness')
+  assert.equal(rows[0].conversation, 'curia-8')
+})
+
 test('overseer transcript search lands on the Atlas session name', async () => {
   const session = '11111111-2222-4333-8444-555555555555'
   const dir = path.join(root, 'cfg', 'curia-overseer', 'projects', 'workspace')

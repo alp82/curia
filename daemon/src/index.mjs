@@ -522,8 +522,9 @@ const modelWindows = new ModelWindows({ credentials: anthropic, log })
 
 // Same harness resolution the timeline uses: the dispatcher's word on what it
 // spawned, on-disk evidence for re-adopted and lab sessions.
-const cfgDirFor = (session) => path.join(curiaConfig.dispatch.workspace_root, 'cfg', session)
-const harnessFor = (session) => dispatcher?.agents.get(session)?.harness ?? detectHarness(cfgDirFor(session))
+const agentCfgDirFor = (session) => dispatcher?.agents.get(session)?.cfgDir
+  ?? path.join(curiaConfig.dispatch.workspace_root, 'cfg', session)
+const harnessFor = (session) => dispatcher?.agents.get(session)?.harness ?? detectHarness(agentCfgDirFor(session))
 
 // Everything the status line says about one agent beyond its state. Named
 // rather than inlined because `GET /overview` reads the same meters for the
@@ -538,7 +539,7 @@ const harnessFor = (session) => dispatcher?.agents.get(session)?.harness ?? dete
 // default only speaks when no record exists.
 const metersFor = (session, model) => agentMeters({
   harness: harnessFor(session),
-  cfgDir: cfgDirFor(session),
+  cfgDir: agentCfgDirFor(session),
   model: model ?? dispatcher?.agents.get(session)?.model ?? null,
   effort: dispatcher?.agents.get(session)?.reasoningEffort ?? null,
   routing: routingConfig,
@@ -1684,7 +1685,7 @@ const timeline = new TimelineSurface({
     draftFor: (session) => reduction.chatDraft(session),
     recordDraft: (session, text) => reduction.recordChatDraft(session, text),
     harnessFor: (session) => dispatcher.agents.get(session)?.harness
-      ?? detectHarness(path.join(curiaConfig.dispatch.workspace_root, 'cfg', session)),
+      ?? detectHarness(agentCfgDirFor(session)),
     // The dialog guard's composer veto (#75): a visible ready marker (#39)
     // says the pane is at its composer, so a dialog-footer phrase in the tail
     // is scrollback, not a dialog.
@@ -2951,7 +2952,7 @@ async function overview() {
 // lives in usage.mjs beside `ctxOnWire`; what stays here is the wiring — the
 // reduction this daemon holds and the overseer container's config dir and model.
 function ticketConversationOnWire({ session, repo, ticket, title = null, model = null, reasoningEffort = null, state, reviewer = false, cfgDir = null, harness = null, live = true }) {
-  const root = cfgDir ?? cfgDirFor(curiaConfig.dispatch.workspace_root, session)
+  const root = cfgDir ?? agentCfgDirFor(session)
   const detected = harness ?? detectHarness(root)
   const transcript = detected ? findTranscript(detected, root) : null
   let lastTurnAt = null

@@ -413,15 +413,25 @@ describe('routing config with a second harness (#39)', () => {
     assert.throws(() => load(lines), /is not a valid regex/)
   })
 
-  // A harness with no entry in the HARNESS table would get no config dir, no curia tools and no
-  // Stop hook — an agent that cannot be driven or ended.
-  test('a harness with no entry in the HARNESS table refuses the boot', () => {
+  // A Harness with no registered adapter would get no complete lifecycle. It
+  // is a code change, not a new routing row (ADR-0030).
+  test('a Harness with no registered adapter refuses the boot', () => {
     const lines = [...BASE.slice(0, -2),
       "  claude: { template: 'claude --model {model} \"$(cat {prompt_file})\"', resume_template: 'resume --model {model}', ready: 'x', tool_channel_grace_s: 15 }",
       "  cursor: { template: 'cursor --model {model} \"$(cat {prompt_file})\"', resume_template: 'resume --model {model}', ready: 'x', tool_channel_grace_s: 15 }",
       '  codex: { template: \'codex --model {model} "$(cat {prompt_file})"\', resume_template: \'resume --model {model}\', ready: \'x\', tool_channel_grace_s: 15 }',
     ]
-    assert.throws(() => load(lines), /harnesses\.cursor has no entry in the HARNESS table/)
+    assert.throws(() => load(lines), /harnesses\.cursor has no registered Harness adapter/)
+  })
+
+  test('a model provider must agree with its Harness adapter', () => {
+    const lines = BASE.map((line) => line === '  opus: { provider: anthropic, harness: claude }'
+      ? '  opus: { provider: openai, harness: claude }'
+      : line)
+    assert.throws(
+      () => load(lines),
+      /models\.opus\.provider names "openai", but the claude Harness adapter declares "anthropic"/,
+    )
   })
 
   // The credential half of the same question (#648). This one CANNOT be provoked
