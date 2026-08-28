@@ -200,6 +200,7 @@ export class Reduction {
     this.aistackAt = null // when the last aistack sync attempt finished, or null (#695)
     this.aistackLast = null // how the last aistack sync attempt ENDED, or null (#706)
     this.aistackMachine = null // the registration this box holds, or null (#706)
+    this.aistackFlow = null // the journal-reduced machine-registration ceremony (#815)
     this.mapAlarms = new Map() // "repo#map" -> the stranded-map alarm that still stands (#485)
     this.transcriptLandings = new Map() // session -> rewind landing and transcript tail (#689)
     this.conversationTurns = new Map() // session -> sent operator turns and the queued notes each one carried (#702)
@@ -545,9 +546,38 @@ export class Reduction {
     // memory, so the machine name survives the restart the operator does right
     // after registering. The credential file records no name, so this is the
     // name the box PROPOSED, and the screen says as much.
+    if (ev.type === 'aistack_login_started') {
+      const startedAt = Number(ev.started_at ?? (ev.ts ? Date.parse(ev.ts) : NaN))
+      this.aistackFlow = {
+        phase: 'waiting', code: ev.code ?? null, url: ev.url ?? null,
+        action_id: ev.action_id ?? null,
+        started_at: Number.isFinite(startedAt) ? startedAt : null,
+        expires_at: Number.isFinite(Number(ev.expires_at)) ? Number(ev.expires_at) : null,
+      }
+    }
+    if (ev.type === 'aistack_login_failed') {
+      const at = ev.ts ? Date.parse(ev.ts) : NaN
+      this.aistackFlow = {
+        phase: ev.phase ?? 'failed', message: ev.message ?? null,
+        action_id: ev.action_id ?? this.aistackFlow?.action_id ?? null,
+        at: Number.isFinite(at) ? at : null,
+      }
+    }
+    if (ev.type === 'aistack_login_cancelled') {
+      const at = ev.ts ? Date.parse(ev.ts) : NaN
+      this.aistackFlow = {
+        phase: 'cancelled', message: ev.message ?? 'the registration was cancelled before it was approved',
+        action_id: ev.action_id ?? this.aistackFlow?.action_id ?? null,
+        at: Number.isFinite(at) ? at : null,
+      }
+    }
     if (ev.type === 'aistack_registered') {
       const at = ev.ts ? Date.parse(ev.ts) : NaN
       this.aistackMachine = { machine: ev.machine ?? null, at: Number.isFinite(at) ? at : null }
+      this.aistackFlow = {
+        phase: 'registered', action_id: ev.action_id ?? this.aistackFlow?.action_id ?? null,
+        at: Number.isFinite(at) ? at : null,
+      }
     }
 
     // The stranded-map alarm (#485). A reduction for the reason the backup's is
@@ -1883,6 +1913,13 @@ export class Reduction {
   // The aistack registration this box holds, or null (#706).
   registeredAistackMachine() {
     return this.aistackMachine ? { ...this.aistackMachine } : null
+  }
+
+  // The device ceremony's last shared position. Unlike the child process,
+  // this survives a daemon restart and gives every Atlas client the same code,
+  // expiry, and ending (#815).
+  aistackRegistration() {
+    return this.aistackFlow ? { ...this.aistackFlow } : null
   }
 
   // Every stranded-map alarm that still stands (#485). The frontier read

@@ -1118,20 +1118,24 @@ export class DashboardSurface {
       // flow, stop waiting for it, and grant the standing permission once the
       // machine exists.
       //
-      // THE BROWSER SENDS NOTHING. Each of these is a bare press, and each one
-      // spawns a command whose arguments this box already decided — the pinned
-      // CLI version, curia's own HOME. There is no field for a browser to name
-      // a version, a home, or a server with, which is the whole reason these
-      // are three routes rather than one that takes a command.
+      // The browser sends only the Action identity it minted. Each route still
+      // decides the command, pinned CLI version, HOME, and server on this box.
+      // There is no field through which a browser can name any of those.
       if (url.pathname === '/api/aistack/register' || url.pathname === '/api/aistack/cancel'
         || url.pathname === '/api/aistack/optin') {
         const act = url.pathname.slice('/api/aistack/'.length)
         return this.#write(res, async () => {
+          const b = await this.#body(req)
+          const actionId = field(b.action_id, ACTION_ID_RE, 'an Action id')
           const out = await this.#daemon({
-            method: 'POST', path: `/aistack/${act}`, accept: [200, 409],
+            method: 'POST', path: `/aistack/${act}`, body: { action_id: actionId }, accept: [200, 409],
             timeout: AISTACK_ACT_TIMEOUT_MS,
           })
-          if (out.ok === false) throw refuse(out.error)
+          if (out.ok === false) {
+            const error = refuse(out.error)
+            if (out.action) error.receipt = { action: out.action }
+            throw error
+          }
           return out
         })
       }

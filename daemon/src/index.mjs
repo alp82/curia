@@ -1329,10 +1329,42 @@ const aistackReg = new AistackRegistration({
 // registration, and joining them anywhere else would give one of them a
 // reference to the other for no other reason.
 function aistackStatus() {
+  const live = aistackReg.status({ machine: reduction.registeredAistackMachine() })
+  const reducedFlow = reduction.aistackRegistration()
+  let flow = reducedFlow ?? (live.flow?.phase === 'waiting' && (!live.flow.code || !live.flow.url)
+    ? { phase: 'unregistered' }
+    : live.flow)
+  if (live.registered) flow = { phase: 'registered', action_id: flow?.action_id ?? null, at: live.machine?.at ?? null }
+  else if (live.flow?.phase === 'waiting') flow = live.flow
+
+  // A child process can't be reattached after a daemon restart. Keep its
+  // journal-reduced device code truthful until the CLI's own wait expires,
+  // then settle both the ceremony and its Action from shared facts.
+  const expiresAt = Number(flow?.expires_at)
+  if (flow?.phase === 'waiting' && !aistackReg.flow && Number.isFinite(expiresAt) && expiresAt > 0 && expiresAt <= Date.now()) {
+    const message = 'nobody approved the login within three minutes, so the CLI stopped waiting'
+    reduction.journal('aistack_login_failed', {
+      phase: 'expired', message, action_id: flow.action_id ?? null,
+    })
+    flow = reduction.aistackRegistration()
+  }
+
+  const registrationAction = flow?.action_id ? actions.get(flow.action_id) : null
+  if (registrationAction && !['confirmed', 'refused', 'failed'].includes(registrationAction.status)) {
+    if (live.registered) actions.confirm(registrationAction.action_id, { receipt: { outcome: 'registered' } })
+    else if (['failed', 'expired', 'cancelled'].includes(flow?.phase)) {
+      reduction.recordAction({
+        ...registrationAction, status: 'failed',
+        reason: flow.message ?? `The registration ${flow.phase}`,
+      })
+    }
+  }
   const alarm = reduction.standingAistackAlarm()
   return {
     ok: true,
-    ...aistackReg.status({ machine: reduction.registeredAistackMachine() }),
+    ...live,
+    flow,
+    actions: actions.overview().filter((action) => action.conflict_key === 'aistack:machine-registration'),
     sync: {
       last: reduction.lastAistackSync(),
       // The unrepaired failure, if there is one. Its message is the CLI's, and
@@ -3614,17 +3646,95 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
     return json(200, aistackStatus())
   }
   if (url.pathname === '/aistack/register' && req.method === 'POST') {
-    const out = await aistackReg.begin()
-    return json(out.ok === false ? 409 : 200, out.ok === false ? out : aistackStatus())
+    const { action_id: actionId } = await readBody(req).catch(() => ({}))
+    if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(String(actionId ?? ''))) {
+      return json(400, { error: 'action_id is not a valid Action id' })
+    }
+    const action = {
+      action_id: String(actionId), kind: 'aistack-register', target: 'aistack-machine',
+      conflict_key: 'aistack:machine-registration',
+    }
+    const recorded = actions.get(action.action_id)
+    if (recorded) return json(200, { action: recorded })
+    const conflict = actions.overview().find((candidate) => candidate.conflict_key === action.conflict_key
+      && !['confirmed', 'refused', 'failed'].includes(candidate.status))
+    const reason = aistackReg.registered()
+      ? 'this box is already registered with aistack — revoke the machine at aistack.to/settings/machines and delete the credential on the box before registering it again'
+      : conflict ? 'another machine-registration Action is already in progress' : null
+    if (reason) {
+      const refused = reduction.recordAction({ ...action, status: 'refused', reason })
+      return json(409, { ok: false, error: reason, action: refused })
+    }
+    const evidence = await actions.run(action, async (controls) => {
+      controls.accept()
+      controls.progress('Starting the device login')
+      const out = await aistackReg.begin({ actionId: action.action_id })
+      if (!out.ok) return { status: 'failed', reason: out.error }
+      controls.progress('Waiting for approval', {
+        receipt: { code: out.flow.code, url: out.flow.url, expires_at: out.flow.expires_at },
+      })
+      return { status: 'progress' }
+    })
+    return json(200, { action: evidence })
   }
   if (url.pathname === '/aistack/cancel' && req.method === 'POST') {
-    const out = aistackReg.cancel()
-    return json(out.ok === false ? 409 : 200, out.ok === false ? out : aistackStatus())
+    const { action_id: actionId } = await readBody(req).catch(() => ({}))
+    if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(String(actionId ?? ''))) {
+      return json(400, { error: 'action_id is not a valid Action id' })
+    }
+    const action = {
+      action_id: String(actionId), kind: 'aistack-cancel', target: 'aistack-machine',
+      conflict_key: 'aistack:machine-registration',
+    }
+    const recorded = actions.get(action.action_id)
+    if (recorded) return json(200, { action: recorded })
+    const flow = aistackStatus().flow
+    const conflict = actions.overview().find((candidate) => candidate.conflict_key === action.conflict_key
+      && !['confirmed', 'refused', 'failed'].includes(candidate.status))
+    const reason = flow?.phase !== 'waiting'
+      ? 'no aistack registration is waiting'
+      : conflict && conflict.kind !== 'aistack-register' ? 'another machine-registration Action is already in progress' : null
+    if (reason) {
+      const refused = reduction.recordAction({ ...action, status: 'refused', reason })
+      return json(409, { ok: false, error: reason, action: refused })
+    }
+    if (conflict) reduction.recordAction({ ...conflict, status: 'failed', reason: 'The registration was cancelled before approval' })
+    const evidence = await actions.run(action, async (controls) => {
+      controls.accept()
+      const out = aistackReg.cancel({ restored: flow })
+      if (!out.ok) return { status: 'failed', reason: out.error }
+      return { status: 'confirmed', receipt: { outcome: 'cancelled' } }
+    })
+    return json(200, { action: evidence })
   }
   if (url.pathname === '/aistack/optin' && req.method === 'POST') {
-    const out = await aistackReg.optIn()
-    if (out.ok === false) return json(409, out)
-    return json(200, { ok: true, said: out.said, ...aistackStatus() })
+    const { action_id: actionId } = await readBody(req).catch(() => ({}))
+    if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(String(actionId ?? ''))) {
+      return json(400, { error: 'action_id is not a valid Action id' })
+    }
+    const action = {
+      action_id: String(actionId), kind: 'aistack-optin', target: 'aistack-machine',
+      conflict_key: 'aistack:machine-registration',
+    }
+    const recorded = actions.get(action.action_id)
+    if (recorded) return json(200, { action: recorded })
+    const conflict = actions.overview().find((candidate) => candidate.conflict_key === action.conflict_key
+      && !['confirmed', 'refused', 'failed'].includes(candidate.status))
+    const reason = !aistackReg.registered()
+      ? "register the box with aistack first — the standing permission is granted with the box's own token"
+      : conflict ? 'another machine-registration Action is already in progress' : null
+    if (reason) {
+      const refused = reduction.recordAction({ ...action, status: 'refused', reason })
+      return json(409, { ok: false, error: reason, action: refused })
+    }
+    const evidence = await actions.run(action, async (controls) => {
+      controls.accept()
+      controls.progress('Granting the standing permission')
+      const out = await aistackReg.optIn()
+      if (!out.ok) return { status: 'failed', reason: out.error }
+      return { status: 'confirmed', receipt: { said: out.said } }
+    })
+    return json(200, { action: evidence })
   }
 
   if (url.pathname === '/settings/action' && req.method === 'POST') {

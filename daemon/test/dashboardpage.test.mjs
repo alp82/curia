@@ -2116,6 +2116,78 @@ describe('the settings screen (#265)', () => {
     assert.ok(!html.includes("aistackDo('optin')"), 'there is nothing to grant a permission on yet')
   })
 
+  test('Register this box projects immediately under the machine-registration conflict', async () => {
+    let release
+    let sent
+    const page = loadPage({ fetchImpl: (url, options) => {
+      sent = { url, body: JSON.parse(options.body) }
+      return new Promise((resolve) => { release = resolve })
+    } })
+    page.aistack = AISTACK()
+
+    const press = page.aistackDo('register')
+    const action = page.actionFor({ conflict_key: 'aistack:machine-registration' })
+
+    assert.equal(action.kind, 'aistack-register')
+    assert.equal(action.status, 'pending')
+    assert.match(text(page.setAistack()), /Starting the device login/)
+    assert.equal(sent.url, '/api/aistack/register')
+    assert.equal(sent.body.action_id, action.action_id)
+
+    release({ ok: true, json: async () => ({ action: {
+      ...action, status: 'accepted', revision: 1, started_at: 1, updated_at: 1,
+    } }) })
+    await press
+    page.finishAction(action.action_id)
+    page.aistackWatch()
+  })
+
+  test('Stop waiting replaces the pending registration with its own immediate projection', async () => {
+    let release
+    const page = loadPage({ fetchImpl: () => new Promise((resolve) => { release = resolve }) })
+    page.aistack = {
+      ...AISTACK(),
+      flow: { phase: 'waiting', code: 'T72NNC', url: 'https://aistack.to/cli/auth?code=T72NNC' },
+    }
+    page.beginAction({
+      action_id: 'atlas-register-in-flight', kind: 'aistack-register', target: 'aistack-machine',
+      conflict_key: 'aistack:machine-registration', projection: { phase: 'waiting' },
+    })
+
+    const press = page.aistackDo('cancel')
+    const action = page.actionFor({ conflict_key: 'aistack:machine-registration' })
+
+    assert.equal(action.kind, 'aistack-cancel')
+    assert.match(text(page.setAistack()), /Stopping the device login/)
+    release({ ok: true, json: async () => ({ action: {
+      ...action, status: 'accepted', revision: 2, started_at: 1, updated_at: 2,
+    } }) })
+    await press
+    page.finishAction(action.action_id)
+    page.aistackWatch()
+  })
+
+  test('Opt in projects immediately and a fresh page recovers its shared progress', async () => {
+    const registered = {
+      ...AISTACK(), registered: true,
+      machine: { proposed: 'curia.sh', servers: ['aistack.to'], at: 1 },
+      flow: { phase: 'registered' },
+    }
+    const shared = {
+      action_id: 'atlas-aistack-optin', kind: 'aistack-optin', target: 'aistack-machine',
+      conflict_key: 'aistack:machine-registration', status: 'progress', revision: 4,
+      progress: 'Granting the standing permission', started_at: 1, updated_at: 2,
+    }
+    const page = loadPage({ fetchImpl: async () => ({ ok: true, json: async () => ({ ...registered, actions: [shared] }) }) })
+
+    await page.loadAistack()
+
+    assert.equal(page.actionFor({ conflict_key: 'aistack:machine-registration' }).action_id, shared.action_id)
+    assert.match(text(page.setAistack()), /Granting the standing permission/)
+    page.finishAction(shared.action_id)
+    page.aistackWatch()
+  })
+
   test('a login in flight is the code and the link, and nothing else to do', () => {
     page.aistack = { ...AISTACK(), flow: { phase: 'waiting', code: 'T72NNC', url: 'https://aistack.to/cli/auth?code=T72NNC', started_at: 1, expires_at: 2 } }
     const html = screen('aistack')

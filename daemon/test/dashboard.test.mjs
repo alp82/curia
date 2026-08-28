@@ -422,6 +422,7 @@ describe('the settings write and the restart (#265)', () => {
   let cfgDir
   let reloadAnswer
   let aistackAnswer
+  let aistackRequestBody
   let overviewAnswer
   const ALLOW = ['alp@example.com']
   const SERVE_PORT = 8445
@@ -460,6 +461,7 @@ describe('the settings write and the restart (#265)', () => {
     // What it answers on the aistack routes (#706). The daemon is the process
     // that holds the credential, so this side never composes one of these.
     aistackAnswer = { ok: true, registered: false, flow: { phase: 'unregistered' }, sync: { last: null, alarm: null } }
+    aistackRequestBody = null
     overviewAnswer = async () => ({ daemon: { port: 4271 }, agents: [] })
     daemon = http.createServer((r, res) => {
       daemonCalls.push({ method: r.method, url: r.url, origin: r.headers.origin ?? null })
@@ -479,6 +481,15 @@ describe('the settings write and the restart (#265)', () => {
         },
       }))
       if (r.url === '/reload') return res.end(JSON.stringify(reloadAnswer))
+      if (r.url.startsWith('/aistack') && r.method === 'POST') {
+        let raw = ''
+        r.setEncoding('utf8')
+        r.on('data', (chunk) => { raw += chunk })
+        return r.on('end', () => {
+          aistackRequestBody = JSON.parse(raw)
+          res.end(JSON.stringify(aistackAnswer))
+        })
+      }
       if (r.url.startsWith('/aistack')) return res.end(JSON.stringify(aistackAnswer))
       res.end(JSON.stringify({ ok: true, exit_code: 75 }))
     })
@@ -800,15 +811,17 @@ describe('the settings write and the restart (#265)', () => {
     assert.ok(body.error)
   })
 
-  test('each press crosses the wire as a bare act — the browser names no command', async () => {
+  test('each press carries only its Action identity — the browser names no command', async () => {
     for (const act of ['register', 'cancel', 'optin']) {
       daemonCalls = []
+      aistackRequestBody = null
       const res = await req(surface.port, `/api/aistack/${act}`, {
-        method: 'POST', headers: writes(), body: { version: 'latest', home: '/etc' },
+        method: 'POST', headers: writes(), body: { action_id: `atlas-aistack-${act}`, version: 'latest', home: '/etc' },
       })
       assert.equal(res.status, 200)
       assert.deepEqual(daemonCalls, [{ method: 'POST', url: `/aistack/${act}`, origin: null }],
         'the route is the whole message, and the fields the browser sent went nowhere')
+      assert.deepEqual(aistackRequestBody, { action_id: `atlas-aistack-${act}` })
     }
   })
 
@@ -820,7 +833,9 @@ describe('the settings write and the restart (#265)', () => {
 
   test('a refusal from the daemon reads as one, not as this box failing', async () => {
     aistackAnswer = { ok: false, error: 'this box is already registered with aistack' }
-    const res = await req(surface.port, '/api/aistack/register', { method: 'POST', headers: writes(), body: {} })
+    const res = await req(surface.port, '/api/aistack/register', {
+      method: 'POST', headers: writes(), body: { action_id: 'atlas-aistack-refused' },
+    })
     assert.equal(res.status, 409)
     assert.match(JSON.parse(res.text).error, /already registered/)
   })

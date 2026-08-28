@@ -3531,6 +3531,8 @@ async function loadAistack() {
     const res = await fetch("/api/aistack", { headers: { accept: "application/json" }, cache: "no-store" });
     if (!res.ok) throw new Error("the sidecar answered " + res.status);
     aistack = await res.json();
+    observeActions(aistack.actions);
+    reconcileAistackActions();
   } catch (e) {
     aistack = { ok: false, error: e.message };
   }
@@ -3543,31 +3545,60 @@ async function loadAistack() {
    render would multiply. */
 function aistackWatch() {
   if (aistackAct.poll) { clearTimeout(aistackAct.poll); aistackAct.poll = null; }
-  if (aistack?.flow?.phase !== "waiting") return;
+  if (aistack?.flow?.phase !== "waiting" && !actionFor({ conflict_key: "aistack:machine-registration" })) return;
   aistackAct.poll = setTimeout(() => { aistackAct.poll = null; loadAistack(); }, AISTACK_WAIT_MS);
 }
 
 async function aistackDo(act) {
-  if (aistackAct.busy) return;
-  aistackAct.busy = act;
+  const flow = aistack?.flow ?? {};
+  const valid = act === "register" ? !aistack?.registered && flow.phase !== "waiting"
+    : act === "cancel" ? flow.phase === "waiting"
+      : act === "optin" ? Boolean(aistack?.registered) : false;
+  if (!valid) return null;
+  const conflict = actionFor({ conflict_key: "aistack:machine-registration" });
+  if (conflict && !(act === "cancel" && conflict.kind === "aistack-register")) return null;
+  if (conflict) finishAction(conflict.action_id);
+  const actionId = `atlas-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
+  const action = beginAction({
+    action_id: actionId, kind: "aistack-" + act, target: "aistack-machine",
+    conflict_key: "aistack:machine-registration",
+    projection: { phase: act === "register" ? "starting-device-login" : act === "cancel" ? "stopping-wait" : "granting-permission" },
+  });
+  if (!action) return null;
   aistackAct.said = null;
   render();
   try {
     const res = await fetch("/api/aistack/" + act, {
       method: "POST",
       headers: { "content-type": "application/json", accept: "application/json" },
-      body: "{}",
+      body: JSON.stringify({ action_id: actionId }),
     });
     const b = await res.json().catch(() => ({}));
+    observeActions(b.action ? [b.action] : b.receipt?.action ? [b.receipt.action] : []);
+    reconcileAistackActions();
     if (!res.ok) throw new Error(b.error || ("the sidecar answered " + res.status));
-    aistack = b;
-    if (b.said) aistackAct.said = { ok: true, text: b.said };
   } catch (e) {
-    aistackAct.said = { ok: false, text: e.message };
+    const current = actionFor({ action_id: actionId });
+    if (current) aistackAct.said = { ok: false, text: "Checking outcome: " + e.message };
+    else if (!aistackAct.said) aistackAct.said = { ok: false, text: e.message };
   }
-  aistackAct.busy = null;
   aistackWatch();
   render();
+  return action;
+}
+
+function reconcileAistackActions() {
+  for (const action of [...actions.values()]) {
+    if (!action.kind?.startsWith("aistack-") || !TERMINAL_ACTION.has(action.status)) continue;
+    if (action.status !== "confirmed") {
+      aistackAct.said = { ok: false, text: action.reason || "The aistack Action failed." };
+    } else if (action.kind === "aistack-optin") {
+      aistackAct.said = { ok: true, text: action.receipt?.said || "The standing permission is granted." };
+    } else if (action.kind === "aistack-cancel") {
+      aistackAct.said = { ok: true, text: "Stopped waiting for approval." };
+    }
+    finishAction(action.action_id);
+  }
 }
 
 /* What the last sync attempt came to, in one clause. Absent is not the same as
@@ -3600,16 +3631,19 @@ function setAistack() {
     ? `<p class="${aistackAct.said.ok ? "qhint" : "unread"}">${esc(aistackAct.said.text)}</p>`
     : "";
   const flow = aistack.flow ?? {};
-  const busy = aistackAct.busy;
+  const pending = actionFor({ conflict_key: "aistack:machine-registration" });
+  const pendingText = pending
+    ? `<p class="qhint">${esc(pending.progress || (pending.kind === "aistack-register" ? "Starting the device login"
+      : pending.kind === "aistack-cancel" ? "Stopping the device login" : "Granting the standing permission"))}</p>` : "";
   const btn = (act, label, extra) => `<button class="btn${extra ? " " + extra : ""}"${
-    busy ? " disabled" : ""} onclick="aistackDo('${esc(act)}')">${esc(busy === act ? "…" : label)}</button>`;
+    pending && !(act === "cancel" && pending.kind === "aistack-register") ? " disabled" : ""} onclick="aistackDo('${esc(act)}')">${esc(pending?.kind === "aistack-" + act ? "…" : label)}</button>`;
 
   /* The waiting half. The code and the link are the whole of what the operator
      needs, so they are the whole of what is on the screen — big enough to read
      off a phone across a room, and the link is the one the CLI printed rather
      than one this page composed. */
   if (flow.phase === "waiting") {
-    return `${said}<p class="unread">Approve this box on aistack. The code below is live for about three minutes;
+    return `${said}${pendingText}<p class="unread">Approve this box on aistack. The code below is live for about three minutes;
       after that, start a new registration.</p>
       <div class="rows">
         <div class="row"><span class="key">code</span><span class="grow mono" style="font-size:22px;letter-spacing:2px">${esc(flow.code ?? "—")}</span></div>
@@ -3631,7 +3665,7 @@ function setAistack() {
          Start a new one — a new login mints a new code.</p>`
       : `<p class="qhint">This box is not an aistack machine, so curia publishes nothing and says nothing about it.
          Registering it puts the agents' rolling 30-day token spend on your measured layer.</p>`;
-    return `${said}${why}<div class="rows">
+    return `${said}${pendingText}${why}<div class="rows">
       <div class="row"><span class="grow">${btn("register", "Register this box")}</span>${qq("set-aistack-reg")}</div>
       ${qhint("set-aistack-reg", `Curia runs the aistack CLI's device login on the box and shows you its code and link.
         You approve in a browser that is signed in to aistack. The token it hands back is written to a file under curia's
@@ -3653,7 +3687,7 @@ function setAistack() {
     : `<p class="qhint">This box is registered. Curia checks every
        ${esc(aistack.sync?.interval_hours ?? "?")}h; the stack's own frequency decides how often a check actually publishes.</p>`;
   const published = aistack.sync?.last?.published ?? null;
-  return `${said}${state}<div class="rows">
+  return `${said}${pendingText}${state}<div class="rows">
     <div class="row"><span class="key">machine</span><span class="grow mono">${esc(m.proposed ?? "unknown")}</span>${qq("set-aistack-machine")}</div>
     ${qhint("set-aistack-machine", `The name this box PROPOSED at registration, which is its hostname. The approval page can rename a
       machine and the credential file records no name, so the name aistack shows is the one on
@@ -4992,6 +5026,7 @@ async function tick() {
     reconcilePaneKeyActions();
     reconcileDialogAnswerActions();
     reconcileGitHubAppActions();
+    reconcileAistackActions();
     reconcileConversationActions();
     reconcileSettingsActions();
     reachable = true;

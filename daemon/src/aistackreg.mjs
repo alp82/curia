@@ -176,6 +176,7 @@ export class AistackRegistration {
       flow: this.flow
         ? {
           phase: 'waiting', code: this.flow.code, url: this.flow.url,
+          action_id: this.flow.actionId,
           started_at: this.flow.startedAt, expires_at: this.flow.startedAt + LOGIN_TIMEOUT_MS,
         }
         : (this.last ? { ...this.last } : { phase: registered ? 'registered' : 'unregistered' }),
@@ -194,7 +195,7 @@ export class AistackRegistration {
   // A login already in flight is RETURNED, not replaced: a second `login` mints
   // a second session and would invalidate the code the operator is already
   // holding.
-  async begin() {
+  async begin({ actionId = null } = {}) {
     if (this.flow) return { ok: true, already: true, ...this.status() }
     if (this.registered()) {
       return { ok: false, error: 'this box is already registered with aistack — revoke the machine at aistack.to/settings/machines and delete the credential on the box before registering it again' }
@@ -212,7 +213,7 @@ export class AistackRegistration {
       return { ok: false, error: `${this.bin} did not run: ${e.message}` }
     }
 
-    const flow = { child, startedAt, code: null, url: null, text: '' }
+    const flow = { child, startedAt, code: null, url: null, text: '', actionId }
     this.flow = flow
 
     let settleDevice = () => {}
@@ -242,7 +243,7 @@ export class AistackRegistration {
       clearTimeout(kill)
       clearTimeout(giveUp)
       if (this.flow === flow) this.flow = null
-      this.#settle({ phase: 'failed', message: `${this.bin} did not run: ${e.message}` })
+      this.#settle({ phase: 'failed', message: `${this.bin} did not run: ${e.message}` }, flow.actionId)
       settleDevice({ ok: false, error: `${this.bin} did not run: ${e.message}` })
     })
     child.once('close', (code, signal) => {
@@ -263,19 +264,35 @@ export class AistackRegistration {
       return { ok: false, error: out.error }
     }
     this.log(`an aistack registration is waiting for approval: ${flow.url}`)
-    this.journal('aistack_login_started', { code: flow.code, url: flow.url, version: this.version })
+    this.journal('aistack_login_started', {
+      code: flow.code, url: flow.url, version: this.version,
+      ...(flow.actionId ? { action_id: flow.actionId } : {}),
+      started_at: flow.startedAt, expires_at: flow.startedAt + LOGIN_TIMEOUT_MS,
+    })
     return { ok: true, ...this.status() }
   }
 
   // Stop waiting. The session on aistack's side ages out on its own; this ends
   // the box's half so the screen is not left holding a code nobody will use.
-  cancel() {
+  cancel({ restored = null } = {}) {
     const flow = this.flow
-    if (!flow) return { ok: false, error: 'no aistack registration is waiting' }
+    if (!flow && restored?.phase !== 'waiting') return { ok: false, error: 'no aistack registration is waiting' }
+    if (!flow) {
+      this.last = { phase: 'cancelled', message: 'the registration was cancelled before it was approved', at: this.now() }
+      this.journal('aistack_login_cancelled', {
+        message: this.last.message,
+        ...(restored.action_id ? { action_id: restored.action_id } : {}),
+      })
+      return { ok: true, ...this.status() }
+    }
     flow.cancelled = true
     this.flow = null
     try { flow.child.kill('SIGKILL') } catch { /* already gone */ }
     this.last = { phase: 'cancelled', message: 'the registration was cancelled before it was approved', at: this.now() }
+    this.journal('aistack_login_cancelled', {
+      message: this.last.message,
+      ...(flow.actionId ? { action_id: flow.actionId } : {}),
+    })
     return { ok: true, ...this.status() }
   }
 
@@ -309,15 +326,18 @@ export class AistackRegistration {
     if (this.registered()) {
       const machine = this.hostname()
       this.log(`the box registered with aistack as ${machine}`)
-      this.journal('aistack_registered', { machine, servers: registeredServers(this.root) })
-      this.#settle({ phase: 'registered', message: null })
+      this.journal('aistack_registered', {
+        machine, servers: registeredServers(this.root),
+        ...(flow.actionId ? { action_id: flow.actionId } : {}),
+      })
+      this.#settle({ phase: 'registered', message: null }, flow.actionId)
       return
     }
     if (flow.timedOut) {
       this.#settle({
         phase: 'expired',
         message: 'nobody approved the login within three minutes, so the CLI stopped waiting',
-      })
+      }, flow.actionId)
       return
     }
     const why = lastLine(flow.text)
@@ -326,14 +346,17 @@ export class AistackRegistration {
       message: signal
         ? `the login was killed on ${signal}`
         : `the login exited ${code}${why ? `: ${why}` : ' without writing a credential'}`,
-    })
+    }, flow.actionId)
   }
 
-  #settle(entry) {
-    this.last = { ...entry, at: this.now() }
+  #settle(entry, actionId = null) {
+    this.last = { ...entry, ...(actionId ? { action_id: actionId } : {}), at: this.now() }
     if (entry.phase === 'failed' || entry.phase === 'expired') {
       this.log(`the aistack registration ended ${entry.phase}: ${entry.message}`)
-      this.journal('aistack_login_failed', { phase: entry.phase, message: entry.message })
+      this.journal('aistack_login_failed', {
+        phase: entry.phase, message: entry.message,
+        ...(actionId ? { action_id: actionId } : {}),
+      })
     }
   }
 

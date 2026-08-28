@@ -62,6 +62,7 @@ describe('CSRF gate on the loopback surface (index.mjs, real boot)', () => {
     const shim = path.join(tmp, 'shim')
     fs.mkdirSync(cfgDir, { recursive: true })
     fs.mkdirSync(shim, { recursive: true })
+    fs.mkdirSync(path.join(tmp, 'work', 'home'), { recursive: true })
     // inert failing stubs: boot reconcile's gh/tmux reads come back
     // indeterminate (a failed pass, by design), tailscale serve fails non-fatally
     for (const bin of ['gh', 'tmux', 'tailscale']) {
@@ -69,6 +70,16 @@ describe('CSRF gate on the loopback surface (index.mjs, real boot)', () => {
       fs.writeFileSync(p, '#!/bin/sh\nexit 1\n')
       fs.chmodSync(p, 0o755)
     }
+    const npx = path.join(shim, 'npx')
+    fs.writeFileSync(npx, [
+      '#!/bin/sh',
+      'if [ "$3" = "login" ]; then',
+      '  printf "CODE T72NNC\\nOPEN https://aistack.to/cli/auth?code=T72NNC\\n"',
+      '  exec sleep 30',
+      'fi',
+      'printf "auto-sync on\\n"',
+    ].join('\n'))
+    fs.chmodSync(npx, 0o755)
     const [daemonPort, ttydPort, servePort, proxyPort] = await freePorts(4)
     port = daemonPort
     fs.writeFileSync(path.join(cfgDir, 'curia.yaml'), [
@@ -177,6 +188,43 @@ describe('CSRF gate on the loopback surface (index.mjs, real boot)', () => {
     })
     assert.equal(res.status, 200)
     assert.ok(JSON.parse(res.body).id, 'the request went through to the real route')
+  })
+
+  test('machine registration exposes one durable Action and refuses a conflicting press', async () => {
+    const post = (route, actionId) => request(port, 'POST', route, {
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ action_id: actionId }),
+    })
+    const started = await post('/aistack/register', 'atlas-aistack-register-1')
+    assert.equal(started.status, 200)
+    assert.equal(JSON.parse(started.body).action.status, 'accepted')
+
+    let status
+    for (let i = 0; i < 100; i++) {
+      status = JSON.parse((await request(port, 'GET', '/aistack')).body)
+      if (status.flow?.code) break
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+    assert.equal(status.flow.code, 'T72NNC')
+    assert.equal(status.flow.action_id, 'atlas-aistack-register-1')
+    assert.equal(status.actions.find((action) => action.action_id === 'atlas-aistack-register-1').status, 'progress')
+
+    const conflict = await post('/aistack/register', 'atlas-aistack-register-2')
+    assert.equal(conflict.status, 409)
+    assert.equal(JSON.parse(conflict.body).action.status, 'refused')
+
+    const cancelled = await post('/aistack/cancel', 'atlas-aistack-cancel-1')
+    assert.equal(cancelled.status, 200)
+    assert.equal(JSON.parse(cancelled.body).action.status, 'accepted')
+
+    for (let i = 0; i < 100; i++) {
+      status = JSON.parse((await request(port, 'GET', '/aistack')).body)
+      const action = status.actions.find((candidate) => candidate.action_id === 'atlas-aistack-cancel-1')
+      if (action?.status === 'confirmed') break
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+    assert.equal(status.flow.phase, 'cancelled')
+    assert.equal(status.actions.find((action) => action.action_id === 'atlas-aistack-cancel-1').status, 'confirmed')
   })
 
   test('Sec-Fetch-Site: none (a direct navigation-style value) passes', async () => {
