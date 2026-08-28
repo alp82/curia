@@ -29,13 +29,14 @@ function pageScript() {
   return script[1]
 }
 
-function loadPage({ fetchImpl = () => new Promise(() => {}) } = {}) {
+function loadPage({ fetchImpl = () => new Promise(() => {}), confirmImpl = undefined } = {}) {
   const storage = new Map()
   const ctx = vm.createContext({
     document: { title: '', getElementById: () => null, addEventListener() {}, visibilityState: 'hidden' },
     window: { addEventListener() {} },
     location: { hash: '' },
     fetch: fetchImpl,
+    confirm: confirmImpl,
     setTimeout,
     clearTimeout,
     console,
@@ -2315,6 +2316,95 @@ describe('the settings screen (#265)', () => {
     assert.equal(page.runningDiff(p), null)
     page.UI.drill.settings = { open: 'maintenance', list: false }
     assert.match(text(page.screenSettings(p)), /cannot tell whether the daemon runs these files: it is not answering/)
+  })
+
+  test('restart projects immediately under the daemon lifecycle conflict', async () => {
+    let release
+    let sent
+    page = loadPage({
+      fetchImpl: async (url, options) => new Promise((resolve) => {
+        sent = { url, body: JSON.parse(options.body) }
+        release = resolve
+      }),
+    })
+    page.settings = SETTINGS()
+    page.draft = JSON.parse(JSON.stringify(page.settings))
+    page.payload = payload()
+
+    const pressed = page.doRestart()
+
+    const action = page.actionFor({ conflict_key: 'daemon:lifecycle' })
+    assert.equal(action.status, 'pending')
+    assert.equal(action.projection.uptime_s, 7200)
+    assert.match(text(screen('maintenance')), /Restarting daemon/)
+    assert.deepEqual(sent, { url: '/api/restart', body: { action_id: action.action_id } })
+
+    release({
+      ok: true,
+      json: async () => ({
+        ok: true,
+        action: { ...action, status: 'accepted', revision: 15, receipt: { uptime_s: 7200 } },
+      }),
+    })
+    await pressed
+    assert.equal(page.actionFor({ conflict_key: 'daemon:lifecycle' }).status, 'accepted')
+  })
+
+  test('restart keeps its destructive confirmation in front of the Action', async () => {
+    let requests = 0
+    page = loadPage({
+      fetchImpl: async () => { requests += 1 },
+      confirmImpl: () => false,
+    })
+    page.payload = payload()
+
+    await page.doRestart()
+
+    assert.equal(requests, 0)
+    assert.equal(page.actionFor({ conflict_key: 'daemon:lifecycle' }), null)
+  })
+
+  test('restart recovers after refresh and settles from daemon health and fresh uptime', () => {
+    const shared = {
+      action_id: 'atlas-daemon-recovery', kind: 'daemon-restart', target: 'daemon', conflict_key: 'daemon:lifecycle',
+      status: 'progress', progress: 'Restarting daemon', revision: 20,
+      receipt: { uptime_s: 7200, requested_at: at(5), exit_code: 75 },
+    }
+    let reading = payload({ actions: [shared] })
+    reading.daemon_up = false
+    page.observeActions(reading.overview.actions)
+    page.reconcileDaemonRestartActions(reading)
+
+    assert.equal(page.actionFor({ conflict_key: 'daemon:lifecycle' }).status, 'progress')
+    assert.match(text(screen('maintenance')), /Restarting daemon/)
+
+    reading = payload({
+      actions: [{
+        ...shared, status: 'confirmed', revision: 25,
+        receipt: { ...shared.receipt, booted_at: at(1) },
+      }],
+      daemon: { ...OVERVIEW().daemon, uptime_s: 3 },
+    })
+    page.observeActions(reading.overview.actions)
+    page.reconcileDaemonRestartActions(reading)
+
+    assert.equal(page.actionFor({ conflict_key: 'daemon:lifecycle' }), null)
+    assert.match(text(screen('maintenance')), /The daemon restarted and is answering/)
+  })
+
+  test('a lost restart receipt remains ambiguous until health evidence arrives', async () => {
+    page = loadPage({ fetchImpl: async () => { throw new Error('socket hang up') } })
+    page.settings = SETTINGS()
+    page.draft = JSON.parse(JSON.stringify(page.settings))
+    page.payload = payload()
+
+    await page.doRestart()
+
+    assert.equal(page.actionFor({ conflict_key: 'daemon:lifecycle' }).status, 'pending')
+    const t = text(screen('maintenance'))
+    assert.match(t, /may have taken the restart order/)
+    assert.match(t, /bar above says whether the daemon is answering/)
+    assert.doesNotMatch(t, /Refused — nothing was written/)
   })
 
   test('the settings nav item carries a marker while the daemon and the files disagree', () => {

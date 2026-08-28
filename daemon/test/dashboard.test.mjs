@@ -423,6 +423,7 @@ describe('the settings write and the restart (#265)', () => {
   let reloadAnswer
   let aistackAnswer
   let aistackRequestBody
+  let restartRequestBody
   let overviewAnswer
   const ALLOW = ['alp@example.com']
   const SERVE_PORT = 8445
@@ -462,7 +463,8 @@ describe('the settings write and the restart (#265)', () => {
     // that holds the credential, so this side never composes one of these.
     aistackAnswer = { ok: true, registered: false, flow: { phase: 'unregistered' }, sync: { last: null, alarm: null } }
     aistackRequestBody = null
-    overviewAnswer = async () => ({ daemon: { port: 4271 }, agents: [] })
+    restartRequestBody = null
+    overviewAnswer = async () => ({ daemon: { port: 4271, uptime_s: 90 }, agents: [] })
     daemon = http.createServer((r, res) => {
       daemonCalls.push({ method: r.method, url: r.url, origin: r.headers.origin ?? null })
       res.writeHead(200, { 'content-type': 'application/json' })
@@ -491,6 +493,23 @@ describe('the settings write and the restart (#265)', () => {
         })
       }
       if (r.url.startsWith('/aistack')) return res.end(JSON.stringify(aistackAnswer))
+      if (r.url === '/restart') {
+        let raw = ''
+        r.setEncoding('utf8')
+        r.on('data', (chunk) => { raw += chunk })
+        return r.on('end', () => {
+          restartRequestBody = JSON.parse(raw)
+          res.end(JSON.stringify({
+            ok: true,
+            exit_code: 75,
+            action: {
+              action_id: restartRequestBody.action_id,
+              kind: 'daemon-restart', target: 'daemon', conflict_key: 'daemon:lifecycle',
+              status: 'accepted', revision: 9,
+            },
+          }))
+        })
+      }
       res.end(JSON.stringify({ ok: true, exit_code: 75 }))
     })
     await new Promise((done) => daemon.listen(0, '127.0.0.1', done))
@@ -747,13 +766,22 @@ describe('the settings write and the restart (#265)', () => {
   // ---- the restart ---------------------------------------------------------
 
   test('the restart is the DAEMON\'s to take: the sidecar only orders it', async () => {
-    const res = await req(surface.port, '/api/restart', { method: 'POST', headers: writes(), body: {} })
+    await req(surface.port, '/api/overview', { headers: served() })
+    const res = await req(surface.port, '/api/restart', {
+      method: 'POST', headers: writes(), body: { action_id: 'atlas-daemon-restart' },
+    })
     assert.equal(res.status, 200)
+    assert.equal(JSON.parse(res.text).action.status, 'accepted')
     assert.deepEqual(daemonCalls, [{ method: 'POST', url: '/restart', origin: null }])
+    assert.deepEqual(restartRequestBody, { by: 'dashboard', action_id: 'atlas-daemon-restart', uptime_s: 90 })
+    assert.equal(surface.snapshot.actions[0].action_id, 'atlas-daemon-restart',
+      'a refresh during process downtime recovers the accepted Action from the held snapshot')
   })
 
   test('the order carries no Origin onward — the daemon refuses every request that does', async () => {
-    await req(surface.port, '/api/restart', { method: 'POST', headers: writes(), body: {} })
+    await req(surface.port, '/api/restart', {
+      method: 'POST', headers: writes(), body: { action_id: 'atlas-daemon-origin' },
+    })
     assert.equal(daemonCalls[0].origin, null,
       'the sidecar composes its own call from a route it names in code, never forwards a browser\'s')
   })
@@ -761,13 +789,17 @@ describe('the settings write and the restart (#265)', () => {
   test('after a restart order the next read re-reads: a held snapshot would say `up` at the one moment that is false', async () => {
     await req(surface.port, '/api/overview', { headers: served() })
     assert.ok(surface.snapshotAt > 0)
-    await req(surface.port, '/api/restart', { method: 'POST', headers: writes(), body: {} })
+    await req(surface.port, '/api/restart', {
+      method: 'POST', headers: writes(), body: { action_id: 'atlas-daemon-reread' },
+    })
     assert.equal(surface.snapshotAt, 0)
   })
 
   test('a daemon that is not answering makes the restart an error, never a silent success', async () => {
     await new Promise((done) => daemon.close(done))
-    const res = await req(surface.port, '/api/restart', { method: 'POST', headers: writes(), body: {} })
+    const res = await req(surface.port, '/api/restart', {
+      method: 'POST', headers: writes(), body: { action_id: 'atlas-daemon-offline' },
+    })
     assert.equal(res.status, 500)
     daemon = null
   })

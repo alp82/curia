@@ -824,12 +824,15 @@ describe('POST /restart: the daemon journals and exits nonzero (#265, real boot)
   test('the order is answered first and the process exits nonzero after it', async () => {
     const res = await request(port, 'POST', '/restart', {
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ by: 'dashboard' }),
+      body: JSON.stringify({ by: 'dashboard', action_id: 'atlas-daemon-restart', uptime_s: 91 }),
     })
     assert.equal(res.status, 200, 'the answer leaves before the exit takes the socket')
     const body = JSON.parse(res.body)
     assert.equal(body.ok, true)
     assert.equal(body.by, 'dashboard')
+    assert.equal(body.action.status, 'accepted')
+    assert.equal(body.action.conflict_key, 'daemon:lifecycle')
+    assert.equal(body.action.receipt.uptime_s, 91)
 
     const code = await new Promise((done) => child.once('close', (c) => done(c)))
     assert.equal(code, body.exit_code)
@@ -840,6 +843,7 @@ describe('POST /restart: the daemon journals and exits nonzero (#265, real boot)
     const logged = events.filter((e) => e.type === 'restart_requested')
     assert.equal(logged.length, 1)
     assert.equal(logged[0].by, 'dashboard')
+    assert.equal(logged[0].action_id, body.action.action_id)
   })
 })
 

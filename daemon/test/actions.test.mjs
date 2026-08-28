@@ -133,6 +133,27 @@ describe('shared Action evidence', () => {
     assert.equal(actions.get('act-recovered-failure').status, 'failed')
   })
 
+  test('daemon lifecycle evidence reconciles a restart Action after the process exits', () => {
+    const restart = {
+      action_id: 'atlas-daemon-restart', kind: 'daemon-restart', target: 'daemon', conflict_key: 'daemon:lifecycle',
+    }
+    reduction.recordAction({ ...restart, status: 'accepted' })
+    reduction.journal('restart_requested', {
+      by: 'dashboard', exit_code: 75, action_id: restart.action_id,
+    })
+    assert.equal(actions.get(restart.action_id).status, 'progress')
+    assert.equal(actions.get(restart.action_id).progress, 'Restarting daemon')
+
+    reduction.close()
+    reduction = new Reduction(dir)
+    actions = new ActionCoordinator(reduction)
+    assert.equal(actions.get(restart.action_id).status, 'progress')
+
+    reduction.journal('daemon_boot', { pid: 4321 })
+    assert.equal(actions.get(restart.action_id).status, 'confirmed')
+    assert.equal(actions.get(restart.action_id).receipt.exit_code, 75)
+  })
+
   test('terminal evidence is immutable', async () => {
     await actions.run(action('act-terminal'), async () => ({ status: 'refused', reason: 'not takeable' }))
     assert.throws(

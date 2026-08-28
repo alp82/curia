@@ -3899,10 +3899,46 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
   if (url.pathname === '/restart' && req.method === 'POST') {
     const body = await readBody(req).catch(() => ({}))
     const by = typeof body?.by === 'string' ? body.by : 'loopback'
-    reduction.journal('restart_requested', { by, exit_code: RESTART_EXIT_CODE })
+    const actionId = body?.action_id == null ? null : String(body.action_id)
+    let evidence = null
+    if (actionId != null) {
+      if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(actionId)) {
+        return json(400, { error: 'action_id is not a valid Action id' })
+      }
+      const action = {
+        action_id: actionId,
+        kind: 'daemon-restart',
+        target: 'daemon',
+        conflict_key: 'daemon:lifecycle',
+      }
+      const uptime = body?.uptime_s
+      const recorded = actions.get(actionId)
+      if (recorded) return json(200, { ok: true, by, exit_code: RESTART_EXIT_CODE, action: recorded })
+      const conflict = actions.overview().find((candidate) =>
+        candidate.conflict_key === action.conflict_key
+        && !['confirmed', 'refused', 'failed'].includes(candidate.status))
+      if (conflict) {
+        const refused = reduction.recordAction({
+          ...action,
+          status: 'refused',
+          reason: 'the daemon is already restarting',
+        })
+        return json(409, { ok: false, error: refused.reason, action: refused })
+      }
+      evidence = reduction.recordAction({
+        ...action,
+        status: 'accepted',
+        ...(typeof uptime === 'number' && Number.isFinite(uptime) && uptime >= 0 ? { receipt: { uptime_s: uptime } } : {}),
+      })
+    }
+    reduction.journal('restart_requested', {
+      by, exit_code: RESTART_EXIT_CODE, ...(actionId ? { action_id: actionId } : {}),
+    })
     log(`restart requested by ${by} — exiting ${RESTART_EXIT_CODE} so the supervisor respawns this process`)
     res.writeHead(200, { 'content-type': 'application/json' })
-    return res.end(JSON.stringify({ ok: true, by, exit_code: RESTART_EXIT_CODE }), () => {
+    return res.end(JSON.stringify({
+      ok: true, by, exit_code: RESTART_EXIT_CODE, ...(evidence ? { action: evidence } : {}),
+    }), () => {
       goodbyeThenExit('restart', RESTART_EXIT_CODE, RESTART_DELAY_MS)
     })
   }

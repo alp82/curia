@@ -290,6 +290,36 @@ export class Reduction {
       })
     }
 
+    // A restart kills the Action coordinator with the process it restarts.
+    // The request and the next boot are the durable lifecycle facts that move
+    // the Action across that gap, both on the live reduction and on rebuild.
+    if (ev.type === 'restart_requested' && ev.action_id) {
+      const actionId = String(ev.action_id)
+      const prior = this.actions.get(actionId)
+      if (prior?.kind === 'daemon-restart' && !TERMINAL_ACTION_STATUSES.has(prior.status)) {
+        this.actions.set(actionId, {
+          ...prior,
+          status: 'progress',
+          revision: this.revision,
+          updated_at: ev.ts,
+          progress: 'Restarting daemon',
+          receipt: { ...prior.receipt, requested_at: ev.ts, exit_code: ev.exit_code },
+        })
+      }
+    }
+    if (ev.type === 'daemon_boot') {
+      for (const [actionId, prior] of this.actions) {
+        if (prior.kind !== 'daemon-restart' || prior.status !== 'progress' || !prior.receipt?.requested_at) continue
+        this.actions.set(actionId, {
+          ...prior,
+          status: 'confirmed',
+          revision: this.revision,
+          updated_at: ev.ts,
+          receipt: { ...prior.receipt, booted_at: ev.ts },
+        })
+      }
+    }
+
     if (ev.type === 'timeline_draft_changed' && ev.session) {
       this.chatDrafts.set(String(ev.session), String(ev.text ?? ''))
     }

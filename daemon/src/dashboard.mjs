@@ -960,12 +960,29 @@ export class DashboardSurface {
       // the page's own marker is what says whether it has.
       if (url.pathname === '/api/restart') {
         return this.#write(res, async () => {
-          const out = await this.#daemon({ method: 'POST', path: '/restart', body: { by: 'dashboard' } })
-          this.log('dashboard: the daemon took the restart order')
-          // The next page read must not be answered from a snapshot taken
-          // before the restart: it would say the daemon is up for as long as
-          // the interval lasts, at the one moment that is false.
+          const b = await this.#body(req)
+          const actionId = field(b.action_id, ACTION_ID_RE, 'an Action id')
+          // Drop the held reading before the order crosses the socket. If the
+          // daemon exits after taking the order but before its receipt arrives,
+          // the next poll still measures daemon health instead of holding the
+          // pre-restart snapshot through the ambiguous interval.
           this.snapshotAt = 0
+          const uptime = this.snapshot?.daemon?.uptime_s
+          const out = await this.#daemon({
+            method: 'POST',
+            path: '/restart',
+            body: {
+              by: 'dashboard',
+              action_id: actionId,
+              ...(typeof uptime === 'number' && Number.isFinite(uptime) && uptime >= 0 ? { uptime_s: uptime } : {}),
+            },
+            accept: [200, 409],
+          })
+          if (out.action && this.snapshot) {
+            const prior = (this.snapshot.actions ?? []).filter((action) => action.action_id !== out.action.action_id)
+            this.snapshot = { ...this.snapshot, actions: [...prior, out.action] }
+          }
+          this.log('dashboard: the daemon took the restart order')
           return out
         })
       }

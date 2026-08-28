@@ -3173,6 +3173,10 @@ function settingsAction() {
   return [...actions.values()].find((action) => action.kind === "settings-save") ?? null;
 }
 
+function daemonRestartAction() {
+  return actionFor({ conflict_key: "daemon:lifecycle" });
+}
+
 /* ---- what the daemon is running (#362) --------------------------------------
 
    Applied is a fact curia measured, not a claim the save made. `GET /overview`
@@ -3240,6 +3244,10 @@ function saveDock() {
   if (s.phase === "restarting") {
     return dock("", `<span class="toast">The daemon exited nonzero and the supervisor respawns it.
       This page serves its last snapshot meanwhile.</span>`);
+  }
+  if (s.phase === "restart-unknown") {
+    return dock("", `<span class="toast">The daemon may have taken the restart order.</span>
+      <span class="why">${esc(s.error)}</span>`);
   }
   if (s.phase === "refused") {
     /* The loaders refused the candidate, so nothing on disk moved. The draft
@@ -3462,8 +3470,13 @@ function gistMaintenance(p) {
 function setMaintenance(p) {
   const differs = runningDiff(p);
   const run = p?.overview?.daemon?.config;
+  const restart = daemonRestartAction();
   let state;
-  if (differs === null) {
+  if (restart && !TERMINAL_ACTION.has(restart.status)) {
+    state = restart.projection?.transport_error
+      ? `<p class="unread">The daemon may have taken the restart order. Agent panes remain running in their own container.</p>`
+      : `<p class="unread">Restarting daemon. Agent panes remain running in their own container.</p>`;
+  } else if (differs === null) {
     state = `<p class="unread">curia cannot tell whether the daemon runs these files: ${
       p?.daemon_up === false ? "it is not answering." : "there is no reading of it yet."}</p>`;
   } else if (differs.length) {
@@ -3483,7 +3496,7 @@ function setMaintenance(p) {
     : "";
   return `${state}<div class="rows">
     <div class="row"><span class="grow"><button class="btn${differs?.length ? " restart-hot" : ""}"
-      ${UI.set.busy ? "disabled" : ""} onclick="doRestart()">Restart daemon</button></span>${qq("set-restart")}</div>
+      ${UI.set.busy || restart ? "disabled" : ""} onclick="doRestart()">${restart && !TERMINAL_ACTION.has(restart.status) ? "Restarting daemon…" : "Restart daemon"}</button></span>${qq("set-restart")}</div>
     ${qhint("set-restart", `A restart is for the keys a save cannot apply: the ports,
       <span class="mono">workspace_root</span>, <span class="mono">sandbox</span>,
       <span class="mono">identity</span>, and every routing key this screen does not write.
@@ -4827,6 +4840,34 @@ function reconcileSettingsActions() {
   }
 }
 
+function reconcileDaemonRestartActions(p) {
+  const shared = (p?.overview?.actions ?? [])
+    .filter((action) => action.kind === "daemon-restart")
+    .sort((a, b) => Number(b.revision ?? -1) - Number(a.revision ?? -1))[0] ?? null;
+  const local = daemonRestartAction();
+  const action = local ?? shared;
+  if (!action) return;
+
+  if (action.status === "refused" || action.status === "failed") {
+    UI.set.phase = "refused";
+    UI.set.error = action.reason || "The daemon restart did not finish.";
+    if (local) finishAction(local.action_id);
+    return;
+  }
+
+  const uptime = p?.overview?.daemon?.uptime_s;
+  const before = action.receipt?.uptime_s ?? action.projection?.uptime_s;
+  const freshLife = Number.isFinite(uptime) && (
+    action.receipt?.booted_at != null || (Number.isFinite(before) && uptime < before)
+  );
+  if (p?.daemon_up && freshLife && (action.status === "confirmed" || action.receipt?.requested_at)) {
+    UI.set.phase = "restarted";
+    UI.set.error = null;
+    UI.set.note = `The daemon restarted and is answering. Up ${dur(uptime)}.`;
+    if (local) finishAction(local.action_id);
+  }
+}
+
 async function doSave() {
   const patch = settingsPatch();
   if (!Object.keys(patch).length) return;
@@ -4895,24 +4936,42 @@ async function doSave() {
 async function doRestart() {
   const ask = "Restart the daemon? Running agents keep their tmux sessions — those live in their own container. Anything unsaved here is not written.";
   if (typeof confirm === "function" && !confirm(ask)) return;
+  const actionId = `atlas-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
+  const uptime = payload?.overview?.daemon?.uptime_s;
+  const action = beginAction({
+    action_id: actionId,
+    kind: "daemon-restart",
+    target: "daemon",
+    conflict_key: "daemon:lifecycle",
+    projection: { uptime_s: Number.isFinite(uptime) ? uptime : null },
+  });
+  if (!action) return;
   UI.set.busy = true;
   render();
   try {
     const res = await fetch("/api/restart", {
       method: "POST",
       headers: { "content-type": "application/json", accept: "application/json" },
-      body: "{}",
+      body: JSON.stringify({ action_id: actionId }),
     });
     const body = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(body.error || ("the sidecar answered " + res.status));
-    UI.set.phase = "restarting";
+    observeActions(body.action ? [body.action] : []);
+    if (!res.ok) {
+      const current = actionFor({ action_id: actionId });
+      UI.set.phase = "refused";
+      UI.set.error = current?.reason || body.error || ("the sidecar answered " + res.status);
+      finishAction(actionId);
+      UI.set.busy = false;
+      return render();
+    }
     UI.set.error = null;
   } catch (e) {
     /* The daemon may have taken the order and died before answering. Say
        exactly that, and let the marker at the top of the page be the evidence:
        it reads the daemon, and this reads a socket. */
-    UI.set.phase = "refused";
+    UI.set.phase = "restart-unknown";
     UI.set.error = `${e.message} — the bar above says whether the daemon is answering`;
+    action.projection.transport_error = e.message;
   }
   UI.set.busy = false;
   render();
@@ -5067,6 +5126,7 @@ async function tick() {
     if (!res.ok) throw new Error("the sidecar answered " + res.status);
     payload = await res.json();
     observeActions(payload?.overview?.actions);
+    reconcileDaemonRestartActions(payload);
     recoverTerminalChatTakeBackActions(payload?.overview?.actions);
     reconcileStartActions(payload?.overview);
     reconcileAnswerActions(payload?.overview);
