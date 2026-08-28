@@ -1103,7 +1103,11 @@ export class DashboardSurface {
       // login, and the daemon journals the instant. The snapshot is dropped so
       // the next poll carries the new stamp back.
       if (url.pathname === '/api/feed/read') {
-        return this.#verb(res, () => this.#daemon({ method: 'POST', path: '/feed/read', body: { by } }))
+        return this.#verb(res, async () => {
+          const b = await this.#body(req)
+          const actionId = field(b.action_id, ACTION_ID_RE, 'an Action id')
+          return this.#daemon({ method: 'POST', path: '/feed/read', body: { by, action_id: actionId } })
+        })
       }
       if (url.pathname === '/api/note') {
         return this.#verb(res, async () => {

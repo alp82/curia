@@ -1127,7 +1127,26 @@ export class Reduction {
       // per login rather than per browser, so a phone and a laptop under the
       // same login agree on where "you left" was.
       case 'feed_read': {
-        if (typeof ev.by === 'string' && ev.by.trim() && ev.ts) this.feedReads.set(ev.by.trim().toLowerCase(), ev.ts)
+        if (typeof ev.by !== 'string' || !ev.by.trim() || !ev.ts) break
+        const login = ev.by.trim().toLowerCase()
+        const previous = this.feedReads.get(login) ?? null
+        this.feedReads.set(login, ev.ts)
+        // The read and its Action ending are one durable fact. If the response
+        // is lost, or the daemon restarts after this append, overview recovery
+        // still confirms the exact visit without stamping the cursor twice.
+        if (ev.action_id && ev.action_kind && ev.action_target && ev.action_conflict_key) {
+          this.actions.set(String(ev.action_id), {
+            action_id: String(ev.action_id),
+            kind: ev.action_kind,
+            target: ev.action_target,
+            conflict_key: ev.action_conflict_key,
+            status: 'confirmed',
+            revision: this.revision,
+            started_at: ev.ts,
+            updated_at: ev.ts,
+            receipt: { by: login, at: ev.ts, previous },
+          })
+        }
         break
       }
       case 'reauth_started': {
@@ -1949,11 +1968,22 @@ export class Reduction {
   // Stamp one login's Feed read. Answers the previous stamp, which is what the
   // page draws the marker at: the read that just happened is not "since you
   // left" until the next visit.
-  markFeedRead(by) {
+  markFeedRead(by, { action = null } = {}) {
     const login = String(by ?? '').trim().toLowerCase()
     if (!login) throw new Error('a feed read names the login that read it')
     const previous = this.feedReads.get(login) ?? null
-    const rec = this._append({ type: 'feed_read', by: login })
+    const now = Date.now()
+    const priorMs = Date.parse(previous ?? '')
+    const at = new Date(Number.isFinite(priorMs) ? Math.max(now, priorMs + 1) : now).toISOString()
+    const rec = this._append({
+      type: 'feed_read', by: login, ts: at,
+      ...(action ? {
+        action_id: action.action_id,
+        action_kind: action.kind,
+        action_target: action.target,
+        action_conflict_key: action.conflict_key,
+      } : {}),
+    })
     return { ok: true, by: login, at: rec.ts, previous }
   }
 

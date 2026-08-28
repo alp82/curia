@@ -162,6 +162,16 @@ describe('shared Action evidence', () => {
     )
   })
 
+  test('a domain event that settles the Action releases the first response', async () => {
+    const evidence = await Promise.race([
+      actions.run(action('act-domain-ending'), async () => {
+        reduction.recordAction({ ...action('act-domain-ending'), status: 'confirmed' })
+      }),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('no response')), 25)),
+    ])
+    assert.equal(evidence.status, 'confirmed')
+  })
+
   test('credential sign-in facts reconcile progress and every ending after restart', async () => {
     const signIn = {
       action_id: 'atlas-reauth-openai', kind: 'credential-sign-in', target: 'openai', conflict_key: 'reauth:openai',

@@ -56,7 +56,10 @@ export class ActionCoordinator {
       .then(() => work(controls))
       .then((out = {}) => {
         const current = this.get(actionId)
-        if (TERMINAL.has(current?.status)) return current
+        if (TERMINAL.has(current?.status)) {
+          release(current)
+          return current
+        }
         if (accepted) {
           if (out.status === 'accepted' || out.status === 'progress') return current
           const status = out.status === 'failed' ? 'failed' : 'confirmed'

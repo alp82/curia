@@ -3520,7 +3520,26 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
     const body = await readBody(req)
     const by = typeof body.by === 'string' ? body.by.trim() : ''
     if (!by) return json(400, { error: 'a feed read names the operator login that read it' })
-    return json(200, reduction.markFeedRead(named(by)))
+    const actionId = String(body.action_id ?? '')
+    if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(actionId)) {
+      return json(400, { error: 'action_id is not a valid Action id' })
+    }
+    const login = named(by).toLowerCase()
+    const action = {
+      action_id: actionId,
+      kind: 'feed-read',
+      target: login,
+      conflict_key: `feed-read:${login}`,
+    }
+    const evidence = await actions.run(action, async () => {
+      const conflict = actions.overview().find((candidate) =>
+        candidate.action_id !== action.action_id && candidate.conflict_key === action.conflict_key
+        && !['confirmed', 'refused', 'failed'].includes(candidate.status))
+      if (conflict) return { status: 'refused', reason: 'another Feed visit for this login is already being recorded' }
+      const receipt = reduction.markFeedRead(login, { action })
+      return { status: 'confirmed', receipt }
+    })
+    return json(evidence.status === 'confirmed' ? 200 : 409, { action: evidence })
   }
 
   if (url.pathname === '/cancel' && req.method === 'POST') {

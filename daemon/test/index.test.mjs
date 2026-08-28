@@ -227,6 +227,26 @@ describe('CSRF gate on the loopback surface (index.mjs, real boot)', () => {
     assert.equal(status.actions.find((action) => action.action_id === 'atlas-aistack-cancel-1').status, 'confirmed')
   })
 
+  test('Feed reads are idempotent login-scoped Actions with monotonic cross-device cursors (#811)', async () => {
+    const visit = (actionId) => request(port, 'POST', '/feed/read', {
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ by: 'Tester@Example.com', action_id: actionId }),
+    })
+
+    const first = JSON.parse((await visit('atlas-feed-read-device-one')).body).action
+    assert.equal(first.status, 'confirmed')
+    assert.equal(first.target, 'tester@example.com')
+    assert.equal(first.conflict_key, 'feed-read:tester@example.com')
+    assert.equal(first.receipt.previous, null)
+
+    const retry = JSON.parse((await visit('atlas-feed-read-device-one')).body).action
+    assert.deepEqual(retry, first, 'the same Action cannot stamp the cursor twice')
+
+    const second = JSON.parse((await visit('atlas-feed-read-device-two')).body).action
+    assert.equal(second.receipt.previous, first.receipt.at)
+    assert.ok(second.receipt.at > first.receipt.at)
+  })
+
   test('Sec-Fetch-Site: none (a direct navigation-style value) passes', async () => {
     const res = await request(port, 'GET', '/state', { headers: { 'sec-fetch-site': 'none' } })
     assert.equal(res.status, 200)

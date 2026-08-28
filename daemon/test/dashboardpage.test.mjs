@@ -1239,14 +1239,19 @@ describe('the read screens (#264)', () => {
   })
 
   describe('feed', () => {
-    test('the Feed marker comes from the journal stamp, and a visit posts the read under the login (#704)', async () => {
+    test('a Feed visit projects through a login-scoped Action before it posts the read (#704, #811)', async () => {
       const prior = at(3_600)
       const posts = []
       const p = loadPage({ fetchImpl: async (url, init) => { posts.push([url, init]); return { ok: true, json: async () => ({}) } } })
       p.payload = { ...payload({ feed_reads: { 'alp82@example.com': prior } }), operator: 'alp82@example.com' }
       p.enter('feed')
       assert.equal(p.UI.feed.lastRead, prior, 'the marker is the PREVIOUS read, not the one that just happened')
-      assert.deepEqual(posts.map(([u, i]) => [u, i.method]), [['/api/feed/read', 'POST']])
+      const action = p.actionFor({ conflict_key: 'feed-read:alp82@example.com' })
+      assert.equal(action.status, 'pending', 'the visit is visible in the same frame as entering Feed')
+      assert.equal(action.kind, 'feed-read')
+      assert.deepEqual(posts.map(([u, i]) => [u, i.method, JSON.parse(i.body).action_id]), [
+        ['/api/feed/read', 'POST', action.action_id],
+      ])
       assert.ok(!p.localStorage.getItem('atlas.feed.last-read:alp82@example.com'), 'no browser-local copy: the journal is the one record')
     })
 
@@ -1256,6 +1261,32 @@ describe('the read screens (#264)', () => {
       p.enter('feed')
       assert.equal(p.UI.feed.lastRead, null)
       assert.ok(!/Since you left/.test(p.screenFeed(p.payload)))
+    })
+
+    test('a refused visit reconciles in Feed and leaves the next visit available (#811)', async () => {
+      const requests = []
+      const p = loadPage({ fetchImpl: async (_url, init) => {
+        const sent = JSON.parse(init.body)
+        requests.push(sent)
+        return {
+          ok: false,
+          status: 409,
+          json: async () => ({ action: {
+            action_id: sent.action_id, kind: 'feed-read', target: 'alp82@example.com',
+            conflict_key: 'feed-read:alp82@example.com', status: 'refused', revision: requests.length,
+            reason: 'the journal is read-only',
+          } }),
+        }
+      } })
+      p.payload = { ...payload(), operator: 'alp82@example.com' }
+
+      p.enter('feed')
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      assert.equal(p.actionFor({ conflict_key: 'feed-read:alp82@example.com' }), null)
+      assert.match(text(p.screenFeed(p.payload)), /Feed visit was not recorded.*journal is read-only/)
+
+      p.enter('feed')
+      assert.equal(requests.length, 2, 'the failed bookkeeping does not disable another visit')
     })
 
     test('Feed separates news from mechanics and places the last-visit marker over a 24-hour density strip', () => {

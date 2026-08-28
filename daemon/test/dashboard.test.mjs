@@ -984,10 +984,18 @@ describe('the operator verbs (#266)', () => {
     assert.equal(sent('/note').body.by, 'alp@example.com')
   })
 
-  test('a Feed read is journalled under the login, and the held snapshot is dropped so the next poll carries it (#704)', async () => {
-    const res = await press('/api/feed/read', {})
+  test('a Feed read carries its Action identity and drops the held snapshot for reconciliation (#704, #811)', async () => {
+    const actionId = 'atlas-feed-read-alp'
+    const evidence = {
+      action_id: actionId, kind: 'feed-read', target: 'alp@example.com',
+      conflict_key: 'feed-read:alp@example.com', status: 'confirmed', revision: 42,
+    }
+    reply['/feed/read'] = [200, { action: evidence }]
+    const res = await press('/api/feed/read', { action_id: actionId })
     assert.equal(res.status, 200)
     assert.equal(sent('/feed/read').body.by, 'alp@example.com')
+    assert.equal(sent('/feed/read').body.action_id, actionId)
+    assert.deepEqual(JSON.parse(res.text).action, evidence)
     assert.equal(surface.snapshotAt, 0)
   })
 

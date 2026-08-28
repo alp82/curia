@@ -395,6 +395,28 @@ describe('the Feed read stamp (#704)', () => {
     assert.deepEqual(new Reduction(dir).lastFeedReads(), { 'alp@example.com': second.at })
     assert.throws(() => a.markFeedRead('  '), /names the login/)
   })
+
+  test('a visit advances a monotonic login cursor and rebuilds its confirmed Action from the same record (#811)', () => {
+    const a = new Reduction(dir)
+    const future = new Date(Date.now() + 60_000).toISOString()
+    a.journal('feed_read', { by: 'alp@example.com', ts: future })
+    const action = {
+      action_id: 'atlas-feed-read-monotonic', kind: 'feed-read', target: 'alp@example.com',
+      conflict_key: 'feed-read:alp@example.com',
+    }
+
+    const visit = a.markFeedRead('Alp@Example.com', { action })
+    assert.ok(visit.at > future, 'a clock correction cannot move the shared cursor backward')
+    assert.equal(a.action(action.action_id).status, 'confirmed')
+    assert.equal(a.action(action.action_id).receipt.previous, future)
+
+    a.close()
+    const rebuilt = new Reduction(dir)
+    assert.equal(rebuilt.lastFeedReads()['alp@example.com'], visit.at)
+    assert.equal(rebuilt.action(action.action_id).status, 'confirmed')
+    assert.equal(rebuilt.action(action.action_id).receipt.at, visit.at)
+    rebuilt.close()
+  })
 })
 
 describe('the journal tail the feed reads (#262)', () => {

@@ -793,7 +793,7 @@ var UI = {
   /* Which agent the detail half shows, and whether the phone is on it (#709).
      `open` is the route's, never a width's. */
   agents: { selected: null, open: false },
-  feed: { lastRead: null, operator: null, focus: null, family: "all" },
+  feed: { lastRead: null, operator: null, focus: null, family: "all", note: null },
   search: { open: false, q: "", loading: false, error: null, result: null },
   /* The settings screen's own state (#265). `phase` is what the banner says:
      clean and dirty before a save, then the three outcomes a save can have
@@ -2813,6 +2813,7 @@ function screenFeed(p) {
   if (!o) return noSnapshot(p, "Feed");
   const n = o.events?.length ?? 0;
   return `${head(p, "Feed", `<span class="dim-note">the journal's last ${esc(n)} event(s)</span>`)}
+    ${UI.feed.note ? `<div class="unread">${esc(UI.feed.note)}</div>` : ""}
     ${atlasFeed(o)}<details class="legacy-feed"><summary>Journal rows</summary>${feedList(o.events)}</details>`;
 }
 
@@ -5078,12 +5079,46 @@ function enter(k) {
    Feed draws the marker at the PREVIOUS stamp and posts this visit; the marker
    holds still until the next visit, so the page does not move it under the
    reader on every poll. */
-function recordFeedVisit() {
+async function recordFeedVisit() {
   const operator = payload?.operator;
   if (!operator) return;
   const previous = payload?.overview?.feed_reads?.[operator] ?? UI.feed.lastRead ?? null;
   UI.feed = { ...UI.feed, lastRead: previous, operator };
-  fetch("/api/feed/read", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }).catch(() => {});
+  const actionId = `atlas-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
+  const action = beginAction({
+    action_id: actionId, kind: "feed-read", target: operator,
+    conflict_key: "feed-read:" + operator, projection: { previous },
+  });
+  if (!action) return;
+  UI.feed.note = null;
+  try {
+    const res = await fetch("/api/feed/read", {
+      method: "POST", headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({ action_id: actionId }),
+    });
+    const body = await res.json().catch(() => ({}));
+    observeActions(body.action ? [body.action] : []);
+    if (!body.action && !res.ok) throw new Error(body.error || ("the sidecar answered " + res.status));
+    reconcileFeedReadActions();
+  } catch (error) {
+    const current = actionFor({ action_id: actionId });
+    if (!current || current.status === "pending") {
+      UI.feed.note = `Could not confirm this Feed visit: ${error.message}. Your next visit will try again.`;
+      finishAction(actionId);
+    } else {
+      UI.feed.note = `Checking whether this Feed visit was recorded: ${error.message}`;
+    }
+  }
+  render();
+}
+
+function reconcileFeedReadActions() {
+  for (const action of [...actions.values()]) {
+    if (action.kind !== "feed-read" || !TERMINAL_ACTION.has(action.status)) continue;
+    if (action.status === "confirmed") UI.feed.note = null;
+    else UI.feed.note = `Feed visit was not recorded: ${action.reason || "curia gave no reason"}.`;
+    finishAction(action.action_id);
+  }
 }
 /* Arriving at Maps from the nav is the LIST, always. The detail is a route of
    its own, so a tab press that did not name one must not land on the last one
@@ -5139,6 +5174,7 @@ async function tick() {
     reconcileConversationActions();
     reconcileSettingsActions();
     reconcileCredentialActions();
+    reconcileFeedReadActions();
     reachable = true;
     if (UI.screen === "feed" && UI.feed.operator !== payload.operator) recordFeedVisit();
   } catch {
