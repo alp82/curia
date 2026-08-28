@@ -20,6 +20,7 @@ import {
   TimelineSurface, pageRefusal, detectDialog, parseNativeDialog,
   DEFAULT_TIMELINE_INDEX, TIMELINE_PROTO,
 } from '../src/timeline.mjs'
+import { ActionCoordinator } from '../src/actions.mjs'
 import { Reduction } from '../src/reduction.mjs'
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
@@ -647,6 +648,8 @@ async function sse(port, params) {
 
 describe('TimelineSurface', () => {
   let surface
+  let actionReduction
+  let actions
   let port
   const journal = []
   const sent = []
@@ -657,6 +660,7 @@ describe('TimelineSurface', () => {
   let escHistory = []
   let pane = PANE_COMPOSER // what capturePane returns; a function to throw
   let delivery = null
+  let keyFailure = null
   const workspaceRoot = () => path.join(tmp, 'work')
   const installRecordedTranscript = (session, name) => {
     const cfg = path.join(workspaceRoot(), 'cfg', session, 'projects', 'p')
@@ -692,6 +696,8 @@ describe('TimelineSurface', () => {
 
   before(async () => {
     fs.mkdirSync(path.join(tmp, 'work', 'cfg'), { recursive: true })
+    actionReduction = new Reduction(path.join(tmp, 'timeline-actions'))
+    actions = new ActionCoordinator(actionReduction)
     surface = new TimelineSurface({
       port: 0,
       servePort: 8444,
@@ -701,6 +707,7 @@ describe('TimelineSurface', () => {
       log: () => {},
       pollMs: 50,
       deps: {
+        actions,
         journal: (type, detail) => journal.push({ type, ...detail }),
         // #151's check has its own suite (identity.test.mjs); these tests drive
         // the surface over bare loopback, so the predicate is out of their way.
@@ -719,7 +726,10 @@ describe('TimelineSurface', () => {
           sent.push({ session, text })
           return delivery
         },
-        sendKey: async (session, key) => sent.push({ session, key }),
+        sendKey: async (session, key) => {
+          if (keyFailure) throw new Error(keyFailure)
+          sent.push({ session, key })
+        },
         answerDialog: async (session, answer) => {
           dialogAnswers.push({ session, ...answer })
           if (session !== 'curia-slow-dialog') pane = PANE_COMPOSER
@@ -747,7 +757,10 @@ describe('TimelineSurface', () => {
     port = surface.port
   })
 
-  after(() => surface.stop())
+  after(() => {
+    surface.stop()
+    actionReduction.close()
+  })
 
   test('GET / serves the committed page with its stamp, no-store', async () => {
     const res = await fetch(`http://127.0.0.1:${port}/`)
@@ -984,16 +997,73 @@ describe('TimelineSurface', () => {
     })
   })
 
-  test('the key route knows its keys', async () => {
+  test('a pane key returns shared confirmed Action evidence under its pane conflict', async () => {
     const bad = await fetch(`http://127.0.0.1:${port}/key`, {
       method: 'POST', body: JSON.stringify({ session: 'curia-9', key: 'delete-everything' }),
     })
     assert.equal(bad.status, 400)
     const esc = await fetch(`http://127.0.0.1:${port}/key`, {
-      method: 'POST', body: JSON.stringify({ session: 'curia-9', key: 'escape' }),
+      method: 'POST', body: JSON.stringify({
+        session: 'curia-9', key: 'escape', action_id: 'atlas-pane-key-1',
+      }),
     })
     assert.equal(esc.status, 200)
+    assert.deepEqual(await esc.json(), {
+      action: {
+        action_id: 'atlas-pane-key-1', kind: 'pane-key', target: 'curia-9',
+        conflict_key: 'pane:curia-9', status: 'confirmed', revision: 1,
+        started_at: actions.get('atlas-pane-key-1').started_at,
+        updated_at: actions.get('atlas-pane-key-1').updated_at,
+        receipt: { key: 'Escape' },
+      },
+    })
     assert.deepEqual(sent.at(-1), { session: 'curia-9', key: 'Escape' })
+
+    const sentCount = sent.length
+    const retry = await fetch(`http://127.0.0.1:${port}/key`, {
+      method: 'POST', body: JSON.stringify({
+        session: 'curia-9', key: 'escape', action_id: 'atlas-pane-key-1',
+      }),
+    })
+    assert.equal(retry.status, 200)
+    assert.equal((await retry.json()).action.status, 'confirmed')
+    assert.equal(sent.length, sentCount, 'the same Action identity sends the key once')
+  })
+
+  test('pane-key Action evidence distinguishes no pane, ended, unsafe dialog, and tmux failure', async () => {
+    const act = async (actionId, session, key = 'escape') => {
+      const res = await fetch(`http://127.0.0.1:${port}/key`, {
+        method: 'POST', body: JSON.stringify({ session, key, action_id: actionId }),
+      })
+      return { status: res.status, body: await res.json() }
+    }
+
+    const noPane = await act('atlas-pane-no-pane', DRIVEN)
+    assert.equal(noPane.status, 409)
+    assert.equal(noPane.body.action.status, 'refused')
+    assert.equal(noPane.body.action.conflict_key, `pane:${DRIVEN}`)
+    assert.match(noPane.body.action.reason, /not a terminal/)
+
+    endedSessions.add('curia-ended')
+    const ended = await act('atlas-pane-ended', 'curia-ended')
+    endedSessions.delete('curia-ended')
+    assert.equal(ended.status, 409)
+    assert.equal(ended.body.action.status, 'refused')
+    assert.match(ended.body.action.reason, /has ended/)
+
+    pane = PANE_TRUST
+    const dialog = await act('atlas-pane-dialog', 'curia-9', 'enter')
+    pane = PANE_COMPOSER
+    assert.equal(dialog.status, 409)
+    assert.equal(dialog.body.action.status, 'refused')
+    assert.match(dialog.body.action.reason, /would drive its selection blind/)
+
+    keyFailure = 'tmux socket is unavailable'
+    const failed = await act('atlas-pane-tmux-failed', 'curia-9')
+    keyFailure = null
+    assert.equal(failed.status, 502)
+    assert.equal(failed.body.action.status, 'failed')
+    assert.equal(failed.body.action.reason, 'tmux socket is unavailable')
   })
 
   // ---- the #75 dialog guard over real HTTP ---------------------------------

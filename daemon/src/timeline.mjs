@@ -254,6 +254,9 @@ export class TimelineSurface {
       composerFor: () => null,
       // journal(type, detail): `Reduction#journal`, injected by index.mjs.
       journal: () => {},
+      // actions: the daemon's shared Action coordinator. Pane keys use it when
+      // Atlas supplies an action_id; older callers keep the legacy response.
+      actions: null,
       // harnessFor(session): the dispatcher's word, with detectHarness as the
       // on-disk fallback for re-adopted and lab sessions.
       harnessFor: (session) => detectHarness(this.#cfgDir(session)),
@@ -998,33 +1001,55 @@ export class TimelineSurface {
       if (!key) return json(400, { error: 'unknown key' })
       const s = this.#state(b.session)
       const by = b.client ?? null
-      // No pane, no keys (#267). This is the one thing the console chat cannot
-      // do, and it says so rather than reporting a key nothing received: an
-      // overseer turn runs to its end, so there is nothing here to interrupt.
-      if (this.#driver(b.session)) {
-        this.deps.journal('timeline_key', { session: b.session, by, key, outcome: 'refused_no_pane' })
-        return json(409, { error: `${b.session} is not a terminal — it takes words, and a turn runs to its end, so there is no key to send it` })
-      }
-      if (await this.#ended(b.session)) {
-        this.deps.journal('timeline_key', { session: b.session, by, key, outcome: 'refused_ended' })
-        return json(409, this.#endedRefusal(b.session))
-      }
-      if (!DIALOG_SAFE_KEYS.has(key)) {
-        const dialog = await this.#probeDialog(b.session, s)
-        if (dialog) {
-          this.deps.journal('timeline_key', { session: b.session, by, key, outcome: 'refused_dialog', hint: dialog.hint })
-          return json(409, { error: `the agent is in a terminal dialog ("${dialog.hint}") — ${key} would drive its selection blind; open the terminal surface`, dialog: true })
+      const perform = async () => {
+        // No pane, no keys (#267). This is the one thing the console chat cannot
+        // do, and it says so rather than reporting a key nothing received: an
+        // overseer turn runs to its end, so there is nothing here to interrupt.
+        if (this.#driver(b.session)) {
+          const reason = `${b.session} is not a terminal — it takes words, and a turn runs to its end, so there is no key to send it`
+          this.deps.journal('timeline_key', { session: b.session, by, key, outcome: 'refused_no_pane' })
+          return { status: 'refused', reason, code: 409 }
         }
+        if (await this.#ended(b.session)) {
+          const reason = this.#endedRefusal(b.session).error
+          this.deps.journal('timeline_key', { session: b.session, by, key, outcome: 'refused_ended' })
+          return { status: 'refused', reason, code: 409 }
+        }
+        if (!DIALOG_SAFE_KEYS.has(key)) {
+          const dialog = await this.#probeDialog(b.session, s)
+          if (dialog) {
+            const reason = `the agent is in a terminal dialog ("${dialog.hint}") — ${key} would drive its selection blind; open the terminal surface`
+            this.deps.journal('timeline_key', { session: b.session, by, key, outcome: 'refused_dialog', hint: dialog.hint })
+            return { status: 'refused', reason, code: 409, dialog: true }
+          }
+        }
+        try {
+          await this.deps.sendKey(b.session, key)
+        } catch (e) {
+          this.deps.journal('timeline_key', { session: b.session, by, key, outcome: 'failed', error: e.message })
+          return { status: 'failed', reason: e.message, code: 502 }
+        }
+        this.deps.journal('timeline_key', { session: b.session, by, key, outcome: 'sent' })
+        this.#broadcast(s, 'sent', { text: `⌨ ${key}`, by })
+        return { status: 'confirmed', receipt: { key }, code: 200 }
       }
-      try {
-        await this.deps.sendKey(b.session, key)
-      } catch (e) {
-        this.deps.journal('timeline_key', { session: b.session, by, key, outcome: 'failed', error: e.message })
-        return json(502, { error: e.message })
+
+      const actionId = String(b.action_id ?? '')
+      if (actionId && this.deps.actions) {
+        const evidence = await this.deps.actions.run({
+          action_id: actionId,
+          kind: 'pane-key',
+          target: b.session,
+          conflict_key: `pane:${b.session}`,
+        }, perform)
+        const code = evidence.status === 'confirmed' ? 200 : evidence.status === 'failed' ? 502 : 409
+        return json(code, { action: evidence, ...(evidence.reason ? { error: evidence.reason } : {}) })
       }
-      this.deps.journal('timeline_key', { session: b.session, by, key, outcome: 'sent' })
-      this.#broadcast(s, 'sent', { text: `⌨ ${key}`, by })
-      return json(200, { ok: true })
+
+      const outcome = await perform()
+      return json(outcome.code, outcome.status === 'confirmed'
+        ? { ok: true }
+        : { error: outcome.reason, ...(outcome.dialog ? { dialog: true } : {}) })
     }
 
     json(404, { error: 'not found' })

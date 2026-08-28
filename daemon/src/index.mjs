@@ -1634,6 +1634,7 @@ const timeline = new TimelineSurface({
   workspaceRoot: curiaConfig.dispatch.workspace_root,
   log,
   deps: {
+    actions,
     journal: (type, detail) => reduction.journal(type, detail),
     harnessFor: (session) => dispatcher.agents.get(session)?.harness
       ?? detectHarness(path.join(curiaConfig.dispatch.workspace_root, 'cfg', session)),

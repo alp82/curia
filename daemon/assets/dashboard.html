@@ -3979,12 +3979,13 @@ function chatDialog(c) {
 function chatComposer(c, role, ended) {
   if (ended) return `<div class="composer ended"><span class="dim-note">${esc(ENDED_SENTENCE(c.session))}</span></div>`;
   const k = "chat-send";
+  const paneKey = actionFor({ conflict_key: `pane:${c.session}` });
   return `<div class="composer">
     ${c.mirror ? `<div class="dim-note">the other device is typing…</div>` : ""}
     <textarea id="chat-box" rows="1" placeholder="type here, shared box" oninput="chatTyped(this.value)" onkeydown="chatKey(event)">${esc(c.draft)}</textarea>
     <div class="composer-row">
       <button class="btn sm" ${busy("chat-take-back") ? "disabled" : ""} onclick="doTakeBack()" title="take back your last message">${busy("chat-take-back") ? "…" : "Take back"}</button>
-      ${role === "ticket" ? `<button class="btn sm" ${busy("chat-key") ? "disabled" : ""} onclick="doChatKey('escape')" title="send Escape to the agent">Esc</button>` : ""}
+      ${role === "ticket" ? `<button class="btn sm" ${paneKey ? "disabled" : ""} onclick="doChatKey('escape')" title="send Escape to the agent">${paneKey ? "Sending Esc…" : "Esc"}</button>` : ""}
       <span class="grow"></span>
       <button class="btn primary" ${busy(k) ? "disabled" : ""} onclick="doChatSend()">${busy(k) ? "Sending…" : "Send"}</button>
     </div>${said(k)}${said("chat-take-back")}${said("chat-key")}</div>`;
@@ -4051,14 +4052,32 @@ async function doTakeBack() {
   render();
 }
 async function doChatKey(key) {
-  const action = beginLocalAction("chat-key");
+  const session = chat.session;
+  const actionId = `atlas-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
+  const action = beginAction({
+    action_id: actionId, kind: "pane-key", target: session,
+    conflict_key: `pane:${session}`, projection: { key },
+  });
   if (!action) return;
   UI.act.said = null;
   render();
-  const r = await chatPost("/key", { key });
-  finishAction(action.action_id);
-  if (r.error) UI.act.said = { key: "chat-key", ok: false, text: r.error };
+  const r = await chatPost("/key", { key, action_id: actionId });
+  observeActions(r.action ? [r.action] : []);
+  reconcilePaneKeyActions();
+  if (actionFor({ action_id: actionId }) && !r.action) {
+    finishAction(actionId);
+    if (r.error) UI.act.said = { key: "chat-key", ok: false, text: r.error };
+  }
   render();
+}
+function reconcilePaneKeyActions() {
+  for (const action of [...actions.values()]) {
+    if (action.kind !== "pane-key" || !TERMINAL_ACTION.has(action.status)) continue;
+    if (action.target === chat.session && action.status !== "confirmed") {
+      UI.act.said = { key: "chat-key", ok: false, text: action.reason || "Curia could not send the pane key." };
+    }
+    finishAction(action.action_id);
+  }
 }
 async function doDialogAnswer(dialog, index) {
   const action = beginLocalAction("chat-dialog");
@@ -4628,6 +4647,7 @@ async function tick() {
     payload = await res.json();
     observeActions(payload?.overview?.actions);
     reconcileStartActions(payload?.overview);
+    reconcilePaneKeyActions();
     reachable = true;
     if (UI.screen === "feed" && UI.feed.operator !== payload.operator) recordFeedVisit();
   } catch {

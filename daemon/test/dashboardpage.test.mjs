@@ -3201,6 +3201,68 @@ describe('the chat screen (#267, the picker of #333)', () => {
       assert.doesNotMatch(html, /doChatKey/, 'an overseer conversation has no pane key to send')
     })
 
+    test('Esc projects pending on its pane immediately and reconciles confirmed daemon evidence', async () => {
+      let sent
+      let answer
+      const room = loadPage({ fetchImpl: async (_url, request) => {
+        sent = JSON.parse(request.body)
+        return new Promise((resolve) => { answer = resolve })
+      } })
+      room.applyChatRoute(['chat', 'curia-684'])
+      room.conversations = { conversations: [
+        conv({ kind: 'ticket', deletable: false, key: 'alp82/curia#684', session: 'curia-684', state: 'working', label: 'Build Atlas', repo: 'alp82/curia', ticket: 684, live: true }),
+      ] }
+      room.beginLocalAction('chat-send')
+
+      const pending = room.doChatKey('escape')
+
+      const action = room.actionFor({ conflict_key: 'pane:curia-684' })
+      assert.equal(action.kind, 'pane-key')
+      assert.equal(action.target, 'curia-684')
+      assert.equal(sent.action_id, action.action_id)
+      assert.match(text(room.screenChat(payload())), /Sending Esc…/)
+      assert.ok(room.actionFor({ conflict_key: 'chat-send' }), 'a conversation action stays independent')
+
+      answer({ json: async () => ({ action: {
+        ...action, status: 'confirmed', revision: 8, receipt: { key: 'Escape' },
+      } }) })
+      await pending
+
+      assert.equal(room.actionFor({ action_id: action.action_id }), null)
+      assert.doesNotMatch(text(room.screenChat(payload())), /Sending Esc…/)
+      room.applyChatRoute([])
+    })
+
+    test('shared pane-key failure reconciles while the original request is still pending', async () => {
+      let actionId
+      const room = loadPage({ fetchImpl: async (url, request) => {
+        if (url === '/key') {
+          actionId = JSON.parse(request.body).action_id
+          return new Promise(() => {})
+        }
+        const p = payload()
+        p.overview.actions = [{
+          action_id: actionId, kind: 'pane-key', target: 'curia-684',
+          conflict_key: 'pane:curia-684', status: 'failed', revision: 12,
+          reason: 'tmux socket is unavailable',
+        }]
+        return { ok: true, json: async () => p }
+      } })
+      room.applyChatRoute(['chat', 'curia-684'])
+      room.conversations = { conversations: [
+        conv({ kind: 'ticket', deletable: false, key: 'alp82/curia#684', session: 'curia-684', state: 'working', label: 'Build Atlas', repo: 'alp82/curia', ticket: 684, live: true }),
+      ] }
+
+      room.doChatKey('escape')
+      await room.tick()
+
+      assert.equal(room.actionFor({ action_id: actionId }), null)
+      const html = room.screenChat(room.payload)
+      assert.match(html, /class="said bad"/)
+      assert.match(text(html), /tmux socket is unavailable/)
+      room.applyChatRoute([])
+    })
+
     test('the composer is shared: a draft from the other device mirrors, a sent line is noted', () => {
       page.chatReceive('draft', { text: 'typing from the phone', by: 'other' })
       let t = text(page.screenChat(payload()))
