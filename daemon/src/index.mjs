@@ -1680,6 +1680,8 @@ const timeline = new TimelineSurface({
   deps: {
     actions,
     journal: (type, detail) => reduction.journal(type, detail),
+    draftFor: (session) => reduction.chatDraft(session),
+    recordDraft: (session, text) => reduction.recordChatDraft(session, text),
     harnessFor: (session) => dispatcher.agents.get(session)?.harness
       ?? detectHarness(path.join(curiaConfig.dispatch.workspace_root, 'cfg', session)),
     // The dialog guard's composer veto (#75): a visible ready marker (#39)

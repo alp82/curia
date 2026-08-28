@@ -1159,6 +1159,284 @@ describe('TimelineSurface', () => {
     method: 'POST', body: JSON.stringify(body),
   })
 
+  test('the latest shared draft survives a daemon restart', async () => {
+    const dataDir = path.join(tmp, 'timeline-draft-recovery')
+    const session = 'curia-draft-recovery'
+    const start = async (reduction) => {
+      const instance = new TimelineSurface({
+        port: 0,
+        servePort: 8444,
+        atlasServePort: 8445,
+        index: DEFAULT_TIMELINE_INDEX,
+        workspaceRoot: workspaceRoot(),
+        log: () => {},
+        deps: {
+          identityCheck: () => null,
+          draftFor: (name) => reduction.chatDraft(name),
+          recordDraft: (name, text) => reduction.recordChatDraft(name, text),
+        },
+      })
+      await instance.start()
+      return instance
+    }
+
+    let reduction = new Reduction(dataDir)
+    let instance = await start(reduction)
+    try {
+      await fetch(`http://127.0.0.1:${instance.port}/draft`, {
+        method: 'POST', body: JSON.stringify({ session, client: 'phone', text: 'first device' }),
+      })
+      await fetch(`http://127.0.0.1:${instance.port}/draft`, {
+        method: 'POST', body: JSON.stringify({ session, client: 'laptop', text: 'last device wins' }),
+      })
+      const live = await sse(instance.port, `session=${session}`)
+      assert.equal(live.events.find((event) => event.event === 'hello').data.draft, 'last device wins')
+    } finally {
+      instance.stop()
+      reduction.close()
+    }
+
+    reduction = new Reduction(dataDir)
+    instance = await start(reduction)
+    try {
+      const recovered = await sse(instance.port, `session=${session}`)
+      assert.equal(recovered.events.find((event) => event.event === 'hello').data.draft, 'last device wins')
+    } finally {
+      instance.stop()
+      reduction.close()
+    }
+  })
+
+  test('a delivered message does not resurrect its cleared draft after restart', async () => {
+    const dataDir = path.join(tmp, 'timeline-draft-send-clear')
+    const session = 'curia-draft-send-clear'
+    const start = async (reduction) => {
+      const instance = new TimelineSurface({
+        port: 0,
+        servePort: 8444,
+        atlasServePort: 8445,
+        index: DEFAULT_TIMELINE_INDEX,
+        workspaceRoot: workspaceRoot(),
+        log: () => {},
+        deps: {
+          identityCheck: () => null,
+          draftFor: (name) => reduction.chatDraft(name),
+          recordDraft: (name, text) => reduction.recordChatDraft(name, text),
+          journal: (type, detail) => reduction.journal(type, detail),
+          sendText: async () => null,
+        },
+      })
+      await instance.start()
+      return instance
+    }
+
+    let reduction = new Reduction(dataDir)
+    reduction.recordChatDraft(session, 'send these words')
+    let instance = await start(reduction)
+    try {
+      const sent = await fetch(`http://127.0.0.1:${instance.port}/send`, {
+        method: 'POST', body: JSON.stringify({ session, text: 'send these words' }),
+      })
+      assert.equal(sent.status, 200)
+    } finally {
+      instance.stop()
+      reduction.close()
+    }
+
+    reduction = new Reduction(dataDir)
+    instance = await start(reduction)
+    try {
+      const recovered = await sse(instance.port, `session=${session}`)
+      assert.equal(recovered.events.find((event) => event.event === 'hello').data.draft, '')
+    } finally {
+      instance.stop()
+      reduction.close()
+    }
+  })
+
+  test('the durable send outcome clears recovery without a second draft write', async () => {
+    const dataDir = path.join(tmp, 'timeline-draft-send-outcome')
+    const session = 'curia-draft-send-outcome'
+    let reduction = new Reduction(dataDir)
+    reduction.recordChatDraft(session, 'send exactly once')
+    let instance = new TimelineSurface({
+      port: 0,
+      servePort: 8444,
+      atlasServePort: 8445,
+      index: DEFAULT_TIMELINE_INDEX,
+      workspaceRoot: workspaceRoot(),
+      log: () => {},
+      deps: {
+        identityCheck: () => null,
+        draftFor: (name) => reduction.chatDraft(name),
+        recordDraft: () => {}, // models a stop after the send fact but before a separate clear
+        journal: (type, detail) => reduction.journal(type, detail),
+        sendText: async () => null,
+      },
+    })
+    await instance.start()
+    try {
+      const sent = await fetch(`http://127.0.0.1:${instance.port}/send`, {
+        method: 'POST', body: JSON.stringify({ session, text: 'send exactly once' }),
+      })
+      assert.equal(sent.status, 200)
+    } finally {
+      instance.stop()
+      reduction.close()
+    }
+
+    reduction = new Reduction(dataDir)
+    instance = new TimelineSurface({
+      port: 0,
+      servePort: 8444,
+      atlasServePort: 8445,
+      index: DEFAULT_TIMELINE_INDEX,
+      workspaceRoot: workspaceRoot(),
+      log: () => {},
+      deps: {
+        identityCheck: () => null,
+        draftFor: (name) => reduction.chatDraft(name),
+      },
+    })
+    await instance.start()
+    try {
+      const recovered = await sse(instance.port, `session=${session}`)
+      assert.equal(recovered.events.find((event) => event.event === 'hello').data.draft, '')
+    } finally {
+      instance.stop()
+      reduction.close()
+    }
+  })
+
+  test('take back restores a draft that survives restart', async () => {
+    const dataDir = path.join(tmp, 'timeline-draft-take-back')
+    const session = 'curia-draft-take-back'
+    const start = async (reduction) => {
+      const instance = new TimelineSurface({
+        port: 0,
+        servePort: 8444,
+        atlasServePort: 8445,
+        index: DEFAULT_TIMELINE_INDEX,
+        workspaceRoot: workspaceRoot(),
+        log: () => {},
+        deps: {
+          identityCheck: () => null,
+          draftFor: (name) => reduction.chatDraft(name),
+          recordDraft: (name, text) => reduction.recordChatDraft(name, text),
+          takeBack: async () => ({
+            ok: true,
+            composer: 'edit these recovered words',
+            receipt: { headline: 'Took back your last message.', landing: null, remains: [] },
+          }),
+        },
+      })
+      await instance.start()
+      return instance
+    }
+
+    let reduction = new Reduction(dataDir)
+    let instance = await start(reduction)
+    try {
+      const takenBack = await fetch(`http://127.0.0.1:${instance.port}/take-back`, {
+        method: 'POST', body: JSON.stringify({ session, target: null }),
+      })
+      assert.equal(takenBack.status, 200)
+    } finally {
+      instance.stop()
+      reduction.close()
+    }
+
+    reduction = new Reduction(dataDir)
+    instance = await start(reduction)
+    try {
+      const recovered = await sse(instance.port, `session=${session}`)
+      assert.equal(recovered.events.find((event) => event.event === 'hello').data.draft, 'edit these recovered words')
+    } finally {
+      instance.stop()
+      reduction.close()
+    }
+  })
+
+  test('every accepted delivery path keeps its draft clear after restart', async () => {
+    const dataDir = path.join(tmp, 'timeline-draft-all-clears')
+    const sessions = {
+      unconfirmed: 'curia-draft-unconfirmed',
+      driven: 'curia-console-91',
+      correction: 'curia-draft-correction',
+    }
+    const start = async (reduction) => {
+      const instance = new TimelineSurface({
+        port: 0,
+        servePort: 8444,
+        atlasServePort: 8445,
+        index: DEFAULT_TIMELINE_INDEX,
+        workspaceRoot: workspaceRoot(),
+        log: () => {},
+        deps: {
+          identityCheck: () => null,
+          draftFor: (name) => reduction.chatDraft(name),
+          recordDraft: (name, text) => reduction.recordChatDraft(name, text),
+          journal: (type, detail) => reduction.journal(type, detail),
+          sendText: async () => ({ status: 'unconfirmed', pane: PANE_COMPOSER }),
+          driverFor: (name) => name === sessions.driven
+            ? { key: 'console-91', cfgDir: drivenCfg(), sessionId: null, send: async () => null }
+            : null,
+          takeBack: async () => ({
+            ok: true,
+            composer: 'edit this correction',
+            correction: { kind: 'note', id: 'note-91' },
+            receipt: { headline: 'Recovered your note.', landing: null, remains: [] },
+          }),
+          correct: async () => ({ ok: true }),
+        },
+      })
+      await instance.start()
+      return instance
+    }
+
+    let reduction = new Reduction(dataDir)
+    let instance = await start(reduction)
+    try {
+      for (const session of Object.values(sessions)) {
+        await fetch(`http://127.0.0.1:${instance.port}/draft`, {
+          method: 'POST', body: JSON.stringify({ session, text: `draft for ${session}` }),
+        })
+      }
+      const unconfirmed = await fetch(`http://127.0.0.1:${instance.port}/send`, {
+        method: 'POST', body: JSON.stringify({ session: sessions.unconfirmed, text: 'sent to the pane' }),
+      })
+      assert.equal(unconfirmed.status, 202)
+      const driven = await fetch(`http://127.0.0.1:${instance.port}/send`, {
+        method: 'POST', body: JSON.stringify({ session: sessions.driven, text: 'sent to the overseer' }),
+      })
+      assert.equal(driven.status, 200)
+      await fetch(`http://127.0.0.1:${instance.port}/take-back`, {
+        method: 'POST', body: JSON.stringify({ session: sessions.correction, target: { kind: 'note', id: 'note-91' } }),
+      })
+      const corrected = await fetch(`http://127.0.0.1:${instance.port}/send`, {
+        method: 'POST', body: JSON.stringify({ session: sessions.correction, text: 'edited correction' }),
+      })
+      assert.equal(corrected.status, 200)
+    } finally {
+      instance.stop()
+      reduction.close()
+    }
+
+    reduction = new Reduction(dataDir)
+    instance = await start(reduction)
+    try {
+      const recovered = []
+      for (const session of Object.values(sessions)) {
+        const { events } = await sse(instance.port, `session=${session}`)
+        recovered.push(events.find((event) => event.event === 'hello').data.draft)
+      }
+      assert.deepEqual(recovered, ['', '', ''])
+    } finally {
+      instance.stop()
+      reduction.close()
+    }
+  })
+
   test('a /send while a dialog owns the pane is refused, journalled, and pins the banner', async () => {
     pane = PANE_ASK_QUESTION
     try {

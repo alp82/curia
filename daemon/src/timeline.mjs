@@ -254,6 +254,10 @@ export class TimelineSurface {
       composerFor: () => null,
       // journal(type, detail): `Reduction#journal`, injected by index.mjs.
       journal: () => {},
+      // The shared composer is a daemon-owned durable fact. These two methods
+      // keep its high-frequency last-write-wins path outside Action conflicts.
+      draftFor: () => '',
+      recordDraft: () => {},
       // actions: the daemon's shared Action coordinator. Pane keys use it when
       // Atlas supplies an action_id; older callers keep the legacy response.
       actions: null,
@@ -440,7 +444,7 @@ export class TimelineSurface {
       s = {
         harness: null, file: null, offset: 0, rest: '', lines: [], items: [],
         activeKey: null, activeFailures: new Set(),
-        clients: new Set(), draft: '',
+        clients: new Set(), draft: String(this.deps.draftFor(name) ?? ''),
         correction: null,
         parse: null, // { reason, file, dropped } — current loud failure, if any
         journalled: new Set(), // parse failures journalled once per file+reason
@@ -837,6 +841,7 @@ export class TimelineSurface {
           target: b.target ?? null,
         })
         s.draft = result.composer ?? ''
+        this.deps.recordDraft(b.session, s.draft)
         s.correction = result.correction?.kind === 'note' ? result.correction : null
         this.#broadcast(s, 'draft', { text: s.draft, by: b.client ?? null })
         return controls
@@ -1090,6 +1095,7 @@ export class TimelineSurface {
       if (!validSessionName(String(b.session ?? ''))) return json(400, { error: 'bad session' })
       const s = this.#state(b.session)
       s.draft = String(b.text ?? '')
+      this.deps.recordDraft(b.session, s.draft)
       this.#broadcast(s, 'draft', { text: s.draft, by: b.client ?? null })
       return json(200, { ok: true })
     }

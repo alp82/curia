@@ -106,6 +106,8 @@ const FEED_SILENT = new Set([
   'conversation_turn_recorded', 'conversation_turn_taken_back', 'agent_notes_requeued',
   'overseer_notes_carried', 'overseer_notes_requeued',
   'overseer_pane_parked',
+  // Draft keystrokes are durable composer state, not operator-facing news.
+  'timeline_draft_changed',
   // The Feed's own read stamp (#704). Reading the feed is not news on it.
   'feed_read',
 ])
@@ -205,6 +207,7 @@ export class Reduction {
     this.transcriptLandings = new Map() // session -> rewind landing and transcript tail (#689)
     this.conversationTurns = new Map() // session -> sent operator turns and the queued notes each one carried (#702)
     this.carriedNotes = new Map() // session -> overseer notes a pane message took but no turn record has claimed yet (#702)
+    this.chatDrafts = new Map() // session -> latest shared Atlas Chat composer text (#821)
     this.actions = new Map() // action_id -> latest daemon-owned Action evidence (#803)
     this.revision = 0 // journal order, rebuilt identically on every boot (#803)
     this.seq = 0
@@ -285,6 +288,13 @@ export class Reduction {
         ...(ev.reason != null ? { reason: ev.reason } : {}),
         ...(ev.receipt != null ? { receipt: ev.receipt } : {}),
       })
+    }
+
+    if (ev.type === 'timeline_draft_changed' && ev.session) {
+      this.chatDrafts.set(String(ev.session), String(ev.text ?? ''))
+    }
+    if (ev.type === 'timeline_send' && ev.session && ['sent', 'unconfirmed', 'corrected'].includes(ev.outcome)) {
+      this.chatDrafts.set(String(ev.session), '')
     }
 
     // Credential sign-in Actions outlive the request that starts them. The
@@ -1823,6 +1833,15 @@ export class Reduction {
   // Generic operational events (notify, result, agent_done…) share the journal.
   journal(type, data) {
     return this._append({ type, ...data })
+  }
+
+  recordChatDraft(session, text) {
+    this._append({ type: 'timeline_draft_changed', session: String(session), text: String(text) })
+    return this.chatDraft(session)
+  }
+
+  chatDraft(session) {
+    return this.chatDrafts.get(String(session)) ?? ''
   }
 
   recordAction(evidence) {
