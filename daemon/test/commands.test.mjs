@@ -42,7 +42,7 @@ import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { parseCommand, CommandRouter } from '../src/commands.mjs'
+import { parseCommand, actionForCommand, CommandRouter } from '../src/commands.mjs'
 import { expandCommand } from '../src/bridge.mjs'
 import { validSessionName } from '../src/attach.mjs'
 import { lintReply } from '../src/messaging.mjs'
@@ -534,6 +534,15 @@ describe('parseCommand', () => {
 
   test('empty text is null', () => {
     assert.equal(parseCommand(''), null)
+  })
+})
+
+test('a browser credential sign-in reserves one provider and no other', () => {
+  assert.deepEqual(actionForCommand('reauth anthropic', 'atlas-reauth-anthropic'), {
+    action_id: 'atlas-reauth-anthropic',
+    kind: 'credential-sign-in',
+    target: 'anthropic',
+    conflict_key: 'reauth:anthropic',
   })
 })
 

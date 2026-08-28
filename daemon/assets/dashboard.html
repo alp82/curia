@@ -40,7 +40,7 @@
      2. Null is not empty. An unreadable fleet is not an idle box, and a frontier
         nobody has computed is not an empty frontier. Every section that can fail
         on its own says which of the two it is. -->
-<meta name="curia-dashboard" content="proto=14">
+<meta name="curia-dashboard" content="proto=15">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark light">
 <title>Atlas · Curia</title>
@@ -4559,13 +4559,16 @@ function credFlow(r) {
    look. It shows only on the rows of the provider it belongs to. */
 function credRow(c, signer, flow, ended) {
   const st = credState(c);
+  const signInAction = actionFor({ conflict_key: "reauth:" + c.provider });
   /* A login already running on this provider is the act. Offering a second
      Sign-in press beside the panel that is mid-flow would start nothing — the
      flow hands back the session it already has — and would read as two ways in
      where there is one. */
-  const signing = flow && flow.state === "waiting" && flow.provider === c.provider;
+  const signing = (flow && flow.state === "waiting" && flow.provider === c.provider)
+    || (signInAction && !TERMINAL_ACTION.has(signInAction.status));
+  const signingProgress = signInAction?.progress ?? (signInAction ? "Starting sign-in" : "signing in now");
   const act = signing
-    ? `<span class="dim-note">signing in now — the link is in the panel above</span>`
+    ? `<span class="dim-note">${esc(signingProgress)}${flow?.provider === c.provider ? " — the link is in the panel above" : "…"}</span>`
     : credWants(c)
       ? (c.provider && signer.has(c.provider)
         ? `<span class="dim-note">the same login signs this in</span>`
@@ -4611,7 +4614,53 @@ function credSignIn(c, signer) {
   return `<button class="btn primary" ${busy(k) ? "disabled" : ""} onclick="startReauth('${js(c.provider)}')">
     ${busy(k) ? "…" : "Sign in from a browser"}</button>${said(k)}`;
 }
-const startReauth = (provider) => verb("reauth:" + provider, "/api/reauth", { provider });
+
+async function startReauth(provider) {
+  const key = "reauth:" + provider;
+  const actionId = `atlas-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
+  const action = beginAction({
+    action_id: actionId, kind: "credential-sign-in", target: provider, conflict_key: key,
+    projection: { phase: "starting" },
+  });
+  if (!action) return null;
+  UI.act.said = null;
+  render();
+  try {
+    const res = await fetch("/api/reauth", {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({ provider, action_id: actionId }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || ("the console answered " + res.status));
+    observeActions(body.action ? [body.action] : []);
+    reconcileCredentialActions();
+  } catch (error) {
+    const current = actionFor({ action_id: actionId });
+    // Shared daemon progress outranks a sidecar timeout on the older request.
+    if (!current || current.status === "pending") {
+      UI.act.said = { key, text: error.message, ok: false };
+      finishAction(actionId);
+    }
+  }
+  render();
+  tick();
+  return actionFor({ action_id: actionId });
+}
+
+function reconcileCredentialActions() {
+  for (const action of [...actions.values()]) {
+    if (action.kind !== "credential-sign-in" || !TERMINAL_ACTION.has(action.status)) continue;
+    if (action.status !== "confirmed") {
+      UI.act.said = {
+        key: action.conflict_key,
+        text: action.reason || "Curia could not complete this credential sign-in.",
+        ok: false,
+      };
+    }
+    finishAction(action.action_id);
+  }
+}
 
 function screenCredentials(p) {
   const o = p?.overview;
@@ -5029,6 +5078,7 @@ async function tick() {
     reconcileAistackActions();
     reconcileConversationActions();
     reconcileSettingsActions();
+    reconcileCredentialActions();
     reachable = true;
     if (UI.screen === "feed" && UI.feed.operator !== payload.operator) recordFeedVisit();
   } catch {

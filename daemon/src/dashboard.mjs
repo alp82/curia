@@ -86,7 +86,10 @@ export const daemonPort = () => Number(process.env.PORT ?? DEFAULT_DAEMON_PORT)
 // the `#chat/<session>` route, the page reads the six timeline routes through
 // this sidecar, and it draws an ended agent from the `live` field of
 // `/api/console`, which a proto-12 daemon does not carry.
-export const DASHBOARD_PROTO = 14
+// Bumped to 15 by #809: credential sign-in now carries an Action identity
+// through `/api/reauth`. A proto-14 sidecar drops that identity and leaves the
+// optimistic projection pending with no daemon evidence that can settle it.
+export const DASHBOARD_PROTO = 15
 
 // The Credentials screen's own hash (#661). It is here rather than in the
 // daemon that links to it, because the page's screen names are this file's half
@@ -1107,7 +1110,8 @@ export class DashboardSurface {
         return this.#verb(res, async () => {
           const b = await this.#body(req)
           const provider = field(b.provider, VERB_PROVIDER_RE, 'a provider name')
-          return this.#command(`reauth ${provider}`, by)
+          const actionId = b.action_id == null ? null : field(b.action_id, ACTION_ID_RE, 'an Action id')
+          return this.#command(`reauth ${provider}`, by, actionId)
         })
       }
       // The browser conversations (#333). The Chat screen mints one and

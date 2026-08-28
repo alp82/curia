@@ -804,11 +804,12 @@ export class ReauthFlow {
   // why `finish` returns an expiry and not a token.
   state() {
     if (!this.flow) return null
-    const { provider, session, state, url, code, typed, startedAt, deadline } = this.flow
+    const { provider, session, state, url, code, typed, actionId, startedAt, deadline } = this.flow
     return {
       provider,
       session,
       state,
+      action_id: actionId ?? null,
       url,
       code,
       // Whether the operator has to type into this pane, which is the one thing
@@ -872,7 +873,7 @@ export class ReauthFlow {
   // anthropic lane has no such file to remove (#659 measured that `setup-token`
   // writes none) and clears the dir anyway, so a second attempt never starts on
   // the first one's `.claude.json`.
-  async start({ provider = CODEX_PROVIDER } = {}) {
+  async start({ provider = CODEX_PROVIDER, actionId = null } = {}) {
     const lane = this.laneFor(provider)
     if (!lane) throw new Error(`there is no re-authentication lane for provider "${provider}" — this daemon can sign in: ${this.providers.join(', ') || 'nothing'}`)
     const session = authSessionName(provider)
@@ -886,7 +887,7 @@ export class ReauthFlow {
       //
       // A session the journal never saw still gets adopted, on a fresh window.
       // A deadline nothing can date is worse than a generous one.
-      if (!this.flow && !this.#resume(provider)) this.#track(provider, session)
+      if (!this.flow && !this.#resume(provider)) this.#track(provider, session, this.now(), actionId)
       return { started: false, session, why: 'a re-authentication session is already open — attach to it' }
     }
     // THE SESSION IS THE LIVENESS, NOT THE RECORD, and the order above is what
@@ -901,17 +902,18 @@ export class ReauthFlow {
     })
     await this.newSession({ name: session, cwd: cfgDir, shellCmd })
     if (this.ending?.provider === provider) this.ending = null
-    this.#track(provider, session)
-    this.journal('reauth_started', { provider, session })
+    this.#track(provider, session, this.now(), actionId)
+    this.journal('reauth_started', { provider, session, ...(actionId ? { action_id: actionId } : {}) })
     this.log(`re-authentication started for ${provider} in tmux session ${session}`)
     return { started: true, session }
   }
 
-  #track(provider, session, startedAt = this.now()) {
+  #track(provider, session, startedAt = this.now(), actionId = null) {
     const lane = this.laneFor(provider)
     this.flow = {
       provider,
       session,
+      actionId,
       cfgDir: this.cfgDirFor(session),
       state: 'waiting',
       url: null,
@@ -960,7 +962,7 @@ export class ReauthFlow {
     // takes whichever record the journal hands it.
     if (provider && record.provider !== provider) return null
     const session = authSessionName(record.provider)
-    this.#track(record.provider, session, record.startedAt)
+    this.#track(record.provider, session, record.startedAt, record.actionId ?? null)
     this.log(`re-adopted the ${record.provider} re-authentication that began ${new Date(record.startedAt).toISOString()} — the session is ${session}`)
     return this.flow
   }
@@ -1035,7 +1037,10 @@ export class ReauthFlow {
     // something to act on without becoming a place the code is written down.
     if (code && !this.flow.codeSeen) {
       this.flow.codeSeen = true
-      this.journal('reauth_code_seen', { provider: this.flow.provider, session: this.flow.session })
+      this.journal('reauth_code_seen', {
+        provider: this.flow.provider, session: this.flow.session,
+        ...(this.flow.actionId ? { action_id: this.flow.actionId } : {}),
+      })
     }
     return pane
   }
@@ -1086,7 +1091,11 @@ export class ReauthFlow {
     const flow = this.flow
     flow.state = state
     const why = REAUTH_ENDING_WHY[state] ?? null
-    const detail = { provider: flow.provider, session: flow.session, after_s: Math.round((this.now() - flow.startedAt) / 1000), ...extra }
+    const detail = {
+      provider: flow.provider, session: flow.session,
+      ...(flow.actionId ? { action_id: flow.actionId } : {}),
+      after_s: Math.round((this.now() - flow.startedAt) / 1000), ...extra,
+    }
     if (why && !detail.why) detail.why = why
     this.journal(event, detail)
     // The ending the surfaces read. Only a login that produced no credential

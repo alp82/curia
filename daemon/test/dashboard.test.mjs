@@ -1045,11 +1045,18 @@ describe('the operator verbs (#266)', () => {
   // exists: the recovery from a dead model credential has no ssh in it, so the
   // act has to reach a phone. Through the command seam like every other verb,
   // so a press journals what a typed line journals.
-  test('sign-in composes `reauth <provider>` — the browser names a provider, never a line', async () => {
-    const res = await press('/api/reauth', { provider: 'anthropic' })
+  test('sign-in composes `reauth <provider>` and carries its Action identity', async () => {
+    const accepted = {
+      action_id: 'atlas-reauth-anthropic', kind: 'credential-sign-in', target: 'anthropic',
+      conflict_key: 'reauth:anthropic', status: 'accepted', revision: 42,
+    }
+    reply['/command'] = [200, { action: accepted }]
+    const res = await press('/api/reauth', { provider: 'anthropic', action_id: 'atlas-reauth-anthropic' })
     assert.equal(res.status, 200)
     assert.equal(sent('/command').body.text, 'reauth anthropic')
     assert.equal(sent('/command').body.by, 'alp@example.com')
+    assert.equal(sent('/command').body.action_id, 'atlas-reauth-anthropic')
+    assert.deepEqual(JSON.parse(res.text).action, accepted)
   })
 
   // The daemon refuses an unknown provider by naming what it CAN sign in, and

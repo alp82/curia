@@ -321,9 +321,10 @@ export function actionForCommand(canonical, actionId) {
   const id = String(actionId ?? '').trim()
   if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(id)) throw new Error('action_id is not a valid Action id')
   const cmd = parseCommand(canonical)
-  if (cmd?.verb !== 'start' || !cmd.repo || !cmd.ticket) {
-    throw new Error('Action evidence currently supports a repo-qualified start command')
+  if (cmd?.verb === 'reauth') {
+    return { action_id: id, kind: 'credential-sign-in', target: cmd.provider, conflict_key: `reauth:${cmd.provider}` }
   }
+  if (cmd?.verb !== 'start' || !cmd.repo || !cmd.ticket) throw new Error('Action evidence supports a repo-qualified start or credential sign-in command')
   const target = `${cmd.repo}#${cmd.ticket}`
   return { action_id: id, kind: 'dispatch', target, conflict_key: `dispatch:${target}` }
 }
@@ -440,7 +441,7 @@ export class CommandRouter {
           if (!this.deploy) return '❌ this daemon has no self-deploy seam — use bin/deploy.sh'
           return await this.deploy.run({ by: userId, interpreted })
         case 'reauth':
-          return await this.dispatcher.startReauth({ provider: cmd.provider, by: userId })
+          return await this.dispatcher.startReauth({ provider: cmd.provider, by: userId, ...(action ? { action } : {}) })
       }
     } catch (e) {
       this.log(`command "${canonical}" failed:`, e.message)

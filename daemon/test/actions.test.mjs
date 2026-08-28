@@ -140,4 +140,43 @@ describe('shared Action evidence', () => {
       /terminal Action evidence is immutable/,
     )
   })
+
+  test('credential sign-in facts reconcile progress and every ending after restart', async () => {
+    const signIn = {
+      action_id: 'atlas-reauth-openai', kind: 'credential-sign-in', target: 'openai', conflict_key: 'reauth:openai',
+    }
+    await actions.run(signIn, async ({ accept, progress }) => {
+      accept()
+      progress('Preparing the agent image')
+      return { status: 'progress' }
+    })
+    reduction.journal('reauth_started', { provider: 'openai', session: 'curia-auth-openai', action_id: signIn.action_id })
+    assert.equal(actions.get(signIn.action_id).progress, 'Waiting for browser sign-in')
+    reduction.journal('reauth_code_seen', { provider: 'openai', session: 'curia-auth-openai', action_id: signIn.action_id })
+    assert.equal(actions.get(signIn.action_id).progress, 'Waiting for browser completion')
+    reduction.journal('reauth_completed', { provider: 'openai', session: 'curia-auth-openai', action_id: signIn.action_id })
+    assert.equal(actions.get(signIn.action_id).status, 'confirmed')
+
+    for (const [event, reason] of [
+      ['reauth_failed', 'the fresh credential was refused'],
+      ['reauth_timed_out', 'the sign-in timed out'],
+      ['reauth_code_expired', 'the one-time code expired'],
+      ['reauth_abandoned', 'the sign-in session ended'],
+    ]) {
+      const id = `atlas-${event}`
+      await actions.run({ ...signIn, action_id: id }, async ({ accept }) => {
+        accept()
+        return { status: 'progress' }
+      })
+      reduction.journal(event, { provider: 'openai', session: 'curia-auth-openai', action_id: id, why: reason })
+      assert.equal(actions.get(id).status, 'failed')
+      assert.equal(actions.get(id).reason, reason)
+    }
+
+    reduction.close()
+    reduction = new Reduction(dir)
+    actions = new ActionCoordinator(reduction)
+    assert.equal(actions.get(signIn.action_id).status, 'confirmed')
+    assert.equal(actions.get('atlas-reauth_abandoned').status, 'failed')
+  })
 })

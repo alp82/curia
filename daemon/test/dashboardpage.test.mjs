@@ -4027,6 +4027,39 @@ describe('the Credentials screen (#661)', () => {
     assert.match(text(html), /the same login signs this in/)
   })
 
+  test('sign-in projects immediately and keeps shared progress through a late transport failure', async () => {
+    let rejectRequest
+    let sent
+    const local = loadPage({
+      fetchImpl: (_path, request) => {
+        sent = JSON.parse(request.body)
+        return new Promise((_resolve, reject) => { rejectRequest = reject })
+      },
+    })
+    local.payload = payload({
+      credentials: {
+        consumers: [{ consumer: 'claude', provider: 'anthropic', state: 'expired', why: 'the year is up', lane: LANE('anthropic') }],
+        reauth: null,
+      },
+    })
+
+    const pending = local.startReauth('anthropic')
+    const action = local.actionFor({ conflict_key: 'reauth:anthropic' })
+    assert.equal(action.kind, 'credential-sign-in')
+    assert.equal(sent.action_id, action.action_id)
+    assert.match(text(local.screenCredentials(local.payload)), /Starting sign-in/)
+
+    local.observeActions([{
+      ...action, status: 'progress', revision: 30, progress: 'Preparing the agent image',
+    }])
+    assert.match(text(local.screenCredentials(local.payload)), /Preparing the agent image/)
+    rejectRequest(new Error('the daemon did not answer /command within 5s'))
+    await pending
+
+    assert.equal(local.actionFor({ action_id: action.action_id }).status, 'progress')
+    assert.doesNotMatch(text(local.screenCredentials(local.payload)), /did not answer/)
+  })
+
   test('the press names the provider, because two of the three rows are anthropic', () => {
     const html = page.screenCredentials(payload({
       credentials: { consumers: [{ consumer: 'claude', provider: 'anthropic', state: 'absent', why: 'none on this box', lane: LANE('anthropic') }], reauth: null },

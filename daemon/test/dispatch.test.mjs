@@ -8101,6 +8101,33 @@ describe('signing the anthropic lane back in (#660)', () => {
     assert.ok(events.some((e) => e.type === 'reauth_requested' && e.provider === 'anthropic'))
   })
 
+  test('the browser receives acceptance and image progress before the login session can start', async () => {
+    let finishImage
+    const image = new Promise((resolve) => { finishImage = resolve })
+    const d = makeDispatcher({ ensureAgentImage: async () => image })
+    d.reauth.newSession = async () => {}
+    d.reauth.hasSession = async () => false
+    const seen = []
+    const action = {
+      actionId: 'atlas-reauth-anthropic',
+      accept: () => seen.push('accepted'),
+      progress: (progress) => seen.push(progress),
+    }
+
+    const pending = d.startReauth({ provider: 'anthropic', by: 'u1', action })
+    await Promise.resolve()
+    assert.deepEqual(seen, ['accepted', 'Preparing the agent image'])
+
+    finishImage({ ref: 'curia-agent:test' })
+    await pending
+    assert.deepEqual(seen, [
+      'accepted', 'Preparing the agent image', 'Starting the credential sign-in session', 'Waiting for browser sign-in',
+    ])
+    assert.ok(events.some((event) => event.type === 'reauth_started'
+      && event.action_id === 'atlas-reauth-anthropic'))
+    assert.equal(d.credentialsStatus().reauth.action_id, 'atlas-reauth-anthropic')
+  })
+
   // #661, closing #645 finding 4. The terminal is the path that ALWAYS works —
   // everything else on the card is scraped off a pane, and a scrape is a guess
   // about somebody else's wording. The daemon had been composing this link for

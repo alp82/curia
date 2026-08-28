@@ -287,6 +287,37 @@ export class Reduction {
       })
     }
 
+    // Credential sign-in Actions outlive the request that starts them. The
+    // flow's own journal facts advance the same evidence after a restart, and
+    // carry no device code or credential.
+    if (ev.action_id && ev.type.startsWith('reauth_')) {
+      const actionId = String(ev.action_id)
+      const prior = this.actions.get(actionId)
+      if (prior && !TERMINAL_ACTION_STATUSES.has(prior.status)) {
+        const progress = ev.type === 'reauth_started'
+          ? 'Waiting for browser sign-in'
+          : ev.type === 'reauth_code_seen' ? 'Waiting for browser completion' : null
+        const ending = ev.type === 'reauth_completed'
+          ? { status: 'confirmed' }
+          : ['reauth_failed', 'reauth_timed_out', 'reauth_code_expired', 'reauth_abandoned'].includes(ev.type)
+            ? { status: 'failed', reason: ev.why ?? {
+              reauth_failed: 'the fresh credential could not be adopted',
+              reauth_timed_out: 'the sign-in timed out',
+              reauth_code_expired: 'the one-time code expired',
+              reauth_abandoned: 'the sign-in session ended',
+            }[ev.type] }
+            : null
+        if (progress || ending) this.actions.set(actionId, {
+          ...prior,
+          status: ending?.status ?? 'progress',
+          revision: this.revision,
+          updated_at: ev.ts,
+          ...(progress ? { progress } : {}),
+          ...(ending?.reason ? { reason: ending.reason } : {}),
+        })
+      }
+    }
+
     // Start's authoritative domain events close the tiny crash gap between the
     // operation and its Action coordinator continuation. On a live run the
     // coordinator writes the same terminal answer. On rebuild, or after
@@ -1062,7 +1093,10 @@ export class Reduction {
       case 'reauth_started': {
         const startedAt = Date.parse(ev.ts ?? '')
         if (!ev.provider || !Number.isFinite(startedAt)) break
-        this.openLogins.set(ev.provider, { provider: ev.provider, session: ev.session ?? null, startedAt })
+        this.openLogins.set(ev.provider, {
+          provider: ev.provider, session: ev.session ?? null, startedAt,
+          actionId: ev.action_id ?? null,
+        })
         break
       }
       case 'reauth_completed':

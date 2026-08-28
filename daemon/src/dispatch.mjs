@@ -2176,13 +2176,15 @@ export class Dispatcher {
   // containers and the overseer, so there is no consumer named `anthropic` to
   // sign in. `openai` stays the bare default — it is the lane that can die on a
   // timer, so it is the one an operator reaches for without thinking.
-  async startReauth({ provider = CODEX_PROVIDER, by = null } = {}) {
+  async startReauth({ provider = CODEX_PROVIDER, by = null, action = null } = {}) {
     if (!this.reauth) return '❌ this daemon brokers no model credential, so it has nothing to sign back in'
     const lane = this.reauth.laneFor(provider)
     if (!lane) {
       return `❌ curia owns no \`${provider}\` credential, so there is nothing to sign back in. It can re-authenticate: ${this.reauth.providers.join(', ') || 'nothing'}`
     }
     if (!this.config.sandbox) return '❌ this daemon runs no containers, so it has nothing to run the login in'
+    action?.accept({ receipt: { provider } })
+    action?.progress('Preparing the agent image')
     let image
     try {
       image = await this.deps.ensureAgentImage(this.config.sandbox, {
@@ -2192,9 +2194,10 @@ export class Dispatcher {
       return `❌ the agent image is not available, so the login has nothing to run in (${e.message})`
     }
     this.reauth.image = image.ref
+    action?.progress('Starting the credential sign-in session')
     let started
     try {
-      started = await this.reauth.start({ provider })
+      started = await this.reauth.start({ provider, actionId: action?.actionId ?? null })
     } catch (e) {
       return `❌ the re-authentication session could not be started (${e.message})`
     }
@@ -2209,6 +2212,7 @@ export class Dispatcher {
     // through. Stamping it on the flow is what puts it on both, and keeps the
     // page out of the business of building a URL it cannot vouch for.
     this.reauth.noteTerminal(attach)
+    action?.progress('Waiting for browser sign-in')
     const where = attach
       ? `Terminal: ${attach}`
       : 'curia could not publish a terminal link for it. The dashboard card carries the link and the code.'

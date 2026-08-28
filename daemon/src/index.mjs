@@ -3585,9 +3585,14 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
         return json(400, { error: error.message })
       }
       const evidence = await actions.run(action, async (controls) => {
-        const reply = await gate.command(text, named(by), { action: controls })
+        const reply = await gate.command(text, named(by), { action: { ...controls, actionId: action.action_id } })
         const current = actions.get(action.action_id)
         if (!current) return { status: 'refused', reason: reply }
+        if (action.kind === 'credential-sign-in') {
+          if (/^❌/.test(reply)) return { status: 'failed', reason: reply }
+          if (current.status === 'accepted' || current.status === 'progress') return { status: current.status }
+          return { status: 'confirmed' }
+        }
         if (/^⚙️ dispatched\b/.test(reply)) return { status: 'confirmed' }
         return { status: 'failed', reason: reply }
       })
