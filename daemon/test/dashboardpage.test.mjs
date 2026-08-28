@@ -1923,6 +1923,64 @@ describe('the settings screen (#265)', () => {
     assert.match(fs.readFileSync(DEFAULT_DASHBOARD_INDEX, 'utf8'), /manifest\.name = "manifest"/)
   })
 
+  test('GitHub App setup starts immediately and does not reserve installation reads', () => {
+    const sent = []
+    const local = loadPage({
+      fetchImpl: async (path, request) => {
+        sent.push({ path, body: JSON.parse(request.body) })
+        return new Promise(() => {})
+      },
+    })
+    local.payload = payload()
+    local.document.getElementById = (id) => id === 'github-app-name' ? { value: 'curia-box' } : null
+
+    vm.runInContext('doGitHubAppSetup()', local)
+    vm.runInContext('doGitHubAppRefresh()', local)
+
+    const setup = local.actionFor({ conflict_key: 'github-app:setup' })
+    const refresh = local.actionFor({ conflict_key: 'github-app:installations' })
+    assert.equal(setup.status, 'pending')
+    assert.equal(setup.kind, 'github-app-setup')
+    assert.equal(refresh.status, 'pending')
+    assert.equal(refresh.kind, 'github-app-installations')
+    assert.equal(sent[0].body.action_id, setup.action_id)
+    assert.equal(sent[1].body.action_id, refresh.action_id)
+  })
+
+  test('an installation read recovers from shared progress and reconciles an explicit failure', () => {
+    const local = loadPage()
+    local.settings = SETTINGS()
+    local.draft = JSON.parse(JSON.stringify(local.settings))
+    local.UI.drill.settings = { open: 'connections', list: false }
+    const p = payload()
+    p.overview.github_app = {
+      configured: true, status: 'complete', app: { id: '42', key_file: '/keys/app.pem' },
+      installations: { state: 'unread', at: null, error: null }, owners: [], manual_url: null,
+    }
+    local.observeActions([{
+      action_id: 'atlas-github-app-read', kind: 'github-app-installations', target: 'github-app-installations',
+      conflict_key: 'github-app:installations', status: 'progress', revision: 4,
+      progress: 'Reading GitHub App installations',
+    }])
+
+    let html = local.screenSettings(p)
+    assert.match(text(html), /Reading GitHub App installations/)
+    assert.match(html, /Re-read installations<\/button>/)
+    assert.match(html, /button class="btn" disabled/)
+
+    local.observeActions([{
+      action_id: 'atlas-github-app-read', kind: 'github-app-installations', target: 'github-app-installations',
+      conflict_key: 'github-app:installations', status: 'failed', revision: 5,
+      reason: 'The installation read failed: GitHub answered 502',
+    }])
+    local.reconcileGitHubAppActions()
+
+    assert.equal(local.actionFor({ action_id: 'atlas-github-app-read' }), null)
+    html = local.screenSettings(p)
+    assert.match(text(html), /The installation read failed: GitHub answered 502/)
+    assert.doesNotMatch(html, /button class="btn" disabled/)
+  })
+
   // #762: the configured section states the app, the reading, and three owner
   // states, and the third is never drawn as the second.
   test('Connections states the app identity, the reading, and each owner in three states', () => {

@@ -910,6 +910,7 @@ export class DashboardSurface {
         return this.#verb(res, async () => {
           const b = await this.#body(req)
           const name = field(b.name, APP_NAME_RE, 'a GitHub App name')
+          const actionId = field(b.action_id, ACTION_ID_RE, 'an Action id')
           // The redirect is THIS surface's own address, composed from curia's
           // own records (#68) rather than from the request headers. GitHub
           // sends the conversion code back to this URL, so a caller-named
@@ -918,14 +919,18 @@ export class DashboardSurface {
           // tailscale says this box is.
           const redirectUrl = new URL('api/github-app/complete', await this.link()).toString()
           return this.#daemon({
-            method: 'POST', path: '/github-app/start', body: { name, redirect_url: redirectUrl }, accept: [200, 400],
+            method: 'POST', path: '/github-app/start', body: { name, redirect_url: redirectUrl, action_id: actionId }, accept: [200, 400],
           })
         })
       }
       // The re-read of the app's installations (#762). No field crosses: the
       // press is the whole message.
       if (url.pathname === '/api/github-app/refresh') {
-        return this.#verb(res, () => this.#daemon({ method: 'POST', path: '/github-app/installations', body: {} }))
+        return this.#verb(res, async () => {
+          const b = await this.#body(req)
+          const actionId = field(b.action_id, ACTION_ID_RE, 'an Action id')
+          return this.#daemon({ method: 'POST', path: '/github-app/installations', body: { action_id: actionId } })
+        })
       }
       // ---- the operator verbs (#266) ---------------------------------------
       //

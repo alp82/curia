@@ -3354,8 +3354,11 @@ function setConnections(p) {
     : app.status === "pending"
       ? `<p class="unread">GitHub App setup is pending until ${esc(ago(app.expires_at))}.</p>`
       : `<p class="unread">No GitHub App is configured. Create one from Atlas.</p>`;
+  const setupAction = actionFor({ conflict_key: "github-app:setup" });
+  const refreshAction = actionFor({ conflict_key: "github-app:installations" });
   const create = app.configured ? "" : `<p><input id="github-app-name" value="curia-box" aria-label="GitHub App name">
-    <button class="btn primary" ${busy("github-app") ? "disabled" : ""} onclick="doGitHubAppSetup()">Create GitHub App</button></p>
+    <button class="btn primary" ${setupAction ? "disabled" : ""} onclick="doGitHubAppSetup()">Create GitHub App</button></p>
+    ${setupAction ? `<p class="qhint">${esc(setupAction.progress || "Starting GitHub App setup")}</p>` : ""}
     ${said("github-app")}`;
   const manual = app.manual_url
     ? `<p class="qhint"><a href="${esc(app.manual_url)}" target="_blank" rel="noopener">Set up a GitHub App by hand on GitHub</a></p>` : "";
@@ -3365,7 +3368,8 @@ function setConnections(p) {
     : reading?.state === "failed"
       ? `<p class="unread">The installation read failed ${esc(ago(reading.at))}: ${esc(reading.error ?? "")}</p>`
       : `<p class="unread">Installations have not been read yet.</p>`;
-  const refresh = !app.configured ? "" : `<p><button class="btn" ${busy("github-app-refresh") ? "disabled" : ""} onclick="doGitHubAppRefresh()">Re-read installations</button></p>
+  const refresh = !app.configured ? "" : `<p><button class="btn" ${refreshAction ? "disabled" : ""} onclick="doGitHubAppRefresh()">Re-read installations</button></p>
+    ${refreshAction ? `<p class="qhint">${esc(refreshAction.progress || "Starting the installation read")}</p>` : ""}
     ${said("github-app-refresh")}`;
   const owners = (app.owners ?? []).map((owner) => `<div class="row">
     <span class="key grow">${esc(owner.owner)}</span>
@@ -4137,26 +4141,78 @@ function chatAfterRender() {
 }
 
 async function doGitHubAppRefresh() {
-  if (busy("github-app-refresh")) return;
-  await verb("github-app-refresh", "/api/github-app/refresh", {});
+  const actionId = `atlas-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
+  const action = beginAction({
+    action_id: actionId, kind: "github-app-installations", target: "github-app-installations",
+    conflict_key: "github-app:installations", projection: { phase: "reading" },
+  });
+  if (!action) return null;
+  UI.act.said = null;
+  render();
+  return githubAppAction("github-app-refresh", "/api/github-app/refresh", actionId, {});
 }
 
 async function doGitHubAppSetup() {
-  if (busy("github-app")) return;
   const name = document.getElementById("github-app-name")?.value?.trim();
   if (!name) return refuse("github-app", "Enter a GitHub App name.");
-  const out = await verb("github-app", "/api/github-app/start", { name });
-  if (!out?.action || !out?.manifest) return;
+  const actionId = `atlas-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
+  const action = beginAction({
+    action_id: actionId, kind: "github-app-setup", target: "github-app-setup",
+    conflict_key: "github-app:setup", projection: { phase: "opening-github" },
+  });
+  if (!action) return null;
+  UI.act.said = null;
+  render();
+  const out = await githubAppAction("github-app", "/api/github-app/start", actionId, { name });
+  const setup = out?.setup;
+  if (!setup?.action || !setup?.manifest) return;
   const form = document.createElement("form");
   form.method = "POST";
-  form.action = out.action;
+  form.action = setup.action;
   const manifest = document.createElement("input");
   manifest.type = "hidden";
   manifest.name = "manifest";
-  manifest.value = JSON.stringify(out.manifest);
+  manifest.value = JSON.stringify(setup.manifest);
   form.appendChild(manifest);
   document.body.appendChild(form);
   form.submit();
+}
+
+async function githubAppAction(key, path, actionId, body) {
+  try {
+    const res = await fetch(path, {
+      method: "POST", headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({ ...body, action_id: actionId }),
+    });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(out.error || ("the console answered " + res.status));
+    observeActions(out.action ? [out.action] : []);
+    reconcileGitHubAppActions();
+    render();
+    tick();
+    return out;
+  } catch (error) {
+    const current = actionFor({ action_id: actionId });
+    if (!current || current.status === "pending") {
+      finishAction(actionId);
+      UI.act.said = { key, text: error.message, ok: false };
+    }
+    render();
+    return null;
+  }
+}
+
+function reconcileGitHubAppActions() {
+  for (const action of [...actions.values()]) {
+    if (!["github-app-setup", "github-app-installations"].includes(action.kind) || !TERMINAL_ACTION.has(action.status)) continue;
+    const key = action.kind === "github-app-setup" ? "github-app" : "github-app-refresh";
+    if (action.status !== "confirmed") {
+      UI.act.said = { key, ok: false, text: action.reason || "The GitHub App action failed." };
+    } else if (action.receipt?.reply) {
+      UI.act.said = { key, ok: true, text: action.receipt.reply };
+    }
+    finishAction(action.action_id);
+  }
 }
 
 /* ---- credentials (#661, the shape the #645 prototype settled) ---------------
@@ -4686,6 +4742,7 @@ async function tick() {
     reconcileStartActions(payload?.overview);
     reconcilePaneKeyActions();
     reconcileDialogAnswerActions();
+    reconcileGitHubAppActions();
     reachable = true;
     if (UI.screen === "feed" && UI.feed.operator !== payload.operator) recordFeedVisit();
   } catch {

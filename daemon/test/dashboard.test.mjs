@@ -911,7 +911,8 @@ describe('the operator verbs (#266)', () => {
   })
 
   test('GitHub App setup keeps conversion inside the daemon', async () => {
-    const started = await press('/api/github-app/start', { name: 'curia-box' })
+    const actionId = 'atlas-github-app-setup'
+    const started = await press('/api/github-app/start', { name: 'curia-box', action_id: actionId })
     assert.equal(started.status, 200)
     // The redirect is composed from curia's own records - `attachBase()` and
     // the serve port - not from anything the caller sent.
@@ -919,6 +920,7 @@ describe('the operator verbs (#266)', () => {
     assert.deepEqual(sent('/github-app/start').body, {
       name: 'curia-box',
       redirect_url: 'https://box.tail1234.ts.net:8445/api/github-app/complete',
+      action_id: actionId,
     })
 
     const completed = await req(surface.port, '/api/github-app/complete?code=one-use&state=expected', { headers: served() })
@@ -929,7 +931,9 @@ describe('the operator verbs (#266)', () => {
   // A browser-named redirect is not a field this surface forwards, and a name
   // GitHub would refuse never reaches the daemon.
   test('the setup start forwards the name and nothing the browser said about the redirect', async () => {
-    await press('/api/github-app/start', { name: 'curia-box', redirect_url: 'https://evil.example.com/' })
+    await press('/api/github-app/start', {
+      name: 'curia-box', redirect_url: 'https://evil.example.com/', action_id: 'atlas-github-app-redirect',
+    })
     assert.equal(sent('/github-app/start').body.redirect_url, 'https://box.tail1234.ts.net:8445/api/github-app/complete')
     calls = []
     const bad = await press('/api/github-app/start', { name: '../evil' })
@@ -950,10 +954,10 @@ describe('the operator verbs (#266)', () => {
   // next page read is a fresh one so the owner rows show what was measured.
   test('the installation re-read reaches the daemon as a bare press and drops the snapshot', async () => {
     surface.snapshotAt = Date.now()
-    const out = await press('/api/github-app/refresh', { anything: 'ignored' })
+    const out = await press('/api/github-app/refresh', { anything: 'ignored', action_id: 'atlas-github-app-read' })
     assert.equal(out.status, 200)
     assert.equal(sent('/github-app/installations').method, 'POST')
-    assert.deepEqual(sent('/github-app/installations').body, {})
+    assert.deepEqual(sent('/github-app/installations').body, { action_id: 'atlas-github-app-read' })
     assert.equal(surface.snapshotAt, 0)
     assert.match(out.text, /Read 1 installation: alp82/)
   })
@@ -964,7 +968,9 @@ describe('the operator verbs (#266)', () => {
   // name this box does answer to, because that is the one the identity gate
   // lets through - the gate refuses the rest, which the second press shows.
   test('a caller-written Host header does not move the setup redirect', async () => {
-    await press('/api/github-app/start', { name: 'curia-box' }, { host: '100.98.118.33:8445' })
+    await press('/api/github-app/start', {
+      name: 'curia-box', action_id: 'atlas-github-app-host',
+    }, { host: '100.98.118.33:8445' })
     assert.equal(
       sent('/github-app/start').body.redirect_url,
       'https://box.tail1234.ts.net:8445/api/github-app/complete',

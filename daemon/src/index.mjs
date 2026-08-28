@@ -368,6 +368,18 @@ const githubAppSetup = new GitHubAppSetup({
   },
 })
 
+// A setup spans the trip through github.com, so its Action can outlive this
+// process. The setup record carries only the Action identity. The journal
+// still owns the evidence and the setup record still contains no credential.
+{
+  const setup = githubAppSetup.status()
+  const evidence = setup.action_id ? actions.get(setup.action_id) : null
+  if (evidence && !['confirmed', 'refused', 'failed'].includes(evidence.status)) {
+    if (setup.status === 'complete') reduction.recordAction({ ...evidence, status: 'confirmed' })
+    if (setup.status === 'expired') reduction.recordAction({ ...evidence, status: 'failed', reason: 'GitHub App setup expired after one hour' })
+  }
+}
+
 // #390: the DAEMON cuts over. Every `gh` child it spawns for a named repo now
 // carries that owner's minted write token, so the frontier reads, the claims,
 // the pull requests and the branch pushes all run as `curia-sh[bot]`.
@@ -3157,13 +3169,33 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
   }
 
   if (url.pathname === '/github-app/start' && req.method === 'POST') {
-    const { name, redirect_url: redirectUrl } = await readBody(req)
+    const { name, redirect_url: redirectUrl, action_id: actionId } = await readBody(req)
+    if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(String(actionId ?? ''))) {
+      return json(400, { error: 'action_id is not a valid Action id' })
+    }
+    const action = {
+      action_id: String(actionId), kind: 'github-app-setup', target: 'github-app-setup',
+      conflict_key: 'github-app:setup',
+    }
+    const recorded = actions.get(action.action_id)
+    if (recorded) return json(200, { action: recorded })
+    const conflict = actions.overview().find((candidate) =>
+      candidate.conflict_key === action.conflict_key && !['confirmed', 'refused', 'failed'].includes(candidate.status))
+    if (conflict) {
+      const refused = await actions.run(action, async () => ({
+        status: 'refused', reason: 'another GitHub App setup is already in progress',
+      }))
+      return json(200, { action: refused })
+    }
     try {
-      const started = githubAppSetup.start({ name, redirectUrl })
-      reduction.journal('github_app_setup_started', { expires_at: started.expires_at })
-      return json(200, started)
+      const started = githubAppSetup.start({ name, redirectUrl, actionId: action.action_id })
+      const accepted = reduction.recordAction({ ...action, status: 'accepted' })
+      reduction.recordAction({ ...action, status: 'progress', progress: 'Waiting for GitHub to complete setup' })
+      reduction.journal('github_app_setup_started', { expires_at: started.expires_at, action_id: action.action_id })
+      return json(200, { action: accepted, setup: started })
     } catch (e) {
-      return json(400, { error: e.message })
+      const refused = reduction.recordAction({ ...action, status: 'refused', reason: e.message })
+      return json(200, { action: refused })
     }
   }
 
@@ -3171,27 +3203,57 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
   // the operator presses once and the kept reading is replaced, awaited here
   // so the answer states what the press measured.
   if (url.pathname === '/github-app/installations' && req.method === 'POST') {
-    if (!appMinter) return json(400, { error: 'no GitHub App is configured, so there is nothing to read installations for' })
-    appMinter.readFacts().catch((e) => log(`could not read the GitHub App's own facts (${e.message})`))
-    try {
-      const installs = await appMinter.refreshInstallations()
-      reduction.journal('github_app_installations_read', { owners: installs.map((i) => i.owner) })
-      return json(200, { ok: true, reply: `Read ${installs.length} installation${installs.length === 1 ? '' : 's'}: ${installs.map((i) => i.owner).join(', ') || 'none'}`, installations: appMinter.reading })
-    } catch (e) {
-      return json(200, { ok: false, reply: `The installation read failed: ${e.message}`, installations: appMinter.reading })
+    const { action_id: actionId } = await readBody(req)
+    if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(String(actionId ?? ''))) {
+      return json(400, { error: 'action_id is not a valid Action id' })
     }
+    const action = {
+      action_id: String(actionId), kind: 'github-app-installations', target: 'github-app-installations',
+      conflict_key: 'github-app:installations',
+    }
+    const evidence = await actions.run(action, async (controls) => {
+      const conflict = actions.overview().find((candidate) =>
+        candidate.action_id !== action.action_id && candidate.conflict_key === action.conflict_key
+        && !['confirmed', 'refused', 'failed'].includes(candidate.status))
+      if (conflict) return { status: 'refused', reason: 'another GitHub App installation read is already in progress' }
+      if (!appMinter) return { status: 'refused', reason: 'no GitHub App is configured, so there is nothing to read installations for' }
+      controls.accept()
+      controls.progress('Reading GitHub App installations')
+      appMinter.readFacts().catch((e) => log(`could not read the GitHub App's own facts (${e.message})`))
+      try {
+        const installs = await appMinter.refreshInstallations()
+        const reply = `Read ${installs.length} installation${installs.length === 1 ? '' : 's'}: ${installs.map((i) => i.owner).join(', ') || 'none'}`
+        reduction.journal('github_app_installations_read', { owners: installs.map((i) => i.owner), action_id: action.action_id })
+        return { status: 'confirmed', receipt: { reply, installations: appMinter.reading } }
+      } catch (e) {
+        return {
+          status: 'failed', reason: `The installation read failed: ${e.message}`,
+          receipt: { reply: `The installation read failed: ${e.message}`, installations: appMinter.reading },
+        }
+      }
+    })
+    return json(200, { action: evidence })
   }
 
   if (url.pathname === '/github-app/complete' && req.method === 'GET') {
+    const setupActionId = githubAppSetup.status().action_id ?? null
     try {
       const completed = await githubAppSetup.complete({
         code: url.searchParams.get('code'),
         state: url.searchParams.get('state'),
       })
       reduction.journal('github_app_setup_completed', { app: completed.app, replay: !completed.ok })
+      const current = setupActionId ? actions.get(setupActionId) : null
+      if (current && !['confirmed', 'refused', 'failed'].includes(current.status)) {
+        reduction.recordAction({ ...current, status: 'confirmed', receipt: { app: completed.app } })
+      }
       return json(200, completed)
     } catch (e) {
       reduction.journal('github_app_setup_failed', { error: e.message })
+      const current = setupActionId ? actions.get(setupActionId) : null
+      if (current && !['confirmed', 'refused', 'failed'].includes(current.status)) {
+        reduction.recordAction({ ...current, status: 'failed', reason: e.message })
+      }
       return json(400, { error: e.message })
     }
   }
