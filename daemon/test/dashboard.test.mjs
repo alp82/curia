@@ -465,6 +465,19 @@ describe('the settings write and the restart (#265)', () => {
       daemonCalls.push({ method: r.method, url: r.url, origin: r.headers.origin ?? null })
       res.writeHead(200, { 'content-type': 'application/json' })
       if (r.url === '/repos') return res.end(JSON.stringify({ login: 'alp82', repos: ['o/r', 'o/other'], error: null }))
+      if (r.url === '/settings/action') return res.end(JSON.stringify({
+        action: {
+          action_id: 'atlas-settings-sidecar-1', kind: 'settings-save', target: 'curia.local.yaml',
+          conflict_key: 'settings:curia.local.yaml', status: 'progress', progress: 'Writing curia.local.yaml', revision: 1,
+        },
+      }))
+      if (r.url === '/settings/action/finish') return res.end(JSON.stringify({
+        action: {
+          action_id: 'atlas-settings-no-change-1', kind: 'settings-save', target: 'curia.local.yaml',
+          conflict_key: 'settings:curia.local.yaml', status: 'confirmed', revision: 2,
+          receipt: { written: [], applied: [] },
+        },
+      }))
       if (r.url === '/reload') return res.end(JSON.stringify(reloadAnswer))
       if (r.url.startsWith('/aistack')) return res.end(JSON.stringify(aistackAnswer))
       res.end(JSON.stringify({ ok: true, exit_code: 75 }))
@@ -609,11 +622,43 @@ describe('the settings write and the restart (#265)', () => {
     assert.deepEqual(body.reload.applied, ['dispatch.max_concurrent'])
   })
 
+  test('a save reserves its settings paths before writing and carries one Action through reload', async () => {
+    reloadAnswer = {
+      ok: true,
+      applied: ['dispatch.max_concurrent'],
+      action: {
+        action_id: 'atlas-settings-sidecar-1', kind: 'settings-save', target: 'curia.local.yaml',
+        conflict_key: 'settings:curia.local.yaml', status: 'confirmed', revision: 2,
+        receipt: { written: ['curia.local.yaml'], applied: ['dispatch.max_concurrent'] },
+      },
+    }
+    const res = await save({ action_id: 'atlas-settings-sidecar-1', dispatch: { max_concurrent: 4 } })
+    assert.equal(res.status, 200)
+    const body = JSON.parse(res.text)
+    assert.deepEqual(daemonCalls.filter((call) => ['/settings/action', '/reload'].includes(call.url)).map((call) => call.url), [
+      '/settings/action', '/reload',
+    ])
+    assert.equal(body.action.status, 'confirmed')
+    assert.deepEqual(body.action.receipt.written, ['curia.local.yaml'])
+  })
+
   test('a save that wrote nothing asks for nothing — the file did not move', async () => {
     const res = await save({ dispatch: { max_concurrent: 2 } })
     assert.equal(JSON.parse(res.text).written.length, 0)
     assert.equal(JSON.parse(res.text).reload, null)
     assert.deepEqual(reloadCalls(), [], 'there is nothing to apply')
+  })
+
+  test('an Action that finds no change settles without asking for a reload', async () => {
+    const res = await save({ action_id: 'atlas-settings-no-change-1', dispatch: { max_concurrent: 2 } })
+    assert.equal(res.status, 200)
+    const body = JSON.parse(res.text)
+    assert.equal(body.action.status, 'confirmed')
+    assert.deepEqual(body.action.receipt, { written: [], applied: [] })
+    assert.deepEqual(daemonCalls.filter((call) => call.url.startsWith('/settings/action')).map((call) => call.url), [
+      '/settings/action', '/settings/action/finish',
+    ])
+    assert.deepEqual(reloadCalls(), [])
   })
 
   test('a reload the daemon declines rides back as the decline, and the save still landed', async () => {

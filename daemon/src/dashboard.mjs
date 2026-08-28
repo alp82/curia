@@ -310,6 +310,13 @@ function reloadLine(reload) {
   return `the daemon declined to apply it: ${reload.error}`
 }
 
+function settingsPaths(patch) {
+  const paths = []
+  if (patch && ['dispatch', 'overseer', 'watch'].some((key) => Object.hasOwn(patch, key))) paths.push('curia.local.yaml')
+  if (patch && Object.hasOwn(patch, 'routing')) paths.push('routing.local.yaml')
+  return paths
+}
+
 function field(value, re, what) {
   const s = String(value ?? '').trim()
   if (!re.test(s)) throw refuse(`"${s}" is not ${what}`)
@@ -689,9 +696,12 @@ export class DashboardSurface {
   // process that can take a new one — this file only asks, and hands back
   // whatever it answers. A daemon that is not there is not a failure of the
   // save: the file is written, and the daemon reads it at its next boot.
-  async #reload(by) {
+  async #reload(by, { actionId = null, written = [] } = {}) {
     try {
-      const out = await this.#daemon({ method: 'POST', path: '/reload', body: { by } })
+      const out = await this.#daemon({
+        method: 'POST', path: '/reload',
+        body: { by, ...(actionId ? { action_id: actionId, written } : {}) },
+      })
       // The next page read must be a fresh one. The marker on the settings
       // screen compares the daemon's own six against the file, and a snapshot
       // taken before the reload would say they disagree for a whole interval
@@ -700,6 +710,31 @@ export class DashboardSurface {
       return out
     } catch (e) {
       return { ok: false, reason: 'daemon-down', error: e.message }
+    }
+  }
+
+  async #beginSettingsAction({ actionId, paths, by }) {
+    try {
+      return await this.#daemon({
+        method: 'POST', path: '/settings/action',
+        body: { action_id: actionId, paths, by },
+      })
+    } catch (e) {
+      return { action: null, offline: e.message }
+    }
+  }
+
+  async #finishSettingsAction(actionId, status, detail = {}) {
+    if (!actionId) return null
+    try {
+      const out = await this.#daemon({
+        method: 'POST', path: '/settings/action/finish',
+        body: { action_id: actionId, status, ...detail },
+        accept: [200, 404],
+      })
+      return out.action ?? null
+    } catch {
+      return null
     }
   }
 
@@ -875,20 +910,45 @@ export class DashboardSurface {
       if (url.pathname === '/api/settings') {
         return this.#write(res, async () => {
           if (!this.curiaFile || !this.routingFile) throw new Error('this sidecar was started without config file paths, so it cannot save')
-          const patch = await this.#body(req)
-          await this.#guardWatchRemoval(patch)
-          const out = saveSettings({ curiaFile: this.curiaFile, routingFile: this.routingFile, patch })
+          const body = await this.#body(req)
+          const actionId = body.action_id == null ? null : field(body.action_id, ACTION_ID_RE, 'an Action id')
+          const { action_id: _actionId, ...patch } = body
+          const paths = settingsPaths(patch)
+          const by = String(req.headers[LOGIN_HEADER] ?? '') || 'dashboard'
+          const begun = actionId ? await this.#beginSettingsAction({ actionId, paths, by }) : null
+          if (begun?.action && ['refused', 'failed'].includes(begun.action.status)) {
+            return {
+              written: [], reload: null, action: begun.action,
+              settings: readSettings({ curiaFile: this.curiaFile, routingFile: this.routingFile }),
+            }
+          }
+          let out
+          try {
+            await this.#guardWatchRemoval(patch)
+            out = saveSettings({ curiaFile: this.curiaFile, routingFile: this.routingFile, patch })
+          } catch (error) {
+            const settled = await this.#finishSettingsAction(actionId, 'refused', { reason: error.message })
+            if (settled) error.receipt = { action: settled }
+            throw error
+          }
           // The save APPLIES (#362). The daemon re-reads both files and takes
           // every setting this screen writes, so the restart stops being
           // phase two of every save. A save that wrote nothing asks for
           // nothing: the file did not move, so there is nothing to reload.
           const reload = out.written.length
-            ? await this.#reload(String(req.headers[LOGIN_HEADER] ?? '') || 'dashboard')
+            ? await this.#reload(by, { actionId, written: out.written })
             : null
+          const noChange = out.written.length ? null : await this.#finishSettingsAction(actionId, 'confirmed', {
+            receipt: { written: [], applied: [] },
+          })
           this.log(out.written.length
             ? `dashboard: saved ${out.written.join(' and ')} — ${reloadLine(reload)}`
             : 'dashboard: the save changed nothing')
-          return { ...out, reload, settings: readSettings({ curiaFile: this.curiaFile, routingFile: this.routingFile }) }
+          return {
+            ...out, reload,
+            ...(reload?.action || noChange || begun?.action ? { action: reload?.action ?? noChange ?? begun.action } : {}),
+            settings: readSettings({ curiaFile: this.curiaFile, routingFile: this.routingFile }),
+          }
         })
       }
       // The restart (#249 item 6). The sidecar orders it and the daemon does

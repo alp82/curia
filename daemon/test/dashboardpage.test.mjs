@@ -1846,6 +1846,60 @@ describe('the settings screen (#265)', () => {
     assert.ok(!html.includes('doRestart()'), 'the bar is just Save — the restart lives in Maintenance now')
   })
 
+  test('Save projects immediately under a settings-path conflict and leaves unrelated Actions available', async () => {
+    let answer
+    const response = new Promise((resolve) => { answer = resolve })
+    page = loadPage({ fetchImpl: () => response })
+    page.settings = SETTINGS()
+    page.draft = JSON.parse(JSON.stringify(page.settings))
+    page.setDispatchField('max_concurrent', '4')
+
+    const saving = page.doSave()
+    const action = page.actionFor({ conflict_key: 'settings:curia.local.yaml' })
+    assert.equal(action.status, 'pending')
+    assert.match(text(screen('dispatch')), /Saving settings/)
+    assert.ok(page.beginAction({
+      action_id: 'atlas-unrelated-action-1', kind: 'chat-message', target: 'console-1', conflict_key: 'turn:console-1',
+    }), 'a settings file reservation does not take the global Action lock')
+
+    answer({
+      ok: true,
+      json: async () => ({
+        written: ['curia.local.yaml'],
+        settings: { ...SETTINGS(), dispatch: { ...SETTINGS().dispatch, max_concurrent: 4 } },
+        reload: { ok: true, applied: ['dispatch.max_concurrent'] },
+        action: {
+          ...action, status: 'confirmed', revision: 2,
+          receipt: { written: ['curia.local.yaml'], applied: ['dispatch.max_concurrent'] },
+        },
+      }),
+    })
+    await saving
+    assert.equal(page.actionFor({ action_id: action.action_id }), null)
+    assert.match(text(screen('dispatch')), /The daemon is running it/)
+  })
+
+  test('a refresh recovers settings write progress and reconciles the daemon apply receipt', () => {
+    const shared = {
+      action_id: 'atlas-settings-recovered-1', kind: 'settings-save', target: 'curia.local.yaml',
+      conflict_key: 'settings:curia.local.yaml', status: 'progress', revision: 10,
+      progress: 'Applying settings',
+    }
+    page.observeActions([shared])
+    assert.match(text(screen('dispatch')), /Applying settings/)
+
+    page.observeActions([{
+      ...shared, status: 'confirmed', revision: 11,
+      receipt: {
+        written: ['curia.local.yaml'], applied: [],
+        reload: { ok: false, reason: 'restart-needed', error: 'curia.yaml `sandbox.image` needs a restart' },
+      },
+    }])
+    page.reconcileSettingsActions()
+    assert.equal(page.actionFor({ action_id: shared.action_id }), null)
+    assert.match(text(screen('dispatch')), /The daemon did not apply it.*sandbox\.image/)
+  })
+
   test('applied: one sentence, and no button — the daemon took it', () => {
     page.UI.set.phase = 'applied'
     page.UI.set.note = 'Wrote curia.local.yaml, atomically, with the comments kept.'

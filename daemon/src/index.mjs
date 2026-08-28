@@ -3598,13 +3598,81 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
     return json(200, { ok: true, said: out.said, ...aistackStatus() })
   }
 
+  if (url.pathname === '/settings/action' && req.method === 'POST') {
+    const body = await readBody(req).catch(() => ({}))
+    const actionId = String(body?.action_id ?? '')
+    const paths = [...new Set(Array.isArray(body?.paths) ? body.paths.map(String) : [])].sort()
+    const allowed = new Set(['curia.local.yaml', 'routing.local.yaml'])
+    if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(actionId)) {
+      return json(400, { error: 'action_id is not a valid Action id' })
+    }
+    if (!paths.length || paths.some((candidate) => !allowed.has(candidate))) {
+      return json(400, { error: 'paths must name curia.local.yaml, routing.local.yaml, or both' })
+    }
+
+    const recorded = actions.get(actionId)
+    if (recorded) return json(200, { action: recorded })
+    const wanted = new Set(paths)
+    const conflict = actions.overview().find((candidate) =>
+      candidate.kind === 'settings-save'
+      && !['confirmed', 'refused', 'failed'].includes(candidate.status)
+      && String(candidate.target).split(',').some((candidatePath) => wanted.has(candidatePath)))
+    const action = {
+      action_id: actionId,
+      kind: 'settings-save',
+      target: paths.join(','),
+      conflict_key: `settings:${paths.join('+')}`,
+    }
+    if (conflict) {
+      const refused = reduction.recordAction({
+        ...action,
+        status: 'refused',
+        reason: `${paths.join(' and ')} is already being saved`,
+      })
+      return json(200, { action: refused })
+    }
+    reduction.recordAction({ ...action, status: 'accepted' })
+    const progress = reduction.recordAction({
+      ...action,
+      status: 'progress',
+      progress: `Writing ${paths.join(' and ')}`,
+    })
+    return json(200, { action: progress })
+  }
+
+  if (url.pathname === '/settings/action/finish' && req.method === 'POST') {
+    const body = await readBody(req).catch(() => ({}))
+    const action = actions.get(String(body?.action_id ?? ''))
+    if (!action || action.kind !== 'settings-save') return json(404, { error: 'settings Action not found' })
+    if (['confirmed', 'refused', 'failed'].includes(action.status)) return json(200, { action })
+    const status = ['confirmed', 'refused', 'failed'].includes(body?.status) ? body.status : 'failed'
+    const settled = reduction.recordAction({
+      ...action,
+      status,
+      ...(body?.reason != null ? { reason: String(body.reason) } : {}),
+      ...(body?.receipt != null ? { receipt: body.receipt } : {}),
+    })
+    return json(200, { action: settled })
+  }
+
   if (url.pathname === '/reload' && req.method === 'POST') {
     const body = await readBody(req).catch(() => ({}))
     const by = named(body?.by)
+    const actionId = String(body?.action_id ?? '')
+    const action = actionId ? actions.get(actionId) : null
+    const written = Array.isArray(body?.written) ? body.written.map(String) : []
+    if (action && !['confirmed', 'refused', 'failed'].includes(action.status)) {
+      reduction.recordAction({ ...action, status: 'progress', progress: 'Applying settings' })
+    }
+    const settle = (status, detail) => {
+      if (!action || ['confirmed', 'refused', 'failed'].includes(actions.get(actionId)?.status)) return null
+      return reduction.recordAction({ ...action, status, ...detail })
+    }
     const decline = (reason, detail) => {
       reduction.journal('config_reload_declined', { by, reason, ...detail })
       log(`reload declined for ${by}: ${detail.error ?? detail.key}`)
-      return json(200, { ok: false, reason, ...detail })
+      const evidence = settle('confirmed', { receipt: { written, applied: [], reload: { ok: false, reason, ...detail } } })
+      return json(200, { ok: false, reason, ...detail, ...(evidence ? { action: evidence } : {}) })
     }
 
     let nextCuria
@@ -3664,7 +3732,8 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
     log(applied.length
       ? `config reloaded by ${by}: ${applied.join(', ')}`
       : `config reloaded by ${by} — the file says what this daemon was already running`)
-    return json(200, { ok: true, by, applied, loaded_at: configLoadedAt })
+    const evidence = settle('confirmed', { receipt: { written, applied } })
+    return json(200, { ok: true, by, applied, loaded_at: configLoadedAt, ...(evidence ? { action: evidence } : {}) })
   }
 
   // The restart (#249 item 6, built by #265). No sudoers, no host change and no

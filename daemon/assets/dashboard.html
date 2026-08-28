@@ -3106,6 +3106,17 @@ function restartNeeds() {
   return out;
 }
 
+function settingsActionPaths(patch) {
+  const paths = [];
+  if (["dispatch", "overseer", "watch"].some((key) => Object.prototype.hasOwnProperty.call(patch, key))) paths.push("curia.local.yaml");
+  if (Object.prototype.hasOwnProperty.call(patch, "routing")) paths.push("routing.local.yaml");
+  return paths;
+}
+
+function settingsAction() {
+  return [...actions.values()].find((action) => action.kind === "settings-save") ?? null;
+}
+
 /* ---- what the daemon is running (#362) --------------------------------------
 
    Applied is a fact curia measured, not a claim the save made. `GET /overview`
@@ -3154,6 +3165,7 @@ function runningDiff(p) {
 function saveDock() {
   const n = changeCount();
   const s = UI.set;
+  const action = settingsAction();
   const dock = (cls, body) => `<div class="dock${cls ? " " + cls : ""}">${body}</div>`;
   const save = `<button class="btn primary" ${s.busy ? "disabled" : ""} onclick="doSave()">Save</button>`;
   const discard = `<a href="#settings" onclick="discardEdits();return false">discard</a>`;
@@ -3164,6 +3176,9 @@ function saveDock() {
   if (s.phase === "unread") {
     return dock("refused", `<span class="toast bad">The settings could not be read.</span>
       <span class="why">${esc(s.error)}</span>`);
+  }
+  if (action && !TERMINAL_ACTION.has(action.status)) {
+    return dock("", `<button class="btn" disabled>${esc(action.progress || "Saving settings…")}</button>`);
   }
   if (s.busy) return dock("", `<button class="btn" disabled>Saving\u2026</button>`);
   if (s.phase === "restarting") {
@@ -4611,19 +4626,71 @@ async function loadConversations() {
   render();
 }
 
+function reconcileSettingsActions() {
+  for (const action of [...actions.values()]) {
+    if (action.kind !== "settings-save" || !TERMINAL_ACTION.has(action.status)) continue;
+    if (action.status === "refused" || action.status === "failed") {
+      UI.set.phase = "refused";
+      UI.set.error = action.reason || "The settings save did not finish.";
+      finishAction(action.action_id);
+      continue;
+    }
+    const receipt = action.receipt ?? {};
+    const written = receipt.written ?? [];
+    UI.set.error = null;
+    if (!written.length) {
+      UI.set.phase = "clean";
+      UI.set.note = "That was already what the files say.";
+    } else {
+      UI.set.note = `Wrote ${written.join(" and ")}, atomically, with the comments kept.`;
+      if (receipt.reload?.ok === false) {
+        UI.set.phase = "declined";
+        UI.set.error = receipt.reload.error || "the daemon gave no reason";
+      } else {
+        UI.set.phase = "applied";
+      }
+    }
+    finishAction(action.action_id);
+  }
+}
+
 async function doSave() {
   const patch = settingsPatch();
   if (!Object.keys(patch).length) return;
-  UI.set.busy = true;
+  const paths = settingsActionPaths(patch);
+  const actionId = `atlas-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
+  const action = beginAction({
+    action_id: actionId,
+    kind: "settings-save",
+    target: paths.join(","),
+    conflict_key: `settings:${paths.join("+")}`,
+    projection: { paths },
+  });
+  if (!action) return;
   render();
   try {
     const res = await fetch("/api/settings", {
       method: "POST",
       headers: { "content-type": "application/json", accept: "application/json" },
-      body: JSON.stringify(patch),
+      body: JSON.stringify({ action_id: actionId, ...patch }),
     });
     const body = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(body.error || ("the sidecar answered " + res.status));
+    const evidence = body.action ?? body.receipt?.action ?? null;
+    observeActions(evidence ? [evidence] : []);
+    if (!res.ok) {
+      const current = actionFor({ action_id: actionId });
+      UI.set.phase = "refused";
+      UI.set.error = current?.reason || body.error || ("the sidecar answered " + res.status);
+      finishAction(actionId);
+      return render();
+    }
+    const current = actionFor({ action_id: actionId });
+    if (current?.status === "refused" || current?.status === "failed") {
+      UI.set.phase = "refused";
+      UI.set.error = current.reason || "The settings save was refused.";
+      finishAction(actionId);
+      return render();
+    }
     /* The answer carries the re-read file, so the screen shows what landed
        rather than what was typed. */
     settings = body.settings ?? settings;
@@ -4642,11 +4709,13 @@ async function doSave() {
       else if (r?.reason === "daemon-down") { UI.set.phase = "offline"; UI.set.error = r.error; }
       else { UI.set.phase = "declined"; UI.set.error = r?.error ?? "the daemon gave no reason"; }
     }
+    if (TERMINAL_ACTION.has(actionFor({ action_id: actionId })?.status) || !body.action || r?.reason === "daemon-down") {
+      finishAction(actionId);
+    }
   } catch (e) {
     UI.set.phase = "refused";
     UI.set.error = e.message;
   }
-  UI.set.busy = false;
   render();
 }
 
@@ -4831,6 +4900,7 @@ async function tick() {
     reconcileDialogAnswerActions();
     reconcileGitHubAppActions();
     reconcileConversationActions();
+    reconcileSettingsActions();
     reachable = true;
     if (UI.screen === "feed" && UI.feed.operator !== payload.operator) recordFeedVisit();
   } catch {
