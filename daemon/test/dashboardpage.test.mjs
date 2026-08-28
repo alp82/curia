@@ -3078,6 +3078,92 @@ describe('the chat screen (#267, the picker of #333)', () => {
     assert.match(text(page.screenChat(payload())), /Deleting one spends its number for good/)
   })
 
+  test('New conversation projects immediately, reserves the registry, and navigates on confirmation', async () => {
+    let sent
+    let answer
+    const local = loadPage({ fetchImpl: async (url, request) => {
+      assert.equal(url, '/api/console/new')
+      sent = JSON.parse(request.body)
+      return new Promise((resolve) => { answer = resolve })
+    } })
+    local.conversations = { conversations: [conv()] }
+
+    const pending = local.doNewConversation()
+    const action = local.actionFor({ conflict_key: 'conversation-registry' })
+
+    assert.equal(action.kind, 'console-conversation-open')
+    assert.equal(sent.action_id, action.action_id)
+    assert.match(text(local.screenChat(payload())), /Opening…/)
+    assert.equal(local.beginAction({
+      action_id: 'another-new', kind: 'console-conversation-open',
+      target: 'conversation-registry', conflict_key: 'conversation-registry',
+    }), null)
+
+    answer({ ok: true, json: async () => ({
+      action: { ...action, status: 'confirmed', revision: 8, receipt: { key: 'console-3', session: 'curia-console-3' } },
+      key: 'console-3', session: 'curia-console-3',
+    }) })
+    await pending
+
+    assert.equal(local.location.hash, 'chat/curia-console-3')
+    assert.equal(local.actionFor({ action_id: action.action_id }), null)
+  })
+
+  test('deleting one conversation leaves another delete available and keeps the row pending until confirmation', async () => {
+    const requests = new Map()
+    const local = loadPage({ fetchImpl: async (url, request) => {
+      if (url === '/api/console/delete') {
+        const body = JSON.parse(request.body)
+        return new Promise((resolve) => requests.set(body.key, { body, resolve }))
+      }
+      if (url === '/api/console') return { ok: true, json: async () => ({ conversations: [conv({ key: 'console-3', session: 'curia-console-3' })] }) }
+      throw new Error(`unexpected request ${url}`)
+    } })
+    local.confirm = () => true
+    local.conversations = { conversations: [conv(), conv({ key: 'console-3', session: 'curia-console-3' })] }
+
+    const first = local.doDeleteConversation('console-2')
+    const second = local.doDeleteConversation('console-3')
+    const action = local.actionFor({ conflict_key: 'conversation:console-2' })
+
+    assert.ok(action)
+    assert.ok(local.actionFor({ conflict_key: 'conversation:console-3' }), 'another conversation remains independent')
+    assert.equal(requests.get('console-2').body.action_id, action.action_id)
+    assert.match(text(local.screenChat(payload())), /console-2.*deleting/s)
+
+    requests.get('console-2').resolve({ ok: true, json: async () => ({ action: {
+      ...action, status: 'confirmed', revision: 9, receipt: { key: 'console-2' },
+    } }) })
+    await first
+
+    assert.equal(local.actionFor({ action_id: action.action_id }), null)
+    assert.doesNotMatch(text(local.screenChat(payload())), /console-2/)
+
+    const other = local.actionFor({ conflict_key: 'conversation:console-3' })
+    requests.get('console-3').resolve({ ok: true, json: async () => ({ action: {
+      ...other, status: 'refused', revision: 10, reason: 'there is no conversation `console-3`',
+    } }) })
+    await second
+    assert.match(text(local.screenChat(payload())), /no conversation console-3/)
+  })
+
+  test('a fresh Console read recovers conversation changes made on another device', async () => {
+    const local = loadPage({ fetchImpl: async (url) => {
+      assert.equal(url, '/api/console')
+      return { ok: true, json: async () => ({ conversations: [
+        conv({ key: 'console-4', session: 'curia-console-4', label: 'opened on the phone' }),
+      ] }) }
+    } })
+    local.conversations = { conversations: [conv()] }
+
+    await local.loadConversations()
+
+    const html = local.screenChat(payload())
+    assert.match(text(html), /opened on the phone/)
+    assert.doesNotMatch(html, /console-2/)
+    assert.equal(local.actionFor({ conflict_key: 'conversation-registry' }), null)
+  })
+
   test('it states the one thing the overseer cannot do, rather than leaving it to be found', () => {
     // #315: the overseer holds a reading shell now, so the limit that is left
     // is the write — the read-only token, and every effect crossing the daemon.

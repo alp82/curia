@@ -3804,7 +3804,7 @@ function chatList() {
 }
 
 function newChatButton() {
-  const k = "chat-new";
+  const k = "conversation-registry";
   return `<p><button class="btn primary" ${busy(k) ? "disabled" : ""} onclick="doNewConversation()">
     ${busy(k) ? "Opening…" : "New conversation"}</button></p>${said(k)}`;
 }
@@ -3816,7 +3816,8 @@ function chatTitle(c) {
   return c.label || ticketName(c.repo, c.ticket) || c.session;
 }
 function chatRow(c) {
-  const k = "chat-del-" + c.key;
+  const k = "conversation:" + c.key;
+  const deleting = actionFor({ conflict_key: k })?.kind === "console-conversation-delete";
   const title = chatTitle(c);
   const label = title ? `<b>${esc(title)}</b>` : `<span class="dim-note">no turn yet</span>`;
   const answer = said(k);
@@ -3833,7 +3834,7 @@ function chatRow(c) {
     ? [c.key, ago(c.last_turn_at)]
     : [ticketName(c.repo, c.ticket), c.reviewer ? "reviewer" : null, c.live === false ? `ended · ${c.state ?? "archive"}` : (c.state ?? "working"), ago(c.last_turn_at)];
   const remove = c.deletable === false ? "" : `<button class="btn sm" ${busy(k) ? "disabled" : ""} onclick="doDeleteConversation('${js(c.key)}')">
-      ${busy(k) ? "…" : "delete"}</button>`;
+      ${deleting ? "deleting…" : "delete"}</button>`;
   return `<tr class="${c.live === false ? "ended" : ""}">
     <td><a href="${esc(chatHref(c.session))}">${label}</a>
       <span class="dim-note mono" style="display:block;margin:2px 0 0">${facts.filter(Boolean).map(esc).join(" · ")}</span>${dropped}</td>
@@ -3845,16 +3846,70 @@ function chatRow(c) {
 /* Mint, then walk through the door. Opening a conversation you then have to
    find in a list is two acts where the operator asked for one. */
 async function doNewConversation() {
-  const out = await verb("chat-new", "/api/console/new", {});
-  if (out?.session) location.hash = chatRoute(out.session);
+  const actionId = `atlas-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
+  const action = beginAction({
+    action_id: actionId, kind: "console-conversation-open", target: "conversation-registry",
+    conflict_key: "conversation-registry", projection: { navigate: true },
+  });
+  if (!action) return null;
+  UI.act.said = null;
+  render();
+  return conversationAction("conversation-registry", "/api/console/new", actionId, {});
 }
 
 async function doDeleteConversation(key) {
   const ask = `Delete ${key}? Its number is spent for good — a later conversation never reuses it. `
     + `curia stops offering the conversation, and its transcript stays on the box.`;
   if (typeof confirm === "function" && !confirm(ask)) return;
-  await verb("chat-del-" + key, "/api/console/delete", { key });
-  loadConversations();
+  const actionId = `atlas-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
+  const action = beginAction({
+    action_id: actionId, kind: "console-conversation-delete", target: key,
+    conflict_key: `conversation:${key}`, projection: { deleting: true },
+  });
+  if (!action) return null;
+  UI.act.said = null;
+  render();
+  return conversationAction(`conversation:${key}`, "/api/console/delete", actionId, { key });
+}
+
+async function conversationAction(key, path, actionId, body) {
+  try {
+    const res = await fetch(path, {
+      method: "POST", headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({ ...body, action_id: actionId }),
+    });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok && !out.action) throw new Error(out.error || ("the console answered " + res.status));
+    observeActions(out.action ? [out.action] : []);
+    await reconcileConversationActions();
+    render();
+    tick();
+    return out;
+  } catch (error) {
+    const current = actionFor({ action_id: actionId });
+    if (!current || current.status === "pending") {
+      UI.act.said = { key, text: `Curia could not check the outcome yet: ${error.message}`, ok: false };
+    }
+    render();
+    return null;
+  }
+}
+
+async function reconcileConversationActions() {
+  for (const action of [...actions.values()]) {
+    if (!["console-conversation-open", "console-conversation-delete"].includes(action.kind)
+      || !TERMINAL_ACTION.has(action.status)) continue;
+    const key = action.conflict_key;
+    if (action.kind === "console-conversation-open" && action.status === "confirmed") {
+      if (action.projection?.navigate && action.receipt?.session) location.hash = chatRoute(action.receipt.session);
+    } else if (action.kind === "console-conversation-delete" && action.status === "confirmed") {
+      await loadConversations();
+    } else {
+      UI.act.said = { key, ok: false, text: action.reason || "Curia could not change the conversation." };
+      if (action.kind === "console-conversation-delete") await loadConversations();
+    }
+    finishAction(action.action_id);
+  }
 }
 
 /* ---- the room ---- */
@@ -4743,6 +4798,7 @@ async function tick() {
     reconcilePaneKeyActions();
     reconcileDialogAnswerActions();
     reconcileGitHubAppActions();
+    reconcileConversationActions();
     reachable = true;
     if (UI.screen === "feed" && UI.feed.operator !== payload.operator) recordFeedVisit();
   } catch {

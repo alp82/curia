@@ -1072,14 +1072,20 @@ export class DashboardSurface {
         })
       }
       if (url.pathname === '/api/console/new') {
-        return this.#verb(res, () => this.#daemon({ method: 'POST', path: '/console/new' }))
+        return this.#verb(res, async () => {
+          const b = await this.#body(req)
+          const actionId = field(b.action_id, /^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/, 'an Action id')
+          return this.#daemon({ method: 'POST', path: '/console/new', body: { action_id: actionId } })
+        })
       }
       if (url.pathname === '/api/console/delete') {
         return this.#verb(res, async () => {
           const b = await this.#body(req)
           const key = field(b.key, CONSOLE_KEY_RE, 'a browser conversation key')
-          const out = await this.#daemon({ method: 'POST', path: '/console/delete', body: { key }, accept: [200, 409] })
-          if (out.ok === false) throw refuse(out.error)
+          const actionId = field(b.action_id, /^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/, 'an Action id')
+          const out = await this.#daemon({
+            method: 'POST', path: '/console/delete', body: { key, action_id: actionId }, accept: [200, 409, 500],
+          })
           return out
         })
       }

@@ -3315,6 +3315,27 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
   // being looked at would spend a number every time the operator glanced at the
   // screen, and numbers only go up.
   if (url.pathname === '/console/new' && req.method === 'POST') {
+    const { action_id: actionId } = await readBody(req)
+    if (actionId != null) {
+      if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(String(actionId))) {
+        return json(400, { error: 'action_id is not a valid Action id' })
+      }
+      const action = {
+        action_id: String(actionId), kind: 'console-conversation-open',
+        target: 'conversation-registry', conflict_key: 'conversation-registry',
+      }
+      const evidence = await actions.run(action, async () => {
+        const key = reduction.openConsoleConversation()
+        const session = sessionForConsoleKey(key)
+        log(`console: opened browser conversation ${key}`)
+        return { status: 'confirmed', receipt: { key, session } }
+      })
+      return json(200, {
+        action: evidence,
+        key: evidence.receipt?.key,
+        session: evidence.receipt?.session,
+      })
+    }
     const key = reduction.openConsoleConversation()
     log(`console: opened browser conversation ${key}`)
     return json(200, { key, session: sessionForConsoleKey(key) })
@@ -3325,8 +3346,28 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
   // 409 rather than a silent success, because the page may be showing a list
   // another device has already changed.
   if (url.pathname === '/console/delete' && req.method === 'POST') {
-    const key = String((await readBody(req)).key ?? '')
+    const { key: rawKey, action_id: actionId } = await readBody(req)
+    const key = String(rawKey ?? '')
     if (!isConsoleKey(key)) return json(400, { error: `\`${key}\` is not a browser conversation key` })
+    if (actionId != null) {
+      if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(String(actionId))) {
+        return json(400, { error: 'action_id is not a valid Action id' })
+      }
+      const action = {
+        action_id: String(actionId), kind: 'console-conversation-delete',
+        target: key, conflict_key: `conversation:${key}`,
+      }
+      const evidence = await actions.run(action, async () => {
+        if (!reduction.deleteConsoleConversation(key)) {
+          return { status: 'refused', reason: `there is no conversation \`${key}\` — it may already be deleted` }
+        }
+        revokeConversationToken(DATA, key)
+        log(`console: deleted browser conversation ${key} — its number is spent`)
+        return { status: 'confirmed', receipt: { key } }
+      })
+      const code = evidence.status === 'confirmed' ? 200 : evidence.status === 'failed' ? 500 : 409
+      return json(code, { action: evidence, ...(evidence.reason ? { error: evidence.reason } : {}) })
+    }
     if (!reduction.deleteConsoleConversation(key)) {
       return json(409, { ok: false, error: `there is no conversation \`${key}\` — it may already be deleted` })
     }

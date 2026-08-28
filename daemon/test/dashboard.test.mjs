@@ -1118,28 +1118,29 @@ describe('the operator verbs (#266)', () => {
   })
 
   test('a new conversation is one press, and the daemon mints the number', async () => {
-    reply['/console/new'] = [200, { key: 'console-4', session: 'curia-console-4' }]
-    const res = await press('/api/console/new', {})
+    reply['/console/new'] = [200, { action: { status: 'confirmed' }, key: 'console-4', session: 'curia-console-4' }]
+    const res = await press('/api/console/new', { action_id: 'atlas-console-new-4' })
     assert.equal(res.status, 200)
     assert.equal(sent('/console/new').method, 'POST', 'never a GET — a page read must not spend a number')
+    assert.deepEqual(sent('/console/new').body, { action_id: 'atlas-console-new-4' })
     assert.equal(JSON.parse(res.text).session, 'curia-console-4')
   })
 
   test('a delete names one key, and a key the daemon does not hold comes back in words', async () => {
-    reply['/console/delete'] = [200, { ok: true, key: 'console-2' }]
-    assert.equal((await press('/api/console/delete', { key: 'console-2' })).status, 200)
-    assert.deepEqual(sent('/console/delete').body, { key: 'console-2' })
+    reply['/console/delete'] = [200, { action: { status: 'confirmed', receipt: { key: 'console-2' } } }]
+    assert.equal((await press('/api/console/delete', { key: 'console-2', action_id: 'atlas-console-delete-2' })).status, 200)
+    assert.deepEqual(sent('/console/delete').body, { key: 'console-2', action_id: 'atlas-console-delete-2' })
 
     calls = []
-    reply['/console/delete'] = [409, { ok: false, error: 'there is no conversation `console-2`' }]
-    const res = await press('/api/console/delete', { key: 'console-2' })
-    assert.equal(res.status, 409)
+    reply['/console/delete'] = [409, { action: { status: 'refused', reason: 'there is no conversation `console-2`' }, error: 'there is no conversation `console-2`' }]
+    const res = await press('/api/console/delete', { key: 'console-2', action_id: 'atlas-console-delete-stale' })
+    assert.equal(res.status, 200, 'the sidecar carries daemon Action evidence instead of reclassifying it')
     assert.match(JSON.parse(res.text).error, /no conversation/)
   })
 
   test('a key the sidecar does not name is refused here, before the wire', async () => {
     for (const key of ['chat-2', 'console', 'console-2; rm -rf /', 'curia-console-2', '../2']) {
-      const res = await press('/api/console/delete', { key })
+      const res = await press('/api/console/delete', { key, action_id: 'atlas-console-delete-invalid' })
       assert.equal(res.status, 409, key)
       assert.match(JSON.parse(res.text).error, /browser conversation key/)
     }

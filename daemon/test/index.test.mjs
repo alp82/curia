@@ -1014,18 +1014,54 @@ describe('the console verbs on the loopback surface (#266, real boot)', () => {
     assert.equal(journal().filter((e) => e.type === 'console_conversation_opened').length, 2)
   })
 
+  test('a mint Action is idempotent and carries the new conversation for immediate navigation', async () => {
+    const action_id = 'atlas-console-new-1'
+    const first = JSON.parse((await post('/console/new', { action_id })).body)
+
+    assert.equal(first.action.status, 'confirmed')
+    assert.equal(first.action.kind, 'console-conversation-open')
+    assert.equal(first.action.conflict_key, 'conversation-registry')
+    assert.match(first.key, /^console-\d+$/)
+    assert.equal(first.session, `curia-${first.key}`)
+
+    const retried = JSON.parse((await post('/console/new', { action_id })).body)
+    assert.equal(retried.action.action_id, action_id)
+    assert.equal(retried.key, first.key)
+    assert.equal(journal().filter((e) => e.type === 'console_conversation_opened' && e.key === first.key).length, 1)
+  })
+
   test('a deleted number is spent — the next conversation counts past it', async () => {
     assert.equal((await post('/console/delete', { key: 'console-1' })).status, 200)
     const list = JSON.parse((await request(port, 'GET', '/console')).body).conversations
-    assert.deepEqual(list.map((c) => c.key), ['console-2'])
+    assert.deepEqual(list.map((c) => c.key), ['console-3', 'console-2'])
     const next = JSON.parse((await post('/console/new', {})).body)
-    assert.equal(next.key, 'console-3', 'never console-1 again — that would wake the deleted memory')
+    assert.equal(next.key, 'console-4', 'never console-1 again — that would wake the deleted memory')
   })
 
   test('deleting one that is not there is a refusal in words, not a silent success', async () => {
     const res = await post('/console/delete', { key: 'console-1' })
     assert.equal(res.status, 409)
     assert.match(JSON.parse(res.body).error, /no conversation/)
+  })
+
+  test('delete Actions conflict per conversation and a stale delete is refused', async () => {
+    const created = JSON.parse((await post('/console/new', { action_id: 'atlas-console-new-delete' })).body)
+    const deleted = JSON.parse((await post('/console/delete', {
+      key: created.key, action_id: 'atlas-console-delete-1',
+    })).body)
+
+    assert.equal(deleted.action.status, 'confirmed')
+    assert.equal(deleted.action.target, created.key)
+    assert.equal(deleted.action.conflict_key, `conversation:${created.key}`)
+    assert.equal(deleted.action.receipt.key, created.key)
+
+    const stale = await post('/console/delete', {
+      key: created.key, action_id: 'atlas-console-delete-stale',
+    })
+    assert.equal(stale.status, 409)
+    const refusal = JSON.parse(stale.body)
+    assert.equal(refusal.action.status, 'refused')
+    assert.match(refusal.action.reason, /no conversation/)
   })
 
   test('a key this daemon would never mint is refused before anything is journalled', async () => {
