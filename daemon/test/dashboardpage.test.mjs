@@ -2163,6 +2163,84 @@ describe('the settings screen (#265)', () => {
   })
 })
 
+describe('Atlas Action bookkeeping', () => {
+  let page
+  beforeEach(() => { page = loadPage() })
+
+  const local = (id, conflict = `dispatch:${id}`, target = id) => ({
+    action_id: id, kind: 'dispatch', target, conflict_key: conflict,
+    projection: { phase: 'starting' },
+  })
+  const evidence = (id, revision, status = 'accepted', conflict = `dispatch:${id}`, target = id) => ({
+    action_id: id, kind: 'dispatch', target, conflict_key: conflict, status, revision,
+    started_at: '2026-08-28T10:00:00.000Z', updated_at: '2026-08-28T10:00:01.000Z',
+  })
+
+  test('beginAction records the pending projection in the same frame', () => {
+    const started = page.beginAction(local('act-local'))
+
+    assert.equal(started.status, 'pending')
+    assert.equal(page.actionFor({ target: 'act-local' }).action_id, 'act-local')
+    assert.equal(page.actionFor({ conflict_key: 'dispatch:act-local' }).projection.phase, 'starting')
+  })
+
+  test('independent conflict keys can remain pending together', () => {
+    assert.ok(page.beginAction(local('act-one')))
+    assert.ok(page.beginAction(local('act-two')))
+    assert.equal(page.actionFor({ conflict_key: 'dispatch:act-one' }).action_id, 'act-one')
+    assert.equal(page.actionFor({ conflict_key: 'dispatch:act-two' }).action_id, 'act-two')
+  })
+
+  test('a duplicate conflict is refused without replacing the first Action', () => {
+    assert.ok(page.beginAction(local('act-first', 'dispatch:ticket')))
+    assert.equal(page.beginAction(local('act-second', 'dispatch:ticket')), null)
+    assert.equal(page.actionFor({ conflict_key: 'dispatch:ticket' }).action_id, 'act-first')
+  })
+
+  test('older daemon evidence cannot replace a newer reading', () => {
+    page.beginAction(local('act-order'))
+    page.observeActions([evidence('act-order', 8, 'progress')])
+    page.observeActions([evidence('act-order', 7, 'accepted')])
+
+    assert.equal(page.actionFor({ action_id: 'act-order' }).status, 'progress')
+    assert.equal(page.actionFor({ action_id: 'act-order' }).revision, 8)
+  })
+
+  test('terminal evidence is immutable', () => {
+    page.beginAction(local('act-terminal'))
+    page.observeActions([evidence('act-terminal', 4, 'refused')])
+    page.observeActions([evidence('act-terminal', 5, 'confirmed')])
+
+    assert.equal(page.actionFor({ action_id: 'act-terminal' }).status, 'refused')
+    assert.equal(page.actionFor({ action_id: 'act-terminal' }).revision, 4)
+  })
+
+  test('nonterminal evidence from another device reserves its conflict key', () => {
+    page.observeActions([evidence('act-remote', 11, 'progress', 'dispatch:shared', 'alp82/curia#804')])
+
+    assert.equal(page.actionFor({ target: 'alp82/curia#804' }).status, 'progress')
+    assert.equal(page.beginAction(local('act-local', 'dispatch:shared')), null)
+  })
+
+  test('an overview refresh recovers a nonterminal Action', async () => {
+    const recovered = evidence('act-refresh', 12, 'accepted', 'dispatch:refresh', 'alp82/curia#804')
+    page = loadPage({ fetchImpl: async () => ({ ok: true, json: async () => payload({ actions: [recovered] }) }) })
+
+    await page.tick()
+
+    assert.equal(page.actionFor({ conflict_key: 'dispatch:refresh' }).action_id, 'act-refresh')
+  })
+
+  test('finishAction removes bookkeeping only after caller reconciliation', () => {
+    page.beginAction(local('act-finish'))
+    page.observeActions([evidence('act-finish', 3, 'confirmed')])
+    assert.equal(page.actionFor({ action_id: 'act-finish' }).status, 'confirmed')
+
+    assert.equal(page.finishAction('act-finish'), true)
+    assert.equal(page.actionFor({ action_id: 'act-finish' }), null)
+  })
+})
+
 // The operator verbs on the page (#266). What a human looking at the preview
 // can judge is that a button is there and reads well. What they cannot judge by
 // looking is the half pinned here: that the words a button SENDS are the words
@@ -2551,10 +2629,13 @@ describe('the operator verbs (#266)', () => {
       assert.equal(/queued/.test(said), false)
     })
 
-    test('one act at a time: while a press is in flight every other control is disabled', () => {
-      page.UI.act.busy = 'esc:esc-7'
+    test('an in-flight answer leaves an independent Start control available', () => {
+      page.beginAction({
+        action_id: 'act-answer', kind: 'answer', target: 'esc-7', conflict_key: 'esc:esc-7',
+      })
       page.UI.maps = { repo: 'all', selected: { repo: 'alp82/curia', map: 244, group: 'takeable' }, open: false }
-      assert.match(page.screenMaps(payload()), /button class="btn sm primary" disabled/)
+      assert.match(page.screenMaps(payload()), /button class="btn sm primary"  onclick="startTicket/)
+      page.finishAction('act-answer')
     })
   })
 

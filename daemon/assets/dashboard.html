@@ -807,11 +807,11 @@ var UI = {
   /* Which `?` explanations are open, by row id. Page-wide, because the frame
      hands the same affordance to every section on every page. */
   hints: {},
-  /* The operator verbs (#266). `busy` names the ONE press in flight, keyed to
-     the control it came from; `said` is what curia answered, shown at that same
-     control. `note` and `tele` name the agent whose box is open, and `mode` is
-     the delivery ADR-0013 defaults to. */
-  act: { busy: null, said: null, note: null, mode: "queue", tele: null, diff: null,
+  /* The operator verbs (#266). `said` is what curia answered, shown at the
+     control that asked. In-flight bookkeeping lives in the Action map below.
+     `note` and `tele` name the agent whose box is open, and `mode` is the
+     delivery ADR-0013 defaults to. */
+  act: { said: null, note: null, mode: "queue", tele: null, diff: null,
     /* The handoff sheet (#718): the id of the item the operator just answered,
        or null when no sheet is up. The sheet draws nothing of its own — it
        reads the same `attentionItems` Home reads, minus this one id. */
@@ -825,6 +825,60 @@ var repos = null;     /* the watchable repos, read through the daemon on demand 
 var conversations = null; /* the browser conversations (#333), read on the Chat screen only */
 var aistack = null;   /* the aistack registration and sync verdict (#706), read on that section only */
 var aistackAct = { busy: null, said: null, poll: null }; /* which aistack press is in flight, and what it answered */
+
+/* Browser-local Action bookkeeping (#804). This map is the seam shared by
+   controls. It owns identity, conflict reservations, and evidence ordering.
+   Callers still own their projection, words, request, and reconciliation. */
+var actions = new Map(); /* action_id -> the latest visible Action */
+const TERMINAL_ACTION = new Set(["confirmed", "refused", "failed"]);
+const SHARED_ACTION = new Set(["accepted", "progress", ...TERMINAL_ACTION]);
+
+function beginAction(action) {
+  const actionId = String(action?.action_id ?? "");
+  const conflictKey = String(action?.conflict_key ?? "");
+  const target = String(action?.target ?? "");
+  if (!actionId || !conflictKey || !target || !String(action?.kind ?? "")) return null;
+  if (actions.has(actionId) || actionFor({ conflict_key: conflictKey })) return null;
+  const pending = { ...action, action_id: actionId, conflict_key: conflictKey, target, status: "pending", revision: null };
+  actions.set(actionId, pending);
+  return pending;
+}
+
+function observeActions(observed) {
+  for (const evidence of observed ?? []) {
+    const actionId = String(evidence?.action_id ?? "");
+    const revision = Number(evidence?.revision);
+    if (!actionId || !SHARED_ACTION.has(evidence?.status) || !Number.isFinite(revision)) continue;
+    const prior = actions.get(actionId);
+    if (!prior) {
+      if (TERMINAL_ACTION.has(evidence.status)) continue;
+      if (!String(evidence.kind ?? "") || !String(evidence.target ?? "") || !String(evidence.conflict_key ?? "")) continue;
+      actions.set(actionId, { ...evidence, action_id: actionId, revision });
+      continue;
+    }
+    if (TERMINAL_ACTION.has(prior.status)) continue;
+    if (prior.revision != null && revision <= prior.revision) continue;
+    actions.set(actionId, { ...prior, ...evidence, action_id: actionId, revision });
+  }
+}
+
+function actionFor({ action_id: actionId = null, target = null, conflict_key: conflictKey = null } = {}) {
+  if (actionId != null) return actions.get(String(actionId)) ?? null;
+  const matches = [...actions.values()].filter((action) =>
+    (target != null && action.target === String(target))
+      || (conflictKey != null && action.conflict_key === String(conflictKey)));
+  return matches.sort((a, b) => Number(b.revision ?? -1) - Number(a.revision ?? -1))[0] ?? null;
+}
+
+function finishAction(actionId) {
+  return actions.delete(String(actionId));
+}
+
+let localActionSequence = 0;
+function beginLocalAction(key) {
+  const actionId = `atlas-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
+  return beginAction({ action_id: actionId, kind: "browser", target: key, conflict_key: key });
+}
 
 /* ---- words ---------------------------------------------------------------- */
 
@@ -902,9 +956,8 @@ function needsYou(o) {
 
    Four rules run through all of them.
 
-   1. ONE ACT AT A TIME. `UI.act.busy` names the press in flight, keyed to the
-      control it came from, so a second press starts nothing and the control
-      that is working says so.
+   1. ONE ACT PER CONFLICT. The Action map reserves a control's conflict key,
+      so a duplicate starts nothing while unrelated controls remain available.
    2. CURIA'S OWN WORDS ARE THE OUTCOME. A command reply is a sentence the
       daemon composed. It is shown where the press was, as it stands. This page
       never writes its own account of what an act did.
@@ -932,8 +985,7 @@ const ALL_AS_RECOMMENDED = "all-as-recommended";
    escaping over it. */
 const js = (s) => esc(String(s ?? "").replace(/\\/g, "\\\\").replace(/'/g, "\\'"));
 
-const busy = (key) => UI.act.busy === key;
-const anyBusy = () => UI.act.busy !== null;
+const busy = (key) => actionFor({ conflict_key: key }) !== null;
 function said(key) {
   const s = UI.act.said;
   return s && s.key === key ? `<div class="said${s.ok ? "" : " bad"}">${mdLite(s.text)}</div>` : "";
@@ -949,8 +1001,8 @@ function mdLite(s) {
 }
 
 async function verb(key, path, body) {
-  if (anyBusy()) return null;
-  UI.act.busy = key;
+  const action = beginLocalAction(key);
+  if (!action) return null;
   UI.act.said = null;
   render();
   let out = null;
@@ -969,7 +1021,7 @@ async function verb(key, path, body) {
        mark the card carries, in place of a second question or an error. */
     UI.act.said = { key, text: e.receipt ? receiptLine(e.receipt) : e.message, ok: false };
   }
-  UI.act.busy = null;
+  finishAction(action.action_id);
   render();
   tick();
   return out;
@@ -1025,7 +1077,7 @@ const startTicket = (repo, ticket) => verb(`start:${repo}#${ticket}`, "/api/star
    so a Discord press and an Atlas tap resolve the same option. Files ride the
    answer inline, and the daemon writes them where the card said they land. */
 async function answerEsc(id, body) {
-  if (anyBusy()) return null;
+  if (busy("esc:" + id)) return null;
   const answer = typeof body === "string" ? { answer: body } : { ...body };
   try {
     answer.files = await replyFilesOf("files-" + id);
@@ -1445,7 +1497,7 @@ function nextReset(usage) {
 function answerButtons(r) {
   const key = "esc:" + r.id;
   const btn = (label, answer, cls) => `<button class="btn sm${cls ? " " + cls : ""}"
-    ${anyBusy() ? "disabled" : ""} onclick="answerEsc('${js(r.id)}','${js(answer)}')">${esc(label)}</button>`;
+    ${busy(key) ? "disabled" : ""} onclick="answerEsc('${js(r.id)}','${js(answer)}')">${esc(label)}</button>`;
   const b = [];
   if (r.kind === "approve-reject" || r.kind === "preview-review") {
     b.push(btn("✅ Approve", APPROVE, "primary"), btn("❌ Reject", REJECT, "danger"));
@@ -1469,14 +1521,14 @@ function choiceControls(r) {
   const handle = (i) => r.option_handles?.[i] || opts[i];
   const label = (i) => `${optMarker(r, i)} · ${snip(handle(i), 80)}`;
   if (opts.length <= MAX_BUTTON_OPTIONS) {
-    return `<div class="act-row">${opts.map((_, i) => `<button class="btn sm" ${anyBusy() ? "disabled" : ""}
+    return `<div class="act-row">${opts.map((_, i) => `<button class="btn sm" ${busy("esc:" + r.id) ? "disabled" : ""}
       onclick="answerIndex('${js(r.id)}',${i})">${esc(label(i))}</button>`).join("")}</div>`;
   }
   if (opts.length <= MAX_SELECT_OPTIONS) {
     const id = "sel-" + r.id;
-    return `<div class="act-row"><select id="${esc(id)}" ${anyBusy() ? "disabled" : ""}>
+    return `<div class="act-row"><select id="${esc(id)}" ${busy("esc:" + r.id) ? "disabled" : ""}>
       <option value="">pick one…</option>${opts.map((_, i) => `<option value="${i}">${esc(label(i))}</option>`).join("")}</select>
-      <button class="btn sm primary" ${anyBusy() ? "disabled" : ""} onclick="answerSelect('${js(r.id)}','${js(id)}')">Answer</button></div>`;
+      <button class="btn sm primary" ${busy("esc:" + r.id) ? "disabled" : ""} onclick="answerSelect('${js(r.id)}','${js(id)}')">Answer</button></div>`;
   }
   return `<ol class="opts numbered">${opts.map((o, i) => `<li><b>${esc(optMarker(r, i))}.</b> ${esc(snip(handle(i), 120))}</li>`).join("")}</ol>
     <div class="dim">Reply with ${r.typed ? "a letter or " : ""}a number.</div>`;
@@ -1486,7 +1538,7 @@ function choiceControls(r) {
    this line says where they land. */
 function replyFilesRow(r) {
   const where = r.files_dir ? ` They land under <code>${esc(r.files_dir)}/</code> and reach the agent as paths.` : "";
-  return `<div class="act-row files"><input type="file" id="files-${esc(r.id)}" multiple ${anyBusy() ? "disabled" : ""}>
+  return `<div class="act-row files"><input type="file" id="files-${esc(r.id)}" multiple ${busy("esc:" + r.id) ? "disabled" : ""}>
     <span class="dim">A reply may carry files.${where}</span></div>`;
 }
 
@@ -1496,8 +1548,8 @@ function replyFilesRow(r) {
 function answerField(r) {
   const id = "ans-" + r.id;
   return `<div class="act-row">
-    <input type="text" id="${esc(id)}" placeholder="answer in your own words…" ${anyBusy() ? "disabled" : ""}>
-    <button class="btn sm primary" ${anyBusy() ? "disabled" : ""} onclick="answerTyped('${js(r.id)}','${js(id)}',escRecord('${js(r.id)}'))">Answer</button>
+    <input type="text" id="${esc(id)}" placeholder="answer in your own words…" ${busy("esc:" + r.id) ? "disabled" : ""}>
+    <button class="btn sm primary" ${busy("esc:" + r.id) ? "disabled" : ""} onclick="answerTyped('${js(r.id)}','${js(id)}',escRecord('${js(r.id)}'))">Answer</button>
   </div>${replyFilesRow(r)}`;
 }
 
@@ -1692,12 +1744,12 @@ function gateCard(r) {
     ${r.preview_url ? `<div class="opts"><a href="${esc(r.preview_url)}">the preview</a></div>` : ""}
     ${diffCard("esc:" + r.id, r.diff ?? null, r.diff_error ?? null, gateDiffQuery(r.id), r.pull_request)}
     <div class="act-row">
-      <button class="btn sm primary" ${anyBusy() ? "disabled" : ""} onclick="answerEsc('${js(r.id)}','${APPROVE}')">✅ Approve · merge</button>
-      <button class="btn sm" ${anyBusy() ? "disabled" : ""} onclick="answerEsc('${js(r.id)}','${CROSS_CHECK}')">🔎 Cross-check</button>
+      <button class="btn sm primary" ${busy("esc:" + r.id) ? "disabled" : ""} onclick="answerEsc('${js(r.id)}','${APPROVE}')">✅ Approve · merge</button>
+      <button class="btn sm" ${busy("esc:" + r.id) ? "disabled" : ""} onclick="answerEsc('${js(r.id)}','${CROSS_CHECK}')">🔎 Cross-check</button>
     </div>
     <div class="act-row">
-      <input type="text" id="${esc(id)}" placeholder="what to change — a rejection carries your words…" ${anyBusy() ? "disabled" : ""}>
-      <button class="btn sm danger" ${anyBusy() ? "disabled" : ""} onclick="rejectGate('${js(r.id)}','${js(id)}')">Reject</button>
+      <input type="text" id="${esc(id)}" placeholder="what to change — a rejection carries your words…" ${busy("esc:" + r.id) ? "disabled" : ""}>
+      <button class="btn sm danger" ${busy("esc:" + r.id) ? "disabled" : ""} onclick="rejectGate('${js(r.id)}','${js(id)}')">Reject</button>
     </div>
     ${said("esc:" + r.id)}</div>`;
 }
@@ -2595,7 +2647,7 @@ function startRow(o, repo, n, showModel = true) {
     ? `<span class="dim-note mono">→ ${esc(n.model)} (${esc(typeOf(n))} default)</span>`
     : `<span class="dim-note">the routed model is not on this reading</span>`;
   return `<div class="act-row map-start">
-      <button class="btn sm primary" ${anyBusy() ? "disabled" : ""} onclick="startTicket('${js(repo)}','${js(n.number)}')">${
+      <button class="btn sm primary" ${busy(key) ? "disabled" : ""} onclick="startTicket('${js(repo)}','${js(n.number)}')">${
         busy(key) ? "Starting…" : "Start"}</button>${showModel ? model : ""}
     </div>
     ${live === undefined ? `<div class="dim-note">the fleet could not be read, so curia cannot say whether this one is already running</div>` : ""}
@@ -3208,7 +3260,7 @@ function setConnections(p) {
       ? `<p class="unread">GitHub App setup is pending until ${esc(ago(app.expires_at))}.</p>`
       : `<p class="unread">No GitHub App is configured. Create one from Atlas.</p>`;
   const create = app.configured ? "" : `<p><input id="github-app-name" value="curia-box" aria-label="GitHub App name">
-    <button class="btn primary" ${anyBusy() ? "disabled" : ""} onclick="doGitHubAppSetup()">Create GitHub App</button></p>
+    <button class="btn primary" ${busy("github-app") ? "disabled" : ""} onclick="doGitHubAppSetup()">Create GitHub App</button></p>
     ${said("github-app")}`;
   const manual = app.manual_url
     ? `<p class="qhint"><a href="${esc(app.manual_url)}" target="_blank" rel="noopener">Set up a GitHub App by hand on GitHub</a></p>` : "";
@@ -3218,7 +3270,7 @@ function setConnections(p) {
     : reading?.state === "failed"
       ? `<p class="unread">The installation read failed ${esc(ago(reading.at))}: ${esc(reading.error ?? "")}</p>`
       : `<p class="unread">Installations have not been read yet.</p>`;
-  const refresh = !app.configured ? "" : `<p><button class="btn" ${anyBusy() ? "disabled" : ""} onclick="doGitHubAppRefresh()">Re-read installations</button></p>
+  const refresh = !app.configured ? "" : `<p><button class="btn" ${busy("github-app-refresh") ? "disabled" : ""} onclick="doGitHubAppRefresh()">Re-read installations</button></p>
     ${said("github-app-refresh")}`;
   const owners = (app.owners ?? []).map((owner) => `<div class="row">
     <span class="key grow">${esc(owner.owner)}</span>
@@ -3647,7 +3699,7 @@ function chatList() {
 
 function newChatButton() {
   const k = "chat-new";
-  return `<p><button class="btn primary" ${anyBusy() ? "disabled" : ""} onclick="doNewConversation()">
+  return `<p><button class="btn primary" ${busy(k) ? "disabled" : ""} onclick="doNewConversation()">
     ${busy(k) ? "Opening…" : "New conversation"}</button></p>${said(k)}`;
 }
 
@@ -3674,7 +3726,7 @@ function chatRow(c) {
   const facts = c.kind === "overseer"
     ? [c.key, ago(c.last_turn_at)]
     : [ticketName(c.repo, c.ticket), c.reviewer ? "reviewer" : null, c.live === false ? `ended · ${c.state ?? "archive"}` : (c.state ?? "working"), ago(c.last_turn_at)];
-  const remove = c.deletable === false ? "" : `<button class="btn sm" ${anyBusy() ? "disabled" : ""} onclick="doDeleteConversation('${js(c.key)}')">
+  const remove = c.deletable === false ? "" : `<button class="btn sm" ${busy(k) ? "disabled" : ""} onclick="doDeleteConversation('${js(c.key)}')">
       ${busy(k) ? "…" : "delete"}</button>`;
   return `<tr class="${c.live === false ? "ended" : ""}">
     <td><a href="${esc(chatHref(c.session))}">${label}</a>
@@ -3821,7 +3873,7 @@ function chatDialog(c) {
     return `<div class="chat-dialog">⚠ A native dialog owns the terminal. ${esc(d.reason || "Curia cannot parse its controls.")} ${terminal}
       <div class="dialog-note">Chat sends stay blocked while this dialog is open.</div></div>`;
   }
-  const options = d.card.options.map((o) => `<button class="btn sm ${o.index === d.card.selected_index ? "selected" : ""}" ${anyBusy() ? "disabled" : ""}
+  const options = d.card.options.map((o) => `<button class="btn sm ${o.index === d.card.selected_index ? "selected" : ""}" ${busy("chat-dialog") ? "disabled" : ""}
       onclick="doDialogAnswer('${js(d.card.id)}', ${Number(o.index)})">${esc(o.marker)} · ${esc(o.handle || o.label)}${o.index === d.card.selected_index ? " · selected now" : ""}</button>`).join("");
   return `<div class="chat-dialog card"><div class="dialog-kind">native dialog · choice</div>
     <strong class="dialog-headline">${esc(d.card.headline)}</strong>
@@ -3836,10 +3888,10 @@ function chatComposer(c, role, ended) {
     ${c.mirror ? `<div class="dim-note">the other device is typing…</div>` : ""}
     <textarea id="chat-box" rows="1" placeholder="type here, shared box" oninput="chatTyped(this.value)" onkeydown="chatKey(event)">${esc(c.draft)}</textarea>
     <div class="composer-row">
-      <button class="btn sm" ${anyBusy() ? "disabled" : ""} onclick="doTakeBack()" title="take back your last message">${busy("chat-take-back") ? "…" : "Take back"}</button>
-      ${role === "ticket" ? `<button class="btn sm" ${anyBusy() ? "disabled" : ""} onclick="doChatKey('escape')" title="send Escape to the agent">Esc</button>` : ""}
+      <button class="btn sm" ${busy("chat-take-back") ? "disabled" : ""} onclick="doTakeBack()" title="take back your last message">${busy("chat-take-back") ? "…" : "Take back"}</button>
+      ${role === "ticket" ? `<button class="btn sm" ${busy("chat-key") ? "disabled" : ""} onclick="doChatKey('escape')" title="send Escape to the agent">Esc</button>` : ""}
       <span class="grow"></span>
-      <button class="btn primary" ${anyBusy() ? "disabled" : ""} onclick="doChatSend()">${busy(k) ? "Sending…" : "Send"}</button>
+      <button class="btn primary" ${busy(k) ? "disabled" : ""} onclick="doChatSend()">${busy(k) ? "Sending…" : "Send"}</button>
     </div>${said(k)}${said("chat-take-back")}${said("chat-key")}</div>`;
 }
 
@@ -3871,13 +3923,15 @@ function chatPost(p, extra) {
    failed keeps the words in the composer. */
 async function doChatSend() {
   const text = chat.draft;
-  if (!text.trim() || anyBusy()) return;
+  if (!text.trim()) return;
   if (chatEnded()) return refuse("chat-send", ENDED_SENTENCE(chat.session));
-  UI.act.busy = "chat-send"; UI.act.said = null;
+  const action = beginLocalAction("chat-send");
+  if (!action) return;
+  UI.act.said = null;
   chat.draft = "";
   render();
   const r = await chatPost("/send", { text });
-  UI.act.busy = null;
+  finishAction(action.action_id);
   if (r.error) {
     if (!r.unconfirmed) chat.draft = text;
     UI.act.said = { key: "chat-send", ok: false, text: (r.unconfirmed ? "send unconfirmed: " : "send failed: ") + r.error };
@@ -3886,11 +3940,12 @@ async function doChatSend() {
   render();
 }
 async function doTakeBack() {
-  if (anyBusy()) return;
-  UI.act.busy = "chat-take-back"; UI.act.said = null;
+  const action = beginLocalAction("chat-take-back");
+  if (!action) return;
+  UI.act.said = null;
   render();
   const r = await chatPost("/take-back", { target: null });
-  UI.act.busy = null;
+  finishAction(action.action_id);
   if (r.error) {
     UI.act.said = { key: "chat-take-back", ok: false, text: `take back failed: ${r.error}` };
   } else {
@@ -3901,20 +3956,22 @@ async function doTakeBack() {
   render();
 }
 async function doChatKey(key) {
-  if (anyBusy()) return;
-  UI.act.busy = "chat-key"; UI.act.said = null;
+  const action = beginLocalAction("chat-key");
+  if (!action) return;
+  UI.act.said = null;
   render();
   const r = await chatPost("/key", { key });
-  UI.act.busy = null;
+  finishAction(action.action_id);
   if (r.error) UI.act.said = { key: "chat-key", ok: false, text: r.error };
   render();
 }
 async function doDialogAnswer(dialog, index) {
-  if (anyBusy()) return;
-  UI.act.busy = "chat-dialog"; UI.act.said = null;
+  const action = beginLocalAction("chat-dialog");
+  if (!action) return;
+  UI.act.said = null;
   render();
   const r = await chatPost("/dialog-answer", { dialog, index });
-  UI.act.busy = null;
+  finishAction(action.action_id);
   if (r.receipt) chatReceive("dialog", { up: false, receipt: r.receipt });
   else UI.act.said = { key: "chat-dialog", ok: false, text: r.error || "Curia could not answer this native dialog." };
   render();
@@ -3929,12 +3986,12 @@ function chatAfterRender() {
 }
 
 async function doGitHubAppRefresh() {
-  if (anyBusy()) return;
+  if (busy("github-app-refresh")) return;
   await verb("github-app-refresh", "/api/github-app/refresh", {});
 }
 
 async function doGitHubAppSetup() {
-  if (anyBusy()) return;
+  if (busy("github-app")) return;
   const name = document.getElementById("github-app-name")?.value?.trim();
   if (!name) return refuse("github-app", "Enter a GitHub App name.");
   const out = await verb("github-app", "/api/github-app/start", { name });
@@ -4119,7 +4176,7 @@ function credSignIn(c, signer) {
   /* What curia answered sits at the control that asked, once — the press was on
      this row, and the other row of a shared provider offers no button to hang a
      second copy of it on. */
-  return `<button class="btn primary" ${anyBusy() ? "disabled" : ""} onclick="startReauth('${js(c.provider)}')">
+  return `<button class="btn primary" ${busy(k) ? "disabled" : ""} onclick="startReauth('${js(c.provider)}')">
     ${busy(k) ? "…" : "Sign in from a browser"}</button>${said(k)}`;
 }
 const startReauth = (provider) => verb("reauth:" + provider, "/api/reauth", { provider });
@@ -4474,6 +4531,7 @@ async function tick() {
     const res = await fetch("/api/overview", { headers: { accept: "application/json" }, cache: "no-store" });
     if (!res.ok) throw new Error("the sidecar answered " + res.status);
     payload = await res.json();
+    observeActions(payload?.overview?.actions);
     reachable = true;
     if (UI.screen === "feed" && UI.feed.operator !== payload.operator) recordFeedVisit();
   } catch {
