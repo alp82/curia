@@ -3558,6 +3558,160 @@ describe('the chat screen (#267, the picker of #333)', () => {
       page.finishAction('atlas-overseer-progress')
     })
 
+    test('Take back projects a rewind immediately and reconciles the shared composer and landing', async () => {
+      let sent
+      let answer
+      const room = loadPage({ fetchImpl: async (_url, request) => {
+        sent = JSON.parse(request.body)
+        return new Promise((resolve) => { answer = resolve })
+      } })
+      room.applyChatRoute(['chat', 'curia-684'])
+      room.chat.draft = ''
+
+      const pending = room.doTakeBack()
+
+      const action = room.actionFor({ conflict_key: 'turn:curia-684' })
+      assert.equal(action.kind, 'chat-take-back')
+      assert.equal(action.projection.mode, 'rewind')
+      assert.equal(sent.action_id, action.action_id)
+      assert.match(text(room.screenChat(payload())), /Rewinding the conversation…/)
+      assert.match(room.screenChat(payload()), /onclick="doChatKey\('escape'\)"/, 'the independent pane control remains available')
+
+      answer({ json: async () => ({ action: {
+        ...action, status: 'confirmed', revision: 14,
+        receipt: {
+          composer: 'Keep this exact text.', correction: null,
+          take_back: {
+            headline: 'Took back your last message.',
+            landing: 'The conversation continues after “Start here.”',
+            remains: ['The tree stands.'],
+          },
+        },
+      } }) })
+      await pending
+
+      assert.equal(room.actionFor({ action_id: action.action_id }), null)
+      assert.equal(room.chat.draft, 'Keep this exact text.')
+      assert.match(text(room.screenChat(payload())), /Took back your last message.*conversation continues after.*tree stands/i)
+      room.applyChatRoute([])
+    })
+
+    test('taking back a note projects explicit note recovery under the same conversation conflict', () => {
+      let sent
+      const room = loadPage({ fetchImpl: async (_url, request) => {
+        sent = JSON.parse(request.body)
+        return new Promise(() => {})
+      } })
+      room.applyChatRoute(['chat', 'curia-684'])
+
+      room.doTakeBack({ kind: 'note', id: 'note-7' })
+
+      const action = room.actionFor({ conflict_key: 'turn:curia-684' })
+      assert.equal(action.projection.mode, 'note-recovery')
+      assert.deepEqual(sent.target, { kind: 'note', id: 'note-7' })
+      assert.match(text(room.screenChat(payload())), /Recovering your note…/)
+      room.applyChatRoute([])
+    })
+
+    test('refresh recovers another device\'s pending take back and its terminal result', async () => {
+      const p = payload()
+      p.overview.actions = [{
+        action_id: 'atlas-phone-take-back', kind: 'chat-take-back', target: 'curia-684',
+        conflict_key: 'turn:curia-684', status: 'accepted', revision: 20,
+        progress: 'Rewinding the conversation…',
+      }]
+      const room = loadPage({ fetchImpl: async () => ({ ok: true, json: async () => p }) })
+      room.applyChatRoute(['chat', 'curia-684'])
+
+      await room.tick()
+
+      assert.equal(room.actionFor({ conflict_key: 'turn:curia-684' }).action_id, 'atlas-phone-take-back')
+      assert.match(text(room.screenChat(room.payload)), /Rewinding the conversation…/)
+
+      p.overview.actions = [{
+        ...p.overview.actions[0], status: 'confirmed', revision: 21,
+        receipt: {
+          composer: 'Edit these recovered words.', correction: null,
+          take_back: {
+            headline: 'Took back your last message.',
+            landing: 'The conversation continues after “Earlier turn.”',
+            remains: ['The tree stands.'],
+          },
+        },
+      }]
+      await room.tick()
+
+      assert.equal(room.actionFor({ action_id: 'atlas-phone-take-back' }), null)
+      assert.equal(room.chat.draft, 'Edit these recovered words.')
+      assert.match(text(room.screenChat(room.payload)), /conversation continues after “Earlier turn.”/i)
+      room.applyChatRoute([])
+    })
+
+    test('a cold refresh applies recent terminal take-back evidence once', async () => {
+      const p = payload()
+      p.overview.actions = [{
+        action_id: 'atlas-finished-take-back', kind: 'chat-take-back', target: 'curia-684',
+        conflict_key: 'turn:curia-684', status: 'confirmed', revision: 24,
+        receipt: {
+          composer: 'Recovered after refresh.', correction: null,
+          take_back: {
+            headline: 'Took back your last message.',
+            landing: 'The conversation continues after “Earlier turn.”',
+            remains: ['The tree stands.'],
+          },
+        },
+      }]
+      const room = loadPage({ fetchImpl: async () => ({ ok: true, json: async () => p }) })
+      room.applyChatRoute(['chat', 'curia-684'])
+
+      await room.tick()
+      await room.tick()
+
+      assert.equal(room.chat.draft, 'Recovered after refresh.')
+      assert.equal(room.chat.notes.filter((note) => /Took back/.test(note.text)).length, 1)
+      room.applyChatRoute([])
+    })
+
+    test('a refused take back stays with its conversation and leaves other rooms available', async () => {
+      const room = loadPage({ fetchImpl: async (_url, request) => {
+        const sent = JSON.parse(request.body)
+        return { json: async () => ({ action: {
+          action_id: sent.action_id, kind: 'chat-take-back', target: 'curia-684',
+          conflict_key: 'turn:curia-684', status: 'refused', revision: 22,
+          reason: 'the transcript has no operator message to take back',
+        } }) }
+      } })
+      room.applyChatRoute(['chat', 'curia-684'])
+
+      await room.doTakeBack()
+
+      assert.equal(room.actionFor({ conflict_key: 'turn:curia-684' }), null)
+      assert.match(text(room.screenChat(payload())), /transcript has no operator message to take back/)
+      room.applyChatRoute(['chat', 'curia-685'])
+      const other = room.screenChat(payload())
+      assert.match(other, /onclick="doTakeBack\(\)"/)
+      assert.doesNotMatch(other, /Rewinding…/)
+      room.applyChatRoute([])
+    })
+
+    test('a failed take back reconciles at the conversation control', async () => {
+      const room = loadPage({ fetchImpl: async (_url, request) => {
+        const sent = JSON.parse(request.body)
+        return { json: async () => ({ action: {
+          action_id: sent.action_id, kind: 'chat-take-back', target: 'curia-684',
+          conflict_key: 'turn:curia-684', status: 'failed', revision: 23,
+          reason: 'tmux could not open the rewind picker',
+        } }) }
+      } })
+      room.applyChatRoute(['chat', 'curia-684'])
+
+      await room.doTakeBack()
+
+      assert.equal(room.actionFor({ conflict_key: 'turn:curia-684' }), null)
+      assert.match(text(room.screenChat(payload())), /tmux could not open the rewind picker/)
+      room.applyChatRoute([])
+    })
+
     test('shared pane-key failure reconciles while the original request is still pending', async () => {
       let actionId
       const room = loadPage({ fetchImpl: async (url, request) => {

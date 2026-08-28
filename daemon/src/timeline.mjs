@@ -820,11 +820,17 @@ export class TimelineSurface {
       if (!validSessionName(String(b.session ?? ''))) return json(400, { error: 'bad session' })
       if (!this.deps.takeBack) return json(501, { error: 'message take back is not configured' })
       const s = this.#state(b.session)
-      try { this.#pump(b.session) } catch { /* the runtime reports transcript failures */ }
-      try {
+      const driver = this.#driver(b.session)
+      const actionId = b.action_id == null ? null : String(b.action_id)
+      if (actionId != null && !/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(actionId)) {
+        return json(400, { error: 'action_id is not a valid Action id' })
+      }
+      const perform = async (controls = null) => {
+        try { this.#pump(b.session) } catch { /* the runtime reports transcript failures */ }
+        controls?.accept({ progress: b.target?.kind === 'note' ? 'Recovering your note…' : 'Rewinding the conversation…' })
         const result = await this.deps.takeBack({
           session: b.session,
-          role: this.#driver(b.session) ? 'overseer' : 'agent',
+          role: driver ? 'overseer' : 'agent',
           harness: s.harness,
           source: s.lines.join('\n'),
           landing: this.deps.landingFor(b.session),
@@ -833,7 +839,34 @@ export class TimelineSurface {
         s.draft = result.composer ?? ''
         s.correction = result.correction?.kind === 'note' ? result.correction : null
         this.#broadcast(s, 'draft', { text: s.draft, by: b.client ?? null })
-        return json(200, result)
+        return controls
+          ? {
+              status: 'confirmed',
+              receipt: {
+                composer: s.draft,
+                correction: result.correction ?? null,
+                take_back: result.receipt ?? null,
+              },
+            }
+          : result
+      }
+
+      if (actionId && this.deps.actions) {
+        const conversation = driver?.key ?? b.session
+        const evidence = await this.deps.actions.run({
+          action_id: actionId,
+          kind: 'chat-take-back',
+          target: conversation,
+          conflict_key: `turn:${conversation}`,
+        }, perform)
+        const code = evidence.status === 'accepted' || evidence.status === 'progress'
+          ? 202
+          : evidence.status === 'confirmed' ? 200 : evidence.status === 'failed' ? 502 : 409
+        return json(code, { action: evidence, ...(evidence.reason ? { error: evidence.reason } : {}) })
+      }
+
+      try {
+        return json(200, await perform())
       } catch (e) {
         return json(e.status ?? 502, { error: e.message })
       }

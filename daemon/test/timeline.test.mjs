@@ -685,6 +685,7 @@ describe('TimelineSurface', () => {
   let drivenSessionId = 'browser-1111'
   const landings = new Map()
   const takeBackCalls = []
+  let takeBackGate = null
   const correctionCalls = []
   const recordedTurns = []
   let takeBackReply = {
@@ -720,6 +721,7 @@ describe('TimelineSurface', () => {
         landingFor: (session) => landings.get(session) ?? null,
         takeBack: async (request) => {
           takeBackCalls.push(request)
+          if (takeBackGate) await takeBackGate
           return takeBackReply
         },
         correct: async (request) => { correctionCalls.push(request); return { ok: true } },
@@ -859,6 +861,60 @@ describe('TimelineSurface', () => {
     assert.equal(takeBackCalls.at(-1).role, 'agent')
     assert.equal(takeBackCalls.at(-1).harness, 'claude')
     assert.match(takeBackCalls.at(-1).source, /Good\. Now rename the maps effort to Atlas\./)
+  })
+
+  test('take back accepts before the rewind and keeps its result as shared Action evidence', async () => {
+    const session = 'curia-703'
+    const actionId = 'atlas-chat-take-back-1'
+    const cfg = path.join(workspaceRoot(), 'cfg', session, 'projects', 'p')
+    fs.mkdirSync(cfg, { recursive: true })
+    fs.writeFileSync(path.join(cfg, 'run.jsonl'), recordedTranscript('transcript-1-after-rewind.jsonl'))
+    let release
+    takeBackGate = new Promise((resolve) => { release = resolve })
+    const before = takeBackCalls.length
+    try {
+      const accepted = await fetch(`http://127.0.0.1:${port}/take-back`, {
+        method: 'POST',
+        body: JSON.stringify({ session, target: null, action_id: actionId }),
+      })
+
+      assert.equal(accepted.status, 202)
+      assert.deepEqual(await accepted.json(), { action: {
+        action_id: actionId,
+        kind: 'chat-take-back',
+        target: session,
+        conflict_key: `turn:${session}`,
+        status: 'accepted',
+        revision: actions.get(actionId).revision,
+        started_at: actions.get(actionId).started_at,
+        updated_at: actions.get(actionId).updated_at,
+        progress: 'Rewinding the conversation…',
+      } })
+
+      release()
+      const settled = await actions.settled(actionId)
+      assert.equal(settled.status, 'confirmed')
+      assert.deepEqual(settled.receipt, {
+        composer: 'Keep this exact text.',
+        correction: null,
+        take_back: {
+          headline: 'Took back your last message.',
+          landing: 'The conversation continues after “Start here.”',
+          remains: ['The tree stands.'],
+        },
+      })
+
+      const retried = await fetch(`http://127.0.0.1:${port}/take-back`, {
+        method: 'POST',
+        body: JSON.stringify({ session, target: null, action_id: actionId }),
+      })
+      assert.equal(retried.status, 200)
+      assert.equal((await retried.json()).action.status, 'confirmed')
+      assert.equal(takeBackCalls.length, before + 1, 'the same Action does not rewind twice')
+    } finally {
+      takeBackGate = null
+      release?.()
+    }
   })
 
   test('the next send delivers a read-note correction with Curia framing', async () => {

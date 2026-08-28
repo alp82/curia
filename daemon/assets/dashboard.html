@@ -3715,6 +3715,7 @@ function chatFresh(session) {
   };
 }
 var chat = chatFresh(null);
+var settledChatTakeBackActions = new Set();
 
 /* The route decides the view (#700's rule): a reload and a back press land
    where they were, and the tab press lands on the picker. */
@@ -4125,14 +4126,16 @@ function chatComposer(c, role, ended) {
   const k = `turn:${chatConversationKey(c.session)}`;
   const messageAction = actionFor({ conflict_key: k });
   const messageProgress = messageAction
-    ? `<div class="dialog-note">${esc(messageAction.progress || "Sending your message…")}</div>`
+    ? `<div class="dialog-note">${esc(messageAction.progress || (messageAction.kind === "chat-take-back"
+      ? messageAction.projection?.mode === "note-recovery" ? "Recovering your note…" : "Rewinding the conversation…"
+      : "Sending your message…"))}</div>`
     : "";
   const paneKey = actionFor({ conflict_key: `pane:${c.session}` });
   return `<div class="composer">
     ${c.mirror ? `<div class="dim-note">the other device is typing…</div>` : ""}
     <textarea id="chat-box" rows="1" placeholder="type here, shared box" oninput="chatTyped(this.value)" onkeydown="chatKey(event)">${esc(c.draft)}</textarea>
     <div class="composer-row">
-      <button class="btn sm" ${busy("chat-take-back") ? "disabled" : ""} onclick="doTakeBack()" title="take back your last message">${busy("chat-take-back") ? "…" : "Take back"}</button>
+      <button class="btn sm" ${messageAction ? "disabled" : ""} onclick="doTakeBack()" title="take back your last message">${messageAction?.kind === "chat-take-back" ? "Rewinding…" : "Take back"}</button>
       ${role === "ticket" ? `<button class="btn sm" ${paneKey ? "disabled" : ""} onclick="doChatKey('escape')" title="send Escape to the agent">${paneKey ? "Sending Esc…" : "Esc"}</button>` : ""}
       <span class="grow"></span>
       <button class="btn primary" ${messageAction ? "disabled" : ""} onclick="doChatSend()">${messageAction ? "Sending…" : "Send"}</button>
@@ -4207,21 +4210,52 @@ function reconcileChatMessageActions() {
     finishAction(action.action_id);
   }
 }
-async function doTakeBack() {
-  const action = beginLocalAction("chat-take-back");
+async function doTakeBack(target = null) {
+  if (chatEnded()) return refuse("chat-take-back", ENDED_SENTENCE(chat.session));
+  const warning = "Take back your last message? Curia rewinds the conversation, but commands, commits, and other effects that already ran still stand.";
+  if (typeof confirm === "function" && !confirm(warning)) return null;
+  const conversation = chatConversationKey(chat.session);
+  const actionId = `atlas-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
+  const action = beginAction({
+    action_id: actionId, kind: "chat-take-back", target: conversation,
+    conflict_key: `turn:${conversation}`,
+    projection: { mode: target?.kind === "note" ? "note-recovery" : "rewind" },
+  });
   if (!action) return;
   UI.act.said = null;
   render();
-  const r = await chatPost("/take-back", { target: null });
-  finishAction(action.action_id);
-  if (r.error) {
-    UI.act.said = { key: "chat-take-back", ok: false, text: `take back failed: ${r.error}` };
-  } else {
-    chat.draft = r.composer || "";
-    chatPost("/draft", { text: chat.draft });
-    chatNote([r.receipt?.headline, r.receipt?.landing, ...(r.receipt?.remains || [])].filter(Boolean).join(" "));
+  const r = await chatPost("/take-back", { target, action_id: actionId });
+  observeActions(r.action ? [r.action] : []);
+  reconcileChatTakeBackActions();
+  if (actionFor({ action_id: actionId }) && !r.action && r.error) {
+    UI.act.said = { key: `turn:${conversation}`, ok: false, text: `Curia could not check the take back yet: ${r.error}` };
   }
   render();
+}
+function reconcileChatTakeBackActions() {
+  const conversation = chatConversationKey(chat.session);
+  for (const action of [...actions.values()]) {
+    if (action.kind !== "chat-take-back" || action.target !== conversation || !TERMINAL_ACTION.has(action.status)) continue;
+    const receipt = action.receipt;
+    if (action.status === "confirmed" && receipt) {
+      chat.draft = receipt.composer || "";
+      const taken = receipt.take_back;
+      chatNote([taken?.headline, taken?.landing, ...(taken?.remains || [])].filter(Boolean).join(" "));
+    } else {
+      UI.act.said = { key: action.conflict_key, ok: false, text: action.reason || "Curia could not take back the message." };
+    }
+    settledChatTakeBackActions.add(action.action_id);
+    finishAction(action.action_id);
+  }
+}
+function recoverTerminalChatTakeBackActions(observed) {
+  const conversation = chatConversationKey(chat.session);
+  for (const evidence of observed ?? []) {
+    if (evidence?.kind !== "chat-take-back" || evidence.target !== conversation
+      || !TERMINAL_ACTION.has(evidence.status) || settledChatTakeBackActions.has(evidence.action_id)
+      || actionFor({ action_id: evidence.action_id })) continue;
+    actions.set(String(evidence.action_id), { ...evidence, action_id: String(evidence.action_id) });
+  }
 }
 async function doChatKey(key) {
   const session = chat.session;
@@ -4950,9 +4984,11 @@ async function tick() {
     if (!res.ok) throw new Error("the sidecar answered " + res.status);
     payload = await res.json();
     observeActions(payload?.overview?.actions);
+    recoverTerminalChatTakeBackActions(payload?.overview?.actions);
     reconcileStartActions(payload?.overview);
     reconcileAnswerActions(payload?.overview);
     reconcileChatMessageActions();
+    reconcileChatTakeBackActions();
     reconcilePaneKeyActions();
     reconcileDialogAnswerActions();
     reconcileGitHubAppActions();
