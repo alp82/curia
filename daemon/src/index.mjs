@@ -3406,34 +3406,63 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
   if (url.pathname === '/answer' && req.method === 'POST') {
     const body = await readBody(req)
     const { id, attachments, by, via, index, files: inline } = body
-    let answer = String(body.answer ?? '')
-    // An option index is the same answer a Discord button sends (#712,
-    // ADR-0025): every surface resolves a pick to the option's own words, so
-    // the record and the agent read one text whichever control was pressed.
-    const live = reduction.resolveLive(String(id ?? '')).record
-    const picked = Number.isInteger(index) ? live?.options?.[index] : undefined
-    if (picked !== undefined) answer = String(picked)
-    // A browser reply's files (#712) are written first, then walk the same
-    // containment gate the bridge's downloads walk, so one path reads them.
-    const written = live?.status === 'open' ? writeReplyFiles(live.id, inline) : { paths: [], refusals: [] }
-    if (written.refusals.length) return json(400, { ok: false, reason: 'files', error: written.refusals.join('; ') })
-    // Attachment paths get read and inlined into an agent's context, so they
-    // pass the same containment gate as outbound attachments rather than being
-    // trusted because the caller reached loopback.
-    const { files } = outboundFiles('rest', [...(attachments ?? []), ...written.paths])
-    if (written.paths.length) answer = [answer, ...written.paths.map((p) => `[attachment: ${p}]`)].filter(Boolean).join('\n')
-    // #266: the console names the operator who pressed and the surface they
-    // pressed on, so the journal and the feed say `answered by <login> via
-    // dashboard` rather than attributing every browser answer to `rest`. The
-    // default is what every caller before this one already sent.
-    const result = gate.answer(id, {
-      answer: String(answer), attachments: files.map((f) => f.attachment), by: named(by), via: named(via),
+    const settleAnswer = () => {
+      let answer = String(body.answer ?? '')
+      // An option index is the same answer a Discord button sends (#712,
+      // ADR-0025): every surface resolves a pick to the option's own words, so
+      // the record and the agent read one text whichever control was pressed.
+      const live = reduction.resolveLive(String(id ?? '')).record
+      const picked = Number.isInteger(index) ? live?.options?.[index] : undefined
+      if (picked !== undefined) answer = String(picked)
+      // A browser reply's files (#712) are written first, then walk the same
+      // containment gate the bridge's downloads walk, so one path reads them.
+      const written = live?.status === 'open' ? writeReplyFiles(live.id, inline) : { paths: [], refusals: [] }
+      if (written.refusals.length) return { ok: false, reason: 'files', error: written.refusals.join('; ') }
+      // Attachment paths get read and inlined into an agent's context, so they
+      // pass the same containment gate as outbound attachments rather than being
+      // trusted because the caller reached loopback.
+      const { files } = outboundFiles('rest', [...(attachments ?? []), ...written.paths])
+      if (written.paths.length) answer = [answer, ...written.paths.map((p) => `[attachment: ${p}]`)].filter(Boolean).join('\n')
+      // #266: the console names the operator who pressed and the surface they
+      // pressed on, so the journal and the feed say `answered by <login> via
+      // dashboard` rather than attributing every browser answer to `rest`. The
+      // default is what every caller before this one already sent.
+      const result = gate.answer(id, {
+        answer: String(answer), attachments: files.map((f) => f.attachment), by: named(by), via: named(via),
+      })
+      // A second answer gets the first receipt (#712, ADR-0025): the refusal
+      // carries who answered, where, when and what, so the surface that lost the
+      // race shows the mark and never a second question. Nothing is journalled.
+      if (!result.ok && result.record?.status === 'answered') result.receipt = answerReceipt(result.record)
+      return result
+    }
+
+    const actionId = body.action_id == null ? '' : String(body.action_id)
+    if (!actionId) {
+      const result = settleAnswer()
+      return json(result.ok ? 200 : result.reason === 'files' ? 400 : 409, result)
+    }
+    if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(actionId)) {
+      return json(400, { error: 'action_id is not a valid Action id' })
+    }
+    const action = {
+      action_id: actionId, kind: 'escalation-answer', target: String(id ?? ''),
+      conflict_key: `answer:${String(id ?? '')}`,
+    }
+    const evidence = await actions.run(action, async () => {
+      const result = settleAnswer()
+      return result.ok
+        ? { status: 'confirmed', receipt: answerReceipt(result.record) }
+        : { status: 'refused', reason: result.reason, error: result.error, receipt: result.receipt ?? null }
     })
-    // A second answer gets the first receipt (#712, ADR-0025): the refusal
-    // carries who answered, where, when and what, so the surface that lost the
-    // race shows the mark and never a second question. Nothing is journalled.
-    if (!result.ok && result.record?.status === 'answered') result.receipt = answerReceipt(result.record)
-    return json(result.ok ? 200 : 409, result)
+    const ok = evidence.status === 'confirmed'
+    const result = {
+      ok, action: evidence,
+      ...(evidence.reason ? { reason: evidence.reason } : {}),
+      ...(evidence.error ? { error: evidence.error } : {}),
+      ...(evidence.receipt ? { receipt: evidence.receipt } : {}),
+    }
+    return json(ok ? 200 : evidence.reason === 'files' ? 400 : 409, result)
   }
 
   // The console's note (#266). A note in Discord is any message in an agent's

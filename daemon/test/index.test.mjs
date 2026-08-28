@@ -945,13 +945,18 @@ describe('the console verbs on the loopback surface (#266, real boot)', () => {
       id = JSON.parse(res.body).id
     })
 
-    test('an option index resolves to the option\'s words, and the files land under the question\'s own directory', async () => {
+    test('an Atlas answer and a later Discord answer agree on the shared winner', async () => {
       const data = Buffer.from('a: 1\n').toString('base64')
       const res = await post('/answer', {
-        id, index: 1, answer: '', by: 'alp@example.com', via: 'dashboard',
+        id, index: 1, answer: '', by: 'alp@example.com', via: 'dashboard', action_id: 'atlas-answer-esc-choice',
         files: [{ name: '../../notes.txt', data }, { name: 'shot.png', data: Buffer.from('png').toString('base64') }],
       })
       assert.equal(res.status, 200, res.body)
+      const atlas = JSON.parse(res.body)
+      assert.equal(atlas.action.status, 'confirmed')
+      assert.equal(atlas.action.kind, 'escalation-answer')
+      assert.equal(atlas.action.target, id)
+      assert.equal(atlas.action.conflict_key, `answer:${id}`)
       const answered = journal().filter((e) => e.type === 'esc_answer' && e.id === id)
       assert.equal(answered.length, 1)
       const dir = path.join(dataDir, 'attachments', id)
@@ -962,10 +967,12 @@ describe('the console verbs on the loopback surface (#266, real boot)', () => {
     })
 
     test('a second answer is refused with the first receipt, and journals nothing', async () => {
-      const res = await post('/answer', { id, index: 0, by: 'other@example.com', via: 'dashboard', files: [{ name: 'late.txt', data: Buffer.from('x').toString('base64') }] })
+      const res = await post('/answer', { id, index: 0, by: 'other', via: 'button', action_id: 'discord-answer-esc-choice', files: [{ name: 'late.txt', data: Buffer.from('x').toString('base64') }] })
       assert.equal(res.status, 409)
       const body = JSON.parse(res.body)
       assert.equal(body.reason, 'answered')
+      assert.equal(body.action.status, 'refused')
+      assert.equal(body.action.conflict_key, `answer:${id}`)
       assert.equal(body.receipt.by, 'alp@example.com')
       assert.equal(body.receipt.via, 'dashboard')
       assert.match(body.receipt.answer, /^Preview/)

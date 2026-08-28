@@ -1110,20 +1110,50 @@ async function startTicket(repo, ticket) {
    so a Discord press and an Atlas tap resolve the same option. Files ride the
    answer inline, and the daemon writes them where the card said they land. */
 async function answerEsc(id, body) {
-  if (busy("esc:" + id)) return null;
+  if (busy("answer:" + id)) return null;
   const answer = typeof body === "string" ? { answer: body } : { ...body };
+  const record = escRecord(id);
+  const projected = Number.isInteger(answer.index)
+    ? record?.options?.[answer.index] ?? `option ${answer.index + 1}`
+    : String(answer.answer ?? "").trim();
+  const actionId = `atlas-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
+  const action = beginAction({
+    action_id: actionId, kind: "escalation-answer", target: id,
+    conflict_key: `answer:${id}`, projection: { answer: projected },
+  });
+  if (!action) return null;
+  UI.act.said = null;
+  render();
   try {
     answer.files = await replyFilesOf("files-" + id);
   } catch (e) {
+    finishAction(actionId);
     return refuse("esc:" + id, e.message);
   }
-  const out = await verb("esc:" + id, "/api/answer", { id, ...answer });
-  /* One successful answer opens the handoff sheet (#718). A refusal opens
-     nothing: the receipt under the card is the whole of what happened. */
-  if (out && out.ok !== false) {
-    UI.act.handoff = id;
-    render();
+  let out = null;
+  try {
+    const res = await fetch("/api/answer", {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({ id, ...answer, action_id: actionId }),
+    });
+    const response = await res.json().catch(() => ({}));
+    observeActions(response.action ? [response.action] : []);
+    if (!response.action && !res.ok) throw Object.assign(new Error(response.error || ("the console answered " + res.status)), { receipt: response.receipt ?? null });
+    if (!response.action && res.ok) {
+      finishAction(actionId);
+      UI.act.handoff = id;
+    }
+    out = response;
+    reconcileAnswerActions(payload?.overview);
+  } catch (e) {
+    const current = actionFor({ action_id: actionId });
+    if (!current || current.status === "pending") {
+      UI.act.said = { key: "esc:" + id, text: e.receipt ? receiptLine(e.receipt) : e.message, ok: false };
+      finishAction(actionId);
+    }
   }
+  render();
   return out;
 }
 function answerIndex(id, index) { return answerEsc(id, { index: Number(index) }); }
@@ -1188,6 +1218,24 @@ function rejectGate(id, field) {
   const v = typed(field);
   if (!v) return refuse("esc:" + id, "A rejection carries your words — say what to change, then press Reject.");
   answerEsc(id, v);
+}
+
+function reconcileAnswerActions(o) {
+  const open = new Set([...(o?.escalations ?? []), ...(o?.review_gate ?? [])].map((record) => record.id));
+  for (const action of [...actions.values()]) {
+    if (action.kind !== "escalation-answer" || !TERMINAL_ACTION.has(action.status)) continue;
+    const key = "esc:" + action.target;
+    if (action.status !== "confirmed") {
+      UI.act.said = {
+        key, ok: false,
+        text: action.receipt ? receiptLine(action.receipt) : action.error || action.reason || "Curia could not answer this escalation.",
+      };
+      finishAction(action.action_id);
+    } else if (!open.has(action.target)) {
+      finishAction(action.action_id);
+      UI.act.handoff = action.target;
+    }
+  }
 }
 
 /* ---- the reading's own age ------------------------------------------------- */
@@ -1554,14 +1602,14 @@ function choiceControls(r) {
   const handle = (i) => r.option_handles?.[i] || opts[i];
   const label = (i) => `${optMarker(r, i)} · ${snip(handle(i), 80)}`;
   if (opts.length <= MAX_BUTTON_OPTIONS) {
-    return `<div class="act-row">${opts.map((_, i) => `<button class="btn sm" ${busy("esc:" + r.id) ? "disabled" : ""}
+    return `<div class="act-row">${opts.map((_, i) => `<button class="btn sm" ${busy("answer:" + r.id) ? "disabled" : ""}
       onclick="answerIndex('${js(r.id)}',${i})">${esc(label(i))}</button>`).join("")}</div>`;
   }
   if (opts.length <= MAX_SELECT_OPTIONS) {
     const id = "sel-" + r.id;
-    return `<div class="act-row"><select id="${esc(id)}" ${busy("esc:" + r.id) ? "disabled" : ""}>
+    return `<div class="act-row"><select id="${esc(id)}" ${busy("answer:" + r.id) ? "disabled" : ""}>
       <option value="">pick one…</option>${opts.map((_, i) => `<option value="${i}">${esc(label(i))}</option>`).join("")}</select>
-      <button class="btn sm primary" ${busy("esc:" + r.id) ? "disabled" : ""} onclick="answerSelect('${js(r.id)}','${js(id)}')">Answer</button></div>`;
+      <button class="btn sm primary" ${busy("answer:" + r.id) ? "disabled" : ""} onclick="answerSelect('${js(r.id)}','${js(id)}')">Answer</button></div>`;
   }
   return `<ol class="opts numbered">${opts.map((o, i) => `<li><b>${esc(optMarker(r, i))}.</b> ${esc(snip(handle(i), 120))}</li>`).join("")}</ol>
     <div class="dim">Reply with ${r.typed ? "a letter or " : ""}a number.</div>`;
@@ -1571,7 +1619,7 @@ function choiceControls(r) {
    this line says where they land. */
 function replyFilesRow(r) {
   const where = r.files_dir ? ` They land under <code>${esc(r.files_dir)}/</code> and reach the agent as paths.` : "";
-  return `<div class="act-row files"><input type="file" id="files-${esc(r.id)}" multiple ${busy("esc:" + r.id) ? "disabled" : ""}>
+  return `<div class="act-row files"><input type="file" id="files-${esc(r.id)}" multiple ${busy("answer:" + r.id) ? "disabled" : ""}>
     <span class="dim">A reply may carry files.${where}</span></div>`;
 }
 
@@ -1581,8 +1629,8 @@ function replyFilesRow(r) {
 function answerField(r) {
   const id = "ans-" + r.id;
   return `<div class="act-row">
-    <input type="text" id="${esc(id)}" placeholder="answer in your own words…" ${busy("esc:" + r.id) ? "disabled" : ""}>
-    <button class="btn sm primary" ${busy("esc:" + r.id) ? "disabled" : ""} onclick="answerTyped('${js(r.id)}','${js(id)}',escRecord('${js(r.id)}'))">Answer</button>
+    <input type="text" id="${esc(id)}" placeholder="answer in your own words…" ${busy("answer:" + r.id) ? "disabled" : ""}>
+    <button class="btn sm primary" ${busy("answer:" + r.id) ? "disabled" : ""} onclick="answerTyped('${js(r.id)}','${js(id)}',escRecord('${js(r.id)}'))">Answer</button>
   </div>${replyFilesRow(r)}`;
 }
 
@@ -1591,7 +1639,14 @@ function escCard(r) {
     <span class="who">${esc(r.agent)}</span>${esc(snip(r.prompt, 260))}
     <div class="dim">${esc(r.kind)} · ${esc(ticketName(null, r.ticket))} · open ${esc(ago(r.opened_at))}${r.agent_died ? " · the agent died holding it" : ""}${r.rendered ? "" : " · not rendered in Discord yet"}</div>
     ${r.preview_url ? `<div class="opts"><a href="${esc(r.preview_url)}">the preview it asks about</a></div>` : ""}
-    ${answerButtons(r)}${answerField(r)}${said("esc:" + r.id)}</div>`;
+    ${answerProjection(r.id)}${answerButtons(r)}${answerField(r)}${said("esc:" + r.id)}</div>`;
+}
+
+function answerProjection(id) {
+  const action = actionFor({ conflict_key: "answer:" + id });
+  if (!action) return "";
+  const selected = action.projection?.answer;
+  return `<div class="say">${selected ? `Answering: ${esc(selected)}…` : "Sending your file reply…"}</div>`;
 }
 
 /* ---- the diff digest (#355) ------------------------------------------------
@@ -1776,13 +1831,14 @@ function gateCard(r) {
     ${r.pull_request ? `<div class="opts"><a href="${esc(r.pull_request)}">${esc(r.pull_request)}</a></div>` : `<div class="opts">no pull request on this gate</div>`}
     ${r.preview_url ? `<div class="opts"><a href="${esc(r.preview_url)}">the preview</a></div>` : ""}
     ${diffCard("esc:" + r.id, r.diff ?? null, r.diff_error ?? null, gateDiffQuery(r.id), r.pull_request)}
+    ${answerProjection(r.id)}
     <div class="act-row">
-      <button class="btn sm primary" ${busy("esc:" + r.id) ? "disabled" : ""} onclick="answerEsc('${js(r.id)}','${APPROVE}')">✅ Approve · merge</button>
-      <button class="btn sm" ${busy("esc:" + r.id) ? "disabled" : ""} onclick="answerEsc('${js(r.id)}','${CROSS_CHECK}')">🔎 Cross-check</button>
+      <button class="btn sm primary" ${busy("answer:" + r.id) ? "disabled" : ""} onclick="answerEsc('${js(r.id)}','${APPROVE}')">✅ Approve · merge</button>
+      <button class="btn sm" ${busy("answer:" + r.id) ? "disabled" : ""} onclick="answerEsc('${js(r.id)}','${CROSS_CHECK}')">🔎 Cross-check</button>
     </div>
     <div class="act-row">
-      <input type="text" id="${esc(id)}" placeholder="what to change — a rejection carries your words…" ${busy("esc:" + r.id) ? "disabled" : ""}>
-      <button class="btn sm danger" ${busy("esc:" + r.id) ? "disabled" : ""} onclick="rejectGate('${js(r.id)}','${js(id)}')">Reject</button>
+      <input type="text" id="${esc(id)}" placeholder="what to change — a rejection carries your words…" ${busy("answer:" + r.id) ? "disabled" : ""}>
+      <button class="btn sm danger" ${busy("answer:" + r.id) ? "disabled" : ""} onclick="rejectGate('${js(r.id)}','${js(id)}')">Reject</button>
     </div>
     ${said("esc:" + r.id)}</div>`;
 }
@@ -4895,6 +4951,7 @@ async function tick() {
     payload = await res.json();
     observeActions(payload?.overview?.actions);
     reconcileStartActions(payload?.overview);
+    reconcileAnswerActions(payload?.overview);
     reconcileChatMessageActions();
     reconcilePaneKeyActions();
     reconcileDialogAnswerActions();

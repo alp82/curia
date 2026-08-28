@@ -1261,6 +1261,24 @@ describe('the operator verbs (#266)', () => {
     assert.deepEqual(sent('/answer').body.files, [])
   })
 
+  test('an answer Action identity and its shared refusal evidence cross the sidecar unchanged', async () => {
+    reply['/answer'] = [409, {
+      ok: false,
+      reason: 'answered',
+      action: {
+        action_id: 'atlas-answer-esc-7', kind: 'escalation-answer', target: 'esc-7',
+        conflict_key: 'answer:esc-7', status: 'refused', revision: 14,
+      },
+      receipt: { by: 'phone', via: 'button', at: 'T', answer: 'Preview' },
+    }]
+    const res = await press('/api/answer', { id: 'esc-7', index: 1, action_id: 'atlas-answer-esc-7' })
+    assert.equal(sent('/answer').body.action_id, 'atlas-answer-esc-7')
+    assert.equal(res.status, 200, 'Action evidence is data for Atlas, not a sidecar transport failure')
+    const body = JSON.parse(res.text)
+    assert.equal(body.action.status, 'refused')
+    assert.equal(body.receipt.by, 'phone')
+  })
+
   test('a reply of more than ten files is refused before the daemon is asked', async () => {
     const res = await press('/api/answer', { id: 'esc-7', files: Array.from({ length: 11 }, (_, i) => ({ name: `f${i}.txt`, data: 'eA==' })) })
     assert.equal(res.status, 409)

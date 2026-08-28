@@ -2533,6 +2533,37 @@ describe('the operator verbs (#266)', () => {
       assert.match(text(html), /2 · Post both with stamps/)
     })
 
+    test('a choice projects immediately and reconciles only when the shared escalation closes', async () => {
+      let answer
+      const p = payload()
+      const local = loadPage({ fetchImpl: async () => new Promise((resolve) => { answer = resolve }) })
+      local.payload = p
+
+      const sent = local.answerIndex('esc-7', 1)
+      const action = local.actionFor({ conflict_key: 'answer:esc-7' })
+      assert.ok(action)
+      assert.equal(action.kind, 'escalation-answer')
+      assert.equal(action.projection.answer, 'Post both with stamps')
+      assert.match(text(local.screenHome(p)), /Answering: Post both with stamps…/)
+
+      await Promise.resolve()
+      answer({ ok: true, json: async () => ({
+        ok: true,
+        action: {
+          ...action, status: 'confirmed', revision: 9,
+          receipt: { by: 'alp@example.com', via: 'dashboard', at: at(1), answer: 'Post both with stamps' },
+        },
+      }) })
+      await sent
+      assert.equal(local.actionFor({ action_id: action.action_id }).status, 'confirmed', 'the stale open record keeps the projection')
+
+      const fresh = payload()
+      fresh.overview.escalations = fresh.overview.escalations.filter((record) => record.id !== 'esc-7')
+      local.reconcileAnswerActions(fresh.overview)
+      assert.equal(local.actionFor({ action_id: action.action_id }), null)
+      assert.equal(local.UI.act.handoff, 'esc-7')
+    })
+
     // The typed card (#712, ADR-0025): the button says the letter and the
     // handle, the body keeps the consequence, and the band picks the control.
     describe('the typed card, one payload on every surface (#712)', () => {
@@ -2604,7 +2635,10 @@ describe('the operator verbs (#266)', () => {
         local.payload = p
         await local.answerIndex('esc-7', 1)
         assert.equal(posted.url, '/api/answer')
-        assert.deepEqual(posted.body, { id: 'esc-7', index: 1, files: [] })
+        assert.equal(posted.body.id, 'esc-7')
+        assert.equal(posted.body.index, 1)
+        assert.deepEqual(posted.body.files, [])
+        assert.match(posted.body.action_id, /^atlas-/)
         const t = text(local.screenHome(p))
         assert.match(t, /✅ answered by alp via button .*: Option 1, with its whole/)
         assert.doesNotMatch(t, /already answered/, 'the receipt, not the refusal')

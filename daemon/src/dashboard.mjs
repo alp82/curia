@@ -1060,9 +1060,13 @@ export class DashboardSurface {
           const index = Number.isInteger(b.index) && b.index >= 0 ? b.index : null
           const files = replyFiles(b.files)
           const answer = index === null && !files.length ? words(b.answer, 'an answer') : String(b.answer ?? '').trim().slice(0, MAX_WORDS)
+          const actionId = b.action_id == null ? null : field(b.action_id, ACTION_ID_RE, 'an Action id')
           const out = await this.#daemon({
-            method: 'POST', path: '/answer', body: { id, answer, index, files, by, via: 'dashboard' }, accept: [200, 400, 409],
+            method: 'POST', path: '/answer', body: {
+              id, answer, index, files, by, via: 'dashboard', ...(actionId ? { action_id: actionId } : {}),
+            }, accept: [200, 400, 409],
           })
+          if (out.action) return out
           if (out.ok === false) {
             // The first receipt rides the refusal, so the page shows the mark
             // rather than an error (#712, ADR-0025).
