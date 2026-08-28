@@ -3377,6 +3377,99 @@ describe('the chat screen (#267, the picker of #333)', () => {
       room.applyChatRoute([])
     })
 
+    test('Send preserves the operator text while its conversation Action is pending', async () => {
+      let sent
+      const room = loadPage({ fetchImpl: async (_url, request) => {
+        sent = JSON.parse(request.body)
+        return new Promise(() => {})
+      } })
+      room.applyChatRoute(['chat', 'curia-console-2'])
+      room.chat.draft = 'keep these words'
+
+      room.doChatSend()
+
+      const action = room.actionFor({ conflict_key: 'turn:console-2' })
+      assert.equal(action.kind, 'chat-message')
+      assert.equal(action.projection.text, 'keep these words')
+      assert.equal(sent.action_id, action.action_id)
+      assert.equal(room.chat.draft, 'keep these words')
+      assert.match(room.screenChat(payload()), /keep these words<\/textarea>/)
+      assert.match(text(room.screenChat(payload())), /Sending…/)
+      room.applyChatRoute([])
+    })
+
+    test('a refused Send keeps the operator text and explains that it was not sent', async () => {
+      const room = loadPage({ fetchImpl: async (_url, request) => {
+        const sent = JSON.parse(request.body)
+        return { json: async () => ({ action: {
+          action_id: sent.action_id, kind: 'chat-message', target: 'curia-684',
+          conflict_key: 'turn:curia-684', status: 'refused', revision: 8,
+          reason: 'the pane stayed active, so curia did not send the text',
+          receipt: { outcome: 'not_sent' },
+        } }) }
+      } })
+      room.applyChatRoute(['chat', 'curia-684'])
+      room.chat.draft = 'do not lose this'
+
+      await room.doChatSend()
+
+      assert.equal(room.chat.draft, 'do not lose this')
+      assert.equal(room.actionFor({ conflict_key: 'turn:curia-684' }), null)
+      assert.match(text(room.screenChat(payload())), /did not send the text/)
+      room.applyChatRoute([])
+    })
+
+    test('confirmed Send evidence clears only the text that Action delivered', async () => {
+      const room = loadPage({ fetchImpl: async (_url, request) => {
+        const sent = JSON.parse(request.body)
+        return { json: async () => ({ action: {
+          action_id: sent.action_id, kind: 'chat-message', target: 'curia-684',
+          conflict_key: 'turn:curia-684', status: 'confirmed', revision: 9,
+          receipt: { outcome: 'delivered' },
+        } }) }
+      } })
+      room.applyChatRoute(['chat', 'curia-684'])
+      room.chat.draft = 'deliver this text'
+
+      await room.doChatSend()
+
+      assert.equal(room.chat.draft, '')
+      assert.equal(room.actionFor({ conflict_key: 'turn:curia-684' }), null)
+      room.applyChatRoute([])
+    })
+
+    test('shared sent evidence clears the matching pending text before the next overview', () => {
+      page.chat.draft = 'sent through the stream'
+      page.beginAction({
+        action_id: 'atlas-stream-send', kind: 'chat-message', target: 'curia-684',
+        conflict_key: 'turn:curia-684', projection: { text: 'sent through the stream' },
+      })
+
+      page.chatReceive('sent', {
+        text: 'sent through the stream', by: page.chat.client, action_id: 'atlas-stream-send',
+      })
+
+      assert.equal(page.chat.draft, '')
+      assert.ok(page.actionFor({ action_id: 'atlas-stream-send' }), 'overview still owns terminal reconciliation')
+      page.finishAction('atlas-stream-send')
+    })
+
+    test('shared message progress is visible at the conversation composer', () => {
+      page.beginAction({
+        action_id: 'atlas-overseer-progress', kind: 'chat-message', target: 'curia-684',
+        conflict_key: 'turn:curia-684', projection: { text: 'inspect the map' },
+      })
+      page.observeActions([{
+        action_id: 'atlas-overseer-progress', kind: 'chat-message', target: 'curia-684',
+        conflict_key: 'turn:curia-684', status: 'progress', revision: 11,
+        progress: 'Message delivered; waiting for the overseer response',
+        receipt: { outcome: 'delivered' },
+      }])
+
+      assert.match(text(page.screenChat(payload())), /Message delivered; waiting for the overseer response/)
+      page.finishAction('atlas-overseer-progress')
+    })
+
     test('shared pane-key failure reconciles while the original request is still pending', async () => {
       let actionId
       const room = loadPage({ fetchImpl: async (url, request) => {

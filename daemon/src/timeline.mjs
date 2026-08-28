@@ -520,6 +520,17 @@ export class TimelineSurface {
     if (!prefix) this.#broadcast(s, 'reset', { file: s.file, branch: true })
     const fresh = prefix ? next.slice(s.items.length) : next
     s.items = next
+    const prompt = fresh.find((item) => item.kind === 'prompt')
+    if (prompt && this.deps.actions) {
+      const conversation = this.#driver(name)?.key ?? name
+      const pending = this.deps.actions.overview().find((candidate) =>
+        candidate.kind === 'chat-message'
+        && candidate.conflict_key === `turn:${conversation}`
+        && candidate.status === 'progress'
+        && candidate.receipt?.outcome === 'sent_unconfirmed'
+        && new Date(prompt.at).getTime() >= new Date(candidate.started_at).getTime())
+      if (pending) this.deps.actions.confirm(pending.action_id, { receipt: { outcome: 'delivered' } })
+    }
     if (fresh.length) this.#broadcast(s, 'items', fresh)
   }
 
@@ -924,88 +935,118 @@ export class TimelineSurface {
       if (!text.trim()) return json(400, { error: 'empty' })
       const s = this.#state(b.session)
       const by = b.client ?? null
-      if (s.correction) {
-        if (!this.deps.correct) return json(501, { error: 'message correction is not configured' })
-        try {
-          await this.deps.correct({
-            session: b.session,
-            role: this.#driver(b.session) ? 'overseer' : 'agent',
-            correction: s.correction,
-            text,
-          })
-        } catch (e) {
-          return json(e.status ?? 502, { error: e.message })
-        }
-        this.deps.journal('timeline_send', {
-          session: b.session, by, outcome: 'corrected', target: s.correction.id, text: clip(text),
-        })
-        s.correction = null
-        s.draft = ''
-        this.#broadcast(s, 'draft', { text: '', by })
-        this.#broadcast(s, 'sent', { text, by })
-        return json(200, { ok: true })
-      }
-      // A driven session takes the words as a TURN (#267). There is no pane, so
-      // the #75 dialog guard has nothing to guard: it exists because keystrokes
-      // land wherever the pane's focus is, and a turn lands in exactly one
-      // place. The call runs to completion — an overseer turn is seconds, and
-      // the failure is the whole reason this waits: a turn that ends with no
-      // answer must reach the operator as words, not as silence on the page.
       const driver = this.#driver(b.session)
-      if (driver) {
-        try {
-          await driver.send(text)
-        } catch (e) {
-          this.deps.journal('timeline_send', { session: b.session, by, outcome: 'failed', error: e.message, text: clip(text) })
-          return json(502, { error: e.message })
-        }
-        this.deps.recordTurn?.({ session: b.session, role: 'overseer', text })
-        this.deps.journal('timeline_send', { session: b.session, by, outcome: 'sent', text: clip(text) })
-        s.draft = ''
-        this.#broadcast(s, 'draft', { text: '', by })
-        this.#broadcast(s, 'sent', { text, by })
-        return json(200, { ok: true })
+      const actionId = b.action_id == null ? null : String(b.action_id)
+      if (actionId != null && !/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(actionId)) {
+        return json(400, { error: 'action_id is not a valid Action id' })
       }
-      // A pane that has ended takes no words (#711). The refusal is a sentence
-      // about the session, not a tmux error about a missing one.
-      if (await this.#ended(b.session)) {
-        this.deps.journal('timeline_send', { session: b.session, by, outcome: 'refused_ended', text: clip(text) })
-        return json(409, this.#endedRefusal(b.session))
-      }
-      // The #75 guard: fresh capture, positive evidence only. Typing into a
-      // dialog answers it blind or vanishes without a trace — refusing keeps
-      // the text in the composer, and the broadcast pins the banner on every
-      // device at the same moment.
-      const dialog = await this.#probeDialog(b.session, s)
-      if (dialog) {
-        this.deps.journal('timeline_send', { session: b.session, by, outcome: 'refused_dialog', hint: dialog.hint, text: clip(text) })
-        return json(409, { error: `the agent is in a terminal dialog ("${dialog.hint}") the timeline cannot show — open the terminal surface to answer it; your text was NOT sent`, dialog: true })
-      }
-      try {
-        const delivery = await this.deps.sendText(b.session, text)
-        if (delivery?.status === 'not-sent') {
-          this.deps.journal('timeline_send', { session: b.session, by, outcome: 'not_sent', text: clip(text) })
-          return json(409, { error: 'the pane stayed active, so curia did not send the text' })
-        }
-        if (delivery?.status === 'unconfirmed') {
-          this.deps.recordTurn?.({ session: b.session, role: 'agent', text })
-          this.deps.journal('timeline_send', { session: b.session, by, outcome: 'unconfirmed', text: clip(text) })
+      const action = actionId ? {
+        action_id: actionId,
+        kind: s.correction ? 'chat-message-correction' : 'chat-message',
+        target: driver?.key ?? b.session,
+        conflict_key: `turn:${driver?.key ?? b.session}`,
+      } : null
+      const perform = async (controls = null) => {
+        if (s.correction) {
+          if (!this.deps.correct) return { status: 'failed', reason: 'message correction is not configured', code: 501 }
+          try {
+            await this.deps.correct({
+              session: b.session,
+              role: driver ? 'overseer' : 'agent',
+              correction: s.correction,
+              text,
+            })
+          } catch (e) {
+            return { status: Number(e.status) >= 400 && Number(e.status) < 500 ? 'refused' : 'failed', reason: e.message, code: e.status ?? 502 }
+          }
+          this.deps.journal('timeline_send', {
+            session: b.session, by, outcome: 'corrected', target: s.correction.id, text: clip(text), action_id: actionId,
+          })
+          s.correction = null
           s.draft = ''
           this.#broadcast(s, 'draft', { text: '', by })
-          return json(202, { error: 'curia sent the keys, but the pane did not confirm a new turn', unconfirmed: true })
+          this.#broadcast(s, 'sent', { text, by, action_id: actionId })
+          return { status: 'confirmed', receipt: { outcome: 'delivered' }, code: 200 }
         }
-      } catch (e) {
-        this.deps.journal('timeline_send', { session: b.session, by, outcome: 'failed', error: e.message, text: clip(text) })
-        return json(502, { error: e.message })
+        // A driven session takes the words as a turn. Acceptance is durable
+        // before pane preparation starts, so Atlas does not hold this request
+        // open for the model's work.
+        if (driver) {
+          controls?.accept({ progress: 'Preparing the conversation' })
+          let delivered
+          try {
+            delivered = await driver.send(text)
+          } catch (e) {
+            this.deps.journal('timeline_send', { session: b.session, by, outcome: 'failed', error: e.message, text: clip(text), action_id: actionId })
+            return { status: 'failed', reason: e.message, code: 502 }
+          }
+          this.deps.recordTurn?.({ session: b.session, role: 'overseer', text })
+          this.deps.journal('timeline_send', { session: b.session, by, outcome: 'sent', text: clip(text), action_id: actionId })
+          s.draft = ''
+          this.#broadcast(s, 'draft', { text: '', by })
+          this.#broadcast(s, 'sent', { text, by, action_id: actionId })
+          if (controls && delivered?.completion) {
+            controls.progress('Message delivered; waiting for the overseer response', { receipt: { outcome: 'delivered' } })
+            const completion = await delivered.completion
+            if (!completion?.ok) return { status: 'failed', reason: completion?.why || 'the overseer turn did not finish', code: 502 }
+          }
+          return { status: 'confirmed', receipt: { outcome: 'delivered' }, code: 200 }
+        }
+        if (await this.#ended(b.session)) {
+          const reason = this.#endedRefusal(b.session).error
+          this.deps.journal('timeline_send', { session: b.session, by, outcome: 'refused_ended', text: clip(text), action_id: actionId })
+          return { status: 'refused', reason, ended: true, code: 409 }
+        }
+        const dialog = await this.#probeDialog(b.session, s)
+        if (dialog) {
+          const reason = `the agent is in a terminal dialog ("${dialog.hint}") the timeline cannot show — open the terminal surface to answer it; your text was NOT sent`
+          this.deps.journal('timeline_send', { session: b.session, by, outcome: 'refused_dialog', hint: dialog.hint, text: clip(text), action_id: actionId })
+          return { status: 'refused', reason, dialog: true, code: 409 }
+        }
+        try {
+          const delivery = await this.deps.sendText(b.session, text)
+          if (delivery?.status === 'not-sent') {
+            this.deps.journal('timeline_send', { session: b.session, by, outcome: 'not_sent', text: clip(text), action_id: actionId })
+            return { status: 'refused', reason: 'the pane stayed active, so curia did not send the text', receipt: { outcome: 'not_sent' }, code: 409 }
+          }
+          if (delivery?.status === 'unconfirmed') {
+            this.deps.recordTurn?.({ session: b.session, role: 'agent', text })
+            this.deps.journal('timeline_send', { session: b.session, by, outcome: 'unconfirmed', text: clip(text), action_id: actionId })
+            s.draft = ''
+            this.#broadcast(s, 'draft', { text: '', by })
+            if (controls) {
+              controls.accept({ progress: 'Message sent; checking the transcript', receipt: { outcome: 'sent_unconfirmed' } })
+              controls.progress('Message sent; checking the transcript', { receipt: { outcome: 'sent_unconfirmed' } })
+              return { status: 'progress', receipt: { outcome: 'sent_unconfirmed' }, code: 202 }
+            }
+            return { status: 'unconfirmed', reason: 'curia sent the keys, but the pane did not confirm a new turn', unconfirmed: true, code: 202 }
+          }
+        } catch (e) {
+          this.deps.journal('timeline_send', { session: b.session, by, outcome: 'failed', error: e.message, text: clip(text), action_id: actionId })
+          return { status: 'failed', reason: e.message, code: 502 }
+        }
+        this.deps.recordTurn?.({ session: b.session, role: 'agent', text })
+        this.deps.journal('timeline_send', { session: b.session, by, outcome: 'sent', text: clip(text), action_id: actionId })
+        s.draft = ''
+        this.#broadcast(s, 'draft', { text: '', by })
+        this.#broadcast(s, 'sent', { text, by, action_id: actionId })
+        return { status: 'confirmed', receipt: { outcome: 'delivered' }, code: 200 }
       }
-      this.deps.recordTurn?.({ session: b.session, role: 'agent', text })
-      // The journal line #75 had to infer from four absences: whether the
-      // send even fired, one grep away.
-      this.deps.journal('timeline_send', { session: b.session, by, outcome: 'sent', text: clip(text) })
-      s.draft = ''
-      this.#broadcast(s, 'draft', { text: '', by })
-      this.#broadcast(s, 'sent', { text, by })
-      return json(200, { ok: true })
+
+      if (action) {
+        const evidence = await this.deps.actions.run(action, perform)
+        const code = evidence.status === 'accepted' || evidence.status === 'progress'
+          ? 202
+          : evidence.status === 'confirmed' ? 200 : evidence.status === 'failed' ? 502 : 409
+        return json(code, { action: evidence, ...(evidence.reason ? { error: evidence.reason } : {}) })
+      }
+      const outcome = await perform()
+      return json(outcome.code, {
+        ...(outcome.status === 'confirmed' ? { ok: true } : { error: outcome.reason }),
+        ...(outcome.unconfirmed ? { unconfirmed: true } : {}),
+        ...(outcome.ended ? { ended: true } : {}),
+        ...(outcome.dialog ? { dialog: true } : {}),
+      })
     }
 
     // The shared composer (#73 pass-bar item 4): tmux gives two attached

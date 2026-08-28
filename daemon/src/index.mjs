@@ -1685,6 +1685,7 @@ const timeline = new TimelineSurface({
       const key = consoleKeyForSession(session)
       if (!key) return null
       return {
+        key,
         cfgDir: overseerContainer.configDir,
         sessionId: reduction.overseerSession(key) ?? null,
         // #708, ADR-0024: the message goes into the conversation's own live

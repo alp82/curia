@@ -15,6 +15,12 @@ export class ActionCoordinator {
     return this.reduction.actionsOnWire()
   }
 
+  confirm(actionId, detail = {}) {
+    const current = this.get(actionId)
+    if (!current || TERMINAL.has(current.status)) return current
+    return this.reduction.recordAction({ ...current, ...detail, status: 'confirmed' })
+  }
+
   settled(actionId) {
     const running = this.running.get(String(actionId))
     if (running) return running.settled
@@ -52,6 +58,7 @@ export class ActionCoordinator {
         const current = this.get(actionId)
         if (TERMINAL.has(current?.status)) return current
         if (accepted) {
+          if (out.status === 'accepted' || out.status === 'progress') return current
           const status = out.status === 'failed' ? 'failed' : 'confirmed'
           return write(status, out)
         }

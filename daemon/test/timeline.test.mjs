@@ -679,6 +679,7 @@ describe('TimelineSurface', () => {
   const drivenCfg = () => path.join(tmp, 'overseer-config')
   const turns = [] // every text handed to the driver
   let turnFails = null // a message to throw from send()
+  let driverDelivery = null
   // The conversation key's live session id, as the daemon journals it (#332).
   // Read per driverFor call, exactly as index.mjs reads it off the reduction.
   let drivenSessionId = 'browser-1111'
@@ -746,11 +747,13 @@ describe('TimelineSurface', () => {
         sessionAlive: async (session) => !endedSessions.has(session),
         driverFor: (session) => (session === DRIVEN
           ? {
+            key: 'console-2',
             cfgDir: drivenCfg(),
             sessionId: drivenSessionId,
             send: async (text) => {
               if (turnFails) throw new Error(turnFails)
               turns.push(text)
+              return driverDelivery
             },
           }
           : null),
@@ -876,10 +879,15 @@ describe('TimelineSurface', () => {
       assert.equal(taken.status, 200)
 
       const res = await fetch(`http://127.0.0.1:${port}/send`, {
-        method: 'POST', body: JSON.stringify({ session: 'curia-9', text: 'Use production instead.' }),
+        method: 'POST', body: JSON.stringify({
+          session: 'curia-9', text: 'Use production instead.', action_id: 'atlas-chat-correction',
+        }),
       })
 
       assert.equal(res.status, 200)
+      const action = (await res.json()).action
+      assert.equal(action.kind, 'chat-message-correction')
+      assert.equal(action.status, 'confirmed')
       assert.deepEqual(correctionCalls.at(-1), {
         session: 'curia-9', role: 'agent',
         correction: { kind: 'note', id: 'note-4', prefix: 'Correction to the note above:' },
@@ -1001,6 +1009,25 @@ describe('TimelineSurface', () => {
     })
   })
 
+  test('a delivered message returns confirmed Action evidence and retry does not send twice', async () => {
+    const body = {
+      session: 'curia-9', text: 'hello once', action_id: 'atlas-chat-send-1',
+    }
+    const first = await post('/send', body)
+    assert.equal(first.status, 200)
+    const evidence = (await first.json()).action
+    assert.equal(evidence.kind, 'chat-message')
+    assert.equal(evidence.target, 'curia-9')
+    assert.equal(evidence.conflict_key, 'turn:curia-9')
+    assert.equal(evidence.status, 'confirmed')
+    assert.deepEqual(evidence.receipt, { outcome: 'delivered' })
+
+    const count = sent.length
+    const retry = await post('/send', body)
+    assert.equal((await retry.json()).action.status, 'confirmed')
+    assert.equal(sent.length, count, 'the same Action identity delivers the message once')
+  })
+
   test('a pane key returns shared confirmed Action evidence under its pane conflict', async () => {
     const bad = await fetch(`http://127.0.0.1:${port}/key`, {
       method: 'POST', body: JSON.stringify({ session: 'curia-9', key: 'delete-everything' }),
@@ -1015,7 +1042,7 @@ describe('TimelineSurface', () => {
     assert.deepEqual(await esc.json(), {
       action: {
         action_id: 'atlas-pane-key-1', kind: 'pane-key', target: 'curia-9',
-        conflict_key: 'pane:curia-9', status: 'confirmed', revision: 1,
+        conflict_key: 'pane:curia-9', status: 'confirmed', revision: actions.get('atlas-pane-key-1').revision,
         started_at: actions.get('atlas-pane-key-1').started_at,
         updated_at: actions.get('atlas-pane-key-1').updated_at,
         receipt: { key: 'Escape' },
@@ -1131,6 +1158,32 @@ describe('TimelineSurface', () => {
     }
   })
 
+  test('an unconfirmed message stays progressing until shared evidence confirms delivery', async () => {
+    delivery = { status: 'unconfirmed', pane: PANE_COMPOSER }
+    try {
+      const r = await post('/send', {
+        session: 'curia-9', text: 'check this action once', action_id: 'atlas-chat-unconfirmed',
+      })
+      assert.equal(r.status, 202)
+      await new Promise((resolve) => setImmediate(resolve))
+      const action = actions.get('atlas-chat-unconfirmed')
+      assert.equal(action.status, 'progress')
+      assert.deepEqual(action.receipt, { outcome: 'sent_unconfirmed' })
+
+      const dir = path.join(workspaceRoot(), 'cfg', 'curia-9', 'projects', 'p')
+      fs.mkdirSync(dir, { recursive: true })
+      fs.writeFileSync(path.join(dir, 'action-confirm.jsonl'), `${JSON.stringify({
+        type: 'user', timestamp: new Date(Date.now() + 1000).toISOString(),
+        message: { content: 'check this action once' },
+      })}\n`)
+      await sse(port, 'session=curia-9&once=1')
+      assert.equal(actions.get('atlas-chat-unconfirmed').status, 'confirmed')
+      assert.deepEqual(actions.get('atlas-chat-unconfirmed').receipt, { outcome: 'delivered' })
+    } finally {
+      delivery = null
+    }
+  })
+
   test('a pane that stays active reports that no text was sent', async () => {
     delivery = { status: 'not-sent', pane: '✻ Working' }
     try {
@@ -1138,6 +1191,21 @@ describe('TimelineSurface', () => {
       assert.equal(r.status, 409)
       assert.match((await r.json()).error, /did not send/)
       assert.equal(journal.findLast((x) => x.type === 'timeline_send').outcome, 'not_sent')
+    } finally {
+      delivery = null
+    }
+  })
+
+  test('a pane that stays active refuses its message Action as not sent', async () => {
+    delivery = { status: 'not-sent', pane: '✻ Working' }
+    try {
+      const r = await post('/send', {
+        session: 'curia-9', text: 'keep this', action_id: 'atlas-chat-not-sent',
+      })
+      assert.equal(r.status, 409)
+      const action = (await r.json()).action
+      assert.equal(action.status, 'refused')
+      assert.deepEqual(action.receipt, { outcome: 'not_sent' })
     } finally {
       delivery = null
     }
@@ -1436,6 +1504,30 @@ describe('TimelineSurface', () => {
     const j = journal.findLast((x) => x.type === 'timeline_send')
     assert.equal(j.session, DRIVEN)
     assert.equal(j.outcome, 'sent')
+  })
+
+  test('an overseer message returns accepted evidence before its long turn finishes', async () => {
+    let complete
+    driverDelivery = { completion: new Promise((resolve) => { complete = resolve }) }
+    try {
+      const r = await post('/send', {
+        session: DRIVEN, text: 'inspect the frontier', action_id: 'atlas-chat-overseer',
+      })
+      assert.equal(r.status, 202)
+      const accepted = (await r.json()).action
+      assert.equal(accepted.status, 'accepted')
+      assert.equal(accepted.target, 'console-2')
+      assert.equal(accepted.conflict_key, 'turn:console-2')
+
+      await new Promise((resolve) => setImmediate(resolve))
+      assert.equal(actions.get('atlas-chat-overseer').status, 'progress')
+      assert.match(actions.get('atlas-chat-overseer').progress, /waiting for the overseer response/i)
+
+      complete({ ok: true })
+      assert.equal((await actions.settled('atlas-chat-overseer')).status, 'confirmed')
+    } finally {
+      driverDelivery = null
+    }
   })
 
   test('a turn that ends without an answer comes back as WORDS, never as silence', async () => {

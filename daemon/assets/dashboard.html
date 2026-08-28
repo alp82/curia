@@ -3715,6 +3715,9 @@ function chatReceive(name, d) {
     c.draft = d.text; c.mirror = !!d.text;
   } else if (name === "sent") {
     c.mirror = false;
+    const action = d.action_id ? actionFor({ action_id: d.action_id }) : null;
+    if (["chat-message", "chat-message-correction"].includes(action?.kind)
+      && c.draft === action.projection?.text) c.draft = "";
     if (d.by !== c.client) chatNote(`sent from the other device: ${snip(d.text, 80)}`);
     return render();
   } else {
@@ -4048,7 +4051,11 @@ function chatDialog(c) {
 
 function chatComposer(c, role, ended) {
   if (ended) return `<div class="composer ended"><span class="dim-note">${esc(ENDED_SENTENCE(c.session))}</span></div>`;
-  const k = "chat-send";
+  const k = `turn:${chatConversationKey(c.session)}`;
+  const messageAction = actionFor({ conflict_key: k });
+  const messageProgress = messageAction
+    ? `<div class="dialog-note">${esc(messageAction.progress || "Sending your message…")}</div>`
+    : "";
   const paneKey = actionFor({ conflict_key: `pane:${c.session}` });
   return `<div class="composer">
     ${c.mirror ? `<div class="dim-note">the other device is typing…</div>` : ""}
@@ -4057,8 +4064,13 @@ function chatComposer(c, role, ended) {
       <button class="btn sm" ${busy("chat-take-back") ? "disabled" : ""} onclick="doTakeBack()" title="take back your last message">${busy("chat-take-back") ? "…" : "Take back"}</button>
       ${role === "ticket" ? `<button class="btn sm" ${paneKey ? "disabled" : ""} onclick="doChatKey('escape')" title="send Escape to the agent">${paneKey ? "Sending Esc…" : "Esc"}</button>` : ""}
       <span class="grow"></span>
-      <button class="btn primary" ${busy(k) ? "disabled" : ""} onclick="doChatSend()">${busy(k) ? "Sending…" : "Send"}</button>
-    </div>${said(k)}${said("chat-take-back")}${said("chat-key")}</div>`;
+      <button class="btn primary" ${messageAction ? "disabled" : ""} onclick="doChatSend()">${messageAction ? "Sending…" : "Send"}</button>
+    </div>${messageProgress}${said(k)}${said("chat-take-back")}${said("chat-key")}</div>`;
+}
+
+function chatConversationKey(session) {
+  const match = /^curia-(console-[1-9][0-9]*)$/.exec(String(session ?? ""));
+  return match ? match[1] : String(session ?? "");
 }
 
 /* The shared composer (#73): the draft goes to the other device, 200ms after
@@ -4091,19 +4103,38 @@ async function doChatSend() {
   const text = chat.draft;
   if (!text.trim()) return;
   if (chatEnded()) return refuse("chat-send", ENDED_SENTENCE(chat.session));
-  const action = beginLocalAction("chat-send");
+  const conversation = chatConversationKey(chat.session);
+  const actionId = `atlas-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
+  const action = beginAction({
+    action_id: actionId, kind: "chat-message", target: conversation,
+    conflict_key: `turn:${conversation}`, projection: { text },
+  });
   if (!action) return;
   UI.act.said = null;
-  chat.draft = "";
   render();
-  const r = await chatPost("/send", { text });
-  finishAction(action.action_id);
-  if (r.error) {
-    if (!r.unconfirmed) chat.draft = text;
-    UI.act.said = { key: "chat-send", ok: false, text: (r.unconfirmed ? "send unconfirmed: " : "send failed: ") + r.error };
+  const r = await chatPost("/send", { text, action_id: actionId });
+  observeActions(r.action ? [r.action] : []);
+  reconcileChatMessageActions();
+  if (!r.action && r.error) {
+    UI.act.said = { key: `turn:${conversation}`, ok: false, text: `Curia could not check the outcome yet: ${r.error}` };
   }
   chat.stick = true;
   render();
+}
+function reconcileChatMessageActions() {
+  for (const action of [...actions.values()]) {
+    if (!["chat-message", "chat-message-correction"].includes(action.kind)) continue;
+    if (action.target !== chatConversationKey(chat.session)) continue;
+    const outcome = action.receipt?.outcome;
+    if (["delivered", "sent_unconfirmed"].includes(outcome) || action.status === "confirmed") {
+      if (chat.draft === action.projection?.text) chat.draft = "";
+    }
+    if (!TERMINAL_ACTION.has(action.status)) continue;
+    if (action.status !== "confirmed") {
+      UI.act.said = { key: action.conflict_key, ok: false, text: action.reason || "Curia could not deliver the message." };
+    }
+    finishAction(action.action_id);
+  }
 }
 async function doTakeBack() {
   const action = beginLocalAction("chat-take-back");
@@ -4795,6 +4826,7 @@ async function tick() {
     payload = await res.json();
     observeActions(payload?.overview?.actions);
     reconcileStartActions(payload?.overview);
+    reconcileChatMessageActions();
     reconcilePaneKeyActions();
     reconcileDialogAnswerActions();
     reconcileGitHubAppActions();
