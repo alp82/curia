@@ -853,13 +853,18 @@ describe('the operator verbs (#266)', () => {
 
   // ---- what crosses the wire -----------------------------------------------
 
-  test('start composes the command — the browser names a repo and a number, never a line of text', async () => {
+  test('start composes the command and returns the daemon\'s first Action evidence unchanged', async () => {
+    const accepted = {
+      action_id: '0198f137-5664-7abc-8def-0123456789ab', kind: 'dispatch', target: 'alp82/curia#266',
+      conflict_key: 'dispatch:alp82/curia#266', status: 'accepted', revision: 42,
+    }
+    reply['/command'] = [200, { action: accepted }]
     const res = await press('/api/start', { repo: 'alp82/curia', ticket: '266', action_id: '0198f137-5664-7abc-8def-0123456789ab' })
     assert.equal(res.status, 200)
     assert.deepEqual(sent('/command').body.text, 'start alp82/curia#266')
     assert.equal(sent('/command').body.action_id, '0198f137-5664-7abc-8def-0123456789ab')
     assert.equal(sent('/command').origin, null, 'the daemon refuses every request carrying one')
-    assert.match(JSON.parse(res.text).reply, /spawned/, "curia's own sentence comes back whole")
+    assert.deepEqual(JSON.parse(res.text).action, accepted)
   })
 
   test('cancel and teleport go through the same seam, so both land in the journal', async () => {

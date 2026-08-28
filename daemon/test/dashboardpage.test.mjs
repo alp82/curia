@@ -2292,6 +2292,122 @@ describe('the operator verbs (#266)', () => {
       delete p.overview.maps.maps[0].takeable[0].model
       assert.match(text(takeable(p)), /the routed model is not on this reading/)
     })
+
+    test('a valid press moves the ticket to Running in the same turn and reserves only that Start', () => {
+      let sent
+      const local = loadPage({
+        fetchImpl: async (_path, request) => {
+          sent = JSON.parse(request.body)
+          return new Promise(() => {})
+        },
+      })
+      local.payload = payload()
+      local.UI.maps = { repo: 'all', selected: { repo: 'alp82/curia', map: 244 }, open: false }
+
+      vm.runInContext("startTicket('alp82/curia', '265')", local)
+
+      const action = local.actionFor({ target: 'alp82/curia#265' })
+      assert.equal(action.status, 'pending')
+      assert.equal(action.kind, 'dispatch')
+      assert.equal(action.conflict_key, 'dispatch:alp82/curia#265')
+      assert.equal(sent.action_id, action.action_id)
+      const html = local.screenMaps(local.payload)
+      const running = /<section class="map-stage in-flight[\s\S]*?(?=<section class="map-stage takeable)/.exec(html)?.[0]
+      const frontier = /<section class="map-stage takeable[\s\S]*?(?=<section class="map-stage blocked)/.exec(html)?.[0]
+      assert.match(text(running), /#265 The settings write starting/)
+      assert.doesNotMatch(frontier, /#265/)
+      assert.match(frontier, /startTicket\('alp82\/curia','266'\)/)
+    })
+
+    test('shared claim, preparation, and spawn evidence advance the Running row until the map catches up', async () => {
+      let actionId
+      const shared = (revision, status, extra = {}) => ({
+        action_id: actionId, kind: 'dispatch', target: 'alp82/curia#265',
+        conflict_key: 'dispatch:alp82/curia#265', status, revision,
+        started_at: '2026-08-28T10:00:00.000Z', updated_at: '2026-08-28T10:00:01.000Z',
+        ...extra,
+      })
+      const local = loadPage({
+        fetchImpl: async (path, request) => {
+          if (path !== '/api/start') return new Promise(() => {})
+          actionId = JSON.parse(request.body).action_id
+          return { ok: true, json: async () => ({ action: shared(10, 'accepted') }) }
+        },
+      })
+      local.payload = payload()
+      local.UI.maps = { repo: 'all', selected: { repo: 'alp82/curia', map: 244 }, open: false }
+
+      await vm.runInContext("startTicket('alp82/curia', '265')", local)
+      assert.match(text(local.screenMaps(local.payload)), /#265 The settings write claimed · opening the thread/)
+
+      local.observeActions([shared(11, 'progress', { progress: 'Preparing the agent workspace' })])
+      assert.match(text(local.screenMaps(local.payload)), /#265 The settings write Preparing the agent workspace/)
+
+      local.observeActions([shared(12, 'confirmed')])
+      assert.match(text(local.screenMaps(local.payload)), /#265 The settings write running/)
+
+      const caughtUp = payload()
+      const map = caughtUp.overview.maps.maps[0]
+      const item = map.takeable.shift()
+      map.in_flight.push({ ...item, assignees: ['curia-sh[bot]'], agent: { session: 'curia-265', model: item.model } })
+      map.counts.takeable -= 1
+      map.counts.in_flight += 1
+      local.reconcileStartActions(caughtUp.overview)
+      assert.equal(local.actionFor({ action_id: actionId }), null)
+      assert.match(text(local.screenMaps(caughtUp)), /#265 The settings write working/)
+    })
+
+    test('a refusal or post-claim failure returns the ticket to Frontier with the reason in context', async () => {
+      for (const [status, reason] of [
+        ['refused', 'the ticket is already assigned'],
+        ['failed', 'the agent workspace could not be prepared'],
+      ]) {
+        let actionId
+        const local = loadPage({
+          fetchImpl: async (path, request) => {
+            if (path !== '/api/start') return new Promise(() => {})
+            actionId = JSON.parse(request.body).action_id
+            return { ok: true, json: async () => ({ action: {
+              action_id: actionId, kind: 'dispatch', target: 'alp82/curia#265',
+              conflict_key: 'dispatch:alp82/curia#265', status, revision: 20, reason,
+            } }) }
+          },
+        })
+        local.payload = payload()
+        local.UI.maps = { repo: 'all', selected: { repo: 'alp82/curia', map: 244 }, open: false }
+
+        await vm.runInContext("startTicket('alp82/curia', '265')", local)
+
+        assert.equal(local.actionFor({ action_id: actionId }), null)
+        const html = local.screenMaps(local.payload)
+        assert.match(html, /startTicket\('alp82\/curia','265'\)/)
+        assert.match(html, /class="said bad"/)
+        assert.match(text(html), new RegExp(reason))
+      }
+    })
+
+    test('a late no-response error cannot overwrite shared progress', async () => {
+      let rejectStart
+      const local = loadPage({
+        fetchImpl: (path) => path === '/api/start'
+          ? new Promise((_resolve, reject) => { rejectStart = reject })
+          : new Promise(() => {}),
+      })
+      local.payload = payload()
+      local.UI.maps = { repo: 'all', selected: { repo: 'alp82/curia', map: 244 }, open: false }
+      const pending = vm.runInContext("startTicket('alp82/curia', '265')", local)
+      const action = local.actionFor({ target: 'alp82/curia#265' })
+      local.observeActions([{
+        ...action, status: 'progress', revision: 30, progress: 'Preparing the agent workspace',
+      }])
+
+      rejectStart(new Error('the daemon did not answer /command within 5s'))
+      await pending
+
+      assert.equal(local.UI.act.said, null)
+      assert.equal(local.actionFor({ action_id: action.action_id }).status, 'progress')
+      assert.doesNotMatch(text(local.screenMaps(local.payload)), /did not answer/)
+    })
   })
 
   // ---- answer --------------------------------------------------------------

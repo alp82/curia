@@ -1071,7 +1071,40 @@ function typed(id) {
 
 /* ---- the verbs themselves ---- */
 
-const startTicket = (repo, ticket) => verb(`start:${repo}#${ticket}`, "/api/start", { repo, ticket: String(ticket) });
+async function startTicket(repo, ticket) {
+  const target = `${repo}#${ticket}`;
+  const key = `start:${target}`;
+  const actionId = `atlas-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
+  const action = beginAction({
+    action_id: actionId, kind: "dispatch", target, conflict_key: `dispatch:${target}`,
+    projection: { phase: "starting" },
+  });
+  if (!action) return null;
+  UI.act.said = null;
+  render();
+  try {
+    const res = await fetch("/api/start", {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({ repo, ticket: String(ticket), action_id: actionId }),
+    });
+    const b = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(b.error || ("the console answered " + res.status));
+    observeActions(b.action ? [b.action] : []);
+    reconcileStartActions(payload?.overview);
+  } catch (e) {
+    const current = actionFor({ action_id: actionId });
+    /* Shared progress outranks a late transport warning. The overview poll can
+       observe acceptance while the original browser request is still ending. */
+    if (!current || current.status === "pending") {
+      UI.act.said = { key, text: e.message, ok: false };
+      finishAction(actionId);
+    }
+  }
+  render();
+  tick();
+  return actionFor({ action_id: actionId });
+}
 /* One answer, three shapes (#712, ADR-0025): words, an option index, or
    files. The index is what a button, a select and a numbered reply all send,
    so a Discord press and an Atlas tap resolve the same option. Files ride the
@@ -2409,6 +2442,67 @@ function mapSnapshot(o) {
 function mapsOf(o) {
   return mapSnapshot(o).maps ?? [];
 }
+
+function startActionFor(repo, number) {
+  const action = actionFor({ target: `${repo}#${number}` });
+  return action?.kind === "dispatch" ? action : null;
+}
+
+function projectedMap(map) {
+  const inFlight = (map.in_flight ?? []).map((item) => ({
+    ...item, action: startActionFor(map.repo, item.number),
+  }));
+  const promoted = [];
+  const takeable = (map.takeable ?? []).filter((item) => {
+    const action = startActionFor(map.repo, item.number);
+    if (!action || action.status === "refused" || action.status === "failed") return true;
+    if (!inFlight.some((running) => String(running.number) === String(item.number))) {
+      promoted.push({ ...item, action });
+    }
+    return false;
+  });
+  if (!promoted.length && takeable.length === (map.takeable ?? []).length) {
+    return { ...map, in_flight: inFlight };
+  }
+  return {
+    ...map,
+    in_flight: [...inFlight, ...promoted],
+    takeable,
+    counts: {
+      ...map.counts,
+      in_flight: Number(map.counts?.in_flight ?? inFlight.length) + promoted.length,
+      takeable: Math.max(0, Number(map.counts?.takeable ?? takeable.length) - promoted.length),
+    },
+  };
+}
+
+function reconcileStartActions(o) {
+  for (const action of [...actions.values()]) {
+    if (action.kind !== "dispatch" || !TERMINAL_ACTION.has(action.status)) continue;
+    const split = /^(.*)#([^#]+)$/.exec(action.target);
+    if (!split) continue;
+    const [, repo, ticket] = split;
+    const key = `start:${action.target}`;
+    if (action.status === "refused" || action.status === "failed") {
+      UI.act.said = { key, text: action.reason ?? (action.status === "refused" ? "Start was refused." : "Start failed."), ok: false };
+      finishAction(action.action_id);
+      continue;
+    }
+    const running = agentOn(o, repo, ticket)
+      || mapsOf(o).some((map) => map.repo === repo
+        && (map.in_flight ?? []).some((item) => String(item.number) === ticket));
+    if (running) finishAction(action.action_id);
+  }
+}
+
+function startPhase(action) {
+  if (!action) return null;
+  if (action.status === "pending") return "starting";
+  if (action.status === "accepted") return "claimed · opening the thread";
+  if (action.status === "progress") return action.progress ?? "preparing the agent workspace";
+  if (action.status === "confirmed") return "running";
+  return null;
+}
 /* The fog is a list of facts, each with its own text — never a bare string,
    so a later reading can hang more on a patch without moving this page. */
 const fogText = (note) => String(note?.text ?? note ?? "");
@@ -2430,7 +2524,8 @@ function visibleMaps(o) {
   return mapsOf(o)
     .filter((map) => UI.maps.repo === "all" || map.repo === UI.maps.repo)
     .sort((a, b) => Number(mapNeeds(o, b)) - Number(mapNeeds(o, a))
-      || Date.parse(b.latest_event_at ?? 0) - Date.parse(a.latest_event_at ?? 0));
+      || Date.parse(b.latest_event_at ?? 0) - Date.parse(a.latest_event_at ?? 0))
+    .map(projectedMap);
 }
 
 function selectedMap(o, maps) {
@@ -2505,7 +2600,7 @@ function mapDetailRows(o, map, group) {
       const agent = item.agent ?? agentOn(o, map.repo, item.number);
       const who = (item.assignees ?? []).join(", ");
       return `<div class="map-detail-row">${issue}<span class="sub">${
-        mapNeeds(o, { ...map, in_flight: [item] }) ? "needs you" : "working"}${
+        startPhase(item.action) ?? (mapNeeds(o, { ...map, in_flight: [item] }) ? "needs you" : "working")}${
         who ? ` · ${esc(who)}` : ""}${agent?.model ? ` · ${esc(agent.model)}` : ""}</span></div>`;
     }
     return `<div class="map-detail-row">${issue}<span class="sub">done</span></div>`;
@@ -2520,7 +2615,7 @@ function mapDetail(o, map) {
     <a class="map-back" href="#maps" onclick="mapBack();return false">\u2039 maps</a>
     <h3>${esc(map.title)} · full map</h3>${mapBand(o, map, true)}<div class="map-rail">${MAP_GROUPS.map(([group, word]) => {
       const needs = group === "in_flight" && mapNeeds(o, map);
-      const working = group === "in_flight" && (map.in_flight ?? []).some((item) => item.agent ?? agentOn(o, map.repo, item.number));
+      const working = group === "in_flight" && (map.in_flight ?? []).some((item) => item.action ?? item.agent ?? agentOn(o, map.repo, item.number));
       const count = Number(map.counts?.[group] ?? 0);
       return `<section class="map-stage ${group.replace("_", "-")}${needs ? " needs" : ""}" style="--stage:${
         group === "walked" ? "var(--map-done-ink)" : group === "in_flight" ? "var(--map-run-line)" : group === "takeable" ? "var(--accent)" : group === "blocked" ? "color-mix(in srgb, var(--bad) 72%, var(--ink-dim))" : "var(--ink-dim)"}">
@@ -4532,6 +4627,7 @@ async function tick() {
     if (!res.ok) throw new Error("the sidecar answered " + res.status);
     payload = await res.json();
     observeActions(payload?.overview?.actions);
+    reconcileStartActions(payload?.overview);
     reachable = true;
     if (UI.screen === "feed" && UI.feed.operator !== payload.operator) recordFeedVisit();
   } catch {
