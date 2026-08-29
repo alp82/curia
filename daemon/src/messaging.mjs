@@ -330,11 +330,14 @@ export function failureProse(raw) {
 //
 // An unknown harness takes the working line. That is the default lane, and a
 // session adopted from before the harness was recorded is a claude one.
-export function handOffLine({ agent, ticket, harness = null, live = false, spoken = false }) {
+export function handOffLine({
+  agent, ticket, harness = null, live = false, spoken = false, strandedCall = false,
+}) {
   if (!live) return `${SIGNALS.ok} recorded — \`${agent}\` is not running; \`resume ${ticket}\` hands it over`
-  if (harness === 'codex' && !spoken) {
+  if (strandedCall) {
+    const harnessName = harness ?? 'Harness'
     return `${SIGNALS.warn} recorded, and \`${agent}\` did not get it.`
-      + ' That codex agent has not spoken since this daemon started, so its own call died with no last word.'
+      + ` That ${harnessName} agent has not spoken since this daemon started, so its own call died with no last word.`
       + ' It is parked, and it reads nothing until that call times out, a day out.'
       + ` To hand this answer over: \`cancel ${ticket}\`, then \`resume ${ticket}\`.`
   }

@@ -55,8 +55,21 @@ export function writeClaudeConnection({
 }
 
 export const CLAUDE_WORKSPACE = Object.freeze({
+  configRootEnv: CLAUDE_CONFIG_ROOT_ENV,
   memoryFile: CLAUDE_MEMORY_FILE,
   provider: 'anthropic',
+  repoSkillRoots: CLAUDE_REPO_SKILL_ROOTS,
+  untrustedProjectConfig: claudeUntrustedProjectConfig,
+  connectionWorktree: ({ hostWtPath }) => hostWtPath,
+  skillInvocation: ({ skill, skillTarget }) => (
+    skill ? `/${skill}${skillTarget ? ` ${skillTarget}` : ''}` : null
+  ),
+  wayfinderInvocation: ({ newMap, mapUrl, ticket, charting }) => {
+    if (newMap) return '/wayfinder'
+    if (!mapUrl) return null
+    return `/wayfinder ${mapUrl}${charting ? '' : ` ticket #${ticket}`}`
+  },
+  deferredToolOrders: () => [],
   hostStore: () => path.join(os.homedir(), '.claude'),
   env: (cfgDir, { sandboxed = false } = {}) => ({
     [CLAUDE_CONFIG_ROOT_ENV]: cfgDir,
@@ -107,6 +120,6 @@ export const CLAUDE_WORKSPACE = Object.freeze({
   },
 })
 
-export const claudeUntrustedProjectConfig = (wtPath) => (
-  path.join(wtPath, '.claude', 'settings.local.json')
-)
+export function claudeUntrustedProjectConfig(wtPath) {
+  return path.join(wtPath, '.claude', 'settings.local.json')
+}

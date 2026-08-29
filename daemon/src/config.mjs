@@ -554,7 +554,7 @@ export function loadRoutingConfig(file, { localFile } = {}) {
       fail(src, `models.${name}.reasoning_effort must be one of ${REASONING_EFFORTS.join('|')} (got ${JSON.stringify(m.reasoning_effort)})`)
     }
     if (m.reasoning_effort !== undefined
-      && !harnessReasoningEffort(m.harness, m.reasoning_effort)) {
+      && !harnessReasoningEffort(m.harness, m.reasoning_effort, HARNESS_REGISTRY)) {
       fail(src, `models.${name}.reasoning_effort "${m.reasoning_effort}" is not supported by the ${m.harness} harness`)
     }
     // Optional (#146), and since #178 the LAST resort for the status line's
@@ -607,7 +607,7 @@ export function loadRoutingConfig(file, { localFile } = {}) {
       fail(src, `defaults.${type} names "${model}", which is \`active: false\` — either turn that model on or point this row at an active one`)
     }
     if (typeof route === 'object' && route.effort
-      && !harnessReasoningEffort(cfg.models[model].harness, route.effort)) {
+      && !harnessReasoningEffort(cfg.models[model].harness, route.effort, HARNESS_REGISTRY)) {
       fail(src, `defaults.${type}.effort "${route.effort}" is not supported by the ${cfg.models[model].harness} harness`)
     }
   }

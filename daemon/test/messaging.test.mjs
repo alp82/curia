@@ -287,7 +287,9 @@ describe('elapsedLabel', () => {
 // parked. `spoken` is what separates the two, and a SIGKILL is the death that
 // leaves it false.
 describe('handOffLine (#139, corrected by #457)', () => {
-  const parked = { agent: 'curia-7', ticket: '7', harness: 'codex', live: true, spoken: false }
+  const parked = {
+    agent: 'curia-7', ticket: '7', harness: 'codex', live: true, spoken: false, strandedCall: true,
+  }
 
   test('an agent that is not running gets the resume verb, whatever its harness', () => {
     for (const harness of ['claude', 'codex', null]) {
@@ -329,7 +331,7 @@ describe('handOffLine (#139, corrected by #457)', () => {
   // that reached this daemon is therefore working, not parked, and the warning
   // would send the operator to cancel it for nothing.
   test('a codex agent that has spoken to this daemon is working, not parked', () => {
-    const line = handOffLine({ ...parked, spoken: true })
+    const line = handOffLine({ ...parked, spoken: true, strandedCall: false })
     assert.match(line, /gets this answer with its next tool result/)
     assert.ok(!line.includes('cancel 7'), 'a working agent was offered the cancel verb')
   })

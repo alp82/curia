@@ -1,4 +1,11 @@
 import { setTimeout as sleep } from 'node:timers/promises'
+import {
+  claudeTranscriptFiles,
+  claudeTranscriptForSession,
+  claudeTranscriptPresent,
+  parseClaudeTranscriptEvent,
+} from './claudetranscript.mjs'
+import { CLAUDE_WORKSPACE } from './claudeworkspace.mjs'
 
 const call = (ports, port, operation, ...args) => {
   const fn = ports?.[port]?.[operation]
@@ -14,6 +21,10 @@ export const CLAUDE_CAPABILITIES = Object.freeze({
   transcriptUsage: true,
   nativeSkills: true,
   richMetadata: true,
+})
+
+const CLAUDE_EFFORTS = Object.freeze({
+  low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max', ultra: 'ultracode',
 })
 
 const ready = (paneText) => {
@@ -54,6 +65,19 @@ async function switchModel({ session, model, readbackMs = 15_000 }, ports) {
   }
 }
 
+async function rewind({ session, target }, ports) {
+  for (const key of ['Escape', 'Escape', 'Up', 'Enter', 'Enter', 'C-c']) {
+    await call(ports, 'pane', 'key', session, key)
+  }
+  return {
+    landingId: target?.parentUuid ?? null,
+    remains: [
+      'Files restored with the conversation.',
+      'Shell side effects, Curia verbs, subagent edits, and commits stand.',
+    ],
+  }
+}
+
 export function createClaudeHarnessAdapter({ buildFreshCommand, buildResumeCommand, classifyLimit }) {
   return {
     identity: {
@@ -63,6 +87,7 @@ export function createClaudeHarnessAdapter({ buildFreshCommand, buildResumeComma
       configLayoutVersion: 1,
     },
     setup: {
+      workspace: CLAUDE_WORKSPACE,
       refuseRepository: (context, ports) => call(ports, 'filesystem', 'refuseRepository', context),
       prepare: (context, ports) => call(ports, 'filesystem', 'prepare', context),
     },
@@ -74,8 +99,20 @@ export function createClaudeHarnessAdapter({ buildFreshCommand, buildResumeComma
       processDied: (context, ports) => call(ports, 'process', 'died', context),
       interrupt: (context, ports) => call(ports, 'process', 'interrupt', context),
       send: (context, ports) => call(ports, 'pane', 'send', context),
+      strandedCallRecovery: () => false,
+      rewind,
     },
     evidence: {
+      native: Object.freeze({
+        files: claudeTranscriptFiles,
+        namesSession: claudeTranscriptForSession,
+        present: claudeTranscriptPresent,
+        parse: parseClaudeTranscriptEvent,
+        identity: (event) => event?.uuid
+          ? { id: String(event.uuid), parentId: event.parentUuid == null ? null : String(event.parentUuid) }
+          : null,
+        unknownType: (event) => String(event?.type),
+      }),
       discover: (context, ports) => call(ports, 'transcript', 'discover', context),
       events: (context, ports) => call(ports, 'transcript', 'events', context),
       activity: (context, ports) => call(ports, 'transcript', 'activity', context),
@@ -85,7 +122,7 @@ export function createClaudeHarnessAdapter({ buildFreshCommand, buildResumeComma
       capabilities: CLAUDE_CAPABILITIES,
       operations: {
         modelSwitch: switchModel,
-        reasoningEffort: (context, ports) => call(ports, 'pane', 'reasoningEffort', context),
+        reasoningEffort: (effort) => CLAUDE_EFFORTS[effort] ?? null,
         transcriptUsage: (context, ports) => call(ports, 'transcript', 'usage', context),
         nativeSkills: (context, ports) => call(ports, 'filesystem', 'nativeSkills', context),
         richMetadata: (context, ports) => call(ports, 'transcript', 'richMetadata', context),

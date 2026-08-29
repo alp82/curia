@@ -27,20 +27,23 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
-import {
-  claudeTranscriptFiles,
-  claudeTranscriptForSession,
-  claudeTranscriptPresent,
-  parseClaudeTranscriptEvent,
-} from './claudetranscript.mjs'
-import {
-  codexTranscriptFiles,
-  codexTranscriptForSession,
-  codexTranscriptPresent,
-  parseCodexTranscriptEvent,
-} from './codextranscript.mjs'
+let defaultRegistry = null
 
-export const TRANSCRIPT_HARNESSES = ['claude', 'codex']
+export function setTranscriptHarnessRegistry(registry) {
+  defaultRegistry = registry
+}
+
+function adapterFor(candidate, registry = defaultRegistry) {
+  if (!registry) throw new Error('the Harness transcript registry is not initialized')
+  return candidate?.identity ? candidate : registry.get(candidate)
+}
+
+function nativeFor(candidate, registry = defaultRegistry) {
+  const adapter = adapterFor(candidate, registry)
+  const native = adapter.evidence.native
+  if (!native) throw new Error(`Harness "${adapter.identity.name}" has no transcript implementation`)
+  return native
+}
 
 // Which harness wrote this config dir, by positive on-disk evidence: the claude
 // harness creates `projects/`, codex's creates `sessions/`. Null when
@@ -48,9 +51,10 @@ export const TRANSCRIPT_HARNESSES = ['claude', 'codex']
 // never a guess. The dispatcher's own agent record wins over this probe when
 // it has one (it knows what it spawned); this is the fallback for re-adopted
 // and lab sessions.
-export function detectHarness(cfgDir) {
-  if (claudeTranscriptPresent(cfgDir)) return 'claude'
-  if (codexTranscriptPresent(cfgDir)) return 'codex'
+export function detectHarness(cfgDir, registry = defaultRegistry) {
+  for (const adapter of registry.values()) {
+    if (nativeFor(adapter, registry).present(cfgDir)) return adapter.identity.name
+  }
   return null
 }
 
@@ -71,19 +75,12 @@ function newestFile(files) {
 // A spawned codex subagent writes a second rollout into its parent's config
 // directory. Its first line identifies it, so it must not win the parent's
 // newest-file lookup while the parent waits (#544, #545).
-const FILES = { claude: claudeTranscriptFiles, codex: codexTranscriptFiles }
-
 // What each harness NAMES a session's transcript. The claude harness names the
 // file after the session id — measured on the box (docs/live-checks/
 // 332-transcript-by-key.md). The codex harness puts the rollout's start time in
 // front of it, which is read off the name shape this module already walks
 // rather than measured: no codex conversation is keyed today, because the
 // overseer is the one thing curia keys and it runs the claude harness.
-const NAMES_SESSION = {
-  claude: claudeTranscriptForSession,
-  codex: codexTranscriptForSession,
-}
-
 // The newest root transcript in a config dir, by mtime.
 //
 // This answers for a PANE. Curia gives every root agent its own config dir, so
@@ -93,7 +90,7 @@ const NAMES_SESSION = {
 // A dir that holds many CONVERSATIONS breaks that precondition — use
 // transcriptForSession there.
 export function findTranscript(harness, cfgDir) {
-  return newestFile(FILES[harness]?.(cfgDir) ?? [])
+  return newestFile(nativeFor(harness).files(cfgDir))
 }
 
 // The newest root transcript's last filesystem change. The stall watchdog
@@ -124,9 +121,11 @@ export function transcriptActivity(harness, cfgDir) {
 // An empty screen is the honest answer to both. The last conversation's words
 // are not a fallback, they are the defect.
 export function transcriptForSession(harness, cfgDir, sessionId) {
-  const names = NAMES_SESSION[harness]
+  let native
+  try { native = nativeFor(harness) } catch { return null }
+  const names = native.namesSession
   if (!names || !sessionId) return null
-  for (const p of FILES[harness](cfgDir)) {
+  for (const p of native.files(cfgDir)) {
     if (names(path.basename(p), sessionId)) return p
   }
   return null
@@ -150,7 +149,8 @@ export function transcriptForSession(harness, cfgDir, sessionId) {
 // bounded read is the expected case, not evidence of anything.
 const LABEL_BYTES = 128 * 1024
 export function firstPrompt(harness, file, { max = 90, bytes = LABEL_BYTES } = {}) {
-  if (!harness || !file || !READERS[harness]) return null
+  if (!harness || !file) return null
+  try { nativeFor(harness) } catch { return null }
   let head
   try {
     const fd = fs.openSync(file, 'r')
@@ -179,13 +179,12 @@ export function firstPrompt(harness, file, { max = 90, bytes = LABEL_BYTES } = {
   return null
 }
 
-const READERS = { claude: parseClaudeTranscriptEvent, codex: parseCodexTranscriptEvent }
-
 // Read the messages that the Chat surface can render from transcript lines.
 // The branch selection lives here so agent and overseer conversations don't
 // grow separate transcript rules. The caller keeps filesystem and journal
 // access: this module receives the journaled landing identity as plain data.
 export function readActiveMessages(harness, lines, { landingUuid = null } = {}) {
+  const native = nativeFor(harness)
   const items = []
   const failures = []
   const byUuid = new Map()
@@ -211,8 +210,10 @@ export function readActiveMessages(harness, lines, { landingUuid = null } = {}) 
     }
     const record = { event, parsed }
     records.push(record)
-    if (!event?.uuid) continue
-    byUuid.set(event.uuid, record)
+    const identity = native.identity(event)
+    if (!identity) continue
+    record.identity = identity
+    byUuid.set(identity.id, record)
     tail = record
   }
 
@@ -231,15 +232,15 @@ export function readActiveMessages(harness, lines, { landingUuid = null } = {}) 
   if (tail) {
     activeRecords = []
     const seen = new Set()
-    for (let record = tail; record; record = record.event.parentUuid ? byUuid.get(record.event.parentUuid) : null) {
-      if (seen.has(record.event.uuid)) {
+    for (let record = tail; record; record = record.identity.parentId ? byUuid.get(record.identity.parentId) : null) {
+      if (seen.has(record.identity.id)) {
         failures.push({
-          key: `cycle:${record.event.uuid}`,
-          reason: `transcript parent cycle at "${record.event.uuid}"`,
+          key: `cycle:${record.identity.id}`,
+          reason: `transcript parent cycle at "${record.identity.id}"`,
         })
         return { items, failures }
       }
-      seen.add(record.event.uuid)
+      seen.add(record.identity.id)
       activeRecords.push(record)
     }
     activeRecords.reverse()
@@ -252,12 +253,11 @@ export function readActiveMessages(harness, lines, { landingUuid = null } = {}) 
 }
 
 function parseEvent(harness, event) {
-  const reader = READERS[harness]
-  if (!reader) throw new Error(`no transcript reader for harness "${harness}"`)
+  const native = nativeFor(harness)
   if (!event || typeof event !== 'object') return { malformed: true }
-  const items = reader(event)
+  const items = native.parse(event)
   if (items === null) {
-    return { unknown: harness === 'codex' && event.type === 'response_item' ? `response_item/${event.payload?.type}` : String(event.type) }
+    return { unknown: native.unknownType(event) }
   }
   return { items }
 }
@@ -272,14 +272,13 @@ function parseEvent(harness, event) {
 // the abandoned branch, so the journaled landing is the temporary head.
 // Harnesses without parent identity retain their linear transcript behavior.
 export function readActiveTranscript(harness, source, { landingUuid = null, landingTailUuid = null } = {}) {
+  const native = nativeFor(harness)
   const lines = Array.isArray(source)
     ? source.map(String)
     : String(source ?? '').split('\n')
   const records = lines
     .map((line, index) => ({ line, index }))
     .filter((record) => record.line.trim())
-
-  if (harness !== 'claude') return parseActiveRecords(harness, records, null)
 
   const byUuid = new Map()
   let tailUuid = null
@@ -289,12 +288,15 @@ export function readActiveTranscript(harness, source, { landingUuid = null, land
     } catch {
       continue
     }
-    if (!record.event?.uuid) continue
-    record.uuid = String(record.event.uuid)
-    record.parentUuid = record.event.parentUuid == null ? null : String(record.event.parentUuid)
+    const identity = native.identity(record.event)
+    if (!identity) continue
+    record.uuid = identity.id
+    record.parentUuid = identity.parentId
     byUuid.set(record.uuid, record)
     tailUuid = record.uuid
   }
+
+  if (!tailUuid) return parseActiveRecords(harness, records, null)
 
   const landingStillCurrent = landingUuid
     && (!landingTailUuid || String(landingTailUuid) === tailUuid)
