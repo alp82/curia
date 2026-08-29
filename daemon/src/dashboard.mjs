@@ -62,8 +62,8 @@ export const daemonPort = () => Number(process.env.PORT ?? DEFAULT_DAEMON_PORT)
 // `/api/console` and it POSTs the two console routes, none of which a proto-3
 // sidecar serves — so an old server must refuse this page rather than draw a
 // picker whose every row and button answers 404.
-// Bumped to 5 by #355: the gate card and the agent row both read `/api/diff`,
-// which a proto-4 sidecar does not serve — so an old server must refuse this
+// Bumped to 5 by #355: the gate card reads `/api/diff`, which a proto-4
+// sidecar does not serve — so an old server must refuse this
 // page rather than draw a digest whose every file answers 404.
 // Bumped to 6 by #642: the attention list draws the credentials the daemon now
 // owns, and the device link and one-time code of a login in flight. A proto-5
@@ -1041,30 +1041,6 @@ export class DashboardSurface {
         })
       }
 
-      // Cancel. The page confirms it with its consequences before it presses;
-      // this is the immediate teardown, the same one `cancel <n>` runs from the
-      // command channel. NOT the interpreted cancel: that opens a Discord
-      // confirm card, and a button press in the console is already the
-      // operator's own act, typed by nobody's model.
-      if (url.pathname === '/api/cancel') {
-        return this.#verb(res, async () => {
-          const b = await this.#body(req)
-          const ticket = field(b.ticket, VERB_TICKET_RE, 'a ticket number')
-          return this.#command(`cancel ${ticket}`, by)
-        })
-      }
-
-      // Teleport. `attach <n>` composes the timeline link and the terminal link
-      // from curia's own records (#68), which is why the press asks for them
-      // rather than the page building a URL it cannot vouch for.
-      if (url.pathname === '/api/teleport') {
-        return this.#verb(res, async () => {
-          const b = await this.#body(req)
-          const ticket = field(b.ticket, VERB_TICKET_RE, 'a ticket number')
-          return this.#command(`attach ${ticket}`, by)
-        })
-      }
-
       // An answer, for an escalation or for the review gate — one route,
       // because they are one act. First-valid-wins and supersede are the
       // reduction's, so an answer that arrives second comes back 409 with the
@@ -1096,9 +1072,6 @@ export class DashboardSurface {
         })
       }
 
-      // A note to one agent, in either delivery mode (ADR-0013). Queued is the
-      // default and rides the agent's next tool result; interrupt is #252's
-      // second mode, and its refusals are the daemon's.
       // The Feed's read stamp (#704): the page opened the Feed under this
       // login, and the daemon journals the instant. The snapshot is dropped so
       // the next poll carries the new stamp back.
@@ -1107,15 +1080,6 @@ export class DashboardSurface {
           const b = await this.#body(req)
           const actionId = field(b.action_id, ACTION_ID_RE, 'an Action id')
           return this.#daemon({ method: 'POST', path: '/feed/read', body: { by, action_id: actionId } })
-        })
-      }
-      if (url.pathname === '/api/note') {
-        return this.#verb(res, async () => {
-          const b = await this.#body(req)
-          const agent = field(b.agent, VERB_SESSION_RE, 'a curia session name')
-          const text = words(b.text, 'a note')
-          const mode = b.mode === 'interrupt' ? 'interrupt' : 'queue'
-          return this.#daemon({ method: 'POST', path: '/note', body: { agent, text, mode, by } })
         })
       }
       // Sign a model credential back in (#661). The Credentials screen's one
@@ -1233,18 +1197,16 @@ export class DashboardSurface {
     // this route answers costs a git call the operator asked for by opening a
     // card.
     //
-    // Three fields, and this side names the shape of every one. The daemon
-    // resolves the worktree; the browser names an escalation id or an agent,
-    // and a file only by its index into the digest curia itself produced — so
-    // no path, no repo, no branch and no command crosses this wire.
+    // Two fields, and this side names the shape of both. The browser names an
+    // escalation id and a file only by its index into the digest curia itself
+    // produced — so no path, no repo, no branch and no command crosses this
+    // wire.
     if (url.pathname === '/api/diff') {
       let q
       try {
         q = new URLSearchParams()
-        if (url.searchParams.has('esc')) q.set('esc', field(url.searchParams.get('esc'), VERB_ESC_RE, 'an escalation id'))
-        if (url.searchParams.has('agent')) q.set('agent', field(url.searchParams.get('agent'), VERB_SESSION_RE, 'a curia session name'))
+        q.set('esc', field(url.searchParams.get('esc'), VERB_ESC_RE, 'an escalation id'))
         if (url.searchParams.has('file')) q.set('file', field(url.searchParams.get('file'), VERB_FILE_RE, 'a file index'))
-        if (!q.has('esc') && !q.has('agent')) throw refuse('name a review gate or an agent to read a diff for')
       } catch (e) {
         return this.#json(res, 400, { error: e.message })
       }
