@@ -21,6 +21,20 @@ const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), 'curia-threads-test-'))
 // ---- the journalled binding (reduction.mjs) -------------------------------------
 
 describe('Reduction ticket-thread bindings', () => {
+  test('the same ticket number in different repos keeps separate threads', () => {
+    const dir = tmp()
+    const reduction = new Reduction(dir)
+
+    assert.equal(reduction.bindTicketThread('85', 't-curia', 'alp82/curia').ok, true)
+    assert.equal(reduction.bindTicketThread('85', 't-aistack', 'alp82/aistack').ok, true)
+    assert.equal(reduction.threadForTicket('85', 'alp82/curia'), 't-curia')
+    assert.equal(reduction.threadForTicket('85', 'alp82/aistack'), 't-aistack')
+
+    const reborn = new Reduction(dir)
+    assert.equal(reborn.threadForTicket('85', 'alp82/curia'), 't-curia')
+    assert.equal(reborn.threadForTicket('85', 'alp82/aistack'), 't-aistack')
+  })
+
   test('bind journals, both lookups answer, and boundTickets lists the ticket', () => {
     const reduction = new Reduction(tmp())
     const r = reduction.bindTicketThread('85', 't-1')
@@ -309,13 +323,13 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
         clear: (h) => { if (h) h.live = false },
       },
       bindings: {
-        get: (t) => reduction.threadForTicket(t),
-        bind: (t, id) => reduction.bindTicketThread(t, id),
-        release: (t, r) => reduction.releaseTicketThread(t, r),
-        last: (t) => reduction.lastThreadForTicket(t),
+        get: (t, repo) => reduction.threadForTicket(t, repo),
+        bind: (t, id, repo) => reduction.bindTicketThread(t, id, repo),
+        release: (t, r, repo) => reduction.releaseTicketThread(t, r, repo),
+        last: (t, repo) => reduction.lastThreadForTicket(t, repo),
         ticketOf: (id) => reduction.ticketForThread(id),
         lastTicketOf: (id) => reduction.lastTicketForThread(id),
-        titleOf: (t) => reduction.titleForTicket(t),
+        titleOf: (t, repo) => reduction.titleForTicket(t, repo),
       },
     })
     bridge.guild = { id: 'G' }
@@ -353,6 +367,17 @@ describe('DiscordBridge cross-thread breadcrumbs', () => {
     const inOrigin = sentTo.find((s) => s.id === 't-origin')
     assert.match(inOrigin.text, /🎫 107 · research/)
     assert.match(inOrigin.text, new RegExp(`discord\\.com/channels/G/${created[0].id}`))
+  })
+
+  test('the same ticket number in two repos opens two threads', async () => {
+    await bridge.bindTicket('107', { repo: 'alp82/curia' })
+    await bridge.bindTicket('107', { repo: 'alp82/aistack' })
+
+    assert.equal(created.length, 2)
+    assert.equal(reduction.threadForTicket('107', 'alp82/curia'), 'fresh-1')
+    assert.equal(reduction.threadForTicket('107', 'alp82/aistack'), 'fresh-2')
+    assert.equal(created[0].name, '🎫 107 · curia')
+    assert.equal(created[1].name, '🎫 107 · aistack')
   })
 
   test('a fresh ticket thread opens with its title once, before later traffic', async () => {

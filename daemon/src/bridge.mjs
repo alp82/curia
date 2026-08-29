@@ -785,8 +785,8 @@ export class DiscordBridge {
   //
   // The chain never rejects, and it deletes itself once it is the tail, so a
   // long-lived bridge does not accumulate one entry per ticket it ever saw.
-  #perTicket(ticket, fn) {
-    const key = String(ticket)
+  #perTicket(ticket, fn, repo = '') {
+    const key = repo ? `${repo}\0${ticket}` : String(ticket)
     const prev = this.threadWork.get(key) ?? Promise.resolve()
     const run = prev.then(fn, fn)
     const tail = run.then(() => {}, () => {}).then(() => {
@@ -818,13 +818,14 @@ export class DiscordBridge {
   // two threads: the renamed conversation, and a second one carrying every
   // line the agent said. The binding is the answer for a handle exactly as it
   // is for a number.
-  ensureThread(ticket) {
+  ensureThread(ticket, repo = '') {
     if (!this.bindings || !DiscordBridge.bindable(ticket)) return this.#namedThread(`ticket-${ticket}`)
-    return this.#perTicket(ticket, () => this.#ensureThread(ticket))
+    repo = repo || this.#repoOf(ticket)
+    return this.#perTicket(ticket, () => this.#ensureThread(ticket, repo), repo)
   }
 
-  async #ensureThread(ticket) {
-    const bound = this.bindings.get(ticket)
+  async #ensureThread(ticket, repo = '') {
+    const bound = this.bindings.get(ticket, repo)
     if (bound) {
       const t = await this.client.channels.fetch(bound).catch(() => null)
       if (t) {
@@ -833,7 +834,7 @@ export class DiscordBridge {
       }
       // The bound thread is gone from Discord. The journal is the truth, but a
       // deleted thread can carry no traffic — release and fall through.
-      this.bindings.release(ticket, 'thread-gone')
+      this.bindings.release(ticket, 'thread-gone', repo)
     }
     // The dispatch backstop (#140), now on the lazy path too (#257). The two
     // paths disagreed: a dispatch went back to the ticket's last thread, a
@@ -843,12 +844,12 @@ export class DiscordBridge {
     // The name is left as it is. This path knows no ticket type, so relabeling
     // would drop the type field, and a late line after an ending must never put
     // a live glyph back on a finished thread.
-    const revived = await this.#reviveLastThread(ticket, '', '', { relabel: false })
+    const revived = await this.#reviveLastThread(ticket, '', repo, { relabel: false })
     if (revived) return revived
     const thread = await this.channel.threads.create({
       name: DiscordBridge.labelName(ticket, '', this.#repoOf(ticket)), autoArchiveDuration: 10080,
     })
-    const r = this.bindings.bind(ticket, thread.id)
+    const r = this.bindings.bind(ticket, thread.id, repo)
     if (!r.ok && r.threadId) {
       // lost a race: another path bound this ticket between the read and here
       const winner = await this.client.channels.fetch(r.threadId).catch(() => null)
@@ -861,7 +862,7 @@ export class DiscordBridge {
       }
     }
     await this.#addWatchers(thread)
-    await this.#postTicketTitle(thread, ticket, this.bindings?.titleOf?.(ticket) ?? '')
+    await this.#postTicketTitle(thread, ticket, this.bindings?.titleOf?.(ticket, repo) ?? '')
     return thread
   }
 
@@ -939,7 +940,8 @@ export class DiscordBridge {
     if (!this.bindings) return Promise.resolve({ ok: false, reason: 'no-bindings' })
     // the same one-at-a-time chain ensureThread runs on (#257): a dispatch and
     // a lazy open for one ticket must not each create a thread
-    return this.#perTicket(ticket, () => this.#bindTicket(ticket, opts))
+    const repo = opts.repo || this.#repoOf(ticket)
+    return this.#perTicket(ticket, () => this.#bindTicket(ticket, { ...opts, repo }), repo)
   }
 
   async #bindTicket(ticket, { threadId = null, type = '', repo = '', title = '' } = {}) {
@@ -947,8 +949,8 @@ export class DiscordBridge {
     // to the journal's record, and a ticket with neither keeps the short label.
     repo = repo || this.#repoOf(ticket)
     if (threadId) {
-      const alreadyBound = this.bindings.get(ticket)
-      const r = this.bindings.bind(ticket, threadId)
+      const alreadyBound = this.bindings.get(ticket, repo)
+      const r = this.bindings.bind(ticket, threadId, repo)
       if (r.ok) {
         const t = await this.client.channels.fetch(threadId).catch(() => null)
         const name = DiscordBridge.labelName(ticket, type, repo)
@@ -986,11 +988,11 @@ export class DiscordBridge {
   // handle and not a moment before.
   adoptMapThread(handle, mapNumber, opts = {}) {
     if (!this.bindings) return Promise.resolve({ ok: false, reason: 'no-bindings' })
-    return this.#perTicket(mapNumber, () => this.#adoptMapThread(handle, mapNumber, opts))
+    return this.#perTicket(mapNumber, () => this.#adoptMapThread(handle, mapNumber, opts), opts.repo ?? '')
   }
 
   async #adoptMapThread(handle, mapNumber, { repo = '' } = {}) {
-    const threadId = this.bindings.get(handle)
+    const threadId = this.bindings.get(handle, repo)
     if (!threadId) return { ok: false, reason: 'unbound' }
     const name = DiscordBridge.labelName(mapNumber, 'map', repo)
     const t = await this.client.channels.fetch(threadId).catch(() => null)
@@ -1012,7 +1014,7 @@ export class DiscordBridge {
         name: DiscordBridge.labelName(ticket, type, repo), autoArchiveDuration: 10080,
       })
       opened = true
-      r = this.bindings.bind(ticket, thread.id)
+      r = this.bindings.bind(ticket, thread.id, repo)
       // the same lost-race cleanup ensureThread does (#257): an empty twin of
       // the thread that won is a duplicate, so it goes
       if (!r.ok && r.threadId) {
@@ -1062,7 +1064,7 @@ export class DiscordBridge {
   // returned as it was — rather than pretending the move happened.
   async #moveTicket(ticket, type, repo, threadId, fromThreadId) {
     if (!this.bindings.rebind) return { ok: false, reason: 'ticket-bound', threadId: fromThreadId }
-    const r = this.bindings.rebind(ticket, threadId, 'dispatched-from-another-thread')
+    const r = this.bindings.rebind(ticket, threadId, 'dispatched-from-another-thread', repo)
     if (!r.ok) return r
     const name = DiscordBridge.labelName(ticket, type, repo)
     const to = await this.client.channels.fetch(threadId).catch(() => null)
@@ -1099,13 +1101,13 @@ export class DiscordBridge {
   // write is shorter than the one already there, and a line arriving after an
   // ending must not put 🎫 back on a ✅ thread.
   async #reviveLastThread(ticket, type, repo, { relabel = true } = {}) {
-    const last = this.bindings.last?.(ticket)
+    const last = this.bindings.last?.(ticket, repo)
     if (!last) return null
     const t = await this.client.channels.fetch(last).catch(() => null)
     if (!t) return null
     // a refusal here means the old thread was re-bound to another ticket in
     // the meantime — it is not this ticket's to take back
-    if (!this.bindings.bind(ticket, t.id).ok) return null
+    if (!this.bindings.bind(ticket, t.id, repo).ok) return null
     if (t.archived) await t.setArchived(false).catch(() => {})
     if (!relabel) return t
     // the label goes back on: a ✅ from an earlier release, or a ⚰️ from a
@@ -1121,11 +1123,12 @@ export class DiscordBridge {
   // flagTicket): a thread whose 🎫 label is still deferred shows no glyph at
   // all, and a ✅ computed on THAT name would never happen — the ticket would
   // finish and keep 🎫 forever once the label landed.
-  async releaseTicket(ticket, reason) {
+  async releaseTicket(ticket, reason, repo = '') {
     if (!this.bindings) return
     this.#dropHeldFlag(ticket) // #277: the ✅ is this thread's last name
-    const bound = this.bindings.get(ticket)
-    this.bindings.release(ticket, reason)
+    repo = repo || this.#repoOf(ticket)
+    const bound = this.bindings.get(ticket, repo)
+    this.bindings.release(ticket, reason, repo)
     // An ending whose binding is already gone still owes the thread its final
     // name (#257). Two releases land for one ending often enough — reconcile
     // drops the binding of a ticket whose issue is closed, and the agent's own
@@ -1135,7 +1138,7 @@ export class DiscordBridge {
     // wearing the glyph it had. The second release used to return right here,
     // before the rename, so nothing ever corrected it: #81 stayed 🔎 and reads
     // as "in review" forever.
-    const target = bound ?? this.#endedThread(ticket)
+    const target = bound ?? this.#endedThread(ticket, repo)
     if (!target) return
     const t = await this.client.channels.fetch(target).catch(() => null)
     if (!t) return
@@ -1147,8 +1150,8 @@ export class DiscordBridge {
   // The thread an unbound ticket last lived on, when it is still that ticket's
   // to speak for (#257). A thread another ticket has taken over since answers
   // null: its name is that ticket's business now.
-  #endedThread(ticket) {
-    const last = this.bindings.last?.(ticket)
+  #endedThread(ticket, repo = '') {
+    const last = this.bindings.last?.(ticket, repo)
     if (!last) return null
     const holder = this.bindings.ticketOf?.(last)
     return holder && String(holder) !== String(ticket) ? null : last

@@ -5863,7 +5863,7 @@ export class Dispatcher {
       this.lapseConfirmsFor(agentName, `\`${agentName}\` finished`)
       this.expireNotesFor(agentName, ticket, 'finished')
       // terminal state ⇒ the ticket label comes off the thread (#93)
-      await this.threads.release(ticket, 'finished').catch(() => {})
+      await this.threads.release(ticket, 'finished', w?.repo).catch(() => {})
     } else {
       // result-less exit: the pane is the post-mortem evidence — keep it
       if (w) w.state = 'failed'
@@ -7528,12 +7528,15 @@ export class Dispatcher {
     // the labeled thread.
     if (ctx.sessions && typeof this.reduction.boundTickets === 'function') {
       const asked = new Set(this.reduction.openEscalations().map((r) => String(r.ticket)))
-      for (const ticket of this.reduction.boundTickets()) {
+      const boundRefs = typeof this.reduction.boundTicketRefs === 'function'
+        ? this.reduction.boundTicketRefs()
+        : this.reduction.boundTickets().map((ticket) => ({ ticket, repo: null }))
+      for (const { ticket, repo: boundRepo } of boundRefs) {
         const session = `curia-${ticket}`
         if (ctx.sessions.includes(session) || this.agents.has(session) || this.inFlight.has(session)) continue
         if (asked.has(String(ticket))) continue
         const epoch = ctx.epochs.get(String(ticket))
-        const reposToCheck = epoch?.repo ? [epoch.repo] : this.config.watch.map((w) => w.repo)
+        const reposToCheck = boundRepo ? [boundRepo] : epoch?.repo ? [epoch.repo] : this.config.watch.map((w) => w.repo)
         let terminal = true
         for (const repo of reposToCheck) {
           if (ctx.failedRepos.has(repo)) { terminal = false; break }
@@ -7548,7 +7551,7 @@ export class Dispatcher {
           if (issue && issue.state !== 'closed') { terminal = false; break }
         }
         if (!terminal) continue
-        await this.threads.release(ticket, 'reconcile')
+        await this.threads.release(ticket, 'reconcile', boundRepo)
           .catch((e) => this.log(`reconcile: thread release for #${ticket} failed (${e.message})`))
       }
     }

@@ -1276,9 +1276,9 @@ const threads = {
     if (!bridge) return { ok: false, reason: 'bridge-down' }
     return bridge.bindTicket(ticket, opts)
   },
-  async release(ticket, reason) {
-    if (bridge) return bridge.releaseTicket(ticket, reason)
-    reduction.releaseTicketThread(ticket, reason)
+  async release(ticket, reason, repo = null) {
+    if (bridge) return bridge.releaseTicket(ticket, reason, repo ?? '')
+    reduction.releaseTicketThread(ticket, reason, repo)
   },
   // A cancel renames and keeps the binding (#200, #140). With the bridge down
   // there is nothing to do: no journal line carries a thread NAME, and the
@@ -4158,13 +4158,13 @@ if (process.env.DISCORD_BOT_TOKEN) {
         handlers: gate,
         // the journalled ticket↔thread map (#93) — the bridge holds no state
         bindings: {
-          get: (ticket) => reduction.threadForTicket(ticket),
-          bind: (ticket, threadId) => reduction.bindTicketThread(ticket, threadId),
+          get: (ticket, repo) => reduction.threadForTicket(ticket, repo),
+          bind: (ticket, threadId, repo) => reduction.bindTicketThread(ticket, threadId, repo),
           // #197: an explicit dispatch typed in another thread moves the ticket
-          rebind: (ticket, threadId, reason) => reduction.rebindTicketThread(ticket, threadId, reason),
-          release: (ticket, reason) => reduction.releaseTicketThread(ticket, reason),
+          rebind: (ticket, threadId, reason, repo) => reduction.rebindTicketThread(ticket, threadId, reason, repo),
+          release: (ticket, reason, repo) => reduction.releaseTicketThread(ticket, reason, repo),
           // the dispatch backstop (#140): the last binding, released or not
-          last: (ticket) => reduction.lastThreadForTicket(ticket),
+          last: (ticket, repo) => reduction.lastThreadForTicket(ticket, repo),
           // the same two, thread first (#257): who holds this thread now, and
           // who held it last. The boot pass that settles an ending's name asks
           // both — the second says the thread is curia's, the first says it is
@@ -4174,7 +4174,7 @@ if (process.env.DISCORD_BOT_TOKEN) {
           // the label's repo field (#235), read lazily off the journal
           repoOf: (ticket) => reduction.repoForTicket(ticket),
           // a lazy thread still opens with its tracker title (#690)
-          titleOf: (ticket) => reduction.titleForTicket(ticket),
+          titleOf: (ticket, repo) => reduction.titleForTicket(ticket, repo),
         },
         log,
         onHealth: onBridgeHealth,

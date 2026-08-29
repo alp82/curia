@@ -837,14 +837,15 @@ export class Reduction {
         // in the real file, and an unknown type must not break the replay.
         break
       case 'thread_bound': {
-        this.ticketThreads.set(String(ev.ticket), ev.thread_id)
+        const key = this.#ticketKey(ev.ticket, ev.repo)
+        this.ticketThreads.set(key, ev.thread_id)
         this.threadTickets.set(ev.thread_id, String(ev.ticket))
-        this.lastTicketThreads.set(String(ev.ticket), ev.thread_id)
+        this.lastTicketThreads.set(key, ev.thread_id)
         this.lastThreadTickets.set(ev.thread_id, String(ev.ticket))
         break
       }
       case 'thread_released': {
-        this.ticketThreads.delete(String(ev.ticket))
+        this.ticketThreads.delete(this.#ticketKey(ev.ticket, ev.repo))
         this.threadTickets.delete(ev.thread_id)
         break
       }
@@ -856,7 +857,9 @@ export class Reduction {
       // later `map <n>` land back in the conversation that settled the
       // destination.
       case 'map_adopted': {
-        if (ev.map != null && ev.ticket != null) this.mapCharters.set(String(ev.map), String(ev.ticket))
+        if (ev.map != null && ev.ticket != null) {
+          this.mapCharters.set(this.#ticketKey(ev.map, ev.repo), String(ev.ticket))
+        }
         break
       }
       case 'overseer_note': {
@@ -1009,7 +1012,11 @@ export class Reduction {
         // in-memory record — so the journal's own dispatch lines are the
         // index. Last dispatch wins, the same rule the thread binding lives
         // under.
-        if (ev.repo && ev.ticket != null) this.ticketRepos.set(String(ev.ticket), ev.repo)
+        if (ev.repo && ev.ticket != null) {
+          const ticket = String(ev.ticket)
+          this.ticketRepos.set(ticket, ev.repo)
+          if (ev.title) this.ticketTitles.set(`${ev.repo}\0${ticket}`, ev.title)
+        }
         if (ev.title && ev.ticket != null) this.ticketTitles.set(String(ev.ticket), ev.title)
         if (ev.agent) this.agentOpenings.delete(ev.agent)
         break
@@ -1786,14 +1793,15 @@ export class Reduction {
   // every live binding. Both refusal shapes name the holder, because the
   // discipline's answer to a double-bind is "refuse and link the holding
   // thread". Binding the same pair again is a no-op, not an event.
-  bindTicketThread(ticket, threadId) {
+  bindTicketThread(ticket, threadId, repo = null) {
     const t = String(ticket)
-    const current = this.ticketThreads.get(t)
+    const key = this.#ticketKey(t, repo)
+    const current = this.ticketThreads.get(key)
     if (current === threadId) return { ok: true, threadId }
     if (current) return { ok: false, reason: 'ticket-bound', threadId: current }
     const holding = this.threadTickets.get(threadId)
     if (holding) return { ok: false, reason: 'thread-bound', ticket: holding }
-    this._append({ type: 'thread_bound', ticket: t, thread_id: threadId })
+    this._append({ type: 'thread_bound', repo: repo ?? this.ticketRepos.get(t) ?? null, ticket: t, thread_id: threadId })
     return { ok: true, threadId }
   }
 
@@ -1810,29 +1818,31 @@ export class Reduction {
   // Returns the released thread so the caller can say where the ticket went.
   // Refuses when the target already holds another ticket, because one thread
   // carries at most one ticket (#93) and that rule is not this one's to break.
-  rebindTicketThread(ticket, threadId, reason = 'rebound') {
+  rebindTicketThread(ticket, threadId, reason = 'rebound', repo = null) {
     const t = String(ticket)
-    const current = this.ticketThreads.get(t)
+    const key = this.#ticketKey(t, repo)
+    const current = this.ticketThreads.get(key)
     if (current === threadId) return { ok: true, threadId, moved: false }
     const holding = this.threadTickets.get(threadId)
     if (holding && holding !== t) return { ok: false, reason: 'thread-bound', ticket: holding }
-    if (current) this._append({ type: 'thread_released', ticket: t, thread_id: current, reason })
-    this._append({ type: 'thread_bound', ticket: t, thread_id: threadId })
+    const resolvedRepo = repo ?? this.ticketRepos.get(t) ?? null
+    if (current) this._append({ type: 'thread_released', repo: resolvedRepo, ticket: t, thread_id: current, reason })
+    this._append({ type: 'thread_bound', repo: resolvedRepo, ticket: t, thread_id: threadId })
     return { ok: true, threadId, moved: true, from: current ?? null }
   }
 
   // Returns the released thread id, or null when nothing was bound (then no
   // event is written — release is idempotent).
-  releaseTicketThread(ticket, reason) {
+  releaseTicketThread(ticket, reason, repo = null) {
     const t = String(ticket)
-    const threadId = this.ticketThreads.get(t)
+    const threadId = this.ticketThreads.get(this.#ticketKey(t, repo))
     if (!threadId) return null
-    this._append({ type: 'thread_released', ticket: t, thread_id: threadId, reason })
+    this._append({ type: 'thread_released', repo: repo ?? this.ticketRepos.get(t) ?? null, ticket: t, thread_id: threadId, reason })
     return threadId
   }
 
-  threadForTicket(ticket) {
-    return this.ticketThreads.get(String(ticket))
+  threadForTicket(ticket, repo = null) {
+    return this.#ticketValue(this.ticketThreads, ticket, repo)
   }
 
   ticketForThread(threadId) {
@@ -1848,12 +1858,12 @@ export class Reduction {
   // the conversation that settled the destination is where `map <n>` belongs.
   // A map dispatched on its own number later has a record here, and that one
   // wins — the fallback answers only for a map nothing has bound yet.
-  lastThreadForTicket(ticket) {
-    const t = String(ticket)
-    const own = this.lastTicketThreads.get(t)
+  lastThreadForTicket(ticket, repo = null) {
+    const own = this.#ticketValue(this.lastTicketThreads, ticket, repo)
     if (own) return own
-    const charter = this.mapCharters.get(t)
-    return charter ? this.lastTicketThreads.get(charter) : undefined
+    const charter = this.#ticketValue(this.mapCharters, ticket, repo)
+    if (!charter) return undefined
+    return this.#ticketValue(this.lastTicketThreads, charter, repo)
   }
 
   // The same pointer the other way round (#257): the last ticket this thread
@@ -1872,8 +1882,9 @@ export class Reduction {
     return this.ticketRepos.get(String(ticket))
   }
 
-  titleForTicket(ticket) {
-    return this.ticketTitles.get(String(ticket))
+  titleForTicket(ticket, repo = null) {
+    const t = String(ticket)
+    return (repo ? this.ticketTitles.get(`${repo}\0${t}`) : undefined) ?? this.ticketTitles.get(t)
   }
 
   hasAgentOpening(agent) {
@@ -1881,7 +1892,31 @@ export class Reduction {
   }
 
   boundTickets() {
-    return [...this.ticketThreads.keys()]
+    return [...new Set([...this.ticketThreads.keys()].map((key) => key.split('\0').at(-1)))]
+  }
+
+  boundTicketRefs() {
+    return [...this.ticketThreads.keys()].map((key) => {
+      const split = key.lastIndexOf('\0')
+      return split < 0 ? { ticket: key, repo: null } : { ticket: key.slice(split + 1), repo: key.slice(0, split) }
+    })
+  }
+
+  #ticketKey(ticket, repo = null) {
+    const t = String(ticket)
+    const resolvedRepo = repo ?? this.ticketRepos.get(t)
+    return resolvedRepo ? `${resolvedRepo}\0${t}` : t
+  }
+
+  #ticketValue(index, ticket, repo = null) {
+    const key = this.#ticketKey(ticket, repo)
+    const exact = index.get(key)
+    if (exact !== undefined) return exact
+    const legacy = index.get(String(ticket))
+    if (legacy !== undefined || repo || this.ticketRepos.has(String(ticket))) return legacy
+    const suffix = `\0${ticket}`
+    const matches = [...index].filter(([candidate]) => candidate.endsWith(suffix))
+    return matches.length === 1 ? matches[0][1] : undefined
   }
 
   // Generic operational events (notify, result, agent_done…) share the journal.
