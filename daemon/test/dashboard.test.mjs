@@ -17,7 +17,7 @@ import path from 'node:path'
 
 import {
   DashboardSurface, DEFAULT_DASHBOARD, DEFAULT_DASHBOARD_INDEX, DASHBOARD_PROTO,
-  loadDashboardConfig, pageRefusal, readDashboard, daemonPort, ANSWER_REFUSAL, MAX_WORDS, CHAT_PAGE, TERMINAL_PAGE,
+  loadDashboardConfig, pageRefusal, readDashboard, daemonPort, ANSWER_REFUSAL, CHAT_PAGE, TERMINAL_PAGE,
 } from '../src/dashboard.mjs'
 import { loadCuriaConfig } from '../src/config.mjs'
 import { serveHosts, LOGIN_HEADER, FUNNEL_HEADER } from '../src/identity.mjs'
@@ -959,19 +959,6 @@ describe('the operator verbs (#266)', () => {
     assert.deepEqual(JSON.parse(res.text).action, accepted)
   })
 
-  test('cancel and teleport go through the same seam, so both land in the journal', async () => {
-    await press('/api/cancel', { ticket: '266' })
-    assert.equal(sent('/command').body.text, 'cancel 266')
-    calls = []
-    await press('/api/teleport', { ticket: '266' })
-    assert.equal(sent('/command').body.text, 'attach 266')
-  })
-
-  test('a chat handle is a ticket too — an agent no issue answers for is still cancellable (#241)', async () => {
-    await press('/api/cancel', { ticket: 'chat-1' })
-    assert.equal(sent('/command').body.text, 'cancel chat-1')
-  })
-
   test('the operator who pressed rides every verb, so the feed names a person not a transport', async () => {
     await press('/api/start', { repo: 'o/r', ticket: '9' })
     assert.equal(sent('/command').body.by, 'alp@example.com')
@@ -979,9 +966,6 @@ describe('the operator verbs (#266)', () => {
     await press('/api/answer', { id: 'esc-7', answer: 'approve' })
     assert.equal(sent('/answer').body.by, 'alp@example.com')
     assert.equal(sent('/answer').body.via, 'dashboard', 'the surface is a fact of its own')
-    calls = []
-    await press('/api/note', { agent: 'curia-266', text: 'look again' })
-    assert.equal(sent('/note').body.by, 'alp@example.com')
   })
 
   test('a Feed read carries its Action identity and drops the held snapshot for reconciliation (#704, #811)', async () => {
@@ -997,17 +981,6 @@ describe('the operator verbs (#266)', () => {
     assert.equal(sent('/feed/read').body.action_id, actionId)
     assert.deepEqual(JSON.parse(res.text).action, evidence)
     assert.equal(surface.snapshotAt, 0)
-  })
-
-  test('the note carries the mode the operator chose, and queued is what an unnamed one means', async () => {
-    await press('/api/note', { agent: 'curia-266', text: 'look again', mode: 'interrupt' })
-    assert.equal(sent('/note').body.mode, 'interrupt')
-    calls = []
-    await press('/api/note', { agent: 'curia-266', text: 'look again' })
-    assert.equal(sent('/note').body.mode, 'queue')
-    calls = []
-    await press('/api/note', { agent: 'curia-266', text: 'look again', mode: 'nonsense' })
-    assert.equal(sent('/note').body.mode, 'queue', 'anything that is not the second mode is the default')
   })
 
   test('GitHub App setup keeps conversion inside the daemon', async () => {
@@ -1119,9 +1092,6 @@ describe('the operator verbs (#266)', () => {
       ['/api/reauth', { provider: '' }, /provider name/],
       ['/api/start', { repo: 'alp82/curia; rm -rf /', ticket: '1' }, /owner\/name repo/],
       ['/api/start', { repo: 'alp82/curia', ticket: '1 model=x' }, /ticket number/],
-      ['/api/cancel', { ticket: 'all' }, /ticket number/],
-      ['/api/teleport', { ticket: '../1' }, /ticket number/],
-      ['/api/note', { agent: 'rm -rf /', text: 'x' }, /curia session name/],
       ['/api/answer', { id: 'esc 7 x', answer: 'approve' }, /escalation id/],
     ]) {
       const res = await press(route, body)
@@ -1134,9 +1104,9 @@ describe('the operator verbs (#266)', () => {
   // ---- the diff, on demand (#355) --------------------------------------------
   //
   // The one READ this surface makes that is not the poll. It follows the same
-  // seam every verb above does: the browser names an escalation id or an agent,
-  // and a file only by its place in the digest curia itself measured — never a
-  // path, a repo, a branch or a command.
+  // seam every verb above does: the browser names an escalation id and a file
+  // only by its place in the digest curia itself measured — never a path, a
+  // repo, a branch or a command.
 
   const read = (p) => req(surface.port, p, { headers: served() })
 
@@ -1146,14 +1116,6 @@ describe('the operator verbs (#266)', () => {
     assert.equal(res.status, 200)
     assert.equal(JSON.parse(res.text).digest.files, 2)
     assert.equal(sent('/diff?esc=esc-9').method, 'GET')
-  })
-
-  test('a live row asks by agent, and a file by its index — nothing else crosses', async () => {
-    reply['/diff?agent=curia-355&file=3'] = [200, { hunks: { text: '+one', source: 'worktree' } }]
-    const res = await read('/api/diff?agent=curia-355&file=3&repo=o/r&path=/etc/passwd')
-    assert.equal(res.status, 200)
-    assert.ok(sent('/diff?agent=curia-355&file=3'), 'the sidecar composed the query itself')
-    assert.ok(!calls.some((c) => c.url.includes('passwd')), 'a field this surface does not name must not travel')
   })
 
   test('global search forwards one bounded query and returns typed landing targets', async () => {
@@ -1177,11 +1139,11 @@ describe('the operator verbs (#266)', () => {
 
   test('a field the daemon would read as something else is refused here, before the wire', async () => {
     for (const [q, why] of [
-      ['/api/diff', /a review gate or an agent/],
-      ['/api/diff?agent=' + encodeURIComponent('rm -rf /'), /curia session name/],
+      ['/api/diff', /escalation id/],
+      ['/api/diff?agent=curia-9', /escalation id/],
       ['/api/diff?esc=' + encodeURIComponent('esc 9; ls'), /escalation id/],
-      ['/api/diff?agent=curia-9&file=' + encodeURIComponent('../../etc/passwd'), /file index/],
-      ['/api/diff?agent=curia-9&file=99999', /file index/],
+      ['/api/diff?esc=esc-9&file=' + encodeURIComponent('../../etc/passwd'), /file index/],
+      ['/api/diff?esc=esc-9&file=99999', /file index/],
     ]) {
       const res = await read(q)
       assert.equal(res.status, 400, q)
@@ -1254,21 +1216,8 @@ describe('the operator verbs (#266)', () => {
     assert.deepEqual(calls, [], 'not one of them reached the daemon')
   })
 
-  test('`cancel all` cannot be reached from a browser — the console cancels one agent at a time', async () => {
-    assert.equal((await press('/api/cancel', { ticket: 'all' })).status, 409)
-    assert.deepEqual(calls, [])
-  })
-
-  test('an answer and a note with no words are refused, and neither is written', async () => {
+  test('an answer with no words is refused and not written', async () => {
     assert.match(JSON.parse((await press('/api/answer', { id: 'esc-7', answer: '  ' })).text).error, /no words/)
-    assert.match(JSON.parse((await press('/api/note', { agent: 'curia-1', text: '' })).text).error, /no words/)
-    assert.deepEqual(calls, [])
-  })
-
-  test('words longer than the bound are refused — a verb must not write an unbounded journal line', async () => {
-    const res = await press('/api/note', { agent: 'curia-1', text: 'x'.repeat(MAX_WORDS + 1) })
-    assert.equal(res.status, 409)
-    assert.match(JSON.parse(res.text).error, /may not exceed/)
     assert.deepEqual(calls, [])
   })
 
@@ -1294,8 +1243,14 @@ describe('the operator verbs (#266)', () => {
     assert.deepEqual(calls, [])
   })
 
-  test('a route this surface does not carry is a 404, not a silent nothing', async () => {
-    assert.equal((await press('/api/resume', { ticket: '1' })).status, 404)
+  test('routes this surface does not carry are a 404, not a silent nothing', async () => {
+    for (const [route, body] of [
+      ['/api/resume', { ticket: '1' }],
+      ['/api/cancel', { ticket: '1' }],
+      ['/api/teleport', { ticket: '1' }],
+      ['/api/note', { agent: 'curia-1', text: 'look again' }],
+    ]) assert.equal((await press(route, body)).status, 404, route)
+    assert.deepEqual(calls, [])
   })
 
   // ---- first-valid-wins, seen from a browser -------------------------------

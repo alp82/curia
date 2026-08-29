@@ -26,9 +26,9 @@
      escalation id or an agent — never a command line.
 
      THE DIFF DIGEST (#355) follows that same seam and is the one read off the
-     poll: `GET /api/diff` names an escalation id or an agent, and a file only
-     by its place in the digest curia itself measured. Hunks are fetched per
-     file, once, when a card is opened.
+     poll: `GET /api/diff` names an escalation id and a file only by its place
+     in the digest curia itself measured. Hunks are fetched per file, once,
+     when a card is opened.
 
      TWO RULES RUN THROUGH EVERY SCREEN HERE.
 
@@ -808,10 +808,8 @@ var UI = {
      hands the same affordance to every section on every page. */
   hints: {},
   /* The operator verbs (#266). `said` is what curia answered, shown at the
-     control that asked. In-flight bookkeeping lives in the Action map below.
-     `note` and `tele` name the agent whose box is open, and `mode` is the
-     delivery ADR-0013 defaults to. */
-  act: { said: null, note: null, mode: "queue", tele: null, diff: null,
+     control that asked. In-flight bookkeeping lives in the Action map below. */
+  act: { said: null,
     /* The handoff sheet (#718): the id of the item the operator just answered,
        or null when no sheet is up. The sheet draws nothing of its own — it
        reads the same `attentionItems` Home reads, minus this one id. */
@@ -1040,28 +1038,12 @@ function receiptLine(x) {
 
 function outcome(b) {
   if (typeof b.reply === "string") return b.reply;
-  if (b.mode) return noteOutcome(b);
   /* The daemon's `next_needs` ride the reply for Discord. Atlas does not read
      them (#718): the handoff sheet ranks the next items as Home ranks them,
      off the fresh overview, so the two surfaces cannot disagree. */
   if (b.ok) return "Answered. It is with the agent.";
   return "Done.";
 }
-/* A note says which delivery it got, because the delivery is the half the
-   operator chose. An interrupt curia refused leaves the words QUEUED — the
-   operator asked for these words to reach the agent, and only the speed of it
-   failed (ADR-0013). */
-function noteOutcome(b) {
-  if (b.ok === false) {
-    const why = b.why ?? "curia could not put those words to the agent.";
-    return b.still_queued ? `${why}\nThe words stay queued: the agent reads them with its next tool result.` : why;
-  }
-  if (b.mode === "interrupt") {
-    return `Interrupting \`${b.session ?? b.agent}\` — ${Math.round((b.graceMs ?? 0) / 1000)}s of grace, then the words land as a user turn.`;
-  }
-  return `Queued for \`${b.agent}\` — it reads this with its next tool result${b.after ? ` (noted as after ${b.after})` : ""}.`;
-}
-
 /* What the operator typed. It is NOT cleared here: a refused answer has to
    leave its words on screen, or the operator types them twice. */
 function typed(id) {
@@ -1655,10 +1637,8 @@ function answerProjection(id) {
    the whole diff. Every number on it is a fact curia MEASURED — the agent's
    gate summary stays the only account of the work (#343).
 
-   TWO SOURCES, one card. A review gate's digest was counted when the gate
-   opened and rides `/overview`, so drawing it costs no read at all. A live
-   agent row is counted on demand, committed and uncommitted work together,
-   when the operator presses the button.
+   A review gate's digest was counted when the gate opened and rides
+   `/overview`, so drawing it costs no read at all.
 
    THE HUNKS NEVER RIDE THE POLL. They are fetched per file, once, and cached
    here — a card the operator never opened costs nothing, and a card left open
@@ -1674,28 +1654,6 @@ var diffQueue = [];
 function diffState(key) {
   if (!diffs[key]) diffs[key] = { open: { 0: true }, hunks: {}, digest: null, error: null, read: false, loading: false };
   return diffs[key];
-}
-
-/* The digest for a LIVE agent row. A gate never comes through here: its numbers
-   are already on the payload. */
-async function loadDigest(key, query) {
-  const d = diffState(key);
-  if (d.loading) return;
-  d.loading = true;
-  render();
-  try {
-    const res = await fetch(query, { headers: { accept: "application/json" }, cache: "no-store" });
-    const b = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(b.error || ("the console answered " + res.status));
-    d.digest = b.digest ?? null;
-    d.error = b.error ?? null;
-  } catch (e) {
-    d.digest = null;
-    d.error = e.message;
-  }
-  d.read = true;
-  d.loading = false;
-  render();
 }
 
 async function loadHunks(key, i, query) {

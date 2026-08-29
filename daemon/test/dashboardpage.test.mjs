@@ -2556,7 +2556,7 @@ describe('the operator verbs (#266)', () => {
   let page
   before(() => { page = loadPage() })
   beforeEach(() => {
-    page.UI.act = { busy: null, said: null, note: null, mode: 'queue', tele: null }
+    page.UI.act = { said: null, handoff: null }
   })
 
   // ---- start ---------------------------------------------------------------
@@ -3058,11 +3058,6 @@ describe('the operator verbs (#266)', () => {
       assert.equal(/class="said/.test(page.screenAgents(payload())), false)
     })
 
-    test('a queued note says when the agent reads it; an interrupt says what it costs', () => {
-      assert.match(page.outcome({ mode: 'queue', ok: true, agent: 'curia-263' }), /next tool result/)
-      assert.match(page.outcome({ mode: 'interrupt', ok: true, session: 'curia-263', graceMs: 5000 }), /5s of grace/)
-    })
-
     test('an answer says only that it landed: the next needs are the handoff sheet\'s, not the reply text\'s (#718)', () => {
       const said = page.outcome({
         ok: true,
@@ -3070,18 +3065,6 @@ describe('the operator verbs (#266)', () => {
       })
       assert.match(said, /Answered/)
       assert.doesNotMatch(said, /Review the map/, 'the daemon orders next_needs by age, and Atlas ranks as Home does instead')
-    })
-
-    test('an interrupt curia refused still delivered the words — queued, which is the default anyway', () => {
-      const said = page.outcome({ mode: 'interrupt', ok: false, why: 'curia-263 is waiting on esc-7', still_queued: true })
-      assert.match(said, /waiting on esc-7/)
-      assert.match(said, /stay queued/)
-    })
-
-    test('a note nothing took says only that, with no promise of delivery', () => {
-      const said = page.outcome({ mode: 'queue', ok: false, why: 'curia is not running `curia-9`' })
-      assert.match(said, /not running/)
-      assert.equal(/queued/.test(said), false)
     })
 
     test('an in-flight answer leaves an independent Start control available', () => {

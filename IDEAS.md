@@ -1,8 +1,11 @@
 landing page
 ============
+* 60fps
+* better agent display
+* hero: mess are simple prompts, not tickets. show themselves on hover. curia transforms them into tickets
+* continuous scrolling/storytelling
 * name and show harnesses earlier and add "reuse existing subs"
 * show model routing
-* hero: mess are simple prompts. show themselves on hover. curia transforms them into tickets
 
 
 improvements
@@ -13,10 +16,8 @@ improvements
 * rename Atlas
 * semantic versioning
 * ticket board/graph view
+* auto tasks
 
-features
-========
-opencode and pi support in router
 
 behavior toggles
 ================
