@@ -20,6 +20,8 @@ const SCRIPT = path.join(DIR, '..', '..', 'deploy', 'self-deploy.sh')
 
 const PREV = 'a'.repeat(40)
 const NEXT = 'b'.repeat(40)
+const PREV_VERSION = '0.1.0'
+const NEXT_VERSION = '0.2.0'
 
 function fakeStore() {
   const events = []
@@ -29,7 +31,7 @@ function fakeStore() {
 // A git/docker double: answers rev-parse from `shas`, throws where the
 // scenario says so, and records every docker invocation. `dirty` is what
 // `git status --porcelain` prints — the clean tree is the empty string.
-function fakeExec({ head = PREV, origin = NEXT, ffOk = true, dockerError = null, dirty = '', untracked = '', added = '', blobIds = {}, ghAuthOk = true } = {}) {
+function fakeExec({ head = PREV, origin = NEXT, prevVersion = PREV_VERSION, nextVersion = NEXT_VERSION, ffOk = true, dockerError = null, dirty = '', untracked = '', added = '', blobIds = {}, ghAuthOk = true } = {}) {
   const docker = []
   const git = []
   const gh = []
@@ -45,6 +47,10 @@ function fakeExec({ head = PREV, origin = NEXT, ffOk = true, dockerError = null,
       if (verb === 'status') return { stdout: dirty }
       if (verb === 'checkout') return { stdout: '' }
       if (verb === 'fetch') return { stdout: '' }
+      if (verb === 'show') {
+        const version = args[1].startsWith(`${head}:`) ? prevVersion : nextVersion
+        return { stdout: JSON.stringify({ version }) }
+      }
       if (verb === 'rev-parse') {
         if (args[1].includes(':')) {
           const f = args[1].split(':').slice(1).join(':')
@@ -132,7 +138,7 @@ describe('the daemon half: preflight and hand-off', () => {
   test('an up-to-date checkout deploys nothing', async () => {
     const { deploy, reduction, docker } = build({ head: PREV, origin: PREV })
     const reply = await deploy.run({ by: 'u1' })
-    assert.match(reply, /already at a{7}/)
+    assert.match(reply, /already at 0\.1\.0/)
     assert.equal(docker.length, 0)
     assert.equal(reduction.events.length, 0)
     assert.equal(deploy.readMarker(), null)
@@ -198,6 +204,19 @@ describe('the daemon half: preflight and hand-off', () => {
     assert.equal(docker.length, 0)
   })
 
+  test('a deploy requires a valid version increase', async () => {
+    for (const [nextVersion, expected] of [
+      ['0.1.0', /must raise Curia's version above 0\.1\.0/],
+      ['0.0.9', /must raise Curia's version above 0\.1\.0/],
+      ['next', /must contain a semantic version/],
+    ]) {
+      const { deploy, docker } = build({ nextVersion })
+      const reply = await deploy.run({ by: 'u1' })
+      assert.match(reply, expected)
+      assert.equal(docker.length, 0)
+    }
+  })
+
   // #562: the 4897a82 rollout. A live check left untracked files on the box at
   // paths a later commit added as tracked, the sibling's merge refused them,
   // and the rollback announced a health-check failure that never happened.
@@ -234,7 +253,7 @@ describe('the daemon half: preflight and hand-off', () => {
       blobIds: { 'docs/check.sh': { incoming: 'incoming-blob', local: 'local-blob' } },
     })
     const reply = await deploy.run({ by: 'u1' })
-    assert.match(reply, /untracked files that b{7} adds as tracked, with DIFFERENT content: docs\/check\.sh/)
+    assert.match(reply, /untracked files that 0\.2\.0 adds as tracked, with DIFFERENT content: docs\/check\.sh/)
     assert.equal(fs.existsSync(path.join(repoRoot, 'docs/check.sh')), true)
     assert.equal(docker.length, 0)
     assert.equal(reduction.events.length, 0)
@@ -274,12 +293,17 @@ describe('the daemon half: preflight and hand-off', () => {
   test('the hand-off writes the marker, journals, and starts the sibling', async () => {
     const { deploy, reduction, docker } = build()
     const reply = await deploy.run({ by: 'u1' })
-    assert.equal(reply, '⏳ deploying curia (aaaaaaa → bbbbbbb) now...')
+    assert.equal(reply, '⏳ deploying curia 0.1.0 → 0.2.0 now...')
     const marker = deploy.readMarker()
     assert.equal(marker.state, 'handed-off')
     assert.equal(marker.prev, PREV)
     assert.equal(marker.next, NEXT)
-    assert.deepEqual(reduction.events, [{ type: 'deploy_requested', by: 'u1', prev: PREV, next: NEXT }])
+    assert.equal(marker.prev_version, PREV_VERSION)
+    assert.equal(marker.next_version, NEXT_VERSION)
+    assert.deepEqual(reduction.events, [{
+      type: 'deploy_requested', by: 'u1', prev: PREV, next: NEXT,
+      prev_version: PREV_VERSION, next_version: NEXT_VERSION,
+    }])
     assert.equal(docker.length, 1)
     const args = docker[0]
     // detached, auto-removed, and named — the name is the concurrency guard
@@ -291,8 +315,11 @@ describe('the daemon half: preflight and hand-off', () => {
     // the script runs from a container-local copy: the sibling's own merge
     // rewrites the checkout copy mid-run
     assert.ok(args.some((a) => a.includes('cp /home/alp/curia/deploy/self-deploy.sh /tmp/')))
-    // script argv: prev next repoRoot markerFile logFile port workRoot
-    assert.deepEqual(args.slice(-7), [PREV, NEXT, '/home/alp/curia', deploy.markerPath, deploy.logPath, '4271', '/home/alp/curia-work'])
+    // script argv: refs, paths, port, workspace root, and versions
+    assert.deepEqual(args.slice(-9), [
+      PREV, NEXT, '/home/alp/curia', deploy.markerPath, deploy.logPath, '4271',
+      '/home/alp/curia-work', PREV_VERSION, NEXT_VERSION,
+    ])
   })
 
   test('the hand-off parks overseer panes before compose recreates their container', async () => {
@@ -334,7 +361,9 @@ describe('the surviving daemon half: resolution', () => {
     return { said, p }
   }
   const writeMarker = (deploy, state, extra = {}) =>
-    fs.writeFileSync(deploy.markerPath, JSON.stringify({ state, prev: PREV, next: NEXT, ...extra }))
+    fs.writeFileSync(deploy.markerPath, JSON.stringify({
+      state, prev: PREV, next: NEXT, prev_version: PREV_VERSION, next_version: NEXT_VERSION, ...extra,
+    }))
 
   test('no marker means no deploy to resolve', async () => {
     const { deploy } = build()
@@ -346,8 +375,11 @@ describe('the surviving daemon half: resolution', () => {
     writeMarker(deploy, 'landed')
     const { said, p } = resolve(deploy)
     assert.equal(await p, 'landed')
-    assert.deepEqual(reduction.events, [{ type: 'deploy_landed', prev: PREV, next: NEXT }])
-    assert.equal(said[0], '🚀 curia deploy finished (aaaaaaa → bbbbbbb) successfully')
+    assert.deepEqual(reduction.events, [{
+      type: 'deploy_landed', prev: PREV, next: NEXT,
+      prev_version: PREV_VERSION, next_version: NEXT_VERSION,
+    }])
+    assert.equal(said[0], '🚀 curia 0.1.0 → 0.2.0 deployed successfully')
     assert.equal(deploy.readMarker(), null)
   })
 
@@ -363,7 +395,7 @@ describe('the surviving daemon half: resolution', () => {
     assert.equal(await p, 'rolled-back')
     assert.equal(reduction.events[0].type, 'deploy_rolled_back')
     assert.equal(reduction.events[0].reason, 'health check failed')
-    assert.equal(said[0], '⚠️ curia deploy rolled back (aaaaaaa → bbbbbbb): health check failed. Running aaaaaaa again. See daemon/data/deploy.log.')
+    assert.equal(said[0], '⚠️ curia 0.1.0 → 0.2.0 rolled back: health check failed. Running 0.1.0 again. See daemon/data/deploy.log.')
   })
 
   // #562: a refused merge recreated nothing, so the announcement must not read
@@ -374,7 +406,7 @@ describe('the surviving daemon half: resolution', () => {
     const { said, p } = resolve(deploy)
     assert.equal(await p, 'merge-refused')
     assert.equal(reduction.events[0].type, 'deploy_merge_refused')
-    assert.equal(said[0], '❌ curia deploy failed (aaaaaaa → bbbbbbb): git could not fast-forward. Nothing was recreated, and aaaaaaa never stopped.\nSee daemon/data/deploy.log.')
+    assert.equal(said[0], '❌ curia 0.1.0 → 0.2.0 failed to deploy: git could not fast-forward. Nothing was recreated, and 0.1.0 never stopped.\nSee daemon/data/deploy.log.')
     assert.doesNotMatch(said[0], /health check/)
     assert.equal(deploy.readMarker(), null)
   })
@@ -392,7 +424,7 @@ describe('the surviving daemon half: resolution', () => {
     writeMarker(deploy, 'lockout')
     const { said, p } = resolve(deploy)
     assert.equal(await p, 'lockout')
-    assert.equal(said[0], '🛑 curia deploy failed (aaaaaaa → bbbbbbb), and the rollback health check failed. The box needs eyes. See daemon/data/deploy.log.')
+    assert.equal(said[0], '🛑 curia 0.1.0 → 0.2.0 failed to deploy, and the rollback health check failed. The box needs eyes. See daemon/data/deploy.log.')
   })
 
   // The dashboard's record (#562): the marker dies with the announcement, so
@@ -431,9 +463,9 @@ describe('the surviving daemon half: resolution', () => {
   test('logExcerpt reads the last attempt and keeps only the story', () => {
     const { deploy } = build()
     fs.writeFileSync(deploy.logPath, [
-      '[self-deploy 2026-08-18T00:00:00Z] deploy 1111111 -> 2222222',
-      '[self-deploy 2026-08-18T00:01:00Z] landed 2222222',
-      '[self-deploy 2026-08-19T19:20:09Z] deploy aaaaaaa -> bbbbbbb',
+      '[self-deploy 2026-08-18T00:00:00Z] deploy 0.0.8 -> 0.0.9',
+      '[self-deploy 2026-08-18T00:01:00Z] landed 0.0.9',
+      '[self-deploy 2026-08-19T19:20:09Z] deploy 0.1.0 -> 0.2.0',
       'error: The following untracked working tree files would be overwritten by merge:',
       '\tdocs/live-checks/461-rollout-copy.sh',
       'Please move or remove them before you merge.',
@@ -444,10 +476,10 @@ describe('the surviving daemon half: resolution', () => {
       `#31 ${'build noise '.repeat(7_000)}`,
       'Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?',
       'curl: (7) Failed to connect to 127.0.0.1 port 4271',
-      '[self-deploy 2026-08-19T19:21:00Z] rolled back to aaaaaaa',
+      '[self-deploy 2026-08-19T19:21:00Z] rolled back to 0.1.0',
     ].join('\n'))
     const out = deploy.logExcerpt()
-    assert.match(out, /deploy aaaaaaa -> bbbbbbb/)
+    assert.match(out, /deploy 0\.1\.0 -> 0\.2\.0/)
     assert.match(out, /would be overwritten/)
     assert.match(out, /461-rollout-copy\.sh/)
     assert.match(out, /additional properties 'bogus' not allowed/)
@@ -455,7 +487,7 @@ describe('the surviving daemon half: resolution', () => {
     assert.match(out, /Cannot connect to the Docker daemon/)
     assert.match(out, /curl: \(7\)/)
     assert.doesNotMatch(out, /stage-3/)
-    assert.doesNotMatch(out, /landed 2222222/)
+    assert.doesNotMatch(out, /landed 0\.0\.9/)
   })
 
   test('a sibling that never answers resolves as unknown', async () => {
@@ -464,7 +496,7 @@ describe('the surviving daemon half: resolution', () => {
     const { said, p } = resolve(deploy)
     assert.equal(await p, 'handed-off')
     assert.equal(reduction.events[0].type, 'deploy_unresolved')
-    assert.equal(said[0], '⚠️ curia deploy outcome is unknown (aaaaaaa → bbbbbbb): the sibling never wrote a result (last state **handed-off**). See daemon/data/deploy.log.')
+    assert.equal(said[0], '⚠️ curia 0.1.0 → 0.2.0 deploy outcome is unknown: the sibling never wrote a result (last state **handed-off**). See daemon/data/deploy.log.')
     assert.equal(deploy.readMarker(), null)
   })
 })
@@ -472,7 +504,6 @@ describe('the surviving daemon half: resolution', () => {
 function deployGitComparesBlobIds(git) {
   return git.some((args) => args[0] === 'hash-object')
     && git.some((args) => args[0] === 'rev-parse' && args[1].includes(':'))
-    && !git.some((args) => args[0] === 'show')
 }
 
 describe('the sibling script holds the deploy rule', () => {
@@ -535,6 +566,12 @@ describe('the sibling script holds the deploy rule', () => {
     assert.ok(guard > merge, 'the merged-script guard must run after the merge')
     assert.ok(copy > guard && copy < firstCall, 'the merged script must replace this process before recreate')
     assert.match(code, /CURIA_SELF_DEPLOY_MERGED=1 exec bash \/tmp\/self-deploy-merged\.sh "\$@"/)
+  })
+
+  test('the first versioned deploy recovers versions from refs passed by the old daemon', () => {
+    assert.match(code, /PREV_VERSION=\$\{8:-\}/)
+    assert.match(code, /NEXT_VERSION=\$\{9:-\}/)
+    assert.match(code, /git -C "\$REPO" show "\$1:daemon\/package\.json"/)
   })
 
   test('each rollback carries the reason the sibling measured', () => {

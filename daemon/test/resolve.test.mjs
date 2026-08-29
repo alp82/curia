@@ -525,10 +525,10 @@ describe('resolveAndLand: is the code IN', () => {
 // The `open_pull_request` tool's body. One ticket, one pull request, however many
 // review rounds it takes (#54 item 1).
 describe('landBranch', () => {
-  function land({ commits = [{ sha: 'abc1234', subject: 'do it' }], pr = null, ...over } = {}) {
+  function land({ commits = [{ sha: 'abc1234', subject: 'do it' }], pr = null, releaseLevel = null, ...over } = {}) {
     return landBranch({
       repo: 'o/r', ticket: '42', title: 'a ticket', summary: 'what it does',
-      agent: 'curia-42', model: 'opus', wtPath: '/w/42', branch: 'curia/42',
+      releaseLevel, agent: 'curia-42', model: 'opus', wtPath: '/w/42', branch: 'curia/42',
       deps: {
         defaultBranchOf: async (p) => { calls.push({ op: 'defaultBranch', path: p }); return 'main' },
         commitsOnBranch: async () => commits,
@@ -536,6 +536,7 @@ describe('landBranch', () => {
         findPullRequest: async () => pr,
         createPullRequest: async (repo, opts) => { calls.push({ op: 'pr', ...opts }); return 'https://github.com/o/r/pull/7' },
         setPullRequestBody: async (repo, n, body) => { calls.push({ op: 'prEdit', n, body }) },
+        setPullRequestTitle: async (repo, n, title) => { calls.push({ op: 'prTitle', n, title }) },
         ...over,
       },
       journal: (type, data) => journalled.push({ type, ...data }),
@@ -553,12 +554,26 @@ describe('landBranch', () => {
     assert.ok(journalled.some((e) => e.type === 'pr_opened'))
   })
 
+  test('a release level gives the pull request a conventional release title', async () => {
+    await land({ releaseLevel: 'minor' })
+    const pr = calls.find((c) => c.op === 'pr')
+    assert.equal(pr.title, 'feat: a ticket (o/r#42)')
+  })
+
   test('a later call after a rejection updates the SAME pull request in place', async () => {
     const out = await land({ pr: { number: 7, url: 'https://github.com/o/r/pull/7', state: 'OPEN' } })
     assert.equal(out.state, 'updated')
     assert.deepEqual(calls.map((c) => c.op), ['defaultBranch', 'push', 'prEdit'])
     assert.ok(!calls.some((c) => c.op === 'pr'), 'gh pr create fails on an existing open head')
     assert.ok(journalled.some((e) => e.type === 'pr_reused'))
+  })
+
+  test('a later release level corrects the title on the existing pull request', async () => {
+    await land({
+      releaseLevel: 'patch',
+      pr: { number: 7, url: 'https://github.com/o/r/pull/7', state: 'OPEN' },
+    })
+    assert.equal(calls.find((c) => c.op === 'prTitle').title, 'fix: a ticket (o/r#42)')
   })
 
   test('a MERGED pull request from an earlier round is not reused — it cannot carry new commits', async () => {

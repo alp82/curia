@@ -1,6 +1,6 @@
 {
   "name": "curia-daemon",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "Curia daemon: agent-facing MCP surface + Discord bridge + durable escalation record",
@@ -11,6 +11,7 @@
   "scripts": {
     "start": "node src/index.mjs",
     "test": "node --test 'test/*.test.mjs'",
+    "check-pr-title": "node bin/check-pr-title.mjs",
     "build-attach-index": "node bin/build-attach-index.mjs",
     "build-agent-image": "node bin/build-agent-image.mjs"
   },

@@ -45,6 +45,7 @@ import { sameDigest } from './diffdigest.mjs'
 import { CommandRouter, actionForCommand } from './commands.mjs'
 import { ActionCoordinator } from './actions.mjs'
 import { SelfDeploy } from './deploy.mjs'
+import { APP_VERSION } from './appversion.mjs'
 import { OverseerClient, OverseerTurns, serveConversationMcp, serveVerbMcp } from './overseerclient.mjs'
 import { OverseerPaneHost } from './overseerpane.mjs'
 import { OVERSEER_CONVERSATION_PARAM, revokeConversationToken } from './overseeridentity.mjs'
@@ -1906,7 +1907,7 @@ const sentFiles = (raw, attachments) => [
 ]
 
 function buildMcpServer(agent, ticket) {
-  const server = new McpServer({ name: 'curia-daemon', version: '0.1.0' }, { capabilities: { logging: {} } })
+  const server = new McpServer({ name: 'curia-daemon', version: APP_VERSION }, { capabilities: { logging: {} } })
 
   // The agent's speaker identity (#108 item 15, narrowed by #254): its own
   // words post under its session name, so the prose no longer says "the
@@ -2132,14 +2133,17 @@ function buildMcpServer(agent, ticket) {
   // timing changed and nothing else.
   server.tool(
     'open_pull_request',
-    'Push the commits on your branch and open the pull request for this ticket — curia does the pushing, you never do. Call it once you have committed something, and again after later commits: it updates the same pull request. Returns the pull-request URL. Next step after this is request_review.',
-    { summary: z.string().describe('What this change does, for the pull-request body.') },
+    'Push the commits on your branch and open the pull request for this ticket — curia does the pushing, you never do. Call it once you have committed something, and again after later commits: it updates the same pull request. Returns the pull-request URL. Next step after this is request_review. Set release_level when the repository requires a SemVer release title; omit it elsewhere.',
+    {
+      summary: z.string().describe('What this change does, for the pull-request body.'),
+      release_level: z.enum(['patch', 'minor', 'major']).optional().describe('Optional SemVer effect: patch creates `fix:`, minor creates `feat:`, and major creates `feat!:`.'),
+    },
     // keepalive: a push plus two gh round-trips is well inside the client's 300s
     // idle abort (#34), but "well inside" is not a guarantee on a big repo
-    async ({ summary }, extra) => {
+    async ({ summary, release_level }, extra) => {
       const stopKeepAlive = startKeepAlive(extra, `${agent}/pr`)
       try {
-        return { content: [{ type: 'text', text: await dispatcher.openPullRequest(agent, { summary }) }, ...drainNotes()] }
+        return { content: [{ type: 'text', text: await dispatcher.openPullRequest(agent, { summary, releaseLevel: release_level }) }, ...drainNotes()] }
       } finally {
         stopKeepAlive()
       }

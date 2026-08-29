@@ -1,0 +1,25 @@
+name: Pull request title
+
+on:
+  pull_request:
+    types:
+      - opened
+      - edited
+      - synchronize
+      - reopened
+
+permissions:
+  contents: read
+
+jobs:
+  title:
+    name: Conventional release title
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the title validator
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.0.2
+
+      - name: Validate pull request title
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: npm run check-pr-title --prefix daemon

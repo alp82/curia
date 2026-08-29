@@ -167,9 +167,32 @@ The script connects over ssh, pulls `main`, and runs `docker compose up -d --bui
 
 Curia also deploys itself, with no dev box in the loop ([#270](https://github.com/alp82/curia/issues/270)). Type `/deploy` in Discord, or `POST /command {"text":"deploy"}` on loopback. The overseer has no deploy tool: a typed verb is its own confirmation, and an interpreted one is refused.
 
+`daemon/package.json` contains Curia's release version. [Release Please](https://github.com/googleapis/release-please) updates it and `daemon/package-lock.json` from the conventional pull-request title that reaches `main` through a squash merge:
+
+- `fix:` selects a patch release.
+- `feat:` selects a minor release.
+- `feat!:` selects a major release.
+
+The `open_pull_request` tool produces these titles from its `release_level` argument. The pull-request title workflow rejects titles that don't select a release. Release Please then opens or updates one release pull request with the version files and `daemon/CHANGELOG.md`. Merge that release pull request before you deploy. Until it merges, `main` still has the old version and the deploy gate refuses it.
+
+A self-deploy refuses `origin/main` when its version is malformed, unchanged, or lower than the running version. Git commit IDs remain internal rollback references. Discord, the dashboard, the journal projection, and the deploy log identify releases by version.
+
+### One-time release automation setup
+
+The release workflow uses the existing Curia GitHub App. It doesn't use a personal access token. Add these values in the `alp82/curia` repository settings:
+
+1. Add the app's client ID as the Actions variable `CURIA_RELEASE_APP_CLIENT_ID`. The client ID is on the app's **General** page and differs from the numeric app ID.
+2. Add the app's PEM private key as the Actions secret `CURIA_RELEASE_APP_PRIVATE_KEY`.
+3. Set the repository's allowed merge method to squash only.
+4. Set the default squash commit title to the pull-request title.
+
+The app keeps **Workflows** at **No access**. Release Please only changes the version files and changelog after this workflow is on `main`. Curia agents still can't add or edit workflow files.
+
+The release manifest starts at `0.2.0`. Its `bootstrap-sha` excludes repository history before this automation change. Remove `bootstrap-sha` from `release-please-config.json` after the first release pull request merges.
+
 The daemon cannot recreate its own container, so the verb only orders the deploy:
 
-1. The daemon fetches `origin/main` and refuses anything that is not a fast-forward.
+1. The daemon fetches `origin/main` and refuses anything that is not a fast-forward or a version increase.
 2. It writes `daemon/data/deploy.json`, journals `deploy_requested`, and starts a detached sibling container (`curia-deploy`, on the `curia-daemon` image) running `deploy/self-deploy.sh`.
 3. The sibling merges, runs the compose deploy above, and health-checks the new daemon: `/ping` answers, still answers 10 s later, and the container has restart count zero.
 4. On a failed health check the sibling runs `git reset --hard` to the previous ref and recreates again. Code runs from the repo mount, so the previous ref is a full rollback.

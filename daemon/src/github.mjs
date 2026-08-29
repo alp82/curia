@@ -211,6 +211,13 @@ export function setPullRequestBody(repo, n, body) {
   return withBodyFile(body, (f) => gh(['pr', 'edit', String(n), '--repo', repo, '--body-file', f], { repo }))
 }
 
+// A repository can ask Curia to turn a SemVer release level into its pull
+// request title. Rewrite an existing pull request too, so an agent can correct
+// an omitted or mistaken level during the rejection loop.
+export function setPullRequestTitle(repo, n, title) {
+  return gh(['pr', 'edit', String(n), '--repo', repo, '--title', title], { repo })
+}
+
 // Merge ends the workspace lease (#54 item 7), and `gh pr merge --delete-branch`
 // is what the AGENT runs. This is the daemon's repair for the branch it left
 // behind. A missing ref is positive absence, not a failure: the agent's own

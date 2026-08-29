@@ -33,6 +33,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { execFileP } from './exec.mjs'
+import { compareAppVersions, parseAppVersion } from './appversion.mjs'
 
 // Terminal marker states the sibling can write. Everything else means the
 // deploy is still in flight (daemon: handed-off; sibling: deploying,
@@ -41,7 +42,8 @@ const TERMINAL = new Set(['landed', 'rolled-back', 'lockout', 'merge-refused'])
 const DEPLOY_LOG_CHUNK_BYTES = 64 * 1024
 const DEPLOY_LOG_EXCERPT_LINES = 30
 
-const short = (sha) => String(sha).slice(0, 7)
+const namedVersion = (record, side) => record?.[`${side}_version`] ?? 'version unavailable'
+const versionPair = (record) => `${namedVersion(record, 'prev')} → ${namedVersion(record, 'next')}`
 
 // The sibling's `docker run` argv, pure for the test that pins it. The
 // container is detached (it must outlive the caller), auto-removed (its log
@@ -124,7 +126,7 @@ export class SelfDeploy {
     }
     const pending = this.readMarker()
     if (pending && !TERMINAL.has(pending.state)) {
-      return `⚙️ a deploy is already in flight (${short(pending.prev)} → ${short(pending.next)}, state **${pending.state}**) — its outcome lands in the channel`
+      return `⚙️ a deploy is already in flight (${versionPair(pending)}, state **${pending.state}**) — its outcome lands in the channel`
     }
     // The gate approval uses the operator login from curia's HOME (#564).
     // Check it at deploy time, before a later gate press needs it.
@@ -189,11 +191,28 @@ export class SelfDeploy {
     await this.#git('fetch', 'origin', 'main')
     const prev = (await this.#git('rev-parse', 'HEAD')).stdout.trim()
     const next = (await this.#git('rev-parse', 'origin/main')).stdout.trim()
-    if (prev === next) return `${note}✅ already at ${short(prev)} — origin/main holds nothing new`
+    let prevVersion
+    let nextVersion
+    try {
+      prevVersion = parseAppVersion(
+        (await this.#git('show', `${prev}:daemon/package.json`)).stdout,
+        `daemon/package.json at the deployed ref`,
+      )
+      nextVersion = prev === next ? prevVersion : parseAppVersion(
+        (await this.#git('show', `${next}:daemon/package.json`)).stdout,
+        `daemon/package.json at origin/main`,
+      )
+    } catch (e) {
+      return `❌ deploy refused: ${e.message}`
+    }
+    if (prev === next) return `${note}✅ already at ${prevVersion} — origin/main holds nothing new`
     try {
       await this.#git('merge-base', '--is-ancestor', 'HEAD', 'origin/main')
     } catch {
-      return `❌ the checkout at ${this.repoRoot} has commits origin/main does not (HEAD ${short(prev)}) — that needs hands, not a fast-forward. Fix it over ssh.`
+      return `❌ the checkout at ${this.repoRoot} has commits origin/main does not (running ${prevVersion}) — that needs hands, not a fast-forward. Fix it over ssh.`
+    }
+    if (compareAppVersions(nextVersion, prevVersion) <= 0) {
+      return `❌ deploy refused: origin/main must raise Curia's version above ${prevVersion}; it contains ${nextVersion}. Update daemon/package.json and daemon/package-lock.json.`
     }
     // The untracked collision (#562). The tracked-only status check above is
     // right about untracked files in general — the dashboard's own overrides
@@ -230,7 +249,7 @@ export class SelfDeploy {
       }
       if (diverged.length) {
         return [
-          `❌ the checkout at ${this.repoRoot} has untracked files that ${short(next)} adds as tracked, with DIFFERENT content: ${diverged.join(', ')}.`,
+          `❌ the checkout at ${this.repoRoot} has untracked files that ${nextVersion} adds as tracked, with DIFFERENT content: ${diverged.join(', ')}.`,
           'The merge would refuse to overwrite them and the deploy would roll back for nothing. Move or remove them over ssh — or commit the box’s versions, if they are the ones you want.',
         ].join('\n')
       }
@@ -260,16 +279,20 @@ export class SelfDeploy {
       return `❌ deploy refused: overseer panes could not park (${why})`
     }
     fs.writeFileSync(this.markerPath, JSON.stringify({
-      state: 'handed-off', prev, next, by, ts: new Date().toISOString(),
+      state: 'handed-off', prev, next, prev_version: prevVersion, next_version: nextVersion,
+      by, ts: new Date().toISOString(),
     }, null, 2))
-    this.reduction.journal('deploy_requested', { by, prev, next })
+    this.reduction.journal('deploy_requested', {
+      by, prev, next, prev_version: prevVersion, next_version: nextVersion,
+    })
     const args = [
       ...helperRunArgs({
         repoRoot: this.repoRoot, dataDir: this.dataDir, home: this.home,
         uid: process.getuid?.() ?? 1000, gid, workRoot: this.workRoot,
       }),
-      // script argv: prev next repoRoot markerFile logFile port workRoot
+      // script argv: refs, versions, paths, port, and workspace root
       prev, next, this.repoRoot, this.markerPath, this.logPath, String(this.port), this.workRoot,
+      prevVersion, nextVersion,
     ]
     try {
       await this.exec('docker', args, { timeout: 60_000 })
@@ -287,7 +310,7 @@ export class SelfDeploy {
     // successor announces — the poll below simply dies with it.
     this.resolvePending({ announce: this.announce ?? undefined })
       .catch((e) => this.log(`deploy watch failed: ${e.message}`))
-    return `${note}⏳ deploying curia (${short(prev)} → ${short(next)}) now...`
+    return `${note}⏳ deploying curia ${prevVersion} → ${nextVersion} now...`
   }
 
   // The surviving daemon's half, called once at boot: wait for the sibling to
@@ -303,35 +326,37 @@ export class SelfDeploy {
       await sleep(pollMs)
       marker = this.readMarker() ?? marker
     }
-    const { state, prev, next } = marker
+    const { state, prev, next, prev_version: prevVersion, next_version: nextVersion } = marker
+    const versions = versionPair(marker)
     const reason = marker.reason || null
     let text
     if (state === 'landed') {
-      this.reduction.journal('deploy_landed', { prev, next })
-      text = `🚀 curia deploy finished (${short(prev)} → ${short(next)}) successfully`
+      this.reduction.journal('deploy_landed', { prev, next, prev_version: prevVersion, next_version: nextVersion })
+      text = `🚀 curia ${versions} deployed successfully`
     } else if (state === 'merge-refused') {
       // Nothing was recreated: the sibling refused the fast-forward before it
       // touched a container, so the running daemon never stopped. The excerpt
       // carries git's own words — "untracked working tree files would be
       // overwritten" reads very differently from a crash-looping successor.
-      this.reduction.journal('deploy_merge_refused', { prev, next, reason })
-      text = `❌ curia deploy failed (${short(prev)} → ${short(next)}): git could not fast-forward. Nothing was recreated, and ${short(prev)} never stopped.\n${this.logExcerpt() || 'See daemon/data/deploy.log.'}`
+      this.reduction.journal('deploy_merge_refused', { prev, next, prev_version: prevVersion, next_version: nextVersion, reason })
+      text = `❌ curia ${versions} failed to deploy: git could not fast-forward. Nothing was recreated, and ${namedVersion(marker, 'prev')} never stopped.\n${this.logExcerpt() || 'See daemon/data/deploy.log.'}`
     } else if (state === 'rolled-back') {
-      this.reduction.journal('deploy_rolled_back', { prev, next, reason })
-      text = `⚠️ curia deploy rolled back (${short(prev)} → ${short(next)}): ${reason ?? `${short(next)} failed its health check`}. Running ${short(prev)} again. See daemon/data/deploy.log.`
+      this.reduction.journal('deploy_rolled_back', { prev, next, prev_version: prevVersion, next_version: nextVersion, reason })
+      text = `⚠️ curia ${versions} rolled back: ${reason ?? `${namedVersion(marker, 'next')} failed its health check`}. Running ${namedVersion(marker, 'prev')} again. See daemon/data/deploy.log.`
     } else if (state === 'lockout') {
       // A daemon that can say this survived, so the word is one notch too
       // dark — but the sibling gave up, and that deserves the loud spelling.
-      this.reduction.journal('deploy_rolled_back', { prev, next, reason: 'lockout: the rollback health check failed too' })
-      text = `🛑 curia deploy failed (${short(prev)} → ${short(next)}), and the rollback health check failed. The box needs eyes. See daemon/data/deploy.log.`
+      this.reduction.journal('deploy_rolled_back', { prev, next, prev_version: prevVersion, next_version: nextVersion, reason: 'lockout: the rollback health check failed too' })
+      text = `🛑 curia ${versions} failed to deploy, and the rollback health check failed. The box needs eyes. See daemon/data/deploy.log.`
     } else {
-      this.reduction.journal('deploy_unresolved', { prev, next, state })
-      text = `⚠️ curia deploy outcome is unknown (${short(prev)} → ${short(next)}): the sibling never wrote a result (last state **${state}**). See daemon/data/deploy.log.`
+      this.reduction.journal('deploy_unresolved', { prev, next, prev_version: prevVersion, next_version: nextVersion, state })
+      text = `⚠️ curia ${versions} deploy outcome is unknown: the sibling never wrote a result (last state **${state}**). See daemon/data/deploy.log.`
     }
     // The dashboard's record (#562), written before the marker goes away.
     try {
       const last = JSON.stringify({
-        state, prev, next, reason, by: marker.by ?? null, ts: marker.ts ?? null,
+        state, prev, next, prev_version: prevVersion, next_version: nextVersion,
+        reason, by: marker.by ?? null, ts: marker.ts ?? null,
         resolved_at: new Date().toISOString(), text, log: this.logExcerpt(),
       }, null, 2)
       const temporary = `${this.lastPath}.tmp`
@@ -361,7 +386,7 @@ export class SelfDeploy {
       return ''
     }
     const kept = []
-    const deployStart = /\[self-deploy .*\] deploy [0-9a-f]{7,} -> [0-9a-f]{7,}/
+    const deployStart = /\[self-deploy .*\] deploy \S+ -> \S+/
     const errorLine = /\b(?:error|fatal|fail(?:ed|ure)?|cannot|denied|invalid|missing|not found|no such file|required|undefined|refused|aborting|not allowed|must be|unable to)\b/i
     const readLine = (line) => {
       if (deployStart.test(line)) kept.length = 0

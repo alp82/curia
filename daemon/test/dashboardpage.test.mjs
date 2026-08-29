@@ -469,13 +469,13 @@ describe('the read screens (#264)', () => {
     test('the home screen shows the deploy in flight', () => {
       const t = text(page.screenHome(payload({
         deploy: {
-          in_flight: { prev: 'a'.repeat(40), next: 'b'.repeat(40), state: 'rolling-back' },
+          in_flight: { prev_version: '1.3.0', next_version: '1.4.0', state: 'rolling-back' },
           last: null,
           verdict_read_error: null,
         },
       })))
       assert.match(t, /Deploy/)
-      assert.match(t, /a deploy is in flight: a{7} → b{7}/)
+      assert.match(t, /a deploy is in flight: 1\.3\.0 → 1\.4\.0/)
       assert.match(t, /state rolling-back/)
     })
 
@@ -484,7 +484,7 @@ describe('the read screens (#264)', () => {
         deploy: {
           in_flight: null,
           last: {
-            state: 'rolled-back', prev: 'a'.repeat(40), next: 'b'.repeat(40),
+            state: 'rolled-back', prev_version: '1.3.0', next_version: '1.4.0',
             reason: 'docker compose could not recreate the services', by: 'u1',
             resolved_at: at(30), log: 'Cannot connect to the Docker daemon',
           },
@@ -492,7 +492,7 @@ describe('the read screens (#264)', () => {
         },
       })))
       assert.match(t, /Last deploy/)
-      assert.match(t, /ROLLED BACK: a{7} → b{7}/)
+      assert.match(t, /ROLLED BACK: 1\.3\.0 → 1\.4\.0/)
       assert.match(t, /docker compose could not recreate the services/)
       assert.match(t, /Cannot connect to the Docker daemon/)
     })

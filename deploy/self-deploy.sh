@@ -17,19 +17,30 @@
 # and a recreated tmux service kills every live agent (wayfinder #132 in
 # compose clothes). deploy.test.mjs pins this file to the rule.
 #
-# argv: prev next repoRoot markerFile logFile port workRoot
+# argv: prevRef nextRef repoRoot markerFile logFile port workRoot prevVersion nextVersion
 set -uo pipefail
 PREV=$1 NEXT=$2 REPO=$3 MARKER=$4 LOG=$5 PORT=$6 WORK=${7:-}
+PREV_VERSION=${8:-} NEXT_VERSION=${9:-}
 exec >>"$LOG" 2>&1
 
 say() { echo "[self-deploy $(date -u +%FT%TZ)] $*"; }
 
+# The deploy that introduces version arguments starts this script with the old
+# seven-argument contract. After the merge re-execs this new copy, recover both
+# versions from the immutable refs. Later deploys pass the values directly.
+version_at() {
+  git -C "$REPO" show "$1:daemon/package.json" | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).version"
+}
+[ -n "$PREV_VERSION" ] || PREV_VERSION=$(version_at "$PREV")
+[ -n "$NEXT_VERSION" ] || NEXT_VERSION=$(version_at "$NEXT")
+
 # The marker is the contract with the surviving daemon: resolvePending() polls
 # it until a terminal state (landed | rolled-back | lockout) and announces it.
-# All values are shas and fixed words, so printf-JSON is safe.
+# Refs are shas, versions are strict SemVer, and states are fixed words, so
+# printf-JSON is safe.
 mark() {
-  printf '{"state":"%s","prev":"%s","next":"%s","reason":"%s","ts":"%s"}\n' \
-    "$1" "$PREV" "$NEXT" "${2:-}" "$(date -u +%FT%TZ)" >"$MARKER.tmp" \
+  printf '{"state":"%s","prev":"%s","next":"%s","prev_version":"%s","next_version":"%s","reason":"%s","ts":"%s"}\n' \
+    "$1" "$PREV" "$NEXT" "$PREV_VERSION" "$NEXT_VERSION" "${2:-}" "$(date -u +%FT%TZ)" >"$MARKER.tmp" \
     && mv "$MARKER.tmp" "$MARKER"
 }
 
@@ -69,7 +80,7 @@ healthy() {
   [ "$restarts" -eq 0 ]
 }
 
-say "deploy $PREV -> $NEXT"
+say "deploy $PREV_VERSION -> $NEXT_VERSION"
 mark deploying
 
 # Each step fails under its own name (#562): the 4897a82 rollout died on the
@@ -94,7 +105,7 @@ REASON="the new daemon failed its health check"
 if recreate; then
   if healthy 180; then
     mark landed
-    say "landed $NEXT"
+    say "landed $NEXT_VERSION"
     exit 0
   fi
 else
@@ -106,7 +117,7 @@ mark rolling-back
 git -C "$REPO" reset --hard "$PREV"
 if recreate && healthy 180; then
   mark rolled-back "$REASON"
-  say "rolled back to $PREV"
+  say "rolled back to $PREV_VERSION"
   exit 0
 fi
 

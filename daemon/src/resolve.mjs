@@ -48,6 +48,7 @@
 
 import { parentNumberOf, hasLabel } from './github.mjs'
 import { composeWayfinderResult } from './card.mjs'
+import { pullRequestTitle } from './pullrequesttitle.mjs'
 
 export const DECISIONS_HEADING = /^##\s+Decisions so far\s*$/i
 
@@ -331,7 +332,7 @@ export function prBody({ repo, ticket, onIssue = null, title, summary, commits, 
 // repo whose dispatches are all sandboxed has private clones and no base clone
 // at all (#238). A worktree answers too, through its shared common dir.
 export async function landBranch({
-  repo, ticket, onIssue = null, title, summary, agent, model, wtPath, branch, deps, journal,
+  repo, ticket, onIssue = null, title, summary, releaseLevel = null, agent, model, wtPath, branch, deps, journal,
 }) {
   const defaultBranch = await deps.defaultBranchOf(wtPath)
   const commits = await deps.commitsOnBranch(wtPath, defaultBranch)
@@ -343,14 +344,16 @@ export async function landBranch({
   journal('branch_pushed', { repo, ticket, agent, branch, sha, commits: commits.length })
 
   const body = prBody({ repo, ticket, onIssue, title, summary, commits, agent, model })
+  const prTitle = pullRequestTitle(title, `${repo}#${onIssue ?? ticket}`, releaseLevel)
   const existing = await deps.findPullRequest(repo, branch)
   if (existing && existing.state === 'OPEN') {
     await deps.setPullRequestBody(repo, existing.number, body)
+    if (releaseLevel != null) await deps.setPullRequestTitle(repo, existing.number, prTitle)
     journal('pr_reused', { repo, ticket, agent, branch, url: existing.url, commits: commits.length })
     return { ok: true, state: 'updated', url: existing.url, number: existing.number, commits: commits.length, branch }
   }
   const url = await deps.createPullRequest(repo, {
-    head: branch, base: defaultBranch, title: `${title} (${repo}#${onIssue ?? ticket})`, body,
+    head: branch, base: defaultBranch, title: prTitle, body,
   })
   journal('pr_opened', { repo, ticket, agent, branch, url, commits: commits.length })
   return { ok: true, state: 'opened', url, commits: commits.length, branch }

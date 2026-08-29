@@ -2099,7 +2099,7 @@ const EVENTS = {
     e.keys?.length ? ` — ${esc(e.keys.join(", "))}` : " — nothing moved"}`],
   config_reload_declined: ["config", "warn", (e) => `config reload declined for ${esc(e.by)} — ${esc(snip(e.error, 160))}`],
   deploy_requested: ["deploy", "", (e) => `deploy ordered by ${esc(e.by)}`],
-  deploy_landed: ["deploy", "", (e) => `deploy landed${e.next ? ` at ${esc(String(e.next).slice(0, 7))}` : ""}`],
+  deploy_landed: ["deploy", "", (e) => `deploy landed${e.next_version ? ` at ${esc(e.next_version)}` : ""}`],
   deploy_rolled_back: ["deploy", "bad", (e) => `deploy rolled back — ${esc(e.reason ?? "the health check failed")}`],
   /* The refused merge (#562): nothing was recreated, so this must not read
      like the rollback above — the running daemon never stopped. */
@@ -2259,10 +2259,10 @@ function screenHome(p) {
 function deployCard(o) {
   const d = o.deploy;
   if (!d || (!d.in_flight && !d.last && !d.verdict_read_error)) return "";
-  const sh = (s) => String(s ?? "").slice(0, 7);
+  const version = (record, side) => record?.[`${side}_version`] ?? "version unavailable";
   if (d.in_flight) {
     return `<div class="h-sect"><h3>Deploy</h3>
-      <div class="unread">a deploy is in flight: ${esc(sh(d.in_flight.prev))} → ${esc(sh(d.in_flight.next))} — state ${esc(d.in_flight.state)}. The daemon restarts if it lands; this page keeps its last snapshot through that.</div></div>`;
+      <div class="unread">a deploy is in flight: ${esc(version(d.in_flight, "prev"))} → ${esc(version(d.in_flight, "next"))} — state ${esc(d.in_flight.state)}. The daemon restarts if it lands; this page keeps its last snapshot through that.</div></div>`;
   }
   if (d.verdict_read_error) {
     return `<div class="h-sect"><h3>Last deploy</h3>
@@ -2270,7 +2270,7 @@ function deployCard(o) {
   }
   const l = d.last;
   const word = { landed: "landed", "rolled-back": "ROLLED BACK", "merge-refused": "refused", lockout: "LOCKOUT" }[l.state] ?? l.state;
-  const line = `${esc(word)}: ${esc(sh(l.prev))} → ${esc(sh(l.next))}${l.reason ? ` — ${esc(l.reason)}` : ""}${l.resolved_at ? ` · ${esc(ago(l.resolved_at))}` : ""}${l.by ? ` · ordered by ${esc(l.by)}` : ""}`;
+  const line = `${esc(word)}: ${esc(version(l, "prev"))} → ${esc(version(l, "next"))}${l.reason ? ` — ${esc(l.reason)}` : ""}${l.resolved_at ? ` · ${esc(ago(l.resolved_at))}` : ""}${l.by ? ` · ordered by ${esc(l.by)}` : ""}`;
   const ok = l.state === "landed";
   return `<div class="h-sect"><h3>Last deploy</h3>
     <div class="${ok ? "dim-note" : "unread"}">${line}</div>

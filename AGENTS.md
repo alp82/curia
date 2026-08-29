@@ -23,3 +23,7 @@ Single-context — one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/ag
 ## Daemon tests
 
 Run `npm test` in `daemon/`. The suite must be green. Never read a failure or a cancelled test as pre-existing. A cancelled test is a suite that died before it started, and it proves nothing. See [the daemon README](daemon/README.md#the-test-suite).
+
+## Releases
+
+For a pull request that changes Curia, call `open_pull_request` with `release_level`. Use `patch` for backward-compatible fixes and maintenance, `minor` for backward-compatible features, and `major` for breaking changes. Curia turns the level into the pull-request title that Release Please reads after the squash merge. Omit `release_level` when charting research or working in another watched repository unless that repository requires it.

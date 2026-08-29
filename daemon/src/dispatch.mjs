@@ -21,7 +21,7 @@ import {
   repoMaps, mapFrontier, flatFrontier, fetchIssue, claim, unclaim, blockedByOf,
   selectLane, frontierForRepo, filterTakeable, agentOnlyChainCount, directUnblocks, commentIssue, closeIssue, setIssueBody, issueComments, createIssue,
   strandedMaps, emptyMapVerdictPrompt, mapCloseBlockers, mapClosedComment, mapHeldComment, MAP_CLOSE_VERB,
-  parentNumberOf, hasLabel, findPullRequest, createPullRequest, setPullRequestBody,
+  parentNumberOf, hasLabel, findPullRequest, createPullRequest, setPullRequestBody, setPullRequestTitle,
   deleteRemoteBranch, pullRequestDiff, approvePullRequest,
 } from './github.mjs'
 import {
@@ -259,7 +259,7 @@ const DEFAULT_DEPS = {
   mintAgentToken, forgetAgentToken, sweepAgentTokens,
   // resolve + land (#41), merge-gated (#54)
   commentIssue, closeIssue, setIssueBody, issueComments, createIssue, findPullRequest, createPullRequest,
-  setPullRequestBody, deleteRemoteBranch, pullRequestDiff,
+  setPullRequestBody, setPullRequestTitle, deleteRemoteBranch, pullRequestDiff,
   // the gate press as a real GitHub approval (#391) — the one call here that
   // keeps the operator's own login
   approvePullRequest,
@@ -4089,7 +4089,7 @@ export class Dispatcher {
   // has to be openable in the middle of a ticket, and re-openable after every
   // rejection. The agent still never pushes: the containment boundary of #40/#41
   // is unchanged, only its timing.
-  async openPullRequest(agentName, { summary = '' } = {}) {
+  async openPullRequest(agentName, { summary = '', releaseLevel = null } = {}) {
     // #164, and FIRST: this call pushes. A reviewer that has misread its own
     // kind must not be one tool call away from putting a branch on the remote,
     // for the same reason a charting agent must not — and here the branch it
@@ -4140,7 +4140,7 @@ export class Dispatcher {
     let out
     try {
       out = await landBranch({
-        repo, ticket, onIssue, title, summary, agent: agentName, model: w?.model ?? null,
+        repo, ticket, onIssue, title, summary, releaseLevel, agent: agentName, model: w?.model ?? null,
         wtPath, branch, deps: this.deps,
         journal: (type, data) => this.reduction.journal(type, data),
       })
