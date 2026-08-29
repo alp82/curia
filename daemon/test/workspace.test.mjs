@@ -14,12 +14,21 @@ import {
   checkoutTicketBranch, remoteBranchExists, defaultBranchOf,
   // #649, ADR-0028
   hasUncommittedChanges, hasUnpushedCommits, salvageBranchFor, salvageLocalOnlyWork,
+  cfgDirFor,
 } from '../src/workspace.mjs'
 
 describe('per-agent config dir (#53)', () => {
   let tmp
   before(() => { tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-ws-')) })
   after(() => { fs.rmSync(tmp, { recursive: true, force: true }) })
+
+  test('new roots are isolated by agent and Harness, while the legacy root stays addressable', () => {
+    const root = path.join(tmp, 'work')
+    assert.equal(cfgDirFor(root, 'curia-1'), path.join(root, 'cfg', 'curia-1'))
+    assert.equal(cfgDirFor(root, 'curia-1', 'claude'), path.join(root, 'cfg', 'curia-1', 'claude'))
+    assert.equal(cfgDirFor(root, 'curia-1', 'codex'), path.join(root, 'cfg', 'curia-1', 'codex'))
+    assert.notEqual(cfgDirFor(root, 'curia-1', 'claude'), cfgDirFor(root, 'curia-1', 'codex'))
+  })
 
   test('seeding writes the no-dialog config and NO credential of its own', () => {
     const cfgDir = path.join(tmp, 'cfg', 'curia-1')

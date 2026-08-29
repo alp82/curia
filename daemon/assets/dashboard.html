@@ -40,7 +40,7 @@
      2. Null is not empty. An unreadable fleet is not an idle box, and a frontier
         nobody has computed is not an empty frontier. Every section that can fail
         on its own says which of the two it is. -->
-<meta name="curia-dashboard" content="proto=14">
+<meta name="curia-dashboard" content="proto=15">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark light">
 <title>Atlas · Curia</title>
@@ -793,7 +793,7 @@ var UI = {
   /* Which agent the detail half shows, and whether the phone is on it (#709).
      `open` is the route's, never a width's. */
   agents: { selected: null, open: false },
-  feed: { lastRead: null, operator: null, focus: null, family: "all" },
+  feed: { lastRead: null, operator: null, focus: null, family: "all", note: null },
   search: { open: false, q: "", loading: false, error: null, result: null },
   /* The settings screen's own state (#265). `phase` is what the banner says:
      clean and dirty before a save, then the three outcomes a save can have
@@ -807,11 +807,11 @@ var UI = {
   /* Which `?` explanations are open, by row id. Page-wide, because the frame
      hands the same affordance to every section on every page. */
   hints: {},
-  /* The operator verbs (#266). `busy` names the ONE press in flight, keyed to
-     the control it came from; `said` is what curia answered, shown at that same
-     control. `note` and `tele` name the agent whose box is open, and `mode` is
-     the delivery ADR-0013 defaults to. */
-  act: { busy: null, said: null, note: null, mode: "queue", tele: null, diff: null,
+  /* The operator verbs (#266). `said` is what curia answered, shown at the
+     control that asked. In-flight bookkeeping lives in the Action map below.
+     `note` and `tele` name the agent whose box is open, and `mode` is the
+     delivery ADR-0013 defaults to. */
+  act: { said: null, note: null, mode: "queue", tele: null, diff: null,
     /* The handoff sheet (#718): the id of the item the operator just answered,
        or null when no sheet is up. The sheet draws nothing of its own — it
        reads the same `attentionItems` Home reads, minus this one id. */
@@ -825,6 +825,60 @@ var repos = null;     /* the watchable repos, read through the daemon on demand 
 var conversations = null; /* the browser conversations (#333), read on the Chat screen only */
 var aistack = null;   /* the aistack registration and sync verdict (#706), read on that section only */
 var aistackAct = { busy: null, said: null, poll: null }; /* which aistack press is in flight, and what it answered */
+
+/* Browser-local Action bookkeeping (#804). This map is the seam shared by
+   controls. It owns identity, conflict reservations, and evidence ordering.
+   Callers still own their projection, words, request, and reconciliation. */
+var actions = new Map(); /* action_id -> the latest visible Action */
+const TERMINAL_ACTION = new Set(["confirmed", "refused", "failed"]);
+const SHARED_ACTION = new Set(["accepted", "progress", ...TERMINAL_ACTION]);
+
+function beginAction(action) {
+  const actionId = String(action?.action_id ?? "");
+  const conflictKey = String(action?.conflict_key ?? "");
+  const target = String(action?.target ?? "");
+  if (!actionId || !conflictKey || !target || !String(action?.kind ?? "")) return null;
+  if (actions.has(actionId) || actionFor({ conflict_key: conflictKey })) return null;
+  const pending = { ...action, action_id: actionId, conflict_key: conflictKey, target, status: "pending", revision: null };
+  actions.set(actionId, pending);
+  return pending;
+}
+
+function observeActions(observed) {
+  for (const evidence of observed ?? []) {
+    const actionId = String(evidence?.action_id ?? "");
+    const revision = Number(evidence?.revision);
+    if (!actionId || !SHARED_ACTION.has(evidence?.status) || !Number.isFinite(revision)) continue;
+    const prior = actions.get(actionId);
+    if (!prior) {
+      if (TERMINAL_ACTION.has(evidence.status)) continue;
+      if (!String(evidence.kind ?? "") || !String(evidence.target ?? "") || !String(evidence.conflict_key ?? "")) continue;
+      actions.set(actionId, { ...evidence, action_id: actionId, revision });
+      continue;
+    }
+    if (TERMINAL_ACTION.has(prior.status)) continue;
+    if (prior.revision != null && revision <= prior.revision) continue;
+    actions.set(actionId, { ...prior, ...evidence, action_id: actionId, revision });
+  }
+}
+
+function actionFor({ action_id: actionId = null, target = null, conflict_key: conflictKey = null } = {}) {
+  if (actionId != null) return actions.get(String(actionId)) ?? null;
+  const matches = [...actions.values()].filter((action) =>
+    (target != null && action.target === String(target))
+      || (conflictKey != null && action.conflict_key === String(conflictKey)));
+  return matches.sort((a, b) => Number(b.revision ?? -1) - Number(a.revision ?? -1))[0] ?? null;
+}
+
+function finishAction(actionId) {
+  return actions.delete(String(actionId));
+}
+
+let localActionSequence = 0;
+function beginLocalAction(key) {
+  const actionId = `atlas-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
+  return beginAction({ action_id: actionId, kind: "browser", target: key, conflict_key: key });
+}
 
 /* ---- words ---------------------------------------------------------------- */
 
@@ -902,9 +956,8 @@ function needsYou(o) {
 
    Four rules run through all of them.
 
-   1. ONE ACT AT A TIME. `UI.act.busy` names the press in flight, keyed to the
-      control it came from, so a second press starts nothing and the control
-      that is working says so.
+   1. ONE ACT PER CONFLICT. The Action map reserves a control's conflict key,
+      so a duplicate starts nothing while unrelated controls remain available.
    2. CURIA'S OWN WORDS ARE THE OUTCOME. A command reply is a sentence the
       daemon composed. It is shown where the press was, as it stands. This page
       never writes its own account of what an act did.
@@ -932,8 +985,7 @@ const ALL_AS_RECOMMENDED = "all-as-recommended";
    escaping over it. */
 const js = (s) => esc(String(s ?? "").replace(/\\/g, "\\\\").replace(/'/g, "\\'"));
 
-const busy = (key) => UI.act.busy === key;
-const anyBusy = () => UI.act.busy !== null;
+const busy = (key) => actionFor({ conflict_key: key }) !== null;
 function said(key) {
   const s = UI.act.said;
   return s && s.key === key ? `<div class="said${s.ok ? "" : " bad"}">${mdLite(s.text)}</div>` : "";
@@ -949,8 +1001,8 @@ function mdLite(s) {
 }
 
 async function verb(key, path, body) {
-  if (anyBusy()) return null;
-  UI.act.busy = key;
+  const action = beginLocalAction(key);
+  if (!action) return null;
   UI.act.said = null;
   render();
   let out = null;
@@ -969,7 +1021,7 @@ async function verb(key, path, body) {
        mark the card carries, in place of a second question or an error. */
     UI.act.said = { key, text: e.receipt ? receiptLine(e.receipt) : e.message, ok: false };
   }
-  UI.act.busy = null;
+  finishAction(action.action_id);
   render();
   tick();
   return out;
@@ -1019,26 +1071,89 @@ function typed(id) {
 
 /* ---- the verbs themselves ---- */
 
-const startTicket = (repo, ticket) => verb(`start:${repo}#${ticket}`, "/api/start", { repo, ticket: String(ticket) });
+async function startTicket(repo, ticket) {
+  const target = `${repo}#${ticket}`;
+  const key = `start:${target}`;
+  const actionId = `atlas-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
+  const action = beginAction({
+    action_id: actionId, kind: "dispatch", target, conflict_key: `dispatch:${target}`,
+    projection: { phase: "starting" },
+  });
+  if (!action) return null;
+  UI.act.said = null;
+  render();
+  try {
+    const res = await fetch("/api/start", {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({ repo, ticket: String(ticket), action_id: actionId }),
+    });
+    const b = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(b.error || ("the console answered " + res.status));
+    observeActions(b.action ? [b.action] : []);
+    reconcileStartActions(payload?.overview);
+  } catch (e) {
+    const current = actionFor({ action_id: actionId });
+    /* Shared progress outranks a late transport warning. The overview poll can
+       observe acceptance while the original browser request is still ending. */
+    if (!current || current.status === "pending") {
+      UI.act.said = { key, text: e.message, ok: false };
+      finishAction(actionId);
+    }
+  }
+  render();
+  tick();
+  return actionFor({ action_id: actionId });
+}
 /* One answer, three shapes (#712, ADR-0025): words, an option index, or
    files. The index is what a button, a select and a numbered reply all send,
    so a Discord press and an Atlas tap resolve the same option. Files ride the
    answer inline, and the daemon writes them where the card said they land. */
 async function answerEsc(id, body) {
-  if (anyBusy()) return null;
+  if (busy("answer:" + id)) return null;
   const answer = typeof body === "string" ? { answer: body } : { ...body };
+  const record = escRecord(id);
+  const projected = Number.isInteger(answer.index)
+    ? record?.options?.[answer.index] ?? `option ${answer.index + 1}`
+    : String(answer.answer ?? "").trim();
+  const actionId = `atlas-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
+  const action = beginAction({
+    action_id: actionId, kind: "escalation-answer", target: id,
+    conflict_key: `answer:${id}`, projection: { answer: projected },
+  });
+  if (!action) return null;
+  UI.act.said = null;
+  render();
   try {
     answer.files = await replyFilesOf("files-" + id);
   } catch (e) {
+    finishAction(actionId);
     return refuse("esc:" + id, e.message);
   }
-  const out = await verb("esc:" + id, "/api/answer", { id, ...answer });
-  /* One successful answer opens the handoff sheet (#718). A refusal opens
-     nothing: the receipt under the card is the whole of what happened. */
-  if (out && out.ok !== false) {
-    UI.act.handoff = id;
-    render();
+  let out = null;
+  try {
+    const res = await fetch("/api/answer", {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({ id, ...answer, action_id: actionId }),
+    });
+    const response = await res.json().catch(() => ({}));
+    observeActions(response.action ? [response.action] : []);
+    if (!response.action && !res.ok) throw Object.assign(new Error(response.error || ("the console answered " + res.status)), { receipt: response.receipt ?? null });
+    if (!response.action && res.ok) {
+      finishAction(actionId);
+      UI.act.handoff = id;
+    }
+    out = response;
+    reconcileAnswerActions(payload?.overview);
+  } catch (e) {
+    const current = actionFor({ action_id: actionId });
+    if (!current || current.status === "pending") {
+      UI.act.said = { key: "esc:" + id, text: e.receipt ? receiptLine(e.receipt) : e.message, ok: false };
+      finishAction(actionId);
+    }
   }
+  render();
   return out;
 }
 function answerIndex(id, index) { return answerEsc(id, { index: Number(index) }); }
@@ -1103,6 +1218,24 @@ function rejectGate(id, field) {
   const v = typed(field);
   if (!v) return refuse("esc:" + id, "A rejection carries your words — say what to change, then press Reject.");
   answerEsc(id, v);
+}
+
+function reconcileAnswerActions(o) {
+  const open = new Set([...(o?.escalations ?? []), ...(o?.review_gate ?? [])].map((record) => record.id));
+  for (const action of [...actions.values()]) {
+    if (action.kind !== "escalation-answer" || !TERMINAL_ACTION.has(action.status)) continue;
+    const key = "esc:" + action.target;
+    if (action.status !== "confirmed") {
+      UI.act.said = {
+        key, ok: false,
+        text: action.receipt ? receiptLine(action.receipt) : action.error || action.reason || "Curia could not answer this escalation.",
+      };
+      finishAction(action.action_id);
+    } else if (!open.has(action.target)) {
+      finishAction(action.action_id);
+      UI.act.handoff = action.target;
+    }
+  }
 }
 
 /* ---- the reading's own age ------------------------------------------------- */
@@ -1445,7 +1578,7 @@ function nextReset(usage) {
 function answerButtons(r) {
   const key = "esc:" + r.id;
   const btn = (label, answer, cls) => `<button class="btn sm${cls ? " " + cls : ""}"
-    ${anyBusy() ? "disabled" : ""} onclick="answerEsc('${js(r.id)}','${js(answer)}')">${esc(label)}</button>`;
+    ${busy(key) ? "disabled" : ""} onclick="answerEsc('${js(r.id)}','${js(answer)}')">${esc(label)}</button>`;
   const b = [];
   if (r.kind === "approve-reject" || r.kind === "preview-review") {
     b.push(btn("✅ Approve", APPROVE, "primary"), btn("❌ Reject", REJECT, "danger"));
@@ -1469,14 +1602,14 @@ function choiceControls(r) {
   const handle = (i) => r.option_handles?.[i] || opts[i];
   const label = (i) => `${optMarker(r, i)} · ${snip(handle(i), 80)}`;
   if (opts.length <= MAX_BUTTON_OPTIONS) {
-    return `<div class="act-row">${opts.map((_, i) => `<button class="btn sm" ${anyBusy() ? "disabled" : ""}
+    return `<div class="act-row">${opts.map((_, i) => `<button class="btn sm" ${busy("answer:" + r.id) ? "disabled" : ""}
       onclick="answerIndex('${js(r.id)}',${i})">${esc(label(i))}</button>`).join("")}</div>`;
   }
   if (opts.length <= MAX_SELECT_OPTIONS) {
     const id = "sel-" + r.id;
-    return `<div class="act-row"><select id="${esc(id)}" ${anyBusy() ? "disabled" : ""}>
+    return `<div class="act-row"><select id="${esc(id)}" ${busy("answer:" + r.id) ? "disabled" : ""}>
       <option value="">pick one…</option>${opts.map((_, i) => `<option value="${i}">${esc(label(i))}</option>`).join("")}</select>
-      <button class="btn sm primary" ${anyBusy() ? "disabled" : ""} onclick="answerSelect('${js(r.id)}','${js(id)}')">Answer</button></div>`;
+      <button class="btn sm primary" ${busy("answer:" + r.id) ? "disabled" : ""} onclick="answerSelect('${js(r.id)}','${js(id)}')">Answer</button></div>`;
   }
   return `<ol class="opts numbered">${opts.map((o, i) => `<li><b>${esc(optMarker(r, i))}.</b> ${esc(snip(handle(i), 120))}</li>`).join("")}</ol>
     <div class="dim">Reply with ${r.typed ? "a letter or " : ""}a number.</div>`;
@@ -1486,7 +1619,7 @@ function choiceControls(r) {
    this line says where they land. */
 function replyFilesRow(r) {
   const where = r.files_dir ? ` They land under <code>${esc(r.files_dir)}/</code> and reach the agent as paths.` : "";
-  return `<div class="act-row files"><input type="file" id="files-${esc(r.id)}" multiple ${anyBusy() ? "disabled" : ""}>
+  return `<div class="act-row files"><input type="file" id="files-${esc(r.id)}" multiple ${busy("answer:" + r.id) ? "disabled" : ""}>
     <span class="dim">A reply may carry files.${where}</span></div>`;
 }
 
@@ -1496,8 +1629,8 @@ function replyFilesRow(r) {
 function answerField(r) {
   const id = "ans-" + r.id;
   return `<div class="act-row">
-    <input type="text" id="${esc(id)}" placeholder="answer in your own words…" ${anyBusy() ? "disabled" : ""}>
-    <button class="btn sm primary" ${anyBusy() ? "disabled" : ""} onclick="answerTyped('${js(r.id)}','${js(id)}',escRecord('${js(r.id)}'))">Answer</button>
+    <input type="text" id="${esc(id)}" placeholder="answer in your own words…" ${busy("answer:" + r.id) ? "disabled" : ""}>
+    <button class="btn sm primary" ${busy("answer:" + r.id) ? "disabled" : ""} onclick="answerTyped('${js(r.id)}','${js(id)}',escRecord('${js(r.id)}'))">Answer</button>
   </div>${replyFilesRow(r)}`;
 }
 
@@ -1506,7 +1639,14 @@ function escCard(r) {
     <span class="who">${esc(r.agent)}</span>${esc(snip(r.prompt, 260))}
     <div class="dim">${esc(r.kind)} · ${esc(ticketName(null, r.ticket))} · open ${esc(ago(r.opened_at))}${r.agent_died ? " · the agent died holding it" : ""}${r.rendered ? "" : " · not rendered in Discord yet"}</div>
     ${r.preview_url ? `<div class="opts"><a href="${esc(r.preview_url)}">the preview it asks about</a></div>` : ""}
-    ${answerButtons(r)}${answerField(r)}${said("esc:" + r.id)}</div>`;
+    ${answerProjection(r.id)}${answerButtons(r)}${answerField(r)}${said("esc:" + r.id)}</div>`;
+}
+
+function answerProjection(id) {
+  const action = actionFor({ conflict_key: "answer:" + id });
+  if (!action) return "";
+  const selected = action.projection?.answer;
+  return `<div class="say">${selected ? `Answering: ${esc(selected)}…` : "Sending your file reply…"}</div>`;
 }
 
 /* ---- the diff digest (#355) ------------------------------------------------
@@ -1691,13 +1831,14 @@ function gateCard(r) {
     ${r.pull_request ? `<div class="opts"><a href="${esc(r.pull_request)}">${esc(r.pull_request)}</a></div>` : `<div class="opts">no pull request on this gate</div>`}
     ${r.preview_url ? `<div class="opts"><a href="${esc(r.preview_url)}">the preview</a></div>` : ""}
     ${diffCard("esc:" + r.id, r.diff ?? null, r.diff_error ?? null, gateDiffQuery(r.id), r.pull_request)}
+    ${answerProjection(r.id)}
     <div class="act-row">
-      <button class="btn sm primary" ${anyBusy() ? "disabled" : ""} onclick="answerEsc('${js(r.id)}','${APPROVE}')">✅ Approve · merge</button>
-      <button class="btn sm" ${anyBusy() ? "disabled" : ""} onclick="answerEsc('${js(r.id)}','${CROSS_CHECK}')">🔎 Cross-check</button>
+      <button class="btn sm primary" ${busy("answer:" + r.id) ? "disabled" : ""} onclick="answerEsc('${js(r.id)}','${APPROVE}')">✅ Approve · merge</button>
+      <button class="btn sm" ${busy("answer:" + r.id) ? "disabled" : ""} onclick="answerEsc('${js(r.id)}','${CROSS_CHECK}')">🔎 Cross-check</button>
     </div>
     <div class="act-row">
-      <input type="text" id="${esc(id)}" placeholder="what to change — a rejection carries your words…" ${anyBusy() ? "disabled" : ""}>
-      <button class="btn sm danger" ${anyBusy() ? "disabled" : ""} onclick="rejectGate('${js(r.id)}','${js(id)}')">Reject</button>
+      <input type="text" id="${esc(id)}" placeholder="what to change — a rejection carries your words…" ${busy("answer:" + r.id) ? "disabled" : ""}>
+      <button class="btn sm danger" ${busy("answer:" + r.id) ? "disabled" : ""} onclick="rejectGate('${js(r.id)}','${js(id)}')">Reject</button>
     </div>
     ${said("esc:" + r.id)}</div>`;
 }
@@ -2357,6 +2498,67 @@ function mapSnapshot(o) {
 function mapsOf(o) {
   return mapSnapshot(o).maps ?? [];
 }
+
+function startActionFor(repo, number) {
+  const action = actionFor({ target: `${repo}#${number}` });
+  return action?.kind === "dispatch" ? action : null;
+}
+
+function projectedMap(map) {
+  const inFlight = (map.in_flight ?? []).map((item) => ({
+    ...item, action: startActionFor(map.repo, item.number),
+  }));
+  const promoted = [];
+  const takeable = (map.takeable ?? []).filter((item) => {
+    const action = startActionFor(map.repo, item.number);
+    if (!action || action.status === "refused" || action.status === "failed") return true;
+    if (!inFlight.some((running) => String(running.number) === String(item.number))) {
+      promoted.push({ ...item, action });
+    }
+    return false;
+  });
+  if (!promoted.length && takeable.length === (map.takeable ?? []).length) {
+    return { ...map, in_flight: inFlight };
+  }
+  return {
+    ...map,
+    in_flight: [...inFlight, ...promoted],
+    takeable,
+    counts: {
+      ...map.counts,
+      in_flight: Number(map.counts?.in_flight ?? inFlight.length) + promoted.length,
+      takeable: Math.max(0, Number(map.counts?.takeable ?? takeable.length) - promoted.length),
+    },
+  };
+}
+
+function reconcileStartActions(o) {
+  for (const action of [...actions.values()]) {
+    if (action.kind !== "dispatch" || !TERMINAL_ACTION.has(action.status)) continue;
+    const split = /^(.*)#([^#]+)$/.exec(action.target);
+    if (!split) continue;
+    const [, repo, ticket] = split;
+    const key = `start:${action.target}`;
+    if (action.status === "refused" || action.status === "failed") {
+      UI.act.said = { key, text: action.reason ?? (action.status === "refused" ? "Start was refused." : "Start failed."), ok: false };
+      finishAction(action.action_id);
+      continue;
+    }
+    const running = agentOn(o, repo, ticket)
+      || mapsOf(o).some((map) => map.repo === repo
+        && (map.in_flight ?? []).some((item) => String(item.number) === ticket));
+    if (running) finishAction(action.action_id);
+  }
+}
+
+function startPhase(action) {
+  if (!action) return null;
+  if (action.status === "pending") return "starting";
+  if (action.status === "accepted") return "claimed · opening the thread";
+  if (action.status === "progress") return action.progress ?? "preparing the agent workspace";
+  if (action.status === "confirmed") return "running";
+  return null;
+}
 /* The fog is a list of facts, each with its own text — never a bare string,
    so a later reading can hang more on a patch without moving this page. */
 const fogText = (note) => String(note?.text ?? note ?? "");
@@ -2378,7 +2580,8 @@ function visibleMaps(o) {
   return mapsOf(o)
     .filter((map) => UI.maps.repo === "all" || map.repo === UI.maps.repo)
     .sort((a, b) => Number(mapNeeds(o, b)) - Number(mapNeeds(o, a))
-      || Date.parse(b.latest_event_at ?? 0) - Date.parse(a.latest_event_at ?? 0));
+      || Date.parse(b.latest_event_at ?? 0) - Date.parse(a.latest_event_at ?? 0))
+    .map(projectedMap);
 }
 
 function selectedMap(o, maps) {
@@ -2453,7 +2656,7 @@ function mapDetailRows(o, map, group) {
       const agent = item.agent ?? agentOn(o, map.repo, item.number);
       const who = (item.assignees ?? []).join(", ");
       return `<div class="map-detail-row">${issue}<span class="sub">${
-        mapNeeds(o, { ...map, in_flight: [item] }) ? "needs you" : "working"}${
+        startPhase(item.action) ?? (mapNeeds(o, { ...map, in_flight: [item] }) ? "needs you" : "working")}${
         who ? ` · ${esc(who)}` : ""}${agent?.model ? ` · ${esc(agent.model)}` : ""}</span></div>`;
     }
     return `<div class="map-detail-row">${issue}<span class="sub">done</span></div>`;
@@ -2468,7 +2671,7 @@ function mapDetail(o, map) {
     <a class="map-back" href="#maps" onclick="mapBack();return false">\u2039 maps</a>
     <h3>${esc(map.title)} · full map</h3>${mapBand(o, map, true)}<div class="map-rail">${MAP_GROUPS.map(([group, word]) => {
       const needs = group === "in_flight" && mapNeeds(o, map);
-      const working = group === "in_flight" && (map.in_flight ?? []).some((item) => item.agent ?? agentOn(o, map.repo, item.number));
+      const working = group === "in_flight" && (map.in_flight ?? []).some((item) => item.action ?? item.agent ?? agentOn(o, map.repo, item.number));
       const count = Number(map.counts?.[group] ?? 0);
       return `<section class="map-stage ${group.replace("_", "-")}${needs ? " needs" : ""}" style="--stage:${
         group === "walked" ? "var(--map-done-ink)" : group === "in_flight" ? "var(--map-run-line)" : group === "takeable" ? "var(--accent)" : group === "blocked" ? "color-mix(in srgb, var(--bad) 72%, var(--ink-dim))" : "var(--ink-dim)"}">
@@ -2595,7 +2798,7 @@ function startRow(o, repo, n, showModel = true) {
     ? `<span class="dim-note mono">→ ${esc(n.model)} (${esc(typeOf(n))} default)</span>`
     : `<span class="dim-note">the routed model is not on this reading</span>`;
   return `<div class="act-row map-start">
-      <button class="btn sm primary" ${anyBusy() ? "disabled" : ""} onclick="startTicket('${js(repo)}','${js(n.number)}')">${
+      <button class="btn sm primary" ${busy(key) ? "disabled" : ""} onclick="startTicket('${js(repo)}','${js(n.number)}')">${
         busy(key) ? "Starting…" : "Start"}</button>${showModel ? model : ""}
     </div>
     ${live === undefined ? `<div class="dim-note">the fleet could not be read, so curia cannot say whether this one is already running</div>` : ""}
@@ -2610,6 +2813,7 @@ function screenFeed(p) {
   if (!o) return noSnapshot(p, "Feed");
   const n = o.events?.length ?? 0;
   return `${head(p, "Feed", `<span class="dim-note">the journal's last ${esc(n)} event(s)</span>`)}
+    ${UI.feed.note ? `<div class="unread">${esc(UI.feed.note)}</div>` : ""}
     ${atlasFeed(o)}<details class="legacy-feed"><summary>Journal rows</summary>${feedList(o.events)}</details>`;
 }
 
@@ -2959,6 +3163,21 @@ function restartNeeds() {
   return out;
 }
 
+function settingsActionPaths(patch) {
+  const paths = [];
+  if (["dispatch", "overseer", "watch"].some((key) => Object.prototype.hasOwnProperty.call(patch, key))) paths.push("curia.local.yaml");
+  if (Object.prototype.hasOwnProperty.call(patch, "routing")) paths.push("routing.local.yaml");
+  return paths;
+}
+
+function settingsAction() {
+  return [...actions.values()].find((action) => action.kind === "settings-save") ?? null;
+}
+
+function daemonRestartAction() {
+  return actionFor({ conflict_key: "daemon:lifecycle" });
+}
+
 /* ---- what the daemon is running (#362) --------------------------------------
 
    Applied is a fact curia measured, not a claim the save made. `GET /overview`
@@ -3007,6 +3226,7 @@ function runningDiff(p) {
 function saveDock() {
   const n = changeCount();
   const s = UI.set;
+  const action = settingsAction();
   const dock = (cls, body) => `<div class="dock${cls ? " " + cls : ""}">${body}</div>`;
   const save = `<button class="btn primary" ${s.busy ? "disabled" : ""} onclick="doSave()">Save</button>`;
   const discard = `<a href="#settings" onclick="discardEdits();return false">discard</a>`;
@@ -3018,10 +3238,17 @@ function saveDock() {
     return dock("refused", `<span class="toast bad">The settings could not be read.</span>
       <span class="why">${esc(s.error)}</span>`);
   }
+  if (action && !TERMINAL_ACTION.has(action.status)) {
+    return dock("", `<button class="btn" disabled>${esc(action.progress || "Saving settings…")}</button>`);
+  }
   if (s.busy) return dock("", `<button class="btn" disabled>Saving\u2026</button>`);
   if (s.phase === "restarting") {
     return dock("", `<span class="toast">The daemon exited nonzero and the supervisor respawns it.
       This page serves its last snapshot meanwhile.</span>`);
+  }
+  if (s.phase === "restart-unknown") {
+    return dock("", `<span class="toast">The daemon may have taken the restart order.</span>
+      <span class="why">${esc(s.error)}</span>`);
   }
   if (s.phase === "refused") {
     /* The loaders refused the candidate, so nothing on disk moved. The draft
@@ -3207,8 +3434,11 @@ function setConnections(p) {
     : app.status === "pending"
       ? `<p class="unread">GitHub App setup is pending until ${esc(ago(app.expires_at))}.</p>`
       : `<p class="unread">No GitHub App is configured. Create one from Atlas.</p>`;
+  const setupAction = actionFor({ conflict_key: "github-app:setup" });
+  const refreshAction = actionFor({ conflict_key: "github-app:installations" });
   const create = app.configured ? "" : `<p><input id="github-app-name" value="curia-box" aria-label="GitHub App name">
-    <button class="btn primary" ${anyBusy() ? "disabled" : ""} onclick="doGitHubAppSetup()">Create GitHub App</button></p>
+    <button class="btn primary" ${setupAction ? "disabled" : ""} onclick="doGitHubAppSetup()">Create GitHub App</button></p>
+    ${setupAction ? `<p class="qhint">${esc(setupAction.progress || "Starting GitHub App setup")}</p>` : ""}
     ${said("github-app")}`;
   const manual = app.manual_url
     ? `<p class="qhint"><a href="${esc(app.manual_url)}" target="_blank" rel="noopener">Set up a GitHub App by hand on GitHub</a></p>` : "";
@@ -3218,7 +3448,8 @@ function setConnections(p) {
     : reading?.state === "failed"
       ? `<p class="unread">The installation read failed ${esc(ago(reading.at))}: ${esc(reading.error ?? "")}</p>`
       : `<p class="unread">Installations have not been read yet.</p>`;
-  const refresh = !app.configured ? "" : `<p><button class="btn" ${anyBusy() ? "disabled" : ""} onclick="doGitHubAppRefresh()">Re-read installations</button></p>
+  const refresh = !app.configured ? "" : `<p><button class="btn" ${refreshAction ? "disabled" : ""} onclick="doGitHubAppRefresh()">Re-read installations</button></p>
+    ${refreshAction ? `<p class="qhint">${esc(refreshAction.progress || "Starting the installation read")}</p>` : ""}
     ${said("github-app-refresh")}`;
   const owners = (app.owners ?? []).map((owner) => `<div class="row">
     <span class="key grow">${esc(owner.owner)}</span>
@@ -3240,8 +3471,13 @@ function gistMaintenance(p) {
 function setMaintenance(p) {
   const differs = runningDiff(p);
   const run = p?.overview?.daemon?.config;
+  const restart = daemonRestartAction();
   let state;
-  if (differs === null) {
+  if (restart && !TERMINAL_ACTION.has(restart.status)) {
+    state = restart.projection?.transport_error
+      ? `<p class="unread">The daemon may have taken the restart order. Agent panes remain running in their own container.</p>`
+      : `<p class="unread">Restarting daemon. Agent panes remain running in their own container.</p>`;
+  } else if (differs === null) {
     state = `<p class="unread">curia cannot tell whether the daemon runs these files: ${
       p?.daemon_up === false ? "it is not answering." : "there is no reading of it yet."}</p>`;
   } else if (differs.length) {
@@ -3261,7 +3497,7 @@ function setMaintenance(p) {
     : "";
   return `${state}<div class="rows">
     <div class="row"><span class="grow"><button class="btn${differs?.length ? " restart-hot" : ""}"
-      ${UI.set.busy ? "disabled" : ""} onclick="doRestart()">Restart daemon</button></span>${qq("set-restart")}</div>
+      ${UI.set.busy || restart ? "disabled" : ""} onclick="doRestart()">${restart && !TERMINAL_ACTION.has(restart.status) ? "Restarting daemon…" : "Restart daemon"}</button></span>${qq("set-restart")}</div>
     ${qhint("set-restart", `A restart is for the keys a save cannot apply: the ports,
       <span class="mono">workspace_root</span>, <span class="mono">sandbox</span>,
       <span class="mono">identity</span>, and every routing key this screen does not write.
@@ -3309,6 +3545,8 @@ async function loadAistack() {
     const res = await fetch("/api/aistack", { headers: { accept: "application/json" }, cache: "no-store" });
     if (!res.ok) throw new Error("the sidecar answered " + res.status);
     aistack = await res.json();
+    observeActions(aistack.actions);
+    reconcileAistackActions();
   } catch (e) {
     aistack = { ok: false, error: e.message };
   }
@@ -3321,31 +3559,60 @@ async function loadAistack() {
    render would multiply. */
 function aistackWatch() {
   if (aistackAct.poll) { clearTimeout(aistackAct.poll); aistackAct.poll = null; }
-  if (aistack?.flow?.phase !== "waiting") return;
+  if (aistack?.flow?.phase !== "waiting" && !actionFor({ conflict_key: "aistack:machine-registration" })) return;
   aistackAct.poll = setTimeout(() => { aistackAct.poll = null; loadAistack(); }, AISTACK_WAIT_MS);
 }
 
 async function aistackDo(act) {
-  if (aistackAct.busy) return;
-  aistackAct.busy = act;
+  const flow = aistack?.flow ?? {};
+  const valid = act === "register" ? !aistack?.registered && flow.phase !== "waiting"
+    : act === "cancel" ? flow.phase === "waiting"
+      : act === "optin" ? Boolean(aistack?.registered) : false;
+  if (!valid) return null;
+  const conflict = actionFor({ conflict_key: "aistack:machine-registration" });
+  if (conflict && !(act === "cancel" && conflict.kind === "aistack-register")) return null;
+  if (conflict) finishAction(conflict.action_id);
+  const actionId = `atlas-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
+  const action = beginAction({
+    action_id: actionId, kind: "aistack-" + act, target: "aistack-machine",
+    conflict_key: "aistack:machine-registration",
+    projection: { phase: act === "register" ? "starting-device-login" : act === "cancel" ? "stopping-wait" : "granting-permission" },
+  });
+  if (!action) return null;
   aistackAct.said = null;
   render();
   try {
     const res = await fetch("/api/aistack/" + act, {
       method: "POST",
       headers: { "content-type": "application/json", accept: "application/json" },
-      body: "{}",
+      body: JSON.stringify({ action_id: actionId }),
     });
     const b = await res.json().catch(() => ({}));
+    observeActions(b.action ? [b.action] : b.receipt?.action ? [b.receipt.action] : []);
+    reconcileAistackActions();
     if (!res.ok) throw new Error(b.error || ("the sidecar answered " + res.status));
-    aistack = b;
-    if (b.said) aistackAct.said = { ok: true, text: b.said };
   } catch (e) {
-    aistackAct.said = { ok: false, text: e.message };
+    const current = actionFor({ action_id: actionId });
+    if (current) aistackAct.said = { ok: false, text: "Checking outcome: " + e.message };
+    else if (!aistackAct.said) aistackAct.said = { ok: false, text: e.message };
   }
-  aistackAct.busy = null;
   aistackWatch();
   render();
+  return action;
+}
+
+function reconcileAistackActions() {
+  for (const action of [...actions.values()]) {
+    if (!action.kind?.startsWith("aistack-") || !TERMINAL_ACTION.has(action.status)) continue;
+    if (action.status !== "confirmed") {
+      aistackAct.said = { ok: false, text: action.reason || "The aistack Action failed." };
+    } else if (action.kind === "aistack-optin") {
+      aistackAct.said = { ok: true, text: action.receipt?.said || "The standing permission is granted." };
+    } else if (action.kind === "aistack-cancel") {
+      aistackAct.said = { ok: true, text: "Stopped waiting for approval." };
+    }
+    finishAction(action.action_id);
+  }
 }
 
 /* What the last sync attempt came to, in one clause. Absent is not the same as
@@ -3378,16 +3645,19 @@ function setAistack() {
     ? `<p class="${aistackAct.said.ok ? "qhint" : "unread"}">${esc(aistackAct.said.text)}</p>`
     : "";
   const flow = aistack.flow ?? {};
-  const busy = aistackAct.busy;
+  const pending = actionFor({ conflict_key: "aistack:machine-registration" });
+  const pendingText = pending
+    ? `<p class="qhint">${esc(pending.progress || (pending.kind === "aistack-register" ? "Starting the device login"
+      : pending.kind === "aistack-cancel" ? "Stopping the device login" : "Granting the standing permission"))}</p>` : "";
   const btn = (act, label, extra) => `<button class="btn${extra ? " " + extra : ""}"${
-    busy ? " disabled" : ""} onclick="aistackDo('${esc(act)}')">${esc(busy === act ? "…" : label)}</button>`;
+    pending && !(act === "cancel" && pending.kind === "aistack-register") ? " disabled" : ""} onclick="aistackDo('${esc(act)}')">${esc(pending?.kind === "aistack-" + act ? "…" : label)}</button>`;
 
   /* The waiting half. The code and the link are the whole of what the operator
      needs, so they are the whole of what is on the screen — big enough to read
      off a phone across a room, and the link is the one the CLI printed rather
      than one this page composed. */
   if (flow.phase === "waiting") {
-    return `${said}<p class="unread">Approve this box on aistack. The code below is live for about three minutes;
+    return `${said}${pendingText}<p class="unread">Approve this box on aistack. The code below is live for about three minutes;
       after that, start a new registration.</p>
       <div class="rows">
         <div class="row"><span class="key">code</span><span class="grow mono" style="font-size:22px;letter-spacing:2px">${esc(flow.code ?? "—")}</span></div>
@@ -3409,7 +3679,7 @@ function setAistack() {
          Start a new one — a new login mints a new code.</p>`
       : `<p class="qhint">This box is not an aistack machine, so curia publishes nothing and says nothing about it.
          Registering it puts the agents' rolling 30-day token spend on your measured layer.</p>`;
-    return `${said}${why}<div class="rows">
+    return `${said}${pendingText}${why}<div class="rows">
       <div class="row"><span class="grow">${btn("register", "Register this box")}</span>${qq("set-aistack-reg")}</div>
       ${qhint("set-aistack-reg", `Curia runs the aistack CLI's device login on the box and shows you its code and link.
         You approve in a browser that is signed in to aistack. The token it hands back is written to a file under curia's
@@ -3431,7 +3701,7 @@ function setAistack() {
     : `<p class="qhint">This box is registered. Curia checks every
        ${esc(aistack.sync?.interval_hours ?? "?")}h; the stack's own frequency decides how often a check actually publishes.</p>`;
   const published = aistack.sync?.last?.published ?? null;
-  return `${said}${state}<div class="rows">
+  return `${said}${pendingText}${state}<div class="rows">
     <div class="row"><span class="key">machine</span><span class="grow mono">${esc(m.proposed ?? "unknown")}</span>${qq("set-aistack-machine")}</div>
     ${qhint("set-aistack-machine", `The name this box PROPOSED at registration, which is its hostname. The approval page can rename a
       machine and the credential file records no name, so the name aistack shows is the one on
@@ -3493,6 +3763,7 @@ function chatFresh(session) {
   };
 }
 var chat = chatFresh(null);
+var settledChatTakeBackActions = new Set();
 
 /* The route decides the view (#700's rule): a reload and a back press land
    where they were, and the tab press lands on the picker. */
@@ -3542,7 +3813,14 @@ function chatReceive(name, d) {
   } else if (name === "parse") {
     c.parse = d;
   } else if (name === "dialog") {
-    if (d.receipt) { c.receipt = d.receipt; c.dialog = null; }
+    if (d.receipt) {
+      c.receipt = d.receipt; c.dialog = null;
+      for (const action of [...actions.values()]) {
+        if (action.kind === "native-dialog-answer" && action.target === `${c.session}:${d.receipt.dialog}`) {
+          finishAction(action.action_id);
+        }
+      }
+    }
     else if (!d.up) { c.dialog = null; }
     else { c.dialog = d; c.receipt = null; }
   } else if (name === "escalations") {
@@ -3557,6 +3835,9 @@ function chatReceive(name, d) {
     c.draft = d.text; c.mirror = !!d.text;
   } else if (name === "sent") {
     c.mirror = false;
+    const action = d.action_id ? actionFor({ action_id: d.action_id }) : null;
+    if (["chat-message", "chat-message-correction"].includes(action?.kind)
+      && c.draft === action.projection?.text) c.draft = "";
     if (d.by !== c.client) chatNote(`sent from the other device: ${snip(d.text, 80)}`);
     return render();
   } else {
@@ -3646,8 +3927,8 @@ function chatList() {
 }
 
 function newChatButton() {
-  const k = "chat-new";
-  return `<p><button class="btn primary" ${anyBusy() ? "disabled" : ""} onclick="doNewConversation()">
+  const k = "conversation-registry";
+  return `<p><button class="btn primary" ${busy(k) ? "disabled" : ""} onclick="doNewConversation()">
     ${busy(k) ? "Opening…" : "New conversation"}</button></p>${said(k)}`;
 }
 
@@ -3658,7 +3939,8 @@ function chatTitle(c) {
   return c.label || ticketName(c.repo, c.ticket) || c.session;
 }
 function chatRow(c) {
-  const k = "chat-del-" + c.key;
+  const k = "conversation:" + c.key;
+  const deleting = actionFor({ conflict_key: k })?.kind === "console-conversation-delete";
   const title = chatTitle(c);
   const label = title ? `<b>${esc(title)}</b>` : `<span class="dim-note">no turn yet</span>`;
   const answer = said(k);
@@ -3674,8 +3956,8 @@ function chatRow(c) {
   const facts = c.kind === "overseer"
     ? [c.key, ago(c.last_turn_at)]
     : [ticketName(c.repo, c.ticket), c.reviewer ? "reviewer" : null, c.live === false ? `ended · ${c.state ?? "archive"}` : (c.state ?? "working"), ago(c.last_turn_at)];
-  const remove = c.deletable === false ? "" : `<button class="btn sm" ${anyBusy() ? "disabled" : ""} onclick="doDeleteConversation('${js(c.key)}')">
-      ${busy(k) ? "…" : "delete"}</button>`;
+  const remove = c.deletable === false ? "" : `<button class="btn sm" ${busy(k) ? "disabled" : ""} onclick="doDeleteConversation('${js(c.key)}')">
+      ${deleting ? "deleting…" : "delete"}</button>`;
   return `<tr class="${c.live === false ? "ended" : ""}">
     <td><a href="${esc(chatHref(c.session))}">${label}</a>
       <span class="dim-note mono" style="display:block;margin:2px 0 0">${facts.filter(Boolean).map(esc).join(" · ")}</span>${dropped}</td>
@@ -3687,16 +3969,70 @@ function chatRow(c) {
 /* Mint, then walk through the door. Opening a conversation you then have to
    find in a list is two acts where the operator asked for one. */
 async function doNewConversation() {
-  const out = await verb("chat-new", "/api/console/new", {});
-  if (out?.session) location.hash = chatRoute(out.session);
+  const actionId = `atlas-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
+  const action = beginAction({
+    action_id: actionId, kind: "console-conversation-open", target: "conversation-registry",
+    conflict_key: "conversation-registry", projection: { navigate: true },
+  });
+  if (!action) return null;
+  UI.act.said = null;
+  render();
+  return conversationAction("conversation-registry", "/api/console/new", actionId, {});
 }
 
 async function doDeleteConversation(key) {
   const ask = `Delete ${key}? Its number is spent for good — a later conversation never reuses it. `
     + `curia stops offering the conversation, and its transcript stays on the box.`;
   if (typeof confirm === "function" && !confirm(ask)) return;
-  await verb("chat-del-" + key, "/api/console/delete", { key });
-  loadConversations();
+  const actionId = `atlas-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
+  const action = beginAction({
+    action_id: actionId, kind: "console-conversation-delete", target: key,
+    conflict_key: `conversation:${key}`, projection: { deleting: true },
+  });
+  if (!action) return null;
+  UI.act.said = null;
+  render();
+  return conversationAction(`conversation:${key}`, "/api/console/delete", actionId, { key });
+}
+
+async function conversationAction(key, path, actionId, body) {
+  try {
+    const res = await fetch(path, {
+      method: "POST", headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({ ...body, action_id: actionId }),
+    });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok && !out.action) throw new Error(out.error || ("the console answered " + res.status));
+    observeActions(out.action ? [out.action] : []);
+    await reconcileConversationActions();
+    render();
+    tick();
+    return out;
+  } catch (error) {
+    const current = actionFor({ action_id: actionId });
+    if (!current || current.status === "pending") {
+      UI.act.said = { key, text: `Curia could not check the outcome yet: ${error.message}`, ok: false };
+    }
+    render();
+    return null;
+  }
+}
+
+async function reconcileConversationActions() {
+  for (const action of [...actions.values()]) {
+    if (!["console-conversation-open", "console-conversation-delete"].includes(action.kind)
+      || !TERMINAL_ACTION.has(action.status)) continue;
+    const key = action.conflict_key;
+    if (action.kind === "console-conversation-open" && action.status === "confirmed") {
+      if (action.projection?.navigate && action.receipt?.session) location.hash = chatRoute(action.receipt.session);
+    } else if (action.kind === "console-conversation-delete" && action.status === "confirmed") {
+      await loadConversations();
+    } else {
+      UI.act.said = { key, ok: false, text: action.reason || "Curia could not change the conversation." };
+      if (action.kind === "console-conversation-delete") await loadConversations();
+    }
+    finishAction(action.action_id);
+  }
 }
 
 /* ---- the room ---- */
@@ -3821,26 +4157,42 @@ function chatDialog(c) {
     return `<div class="chat-dialog">⚠ A native dialog owns the terminal. ${esc(d.reason || "Curia cannot parse its controls.")} ${terminal}
       <div class="dialog-note">Chat sends stay blocked while this dialog is open.</div></div>`;
   }
-  const options = d.card.options.map((o) => `<button class="btn sm ${o.index === d.card.selected_index ? "selected" : ""}" ${anyBusy() ? "disabled" : ""}
+  const dialogAction = actionFor({ conflict_key: `dialog:${c.session}:${d.card.id}` });
+  const options = d.card.options.map((o) => `<button class="btn sm ${o.index === d.card.selected_index ? "selected" : ""}" ${dialogAction ? "disabled" : ""}
       onclick="doDialogAnswer('${js(d.card.id)}', ${Number(o.index)})">${esc(o.marker)} · ${esc(o.handle || o.label)}${o.index === d.card.selected_index ? " · selected now" : ""}</button>`).join("");
+  const progress = dialogAction
+    ? `<div class="dialog-note">${esc(dialogAction.progress || `Choosing ${dialogAction.projection?.marker ?? ""} · ${dialogAction.projection?.answer ?? ""}…`)}</div>`
+    : "";
   return `<div class="chat-dialog card"><div class="dialog-kind">native dialog · choice</div>
     <strong class="dialog-headline">${esc(d.card.headline)}</strong>
     <div class="dialog-options">${options}</div>
-    <div class="dialog-note">The first valid tap wins. The same receipt reaches every open Chat.</div>${terminal}${said("chat-dialog")}</div>`;
+    ${progress}<div class="dialog-note">The first valid tap wins. The same receipt reaches every open Chat.</div>${terminal}${said("chat-dialog")}</div>`;
 }
 
 function chatComposer(c, role, ended) {
   if (ended) return `<div class="composer ended"><span class="dim-note">${esc(ENDED_SENTENCE(c.session))}</span></div>`;
-  const k = "chat-send";
+  const k = `turn:${chatConversationKey(c.session)}`;
+  const messageAction = actionFor({ conflict_key: k });
+  const messageProgress = messageAction
+    ? `<div class="dialog-note">${esc(messageAction.progress || (messageAction.kind === "chat-take-back"
+      ? messageAction.projection?.mode === "note-recovery" ? "Recovering your note…" : "Rewinding the conversation…"
+      : "Sending your message…"))}</div>`
+    : "";
+  const paneKey = actionFor({ conflict_key: `pane:${c.session}` });
   return `<div class="composer">
     ${c.mirror ? `<div class="dim-note">the other device is typing…</div>` : ""}
     <textarea id="chat-box" rows="1" placeholder="type here, shared box" oninput="chatTyped(this.value)" onkeydown="chatKey(event)">${esc(c.draft)}</textarea>
     <div class="composer-row">
-      <button class="btn sm" ${anyBusy() ? "disabled" : ""} onclick="doTakeBack()" title="take back your last message">${busy("chat-take-back") ? "…" : "Take back"}</button>
-      ${role === "ticket" ? `<button class="btn sm" ${anyBusy() ? "disabled" : ""} onclick="doChatKey('escape')" title="send Escape to the agent">Esc</button>` : ""}
+      <button class="btn sm" ${messageAction ? "disabled" : ""} onclick="doTakeBack()" title="take back your last message">${messageAction?.kind === "chat-take-back" ? "Rewinding…" : "Take back"}</button>
+      ${role === "ticket" ? `<button class="btn sm" ${paneKey ? "disabled" : ""} onclick="doChatKey('escape')" title="send Escape to the agent">${paneKey ? "Sending Esc…" : "Esc"}</button>` : ""}
       <span class="grow"></span>
-      <button class="btn primary" ${anyBusy() ? "disabled" : ""} onclick="doChatSend()">${busy(k) ? "Sending…" : "Send"}</button>
-    </div>${said(k)}${said("chat-take-back")}${said("chat-key")}</div>`;
+      <button class="btn primary" ${messageAction ? "disabled" : ""} onclick="doChatSend()">${messageAction ? "Sending…" : "Send"}</button>
+    </div>${messageProgress}${said(k)}${said("chat-take-back")}${said("chat-key")}</div>`;
+}
+
+function chatConversationKey(session) {
+  const match = /^curia-(console-[1-9][0-9]*)$/.exec(String(session ?? ""));
+  return match ? match[1] : String(session ?? "");
 }
 
 /* The shared composer (#73): the draft goes to the other device, 200ms after
@@ -3871,53 +4223,152 @@ function chatPost(p, extra) {
    failed keeps the words in the composer. */
 async function doChatSend() {
   const text = chat.draft;
-  if (!text.trim() || anyBusy()) return;
+  if (!text.trim()) return;
   if (chatEnded()) return refuse("chat-send", ENDED_SENTENCE(chat.session));
-  UI.act.busy = "chat-send"; UI.act.said = null;
-  chat.draft = "";
+  const conversation = chatConversationKey(chat.session);
+  const actionId = `atlas-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
+  const action = beginAction({
+    action_id: actionId, kind: "chat-message", target: conversation,
+    conflict_key: `turn:${conversation}`, projection: { text },
+  });
+  if (!action) return;
+  UI.act.said = null;
   render();
-  const r = await chatPost("/send", { text });
-  UI.act.busy = null;
-  if (r.error) {
-    if (!r.unconfirmed) chat.draft = text;
-    UI.act.said = { key: "chat-send", ok: false, text: (r.unconfirmed ? "send unconfirmed: " : "send failed: ") + r.error };
+  const r = await chatPost("/send", { text, action_id: actionId });
+  observeActions(r.action ? [r.action] : []);
+  reconcileChatMessageActions();
+  if (!r.action && r.error) {
+    UI.act.said = { key: `turn:${conversation}`, ok: false, text: `Curia could not check the outcome yet: ${r.error}` };
   }
   chat.stick = true;
   render();
 }
-async function doTakeBack() {
-  if (anyBusy()) return;
-  UI.act.busy = "chat-take-back"; UI.act.said = null;
+function reconcileChatMessageActions() {
+  for (const action of [...actions.values()]) {
+    if (!["chat-message", "chat-message-correction"].includes(action.kind)) continue;
+    if (action.target !== chatConversationKey(chat.session)) continue;
+    const outcome = action.receipt?.outcome;
+    if (["delivered", "sent_unconfirmed"].includes(outcome) || action.status === "confirmed") {
+      if (chat.draft === action.projection?.text) chat.draft = "";
+    }
+    if (!TERMINAL_ACTION.has(action.status)) continue;
+    if (action.status !== "confirmed") {
+      UI.act.said = { key: action.conflict_key, ok: false, text: action.reason || "Curia could not deliver the message." };
+    }
+    finishAction(action.action_id);
+  }
+}
+async function doTakeBack(target = null) {
+  if (chatEnded()) return refuse("chat-take-back", ENDED_SENTENCE(chat.session));
+  const warning = "Take back your last message? Curia rewinds the conversation, but commands, commits, and other effects that already ran still stand.";
+  if (typeof confirm === "function" && !confirm(warning)) return null;
+  const conversation = chatConversationKey(chat.session);
+  const actionId = `atlas-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
+  const action = beginAction({
+    action_id: actionId, kind: "chat-take-back", target: conversation,
+    conflict_key: `turn:${conversation}`,
+    projection: { mode: target?.kind === "note" ? "note-recovery" : "rewind" },
+  });
+  if (!action) return;
+  UI.act.said = null;
   render();
-  const r = await chatPost("/take-back", { target: null });
-  UI.act.busy = null;
-  if (r.error) {
-    UI.act.said = { key: "chat-take-back", ok: false, text: `take back failed: ${r.error}` };
-  } else {
-    chat.draft = r.composer || "";
-    chatPost("/draft", { text: chat.draft });
-    chatNote([r.receipt?.headline, r.receipt?.landing, ...(r.receipt?.remains || [])].filter(Boolean).join(" "));
+  const r = await chatPost("/take-back", { target, action_id: actionId });
+  observeActions(r.action ? [r.action] : []);
+  reconcileChatTakeBackActions();
+  if (actionFor({ action_id: actionId }) && !r.action && r.error) {
+    UI.act.said = { key: `turn:${conversation}`, ok: false, text: `Curia could not check the take back yet: ${r.error}` };
   }
   render();
 }
+function reconcileChatTakeBackActions() {
+  const conversation = chatConversationKey(chat.session);
+  for (const action of [...actions.values()]) {
+    if (action.kind !== "chat-take-back" || action.target !== conversation || !TERMINAL_ACTION.has(action.status)) continue;
+    const receipt = action.receipt;
+    if (action.status === "confirmed" && receipt) {
+      chat.draft = receipt.composer || "";
+      const taken = receipt.take_back;
+      chatNote([taken?.headline, taken?.landing, ...(taken?.remains || [])].filter(Boolean).join(" "));
+    } else {
+      UI.act.said = { key: action.conflict_key, ok: false, text: action.reason || "Curia could not take back the message." };
+    }
+    settledChatTakeBackActions.add(action.action_id);
+    finishAction(action.action_id);
+  }
+}
+function recoverTerminalChatTakeBackActions(observed) {
+  const conversation = chatConversationKey(chat.session);
+  for (const evidence of observed ?? []) {
+    if (evidence?.kind !== "chat-take-back" || evidence.target !== conversation
+      || !TERMINAL_ACTION.has(evidence.status) || settledChatTakeBackActions.has(evidence.action_id)
+      || actionFor({ action_id: evidence.action_id })) continue;
+    actions.set(String(evidence.action_id), { ...evidence, action_id: String(evidence.action_id) });
+  }
+}
 async function doChatKey(key) {
-  if (anyBusy()) return;
-  UI.act.busy = "chat-key"; UI.act.said = null;
+  const session = chat.session;
+  const actionId = `atlas-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
+  const action = beginAction({
+    action_id: actionId, kind: "pane-key", target: session,
+    conflict_key: `pane:${session}`, projection: { key },
+  });
+  if (!action) return;
+  UI.act.said = null;
   render();
-  const r = await chatPost("/key", { key });
-  UI.act.busy = null;
-  if (r.error) UI.act.said = { key: "chat-key", ok: false, text: r.error };
+  const r = await chatPost("/key", { key, action_id: actionId });
+  observeActions(r.action ? [r.action] : []);
+  reconcilePaneKeyActions();
+  if (actionFor({ action_id: actionId }) && !r.action) {
+    finishAction(actionId);
+    if (r.error) UI.act.said = { key: "chat-key", ok: false, text: r.error };
+  }
   render();
 }
+function reconcilePaneKeyActions() {
+  for (const action of [...actions.values()]) {
+    if (action.kind !== "pane-key" || !TERMINAL_ACTION.has(action.status)) continue;
+    if (action.target === chat.session && action.status !== "confirmed") {
+      UI.act.said = { key: "chat-key", ok: false, text: action.reason || "Curia could not send the pane key." };
+    }
+    finishAction(action.action_id);
+  }
+}
 async function doDialogAnswer(dialog, index) {
-  if (anyBusy()) return;
-  UI.act.busy = "chat-dialog"; UI.act.said = null;
+  const session = chat.session;
+  const option = chat.dialog?.card?.id === dialog
+    ? chat.dialog.card.options.find((candidate) => candidate.index === index)
+    : null;
+  if (!option) return;
+  const actionId = `atlas-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
+  const action = beginAction({
+    action_id: actionId, kind: "native-dialog-answer", target: `${session}:${dialog}`,
+    conflict_key: `dialog:${session}:${dialog}`,
+    projection: { index, marker: option.marker, answer: option.handle || option.label },
+  });
+  if (!action) return;
+  UI.act.said = null;
   render();
-  const r = await chatPost("/dialog-answer", { dialog, index });
-  UI.act.busy = null;
-  if (r.receipt) chatReceive("dialog", { up: false, receipt: r.receipt });
-  else UI.act.said = { key: "chat-dialog", ok: false, text: r.error || "Curia could not answer this native dialog." };
+  const r = await chatPost("/dialog-answer", { dialog, index, action_id: actionId });
+  observeActions(r.action ? [r.action] : []);
+  reconcileDialogAnswerActions();
+  if (actionFor({ action_id: actionId }) && !r.action) {
+    finishAction(actionId);
+    if (r.receipt) chatReceive("dialog", { up: false, receipt: r.receipt });
+    else UI.act.said = { key: "chat-dialog", ok: false, text: r.error || "Curia could not answer this native dialog." };
+  }
   render();
+}
+function reconcileDialogAnswerActions() {
+  for (const action of [...actions.values()]) {
+    if (action.kind !== "native-dialog-answer" || !TERMINAL_ACTION.has(action.status)) continue;
+    const receipt = action.receipt;
+    if (receipt && action.target === `${chat.session}:${receipt.dialog}`) {
+      chatReceive("dialog", { up: false, receipt });
+    } else if (action.target.startsWith(`${chat.session}:`) && action.status !== "confirmed") {
+      UI.act.said = { key: "chat-dialog", ok: false, text: action.reason || "Curia could not answer this native dialog." };
+    }
+    finishAction(action.action_id);
+  }
 }
 function chatScrolled(el) {
   chat.stick = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
@@ -3929,26 +4380,78 @@ function chatAfterRender() {
 }
 
 async function doGitHubAppRefresh() {
-  if (anyBusy()) return;
-  await verb("github-app-refresh", "/api/github-app/refresh", {});
+  const actionId = `atlas-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
+  const action = beginAction({
+    action_id: actionId, kind: "github-app-installations", target: "github-app-installations",
+    conflict_key: "github-app:installations", projection: { phase: "reading" },
+  });
+  if (!action) return null;
+  UI.act.said = null;
+  render();
+  return githubAppAction("github-app-refresh", "/api/github-app/refresh", actionId, {});
 }
 
 async function doGitHubAppSetup() {
-  if (anyBusy()) return;
   const name = document.getElementById("github-app-name")?.value?.trim();
   if (!name) return refuse("github-app", "Enter a GitHub App name.");
-  const out = await verb("github-app", "/api/github-app/start", { name });
-  if (!out?.action || !out?.manifest) return;
+  const actionId = `atlas-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
+  const action = beginAction({
+    action_id: actionId, kind: "github-app-setup", target: "github-app-setup",
+    conflict_key: "github-app:setup", projection: { phase: "opening-github" },
+  });
+  if (!action) return null;
+  UI.act.said = null;
+  render();
+  const out = await githubAppAction("github-app", "/api/github-app/start", actionId, { name });
+  const setup = out?.setup;
+  if (!setup?.action || !setup?.manifest) return;
   const form = document.createElement("form");
   form.method = "POST";
-  form.action = out.action;
+  form.action = setup.action;
   const manifest = document.createElement("input");
   manifest.type = "hidden";
   manifest.name = "manifest";
-  manifest.value = JSON.stringify(out.manifest);
+  manifest.value = JSON.stringify(setup.manifest);
   form.appendChild(manifest);
   document.body.appendChild(form);
   form.submit();
+}
+
+async function githubAppAction(key, path, actionId, body) {
+  try {
+    const res = await fetch(path, {
+      method: "POST", headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({ ...body, action_id: actionId }),
+    });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(out.error || ("the console answered " + res.status));
+    observeActions(out.action ? [out.action] : []);
+    reconcileGitHubAppActions();
+    render();
+    tick();
+    return out;
+  } catch (error) {
+    const current = actionFor({ action_id: actionId });
+    if (!current || current.status === "pending") {
+      finishAction(actionId);
+      UI.act.said = { key, text: error.message, ok: false };
+    }
+    render();
+    return null;
+  }
+}
+
+function reconcileGitHubAppActions() {
+  for (const action of [...actions.values()]) {
+    if (!["github-app-setup", "github-app-installations"].includes(action.kind) || !TERMINAL_ACTION.has(action.status)) continue;
+    const key = action.kind === "github-app-setup" ? "github-app" : "github-app-refresh";
+    if (action.status !== "confirmed") {
+      UI.act.said = { key, ok: false, text: action.reason || "The GitHub App action failed." };
+    } else if (action.receipt?.reply) {
+      UI.act.said = { key, ok: true, text: action.receipt.reply };
+    }
+    finishAction(action.action_id);
+  }
 }
 
 /* ---- credentials (#661, the shape the #645 prototype settled) ---------------
@@ -4070,13 +4573,16 @@ function credFlow(r) {
    look. It shows only on the rows of the provider it belongs to. */
 function credRow(c, signer, flow, ended) {
   const st = credState(c);
+  const signInAction = actionFor({ conflict_key: "reauth:" + c.provider });
   /* A login already running on this provider is the act. Offering a second
      Sign-in press beside the panel that is mid-flow would start nothing — the
      flow hands back the session it already has — and would read as two ways in
      where there is one. */
-  const signing = flow && flow.state === "waiting" && flow.provider === c.provider;
+  const signing = (flow && flow.state === "waiting" && flow.provider === c.provider)
+    || (signInAction && !TERMINAL_ACTION.has(signInAction.status));
+  const signingProgress = signInAction?.progress ?? (signInAction ? "Starting sign-in" : "signing in now");
   const act = signing
-    ? `<span class="dim-note">signing in now — the link is in the panel above</span>`
+    ? `<span class="dim-note">${esc(signingProgress)}${flow?.provider === c.provider ? " — the link is in the panel above" : "…"}</span>`
     : credWants(c)
       ? (c.provider && signer.has(c.provider)
         ? `<span class="dim-note">the same login signs this in</span>`
@@ -4119,10 +4625,56 @@ function credSignIn(c, signer) {
   /* What curia answered sits at the control that asked, once — the press was on
      this row, and the other row of a shared provider offers no button to hang a
      second copy of it on. */
-  return `<button class="btn primary" ${anyBusy() ? "disabled" : ""} onclick="startReauth('${js(c.provider)}')">
+  return `<button class="btn primary" ${busy(k) ? "disabled" : ""} onclick="startReauth('${js(c.provider)}')">
     ${busy(k) ? "…" : "Sign in from a browser"}</button>${said(k)}`;
 }
-const startReauth = (provider) => verb("reauth:" + provider, "/api/reauth", { provider });
+
+async function startReauth(provider) {
+  const key = "reauth:" + provider;
+  const actionId = `atlas-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
+  const action = beginAction({
+    action_id: actionId, kind: "credential-sign-in", target: provider, conflict_key: key,
+    projection: { phase: "starting" },
+  });
+  if (!action) return null;
+  UI.act.said = null;
+  render();
+  try {
+    const res = await fetch("/api/reauth", {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({ provider, action_id: actionId }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(body.error || ("the console answered " + res.status));
+    observeActions(body.action ? [body.action] : []);
+    reconcileCredentialActions();
+  } catch (error) {
+    const current = actionFor({ action_id: actionId });
+    // Shared daemon progress outranks a sidecar timeout on the older request.
+    if (!current || current.status === "pending") {
+      UI.act.said = { key, text: error.message, ok: false };
+      finishAction(actionId);
+    }
+  }
+  render();
+  tick();
+  return actionFor({ action_id: actionId });
+}
+
+function reconcileCredentialActions() {
+  for (const action of [...actions.values()]) {
+    if (action.kind !== "credential-sign-in" || !TERMINAL_ACTION.has(action.status)) continue;
+    if (action.status !== "confirmed") {
+      UI.act.said = {
+        key: action.conflict_key,
+        text: action.reason || "Curia could not complete this credential sign-in.",
+        ok: false,
+      };
+    }
+    finishAction(action.action_id);
+  }
+}
 
 function screenCredentials(p) {
   const o = p?.overview;
@@ -4261,19 +4813,99 @@ async function loadConversations() {
   render();
 }
 
+function reconcileSettingsActions() {
+  for (const action of [...actions.values()]) {
+    if (action.kind !== "settings-save" || !TERMINAL_ACTION.has(action.status)) continue;
+    if (action.status === "refused" || action.status === "failed") {
+      UI.set.phase = "refused";
+      UI.set.error = action.reason || "The settings save did not finish.";
+      finishAction(action.action_id);
+      continue;
+    }
+    const receipt = action.receipt ?? {};
+    const written = receipt.written ?? [];
+    UI.set.error = null;
+    if (!written.length) {
+      UI.set.phase = "clean";
+      UI.set.note = "That was already what the files say.";
+    } else {
+      UI.set.note = `Wrote ${written.join(" and ")}, atomically, with the comments kept.`;
+      if (receipt.reload?.ok === false) {
+        UI.set.phase = "declined";
+        UI.set.error = receipt.reload.error || "the daemon gave no reason";
+      } else {
+        UI.set.phase = "applied";
+      }
+    }
+    finishAction(action.action_id);
+  }
+}
+
+function reconcileDaemonRestartActions(p) {
+  const shared = (p?.overview?.actions ?? [])
+    .filter((action) => action.kind === "daemon-restart")
+    .sort((a, b) => Number(b.revision ?? -1) - Number(a.revision ?? -1))[0] ?? null;
+  const local = daemonRestartAction();
+  const action = local ?? shared;
+  if (!action) return;
+
+  if (action.status === "refused" || action.status === "failed") {
+    UI.set.phase = "refused";
+    UI.set.error = action.reason || "The daemon restart did not finish.";
+    if (local) finishAction(local.action_id);
+    return;
+  }
+
+  const uptime = p?.overview?.daemon?.uptime_s;
+  const before = action.receipt?.uptime_s ?? action.projection?.uptime_s;
+  const freshLife = Number.isFinite(uptime) && (
+    action.receipt?.booted_at != null || (Number.isFinite(before) && uptime < before)
+  );
+  if (p?.daemon_up && freshLife && (action.status === "confirmed" || action.receipt?.requested_at)) {
+    UI.set.phase = "restarted";
+    UI.set.error = null;
+    UI.set.note = `The daemon restarted and is answering. Up ${dur(uptime)}.`;
+    if (local) finishAction(local.action_id);
+  }
+}
+
 async function doSave() {
   const patch = settingsPatch();
   if (!Object.keys(patch).length) return;
-  UI.set.busy = true;
+  const paths = settingsActionPaths(patch);
+  const actionId = `atlas-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
+  const action = beginAction({
+    action_id: actionId,
+    kind: "settings-save",
+    target: paths.join(","),
+    conflict_key: `settings:${paths.join("+")}`,
+    projection: { paths },
+  });
+  if (!action) return;
   render();
   try {
     const res = await fetch("/api/settings", {
       method: "POST",
       headers: { "content-type": "application/json", accept: "application/json" },
-      body: JSON.stringify(patch),
+      body: JSON.stringify({ action_id: actionId, ...patch }),
     });
     const body = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(body.error || ("the sidecar answered " + res.status));
+    const evidence = body.action ?? body.receipt?.action ?? null;
+    observeActions(evidence ? [evidence] : []);
+    if (!res.ok) {
+      const current = actionFor({ action_id: actionId });
+      UI.set.phase = "refused";
+      UI.set.error = current?.reason || body.error || ("the sidecar answered " + res.status);
+      finishAction(actionId);
+      return render();
+    }
+    const current = actionFor({ action_id: actionId });
+    if (current?.status === "refused" || current?.status === "failed") {
+      UI.set.phase = "refused";
+      UI.set.error = current.reason || "The settings save was refused.";
+      finishAction(actionId);
+      return render();
+    }
     /* The answer carries the re-read file, so the screen shows what landed
        rather than what was typed. */
     settings = body.settings ?? settings;
@@ -4292,35 +4924,55 @@ async function doSave() {
       else if (r?.reason === "daemon-down") { UI.set.phase = "offline"; UI.set.error = r.error; }
       else { UI.set.phase = "declined"; UI.set.error = r?.error ?? "the daemon gave no reason"; }
     }
+    if (TERMINAL_ACTION.has(actionFor({ action_id: actionId })?.status) || !body.action || r?.reason === "daemon-down") {
+      finishAction(actionId);
+    }
   } catch (e) {
     UI.set.phase = "refused";
     UI.set.error = e.message;
   }
-  UI.set.busy = false;
   render();
 }
 
 async function doRestart() {
   const ask = "Restart the daemon? Running agents keep their tmux sessions — those live in their own container. Anything unsaved here is not written.";
   if (typeof confirm === "function" && !confirm(ask)) return;
+  const actionId = `atlas-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
+  const uptime = payload?.overview?.daemon?.uptime_s;
+  const action = beginAction({
+    action_id: actionId,
+    kind: "daemon-restart",
+    target: "daemon",
+    conflict_key: "daemon:lifecycle",
+    projection: { uptime_s: Number.isFinite(uptime) ? uptime : null },
+  });
+  if (!action) return;
   UI.set.busy = true;
   render();
   try {
     const res = await fetch("/api/restart", {
       method: "POST",
       headers: { "content-type": "application/json", accept: "application/json" },
-      body: "{}",
+      body: JSON.stringify({ action_id: actionId }),
     });
     const body = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(body.error || ("the sidecar answered " + res.status));
-    UI.set.phase = "restarting";
+    observeActions(body.action ? [body.action] : []);
+    if (!res.ok) {
+      const current = actionFor({ action_id: actionId });
+      UI.set.phase = "refused";
+      UI.set.error = current?.reason || body.error || ("the sidecar answered " + res.status);
+      finishAction(actionId);
+      UI.set.busy = false;
+      return render();
+    }
     UI.set.error = null;
   } catch (e) {
     /* The daemon may have taken the order and died before answering. Say
        exactly that, and let the marker at the top of the page be the evidence:
        it reads the daemon, and this reads a socket. */
-    UI.set.phase = "refused";
+    UI.set.phase = "restart-unknown";
     UI.set.error = `${e.message} — the bar above says whether the daemon is answering`;
+    action.projection.transport_error = e.message;
   }
   UI.set.busy = false;
   render();
@@ -4427,12 +5079,46 @@ function enter(k) {
    Feed draws the marker at the PREVIOUS stamp and posts this visit; the marker
    holds still until the next visit, so the page does not move it under the
    reader on every poll. */
-function recordFeedVisit() {
+async function recordFeedVisit() {
   const operator = payload?.operator;
   if (!operator) return;
   const previous = payload?.overview?.feed_reads?.[operator] ?? UI.feed.lastRead ?? null;
   UI.feed = { ...UI.feed, lastRead: previous, operator };
-  fetch("/api/feed/read", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" }).catch(() => {});
+  const actionId = `atlas-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
+  const action = beginAction({
+    action_id: actionId, kind: "feed-read", target: operator,
+    conflict_key: "feed-read:" + operator, projection: { previous },
+  });
+  if (!action) return;
+  UI.feed.note = null;
+  try {
+    const res = await fetch("/api/feed/read", {
+      method: "POST", headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({ action_id: actionId }),
+    });
+    const body = await res.json().catch(() => ({}));
+    observeActions(body.action ? [body.action] : []);
+    if (!body.action && !res.ok) throw new Error(body.error || ("the sidecar answered " + res.status));
+    reconcileFeedReadActions();
+  } catch (error) {
+    const current = actionFor({ action_id: actionId });
+    if (!current || current.status === "pending") {
+      UI.feed.note = `Could not confirm this Feed visit: ${error.message}. Your next visit will try again.`;
+      finishAction(actionId);
+    } else {
+      UI.feed.note = `Checking whether this Feed visit was recorded: ${error.message}`;
+    }
+  }
+  render();
+}
+
+function reconcileFeedReadActions() {
+  for (const action of [...actions.values()]) {
+    if (action.kind !== "feed-read" || !TERMINAL_ACTION.has(action.status)) continue;
+    if (action.status === "confirmed") UI.feed.note = null;
+    else UI.feed.note = `Feed visit was not recorded: ${action.reason || "curia gave no reason"}.`;
+    finishAction(action.action_id);
+  }
 }
 /* Arriving at Maps from the nav is the LIST, always. The detail is a route of
    its own, so a tab press that did not name one must not land on the last one
@@ -4474,6 +5160,21 @@ async function tick() {
     const res = await fetch("/api/overview", { headers: { accept: "application/json" }, cache: "no-store" });
     if (!res.ok) throw new Error("the sidecar answered " + res.status);
     payload = await res.json();
+    observeActions(payload?.overview?.actions);
+    reconcileDaemonRestartActions(payload);
+    recoverTerminalChatTakeBackActions(payload?.overview?.actions);
+    reconcileStartActions(payload?.overview);
+    reconcileAnswerActions(payload?.overview);
+    reconcileChatMessageActions();
+    reconcileChatTakeBackActions();
+    reconcilePaneKeyActions();
+    reconcileDialogAnswerActions();
+    reconcileGitHubAppActions();
+    reconcileAistackActions();
+    reconcileConversationActions();
+    reconcileSettingsActions();
+    reconcileCredentialActions();
+    reconcileFeedReadActions();
     reachable = true;
     if (UI.screen === "feed" && UI.feed.operator !== payload.operator) recordFeedVisit();
   } catch {

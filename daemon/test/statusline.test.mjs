@@ -87,6 +87,154 @@ describe('StatusLine', () => {
     assert.match(posts.at(-1).text, /🧭 `reads the ticket`/)
   })
 
+  test('dispatch Action acceptance posts promptly and meaningful progress edits it in place', async () => {
+    line.onEvent({
+      type: 'action_evidence', action_id: 'atlas-start-822', kind: 'dispatch',
+      target: 'alp82/curia#822', conflict_key: 'dispatch:alp82/curia#822',
+      status: 'accepted', revision: 10,
+    })
+    await drain()
+
+    assert.equal(posts.length, 1)
+    assert.equal(posts[0].ticket, '822')
+    assert.match(posts[0].text, /accepted/)
+
+    line.onEvent({
+      type: 'action_evidence', action_id: 'atlas-start-822', kind: 'dispatch',
+      target: 'alp82/curia#822', conflict_key: 'dispatch:alp82/curia#822',
+      status: 'progress', progress: 'Preparing the agent workspace', revision: 11,
+    })
+    await drain()
+
+    assert.equal(posts.length, 1, 'progress keeps one status message')
+    assert.equal(removals.length, 0, 'progress does not reposition accepted evidence')
+    assert.match(edits.at(-1).text, /Preparing the agent workspace/)
+  })
+
+  test('dispatch Action progress after a daemon rebuild recovers the existing Discord message', async () => {
+    const recovered = { threadId: 't1', messageId: 'before-restart' }
+    const rebuilt = new StatusLine({
+      post: async (ticket, text) => { posts.push({ ticket, text }); return { threadId: 't1', messageId: 'new' } },
+      edit: async (ids, text) => { edits.push({ ids, text }); return true },
+      find: async () => recovered,
+      get: () => null,
+      log: () => {},
+    })
+
+    rebuilt.onEvent({
+      type: 'action_evidence', action_id: 'atlas-start-822', kind: 'dispatch',
+      target: 'alp82/curia#822', conflict_key: 'dispatch:alp82/curia#822',
+      status: 'progress', progress: 'Preparing the agent workspace', revision: 11,
+    })
+    await rebuilt.settle()
+
+    assert.equal(posts.length, 0, 'restart recovery does not add a second status message')
+    assert.deepEqual(edits[0].ids, recovered)
+    assert.match(edits[0].text, /Preparing the agent workspace/)
+  })
+
+  test('dispatch Action evidence is monotonic and repeated evidence is quiet', async () => {
+    const action = {
+      type: 'action_evidence', action_id: 'atlas-start-822', kind: 'dispatch',
+      target: 'alp82/curia#822', conflict_key: 'dispatch:alp82/curia#822',
+    }
+    line.onEvent({ ...action, status: 'accepted', revision: 20 })
+    line.onEvent({ ...action, status: 'progress', progress: 'Preparing the agent workspace', revision: 22 })
+    await drain()
+
+    line.onEvent({ ...action, status: 'accepted', revision: 21 })
+    line.onEvent({ ...action, status: 'progress', progress: 'Preparing the agent workspace', revision: 22 })
+    await drain()
+
+    assert.equal(posts.length, 1)
+    assert.equal(edits.length, 1, 'stale and repeated evidence make no Discord call')
+    assert.match(edits[0].text, /Preparing the agent workspace/)
+  })
+
+  test('a refused dispatch Action renders its reason and winning receipt once', async () => {
+    const refusal = {
+      type: 'action_evidence', action_id: 'atlas-start-refused', kind: 'dispatch',
+      target: 'alp82/curia#823', conflict_key: 'dispatch:alp82/curia#823',
+      status: 'refused', reason: 'the ticket is already claimed', revision: 30,
+      receipt: {
+        by: 'alp82', via: 'dashboard', at: '2026-08-28T10:00:00.000Z',
+        answer: 'Start with gpt',
+      },
+    }
+
+    line.onEvent(refusal)
+    await drain()
+    line.onEvent(refusal)
+    await drain()
+
+    assert.equal(posts.length, 1)
+    assert.equal(posts[0].ticket, '823')
+    assert.equal(posts[0].opts.settled, true)
+    assert.match(posts[0].text, /dispatch refused: the ticket is already claimed/)
+    assert.match(posts[0].text, /alp82 via dashboard/)
+    assert.match(posts[0].text, /Start with gpt/)
+    assert.equal(edits.length, 0, 'a repeated terminal reading makes no Discord call')
+  })
+
+  test('accepted dispatch work that fails settles the existing line with one safe reason', async () => {
+    const action = {
+      type: 'action_evidence', action_id: 'atlas-start-failed', kind: 'dispatch',
+      target: 'alp82/curia#823', conflict_key: 'dispatch:alp82/curia#823',
+    }
+    line.onEvent({ ...action, status: 'accepted', revision: 40 })
+    await drain()
+    line.onEvent({
+      ...action, status: 'failed', revision: 41,
+      reason: 'the container could not start\n@everyone should not be pinged',
+    })
+    await drain()
+
+    assert.equal(posts.length, 1, 'failure settles the accepted line instead of adding another')
+    assert.equal(edits.length, 1)
+    assert.equal(edits[0].opts.settled, true)
+    assert.match(edits[0].text, /dispatch failed: the container could not start @/)
+    assert.doesNotMatch(edits[0].text, /@everyone/, 'domain text cannot create a Discord mention')
+  })
+
+  test('a terminal dispatch Action recovers its pre-restart line and confirmed stays quiet', async () => {
+    const recovered = { threadId: 't1', messageId: 'before-restart' }
+    const rebuilt = new StatusLine({
+      post: async (ticket, text) => { posts.push({ ticket, text }); return { threadId: 't1', messageId: 'new' } },
+      edit: async (ids, text, opts) => { edits.push({ ids, text, opts }); return true },
+      find: async () => recovered,
+      get: () => null,
+      log: () => {},
+    })
+    const action = {
+      type: 'action_evidence', action_id: 'atlas-start-recovered', kind: 'dispatch',
+      target: 'alp82/curia#823', conflict_key: 'dispatch:alp82/curia#823',
+    }
+
+    rebuilt.onEvent({ ...action, status: 'failed', reason: 'preparation stopped', revision: 51 })
+    await rebuilt.settle()
+    rebuilt.onEvent({ ...action, action_id: 'atlas-start-confirmed', status: 'confirmed', revision: 52 })
+    await rebuilt.settle()
+
+    assert.equal(posts.length, 0, 'rebuild recovery does not add a terminal line')
+    assert.deepEqual(edits[0].ids, recovered)
+    assert.equal(edits[0].opts.settled, true)
+    assert.match(edits[0].text, /dispatch failed: preparation stopped/)
+    assert.equal(edits.length, 1, 'confirmed evidence emits no routine Discord line')
+  })
+
+  test('Actions without a Discord representation stay off the status line', async () => {
+    for (const kind of ['settings-save', 'feed-read', 'credential-sign-in']) {
+      line.onEvent({
+        type: 'action_evidence', action_id: `atlas-${kind}`, kind,
+        target: kind, conflict_key: kind, status: 'accepted', revision: 30,
+      })
+    }
+    await drain()
+
+    assert.equal(posts.length, 0)
+    assert.equal(edits.length, 0)
+  })
+
   test('the lifecycle receipt is the status line last edit and keeps final meters', async () => {
     meters = { effort: 'high', ctxPct: 63, windows: [{ label: '5h', pct: 72, elapsedPct: 50 }] }
     line.onEvent({ type: 'agent_ready', agent: 'curia-690', ticket: '690', model: 'gpt', ts: 'T' })

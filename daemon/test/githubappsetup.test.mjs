@@ -96,6 +96,17 @@ describe('the manifest (#694)', () => {
     assert.deepEqual(setup.status(), { status: 'pending', expires_at: started.expires_at })
   })
 
+  test('the setup action identity survives the GitHub redirect and daemon restart', () => {
+    const setup = new GitHubAppSetup(paths('action'))
+    setup.start({
+      name: 'curia-alp', redirectUrl: 'https://box.example/github-app/complete',
+      actionId: 'atlas-github-app-setup',
+    })
+
+    const restarted = new GitHubAppSetup(paths('action'))
+    assert.equal(restarted.status().action_id, 'atlas-github-app-setup')
+  })
+
   test('a redirect that is not https, or that carries more than a path, refuses', () => {
     const setup = new GitHubAppSetup(paths('redirect'))
     assert.throws(() => setup.start({ name: 'x', redirectUrl: 'http://box.example/complete' }), /must use HTTPS/)

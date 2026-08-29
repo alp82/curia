@@ -48,7 +48,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
-import { CFG_DIR, configRootEnvFor } from './workspace.mjs'
+import { CFG_DIR, HARNESS_NAMES, configRootEnvFor } from './workspace.mjs'
 
 // Rule 4. The npm package, its binary, and the runner that fetches it.
 export const CLI_PACKAGE = '@use-aistack/cli'
@@ -117,6 +117,17 @@ function cfgEntries(root) {
       continue
     }
     if (!stat.isDirectory()) continue
+    const harnessRoots = HARNESS_NAMES
+      .map((harness) => path.join(full, harness))
+      .filter((candidate) => {
+        try { return fs.statSync(candidate).isDirectory() } catch { return false }
+      })
+    if (harnessRoots.length) {
+      for (const candidate of harnessRoots) {
+        out.push({ name, path: candidate, at: fs.statSync(candidate).mtimeMs })
+      }
+      continue
+    }
     out.push({ name, path: full, at: stat.mtimeMs })
   }
   return out.sort((a, b) => b.at - a.at || a.name.localeCompare(b.name))

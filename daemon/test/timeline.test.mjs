@@ -20,6 +20,7 @@ import {
   TimelineSurface, pageRefusal, detectDialog, parseNativeDialog,
   DEFAULT_TIMELINE_INDEX, TIMELINE_PROTO,
 } from '../src/timeline.mjs'
+import { ActionCoordinator } from '../src/actions.mjs'
 import { Reduction } from '../src/reduction.mjs'
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
@@ -647,16 +648,21 @@ async function sse(port, params) {
 
 describe('TimelineSurface', () => {
   let surface
+  let actionReduction
+  let actions
   let port
   const journal = []
   const sent = []
   const offs = [] // every serve port the surface withdrew (#711)
   const endedSessions = new Set() // panes that are gone, as sessionAlive answers
   const dialogAnswers = []
+  let dialogAnswerGate = null
+  let dialogAnswerFailure = null
   let escalations = []
   let escHistory = []
   let pane = PANE_COMPOSER // what capturePane returns; a function to throw
   let delivery = null
+  let keyFailure = null
   const workspaceRoot = () => path.join(tmp, 'work')
   const installRecordedTranscript = (session, name) => {
     const cfg = path.join(workspaceRoot(), 'cfg', session, 'projects', 'p')
@@ -673,11 +679,13 @@ describe('TimelineSurface', () => {
   const drivenCfg = () => path.join(tmp, 'overseer-config')
   const turns = [] // every text handed to the driver
   let turnFails = null // a message to throw from send()
+  let driverDelivery = null
   // The conversation key's live session id, as the daemon journals it (#332).
   // Read per driverFor call, exactly as index.mjs reads it off the reduction.
   let drivenSessionId = 'browser-1111'
   const landings = new Map()
   const takeBackCalls = []
+  let takeBackGate = null
   const correctionCalls = []
   const recordedTurns = []
   let takeBackReply = {
@@ -692,6 +700,8 @@ describe('TimelineSurface', () => {
 
   before(async () => {
     fs.mkdirSync(path.join(tmp, 'work', 'cfg'), { recursive: true })
+    actionReduction = new Reduction(path.join(tmp, 'timeline-actions'))
+    actions = new ActionCoordinator(actionReduction)
     surface = new TimelineSurface({
       port: 0,
       servePort: 8444,
@@ -701,6 +711,7 @@ describe('TimelineSurface', () => {
       log: () => {},
       pollMs: 50,
       deps: {
+        actions,
         journal: (type, detail) => journal.push({ type, ...detail }),
         // #151's check has its own suite (identity.test.mjs); these tests drive
         // the surface over bare loopback, so the predicate is out of their way.
@@ -710,6 +721,7 @@ describe('TimelineSurface', () => {
         landingFor: (session) => landings.get(session) ?? null,
         takeBack: async (request) => {
           takeBackCalls.push(request)
+          if (takeBackGate) await takeBackGate
           return takeBackReply
         },
         correct: async (request) => { correctionCalls.push(request); return { ok: true } },
@@ -719,9 +731,14 @@ describe('TimelineSurface', () => {
           sent.push({ session, text })
           return delivery
         },
-        sendKey: async (session, key) => sent.push({ session, key }),
+        sendKey: async (session, key) => {
+          if (keyFailure) throw new Error(keyFailure)
+          sent.push({ session, key })
+        },
         answerDialog: async (session, answer) => {
           dialogAnswers.push({ session, ...answer })
+          if (dialogAnswerGate) await dialogAnswerGate
+          if (dialogAnswerFailure) throw new Error(dialogAnswerFailure)
           if (session !== 'curia-slow-dialog') pane = PANE_COMPOSER
         },
         capturePane: async () => (typeof pane === 'function' ? pane() : pane),
@@ -732,11 +749,13 @@ describe('TimelineSurface', () => {
         sessionAlive: async (session) => !endedSessions.has(session),
         driverFor: (session) => (session === DRIVEN
           ? {
+            key: 'console-2',
             cfgDir: drivenCfg(),
             sessionId: drivenSessionId,
             send: async (text) => {
               if (turnFails) throw new Error(turnFails)
               turns.push(text)
+              return driverDelivery
             },
           }
           : null),
@@ -747,7 +766,10 @@ describe('TimelineSurface', () => {
     port = surface.port
   })
 
-  after(() => surface.stop())
+  after(() => {
+    surface.stop()
+    actionReduction.close()
+  })
 
   test('GET / serves the committed page with its stamp, no-store', async () => {
     const res = await fetch(`http://127.0.0.1:${port}/`)
@@ -841,6 +863,60 @@ describe('TimelineSurface', () => {
     assert.match(takeBackCalls.at(-1).source, /Good\. Now rename the maps effort to Atlas\./)
   })
 
+  test('take back accepts before the rewind and keeps its result as shared Action evidence', async () => {
+    const session = 'curia-703'
+    const actionId = 'atlas-chat-take-back-1'
+    const cfg = path.join(workspaceRoot(), 'cfg', session, 'projects', 'p')
+    fs.mkdirSync(cfg, { recursive: true })
+    fs.writeFileSync(path.join(cfg, 'run.jsonl'), recordedTranscript('transcript-1-after-rewind.jsonl'))
+    let release
+    takeBackGate = new Promise((resolve) => { release = resolve })
+    const before = takeBackCalls.length
+    try {
+      const accepted = await fetch(`http://127.0.0.1:${port}/take-back`, {
+        method: 'POST',
+        body: JSON.stringify({ session, target: null, action_id: actionId }),
+      })
+
+      assert.equal(accepted.status, 202)
+      assert.deepEqual(await accepted.json(), { action: {
+        action_id: actionId,
+        kind: 'chat-take-back',
+        target: session,
+        conflict_key: `turn:${session}`,
+        status: 'accepted',
+        revision: actions.get(actionId).revision,
+        started_at: actions.get(actionId).started_at,
+        updated_at: actions.get(actionId).updated_at,
+        progress: 'Rewinding the conversation…',
+      } })
+
+      release()
+      const settled = await actions.settled(actionId)
+      assert.equal(settled.status, 'confirmed')
+      assert.deepEqual(settled.receipt, {
+        composer: 'Keep this exact text.',
+        correction: null,
+        take_back: {
+          headline: 'Took back your last message.',
+          landing: 'The conversation continues after “Start here.”',
+          remains: ['The tree stands.'],
+        },
+      })
+
+      const retried = await fetch(`http://127.0.0.1:${port}/take-back`, {
+        method: 'POST',
+        body: JSON.stringify({ session, target: null, action_id: actionId }),
+      })
+      assert.equal(retried.status, 200)
+      assert.equal((await retried.json()).action.status, 'confirmed')
+      assert.equal(takeBackCalls.length, before + 1, 'the same Action does not rewind twice')
+    } finally {
+      takeBackGate = null
+      release?.()
+    }
+  })
+
   test('the next send delivers a read-note correction with Curia framing', async () => {
     takeBackReply = {
       ok: true,
@@ -859,10 +935,15 @@ describe('TimelineSurface', () => {
       assert.equal(taken.status, 200)
 
       const res = await fetch(`http://127.0.0.1:${port}/send`, {
-        method: 'POST', body: JSON.stringify({ session: 'curia-9', text: 'Use production instead.' }),
+        method: 'POST', body: JSON.stringify({
+          session: 'curia-9', text: 'Use production instead.', action_id: 'atlas-chat-correction',
+        }),
       })
 
       assert.equal(res.status, 200)
+      const action = (await res.json()).action
+      assert.equal(action.kind, 'chat-message-correction')
+      assert.equal(action.status, 'confirmed')
       assert.deepEqual(correctionCalls.at(-1), {
         session: 'curia-9', role: 'agent',
         correction: { kind: 'note', id: 'note-4', prefix: 'Correction to the note above:' },
@@ -984,22 +1065,376 @@ describe('TimelineSurface', () => {
     })
   })
 
-  test('the key route knows its keys', async () => {
+  test('a delivered message returns confirmed Action evidence and retry does not send twice', async () => {
+    const body = {
+      session: 'curia-9', text: 'hello once', action_id: 'atlas-chat-send-1',
+    }
+    const first = await post('/send', body)
+    assert.equal(first.status, 200)
+    const evidence = (await first.json()).action
+    assert.equal(evidence.kind, 'chat-message')
+    assert.equal(evidence.target, 'curia-9')
+    assert.equal(evidence.conflict_key, 'turn:curia-9')
+    assert.equal(evidence.status, 'confirmed')
+    assert.deepEqual(evidence.receipt, { outcome: 'delivered' })
+
+    const count = sent.length
+    const retry = await post('/send', body)
+    assert.equal((await retry.json()).action.status, 'confirmed')
+    assert.equal(sent.length, count, 'the same Action identity delivers the message once')
+  })
+
+  test('a pane key returns shared confirmed Action evidence under its pane conflict', async () => {
     const bad = await fetch(`http://127.0.0.1:${port}/key`, {
       method: 'POST', body: JSON.stringify({ session: 'curia-9', key: 'delete-everything' }),
     })
     assert.equal(bad.status, 400)
     const esc = await fetch(`http://127.0.0.1:${port}/key`, {
-      method: 'POST', body: JSON.stringify({ session: 'curia-9', key: 'escape' }),
+      method: 'POST', body: JSON.stringify({
+        session: 'curia-9', key: 'escape', action_id: 'atlas-pane-key-1',
+      }),
     })
     assert.equal(esc.status, 200)
+    assert.deepEqual(await esc.json(), {
+      action: {
+        action_id: 'atlas-pane-key-1', kind: 'pane-key', target: 'curia-9',
+        conflict_key: 'pane:curia-9', status: 'confirmed', revision: actions.get('atlas-pane-key-1').revision,
+        started_at: actions.get('atlas-pane-key-1').started_at,
+        updated_at: actions.get('atlas-pane-key-1').updated_at,
+        receipt: { key: 'Escape' },
+      },
+    })
     assert.deepEqual(sent.at(-1), { session: 'curia-9', key: 'Escape' })
+
+    const sentCount = sent.length
+    const retry = await fetch(`http://127.0.0.1:${port}/key`, {
+      method: 'POST', body: JSON.stringify({
+        session: 'curia-9', key: 'escape', action_id: 'atlas-pane-key-1',
+      }),
+    })
+    assert.equal(retry.status, 200)
+    assert.equal((await retry.json()).action.status, 'confirmed')
+    assert.equal(sent.length, sentCount, 'the same Action identity sends the key once')
+  })
+
+  test('pane-key Action evidence distinguishes no pane, ended, unsafe dialog, and tmux failure', async () => {
+    const act = async (actionId, session, key = 'escape') => {
+      const res = await fetch(`http://127.0.0.1:${port}/key`, {
+        method: 'POST', body: JSON.stringify({ session, key, action_id: actionId }),
+      })
+      return { status: res.status, body: await res.json() }
+    }
+
+    const noPane = await act('atlas-pane-no-pane', DRIVEN)
+    assert.equal(noPane.status, 409)
+    assert.equal(noPane.body.action.status, 'refused')
+    assert.equal(noPane.body.action.conflict_key, `pane:${DRIVEN}`)
+    assert.match(noPane.body.action.reason, /not a terminal/)
+
+    endedSessions.add('curia-ended')
+    const ended = await act('atlas-pane-ended', 'curia-ended')
+    endedSessions.delete('curia-ended')
+    assert.equal(ended.status, 409)
+    assert.equal(ended.body.action.status, 'refused')
+    assert.match(ended.body.action.reason, /has ended/)
+
+    pane = PANE_TRUST
+    const dialog = await act('atlas-pane-dialog', 'curia-9', 'enter')
+    pane = PANE_COMPOSER
+    assert.equal(dialog.status, 409)
+    assert.equal(dialog.body.action.status, 'refused')
+    assert.match(dialog.body.action.reason, /would drive its selection blind/)
+
+    keyFailure = 'tmux socket is unavailable'
+    const failed = await act('atlas-pane-tmux-failed', 'curia-9')
+    keyFailure = null
+    assert.equal(failed.status, 502)
+    assert.equal(failed.body.action.status, 'failed')
+    assert.equal(failed.body.action.reason, 'tmux socket is unavailable')
   })
 
   // ---- the #75 dialog guard over real HTTP ---------------------------------
 
   const post = (route, body) => fetch(`http://127.0.0.1:${port}${route}`, {
     method: 'POST', body: JSON.stringify(body),
+  })
+
+  test('the latest shared draft survives a daemon restart', async () => {
+    const dataDir = path.join(tmp, 'timeline-draft-recovery')
+    const session = 'curia-draft-recovery'
+    const start = async (reduction) => {
+      const instance = new TimelineSurface({
+        port: 0,
+        servePort: 8444,
+        atlasServePort: 8445,
+        index: DEFAULT_TIMELINE_INDEX,
+        workspaceRoot: workspaceRoot(),
+        log: () => {},
+        deps: {
+          identityCheck: () => null,
+          draftFor: (name) => reduction.chatDraft(name),
+          recordDraft: (name, text) => reduction.recordChatDraft(name, text),
+        },
+      })
+      await instance.start()
+      return instance
+    }
+
+    let reduction = new Reduction(dataDir)
+    let instance = await start(reduction)
+    try {
+      await fetch(`http://127.0.0.1:${instance.port}/draft`, {
+        method: 'POST', body: JSON.stringify({ session, client: 'phone', text: 'first device' }),
+      })
+      await fetch(`http://127.0.0.1:${instance.port}/draft`, {
+        method: 'POST', body: JSON.stringify({ session, client: 'laptop', text: 'last device wins' }),
+      })
+      const live = await sse(instance.port, `session=${session}`)
+      assert.equal(live.events.find((event) => event.event === 'hello').data.draft, 'last device wins')
+    } finally {
+      instance.stop()
+      reduction.close()
+    }
+
+    reduction = new Reduction(dataDir)
+    instance = await start(reduction)
+    try {
+      const recovered = await sse(instance.port, `session=${session}`)
+      assert.equal(recovered.events.find((event) => event.event === 'hello').data.draft, 'last device wins')
+    } finally {
+      instance.stop()
+      reduction.close()
+    }
+  })
+
+  test('a delivered message does not resurrect its cleared draft after restart', async () => {
+    const dataDir = path.join(tmp, 'timeline-draft-send-clear')
+    const session = 'curia-draft-send-clear'
+    const start = async (reduction) => {
+      const instance = new TimelineSurface({
+        port: 0,
+        servePort: 8444,
+        atlasServePort: 8445,
+        index: DEFAULT_TIMELINE_INDEX,
+        workspaceRoot: workspaceRoot(),
+        log: () => {},
+        deps: {
+          identityCheck: () => null,
+          draftFor: (name) => reduction.chatDraft(name),
+          recordDraft: (name, text) => reduction.recordChatDraft(name, text),
+          journal: (type, detail) => reduction.journal(type, detail),
+          sendText: async () => null,
+        },
+      })
+      await instance.start()
+      return instance
+    }
+
+    let reduction = new Reduction(dataDir)
+    reduction.recordChatDraft(session, 'send these words')
+    let instance = await start(reduction)
+    try {
+      const sent = await fetch(`http://127.0.0.1:${instance.port}/send`, {
+        method: 'POST', body: JSON.stringify({ session, text: 'send these words' }),
+      })
+      assert.equal(sent.status, 200)
+    } finally {
+      instance.stop()
+      reduction.close()
+    }
+
+    reduction = new Reduction(dataDir)
+    instance = await start(reduction)
+    try {
+      const recovered = await sse(instance.port, `session=${session}`)
+      assert.equal(recovered.events.find((event) => event.event === 'hello').data.draft, '')
+    } finally {
+      instance.stop()
+      reduction.close()
+    }
+  })
+
+  test('the durable send outcome clears recovery without a second draft write', async () => {
+    const dataDir = path.join(tmp, 'timeline-draft-send-outcome')
+    const session = 'curia-draft-send-outcome'
+    let reduction = new Reduction(dataDir)
+    reduction.recordChatDraft(session, 'send exactly once')
+    let instance = new TimelineSurface({
+      port: 0,
+      servePort: 8444,
+      atlasServePort: 8445,
+      index: DEFAULT_TIMELINE_INDEX,
+      workspaceRoot: workspaceRoot(),
+      log: () => {},
+      deps: {
+        identityCheck: () => null,
+        draftFor: (name) => reduction.chatDraft(name),
+        recordDraft: () => {}, // models a stop after the send fact but before a separate clear
+        journal: (type, detail) => reduction.journal(type, detail),
+        sendText: async () => null,
+      },
+    })
+    await instance.start()
+    try {
+      const sent = await fetch(`http://127.0.0.1:${instance.port}/send`, {
+        method: 'POST', body: JSON.stringify({ session, text: 'send exactly once' }),
+      })
+      assert.equal(sent.status, 200)
+    } finally {
+      instance.stop()
+      reduction.close()
+    }
+
+    reduction = new Reduction(dataDir)
+    instance = new TimelineSurface({
+      port: 0,
+      servePort: 8444,
+      atlasServePort: 8445,
+      index: DEFAULT_TIMELINE_INDEX,
+      workspaceRoot: workspaceRoot(),
+      log: () => {},
+      deps: {
+        identityCheck: () => null,
+        draftFor: (name) => reduction.chatDraft(name),
+      },
+    })
+    await instance.start()
+    try {
+      const recovered = await sse(instance.port, `session=${session}`)
+      assert.equal(recovered.events.find((event) => event.event === 'hello').data.draft, '')
+    } finally {
+      instance.stop()
+      reduction.close()
+    }
+  })
+
+  test('take back restores a draft that survives restart', async () => {
+    const dataDir = path.join(tmp, 'timeline-draft-take-back')
+    const session = 'curia-draft-take-back'
+    const start = async (reduction) => {
+      const instance = new TimelineSurface({
+        port: 0,
+        servePort: 8444,
+        atlasServePort: 8445,
+        index: DEFAULT_TIMELINE_INDEX,
+        workspaceRoot: workspaceRoot(),
+        log: () => {},
+        deps: {
+          identityCheck: () => null,
+          draftFor: (name) => reduction.chatDraft(name),
+          recordDraft: (name, text) => reduction.recordChatDraft(name, text),
+          takeBack: async () => ({
+            ok: true,
+            composer: 'edit these recovered words',
+            receipt: { headline: 'Took back your last message.', landing: null, remains: [] },
+          }),
+        },
+      })
+      await instance.start()
+      return instance
+    }
+
+    let reduction = new Reduction(dataDir)
+    let instance = await start(reduction)
+    try {
+      const takenBack = await fetch(`http://127.0.0.1:${instance.port}/take-back`, {
+        method: 'POST', body: JSON.stringify({ session, target: null }),
+      })
+      assert.equal(takenBack.status, 200)
+    } finally {
+      instance.stop()
+      reduction.close()
+    }
+
+    reduction = new Reduction(dataDir)
+    instance = await start(reduction)
+    try {
+      const recovered = await sse(instance.port, `session=${session}`)
+      assert.equal(recovered.events.find((event) => event.event === 'hello').data.draft, 'edit these recovered words')
+    } finally {
+      instance.stop()
+      reduction.close()
+    }
+  })
+
+  test('every accepted delivery path keeps its draft clear after restart', async () => {
+    const dataDir = path.join(tmp, 'timeline-draft-all-clears')
+    const sessions = {
+      unconfirmed: 'curia-draft-unconfirmed',
+      driven: 'curia-console-91',
+      correction: 'curia-draft-correction',
+    }
+    const start = async (reduction) => {
+      const instance = new TimelineSurface({
+        port: 0,
+        servePort: 8444,
+        atlasServePort: 8445,
+        index: DEFAULT_TIMELINE_INDEX,
+        workspaceRoot: workspaceRoot(),
+        log: () => {},
+        deps: {
+          identityCheck: () => null,
+          draftFor: (name) => reduction.chatDraft(name),
+          recordDraft: (name, text) => reduction.recordChatDraft(name, text),
+          journal: (type, detail) => reduction.journal(type, detail),
+          sendText: async () => ({ status: 'unconfirmed', pane: PANE_COMPOSER }),
+          driverFor: (name) => name === sessions.driven
+            ? { key: 'console-91', cfgDir: drivenCfg(), sessionId: null, send: async () => null }
+            : null,
+          takeBack: async () => ({
+            ok: true,
+            composer: 'edit this correction',
+            correction: { kind: 'note', id: 'note-91' },
+            receipt: { headline: 'Recovered your note.', landing: null, remains: [] },
+          }),
+          correct: async () => ({ ok: true }),
+        },
+      })
+      await instance.start()
+      return instance
+    }
+
+    let reduction = new Reduction(dataDir)
+    let instance = await start(reduction)
+    try {
+      for (const session of Object.values(sessions)) {
+        await fetch(`http://127.0.0.1:${instance.port}/draft`, {
+          method: 'POST', body: JSON.stringify({ session, text: `draft for ${session}` }),
+        })
+      }
+      const unconfirmed = await fetch(`http://127.0.0.1:${instance.port}/send`, {
+        method: 'POST', body: JSON.stringify({ session: sessions.unconfirmed, text: 'sent to the pane' }),
+      })
+      assert.equal(unconfirmed.status, 202)
+      const driven = await fetch(`http://127.0.0.1:${instance.port}/send`, {
+        method: 'POST', body: JSON.stringify({ session: sessions.driven, text: 'sent to the overseer' }),
+      })
+      assert.equal(driven.status, 200)
+      await fetch(`http://127.0.0.1:${instance.port}/take-back`, {
+        method: 'POST', body: JSON.stringify({ session: sessions.correction, target: { kind: 'note', id: 'note-91' } }),
+      })
+      const corrected = await fetch(`http://127.0.0.1:${instance.port}/send`, {
+        method: 'POST', body: JSON.stringify({ session: sessions.correction, text: 'edited correction' }),
+      })
+      assert.equal(corrected.status, 200)
+    } finally {
+      instance.stop()
+      reduction.close()
+    }
+
+    reduction = new Reduction(dataDir)
+    instance = await start(reduction)
+    try {
+      const recovered = []
+      for (const session of Object.values(sessions)) {
+        const { events } = await sse(instance.port, `session=${session}`)
+        recovered.push(events.find((event) => event.event === 'hello').data.draft)
+      }
+      assert.deepEqual(recovered, ['', '', ''])
+    } finally {
+      instance.stop()
+      reduction.close()
+    }
   })
 
   test('a /send while a dialog owns the pane is refused, journalled, and pins the banner', async () => {
@@ -1057,6 +1492,32 @@ describe('TimelineSurface', () => {
     }
   })
 
+  test('an unconfirmed message stays progressing until shared evidence confirms delivery', async () => {
+    delivery = { status: 'unconfirmed', pane: PANE_COMPOSER }
+    try {
+      const r = await post('/send', {
+        session: 'curia-9', text: 'check this action once', action_id: 'atlas-chat-unconfirmed',
+      })
+      assert.equal(r.status, 202)
+      await new Promise((resolve) => setImmediate(resolve))
+      const action = actions.get('atlas-chat-unconfirmed')
+      assert.equal(action.status, 'progress')
+      assert.deepEqual(action.receipt, { outcome: 'sent_unconfirmed' })
+
+      const dir = path.join(workspaceRoot(), 'cfg', 'curia-9', 'projects', 'p')
+      fs.mkdirSync(dir, { recursive: true })
+      fs.writeFileSync(path.join(dir, 'action-confirm.jsonl'), `${JSON.stringify({
+        type: 'user', timestamp: new Date(Date.now() + 1000).toISOString(),
+        message: { content: 'check this action once' },
+      })}\n`)
+      await sse(port, 'session=curia-9&once=1')
+      assert.equal(actions.get('atlas-chat-unconfirmed').status, 'confirmed')
+      assert.deepEqual(actions.get('atlas-chat-unconfirmed').receipt, { outcome: 'delivered' })
+    } finally {
+      delivery = null
+    }
+  })
+
   test('a pane that stays active reports that no text was sent', async () => {
     delivery = { status: 'not-sent', pane: '✻ Working' }
     try {
@@ -1064,6 +1525,21 @@ describe('TimelineSurface', () => {
       assert.equal(r.status, 409)
       assert.match((await r.json()).error, /did not send/)
       assert.equal(journal.findLast((x) => x.type === 'timeline_send').outcome, 'not_sent')
+    } finally {
+      delivery = null
+    }
+  })
+
+  test('a pane that stays active refuses its message Action as not sent', async () => {
+    delivery = { status: 'not-sent', pane: '✻ Working' }
+    try {
+      const r = await post('/send', {
+        session: 'curia-9', text: 'keep this', action_id: 'atlas-chat-not-sent',
+      })
+      assert.equal(r.status, 409)
+      const action = (await r.json()).action
+      assert.equal(action.status, 'refused')
+      assert.deepEqual(action.receipt, { outcome: 'not_sent' })
     } finally {
       delivery = null
     }
@@ -1112,6 +1588,82 @@ describe('TimelineSurface', () => {
       const replay = await sse(port, 'session=curia-9')
       assert.deepEqual(replay.events.find((event) => event.event === 'dialog')?.data.receipt, receipt)
     } finally {
+      pane = PANE_COMPOSER
+    }
+  })
+
+  test('two native-dialog Action clients race under one dialog conflict and share the winning receipt', async () => {
+    pane = PANE_ASK_OPTIONS
+    let releaseAnswer
+    dialogAnswerGate = new Promise((resolve) => { releaseAnswer = resolve })
+    try {
+      const opened = await sse(port, 'session=curia-action-race')
+      const card = opened.events.find((event) => event.event === 'dialog').data.card
+      const firstRequest = post('/dialog-answer', {
+        session: 'curia-action-race', dialog: card.id, index: 2, client: 'phone',
+        action_id: 'atlas-dialog-phone',
+      })
+      while (!dialogAnswers.some((answer) => answer.session === 'curia-action-race')) {
+        await new Promise((resolve) => setImmediate(resolve))
+      }
+      const secondRequest = post('/dialog-answer', {
+        session: 'curia-action-race', dialog: card.id, index: 1, client: 'desktop',
+        action_id: 'atlas-dialog-desktop',
+      })
+
+      const second = await secondRequest
+      assert.equal(second.status, 409)
+      const refused = (await second.json()).action
+      assert.equal(refused.status, 'refused')
+      assert.equal(refused.conflict_key, `dialog:curia-action-race:${card.id}`)
+      assert.match(refused.reason, /first valid native dialog answer is still being sent/)
+
+      releaseAnswer()
+      const first = await firstRequest
+      assert.equal(first.status, 202)
+      assert.equal((await first.json()).action.status, 'accepted')
+      const won = await actions.settled('atlas-dialog-phone')
+      assert.equal(won.status, 'confirmed')
+      assert.equal(won.receipt.answer, 'Preview')
+      assert.equal(dialogAnswers.filter((answer) => answer.session === 'curia-action-race').length, 1)
+
+      const refreshed = await sse(port, 'session=curia-action-race')
+      assert.deepEqual(refreshed.events.find((event) => event.event === 'dialog').data.receipt, won.receipt)
+    } finally {
+      releaseAnswer?.()
+      dialogAnswerGate = null
+      pane = PANE_COMPOSER
+    }
+  })
+
+  test('a native-dialog pane-write failure becomes shared evidence and leaves the card retryable', async () => {
+    pane = PANE_ASK_OPTIONS
+    dialogAnswerFailure = 'tmux socket is unavailable'
+    try {
+      const opened = await sse(port, 'session=curia-action-failure')
+      const card = opened.events.find((event) => event.event === 'dialog').data.card
+      const response = await post('/dialog-answer', {
+        session: 'curia-action-failure', dialog: card.id, index: 2, client: 'phone',
+        action_id: 'atlas-dialog-failure',
+      })
+      assert.equal(response.status, 202)
+      assert.equal((await response.json()).action.status, 'accepted')
+
+      const failed = await actions.settled('atlas-dialog-failure')
+      assert.equal(failed.status, 'failed')
+      assert.match(failed.reason, /tmux socket is unavailable/)
+      const refreshed = await sse(port, 'session=curia-action-failure')
+      assert.equal(refreshed.events.find((event) => event.event === 'dialog').data.card.id, card.id)
+
+      dialogAnswerFailure = null
+      const retry = await post('/dialog-answer', {
+        session: 'curia-action-failure', dialog: card.id, index: 1, client: 'desktop',
+        action_id: 'atlas-dialog-retry',
+      })
+      assert.equal(retry.status, 202)
+      assert.equal((await actions.settled('atlas-dialog-retry')).status, 'confirmed')
+    } finally {
+      dialogAnswerFailure = null
       pane = PANE_COMPOSER
     }
   })
@@ -1286,6 +1838,30 @@ describe('TimelineSurface', () => {
     const j = journal.findLast((x) => x.type === 'timeline_send')
     assert.equal(j.session, DRIVEN)
     assert.equal(j.outcome, 'sent')
+  })
+
+  test('an overseer message returns accepted evidence before its long turn finishes', async () => {
+    let complete
+    driverDelivery = { completion: new Promise((resolve) => { complete = resolve }) }
+    try {
+      const r = await post('/send', {
+        session: DRIVEN, text: 'inspect the frontier', action_id: 'atlas-chat-overseer',
+      })
+      assert.equal(r.status, 202)
+      const accepted = (await r.json()).action
+      assert.equal(accepted.status, 'accepted')
+      assert.equal(accepted.target, 'console-2')
+      assert.equal(accepted.conflict_key, 'turn:console-2')
+
+      await new Promise((resolve) => setImmediate(resolve))
+      assert.equal(actions.get('atlas-chat-overseer').status, 'progress')
+      assert.match(actions.get('atlas-chat-overseer').progress, /waiting for the overseer response/i)
+
+      complete({ ok: true })
+      assert.equal((await actions.settled('atlas-chat-overseer')).status, 'confirmed')
+    } finally {
+      driverDelivery = null
+    }
   })
 
   test('a turn that ends without an answer comes back as WORDS, never as silence', async () => {

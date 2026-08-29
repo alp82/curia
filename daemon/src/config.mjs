@@ -7,7 +7,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { parse } from 'yaml'
 import { DEFAULT_RANGE as DEFAULT_PREVIEW_RANGE, DEFAULT_PROXY_FROM } from './preview.mjs'
-import { DEFAULT_SKILLS, defaultSkillsRoot, HARNESS_NAMES, harnessProvider } from './workspace.mjs'
+import { DEFAULT_SKILLS, defaultSkillsRoot } from './workspace.mjs'
 import {
   LIMIT_PATTERNS, REASONING_EFFORTS, SAFE_SUBSTITUTION, harnessReasoningEffort,
 } from './routing.mjs'
@@ -21,6 +21,7 @@ import { readAllow } from './identity.mjs'
 import { readDashboard } from './dashboard.mjs'
 import { readOverseer } from './overseerservice.mjs'
 import { CONSUMER_NAMES, consumerContractFault, providerContractFault } from './credentials.mjs'
+import { HARNESS_REGISTRY } from './harnesses.mjs'
 
 // Exported because the settings screen writes this key (#265), and a second
 // list of the legal modes would be a second answer to one question.
@@ -662,8 +663,11 @@ export function loadRoutingConfig(file, { localFile } = {}) {
       fail(src, `harnesses.${name}.resume_template must include the {model} placeholder`)
     }
     b.resumeTemplate = b.resume_template
-    if (!HARNESS_NAMES.includes(name)) {
-      fail(src, `harnesses.${name} has no entry in the HARNESS table in workspace.mjs — an agent under it would get no config dir, no curia tools and no Stop hook. Known harnesses: ${HARNESS_NAMES.join(', ')}`)
+    let adapter
+    try {
+      adapter = HARNESS_REGISTRY.get(name)
+    } catch {
+      fail(src, `harnesses.${name} has no registered Harness adapter - registered Harnesses: ${HARNESS_REGISTRY.names.join(', ')}`)
     }
     // The credential half of that same question (#648). A harness whose provider
     // has no contract row would spawn agents curia cannot give a credential to,
@@ -672,8 +676,10 @@ export function loadRoutingConfig(file, { localFile } = {}) {
     // `models.<n>.provider` already performs against the usage-limit vocabulary
     // a few hundred lines above: adding a provider is a code change, and this
     // names it.
-    const credentialFault = providerContractFault(name, harnessProvider(name))
+    const credentialFault = providerContractFault(name, adapter.identity.provider)
     if (credentialFault) fail(src, credentialFault)
+    const consumerFault = consumerContractFault(adapter.identity.credentialConsumer)
+    if (consumerFault) fail(src, `Harness ${name} has an invalid credential consumer: ${consumerFault}`)
     // The readiness marker is per harness and REQUIRED, not defaulted (#57's
     // precedent: silence by omission is the failure this refuses). #33 lost
     // readiness live to a marker that matched nothing, and the symptom was
@@ -714,6 +720,10 @@ export function loadRoutingConfig(file, { localFile } = {}) {
   }
   for (const [name, m] of Object.entries(cfg.models)) {
     if (!cfg.harnesses[m.harness]) fail(src, `models.${name}.harness names unknown harness "${m.harness}"`)
+    const adapter = HARNESS_REGISTRY.get(m.harness)
+    if (m.provider !== adapter.identity.provider) {
+      fail(src, `models.${name}.provider names "${m.provider}", but the ${m.harness} Harness adapter declares "${adapter.identity.provider}"`)
+    }
   }
 
   // The consumer contract, checked at the same boot (#648). This table is code

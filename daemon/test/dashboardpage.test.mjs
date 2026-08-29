@@ -29,13 +29,14 @@ function pageScript() {
   return script[1]
 }
 
-function loadPage({ fetchImpl = () => new Promise(() => {}) } = {}) {
+function loadPage({ fetchImpl = () => new Promise(() => {}), confirmImpl = undefined } = {}) {
   const storage = new Map()
   const ctx = vm.createContext({
     document: { title: '', getElementById: () => null, addEventListener() {}, visibilityState: 'hidden' },
     window: { addEventListener() {} },
     location: { hash: '' },
     fetch: fetchImpl,
+    confirm: confirmImpl,
     setTimeout,
     clearTimeout,
     console,
@@ -1238,14 +1239,19 @@ describe('the read screens (#264)', () => {
   })
 
   describe('feed', () => {
-    test('the Feed marker comes from the journal stamp, and a visit posts the read under the login (#704)', async () => {
+    test('a Feed visit projects through a login-scoped Action before it posts the read (#704, #811)', async () => {
       const prior = at(3_600)
       const posts = []
       const p = loadPage({ fetchImpl: async (url, init) => { posts.push([url, init]); return { ok: true, json: async () => ({}) } } })
       p.payload = { ...payload({ feed_reads: { 'alp82@example.com': prior } }), operator: 'alp82@example.com' }
       p.enter('feed')
       assert.equal(p.UI.feed.lastRead, prior, 'the marker is the PREVIOUS read, not the one that just happened')
-      assert.deepEqual(posts.map(([u, i]) => [u, i.method]), [['/api/feed/read', 'POST']])
+      const action = p.actionFor({ conflict_key: 'feed-read:alp82@example.com' })
+      assert.equal(action.status, 'pending', 'the visit is visible in the same frame as entering Feed')
+      assert.equal(action.kind, 'feed-read')
+      assert.deepEqual(posts.map(([u, i]) => [u, i.method, JSON.parse(i.body).action_id]), [
+        ['/api/feed/read', 'POST', action.action_id],
+      ])
       assert.ok(!p.localStorage.getItem('atlas.feed.last-read:alp82@example.com'), 'no browser-local copy: the journal is the one record')
     })
 
@@ -1255,6 +1261,32 @@ describe('the read screens (#264)', () => {
       p.enter('feed')
       assert.equal(p.UI.feed.lastRead, null)
       assert.ok(!/Since you left/.test(p.screenFeed(p.payload)))
+    })
+
+    test('a refused visit reconciles in Feed and leaves the next visit available (#811)', async () => {
+      const requests = []
+      const p = loadPage({ fetchImpl: async (_url, init) => {
+        const sent = JSON.parse(init.body)
+        requests.push(sent)
+        return {
+          ok: false,
+          status: 409,
+          json: async () => ({ action: {
+            action_id: sent.action_id, kind: 'feed-read', target: 'alp82@example.com',
+            conflict_key: 'feed-read:alp82@example.com', status: 'refused', revision: requests.length,
+            reason: 'the journal is read-only',
+          } }),
+        }
+      } })
+      p.payload = { ...payload(), operator: 'alp82@example.com' }
+
+      p.enter('feed')
+      await new Promise((resolve) => setTimeout(resolve, 0))
+      assert.equal(p.actionFor({ conflict_key: 'feed-read:alp82@example.com' }), null)
+      assert.match(text(p.screenFeed(p.payload)), /Feed visit was not recorded.*journal is read-only/)
+
+      p.enter('feed')
+      assert.equal(requests.length, 2, 'the failed bookkeeping does not disable another visit')
     })
 
     test('Feed separates news from mechanics and places the last-visit marker over a 24-hour density strip', () => {
@@ -1846,6 +1878,60 @@ describe('the settings screen (#265)', () => {
     assert.ok(!html.includes('doRestart()'), 'the bar is just Save — the restart lives in Maintenance now')
   })
 
+  test('Save projects immediately under a settings-path conflict and leaves unrelated Actions available', async () => {
+    let answer
+    const response = new Promise((resolve) => { answer = resolve })
+    page = loadPage({ fetchImpl: () => response })
+    page.settings = SETTINGS()
+    page.draft = JSON.parse(JSON.stringify(page.settings))
+    page.setDispatchField('max_concurrent', '4')
+
+    const saving = page.doSave()
+    const action = page.actionFor({ conflict_key: 'settings:curia.local.yaml' })
+    assert.equal(action.status, 'pending')
+    assert.match(text(screen('dispatch')), /Saving settings/)
+    assert.ok(page.beginAction({
+      action_id: 'atlas-unrelated-action-1', kind: 'chat-message', target: 'console-1', conflict_key: 'turn:console-1',
+    }), 'a settings file reservation does not take the global Action lock')
+
+    answer({
+      ok: true,
+      json: async () => ({
+        written: ['curia.local.yaml'],
+        settings: { ...SETTINGS(), dispatch: { ...SETTINGS().dispatch, max_concurrent: 4 } },
+        reload: { ok: true, applied: ['dispatch.max_concurrent'] },
+        action: {
+          ...action, status: 'confirmed', revision: 2,
+          receipt: { written: ['curia.local.yaml'], applied: ['dispatch.max_concurrent'] },
+        },
+      }),
+    })
+    await saving
+    assert.equal(page.actionFor({ action_id: action.action_id }), null)
+    assert.match(text(screen('dispatch')), /The daemon is running it/)
+  })
+
+  test('a refresh recovers settings write progress and reconciles the daemon apply receipt', () => {
+    const shared = {
+      action_id: 'atlas-settings-recovered-1', kind: 'settings-save', target: 'curia.local.yaml',
+      conflict_key: 'settings:curia.local.yaml', status: 'progress', revision: 10,
+      progress: 'Applying settings',
+    }
+    page.observeActions([shared])
+    assert.match(text(screen('dispatch')), /Applying settings/)
+
+    page.observeActions([{
+      ...shared, status: 'confirmed', revision: 11,
+      receipt: {
+        written: ['curia.local.yaml'], applied: [],
+        reload: { ok: false, reason: 'restart-needed', error: 'curia.yaml `sandbox.image` needs a restart' },
+      },
+    }])
+    page.reconcileSettingsActions()
+    assert.equal(page.actionFor({ action_id: shared.action_id }), null)
+    assert.match(text(screen('dispatch')), /The daemon did not apply it.*sandbox\.image/)
+  })
+
   test('applied: one sentence, and no button — the daemon took it', () => {
     page.UI.set.phase = 'applied'
     page.UI.set.note = 'Wrote curia.local.yaml, atomically, with the comments kept.'
@@ -1921,6 +2007,64 @@ describe('the settings screen (#265)', () => {
     assert.match(html, /doGitHubAppSetup\(\)/)
     assert.doesNotMatch(html, /doGitHubAppRefresh\(\)/, 'nothing to re-read before an app exists')
     assert.match(fs.readFileSync(DEFAULT_DASHBOARD_INDEX, 'utf8'), /manifest\.name = "manifest"/)
+  })
+
+  test('GitHub App setup starts immediately and does not reserve installation reads', () => {
+    const sent = []
+    const local = loadPage({
+      fetchImpl: async (path, request) => {
+        sent.push({ path, body: JSON.parse(request.body) })
+        return new Promise(() => {})
+      },
+    })
+    local.payload = payload()
+    local.document.getElementById = (id) => id === 'github-app-name' ? { value: 'curia-box' } : null
+
+    vm.runInContext('doGitHubAppSetup()', local)
+    vm.runInContext('doGitHubAppRefresh()', local)
+
+    const setup = local.actionFor({ conflict_key: 'github-app:setup' })
+    const refresh = local.actionFor({ conflict_key: 'github-app:installations' })
+    assert.equal(setup.status, 'pending')
+    assert.equal(setup.kind, 'github-app-setup')
+    assert.equal(refresh.status, 'pending')
+    assert.equal(refresh.kind, 'github-app-installations')
+    assert.equal(sent[0].body.action_id, setup.action_id)
+    assert.equal(sent[1].body.action_id, refresh.action_id)
+  })
+
+  test('an installation read recovers from shared progress and reconciles an explicit failure', () => {
+    const local = loadPage()
+    local.settings = SETTINGS()
+    local.draft = JSON.parse(JSON.stringify(local.settings))
+    local.UI.drill.settings = { open: 'connections', list: false }
+    const p = payload()
+    p.overview.github_app = {
+      configured: true, status: 'complete', app: { id: '42', key_file: '/keys/app.pem' },
+      installations: { state: 'unread', at: null, error: null }, owners: [], manual_url: null,
+    }
+    local.observeActions([{
+      action_id: 'atlas-github-app-read', kind: 'github-app-installations', target: 'github-app-installations',
+      conflict_key: 'github-app:installations', status: 'progress', revision: 4,
+      progress: 'Reading GitHub App installations',
+    }])
+
+    let html = local.screenSettings(p)
+    assert.match(text(html), /Reading GitHub App installations/)
+    assert.match(html, /Re-read installations<\/button>/)
+    assert.match(html, /button class="btn" disabled/)
+
+    local.observeActions([{
+      action_id: 'atlas-github-app-read', kind: 'github-app-installations', target: 'github-app-installations',
+      conflict_key: 'github-app:installations', status: 'failed', revision: 5,
+      reason: 'The installation read failed: GitHub answered 502',
+    }])
+    local.reconcileGitHubAppActions()
+
+    assert.equal(local.actionFor({ action_id: 'atlas-github-app-read' }), null)
+    html = local.screenSettings(p)
+    assert.match(text(html), /The installation read failed: GitHub answered 502/)
+    assert.doesNotMatch(html, /button class="btn" disabled/)
   })
 
   // #762: the configured section states the app, the reading, and three owner
@@ -2002,6 +2146,78 @@ describe('the settings screen (#265)', () => {
     assert.match(t, /This box is not an aistack machine/)
     assert.match(html, /aistackDo\('register'\)/)
     assert.ok(!html.includes("aistackDo('optin')"), 'there is nothing to grant a permission on yet')
+  })
+
+  test('Register this box projects immediately under the machine-registration conflict', async () => {
+    let release
+    let sent
+    const page = loadPage({ fetchImpl: (url, options) => {
+      sent = { url, body: JSON.parse(options.body) }
+      return new Promise((resolve) => { release = resolve })
+    } })
+    page.aistack = AISTACK()
+
+    const press = page.aistackDo('register')
+    const action = page.actionFor({ conflict_key: 'aistack:machine-registration' })
+
+    assert.equal(action.kind, 'aistack-register')
+    assert.equal(action.status, 'pending')
+    assert.match(text(page.setAistack()), /Starting the device login/)
+    assert.equal(sent.url, '/api/aistack/register')
+    assert.equal(sent.body.action_id, action.action_id)
+
+    release({ ok: true, json: async () => ({ action: {
+      ...action, status: 'accepted', revision: 1, started_at: 1, updated_at: 1,
+    } }) })
+    await press
+    page.finishAction(action.action_id)
+    page.aistackWatch()
+  })
+
+  test('Stop waiting replaces the pending registration with its own immediate projection', async () => {
+    let release
+    const page = loadPage({ fetchImpl: () => new Promise((resolve) => { release = resolve }) })
+    page.aistack = {
+      ...AISTACK(),
+      flow: { phase: 'waiting', code: 'T72NNC', url: 'https://aistack.to/cli/auth?code=T72NNC' },
+    }
+    page.beginAction({
+      action_id: 'atlas-register-in-flight', kind: 'aistack-register', target: 'aistack-machine',
+      conflict_key: 'aistack:machine-registration', projection: { phase: 'waiting' },
+    })
+
+    const press = page.aistackDo('cancel')
+    const action = page.actionFor({ conflict_key: 'aistack:machine-registration' })
+
+    assert.equal(action.kind, 'aistack-cancel')
+    assert.match(text(page.setAistack()), /Stopping the device login/)
+    release({ ok: true, json: async () => ({ action: {
+      ...action, status: 'accepted', revision: 2, started_at: 1, updated_at: 2,
+    } }) })
+    await press
+    page.finishAction(action.action_id)
+    page.aistackWatch()
+  })
+
+  test('Opt in projects immediately and a fresh page recovers its shared progress', async () => {
+    const registered = {
+      ...AISTACK(), registered: true,
+      machine: { proposed: 'curia.sh', servers: ['aistack.to'], at: 1 },
+      flow: { phase: 'registered' },
+    }
+    const shared = {
+      action_id: 'atlas-aistack-optin', kind: 'aistack-optin', target: 'aistack-machine',
+      conflict_key: 'aistack:machine-registration', status: 'progress', revision: 4,
+      progress: 'Granting the standing permission', started_at: 1, updated_at: 2,
+    }
+    const page = loadPage({ fetchImpl: async () => ({ ok: true, json: async () => ({ ...registered, actions: [shared] }) }) })
+
+    await page.loadAistack()
+
+    assert.equal(page.actionFor({ conflict_key: 'aistack:machine-registration' }).action_id, shared.action_id)
+    assert.match(text(page.setAistack()), /Granting the standing permission/)
+    page.finishAction(shared.action_id)
+    page.aistackWatch()
   })
 
   test('a login in flight is the code and the link, and nothing else to do', () => {
@@ -2133,6 +2349,95 @@ describe('the settings screen (#265)', () => {
     assert.match(text(page.screenSettings(p)), /cannot tell whether the daemon runs these files: it is not answering/)
   })
 
+  test('restart projects immediately under the daemon lifecycle conflict', async () => {
+    let release
+    let sent
+    page = loadPage({
+      fetchImpl: async (url, options) => new Promise((resolve) => {
+        sent = { url, body: JSON.parse(options.body) }
+        release = resolve
+      }),
+    })
+    page.settings = SETTINGS()
+    page.draft = JSON.parse(JSON.stringify(page.settings))
+    page.payload = payload()
+
+    const pressed = page.doRestart()
+
+    const action = page.actionFor({ conflict_key: 'daemon:lifecycle' })
+    assert.equal(action.status, 'pending')
+    assert.equal(action.projection.uptime_s, 7200)
+    assert.match(text(screen('maintenance')), /Restarting daemon/)
+    assert.deepEqual(sent, { url: '/api/restart', body: { action_id: action.action_id } })
+
+    release({
+      ok: true,
+      json: async () => ({
+        ok: true,
+        action: { ...action, status: 'accepted', revision: 15, receipt: { uptime_s: 7200 } },
+      }),
+    })
+    await pressed
+    assert.equal(page.actionFor({ conflict_key: 'daemon:lifecycle' }).status, 'accepted')
+  })
+
+  test('restart keeps its destructive confirmation in front of the Action', async () => {
+    let requests = 0
+    page = loadPage({
+      fetchImpl: async () => { requests += 1 },
+      confirmImpl: () => false,
+    })
+    page.payload = payload()
+
+    await page.doRestart()
+
+    assert.equal(requests, 0)
+    assert.equal(page.actionFor({ conflict_key: 'daemon:lifecycle' }), null)
+  })
+
+  test('restart recovers after refresh and settles from daemon health and fresh uptime', () => {
+    const shared = {
+      action_id: 'atlas-daemon-recovery', kind: 'daemon-restart', target: 'daemon', conflict_key: 'daemon:lifecycle',
+      status: 'progress', progress: 'Restarting daemon', revision: 20,
+      receipt: { uptime_s: 7200, requested_at: at(5), exit_code: 75 },
+    }
+    let reading = payload({ actions: [shared] })
+    reading.daemon_up = false
+    page.observeActions(reading.overview.actions)
+    page.reconcileDaemonRestartActions(reading)
+
+    assert.equal(page.actionFor({ conflict_key: 'daemon:lifecycle' }).status, 'progress')
+    assert.match(text(screen('maintenance')), /Restarting daemon/)
+
+    reading = payload({
+      actions: [{
+        ...shared, status: 'confirmed', revision: 25,
+        receipt: { ...shared.receipt, booted_at: at(1) },
+      }],
+      daemon: { ...OVERVIEW().daemon, uptime_s: 3 },
+    })
+    page.observeActions(reading.overview.actions)
+    page.reconcileDaemonRestartActions(reading)
+
+    assert.equal(page.actionFor({ conflict_key: 'daemon:lifecycle' }), null)
+    assert.match(text(screen('maintenance')), /The daemon restarted and is answering/)
+  })
+
+  test('a lost restart receipt remains ambiguous until health evidence arrives', async () => {
+    page = loadPage({ fetchImpl: async () => { throw new Error('socket hang up') } })
+    page.settings = SETTINGS()
+    page.draft = JSON.parse(JSON.stringify(page.settings))
+    page.payload = payload()
+
+    await page.doRestart()
+
+    assert.equal(page.actionFor({ conflict_key: 'daemon:lifecycle' }).status, 'pending')
+    const t = text(screen('maintenance'))
+    assert.match(t, /may have taken the restart order/)
+    assert.match(t, /bar above says whether the daemon is answering/)
+    assert.doesNotMatch(t, /Refused — nothing was written/)
+  })
+
   test('the settings nav item carries a marker while the daemon and the files disagree', () => {
     // `render` needs a mount point; everything else about the shell is inert.
     let html = ''
@@ -2160,6 +2465,84 @@ describe('the settings screen (#265)', () => {
     const t = text(page.screenFeed(p))
     assert.match(t, /config reloaded by alp@example\.com — dispatch\.max_concurrent, watch/)
     assert.match(t, /config reload declined for alp@example\.com — curia\.yaml `sandbox\.image` changed/)
+  })
+})
+
+describe('Atlas Action bookkeeping', () => {
+  let page
+  beforeEach(() => { page = loadPage() })
+
+  const local = (id, conflict = `dispatch:${id}`, target = id) => ({
+    action_id: id, kind: 'dispatch', target, conflict_key: conflict,
+    projection: { phase: 'starting' },
+  })
+  const evidence = (id, revision, status = 'accepted', conflict = `dispatch:${id}`, target = id) => ({
+    action_id: id, kind: 'dispatch', target, conflict_key: conflict, status, revision,
+    started_at: '2026-08-28T10:00:00.000Z', updated_at: '2026-08-28T10:00:01.000Z',
+  })
+
+  test('beginAction records the pending projection in the same frame', () => {
+    const started = page.beginAction(local('act-local'))
+
+    assert.equal(started.status, 'pending')
+    assert.equal(page.actionFor({ target: 'act-local' }).action_id, 'act-local')
+    assert.equal(page.actionFor({ conflict_key: 'dispatch:act-local' }).projection.phase, 'starting')
+  })
+
+  test('independent conflict keys can remain pending together', () => {
+    assert.ok(page.beginAction(local('act-one')))
+    assert.ok(page.beginAction(local('act-two')))
+    assert.equal(page.actionFor({ conflict_key: 'dispatch:act-one' }).action_id, 'act-one')
+    assert.equal(page.actionFor({ conflict_key: 'dispatch:act-two' }).action_id, 'act-two')
+  })
+
+  test('a duplicate conflict is refused without replacing the first Action', () => {
+    assert.ok(page.beginAction(local('act-first', 'dispatch:ticket')))
+    assert.equal(page.beginAction(local('act-second', 'dispatch:ticket')), null)
+    assert.equal(page.actionFor({ conflict_key: 'dispatch:ticket' }).action_id, 'act-first')
+  })
+
+  test('older daemon evidence cannot replace a newer reading', () => {
+    page.beginAction(local('act-order'))
+    page.observeActions([evidence('act-order', 8, 'progress')])
+    page.observeActions([evidence('act-order', 7, 'accepted')])
+
+    assert.equal(page.actionFor({ action_id: 'act-order' }).status, 'progress')
+    assert.equal(page.actionFor({ action_id: 'act-order' }).revision, 8)
+  })
+
+  test('terminal evidence is immutable', () => {
+    page.beginAction(local('act-terminal'))
+    page.observeActions([evidence('act-terminal', 4, 'refused')])
+    page.observeActions([evidence('act-terminal', 5, 'confirmed')])
+
+    assert.equal(page.actionFor({ action_id: 'act-terminal' }).status, 'refused')
+    assert.equal(page.actionFor({ action_id: 'act-terminal' }).revision, 4)
+  })
+
+  test('nonterminal evidence from another device reserves its conflict key', () => {
+    page.observeActions([evidence('act-remote', 11, 'progress', 'dispatch:shared', 'alp82/curia#804')])
+
+    assert.equal(page.actionFor({ target: 'alp82/curia#804' }).status, 'progress')
+    assert.equal(page.beginAction(local('act-local', 'dispatch:shared')), null)
+  })
+
+  test('an overview refresh recovers a nonterminal Action', async () => {
+    const recovered = evidence('act-refresh', 12, 'accepted', 'dispatch:refresh', 'alp82/curia#804')
+    page = loadPage({ fetchImpl: async () => ({ ok: true, json: async () => payload({ actions: [recovered] }) }) })
+
+    await page.tick()
+
+    assert.equal(page.actionFor({ conflict_key: 'dispatch:refresh' }).action_id, 'act-refresh')
+  })
+
+  test('finishAction removes bookkeeping only after caller reconciliation', () => {
+    page.beginAction(local('act-finish'))
+    page.observeActions([evidence('act-finish', 3, 'confirmed')])
+    assert.equal(page.actionFor({ action_id: 'act-finish' }).status, 'confirmed')
+
+    assert.equal(page.finishAction('act-finish'), true)
+    assert.equal(page.actionFor({ action_id: 'act-finish' }), null)
   })
 })
 
@@ -2214,6 +2597,122 @@ describe('the operator verbs (#266)', () => {
       delete p.overview.maps.maps[0].takeable[0].model
       assert.match(text(takeable(p)), /the routed model is not on this reading/)
     })
+
+    test('a valid press moves the ticket to Running in the same turn and reserves only that Start', () => {
+      let sent
+      const local = loadPage({
+        fetchImpl: async (_path, request) => {
+          sent = JSON.parse(request.body)
+          return new Promise(() => {})
+        },
+      })
+      local.payload = payload()
+      local.UI.maps = { repo: 'all', selected: { repo: 'alp82/curia', map: 244 }, open: false }
+
+      vm.runInContext("startTicket('alp82/curia', '265')", local)
+
+      const action = local.actionFor({ target: 'alp82/curia#265' })
+      assert.equal(action.status, 'pending')
+      assert.equal(action.kind, 'dispatch')
+      assert.equal(action.conflict_key, 'dispatch:alp82/curia#265')
+      assert.equal(sent.action_id, action.action_id)
+      const html = local.screenMaps(local.payload)
+      const running = /<section class="map-stage in-flight[\s\S]*?(?=<section class="map-stage takeable)/.exec(html)?.[0]
+      const frontier = /<section class="map-stage takeable[\s\S]*?(?=<section class="map-stage blocked)/.exec(html)?.[0]
+      assert.match(text(running), /#265 The settings write starting/)
+      assert.doesNotMatch(frontier, /#265/)
+      assert.match(frontier, /startTicket\('alp82\/curia','266'\)/)
+    })
+
+    test('shared claim, preparation, and spawn evidence advance the Running row until the map catches up', async () => {
+      let actionId
+      const shared = (revision, status, extra = {}) => ({
+        action_id: actionId, kind: 'dispatch', target: 'alp82/curia#265',
+        conflict_key: 'dispatch:alp82/curia#265', status, revision,
+        started_at: '2026-08-28T10:00:00.000Z', updated_at: '2026-08-28T10:00:01.000Z',
+        ...extra,
+      })
+      const local = loadPage({
+        fetchImpl: async (path, request) => {
+          if (path !== '/api/start') return new Promise(() => {})
+          actionId = JSON.parse(request.body).action_id
+          return { ok: true, json: async () => ({ action: shared(10, 'accepted') }) }
+        },
+      })
+      local.payload = payload()
+      local.UI.maps = { repo: 'all', selected: { repo: 'alp82/curia', map: 244 }, open: false }
+
+      await vm.runInContext("startTicket('alp82/curia', '265')", local)
+      assert.match(text(local.screenMaps(local.payload)), /#265 The settings write claimed · opening the thread/)
+
+      local.observeActions([shared(11, 'progress', { progress: 'Preparing the agent workspace' })])
+      assert.match(text(local.screenMaps(local.payload)), /#265 The settings write Preparing the agent workspace/)
+
+      local.observeActions([shared(12, 'confirmed')])
+      assert.match(text(local.screenMaps(local.payload)), /#265 The settings write running/)
+
+      const caughtUp = payload()
+      const map = caughtUp.overview.maps.maps[0]
+      const item = map.takeable.shift()
+      map.in_flight.push({ ...item, assignees: ['curia-sh[bot]'], agent: { session: 'curia-265', model: item.model } })
+      map.counts.takeable -= 1
+      map.counts.in_flight += 1
+      local.reconcileStartActions(caughtUp.overview)
+      assert.equal(local.actionFor({ action_id: actionId }), null)
+      assert.match(text(local.screenMaps(caughtUp)), /#265 The settings write working/)
+    })
+
+    test('a refusal or post-claim failure returns the ticket to Frontier with the reason in context', async () => {
+      for (const [status, reason] of [
+        ['refused', 'the ticket is already assigned'],
+        ['failed', 'the agent workspace could not be prepared'],
+      ]) {
+        let actionId
+        const local = loadPage({
+          fetchImpl: async (path, request) => {
+            if (path !== '/api/start') return new Promise(() => {})
+            actionId = JSON.parse(request.body).action_id
+            return { ok: true, json: async () => ({ action: {
+              action_id: actionId, kind: 'dispatch', target: 'alp82/curia#265',
+              conflict_key: 'dispatch:alp82/curia#265', status, revision: 20, reason,
+            } }) }
+          },
+        })
+        local.payload = payload()
+        local.UI.maps = { repo: 'all', selected: { repo: 'alp82/curia', map: 244 }, open: false }
+
+        await vm.runInContext("startTicket('alp82/curia', '265')", local)
+
+        assert.equal(local.actionFor({ action_id: actionId }), null)
+        const html = local.screenMaps(local.payload)
+        assert.match(html, /startTicket\('alp82\/curia','265'\)/)
+        assert.match(html, /class="said bad"/)
+        assert.match(text(html), new RegExp(reason))
+      }
+    })
+
+    test('a late no-response error cannot overwrite shared progress', async () => {
+      let rejectStart
+      const local = loadPage({
+        fetchImpl: (path) => path === '/api/start'
+          ? new Promise((_resolve, reject) => { rejectStart = reject })
+          : new Promise(() => {}),
+      })
+      local.payload = payload()
+      local.UI.maps = { repo: 'all', selected: { repo: 'alp82/curia', map: 244 }, open: false }
+      const pending = vm.runInContext("startTicket('alp82/curia', '265')", local)
+      const action = local.actionFor({ target: 'alp82/curia#265' })
+      local.observeActions([{
+        ...action, status: 'progress', revision: 30, progress: 'Preparing the agent workspace',
+      }])
+
+      rejectStart(new Error('the daemon did not answer /command within 5s'))
+      await pending
+
+      assert.equal(local.UI.act.said, null)
+      assert.equal(local.actionFor({ action_id: action.action_id }).status, 'progress')
+      assert.doesNotMatch(text(local.screenMaps(local.payload)), /did not answer/)
+    })
   })
 
   // ---- answer --------------------------------------------------------------
@@ -2225,6 +2724,37 @@ describe('the operator verbs (#266)', () => {
       assert.match(html, /answerIndex\('esc-7',1\)/)
       assert.match(text(html), /1 · Drop the older note/, 'an untyped card counts its options')
       assert.match(text(html), /2 · Post both with stamps/)
+    })
+
+    test('a choice projects immediately and reconciles only when the shared escalation closes', async () => {
+      let answer
+      const p = payload()
+      const local = loadPage({ fetchImpl: async () => new Promise((resolve) => { answer = resolve }) })
+      local.payload = p
+
+      const sent = local.answerIndex('esc-7', 1)
+      const action = local.actionFor({ conflict_key: 'answer:esc-7' })
+      assert.ok(action)
+      assert.equal(action.kind, 'escalation-answer')
+      assert.equal(action.projection.answer, 'Post both with stamps')
+      assert.match(text(local.screenHome(p)), /Answering: Post both with stamps…/)
+
+      await Promise.resolve()
+      answer({ ok: true, json: async () => ({
+        ok: true,
+        action: {
+          ...action, status: 'confirmed', revision: 9,
+          receipt: { by: 'alp@example.com', via: 'dashboard', at: at(1), answer: 'Post both with stamps' },
+        },
+      }) })
+      await sent
+      assert.equal(local.actionFor({ action_id: action.action_id }).status, 'confirmed', 'the stale open record keeps the projection')
+
+      const fresh = payload()
+      fresh.overview.escalations = fresh.overview.escalations.filter((record) => record.id !== 'esc-7')
+      local.reconcileAnswerActions(fresh.overview)
+      assert.equal(local.actionFor({ action_id: action.action_id }), null)
+      assert.equal(local.UI.act.handoff, 'esc-7')
     })
 
     // The typed card (#712, ADR-0025): the button says the letter and the
@@ -2298,7 +2828,10 @@ describe('the operator verbs (#266)', () => {
         local.payload = p
         await local.answerIndex('esc-7', 1)
         assert.equal(posted.url, '/api/answer')
-        assert.deepEqual(posted.body, { id: 'esc-7', index: 1, files: [] })
+        assert.equal(posted.body.id, 'esc-7')
+        assert.equal(posted.body.index, 1)
+        assert.deepEqual(posted.body.files, [])
+        assert.match(posted.body.action_id, /^atlas-/)
         const t = text(local.screenHome(p))
         assert.match(t, /✅ answered by alp via button .*: Option 1, with its whole/)
         assert.doesNotMatch(t, /already answered/, 'the receipt, not the refusal')
@@ -2551,10 +3084,13 @@ describe('the operator verbs (#266)', () => {
       assert.equal(/queued/.test(said), false)
     })
 
-    test('one act at a time: while a press is in flight every other control is disabled', () => {
-      page.UI.act.busy = 'esc:esc-7'
+    test('an in-flight answer leaves an independent Start control available', () => {
+      page.beginAction({
+        action_id: 'act-answer', kind: 'answer', target: 'esc-7', conflict_key: 'esc:esc-7',
+      })
       page.UI.maps = { repo: 'all', selected: { repo: 'alp82/curia', map: 244, group: 'takeable' }, open: false }
-      assert.match(page.screenMaps(payload()), /button class="btn sm primary" disabled/)
+      assert.match(page.screenMaps(payload()), /button class="btn sm primary"  onclick="startTicket/)
+      page.finishAction('act-answer')
     })
   })
 
@@ -2823,6 +3359,92 @@ describe('the chat screen (#267, the picker of #333)', () => {
     assert.match(text(page.screenChat(payload())), /Deleting one spends its number for good/)
   })
 
+  test('New conversation projects immediately, reserves the registry, and navigates on confirmation', async () => {
+    let sent
+    let answer
+    const local = loadPage({ fetchImpl: async (url, request) => {
+      assert.equal(url, '/api/console/new')
+      sent = JSON.parse(request.body)
+      return new Promise((resolve) => { answer = resolve })
+    } })
+    local.conversations = { conversations: [conv()] }
+
+    const pending = local.doNewConversation()
+    const action = local.actionFor({ conflict_key: 'conversation-registry' })
+
+    assert.equal(action.kind, 'console-conversation-open')
+    assert.equal(sent.action_id, action.action_id)
+    assert.match(text(local.screenChat(payload())), /Opening…/)
+    assert.equal(local.beginAction({
+      action_id: 'another-new', kind: 'console-conversation-open',
+      target: 'conversation-registry', conflict_key: 'conversation-registry',
+    }), null)
+
+    answer({ ok: true, json: async () => ({
+      action: { ...action, status: 'confirmed', revision: 8, receipt: { key: 'console-3', session: 'curia-console-3' } },
+      key: 'console-3', session: 'curia-console-3',
+    }) })
+    await pending
+
+    assert.equal(local.location.hash, 'chat/curia-console-3')
+    assert.equal(local.actionFor({ action_id: action.action_id }), null)
+  })
+
+  test('deleting one conversation leaves another delete available and keeps the row pending until confirmation', async () => {
+    const requests = new Map()
+    const local = loadPage({ fetchImpl: async (url, request) => {
+      if (url === '/api/console/delete') {
+        const body = JSON.parse(request.body)
+        return new Promise((resolve) => requests.set(body.key, { body, resolve }))
+      }
+      if (url === '/api/console') return { ok: true, json: async () => ({ conversations: [conv({ key: 'console-3', session: 'curia-console-3' })] }) }
+      throw new Error(`unexpected request ${url}`)
+    } })
+    local.confirm = () => true
+    local.conversations = { conversations: [conv(), conv({ key: 'console-3', session: 'curia-console-3' })] }
+
+    const first = local.doDeleteConversation('console-2')
+    const second = local.doDeleteConversation('console-3')
+    const action = local.actionFor({ conflict_key: 'conversation:console-2' })
+
+    assert.ok(action)
+    assert.ok(local.actionFor({ conflict_key: 'conversation:console-3' }), 'another conversation remains independent')
+    assert.equal(requests.get('console-2').body.action_id, action.action_id)
+    assert.match(text(local.screenChat(payload())), /console-2.*deleting/s)
+
+    requests.get('console-2').resolve({ ok: true, json: async () => ({ action: {
+      ...action, status: 'confirmed', revision: 9, receipt: { key: 'console-2' },
+    } }) })
+    await first
+
+    assert.equal(local.actionFor({ action_id: action.action_id }), null)
+    assert.doesNotMatch(text(local.screenChat(payload())), /console-2/)
+
+    const other = local.actionFor({ conflict_key: 'conversation:console-3' })
+    requests.get('console-3').resolve({ ok: true, json: async () => ({ action: {
+      ...other, status: 'refused', revision: 10, reason: 'there is no conversation `console-3`',
+    } }) })
+    await second
+    assert.match(text(local.screenChat(payload())), /no conversation console-3/)
+  })
+
+  test('a fresh Console read recovers conversation changes made on another device', async () => {
+    const local = loadPage({ fetchImpl: async (url) => {
+      assert.equal(url, '/api/console')
+      return { ok: true, json: async () => ({ conversations: [
+        conv({ key: 'console-4', session: 'curia-console-4', label: 'opened on the phone' }),
+      ] }) }
+    } })
+    local.conversations = { conversations: [conv()] }
+
+    await local.loadConversations()
+
+    const html = local.screenChat(payload())
+    assert.match(text(html), /opened on the phone/)
+    assert.doesNotMatch(html, /console-2/)
+    assert.equal(local.actionFor({ conflict_key: 'conversation-registry' }), null)
+  })
+
   test('it states the one thing the overseer cannot do, rather than leaving it to be found', () => {
     // #315: the overseer holds a reading shell now, so the limit that is left
     // is the write — the read-only token, and every effect crossing the daemon.
@@ -3004,6 +3626,315 @@ describe('the chat screen (#267, the picker of #333)', () => {
       assert.doesNotMatch(html, /doChatKey/, 'an overseer conversation has no pane key to send')
     })
 
+    test('Esc projects pending on its pane immediately and reconciles confirmed daemon evidence', async () => {
+      let sent
+      let answer
+      const room = loadPage({ fetchImpl: async (_url, request) => {
+        sent = JSON.parse(request.body)
+        return new Promise((resolve) => { answer = resolve })
+      } })
+      room.applyChatRoute(['chat', 'curia-684'])
+      room.conversations = { conversations: [
+        conv({ kind: 'ticket', deletable: false, key: 'alp82/curia#684', session: 'curia-684', state: 'working', label: 'Build Atlas', repo: 'alp82/curia', ticket: 684, live: true }),
+      ] }
+      room.beginLocalAction('chat-send')
+
+      const pending = room.doChatKey('escape')
+
+      const action = room.actionFor({ conflict_key: 'pane:curia-684' })
+      assert.equal(action.kind, 'pane-key')
+      assert.equal(action.target, 'curia-684')
+      assert.equal(sent.action_id, action.action_id)
+      assert.match(text(room.screenChat(payload())), /Sending Esc…/)
+      assert.ok(room.actionFor({ conflict_key: 'chat-send' }), 'a conversation action stays independent')
+
+      answer({ json: async () => ({ action: {
+        ...action, status: 'confirmed', revision: 8, receipt: { key: 'Escape' },
+      } }) })
+      await pending
+
+      assert.equal(room.actionFor({ action_id: action.action_id }), null)
+      assert.doesNotMatch(text(room.screenChat(payload())), /Sending Esc…/)
+      room.applyChatRoute([])
+    })
+
+    test('Send preserves the operator text while its conversation Action is pending', async () => {
+      let sent
+      const room = loadPage({ fetchImpl: async (_url, request) => {
+        sent = JSON.parse(request.body)
+        return new Promise(() => {})
+      } })
+      room.applyChatRoute(['chat', 'curia-console-2'])
+      room.chat.draft = 'keep these words'
+
+      room.doChatSend()
+
+      const action = room.actionFor({ conflict_key: 'turn:console-2' })
+      assert.equal(action.kind, 'chat-message')
+      assert.equal(action.projection.text, 'keep these words')
+      assert.equal(sent.action_id, action.action_id)
+      assert.equal(room.chat.draft, 'keep these words')
+      assert.match(room.screenChat(payload()), /keep these words<\/textarea>/)
+      assert.match(text(room.screenChat(payload())), /Sending…/)
+      room.applyChatRoute([])
+    })
+
+    test('a refused Send keeps the operator text and explains that it was not sent', async () => {
+      const room = loadPage({ fetchImpl: async (_url, request) => {
+        const sent = JSON.parse(request.body)
+        return { json: async () => ({ action: {
+          action_id: sent.action_id, kind: 'chat-message', target: 'curia-684',
+          conflict_key: 'turn:curia-684', status: 'refused', revision: 8,
+          reason: 'the pane stayed active, so curia did not send the text',
+          receipt: { outcome: 'not_sent' },
+        } }) }
+      } })
+      room.applyChatRoute(['chat', 'curia-684'])
+      room.chat.draft = 'do not lose this'
+
+      await room.doChatSend()
+
+      assert.equal(room.chat.draft, 'do not lose this')
+      assert.equal(room.actionFor({ conflict_key: 'turn:curia-684' }), null)
+      assert.match(text(room.screenChat(payload())), /did not send the text/)
+      room.applyChatRoute([])
+    })
+
+    test('confirmed Send evidence clears only the text that Action delivered', async () => {
+      const room = loadPage({ fetchImpl: async (_url, request) => {
+        const sent = JSON.parse(request.body)
+        return { json: async () => ({ action: {
+          action_id: sent.action_id, kind: 'chat-message', target: 'curia-684',
+          conflict_key: 'turn:curia-684', status: 'confirmed', revision: 9,
+          receipt: { outcome: 'delivered' },
+        } }) }
+      } })
+      room.applyChatRoute(['chat', 'curia-684'])
+      room.chat.draft = 'deliver this text'
+
+      await room.doChatSend()
+
+      assert.equal(room.chat.draft, '')
+      assert.equal(room.actionFor({ conflict_key: 'turn:curia-684' }), null)
+      room.applyChatRoute([])
+    })
+
+    test('shared sent evidence clears the matching pending text before the next overview', () => {
+      page.chat.draft = 'sent through the stream'
+      page.beginAction({
+        action_id: 'atlas-stream-send', kind: 'chat-message', target: 'curia-684',
+        conflict_key: 'turn:curia-684', projection: { text: 'sent through the stream' },
+      })
+
+      page.chatReceive('sent', {
+        text: 'sent through the stream', by: page.chat.client, action_id: 'atlas-stream-send',
+      })
+
+      assert.equal(page.chat.draft, '')
+      assert.ok(page.actionFor({ action_id: 'atlas-stream-send' }), 'overview still owns terminal reconciliation')
+      page.finishAction('atlas-stream-send')
+    })
+
+    test('shared message progress is visible at the conversation composer', () => {
+      page.beginAction({
+        action_id: 'atlas-overseer-progress', kind: 'chat-message', target: 'curia-684',
+        conflict_key: 'turn:curia-684', projection: { text: 'inspect the map' },
+      })
+      page.observeActions([{
+        action_id: 'atlas-overseer-progress', kind: 'chat-message', target: 'curia-684',
+        conflict_key: 'turn:curia-684', status: 'progress', revision: 11,
+        progress: 'Message delivered; waiting for the overseer response',
+        receipt: { outcome: 'delivered' },
+      }])
+
+      assert.match(text(page.screenChat(payload())), /Message delivered; waiting for the overseer response/)
+      page.finishAction('atlas-overseer-progress')
+    })
+
+    test('Take back projects a rewind immediately and reconciles the shared composer and landing', async () => {
+      let sent
+      let answer
+      const room = loadPage({ fetchImpl: async (_url, request) => {
+        sent = JSON.parse(request.body)
+        return new Promise((resolve) => { answer = resolve })
+      } })
+      room.applyChatRoute(['chat', 'curia-684'])
+      room.chat.draft = ''
+
+      const pending = room.doTakeBack()
+
+      const action = room.actionFor({ conflict_key: 'turn:curia-684' })
+      assert.equal(action.kind, 'chat-take-back')
+      assert.equal(action.projection.mode, 'rewind')
+      assert.equal(sent.action_id, action.action_id)
+      assert.match(text(room.screenChat(payload())), /Rewinding the conversation…/)
+      assert.match(room.screenChat(payload()), /onclick="doChatKey\('escape'\)"/, 'the independent pane control remains available')
+
+      answer({ json: async () => ({ action: {
+        ...action, status: 'confirmed', revision: 14,
+        receipt: {
+          composer: 'Keep this exact text.', correction: null,
+          take_back: {
+            headline: 'Took back your last message.',
+            landing: 'The conversation continues after “Start here.”',
+            remains: ['The tree stands.'],
+          },
+        },
+      } }) })
+      await pending
+
+      assert.equal(room.actionFor({ action_id: action.action_id }), null)
+      assert.equal(room.chat.draft, 'Keep this exact text.')
+      assert.match(text(room.screenChat(payload())), /Took back your last message.*conversation continues after.*tree stands/i)
+      room.applyChatRoute([])
+    })
+
+    test('taking back a note projects explicit note recovery under the same conversation conflict', () => {
+      let sent
+      const room = loadPage({ fetchImpl: async (_url, request) => {
+        sent = JSON.parse(request.body)
+        return new Promise(() => {})
+      } })
+      room.applyChatRoute(['chat', 'curia-684'])
+
+      room.doTakeBack({ kind: 'note', id: 'note-7' })
+
+      const action = room.actionFor({ conflict_key: 'turn:curia-684' })
+      assert.equal(action.projection.mode, 'note-recovery')
+      assert.deepEqual(sent.target, { kind: 'note', id: 'note-7' })
+      assert.match(text(room.screenChat(payload())), /Recovering your note…/)
+      room.applyChatRoute([])
+    })
+
+    test('refresh recovers another device\'s pending take back and its terminal result', async () => {
+      const p = payload()
+      p.overview.actions = [{
+        action_id: 'atlas-phone-take-back', kind: 'chat-take-back', target: 'curia-684',
+        conflict_key: 'turn:curia-684', status: 'accepted', revision: 20,
+        progress: 'Rewinding the conversation…',
+      }]
+      const room = loadPage({ fetchImpl: async () => ({ ok: true, json: async () => p }) })
+      room.applyChatRoute(['chat', 'curia-684'])
+
+      await room.tick()
+
+      assert.equal(room.actionFor({ conflict_key: 'turn:curia-684' }).action_id, 'atlas-phone-take-back')
+      assert.match(text(room.screenChat(room.payload)), /Rewinding the conversation…/)
+
+      p.overview.actions = [{
+        ...p.overview.actions[0], status: 'confirmed', revision: 21,
+        receipt: {
+          composer: 'Edit these recovered words.', correction: null,
+          take_back: {
+            headline: 'Took back your last message.',
+            landing: 'The conversation continues after “Earlier turn.”',
+            remains: ['The tree stands.'],
+          },
+        },
+      }]
+      await room.tick()
+
+      assert.equal(room.actionFor({ action_id: 'atlas-phone-take-back' }), null)
+      assert.equal(room.chat.draft, 'Edit these recovered words.')
+      assert.match(text(room.screenChat(room.payload)), /conversation continues after “Earlier turn.”/i)
+      room.applyChatRoute([])
+    })
+
+    test('a cold refresh applies recent terminal take-back evidence once', async () => {
+      const p = payload()
+      p.overview.actions = [{
+        action_id: 'atlas-finished-take-back', kind: 'chat-take-back', target: 'curia-684',
+        conflict_key: 'turn:curia-684', status: 'confirmed', revision: 24,
+        receipt: {
+          composer: 'Recovered after refresh.', correction: null,
+          take_back: {
+            headline: 'Took back your last message.',
+            landing: 'The conversation continues after “Earlier turn.”',
+            remains: ['The tree stands.'],
+          },
+        },
+      }]
+      const room = loadPage({ fetchImpl: async () => ({ ok: true, json: async () => p }) })
+      room.applyChatRoute(['chat', 'curia-684'])
+
+      await room.tick()
+      await room.tick()
+
+      assert.equal(room.chat.draft, 'Recovered after refresh.')
+      assert.equal(room.chat.notes.filter((note) => /Took back/.test(note.text)).length, 1)
+      room.applyChatRoute([])
+    })
+
+    test('a refused take back stays with its conversation and leaves other rooms available', async () => {
+      const room = loadPage({ fetchImpl: async (_url, request) => {
+        const sent = JSON.parse(request.body)
+        return { json: async () => ({ action: {
+          action_id: sent.action_id, kind: 'chat-take-back', target: 'curia-684',
+          conflict_key: 'turn:curia-684', status: 'refused', revision: 22,
+          reason: 'the transcript has no operator message to take back',
+        } }) }
+      } })
+      room.applyChatRoute(['chat', 'curia-684'])
+
+      await room.doTakeBack()
+
+      assert.equal(room.actionFor({ conflict_key: 'turn:curia-684' }), null)
+      assert.match(text(room.screenChat(payload())), /transcript has no operator message to take back/)
+      room.applyChatRoute(['chat', 'curia-685'])
+      const other = room.screenChat(payload())
+      assert.match(other, /onclick="doTakeBack\(\)"/)
+      assert.doesNotMatch(other, /Rewinding…/)
+      room.applyChatRoute([])
+    })
+
+    test('a failed take back reconciles at the conversation control', async () => {
+      const room = loadPage({ fetchImpl: async (_url, request) => {
+        const sent = JSON.parse(request.body)
+        return { json: async () => ({ action: {
+          action_id: sent.action_id, kind: 'chat-take-back', target: 'curia-684',
+          conflict_key: 'turn:curia-684', status: 'failed', revision: 23,
+          reason: 'tmux could not open the rewind picker',
+        } }) }
+      } })
+      room.applyChatRoute(['chat', 'curia-684'])
+
+      await room.doTakeBack()
+
+      assert.equal(room.actionFor({ conflict_key: 'turn:curia-684' }), null)
+      assert.match(text(room.screenChat(payload())), /tmux could not open the rewind picker/)
+      room.applyChatRoute([])
+    })
+
+    test('shared pane-key failure reconciles while the original request is still pending', async () => {
+      let actionId
+      const room = loadPage({ fetchImpl: async (url, request) => {
+        if (url === '/key') {
+          actionId = JSON.parse(request.body).action_id
+          return new Promise(() => {})
+        }
+        const p = payload()
+        p.overview.actions = [{
+          action_id: actionId, kind: 'pane-key', target: 'curia-684',
+          conflict_key: 'pane:curia-684', status: 'failed', revision: 12,
+          reason: 'tmux socket is unavailable',
+        }]
+        return { ok: true, json: async () => p }
+      } })
+      room.applyChatRoute(['chat', 'curia-684'])
+      room.conversations = { conversations: [
+        conv({ kind: 'ticket', deletable: false, key: 'alp82/curia#684', session: 'curia-684', state: 'working', label: 'Build Atlas', repo: 'alp82/curia', ticket: 684, live: true }),
+      ] }
+
+      room.doChatKey('escape')
+      await room.tick()
+
+      assert.equal(room.actionFor({ action_id: actionId }), null)
+      const html = room.screenChat(room.payload)
+      assert.match(html, /class="said bad"/)
+      assert.match(text(html), /tmux socket is unavailable/)
+      room.applyChatRoute([])
+    })
+
     test('the composer is shared: a draft from the other device mirrors, a sent line is noted', () => {
       page.chatReceive('draft', { text: 'typing from the phone', by: 'other' })
       let t = text(page.screenChat(payload()))
@@ -3040,6 +3971,80 @@ describe('the chat screen (#267, the picker of #333)', () => {
     // The tap is the whole seam between the card and the daemon: it sends the
     // option index for the card the page holds, and a second tap gets the
     // first receipt (#712's rule) rather than a second answer.
+    test('a native dialog choice projects immediately under its own dialog conflict', () => {
+      let sent
+      const room = loadPage({ fetchImpl: async (_url, request) => {
+        sent = JSON.parse(request.body)
+        return new Promise(() => {})
+      } })
+      room.applyChatRoute(['chat', 'curia-684'])
+      room.chatReceive('dialog', { up: true, hint: 'Enter to select', card: { id: 'native-3', kind: 'choice', headline: 'Which branch?', selected_index: 1, options: [{ index: 1, marker: 'A', label: 'Stable' }, { index: 2, marker: 'B', label: 'Preview' }] } })
+      room.beginLocalAction('chat-send')
+
+      room.doDialogAnswer('native-3', 2)
+
+      const action = room.actionFor({ conflict_key: 'dialog:curia-684:native-3' })
+      assert.equal(action.kind, 'native-dialog-answer')
+      assert.equal(action.projection.index, 2)
+      assert.equal(sent.action_id, action.action_id)
+      assert.match(text(room.screenChat(payload())), /Choosing B · Preview…/)
+      assert.ok(room.actionFor({ conflict_key: 'chat-send' }), 'an unrelated Chat action stays independent')
+      room.applyChatRoute([])
+    })
+
+    test('a shared native-dialog failure reconciles while its request is still pending', async () => {
+      let actionId
+      const room = loadPage({ fetchImpl: async (url, request) => {
+        if (url === '/dialog-answer') {
+          actionId = JSON.parse(request.body).action_id
+          return new Promise(() => {})
+        }
+        const p = payload()
+        p.overview.actions = [{
+          action_id: actionId, kind: 'native-dialog-answer',
+          target: 'curia-684:native-3', conflict_key: 'dialog:curia-684:native-3',
+          status: 'failed', revision: 12,
+          reason: 'curia could not answer the native dialog: tmux socket is unavailable',
+        }]
+        return { ok: true, json: async () => p }
+      } })
+      room.applyChatRoute(['chat', 'curia-684'])
+      room.chatReceive('dialog', { up: true, hint: 'Enter to select', card: { id: 'native-3', kind: 'choice', headline: 'Which branch?', selected_index: 1, options: [{ index: 1, marker: 'A', label: 'Stable' }, { index: 2, marker: 'B', label: 'Preview' }] } })
+      room.beginLocalAction('chat-send')
+
+      room.doDialogAnswer('native-3', 2)
+      await room.tick()
+
+      assert.equal(room.actionFor({ action_id: actionId }), null)
+      const html = room.screenChat(room.payload)
+      assert.match(html, /class="said bad"/)
+      assert.match(text(html), /tmux socket is unavailable/)
+      assert.match(html, /doDialogAnswer\('native-3', 2\)/, 'the dialog remains available after the failed pane write')
+      assert.ok(room.actionFor({ conflict_key: 'chat-send' }), 'the failure does not block an unrelated Chat action')
+      room.applyChatRoute([])
+    })
+
+    test('refresh recovers another client\'s native-dialog claim until the shared receipt arrives', async () => {
+      const p = payload()
+      p.overview.actions = [{
+        action_id: 'atlas-dialog-phone', kind: 'native-dialog-answer',
+        target: 'curia-684:native-3', conflict_key: 'dialog:curia-684:native-3',
+        status: 'accepted', revision: 11, progress: 'Choosing B · Preview…',
+      }]
+      const room = loadPage({ fetchImpl: async () => ({ ok: true, json: async () => p }) })
+      room.applyChatRoute(['chat', 'curia-684'])
+      room.chatReceive('dialog', { up: true, hint: 'Enter to select', card: { id: 'native-3', kind: 'choice', headline: 'Which branch?', selected_index: 1, options: [{ index: 1, marker: 'A', label: 'Stable' }, { index: 2, marker: 'B', label: 'Preview' }] } })
+
+      await room.tick()
+
+      assert.equal(room.actionFor({ conflict_key: 'dialog:curia-684:native-3' }).action_id, 'atlas-dialog-phone')
+      assert.match(text(room.screenChat(room.payload)), /Choosing B · Preview…/)
+      room.chatReceive('dialog', { up: false, receipt: { dialog: 'native-3', index: 2, marker: 'B', answer: 'Preview', by: 'phone', at: at(1) } })
+      assert.equal(room.actionFor({ action_id: 'atlas-dialog-phone' }), null)
+      assert.match(text(room.screenChat(room.payload)), /answered · phone .* B · Preview/)
+      room.applyChatRoute([])
+    })
+
     test('a tap posts the measured option index, and a second tap shows the first receipt', async () => {
       const posts = []
       const receipt = { dialog: 'native-3', index: 2, marker: 'B', answer: 'Preview', by: 'phone', at: at(1) }
@@ -3141,6 +4146,39 @@ describe('the Credentials screen (#661)', () => {
     }))
     assert.equal(html.split('Sign in from a browser').length - 1, 1)
     assert.match(text(html), /the same login signs this in/)
+  })
+
+  test('sign-in projects immediately and keeps shared progress through a late transport failure', async () => {
+    let rejectRequest
+    let sent
+    const local = loadPage({
+      fetchImpl: (_path, request) => {
+        sent = JSON.parse(request.body)
+        return new Promise((_resolve, reject) => { rejectRequest = reject })
+      },
+    })
+    local.payload = payload({
+      credentials: {
+        consumers: [{ consumer: 'claude', provider: 'anthropic', state: 'expired', why: 'the year is up', lane: LANE('anthropic') }],
+        reauth: null,
+      },
+    })
+
+    const pending = local.startReauth('anthropic')
+    const action = local.actionFor({ conflict_key: 'reauth:anthropic' })
+    assert.equal(action.kind, 'credential-sign-in')
+    assert.equal(sent.action_id, action.action_id)
+    assert.match(text(local.screenCredentials(local.payload)), /Starting sign-in/)
+
+    local.observeActions([{
+      ...action, status: 'progress', revision: 30, progress: 'Preparing the agent image',
+    }])
+    assert.match(text(local.screenCredentials(local.payload)), /Preparing the agent image/)
+    rejectRequest(new Error('the daemon did not answer /command within 5s'))
+    await pending
+
+    assert.equal(local.actionFor({ action_id: action.action_id }).status, 'progress')
+    assert.doesNotMatch(text(local.screenCredentials(local.payload)), /did not answer/)
   })
 
   test('the press names the provider, because two of the three rows are anthropic', () => {

@@ -269,13 +269,15 @@ export class GitHubAppSetup {
   status() {
     try {
       const record = this.#readState()
-      if (record.status === 'complete') return { status: 'complete', app: record.app }
+      const action = record.action_id ? { action_id: record.action_id } : {}
+      if (record.status === 'complete') return { status: 'complete', app: record.app, ...action }
       // `converting` and `converted` are this record's own steps between the
       // start and the finish. To the page, every one of them is a setup that
       // is still pending its one press on github.com.
       return {
         status: this.now() > record.expires_at ? 'expired' : 'pending',
         expires_at: new Date(record.expires_at).toISOString(),
+        ...action,
       }
     } catch (error) {
       if (/no GitHub App setup/.test(error?.message ?? '')) return { status: 'unconfigured' }
@@ -283,7 +285,7 @@ export class GitHubAppSetup {
     }
   }
 
-  start({ name, redirectUrl, organization = null } = {}) {
+  start({ name, redirectUrl, organization = null, actionId = null } = {}) {
     const appName = String(name ?? '').trim()
     if (!appName || appName.length > 34) throw new Error('the GitHub App name must contain 1 to 34 characters')
     let redirect
@@ -304,7 +306,7 @@ export class GitHubAppSetup {
     if (redirect.search || redirect.hash) throw new Error('the GitHub App redirect URL must carry no query or fragment')
     const state = Buffer.from(this.randomBytes(32)).toString('hex')
     const expires = this.now() + APP_SETUP_TTL_MS
-    this.#writeState({ state, expires_at: expires, status: 'pending' })
+    this.#writeState({ state, expires_at: expires, status: 'pending', ...(actionId ? { action_id: String(actionId) } : {}) })
     const ownerPath = organization
       ? `/organizations/${encodeURIComponent(String(organization))}/settings/apps/new`
       : '/settings/apps/new'

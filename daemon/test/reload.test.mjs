@@ -57,6 +57,7 @@ describe('POST /reload (index.mjs, real boot)', () => {
   const write = (file, lines) => fs.writeFileSync(file, `${lines.join('\n')}\n`)
 
   const reload = async (by = 'alp@example.com') => JSON.parse((await request(port, 'POST', '/reload', { body: { by } })).body)
+  const settingsAction = async (body) => JSON.parse((await request(port, 'POST', '/settings/action', { body })).body)
   const running = async () => JSON.parse((await request(port, 'GET', '/overview')).body).daemon
   const events = async () => JSON.parse((await request(port, 'GET', '/overview')).body).events
 
@@ -197,6 +198,52 @@ describe('POST /reload (index.mjs, real boot)', () => {
     assert.equal(after.auto_dispatch, true)
     assert.equal(after.max_concurrent, 4)
     assert.notEqual(after.config.loaded_at, before.config.loaded_at, 'the stamp says when this reading was taken')
+  })
+
+  test('a settings save advances from write to apply through durable Action evidence', async () => {
+    const action = {
+      action_id: 'atlas-settings-action-1',
+      paths: ['curia.local.yaml'],
+      by: 'alp@example.com',
+    }
+    const accepted = await settingsAction(action)
+    assert.equal(accepted.action.status, 'progress')
+    assert.equal(accepted.action.progress, 'Writing curia.local.yaml')
+
+    write(overCuria(), ['dispatch:', '  max_concurrent: 5'])
+    const applied = JSON.parse((await request(port, 'POST', '/reload', {
+      body: { by: action.by, action_id: action.action_id, written: action.paths },
+    })).body)
+    assert.equal(applied.ok, true)
+    assert.equal(applied.action.status, 'confirmed')
+    assert.deepEqual(applied.action.receipt.written, action.paths)
+    assert.deepEqual(applied.action.receipt.applied, ['dispatch.max_concurrent'])
+
+    const recovered = JSON.parse((await request(port, 'GET', '/overview')).body)
+      .actions.find((candidate) => candidate.action_id === action.action_id)
+    assert.deepEqual(recovered, applied.action)
+  })
+
+  test('settings Actions conflict by affected path, not through a global lock', async () => {
+    const curia = await settingsAction({
+      action_id: 'atlas-settings-conflict-1', paths: ['curia.local.yaml'], by: 'alp@example.com',
+    })
+    assert.equal(curia.action.status, 'progress')
+
+    const samePath = await settingsAction({
+      action_id: 'atlas-settings-conflict-2', paths: ['curia.local.yaml'], by: 'alp@example.com',
+    })
+    assert.equal(samePath.action.status, 'refused')
+    assert.match(samePath.action.reason, /already being saved/)
+
+    const routing = await settingsAction({
+      action_id: 'atlas-settings-conflict-3', paths: ['routing.local.yaml'], by: 'alp@example.com',
+    })
+    assert.equal(routing.action.status, 'progress', 'an unrelated settings path stays available')
+
+    for (const action_id of [curia.action.action_id, routing.action.action_id]) {
+      await request(port, 'POST', '/settings/action/finish', { body: { action_id, status: 'failed', reason: 'test cleanup' } })
+    }
   })
 
   test('the journal names who reloaded and what moved', async () => {

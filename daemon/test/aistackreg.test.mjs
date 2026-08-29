@@ -205,6 +205,28 @@ describe('one login at a time, and each way it ends (#706)', () => {
     assert.deepEqual(landed[1], { machine: 'curia.sh', servers: ['aistack.to'] })
   })
 
+  test('the journal restores the device flow and its Action identity after a restart', async () => {
+    const data = path.join(root, 'data')
+    fs.mkdirSync(data, { recursive: true })
+    const reduction = new Reduction(data)
+    const r = reg({
+      bin: stubNpx({ print: DEVICE, sleep: 30 }),
+      journal: (type, detail) => reduction.journal(type, detail),
+    })
+
+    await r.begin({ actionId: 'atlas-aistack-register' })
+    const restarted = new Reduction(data)
+
+    assert.deepEqual(restarted.aistackRegistration(), {
+      phase: 'waiting', code: 'T72NNC', url: 'https://aistack.to/cli/auth?code=T72NNC',
+      action_id: 'atlas-aistack-register',
+      started_at: restarted.aistackRegistration().started_at,
+      expires_at: restarted.aistackRegistration().expires_at,
+    })
+    assert.ok(restarted.aistackRegistration().expires_at > restarted.aistackRegistration().started_at)
+    r.cancel()
+  })
+
   test('a login that exits without a credential is a failure that names the CLI\'s last word', async () => {
     const r = reg({ bin: stubNpx({ print: `${DEVICE}\nauth failed`, code: 4 }) })
     await r.begin()

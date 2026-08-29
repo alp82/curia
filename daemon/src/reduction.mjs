@@ -23,6 +23,7 @@ import { nextConsoleKey } from './attach.mjs'
 import { openJournal, normalizeEvent } from './journal.mjs'
 import { Questions } from './questions.mjs'
 import { MAP_FOG_VERB } from './mapfog.mjs'
+import { spawnIdentity } from './harnesses.mjs'
 
 // The button-confirm kind (#94, per #89's messaging discipline). Its own kind
 // because a confirm behaves unlike every other escalation: no reminder, no
@@ -42,6 +43,11 @@ export const RECENT_EVENTS = 100
 // Discord and the dashboard's fleet card both name the last few agents that
 // ended, per kind and newest last.
 export const RECENT_OUTCOMES = 5
+
+export const RECENT_TERMINAL_ACTIONS = 100
+
+const ACTION_STATUSES = new Set(['accepted', 'progress', 'confirmed', 'refused', 'failed'])
+const TERMINAL_ACTION_STATUSES = new Set(['confirmed', 'refused', 'failed'])
 
 // The three endings those reads count, and what each one is called on a
 // surface. One name for one thing: the journal type is the daemon's word, and
@@ -101,6 +107,8 @@ const FEED_SILENT = new Set([
   'conversation_turn_recorded', 'conversation_turn_taken_back', 'agent_notes_requeued',
   'overseer_notes_carried', 'overseer_notes_requeued',
   'overseer_pane_parked',
+  // Draft keystrokes are durable composer state, not operator-facing news.
+  'timeline_draft_changed',
   // The Feed's own read stamp (#704). Reading the feed is not news on it.
   'feed_read',
 ])
@@ -195,10 +203,14 @@ export class Reduction {
     this.aistackAt = null // when the last aistack sync attempt finished, or null (#695)
     this.aistackLast = null // how the last aistack sync attempt ENDED, or null (#706)
     this.aistackMachine = null // the registration this box holds, or null (#706)
+    this.aistackFlow = null // the journal-reduced machine-registration ceremony (#815)
     this.mapAlarms = new Map() // "repo#map" -> the stranded-map alarm that still stands (#485)
     this.transcriptLandings = new Map() // session -> rewind landing and transcript tail (#689)
     this.conversationTurns = new Map() // session -> sent operator turns and the queued notes each one carried (#702)
     this.carriedNotes = new Map() // session -> overseer notes a pane message took but no turn record has claimed yet (#702)
+    this.chatDrafts = new Map() // session -> latest shared Atlas Chat composer text (#821)
+    this.actions = new Map() // action_id -> latest daemon-owned Action evidence (#803)
+    this.revision = 0 // journal order, rebuilt identically on every boot (#803)
     this.seq = 0
     this.noteSeq = 0
     this.turnSeq = 0
@@ -253,12 +265,126 @@ export class Reduction {
   }
 
   _apply(ev, { replay }) {
+    this.revision += 1
     // The feed's tail (#262). Every event passes here exactly once, on replay
     // and on append alike, so the ring is right the instant the boot replay
     // ends and stays right for the rest of the run.
     if (!FEED_SILENT.has(ev.type)) {
       this.recent.push(this.#feedShape(ev))
       if (this.recent.length > RECENT_EVENTS) this.recent.shift()
+    }
+
+    if (ev.type === 'action_evidence' && ev.action_id && ACTION_STATUSES.has(ev.status)) {
+      const prior = this.actions.get(String(ev.action_id))
+      this.actions.set(String(ev.action_id), {
+        action_id: String(ev.action_id),
+        kind: ev.kind ?? prior?.kind ?? null,
+        target: ev.target ?? prior?.target ?? null,
+        conflict_key: ev.conflict_key ?? prior?.conflict_key ?? null,
+        status: ev.status,
+        revision: this.revision,
+        started_at: prior?.started_at ?? ev.started_at ?? ev.ts,
+        updated_at: ev.ts,
+        ...(ev.progress != null ? { progress: ev.progress } : {}),
+        ...(ev.reason != null ? { reason: ev.reason } : {}),
+        ...(ev.receipt != null ? { receipt: ev.receipt } : {}),
+      })
+    }
+
+    // A restart kills the Action coordinator with the process it restarts.
+    // The request and the next boot are the durable lifecycle facts that move
+    // the Action across that gap, both on the live reduction and on rebuild.
+    if (ev.type === 'restart_requested' && ev.action_id) {
+      const actionId = String(ev.action_id)
+      const prior = this.actions.get(actionId)
+      if (prior?.kind === 'daemon-restart' && !TERMINAL_ACTION_STATUSES.has(prior.status)) {
+        this.actions.set(actionId, {
+          ...prior,
+          status: 'progress',
+          revision: this.revision,
+          updated_at: ev.ts,
+          progress: 'Restarting daemon',
+          receipt: { ...prior.receipt, requested_at: ev.ts, exit_code: ev.exit_code },
+        })
+      }
+    }
+    if (ev.type === 'daemon_boot') {
+      for (const [actionId, prior] of this.actions) {
+        if (prior.kind !== 'daemon-restart' || prior.status !== 'progress' || !prior.receipt?.requested_at) continue
+        this.actions.set(actionId, {
+          ...prior,
+          status: 'confirmed',
+          revision: this.revision,
+          updated_at: ev.ts,
+          receipt: { ...prior.receipt, booted_at: ev.ts },
+        })
+      }
+    }
+
+    if (ev.type === 'timeline_draft_changed' && ev.session) {
+      this.chatDrafts.set(String(ev.session), String(ev.text ?? ''))
+    }
+    if (ev.type === 'timeline_send' && ev.session && ['sent', 'unconfirmed', 'corrected'].includes(ev.outcome)) {
+      this.chatDrafts.set(String(ev.session), '')
+    }
+
+    // Credential sign-in Actions outlive the request that starts them. The
+    // flow's own journal facts advance the same evidence after a restart, and
+    // carry no device code or credential.
+    if (ev.action_id && ev.type.startsWith('reauth_')) {
+      const actionId = String(ev.action_id)
+      const prior = this.actions.get(actionId)
+      if (prior && !TERMINAL_ACTION_STATUSES.has(prior.status)) {
+        const progress = ev.type === 'reauth_started'
+          ? 'Waiting for browser sign-in'
+          : ev.type === 'reauth_code_seen' ? 'Waiting for browser completion' : null
+        const ending = ev.type === 'reauth_completed'
+          ? { status: 'confirmed' }
+          : ['reauth_failed', 'reauth_timed_out', 'reauth_code_expired', 'reauth_abandoned'].includes(ev.type)
+            ? { status: 'failed', reason: ev.why ?? {
+              reauth_failed: 'the fresh credential could not be adopted',
+              reauth_timed_out: 'the sign-in timed out',
+              reauth_code_expired: 'the one-time code expired',
+              reauth_abandoned: 'the sign-in session ended',
+            }[ev.type] }
+            : null
+        if (progress || ending) this.actions.set(actionId, {
+          ...prior,
+          status: ending?.status ?? 'progress',
+          revision: this.revision,
+          updated_at: ev.ts,
+          ...(progress ? { progress } : {}),
+          ...(ending?.reason ? { reason: ending.reason } : {}),
+        })
+      }
+    }
+
+    // Start's authoritative domain events close the tiny crash gap between the
+    // operation and its Action coordinator continuation. On a live run the
+    // coordinator writes the same terminal answer. On rebuild, or after
+    // reconcile releases a claim left mid-preparation, these journalled facts
+    // are enough to settle the recovered Action without guessing.
+    const actionEnding = ev.type === 'agent_spawned'
+      ? { status: 'confirmed' }
+      : ['dispatch_unclaimed', 'unclaim_failed', 'dispatch_failed'].includes(ev.type)
+        ? { status: 'failed', reason: ev.reason ?? ev.error ?? 'dispatch preparation failed' }
+        : null
+    if (actionEnding && ev.repo && ev.ticket != null) {
+      const target = `${ev.repo}#${ev.ticket}`
+      for (const [actionId, prior] of this.actions) {
+        if (prior.target !== target || TERMINAL_ACTION_STATUSES.has(prior.status)) continue
+        this.actions.set(actionId, {
+          action_id: actionId,
+          kind: prior.kind,
+          target: prior.target,
+          conflict_key: prior.conflict_key,
+          status: actionEnding.status,
+          revision: this.revision,
+          started_at: prior.started_at,
+          updated_at: ev.ts,
+          ...(actionEnding.reason ? { reason: actionEnding.reason } : {}),
+        })
+      }
     }
 
     // The last thing the journal says about an agent (#236): the direct answer
@@ -287,6 +413,7 @@ export class Reduction {
     }
     if (ev.type === 'agent_spawned' && ev.agent) {
       const previous = this.agentConversations.get(ev.agent) ?? {}
+      const identity = spawnIdentity(ev)
       this.agentConversations.set(ev.agent, {
         ...previous,
         session: ev.agent,
@@ -294,6 +421,9 @@ export class Reduction {
         ticket: String(ev.ticket ?? previous.ticket ?? ''),
         model: ev.model ?? previous.model ?? null,
         harness: ev.harness ?? previous.harness ?? null,
+        adapter: identity.adapter ?? previous.adapter ?? null,
+        configLayoutVersion: identity.configLayoutVersion,
+        legacyConfigLayout: identity.legacy,
         reviewer: ev.kind === 'reviewer' || previous.reviewer === true,
         state: 'active',
         updated_at: ev.ts ?? previous.updated_at ?? null,
@@ -492,9 +622,38 @@ export class Reduction {
     // memory, so the machine name survives the restart the operator does right
     // after registering. The credential file records no name, so this is the
     // name the box PROPOSED, and the screen says as much.
+    if (ev.type === 'aistack_login_started') {
+      const startedAt = Number(ev.started_at ?? (ev.ts ? Date.parse(ev.ts) : NaN))
+      this.aistackFlow = {
+        phase: 'waiting', code: ev.code ?? null, url: ev.url ?? null,
+        action_id: ev.action_id ?? null,
+        started_at: Number.isFinite(startedAt) ? startedAt : null,
+        expires_at: Number.isFinite(Number(ev.expires_at)) ? Number(ev.expires_at) : null,
+      }
+    }
+    if (ev.type === 'aistack_login_failed') {
+      const at = ev.ts ? Date.parse(ev.ts) : NaN
+      this.aistackFlow = {
+        phase: ev.phase ?? 'failed', message: ev.message ?? null,
+        action_id: ev.action_id ?? this.aistackFlow?.action_id ?? null,
+        at: Number.isFinite(at) ? at : null,
+      }
+    }
+    if (ev.type === 'aistack_login_cancelled') {
+      const at = ev.ts ? Date.parse(ev.ts) : NaN
+      this.aistackFlow = {
+        phase: 'cancelled', message: ev.message ?? 'the registration was cancelled before it was approved',
+        action_id: ev.action_id ?? this.aistackFlow?.action_id ?? null,
+        at: Number.isFinite(at) ? at : null,
+      }
+    }
     if (ev.type === 'aistack_registered') {
       const at = ev.ts ? Date.parse(ev.ts) : NaN
       this.aistackMachine = { machine: ev.machine ?? null, at: Number.isFinite(at) ? at : null }
+      this.aistackFlow = {
+        phase: 'registered', action_id: ev.action_id ?? this.aistackFlow?.action_id ?? null,
+        at: Number.isFinite(at) ? at : null,
+      }
     }
 
     // The stranded-map alarm (#485). A reduction for the reason the backup's is
@@ -973,13 +1132,35 @@ export class Reduction {
       // per login rather than per browser, so a phone and a laptop under the
       // same login agree on where "you left" was.
       case 'feed_read': {
-        if (typeof ev.by === 'string' && ev.by.trim() && ev.ts) this.feedReads.set(ev.by.trim().toLowerCase(), ev.ts)
+        if (typeof ev.by !== 'string' || !ev.by.trim() || !ev.ts) break
+        const login = ev.by.trim().toLowerCase()
+        const previous = this.feedReads.get(login) ?? null
+        this.feedReads.set(login, ev.ts)
+        // The read and its Action ending are one durable fact. If the response
+        // is lost, or the daemon restarts after this append, overview recovery
+        // still confirms the exact visit without stamping the cursor twice.
+        if (ev.action_id && ev.action_kind && ev.action_target && ev.action_conflict_key) {
+          this.actions.set(String(ev.action_id), {
+            action_id: String(ev.action_id),
+            kind: ev.action_kind,
+            target: ev.action_target,
+            conflict_key: ev.action_conflict_key,
+            status: 'confirmed',
+            revision: this.revision,
+            started_at: ev.ts,
+            updated_at: ev.ts,
+            receipt: { by: login, at: ev.ts, previous },
+          })
+        }
         break
       }
       case 'reauth_started': {
         const startedAt = Date.parse(ev.ts ?? '')
         if (!ev.provider || !Number.isFinite(startedAt)) break
-        this.openLogins.set(ev.provider, { provider: ev.provider, session: ev.session ?? null, startedAt })
+        this.openLogins.set(ev.provider, {
+          provider: ev.provider, session: ev.session ?? null, startedAt,
+          actionId: ev.action_id ?? null,
+        })
         break
       }
       case 'reauth_completed':
@@ -1708,6 +1889,54 @@ export class Reduction {
     return this._append({ type, ...data })
   }
 
+  recordChatDraft(session, text) {
+    this._append({ type: 'timeline_draft_changed', session: String(session), text: String(text) })
+    return this.chatDraft(session)
+  }
+
+  chatDraft(session) {
+    return this.chatDrafts.get(String(session)) ?? ''
+  }
+
+  recordAction(evidence) {
+    const actionId = String(evidence?.action_id ?? '')
+    if (!actionId) throw new Error('Action evidence needs an action_id')
+    if (!ACTION_STATUSES.has(evidence.status)) throw new Error(`unknown Action status ${evidence.status}`)
+    const prior = this.actions.get(actionId)
+    if (TERMINAL_ACTION_STATUSES.has(prior?.status)) {
+      throw new Error(`terminal Action evidence is immutable (${actionId} is ${prior.status})`)
+    }
+    if (!prior) {
+      for (const key of ['kind', 'target', 'conflict_key']) {
+        if (!String(evidence[key] ?? '')) throw new Error(`Action evidence needs ${key}`)
+      }
+    }
+    this._append({
+      type: 'action_evidence',
+      action_id: actionId,
+      kind: evidence.kind ?? prior?.kind,
+      target: evidence.target ?? prior?.target,
+      conflict_key: evidence.conflict_key ?? prior?.conflict_key,
+      status: evidence.status,
+      ...(evidence.progress != null ? { progress: evidence.progress } : {}),
+      ...(evidence.reason != null ? { reason: evidence.reason } : {}),
+      ...(evidence.receipt != null ? { receipt: evidence.receipt } : {}),
+    })
+    return this.action(actionId)
+  }
+
+  action(actionId) {
+    const evidence = this.actions.get(String(actionId))
+    return evidence ? { ...evidence } : null
+  }
+
+  actionsOnWire() {
+    const all = [...this.actions.values()].sort((a, b) => a.revision - b.revision)
+    const active = all.filter((a) => !TERMINAL_ACTION_STATUSES.has(a.status))
+    const terminal = all.filter((a) => TERMINAL_ACTION_STATUSES.has(a.status)).slice(-RECENT_TERMINAL_ACTIONS)
+    return [...active, ...terminal].map((evidence) => ({ ...evidence }))
+  }
+
   // The feed the dashboard draws (#262): the journal's last events, oldest
   // first. A copy, because the caller serializes it while the daemon keeps
   // appending.
@@ -1744,11 +1973,22 @@ export class Reduction {
   // Stamp one login's Feed read. Answers the previous stamp, which is what the
   // page draws the marker at: the read that just happened is not "since you
   // left" until the next visit.
-  markFeedRead(by) {
+  markFeedRead(by, { action = null } = {}) {
     const login = String(by ?? '').trim().toLowerCase()
     if (!login) throw new Error('a feed read names the login that read it')
     const previous = this.feedReads.get(login) ?? null
-    const rec = this._append({ type: 'feed_read', by: login })
+    const now = Date.now()
+    const priorMs = Date.parse(previous ?? '')
+    const at = new Date(Number.isFinite(priorMs) ? Math.max(now, priorMs + 1) : now).toISOString()
+    const rec = this._append({
+      type: 'feed_read', by: login, ts: at,
+      ...(action ? {
+        action_id: action.action_id,
+        action_kind: action.kind,
+        action_target: action.target,
+        action_conflict_key: action.conflict_key,
+      } : {}),
+    })
     return { ok: true, by: login, at: rec.ts, previous }
   }
 
@@ -1791,6 +2031,13 @@ export class Reduction {
   // The aistack registration this box holds, or null (#706).
   registeredAistackMachine() {
     return this.aistackMachine ? { ...this.aistackMachine } : null
+  }
+
+  // The device ceremony's last shared position. Unlike the child process,
+  // this survives a daemon restart and gives every Atlas client the same code,
+  // expiry, and ending (#815).
+  aistackRegistration() {
+    return this.aistackFlow ? { ...this.aistackFlow } : null
   }
 
   // Every stranded-map alarm that still stands (#485). The frontier read

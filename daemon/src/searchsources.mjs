@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { HARNESS_NAMES } from './workspace.mjs'
 
 import { detectHarness, parseLine } from './transcript.mjs'
 
@@ -112,7 +113,10 @@ export function transcriptSearchSource({ workspaceRoot, overseerSessions = () =>
         if (results.length >= 50) break
         const relative = path.relative(roots, file).split(path.sep)
         const cfgDir = path.join(roots, relative[0])
-        const harness = detectHarness(cfgDir)
+        const nativeRoot = HARNESS_NAMES.includes(relative[1])
+          ? path.join(cfgDir, relative[1])
+          : cfgDir
+        const harness = detectHarness(nativeRoot)
         if (!harness) continue
         let stat
         try { stat = await fs.promises.stat(file) } catch { continue }

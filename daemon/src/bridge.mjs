@@ -1655,6 +1655,21 @@ export class DiscordBridge {
     return { threadId: thread.id, messageId: msg.id }
   }
 
+  // A daemon restart loses the in-memory message id while Discord keeps the
+  // active line. The model button identifies that line without making Discord
+  // an Action store: Action state still comes only from the journal.
+  async findStatus(ticket) {
+    const thread = await this.ensureThread(ticket)
+    const messages = await thread.messages.fetch({ limit: 50 }).catch(() => null)
+    if (!messages) return null
+    const customId = `model|${ticket}|open`
+    const message = [...messages.values()].find((candidate) =>
+      candidate.author?.id === this.client.user?.id
+      && candidate.components?.some((row) => row.components?.some((component) =>
+        (component.customId ?? component.data?.custom_id) === customId)))
+    return message ? { threadId: thread.id, messageId: message.id } : null
+  }
+
   async editStatus(ids, text, { ticket = null, settled = false } = {}) {
     const thread = await this.client.channels.fetch(ids.threadId).catch(() => null)
     if (!thread) return false

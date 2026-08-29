@@ -254,6 +254,13 @@ export class TimelineSurface {
       composerFor: () => null,
       // journal(type, detail): `Reduction#journal`, injected by index.mjs.
       journal: () => {},
+      // The shared composer is a daemon-owned durable fact. These two methods
+      // keep its high-frequency last-write-wins path outside Action conflicts.
+      draftFor: () => '',
+      recordDraft: () => {},
+      // actions: the daemon's shared Action coordinator. Pane keys use it when
+      // Atlas supplies an action_id; older callers keep the legacy response.
+      actions: null,
       // harnessFor(session): the dispatcher's word, with detectHarness as the
       // on-disk fallback for re-adopted and lab sessions.
       harnessFor: (session) => detectHarness(this.#cfgDir(session)),
@@ -437,7 +444,7 @@ export class TimelineSurface {
       s = {
         harness: null, file: null, offset: 0, rest: '', lines: [], items: [],
         activeKey: null, activeFailures: new Set(),
-        clients: new Set(), draft: '',
+        clients: new Set(), draft: String(this.deps.draftFor(name) ?? ''),
         correction: null,
         parse: null, // { reason, file, dropped } — current loud failure, if any
         journalled: new Set(), // parse failures journalled once per file+reason
@@ -517,6 +524,17 @@ export class TimelineSurface {
     if (!prefix) this.#broadcast(s, 'reset', { file: s.file, branch: true })
     const fresh = prefix ? next.slice(s.items.length) : next
     s.items = next
+    const prompt = fresh.find((item) => item.kind === 'prompt')
+    if (prompt && this.deps.actions) {
+      const conversation = this.#driver(name)?.key ?? name
+      const pending = this.deps.actions.overview().find((candidate) =>
+        candidate.kind === 'chat-message'
+        && candidate.conflict_key === `turn:${conversation}`
+        && candidate.status === 'progress'
+        && candidate.receipt?.outcome === 'sent_unconfirmed'
+        && new Date(prompt.at).getTime() >= new Date(candidate.started_at).getTime())
+      if (pending) this.deps.actions.confirm(pending.action_id, { receipt: { outcome: 'delivered' } })
+    }
     if (fresh.length) this.#broadcast(s, 'items', fresh)
   }
 
@@ -806,20 +824,54 @@ export class TimelineSurface {
       if (!validSessionName(String(b.session ?? ''))) return json(400, { error: 'bad session' })
       if (!this.deps.takeBack) return json(501, { error: 'message take back is not configured' })
       const s = this.#state(b.session)
-      try { this.#pump(b.session) } catch { /* the runtime reports transcript failures */ }
-      try {
+      const driver = this.#driver(b.session)
+      const actionId = b.action_id == null ? null : String(b.action_id)
+      if (actionId != null && !/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(actionId)) {
+        return json(400, { error: 'action_id is not a valid Action id' })
+      }
+      const perform = async (controls = null) => {
+        try { this.#pump(b.session) } catch { /* the runtime reports transcript failures */ }
+        controls?.accept({ progress: b.target?.kind === 'note' ? 'Recovering your note…' : 'Rewinding the conversation…' })
         const result = await this.deps.takeBack({
           session: b.session,
-          role: this.#driver(b.session) ? 'overseer' : 'agent',
+          role: driver ? 'overseer' : 'agent',
           harness: s.harness,
           source: s.lines.join('\n'),
           landing: this.deps.landingFor(b.session),
           target: b.target ?? null,
         })
         s.draft = result.composer ?? ''
+        this.deps.recordDraft(b.session, s.draft)
         s.correction = result.correction?.kind === 'note' ? result.correction : null
         this.#broadcast(s, 'draft', { text: s.draft, by: b.client ?? null })
-        return json(200, result)
+        return controls
+          ? {
+              status: 'confirmed',
+              receipt: {
+                composer: s.draft,
+                correction: result.correction ?? null,
+                take_back: result.receipt ?? null,
+              },
+            }
+          : result
+      }
+
+      if (actionId && this.deps.actions) {
+        const conversation = driver?.key ?? b.session
+        const evidence = await this.deps.actions.run({
+          action_id: actionId,
+          kind: 'chat-take-back',
+          target: conversation,
+          conflict_key: `turn:${conversation}`,
+        }, perform)
+        const code = evidence.status === 'accepted' || evidence.status === 'progress'
+          ? 202
+          : evidence.status === 'confirmed' ? 200 : evidence.status === 'failed' ? 502 : 409
+        return json(code, { action: evidence, ...(evidence.reason ? { error: evidence.reason } : {}) })
+      }
+
+      try {
+        return json(200, await perform())
       } catch (e) {
         return json(e.status ?? 502, { error: e.message })
       }
@@ -831,59 +883,87 @@ export class TimelineSurface {
       const s = this.#state(b.session)
       const dialogId = String(b.dialog ?? '')
       const targetIndex = Number(b.index)
+      const perform = async (controls = null) => {
+        if (s.dialogReceipt?.dialog === dialogId) {
+          return { status: 'refused', reason: 'this native dialog already has an answer', receipt: s.dialogReceipt }
+        }
+        const dialog = await this.#probeDialog(b.session, s)
+        if (!dialog?.card) {
+          return {
+            status: 'refused',
+            reason: `${dialog?.reason ?? 'curia could not parse this native dialog'}; open the terminal to answer it`,
+            terminal: `/terminal/?arg=${encodeURIComponent(b.session)}`,
+          }
+        }
+        if (!dialogId || dialog.id !== dialogId) {
+          return { status: 'refused', reason: 'this native dialog changed; use the current card' }
+        }
+        if (!Number.isInteger(targetIndex)) return { status: 'bad-request', reason: 'the option index must be an integer' }
+        const option = dialog.card.options.find((candidate) => candidate.index === targetIndex)
+        if (!option) return { status: 'bad-request', reason: 'that option index is not on this native dialog' }
+        if (s.dialogAnswer === dialogId) {
+          return { status: 'refused', reason: 'the first valid native dialog answer is still being sent' }
+        }
 
-      if (s.dialogReceipt?.dialog === dialogId) {
-        return json(409, { error: 'this native dialog already has an answer', receipt: s.dialogReceipt })
-      }
-      const dialog = await this.#probeDialog(b.session, s)
-      if (!dialog?.card) {
-        return json(409, {
-          error: `${dialog?.reason ?? 'curia could not parse this native dialog'}; open the terminal to answer it`,
-          terminal: `/terminal/?arg=${encodeURIComponent(b.session)}`,
+        // Claim before the pane write. Two Chat clients can tap the same card
+        // together, and only one may reach tmux. Shared acceptance is emitted
+        // after that synchronous claim, so Atlas can return while the write is
+        // still pending without weakening first-valid-wins.
+        s.dialogAnswer = dialogId
+        controls?.accept({ progress: `Choosing ${option.marker} · ${option.label}…` })
+        try {
+          await this.deps.answerDialog(b.session, {
+            currentIndex: dialog.card.selected_index,
+            targetIndex,
+            harness: s.harness,
+          })
+        } catch (error) {
+          s.dialogAnswer = null
+          this.deps.journal('native_dialog_answer_failed', {
+            session: b.session, dialog: dialogId, index: targetIndex, error: error.message,
+          })
+          return { status: 'failed', reason: `curia could not answer the native dialog: ${error.message}` }
+        }
+
+        const receipt = {
+          dialog: dialogId,
+          index: targetIndex,
+          marker: option.marker,
+          answer: option.label,
+          by: String(b.client ?? 'atlas'),
+          at: new Date().toISOString(),
+        }
+        this.deps.journal('native_dialog_answered', {
+          session: b.session, dialog: dialogId, index: targetIndex,
+          answer: option.label, by: receipt.by, harness: s.harness,
         })
-      }
-      if (!dialogId || dialog.id !== dialogId) {
-        return json(409, { error: 'this native dialog changed; use the current card' })
-      }
-      if (!Number.isInteger(targetIndex)) return json(400, { error: 'the option index must be an integer' })
-      const option = dialog.card.options.find((candidate) => candidate.index === targetIndex)
-      if (!option) return json(400, { error: 'that option index is not on this native dialog' })
-      if (s.dialogAnswer === dialogId) {
-        return json(409, { error: 'the first valid native dialog answer is still being sent' })
+        s.dialogAnsweredKey = dialog.semanticKey
+        this.#setDialog(b.session, s, null, receipt)
+        return { status: 'confirmed', receipt }
       }
 
-      // Claim before the first await. Two Chat clients can tap the same card
-      // together, and only one may reach tmux.
-      s.dialogAnswer = dialogId
-      try {
-        await this.deps.answerDialog(b.session, {
-          currentIndex: dialog.card.selected_index,
-          targetIndex,
-          harness: s.harness,
-        })
-      } catch (error) {
-        s.dialogAnswer = null
-        this.deps.journal('native_dialog_answer_failed', {
-          session: b.session, dialog: dialogId, index: targetIndex, error: error.message,
-        })
-        return json(502, { error: `curia could not answer the native dialog: ${error.message}` })
+      const actionId = String(b.action_id ?? '')
+      if (actionId && this.deps.actions) {
+        const evidence = await this.deps.actions.run({
+          action_id: actionId,
+          kind: 'native-dialog-answer',
+          target: `${b.session}:${dialogId}`,
+          conflict_key: `dialog:${b.session}:${dialogId}`,
+        }, perform)
+        const code = evidence.status === 'accepted' || evidence.status === 'progress'
+          ? 202
+          : evidence.status === 'confirmed' ? 200 : evidence.status === 'failed' ? 502 : 409
+        return json(code, { action: evidence, ...(evidence.reason ? { error: evidence.reason } : {}) })
       }
 
-      const receipt = {
-        dialog: dialogId,
-        index: targetIndex,
-        marker: option.marker,
-        answer: option.label,
-        by: String(b.client ?? 'atlas'),
-        at: new Date().toISOString(),
-      }
-      this.deps.journal('native_dialog_answered', {
-        session: b.session, dialog: dialogId, index: targetIndex,
-        answer: option.label, by: receipt.by, harness: s.harness,
+      const outcome = await perform()
+      if (outcome.status === 'confirmed') return json(200, { ok: true, receipt: outcome.receipt })
+      const code = outcome.status === 'bad-request' ? 400 : outcome.status === 'failed' ? 502 : 409
+      return json(code, {
+        error: outcome.reason,
+        ...(outcome.receipt ? { receipt: outcome.receipt } : {}),
+        ...(outcome.terminal ? { terminal: outcome.terminal } : {}),
       })
-      s.dialogAnsweredKey = dialog.semanticKey
-      this.#setDialog(b.session, s, null, receipt)
-      return json(200, { ok: true, receipt })
     }
 
     if (url.pathname === '/send' && req.method === 'POST') {
@@ -893,88 +973,118 @@ export class TimelineSurface {
       if (!text.trim()) return json(400, { error: 'empty' })
       const s = this.#state(b.session)
       const by = b.client ?? null
-      if (s.correction) {
-        if (!this.deps.correct) return json(501, { error: 'message correction is not configured' })
-        try {
-          await this.deps.correct({
-            session: b.session,
-            role: this.#driver(b.session) ? 'overseer' : 'agent',
-            correction: s.correction,
-            text,
-          })
-        } catch (e) {
-          return json(e.status ?? 502, { error: e.message })
-        }
-        this.deps.journal('timeline_send', {
-          session: b.session, by, outcome: 'corrected', target: s.correction.id, text: clip(text),
-        })
-        s.correction = null
-        s.draft = ''
-        this.#broadcast(s, 'draft', { text: '', by })
-        this.#broadcast(s, 'sent', { text, by })
-        return json(200, { ok: true })
-      }
-      // A driven session takes the words as a TURN (#267). There is no pane, so
-      // the #75 dialog guard has nothing to guard: it exists because keystrokes
-      // land wherever the pane's focus is, and a turn lands in exactly one
-      // place. The call runs to completion — an overseer turn is seconds, and
-      // the failure is the whole reason this waits: a turn that ends with no
-      // answer must reach the operator as words, not as silence on the page.
       const driver = this.#driver(b.session)
-      if (driver) {
-        try {
-          await driver.send(text)
-        } catch (e) {
-          this.deps.journal('timeline_send', { session: b.session, by, outcome: 'failed', error: e.message, text: clip(text) })
-          return json(502, { error: e.message })
-        }
-        this.deps.recordTurn?.({ session: b.session, role: 'overseer', text })
-        this.deps.journal('timeline_send', { session: b.session, by, outcome: 'sent', text: clip(text) })
-        s.draft = ''
-        this.#broadcast(s, 'draft', { text: '', by })
-        this.#broadcast(s, 'sent', { text, by })
-        return json(200, { ok: true })
+      const actionId = b.action_id == null ? null : String(b.action_id)
+      if (actionId != null && !/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(actionId)) {
+        return json(400, { error: 'action_id is not a valid Action id' })
       }
-      // A pane that has ended takes no words (#711). The refusal is a sentence
-      // about the session, not a tmux error about a missing one.
-      if (await this.#ended(b.session)) {
-        this.deps.journal('timeline_send', { session: b.session, by, outcome: 'refused_ended', text: clip(text) })
-        return json(409, this.#endedRefusal(b.session))
-      }
-      // The #75 guard: fresh capture, positive evidence only. Typing into a
-      // dialog answers it blind or vanishes without a trace — refusing keeps
-      // the text in the composer, and the broadcast pins the banner on every
-      // device at the same moment.
-      const dialog = await this.#probeDialog(b.session, s)
-      if (dialog) {
-        this.deps.journal('timeline_send', { session: b.session, by, outcome: 'refused_dialog', hint: dialog.hint, text: clip(text) })
-        return json(409, { error: `the agent is in a terminal dialog ("${dialog.hint}") the timeline cannot show — open the terminal surface to answer it; your text was NOT sent`, dialog: true })
-      }
-      try {
-        const delivery = await this.deps.sendText(b.session, text)
-        if (delivery?.status === 'not-sent') {
-          this.deps.journal('timeline_send', { session: b.session, by, outcome: 'not_sent', text: clip(text) })
-          return json(409, { error: 'the pane stayed active, so curia did not send the text' })
-        }
-        if (delivery?.status === 'unconfirmed') {
-          this.deps.recordTurn?.({ session: b.session, role: 'agent', text })
-          this.deps.journal('timeline_send', { session: b.session, by, outcome: 'unconfirmed', text: clip(text) })
+      const action = actionId ? {
+        action_id: actionId,
+        kind: s.correction ? 'chat-message-correction' : 'chat-message',
+        target: driver?.key ?? b.session,
+        conflict_key: `turn:${driver?.key ?? b.session}`,
+      } : null
+      const perform = async (controls = null) => {
+        if (s.correction) {
+          if (!this.deps.correct) return { status: 'failed', reason: 'message correction is not configured', code: 501 }
+          try {
+            await this.deps.correct({
+              session: b.session,
+              role: driver ? 'overseer' : 'agent',
+              correction: s.correction,
+              text,
+            })
+          } catch (e) {
+            return { status: Number(e.status) >= 400 && Number(e.status) < 500 ? 'refused' : 'failed', reason: e.message, code: e.status ?? 502 }
+          }
+          this.deps.journal('timeline_send', {
+            session: b.session, by, outcome: 'corrected', target: s.correction.id, text: clip(text), action_id: actionId,
+          })
+          s.correction = null
           s.draft = ''
           this.#broadcast(s, 'draft', { text: '', by })
-          return json(202, { error: 'curia sent the keys, but the pane did not confirm a new turn', unconfirmed: true })
+          this.#broadcast(s, 'sent', { text, by, action_id: actionId })
+          return { status: 'confirmed', receipt: { outcome: 'delivered' }, code: 200 }
         }
-      } catch (e) {
-        this.deps.journal('timeline_send', { session: b.session, by, outcome: 'failed', error: e.message, text: clip(text) })
-        return json(502, { error: e.message })
+        // A driven session takes the words as a turn. Acceptance is durable
+        // before pane preparation starts, so Atlas does not hold this request
+        // open for the model's work.
+        if (driver) {
+          controls?.accept({ progress: 'Preparing the conversation' })
+          let delivered
+          try {
+            delivered = await driver.send(text)
+          } catch (e) {
+            this.deps.journal('timeline_send', { session: b.session, by, outcome: 'failed', error: e.message, text: clip(text), action_id: actionId })
+            return { status: 'failed', reason: e.message, code: 502 }
+          }
+          this.deps.recordTurn?.({ session: b.session, role: 'overseer', text })
+          this.deps.journal('timeline_send', { session: b.session, by, outcome: 'sent', text: clip(text), action_id: actionId })
+          s.draft = ''
+          this.#broadcast(s, 'draft', { text: '', by })
+          this.#broadcast(s, 'sent', { text, by, action_id: actionId })
+          if (controls && delivered?.completion) {
+            controls.progress('Message delivered; waiting for the overseer response', { receipt: { outcome: 'delivered' } })
+            const completion = await delivered.completion
+            if (!completion?.ok) return { status: 'failed', reason: completion?.why || 'the overseer turn did not finish', code: 502 }
+          }
+          return { status: 'confirmed', receipt: { outcome: 'delivered' }, code: 200 }
+        }
+        if (await this.#ended(b.session)) {
+          const reason = this.#endedRefusal(b.session).error
+          this.deps.journal('timeline_send', { session: b.session, by, outcome: 'refused_ended', text: clip(text), action_id: actionId })
+          return { status: 'refused', reason, ended: true, code: 409 }
+        }
+        const dialog = await this.#probeDialog(b.session, s)
+        if (dialog) {
+          const reason = `the agent is in a terminal dialog ("${dialog.hint}") the timeline cannot show — open the terminal surface to answer it; your text was NOT sent`
+          this.deps.journal('timeline_send', { session: b.session, by, outcome: 'refused_dialog', hint: dialog.hint, text: clip(text), action_id: actionId })
+          return { status: 'refused', reason, dialog: true, code: 409 }
+        }
+        try {
+          const delivery = await this.deps.sendText(b.session, text)
+          if (delivery?.status === 'not-sent') {
+            this.deps.journal('timeline_send', { session: b.session, by, outcome: 'not_sent', text: clip(text), action_id: actionId })
+            return { status: 'refused', reason: 'the pane stayed active, so curia did not send the text', receipt: { outcome: 'not_sent' }, code: 409 }
+          }
+          if (delivery?.status === 'unconfirmed') {
+            this.deps.recordTurn?.({ session: b.session, role: 'agent', text })
+            this.deps.journal('timeline_send', { session: b.session, by, outcome: 'unconfirmed', text: clip(text), action_id: actionId })
+            s.draft = ''
+            this.#broadcast(s, 'draft', { text: '', by })
+            if (controls) {
+              controls.accept({ progress: 'Message sent; checking the transcript', receipt: { outcome: 'sent_unconfirmed' } })
+              controls.progress('Message sent; checking the transcript', { receipt: { outcome: 'sent_unconfirmed' } })
+              return { status: 'progress', receipt: { outcome: 'sent_unconfirmed' }, code: 202 }
+            }
+            return { status: 'unconfirmed', reason: 'curia sent the keys, but the pane did not confirm a new turn', unconfirmed: true, code: 202 }
+          }
+        } catch (e) {
+          this.deps.journal('timeline_send', { session: b.session, by, outcome: 'failed', error: e.message, text: clip(text), action_id: actionId })
+          return { status: 'failed', reason: e.message, code: 502 }
+        }
+        this.deps.recordTurn?.({ session: b.session, role: 'agent', text })
+        this.deps.journal('timeline_send', { session: b.session, by, outcome: 'sent', text: clip(text), action_id: actionId })
+        s.draft = ''
+        this.#broadcast(s, 'draft', { text: '', by })
+        this.#broadcast(s, 'sent', { text, by, action_id: actionId })
+        return { status: 'confirmed', receipt: { outcome: 'delivered' }, code: 200 }
       }
-      this.deps.recordTurn?.({ session: b.session, role: 'agent', text })
-      // The journal line #75 had to infer from four absences: whether the
-      // send even fired, one grep away.
-      this.deps.journal('timeline_send', { session: b.session, by, outcome: 'sent', text: clip(text) })
-      s.draft = ''
-      this.#broadcast(s, 'draft', { text: '', by })
-      this.#broadcast(s, 'sent', { text, by })
-      return json(200, { ok: true })
+
+      if (action) {
+        const evidence = await this.deps.actions.run(action, perform)
+        const code = evidence.status === 'accepted' || evidence.status === 'progress'
+          ? 202
+          : evidence.status === 'confirmed' ? 200 : evidence.status === 'failed' ? 502 : 409
+        return json(code, { action: evidence, ...(evidence.reason ? { error: evidence.reason } : {}) })
+      }
+      const outcome = await perform()
+      return json(outcome.code, {
+        ...(outcome.status === 'confirmed' ? { ok: true } : { error: outcome.reason }),
+        ...(outcome.unconfirmed ? { unconfirmed: true } : {}),
+        ...(outcome.ended ? { ended: true } : {}),
+        ...(outcome.dialog ? { dialog: true } : {}),
+      })
     }
 
     // The shared composer (#73 pass-bar item 4): tmux gives two attached
@@ -985,6 +1095,7 @@ export class TimelineSurface {
       if (!validSessionName(String(b.session ?? ''))) return json(400, { error: 'bad session' })
       const s = this.#state(b.session)
       s.draft = String(b.text ?? '')
+      this.deps.recordDraft(b.session, s.draft)
       this.#broadcast(s, 'draft', { text: s.draft, by: b.client ?? null })
       return json(200, { ok: true })
     }
@@ -998,33 +1109,55 @@ export class TimelineSurface {
       if (!key) return json(400, { error: 'unknown key' })
       const s = this.#state(b.session)
       const by = b.client ?? null
-      // No pane, no keys (#267). This is the one thing the console chat cannot
-      // do, and it says so rather than reporting a key nothing received: an
-      // overseer turn runs to its end, so there is nothing here to interrupt.
-      if (this.#driver(b.session)) {
-        this.deps.journal('timeline_key', { session: b.session, by, key, outcome: 'refused_no_pane' })
-        return json(409, { error: `${b.session} is not a terminal — it takes words, and a turn runs to its end, so there is no key to send it` })
-      }
-      if (await this.#ended(b.session)) {
-        this.deps.journal('timeline_key', { session: b.session, by, key, outcome: 'refused_ended' })
-        return json(409, this.#endedRefusal(b.session))
-      }
-      if (!DIALOG_SAFE_KEYS.has(key)) {
-        const dialog = await this.#probeDialog(b.session, s)
-        if (dialog) {
-          this.deps.journal('timeline_key', { session: b.session, by, key, outcome: 'refused_dialog', hint: dialog.hint })
-          return json(409, { error: `the agent is in a terminal dialog ("${dialog.hint}") — ${key} would drive its selection blind; open the terminal surface`, dialog: true })
+      const perform = async () => {
+        // No pane, no keys (#267). This is the one thing the console chat cannot
+        // do, and it says so rather than reporting a key nothing received: an
+        // overseer turn runs to its end, so there is nothing here to interrupt.
+        if (this.#driver(b.session)) {
+          const reason = `${b.session} is not a terminal — it takes words, and a turn runs to its end, so there is no key to send it`
+          this.deps.journal('timeline_key', { session: b.session, by, key, outcome: 'refused_no_pane' })
+          return { status: 'refused', reason, code: 409 }
         }
+        if (await this.#ended(b.session)) {
+          const reason = this.#endedRefusal(b.session).error
+          this.deps.journal('timeline_key', { session: b.session, by, key, outcome: 'refused_ended' })
+          return { status: 'refused', reason, code: 409 }
+        }
+        if (!DIALOG_SAFE_KEYS.has(key)) {
+          const dialog = await this.#probeDialog(b.session, s)
+          if (dialog) {
+            const reason = `the agent is in a terminal dialog ("${dialog.hint}") — ${key} would drive its selection blind; open the terminal surface`
+            this.deps.journal('timeline_key', { session: b.session, by, key, outcome: 'refused_dialog', hint: dialog.hint })
+            return { status: 'refused', reason, code: 409, dialog: true }
+          }
+        }
+        try {
+          await this.deps.sendKey(b.session, key)
+        } catch (e) {
+          this.deps.journal('timeline_key', { session: b.session, by, key, outcome: 'failed', error: e.message })
+          return { status: 'failed', reason: e.message, code: 502 }
+        }
+        this.deps.journal('timeline_key', { session: b.session, by, key, outcome: 'sent' })
+        this.#broadcast(s, 'sent', { text: `⌨ ${key}`, by })
+        return { status: 'confirmed', receipt: { key }, code: 200 }
       }
-      try {
-        await this.deps.sendKey(b.session, key)
-      } catch (e) {
-        this.deps.journal('timeline_key', { session: b.session, by, key, outcome: 'failed', error: e.message })
-        return json(502, { error: e.message })
+
+      const actionId = String(b.action_id ?? '')
+      if (actionId && this.deps.actions) {
+        const evidence = await this.deps.actions.run({
+          action_id: actionId,
+          kind: 'pane-key',
+          target: b.session,
+          conflict_key: `pane:${b.session}`,
+        }, perform)
+        const code = evidence.status === 'confirmed' ? 200 : evidence.status === 'failed' ? 502 : 409
+        return json(code, { action: evidence, ...(evidence.reason ? { error: evidence.reason } : {}) })
       }
-      this.deps.journal('timeline_key', { session: b.session, by, key, outcome: 'sent' })
-      this.#broadcast(s, 'sent', { text: `⌨ ${key}`, by })
-      return json(200, { ok: true })
+
+      const outcome = await perform()
+      return json(outcome.code, outcome.status === 'confirmed'
+        ? { ok: true }
+        : { error: outcome.reason, ...(outcome.dialog ? { dialog: true } : {}) })
     }
 
     json(404, { error: 'not found' })

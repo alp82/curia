@@ -603,7 +603,7 @@ describe('the closed set a reload applies (#362)', () => {
     ['the sandbox image', () => overCuriaFile(['sandbox:', '  image: something-else']), 'sandbox.image'],
     ['the identity allowlist', () => overCuriaFile(['identity:', '  allow: [someone@example.com]']), 'identity.allow'],
     ['a model the routing table did not have', () => overRoutingFile(['models:', '  haiku:', '    provider: anthropic', '    harness: claude']), 'models.haiku'],
-    ['a model key that is not the switch', () => overRoutingFile(['models:', '  sonnet:', '    harness: codex']), 'models.sonnet.harness'],
+    ['a model key that is not the switch', () => overRoutingFile(['models:', '  sonnet:', '    provider: openai', '    harness: codex']), 'models.sonnet.provider'],
     // The screen edits the rows that are there and adds none, so a row that
     // appears is a hand edit — outside the set like every other hand edit.
     ['a defaults row nobody could add from the screen', () => overRoutingFile(['defaults:', '  grilling: opus']), 'defaults.grilling'],

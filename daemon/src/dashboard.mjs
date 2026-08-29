@@ -38,6 +38,7 @@ import { readSettings, saveSettings } from './settings.mjs'
 import { readLayered } from './config.mjs'
 
 const DIR = path.dirname(fileURLToPath(import.meta.url))
+const ACTION_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/
 
 export const DEFAULT_DASHBOARD_INDEX = path.resolve(DIR, '..', 'assets', 'dashboard.html')
 
@@ -85,7 +86,10 @@ export const daemonPort = () => Number(process.env.PORT ?? DEFAULT_DAEMON_PORT)
 // the `#chat/<session>` route, the page reads the six timeline routes through
 // this sidecar, and it draws an ended agent from the `live` field of
 // `/api/console`, which a proto-12 daemon does not carry.
-export const DASHBOARD_PROTO = 14
+// Bumped to 15 by #809: credential sign-in now carries an Action identity
+// through `/api/reauth`. A proto-14 sidecar drops that identity and leaves the
+// optimistic projection pending with no daemon evidence that can settle it.
+export const DASHBOARD_PROTO = 15
 
 // The Credentials screen's own hash (#661). It is here rather than in the
 // daemon that links to it, because the page's screen names are this file's half
@@ -307,6 +311,13 @@ function reloadLine(reload) {
   }
   if (reload.reason === 'daemon-down') return `the daemon could not be asked to apply it (${reload.error}) — it reads the file at its next boot`
   return `the daemon declined to apply it: ${reload.error}`
+}
+
+function settingsPaths(patch) {
+  const paths = []
+  if (patch && ['dispatch', 'overseer', 'watch'].some((key) => Object.hasOwn(patch, key))) paths.push('curia.local.yaml')
+  if (patch && Object.hasOwn(patch, 'routing')) paths.push('routing.local.yaml')
+  return paths
 }
 
 function field(value, re, what) {
@@ -688,9 +699,12 @@ export class DashboardSurface {
   // process that can take a new one — this file only asks, and hands back
   // whatever it answers. A daemon that is not there is not a failure of the
   // save: the file is written, and the daemon reads it at its next boot.
-  async #reload(by) {
+  async #reload(by, { actionId = null, written = [] } = {}) {
     try {
-      const out = await this.#daemon({ method: 'POST', path: '/reload', body: { by } })
+      const out = await this.#daemon({
+        method: 'POST', path: '/reload',
+        body: { by, ...(actionId ? { action_id: actionId, written } : {}) },
+      })
       // The next page read must be a fresh one. The marker on the settings
       // screen compares the daemon's own six against the file, and a snapshot
       // taken before the reload would say they disagree for a whole interval
@@ -699,6 +713,31 @@ export class DashboardSurface {
       return out
     } catch (e) {
       return { ok: false, reason: 'daemon-down', error: e.message }
+    }
+  }
+
+  async #beginSettingsAction({ actionId, paths, by }) {
+    try {
+      return await this.#daemon({
+        method: 'POST', path: '/settings/action',
+        body: { action_id: actionId, paths, by },
+      })
+    } catch (e) {
+      return { action: null, offline: e.message }
+    }
+  }
+
+  async #finishSettingsAction(actionId, status, detail = {}) {
+    if (!actionId) return null
+    try {
+      const out = await this.#daemon({
+        method: 'POST', path: '/settings/action/finish',
+        body: { action_id: actionId, status, ...detail },
+        accept: [200, 404],
+      })
+      return out.action ?? null
+    } catch {
+      return null
     }
   }
 
@@ -736,8 +775,11 @@ export class DashboardSurface {
   // verb that has a word in the operator's own catalogue goes through it rather
   // than around it, so a press from the console journals the same `command`
   // event a typed one does and lands in the feed for free.
-  #command(text, by) {
-    return this.#daemon({ method: 'POST', path: '/command', body: { text, by } })
+  #command(text, by, actionId = null) {
+    return this.#daemon({
+      method: 'POST', path: '/command',
+      body: { text, by, ...(actionId ? { action_id: actionId } : {}) },
+    })
   }
 
   // The chat, piped (#267). Headers travel unchanged in both directions, and
@@ -871,20 +913,45 @@ export class DashboardSurface {
       if (url.pathname === '/api/settings') {
         return this.#write(res, async () => {
           if (!this.curiaFile || !this.routingFile) throw new Error('this sidecar was started without config file paths, so it cannot save')
-          const patch = await this.#body(req)
-          await this.#guardWatchRemoval(patch)
-          const out = saveSettings({ curiaFile: this.curiaFile, routingFile: this.routingFile, patch })
+          const body = await this.#body(req)
+          const actionId = body.action_id == null ? null : field(body.action_id, ACTION_ID_RE, 'an Action id')
+          const { action_id: _actionId, ...patch } = body
+          const paths = settingsPaths(patch)
+          const by = String(req.headers[LOGIN_HEADER] ?? '') || 'dashboard'
+          const begun = actionId ? await this.#beginSettingsAction({ actionId, paths, by }) : null
+          if (begun?.action && ['refused', 'failed'].includes(begun.action.status)) {
+            return {
+              written: [], reload: null, action: begun.action,
+              settings: readSettings({ curiaFile: this.curiaFile, routingFile: this.routingFile }),
+            }
+          }
+          let out
+          try {
+            await this.#guardWatchRemoval(patch)
+            out = saveSettings({ curiaFile: this.curiaFile, routingFile: this.routingFile, patch })
+          } catch (error) {
+            const settled = await this.#finishSettingsAction(actionId, 'refused', { reason: error.message })
+            if (settled) error.receipt = { action: settled }
+            throw error
+          }
           // The save APPLIES (#362). The daemon re-reads both files and takes
           // every setting this screen writes, so the restart stops being
           // phase two of every save. A save that wrote nothing asks for
           // nothing: the file did not move, so there is nothing to reload.
           const reload = out.written.length
-            ? await this.#reload(String(req.headers[LOGIN_HEADER] ?? '') || 'dashboard')
+            ? await this.#reload(by, { actionId, written: out.written })
             : null
+          const noChange = out.written.length ? null : await this.#finishSettingsAction(actionId, 'confirmed', {
+            receipt: { written: [], applied: [] },
+          })
           this.log(out.written.length
             ? `dashboard: saved ${out.written.join(' and ')} — ${reloadLine(reload)}`
             : 'dashboard: the save changed nothing')
-          return { ...out, reload, settings: readSettings({ curiaFile: this.curiaFile, routingFile: this.routingFile }) }
+          return {
+            ...out, reload,
+            ...(reload?.action || noChange || begun?.action ? { action: reload?.action ?? noChange ?? begun.action } : {}),
+            settings: readSettings({ curiaFile: this.curiaFile, routingFile: this.routingFile }),
+          }
         })
       }
       // The restart (#249 item 6). The sidecar orders it and the daemon does
@@ -893,12 +960,29 @@ export class DashboardSurface {
       // the page's own marker is what says whether it has.
       if (url.pathname === '/api/restart') {
         return this.#write(res, async () => {
-          const out = await this.#daemon({ method: 'POST', path: '/restart', body: { by: 'dashboard' } })
-          this.log('dashboard: the daemon took the restart order')
-          // The next page read must not be answered from a snapshot taken
-          // before the restart: it would say the daemon is up for as long as
-          // the interval lasts, at the one moment that is false.
+          const b = await this.#body(req)
+          const actionId = field(b.action_id, ACTION_ID_RE, 'an Action id')
+          // Drop the held reading before the order crosses the socket. If the
+          // daemon exits after taking the order but before its receipt arrives,
+          // the next poll still measures daemon health instead of holding the
+          // pre-restart snapshot through the ambiguous interval.
           this.snapshotAt = 0
+          const uptime = this.snapshot?.daemon?.uptime_s
+          const out = await this.#daemon({
+            method: 'POST',
+            path: '/restart',
+            body: {
+              by: 'dashboard',
+              action_id: actionId,
+              ...(typeof uptime === 'number' && Number.isFinite(uptime) && uptime >= 0 ? { uptime_s: uptime } : {}),
+            },
+            accept: [200, 409],
+          })
+          if (out.action && this.snapshot) {
+            const prior = (this.snapshot.actions ?? []).filter((action) => action.action_id !== out.action.action_id)
+            this.snapshot = { ...this.snapshot, actions: [...prior, out.action] }
+          }
+          this.log('dashboard: the daemon took the restart order')
           return out
         })
       }
@@ -906,6 +990,7 @@ export class DashboardSurface {
         return this.#verb(res, async () => {
           const b = await this.#body(req)
           const name = field(b.name, APP_NAME_RE, 'a GitHub App name')
+          const actionId = field(b.action_id, ACTION_ID_RE, 'an Action id')
           // The redirect is THIS surface's own address, composed from curia's
           // own records (#68) rather than from the request headers. GitHub
           // sends the conversion code back to this URL, so a caller-named
@@ -914,14 +999,18 @@ export class DashboardSurface {
           // tailscale says this box is.
           const redirectUrl = new URL('api/github-app/complete', await this.link()).toString()
           return this.#daemon({
-            method: 'POST', path: '/github-app/start', body: { name, redirect_url: redirectUrl }, accept: [200, 400],
+            method: 'POST', path: '/github-app/start', body: { name, redirect_url: redirectUrl, action_id: actionId }, accept: [200, 400],
           })
         })
       }
       // The re-read of the app's installations (#762). No field crosses: the
       // press is the whole message.
       if (url.pathname === '/api/github-app/refresh') {
-        return this.#verb(res, () => this.#daemon({ method: 'POST', path: '/github-app/installations', body: {} }))
+        return this.#verb(res, async () => {
+          const b = await this.#body(req)
+          const actionId = field(b.action_id, ACTION_ID_RE, 'an Action id')
+          return this.#daemon({ method: 'POST', path: '/github-app/installations', body: { action_id: actionId } })
+        })
       }
       // ---- the operator verbs (#266) ---------------------------------------
       //
@@ -947,7 +1036,8 @@ export class DashboardSurface {
           const b = await this.#body(req)
           const repo = field(b.repo, VERB_REPO_RE, 'an owner/name repo')
           const ticket = field(b.ticket, VERB_TICKET_RE, 'a ticket number')
-          return this.#command(`start ${repo}#${ticket}`, by)
+          const actionId = b.action_id == null ? null : field(b.action_id, ACTION_ID_RE, 'an Action id')
+          return this.#command(`start ${repo}#${ticket}`, by, actionId)
         })
       }
 
@@ -990,9 +1080,13 @@ export class DashboardSurface {
           const index = Number.isInteger(b.index) && b.index >= 0 ? b.index : null
           const files = replyFiles(b.files)
           const answer = index === null && !files.length ? words(b.answer, 'an answer') : String(b.answer ?? '').trim().slice(0, MAX_WORDS)
+          const actionId = b.action_id == null ? null : field(b.action_id, ACTION_ID_RE, 'an Action id')
           const out = await this.#daemon({
-            method: 'POST', path: '/answer', body: { id, answer, index, files, by, via: 'dashboard' }, accept: [200, 400, 409],
+            method: 'POST', path: '/answer', body: {
+              id, answer, index, files, by, via: 'dashboard', ...(actionId ? { action_id: actionId } : {}),
+            }, accept: [200, 400, 409],
           })
+          if (out.action) return out
           if (out.ok === false) {
             // The first receipt rides the refusal, so the page shows the mark
             // rather than an error (#712, ADR-0025).
@@ -1009,7 +1103,11 @@ export class DashboardSurface {
       // login, and the daemon journals the instant. The snapshot is dropped so
       // the next poll carries the new stamp back.
       if (url.pathname === '/api/feed/read') {
-        return this.#verb(res, () => this.#daemon({ method: 'POST', path: '/feed/read', body: { by } }))
+        return this.#verb(res, async () => {
+          const b = await this.#body(req)
+          const actionId = field(b.action_id, ACTION_ID_RE, 'an Action id')
+          return this.#daemon({ method: 'POST', path: '/feed/read', body: { by, action_id: actionId } })
+        })
       }
       if (url.pathname === '/api/note') {
         return this.#verb(res, async () => {
@@ -1033,7 +1131,8 @@ export class DashboardSurface {
         return this.#verb(res, async () => {
           const b = await this.#body(req)
           const provider = field(b.provider, VERB_PROVIDER_RE, 'a provider name')
-          return this.#command(`reauth ${provider}`, by)
+          const actionId = b.action_id == null ? null : field(b.action_id, ACTION_ID_RE, 'an Action id')
+          return this.#command(`reauth ${provider}`, by, actionId)
         })
       }
       // The browser conversations (#333). The Chat screen mints one and
@@ -1044,32 +1143,42 @@ export class DashboardSurface {
       // flow, stop waiting for it, and grant the standing permission once the
       // machine exists.
       //
-      // THE BROWSER SENDS NOTHING. Each of these is a bare press, and each one
-      // spawns a command whose arguments this box already decided — the pinned
-      // CLI version, curia's own HOME. There is no field for a browser to name
-      // a version, a home, or a server with, which is the whole reason these
-      // are three routes rather than one that takes a command.
+      // The browser sends only the Action identity it minted. Each route still
+      // decides the command, pinned CLI version, HOME, and server on this box.
+      // There is no field through which a browser can name any of those.
       if (url.pathname === '/api/aistack/register' || url.pathname === '/api/aistack/cancel'
         || url.pathname === '/api/aistack/optin') {
         const act = url.pathname.slice('/api/aistack/'.length)
         return this.#write(res, async () => {
+          const b = await this.#body(req)
+          const actionId = field(b.action_id, ACTION_ID_RE, 'an Action id')
           const out = await this.#daemon({
-            method: 'POST', path: `/aistack/${act}`, accept: [200, 409],
+            method: 'POST', path: `/aistack/${act}`, body: { action_id: actionId }, accept: [200, 409],
             timeout: AISTACK_ACT_TIMEOUT_MS,
           })
-          if (out.ok === false) throw refuse(out.error)
+          if (out.ok === false) {
+            const error = refuse(out.error)
+            if (out.action) error.receipt = { action: out.action }
+            throw error
+          }
           return out
         })
       }
       if (url.pathname === '/api/console/new') {
-        return this.#verb(res, () => this.#daemon({ method: 'POST', path: '/console/new' }))
+        return this.#verb(res, async () => {
+          const b = await this.#body(req)
+          const actionId = field(b.action_id, /^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/, 'an Action id')
+          return this.#daemon({ method: 'POST', path: '/console/new', body: { action_id: actionId } })
+        })
       }
       if (url.pathname === '/api/console/delete') {
         return this.#verb(res, async () => {
           const b = await this.#body(req)
           const key = field(b.key, CONSOLE_KEY_RE, 'a browser conversation key')
-          const out = await this.#daemon({ method: 'POST', path: '/console/delete', body: { key }, accept: [200, 409] })
-          if (out.ok === false) throw refuse(out.error)
+          const actionId = field(b.action_id, /^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/, 'an Action id')
+          const out = await this.#daemon({
+            method: 'POST', path: '/console/delete', body: { key, action_id: actionId }, accept: [200, 409, 500],
+          })
           return out
         })
       }

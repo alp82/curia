@@ -317,6 +317,18 @@ export function parseCommand(text) {
   }
 }
 
+export function actionForCommand(canonical, actionId) {
+  const id = String(actionId ?? '').trim()
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(id)) throw new Error('action_id is not a valid Action id')
+  const cmd = parseCommand(canonical)
+  if (cmd?.verb === 'reauth') {
+    return { action_id: id, kind: 'credential-sign-in', target: cmd.provider, conflict_key: `reauth:${cmd.provider}` }
+  }
+  if (cmd?.verb !== 'start' || !cmd.repo || !cmd.ticket) throw new Error('Action evidence supports a repo-qualified start or credential sign-in command')
+  const target = `${cmd.repo}#${cmd.ticket}`
+  return { action_id: id, kind: 'dispatch', target, conflict_key: `dispatch:${target}` }
+}
+
 const USAGE = [
   'commands:',
   '`tickets [repo]` — takeable tickets across the watch list (repo: any unambiguous part of the name)',
@@ -356,7 +368,7 @@ export class CommandRouter {
   // ctx.interpreted (#94): true when the text came out of a model (the
   // overseer's verb tools) rather than a typed slash command or REST call —
   // interpreted destructive verbs go through the button confirm.
-  async handle(canonical, userId, { threadId = null, interpreted = false } = {}) {
+  async handle(canonical, userId, { threadId = null, interpreted = false, action = null } = {}) {
     const cmd = parseCommand(canonical)
     if (!cmd) {
       let why = ''
@@ -391,7 +403,7 @@ export class CommandRouter {
           const repo = this.#dispatchRepo(cmd)
           if (repo.error) return repo.error
           return await this.dispatcher.start(cmd.ticket, {
-            repo: repo.repo, model: cmd.model, by: userId, threadId,
+            repo: repo.repo, model: cmd.model, by: userId, threadId, action,
           })
         }
         case 'map': {
@@ -429,7 +441,7 @@ export class CommandRouter {
           if (!this.deploy) return '❌ this daemon has no self-deploy seam — use bin/deploy.sh'
           return await this.deploy.run({ by: userId, interpreted })
         case 'reauth':
-          return await this.dispatcher.startReauth({ provider: cmd.provider, by: userId })
+          return await this.dispatcher.startReauth({ provider: cmd.provider, by: userId, ...(action ? { action } : {}) })
       }
     } catch (e) {
       this.log(`command "${canonical}" failed:`, e.message)

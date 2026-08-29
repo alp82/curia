@@ -25,10 +25,11 @@ import {
   deleteRemoteBranch, pullRequestDiff, approvePullRequest,
 } from './github.mjs'
 import {
-  resolveModel, candidates, buildSpawnCmd, buildResumeCmd, spawnModelId, parseUsageLimit, parseCreditGate,
+  resolveModel, candidates, spawnModelId, parseUsageLimit, parseCreditGate,
   carriesLimitPhrase, resolveReviewer, isActive, Cooling, SAME_PROVIDER_STAMP, namedModel,
   reasoningEffortFor, harnessReasoningEffort,
 } from './routing.mjs'
+import { HARNESS_REGISTRY, spawnIdentity } from './harnesses.mjs'
 import { hasSession, listSessions, newSession, capturePane, killSession, sendText, sendKey, paneShowsActiveTurn } from './tmux.mjs'
 import {
   createPrivateClone, removeWorkspace,
@@ -414,9 +415,10 @@ export class Dispatcher {
   // escalation and returns its record; lapseEscalation closes one as lapsed
   // (journal + message edit); confirmNote posts a line next to a record's
   // buttons; overseerNote journals a synthetic line for a thread's session.
-  constructor({ config, routing, reduction, notify, announce, openConfirm, openMapQuestion, lapseEscalation, confirmNote, overseerNote, askReview, cancelEscalation, threads, log = console.log, cooling, readings, dataDir, daemonPort, previews, attachLinks, attachSessionLink, dashboardLink, channelName, minter, credentials, anthropic, anthropicHealth, aistack, deps }) {
+  constructor({ config, routing, harnessRegistry, reduction, notify, announce, openConfirm, openMapQuestion, lapseEscalation, confirmNote, overseerNote, askReview, cancelEscalation, threads, log = console.log, cooling, readings, dataDir, daemonPort, previews, attachLinks, attachSessionLink, dashboardLink, channelName, minter, credentials, anthropic, anthropicHealth, aistack, deps }) {
     this.config = config
     this.routing = routing
+    this.harnesses = harnessRegistry ?? HARNESS_REGISTRY
     this.reduction = reduction
     this.notify = notify
     // The plain channel line, injected by index.mjs the way the backup's
@@ -1175,7 +1177,7 @@ export class Dispatcher {
   //
   // `reuse` is the resume contract (#81): inherit the surviving worktree
   // instead of recreating it — see #dispatch.
-  async start(ticketArg, { repo, model, by, reuse = false, conversationResume = false, threadId = null } = {}) {
+  async start(ticketArg, { repo, model, by, reuse = false, conversationResume = false, threadId = null, action = null } = {}) {
     const n = String(ticketArg)
     const session = `curia-${n}`
     // Admission guard: synchronous check + insert BEFORE the first await, so a
@@ -1239,7 +1241,7 @@ export class Dispatcher {
       // #dispatch returns null only on exhaustion whose latched notify just
       // fired; the slash caller still deserves a reply.
       return (await this.#dispatch(theRepo, n, issue, {
-        model, by, reuse, conversationResume, threadId,
+        model, by, reuse, conversationResume, threadId, action,
       })) ?? this.#exhaustedReply()
     } finally {
       this.inFlight.delete(session)
@@ -1496,7 +1498,7 @@ export class Dispatcher {
   // recreated from origin; absent one, resume degrades to an ordinary dispatch.
   async #dispatch(repo, n, issue, {
     model, instruction = null, by, reuse = false, conversationResume = false,
-    threadId = null, charting = false, skill = null, skillTarget = null,
+    threadId = null, charting = false, skill = null, skillTarget = null, action = null,
   }) {
     const session = `curia-${n}`
     // #241: a new-map dispatch is charting with no map, so there is no number to
@@ -1576,8 +1578,8 @@ export class Dispatcher {
     const useModel = cands[0]
     const harnessName = this.routing.models[useModel].harness
     const reasoningEffort = reasoningEffortFor(this.routing, labels, useModel)
-    if (!this.routing.harnesses[harnessName]) {
-      return `❌ unknown harness \`${harnessName}\` — configured harnesses: ${Object.keys(this.routing.harnesses).join(', ')}`
+    if (!this.routing.harnesses[harnessName] || !this.harnesses.has(harnessName)) {
+      return `❌ unknown harness \`${harnessName}\` — registered harnesses: ${this.harnesses.names.join(', ')}`
     }
 
     const login = this.claimLogin()
@@ -1601,6 +1603,7 @@ export class Dispatcher {
       this.reduction.journal('dispatch_claimed', {
         repo, ticket: n, title: issue.title, agent: session, by: by ?? 'unknown', kind: 'ticket',
       })
+      action?.accept()
     }
 
     // The ticket label goes on at the claim (#93): `start` binds the thread it
@@ -1619,8 +1622,9 @@ export class Dispatcher {
     this.reduction.journal('agent_dispatching', {
       repo, ticket: n, title: issue.title, agent: session, model: useModel, harness: harnessName,
     })
+    action?.progress('Preparing the agent workspace')
 
-    const cfgDir = cfgDirFor(this.root, session)
+    const cfgDir = cfgDirFor(this.root, session, harnessName)
     // Declared outside the try so the finally can release the pending
     // reservation (#allocatePorts) on BOTH endings — after `agents.set` the
     // ports are covered by the live-agent scan, and on a failed dispatch
@@ -1684,6 +1688,7 @@ export class Dispatcher {
       this.reduction.journal('agent_spawned', {
         repo, ticket: n, agent: session, instance,
         model: useModel, requested_model: modelName, harness: harnessName, reasoning_effort: reasoningEffort,
+        ...this.#journalHarnessIdentity(harnessName),
         prompt_carries_limit_text: textCarriesLimitPhrase(full.title, full.body),
         kind: spawnKind({ charting }), instruction: charting ? instruction : null,
         ...(skill ? { skill, skill_target: skillTarget } : {}),
@@ -1701,7 +1706,8 @@ export class Dispatcher {
       const agent = {
         repo, ticket: n, title: full.title, session, instance, wtPath, cfgDir, promptFile,
         model: useModel, requestedModel: modelName, harness: harnessName, reasoningEffort, labels,
-        provider: this.routing.models[useModel].provider,
+        ...spawnIdentity(this.#journalHarnessIdentity(harnessName)),
+        provider: this.harnesses.get(harnessName).identity.provider,
         // #156: the published loopback ports. #157 hands them to
         // `publish_preview` as its port bound.
         ports: container.ports,
@@ -1810,14 +1816,25 @@ export class Dispatcher {
   // `--env-file`, and a pane env would put every value of it in `ps` — the cost
   // #155 measured and asked #156 not to repeat.
   async #spawnPlan({ session, ticket, repo, harness, model, wtPath, cfgDir, promptFile, ports, reviewer = false, resume = false }) {
+    const adapter = this.harnesses.get(harness)
     const harnessCmd = resume
-      ? buildResumeCmd(this.routing, harness, model)
-      : buildSpawnCmd(this.routing, harness, model, path.join(GUEST_CFG, path.basename(promptFile)))
+      ? adapter.lifecycle.resumeCommand({ routing: this.routing, model })
+      : adapter.lifecycle.freshCommand({
+          routing: this.routing, model, promptFile: path.join(GUEST_CFG, path.basename(promptFile)),
+        })
     const container = await this.#prepareContainer({
       session, ticket, repo, harness, model, wtPath, cfgDir, spawnCmd: harnessCmd,
       sandbox: this.config.sandbox, ports, reviewer,
     })
     return { container, shellCmd: container.shellCmd, env: {} }
+  }
+
+  #journalHarnessIdentity(harness) {
+    const adapter = this.harnesses.get(harness)
+    return {
+      adapter: adapter.identity.name,
+      config_layout: adapter.identity.configLayoutVersion,
+    }
   }
 
   // ---- the agent's GitHub credential (#389, ADR-0018) -------------------------
@@ -2174,13 +2191,15 @@ export class Dispatcher {
   // containers and the overseer, so there is no consumer named `anthropic` to
   // sign in. `openai` stays the bare default — it is the lane that can die on a
   // timer, so it is the one an operator reaches for without thinking.
-  async startReauth({ provider = CODEX_PROVIDER, by = null } = {}) {
+  async startReauth({ provider = CODEX_PROVIDER, by = null, action = null } = {}) {
     if (!this.reauth) return '❌ this daemon brokers no model credential, so it has nothing to sign back in'
     const lane = this.reauth.laneFor(provider)
     if (!lane) {
       return `❌ curia owns no \`${provider}\` credential, so there is nothing to sign back in. It can re-authenticate: ${this.reauth.providers.join(', ') || 'nothing'}`
     }
     if (!this.config.sandbox) return '❌ this daemon runs no containers, so it has nothing to run the login in'
+    action?.accept({ receipt: { provider } })
+    action?.progress('Preparing the agent image')
     let image
     try {
       image = await this.deps.ensureAgentImage(this.config.sandbox, {
@@ -2190,9 +2209,10 @@ export class Dispatcher {
       return `❌ the agent image is not available, so the login has nothing to run in (${e.message})`
     }
     this.reauth.image = image.ref
+    action?.progress('Starting the credential sign-in session')
     let started
     try {
-      started = await this.reauth.start({ provider })
+      started = await this.reauth.start({ provider, actionId: action?.actionId ?? null })
     } catch (e) {
       return `❌ the re-authentication session could not be started (${e.message})`
     }
@@ -2207,6 +2227,7 @@ export class Dispatcher {
     // through. Stamping it on the flow is what puts it on both, and keeps the
     // page out of the business of building a URL it cannot vouch for.
     this.reauth.noteTerminal(attach)
+    action?.progress('Waiting for browser sign-in')
     const where = attach
       ? `Terminal: ${attach}`
       : 'curia could not publish a terminal link for it. The dashboard card carries the link and the code.'
@@ -2861,8 +2882,8 @@ export class Dispatcher {
       if (guard) return guard
 
       const harnessName = this.routing.models[useModel].harness
-      if (!this.routing.harnesses[harnessName]) {
-        return `❌ unknown harness \`${harnessName}\` — configured harnesses: ${Object.keys(this.routing.harnesses).join(', ')}`
+      if (!this.routing.harnesses[harnessName] || !this.harnesses.has(harnessName)) {
+        return `❌ unknown harness \`${harnessName}\` — registered harnesses: ${this.harnesses.names.join(', ')}`
       }
       return await this.#spawnReviewer({
         session, ticket, repo: theRepo, issue, model: useModel, builderModel,
@@ -2894,7 +2915,7 @@ export class Dispatcher {
   // made and leaves the builder untouched, because the cross-check owns nothing
   // the ticket depends on.
   async #spawnReviewer({ session, ticket, repo, issue, model, builderModel, harnessName, sameProvider, by, tellBuilder = true }) {
-    const cfgDir = cfgDirFor(this.root, session)
+    const cfgDir = cfgDirFor(this.root, session, harnessName)
     let checkout = null
     try {
       checkout = await this.deps.createReviewCheckout(this.root, repo, ticket)
@@ -2925,6 +2946,7 @@ export class Dispatcher {
       // home for exactly what tmux cannot re-derive (#reconcileReviewers).
       this.reduction.journal('reviewer_spawned', {
         repo, ticket, agent: session, builder: `curia-${ticket}`, model, harness: harnessName,
+        ...this.#journalHarnessIdentity(harnessName),
         reasoning_effort: reasoningEffort,
         builder_model: builderModel, same_provider: sameProvider, sha: checkout.sha,
         prompt_carries_limit_text: textCarriesLimitPhrase(issue.title, issue.body),
@@ -2936,14 +2958,16 @@ export class Dispatcher {
       this.reduction.journal('agent_spawned', {
         repo, ticket, agent: session, model, requested_model: model,
         prompt_carries_limit_text: textCarriesLimitPhrase(issue.title, issue.body),
-        harness: harnessName, kind: spawnKind({ reviewer: true }),
+        harness: harnessName, ...this.#journalHarnessIdentity(harnessName),
+        kind: spawnKind({ reviewer: true }),
       })
 
       const agent = {
         repo, ticket, title: issue.title, session, instance: `${session}@${Date.now()}`,
         wtPath: checkout.path, cfgDir, promptFile,
         model, requestedModel: model, harness: harnessName,
-        provider: this.routing.models[model].provider,
+        ...spawnIdentity(this.#journalHarnessIdentity(harnessName)),
+        provider: this.harnesses.get(harnessName).identity.provider,
         ports: null, sandbox: 'docker',
         promptHarness: harnessName,
         spawnedAt: Date.now(), state: 'spawning', resultReceived: false,
@@ -3601,6 +3625,7 @@ export class Dispatcher {
     const ports = agent.reviewer ? [] : (allocated ? await this.#allocatePorts() : agent.ports)
     try {
       const reasoningEffort = reasoningEffortFor(this.routing, agent.labels ?? [], next)
+      agent.cfgDir = cfgDirFor(this.root, agent.session, nextHarness)
       this.#armAgent({
         session: agent.session, ticket: agent.ticket, harness: nextHarness,
         model: next, reasoningEffort, wtPath: agent.wtPath, cfgDir: agent.cfgDir,
@@ -3639,7 +3664,8 @@ export class Dispatcher {
       agent.model = next
       agent.reasoningEffort = reasoningEffort
       agent.harness = nextHarness
-      agent.provider = this.routing.models[next].provider
+      Object.assign(agent, spawnIdentity(this.#journalHarnessIdentity(nextHarness)))
+      agent.provider = this.harnesses.get(nextHarness).identity.provider
       agent.spawnedAt = Date.now()
       agent.state = 'spawning'
       // A respawn is a NEW client process, so what the last one proved about its
@@ -3666,6 +3692,7 @@ export class Dispatcher {
         repo: agent.repo, ticket: agent.ticket, agent: agent.session,
         instance: agent.instance ?? null,
         model: next, requested_model: agent.requestedModel, harness: nextHarness,
+        ...this.#journalHarnessIdentity(nextHarness),
         reasoning_effort: reasoningEffort,
         prompt_carries_limit_text: Boolean(agent.promptCarriesLimitText),
         kind: spawnKind(agent), instruction: agent.instruction ?? null,
@@ -6531,7 +6558,7 @@ export class Dispatcher {
         }
       }
     }
-    this.deps.removeConfigDir(w?.cfgDir ?? cfgDirFor(this.root, session))
+    this.deps.removeConfigDir(cfgDirFor(this.root, session))
     this.deps.forgetAgentToken(this.dataDir, session)
     this.agents.delete(session)
     if (w && !charting) {
@@ -6596,7 +6623,7 @@ export class Dispatcher {
     }
     this.agents.delete(session)
     const removed = await this.#removeReviewCheckout(w?.repo ?? this.#epochRepo(ticket), ticket, w?.wtPath)
-    this.deps.removeConfigDir(w?.cfgDir ?? cfgDirFor(this.root, session))
+    this.deps.removeConfigDir(cfgDirFor(this.root, session))
     this.deps.forgetAgentToken(this.dataDir, session)
     this.reduction.journal('reviewer_cancelled', { repo: w?.repo, ticket, agent: session, by: by ?? 'unknown', tracked: Boolean(w) })
     this.lapseConfirmsFor(session, `\`${session}\` was cancelled`)
@@ -7745,12 +7772,17 @@ export class Dispatcher {
           // a FRESH instance id: any confirm bound before the restart lapses
           // at boot rather than matching an adopted agent it never described
           const instance = `${session}@adopted-${Date.now()}`
+          const identity = spawnIdentity(spawn)
+          const cfgDir = identity.legacy || !identity.adapter
+            ? cfgDirFor(this.root, session)
+            : cfgDirFor(this.root, session, identity.adapter)
           this.agents.set(session, {
             repo, ticket: n, title: issue.title, session, instance,
-            wtPath, cfgDir: cfgDirFor(this.root, session), promptFile: path.join(cfgDirFor(this.root, session), 'prompt.md'),
+            wtPath, cfgDir, promptFile: path.join(cfgDir, 'prompt.md'),
             model: spawn?.model ?? null,
             requestedModel: spawn?.requested_model ?? spawn?.model ?? null,
             harness: spawn?.harness ?? null,
+            ...identity,
             reasoningEffort: spawn?.reasoning_effort ?? null,
             labels,
             provider: this.routing.models[spawn?.model]?.provider ?? null,
@@ -7774,6 +7806,7 @@ export class Dispatcher {
               model: spawn.model,
               requested_model: spawn.requested_model ?? spawn.model,
               harness: spawn.harness,
+              ...this.#journalHarnessIdentity(spawn.harness),
               prompt_carries_limit_text: spawn.prompt_carries_limit_text
                 ?? textCarriesLimitPhrase(issue.title, issue.body),
               kind: spawn.kind ?? spawnKind({ charting }), instruction: spawn.instruction ?? instruction,
@@ -7898,14 +7931,19 @@ export class Dispatcher {
       })
       : []
     const instance = `${session}@adopted-${Date.now()}`
+    const identity = spawnIdentity(spawn)
+    const cfgDir = identity.legacy || !identity.adapter
+      ? cfgDirFor(this.root, session)
+      : cfgDirFor(this.root, session, identity.adapter)
     this.agents.set(session, {
       repo, ticket: handle, title, session, instance,
       wtPath: worktreePathFor(this.root, repo, handle),
-      cfgDir: cfgDirFor(this.root, session),
-      promptFile: path.join(cfgDirFor(this.root, session), 'prompt.md'),
+      cfgDir,
+      promptFile: path.join(cfgDir, 'prompt.md'),
       model: spawn?.model ?? null,
       requestedModel: spawn?.requested_model ?? spawn?.model ?? null,
       harness: spawn?.harness ?? null,
+      ...identity,
       provider: this.routing.models[spawn?.model]?.provider ?? null,
       ports: ports.length ? ports : null,
       sandbox: ports.length ? 'docker' : null,
@@ -7957,7 +7995,10 @@ export class Dispatcher {
         continue
       }
       const ticket = String(spawn.ticket)
-      const cfgDir = cfgDirFor(this.root, session)
+      const identity = spawnIdentity(spawn)
+      const cfgDir = identity.legacy || !identity.adapter
+        ? cfgDirFor(this.root, session)
+        : cfgDirFor(this.root, session, identity.adapter)
       this.agents.set(session, {
         repo: spawn.repo,
         ticket,
@@ -7972,6 +8013,7 @@ export class Dispatcher {
         model: spawn.model ?? null,
         requestedModel: spawn.requested_model ?? spawn.model ?? null,
         harness: spawn.harness ?? null,
+        ...identity,
         provider: this.routing.models[spawn.model]?.provider ?? null,
         ports: null,
         sandbox: spawn.sandbox ?? null,
@@ -8115,7 +8157,8 @@ export class Dispatcher {
       // builder's does, and it is abandoned by the same rule.
       if (!SESSION_RE.test(dir) && !REVIEW_SESSION_RE.test(dir)) continue
       if (sessions.includes(dir) || this.agents.has(dir) || this.inFlight.has(dir)) continue
-      const cfgDir = cfgDirFor(this.root, dir)
+      const sessionRoot = cfgDirFor(this.root, dir)
+      const configRoots = [sessionRoot, ...this.harnesses.names.map((harness) => cfgDirFor(this.root, dir, harness))]
       // One name per harness, plus the one the daemon mints itself. Two terminal
       // states KEEP the whole config dir for a post-mortem, so every credential
       // in it outlives its agent: the claude harness's `.credentials.json`, the
@@ -8124,10 +8167,10 @@ export class Dispatcher {
       // host credential in a container (#158, and every dispatch is one), so a
       // codex agent on a box still holding #155's PAT has no `gh` dir either —
       // it was stepped over here with a live host token on disk (#467).
-      const holds = ['.credentials.json', 'auth.json', GH_DIR]
-        .some((name) => fs.existsSync(path.join(cfgDir, name)))
-      if (!holds) continue
-      this.deps.removeCredentials(cfgDir)
+      const occupied = configRoots.filter((cfgDir) => ['.credentials.json', 'auth.json', GH_DIR]
+        .some((name) => fs.existsSync(path.join(cfgDir, name))))
+      if (!occupied.length) continue
+      for (const cfgDir of occupied) this.deps.removeCredentials(cfgDir)
       this.reduction.journal('credentials_swept', { agent: dir })
       this.log(`reconcile: swept the credentials of dead ${dir} (workspace kept)`)
     }

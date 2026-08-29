@@ -62,6 +62,7 @@ describe('CSRF gate on the loopback surface (index.mjs, real boot)', () => {
     const shim = path.join(tmp, 'shim')
     fs.mkdirSync(cfgDir, { recursive: true })
     fs.mkdirSync(shim, { recursive: true })
+    fs.mkdirSync(path.join(tmp, 'work', 'home'), { recursive: true })
     // inert failing stubs: boot reconcile's gh/tmux reads come back
     // indeterminate (a failed pass, by design), tailscale serve fails non-fatally
     for (const bin of ['gh', 'tmux', 'tailscale']) {
@@ -69,6 +70,16 @@ describe('CSRF gate on the loopback surface (index.mjs, real boot)', () => {
       fs.writeFileSync(p, '#!/bin/sh\nexit 1\n')
       fs.chmodSync(p, 0o755)
     }
+    const npx = path.join(shim, 'npx')
+    fs.writeFileSync(npx, [
+      '#!/bin/sh',
+      'if [ "$3" = "login" ]; then',
+      '  printf "CODE T72NNC\\nOPEN https://aistack.to/cli/auth?code=T72NNC\\n"',
+      '  exec sleep 30',
+      'fi',
+      'printf "auto-sync on\\n"',
+    ].join('\n'))
+    fs.chmodSync(npx, 0o755)
     const [daemonPort, ttydPort, servePort, proxyPort] = await freePorts(4)
     port = daemonPort
     fs.writeFileSync(path.join(cfgDir, 'curia.yaml'), [
@@ -177,6 +188,63 @@ describe('CSRF gate on the loopback surface (index.mjs, real boot)', () => {
     })
     assert.equal(res.status, 200)
     assert.ok(JSON.parse(res.body).id, 'the request went through to the real route')
+  })
+
+  test('machine registration exposes one durable Action and refuses a conflicting press', async () => {
+    const post = (route, actionId) => request(port, 'POST', route, {
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ action_id: actionId }),
+    })
+    const started = await post('/aistack/register', 'atlas-aistack-register-1')
+    assert.equal(started.status, 200)
+    assert.equal(JSON.parse(started.body).action.status, 'accepted')
+
+    let status
+    for (let i = 0; i < 100; i++) {
+      status = JSON.parse((await request(port, 'GET', '/aistack')).body)
+      if (status.flow?.code) break
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+    assert.equal(status.flow.code, 'T72NNC')
+    assert.equal(status.flow.action_id, 'atlas-aistack-register-1')
+    assert.equal(status.actions.find((action) => action.action_id === 'atlas-aistack-register-1').status, 'progress')
+
+    const conflict = await post('/aistack/register', 'atlas-aistack-register-2')
+    assert.equal(conflict.status, 409)
+    assert.equal(JSON.parse(conflict.body).action.status, 'refused')
+
+    const cancelled = await post('/aistack/cancel', 'atlas-aistack-cancel-1')
+    assert.equal(cancelled.status, 200)
+    assert.equal(JSON.parse(cancelled.body).action.status, 'accepted')
+
+    for (let i = 0; i < 100; i++) {
+      status = JSON.parse((await request(port, 'GET', '/aistack')).body)
+      const action = status.actions.find((candidate) => candidate.action_id === 'atlas-aistack-cancel-1')
+      if (action?.status === 'confirmed') break
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+    assert.equal(status.flow.phase, 'cancelled')
+    assert.equal(status.actions.find((action) => action.action_id === 'atlas-aistack-cancel-1').status, 'confirmed')
+  })
+
+  test('Feed reads are idempotent login-scoped Actions with monotonic cross-device cursors (#811)', async () => {
+    const visit = (actionId) => request(port, 'POST', '/feed/read', {
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ by: 'Tester@Example.com', action_id: actionId }),
+    })
+
+    const first = JSON.parse((await visit('atlas-feed-read-device-one')).body).action
+    assert.equal(first.status, 'confirmed')
+    assert.equal(first.target, 'tester@example.com')
+    assert.equal(first.conflict_key, 'feed-read:tester@example.com')
+    assert.equal(first.receipt.previous, null)
+
+    const retry = JSON.parse((await visit('atlas-feed-read-device-one')).body).action
+    assert.deepEqual(retry, first, 'the same Action cannot stamp the cursor twice')
+
+    const second = JSON.parse((await visit('atlas-feed-read-device-two')).body).action
+    assert.equal(second.receipt.previous, first.receipt.at)
+    assert.ok(second.receipt.at > first.receipt.at)
   })
 
   test('Sec-Fetch-Site: none (a direct navigation-style value) passes', async () => {
@@ -776,12 +844,15 @@ describe('POST /restart: the daemon journals and exits nonzero (#265, real boot)
   test('the order is answered first and the process exits nonzero after it', async () => {
     const res = await request(port, 'POST', '/restart', {
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ by: 'dashboard' }),
+      body: JSON.stringify({ by: 'dashboard', action_id: 'atlas-daemon-restart', uptime_s: 91 }),
     })
     assert.equal(res.status, 200, 'the answer leaves before the exit takes the socket')
     const body = JSON.parse(res.body)
     assert.equal(body.ok, true)
     assert.equal(body.by, 'dashboard')
+    assert.equal(body.action.status, 'accepted')
+    assert.equal(body.action.conflict_key, 'daemon:lifecycle')
+    assert.equal(body.action.receipt.uptime_s, 91)
 
     const code = await new Promise((done) => child.once('close', (c) => done(c)))
     assert.equal(code, body.exit_code)
@@ -792,6 +863,7 @@ describe('POST /restart: the daemon journals and exits nonzero (#265, real boot)
     const logged = events.filter((e) => e.type === 'restart_requested')
     assert.equal(logged.length, 1)
     assert.equal(logged[0].by, 'dashboard')
+    assert.equal(logged[0].action_id, body.action.action_id)
   })
 })
 
@@ -945,13 +1017,18 @@ describe('the console verbs on the loopback surface (#266, real boot)', () => {
       id = JSON.parse(res.body).id
     })
 
-    test('an option index resolves to the option\'s words, and the files land under the question\'s own directory', async () => {
+    test('an Atlas answer and a later Discord answer agree on the shared winner', async () => {
       const data = Buffer.from('a: 1\n').toString('base64')
       const res = await post('/answer', {
-        id, index: 1, answer: '', by: 'alp@example.com', via: 'dashboard',
+        id, index: 1, answer: '', by: 'alp@example.com', via: 'dashboard', action_id: 'atlas-answer-esc-choice',
         files: [{ name: '../../notes.txt', data }, { name: 'shot.png', data: Buffer.from('png').toString('base64') }],
       })
       assert.equal(res.status, 200, res.body)
+      const atlas = JSON.parse(res.body)
+      assert.equal(atlas.action.status, 'confirmed')
+      assert.equal(atlas.action.kind, 'escalation-answer')
+      assert.equal(atlas.action.target, id)
+      assert.equal(atlas.action.conflict_key, `answer:${id}`)
       const answered = journal().filter((e) => e.type === 'esc_answer' && e.id === id)
       assert.equal(answered.length, 1)
       const dir = path.join(dataDir, 'attachments', id)
@@ -962,10 +1039,12 @@ describe('the console verbs on the loopback surface (#266, real boot)', () => {
     })
 
     test('a second answer is refused with the first receipt, and journals nothing', async () => {
-      const res = await post('/answer', { id, index: 0, by: 'other@example.com', via: 'dashboard', files: [{ name: 'late.txt', data: Buffer.from('x').toString('base64') }] })
+      const res = await post('/answer', { id, index: 0, by: 'other', via: 'button', action_id: 'discord-answer-esc-choice', files: [{ name: 'late.txt', data: Buffer.from('x').toString('base64') }] })
       assert.equal(res.status, 409)
       const body = JSON.parse(res.body)
       assert.equal(body.reason, 'answered')
+      assert.equal(body.action.status, 'refused')
+      assert.equal(body.action.conflict_key, `answer:${id}`)
       assert.equal(body.receipt.by, 'alp@example.com')
       assert.equal(body.receipt.via, 'dashboard')
       assert.match(body.receipt.answer, /^Preview/)
@@ -1014,18 +1093,54 @@ describe('the console verbs on the loopback surface (#266, real boot)', () => {
     assert.equal(journal().filter((e) => e.type === 'console_conversation_opened').length, 2)
   })
 
+  test('a mint Action is idempotent and carries the new conversation for immediate navigation', async () => {
+    const action_id = 'atlas-console-new-1'
+    const first = JSON.parse((await post('/console/new', { action_id })).body)
+
+    assert.equal(first.action.status, 'confirmed')
+    assert.equal(first.action.kind, 'console-conversation-open')
+    assert.equal(first.action.conflict_key, 'conversation-registry')
+    assert.match(first.key, /^console-\d+$/)
+    assert.equal(first.session, `curia-${first.key}`)
+
+    const retried = JSON.parse((await post('/console/new', { action_id })).body)
+    assert.equal(retried.action.action_id, action_id)
+    assert.equal(retried.key, first.key)
+    assert.equal(journal().filter((e) => e.type === 'console_conversation_opened' && e.key === first.key).length, 1)
+  })
+
   test('a deleted number is spent — the next conversation counts past it', async () => {
     assert.equal((await post('/console/delete', { key: 'console-1' })).status, 200)
     const list = JSON.parse((await request(port, 'GET', '/console')).body).conversations
-    assert.deepEqual(list.map((c) => c.key), ['console-2'])
+    assert.deepEqual(list.map((c) => c.key), ['console-3', 'console-2'])
     const next = JSON.parse((await post('/console/new', {})).body)
-    assert.equal(next.key, 'console-3', 'never console-1 again — that would wake the deleted memory')
+    assert.equal(next.key, 'console-4', 'never console-1 again — that would wake the deleted memory')
   })
 
   test('deleting one that is not there is a refusal in words, not a silent success', async () => {
     const res = await post('/console/delete', { key: 'console-1' })
     assert.equal(res.status, 409)
     assert.match(JSON.parse(res.body).error, /no conversation/)
+  })
+
+  test('delete Actions conflict per conversation and a stale delete is refused', async () => {
+    const created = JSON.parse((await post('/console/new', { action_id: 'atlas-console-new-delete' })).body)
+    const deleted = JSON.parse((await post('/console/delete', {
+      key: created.key, action_id: 'atlas-console-delete-1',
+    })).body)
+
+    assert.equal(deleted.action.status, 'confirmed')
+    assert.equal(deleted.action.target, created.key)
+    assert.equal(deleted.action.conflict_key, `conversation:${created.key}`)
+    assert.equal(deleted.action.receipt.key, created.key)
+
+    const stale = await post('/console/delete', {
+      key: created.key, action_id: 'atlas-console-delete-stale',
+    })
+    assert.equal(stale.status, 409)
+    const refusal = JSON.parse(stale.body)
+    assert.equal(refusal.action.status, 'refused')
+    assert.match(refusal.action.reason, /no conversation/)
   })
 
   test('a key this daemon would never mint is refused before anything is journalled', async () => {

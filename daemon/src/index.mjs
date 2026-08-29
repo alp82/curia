@@ -42,7 +42,8 @@ import { Cooling, providerOf } from './routing.mjs'
 import { Dispatcher } from './dispatch.mjs'
 import { REVIEW_KIND, RESULT_KIND, NOTIFY_KIND } from './lifecycle.mjs'
 import { sameDigest } from './diffdigest.mjs'
-import { CommandRouter } from './commands.mjs'
+import { CommandRouter, actionForCommand } from './commands.mjs'
+import { ActionCoordinator } from './actions.mjs'
 import { SelfDeploy } from './deploy.mjs'
 import { OverseerClient, OverseerTurns, serveConversationMcp, serveVerbMcp } from './overseerclient.mjs'
 import { OverseerPaneHost } from './overseerpane.mjs'
@@ -367,6 +368,18 @@ const githubAppSetup = new GitHubAppSetup({
   },
 })
 
+// A setup spans the trip through github.com, so its Action can outlive this
+// process. The setup record carries only the Action identity. The journal
+// still owns the evidence and the setup record still contains no credential.
+{
+  const setup = githubAppSetup.status()
+  const evidence = setup.action_id ? actions.get(setup.action_id) : null
+  if (evidence && !['confirmed', 'refused', 'failed'].includes(evidence.status)) {
+    if (setup.status === 'complete') reduction.recordAction({ ...evidence, status: 'confirmed' })
+    if (setup.status === 'expired') reduction.recordAction({ ...evidence, status: 'failed', reason: 'GitHub App setup expired after one hour' })
+  }
+}
+
 // #390: the DAEMON cuts over. Every `gh` child it spawns for a named repo now
 // carries that owner's minted write token, so the frontier reads, the claims,
 // the pull requests and the branch pushes all run as `curia-sh[bot]`.
@@ -395,6 +408,7 @@ log(`claims assign ${curiaConfig.dispatch.claim_login} (dispatch.claim_login) �
 // the journal file into the database. `log` is a hoisted function declaration,
 // so the conversion line reaches journalctl even from here.
 const reduction = new Reduction(DATA, { log })
+const actions = new ActionCoordinator(reduction, { log })
 
 // The boot line (#436). The journal is `node:sqlite`, which Node marks Stability
 // 1.2, so a patch update can change the API, the defaults and the bundled SQLite
@@ -508,8 +522,9 @@ const modelWindows = new ModelWindows({ credentials: anthropic, log })
 
 // Same harness resolution the timeline uses: the dispatcher's word on what it
 // spawned, on-disk evidence for re-adopted and lab sessions.
-const cfgDirFor = (session) => path.join(curiaConfig.dispatch.workspace_root, 'cfg', session)
-const harnessFor = (session) => dispatcher?.agents.get(session)?.harness ?? detectHarness(cfgDirFor(session))
+const agentCfgDirFor = (session) => dispatcher?.agents.get(session)?.cfgDir
+  ?? path.join(curiaConfig.dispatch.workspace_root, 'cfg', session)
+const harnessFor = (session) => dispatcher?.agents.get(session)?.harness ?? detectHarness(agentCfgDirFor(session))
 
 // Everything the status line says about one agent beyond its state. Named
 // rather than inlined because `GET /overview` reads the same meters for the
@@ -524,7 +539,7 @@ const harnessFor = (session) => dispatcher?.agents.get(session)?.harness ?? dete
 // default only speaks when no record exists.
 const metersFor = (session, model) => agentMeters({
   harness: harnessFor(session),
-  cfgDir: cfgDirFor(session),
+  cfgDir: agentCfgDirFor(session),
   model: model ?? dispatcher?.agents.get(session)?.model ?? null,
   effort: dispatcher?.agents.get(session)?.reasoningEffort ?? null,
   routing: routingConfig,
@@ -536,6 +551,7 @@ const statusLine = new StatusLine({
   post: (ticket, text, opts) => (bridge ? bridge.postStatus(ticket, text, opts) : null),
   edit: (ids, text, opts) => (bridge ? bridge.editStatus(ids, text, opts) : false),
   remove: (ids) => (bridge ? bridge.deleteStatus(ids) : null),
+  find: (ticket) => (bridge ? bridge.findStatus(ticket) : null),
   // The thread-name state glyph (#199): the status line derives the state,
   // the bridge renders it. With the bridge down the flag is dropped — the
   // next transition retries, and the name is display only.
@@ -1315,10 +1331,42 @@ const aistackReg = new AistackRegistration({
 // registration, and joining them anywhere else would give one of them a
 // reference to the other for no other reason.
 function aistackStatus() {
+  const live = aistackReg.status({ machine: reduction.registeredAistackMachine() })
+  const reducedFlow = reduction.aistackRegistration()
+  let flow = reducedFlow ?? (live.flow?.phase === 'waiting' && (!live.flow.code || !live.flow.url)
+    ? { phase: 'unregistered' }
+    : live.flow)
+  if (live.registered) flow = { phase: 'registered', action_id: flow?.action_id ?? null, at: live.machine?.at ?? null }
+  else if (live.flow?.phase === 'waiting') flow = live.flow
+
+  // A child process can't be reattached after a daemon restart. Keep its
+  // journal-reduced device code truthful until the CLI's own wait expires,
+  // then settle both the ceremony and its Action from shared facts.
+  const expiresAt = Number(flow?.expires_at)
+  if (flow?.phase === 'waiting' && !aistackReg.flow && Number.isFinite(expiresAt) && expiresAt > 0 && expiresAt <= Date.now()) {
+    const message = 'nobody approved the login within three minutes, so the CLI stopped waiting'
+    reduction.journal('aistack_login_failed', {
+      phase: 'expired', message, action_id: flow.action_id ?? null,
+    })
+    flow = reduction.aistackRegistration()
+  }
+
+  const registrationAction = flow?.action_id ? actions.get(flow.action_id) : null
+  if (registrationAction && !['confirmed', 'refused', 'failed'].includes(registrationAction.status)) {
+    if (live.registered) actions.confirm(registrationAction.action_id, { receipt: { outcome: 'registered' } })
+    else if (['failed', 'expired', 'cancelled'].includes(flow?.phase)) {
+      reduction.recordAction({
+        ...registrationAction, status: 'failed',
+        reason: flow.message ?? `The registration ${flow.phase}`,
+      })
+    }
+  }
   const alarm = reduction.standingAistackAlarm()
   return {
     ok: true,
-    ...aistackReg.status({ machine: reduction.registeredAistackMachine() }),
+    ...live,
+    flow,
+    actions: actions.overview().filter((action) => action.conflict_key === 'aistack:machine-registration'),
     sync: {
       last: reduction.lastAistackSync(),
       // The unrepaired failure, if there is one. Its message is the CLI's, and
@@ -1632,9 +1680,12 @@ const timeline = new TimelineSurface({
   workspaceRoot: curiaConfig.dispatch.workspace_root,
   log,
   deps: {
+    actions,
     journal: (type, detail) => reduction.journal(type, detail),
+    draftFor: (session) => reduction.chatDraft(session),
+    recordDraft: (session, text) => reduction.recordChatDraft(session, text),
     harnessFor: (session) => dispatcher.agents.get(session)?.harness
-      ?? detectHarness(path.join(curiaConfig.dispatch.workspace_root, 'cfg', session)),
+      ?? detectHarness(agentCfgDirFor(session)),
     // The dialog guard's composer veto (#75): a visible ready marker (#39)
     // says the pane is at its composer, so a dialog-footer phrase in the tail
     // is scrollback, not a dialog.
@@ -1670,6 +1721,7 @@ const timeline = new TimelineSurface({
       const key = consoleKeyForSession(session)
       if (!key) return null
       return {
+        key,
         cfgDir: overseerContainer.configDir,
         sessionId: reduction.overseerSession(key) ?? null,
         // #708, ADR-0024: the message goes into the conversation's own live
@@ -2886,6 +2938,7 @@ async function overview() {
     token_warnings: reduction.standingTokenWarnings(),
     feed_reads: reduction.lastFeedReads(),
     events: reduction.recentEvents(),
+    actions: actions.overview(),
     maps: mapSnapshotOnWire,
     frontier: dispatcher.frontierSnapshot(),
     // The last self-deploy and any in-flight one (#562): the outcome used to
@@ -2899,7 +2952,7 @@ async function overview() {
 // lives in usage.mjs beside `ctxOnWire`; what stays here is the wiring — the
 // reduction this daemon holds and the overseer container's config dir and model.
 function ticketConversationOnWire({ session, repo, ticket, title = null, model = null, reasoningEffort = null, state, reviewer = false, cfgDir = null, harness = null, live = true }) {
-  const root = cfgDir ?? cfgDirFor(curiaConfig.dispatch.workspace_root, session)
+  const root = cfgDir ?? agentCfgDirFor(session)
   const detected = harness ?? detectHarness(root)
   const transcript = detected ? findTranscript(detected, root) : null
   let lastTurnAt = null
@@ -3153,13 +3206,33 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
   }
 
   if (url.pathname === '/github-app/start' && req.method === 'POST') {
-    const { name, redirect_url: redirectUrl } = await readBody(req)
+    const { name, redirect_url: redirectUrl, action_id: actionId } = await readBody(req)
+    if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(String(actionId ?? ''))) {
+      return json(400, { error: 'action_id is not a valid Action id' })
+    }
+    const action = {
+      action_id: String(actionId), kind: 'github-app-setup', target: 'github-app-setup',
+      conflict_key: 'github-app:setup',
+    }
+    const recorded = actions.get(action.action_id)
+    if (recorded) return json(200, { action: recorded })
+    const conflict = actions.overview().find((candidate) =>
+      candidate.conflict_key === action.conflict_key && !['confirmed', 'refused', 'failed'].includes(candidate.status))
+    if (conflict) {
+      const refused = await actions.run(action, async () => ({
+        status: 'refused', reason: 'another GitHub App setup is already in progress',
+      }))
+      return json(200, { action: refused })
+    }
     try {
-      const started = githubAppSetup.start({ name, redirectUrl })
-      reduction.journal('github_app_setup_started', { expires_at: started.expires_at })
-      return json(200, started)
+      const started = githubAppSetup.start({ name, redirectUrl, actionId: action.action_id })
+      const accepted = reduction.recordAction({ ...action, status: 'accepted' })
+      reduction.recordAction({ ...action, status: 'progress', progress: 'Waiting for GitHub to complete setup' })
+      reduction.journal('github_app_setup_started', { expires_at: started.expires_at, action_id: action.action_id })
+      return json(200, { action: accepted, setup: started })
     } catch (e) {
-      return json(400, { error: e.message })
+      const refused = reduction.recordAction({ ...action, status: 'refused', reason: e.message })
+      return json(200, { action: refused })
     }
   }
 
@@ -3167,27 +3240,57 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
   // the operator presses once and the kept reading is replaced, awaited here
   // so the answer states what the press measured.
   if (url.pathname === '/github-app/installations' && req.method === 'POST') {
-    if (!appMinter) return json(400, { error: 'no GitHub App is configured, so there is nothing to read installations for' })
-    appMinter.readFacts().catch((e) => log(`could not read the GitHub App's own facts (${e.message})`))
-    try {
-      const installs = await appMinter.refreshInstallations()
-      reduction.journal('github_app_installations_read', { owners: installs.map((i) => i.owner) })
-      return json(200, { ok: true, reply: `Read ${installs.length} installation${installs.length === 1 ? '' : 's'}: ${installs.map((i) => i.owner).join(', ') || 'none'}`, installations: appMinter.reading })
-    } catch (e) {
-      return json(200, { ok: false, reply: `The installation read failed: ${e.message}`, installations: appMinter.reading })
+    const { action_id: actionId } = await readBody(req)
+    if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(String(actionId ?? ''))) {
+      return json(400, { error: 'action_id is not a valid Action id' })
     }
+    const action = {
+      action_id: String(actionId), kind: 'github-app-installations', target: 'github-app-installations',
+      conflict_key: 'github-app:installations',
+    }
+    const evidence = await actions.run(action, async (controls) => {
+      const conflict = actions.overview().find((candidate) =>
+        candidate.action_id !== action.action_id && candidate.conflict_key === action.conflict_key
+        && !['confirmed', 'refused', 'failed'].includes(candidate.status))
+      if (conflict) return { status: 'refused', reason: 'another GitHub App installation read is already in progress' }
+      if (!appMinter) return { status: 'refused', reason: 'no GitHub App is configured, so there is nothing to read installations for' }
+      controls.accept()
+      controls.progress('Reading GitHub App installations')
+      appMinter.readFacts().catch((e) => log(`could not read the GitHub App's own facts (${e.message})`))
+      try {
+        const installs = await appMinter.refreshInstallations()
+        const reply = `Read ${installs.length} installation${installs.length === 1 ? '' : 's'}: ${installs.map((i) => i.owner).join(', ') || 'none'}`
+        reduction.journal('github_app_installations_read', { owners: installs.map((i) => i.owner), action_id: action.action_id })
+        return { status: 'confirmed', receipt: { reply, installations: appMinter.reading } }
+      } catch (e) {
+        return {
+          status: 'failed', reason: `The installation read failed: ${e.message}`,
+          receipt: { reply: `The installation read failed: ${e.message}`, installations: appMinter.reading },
+        }
+      }
+    })
+    return json(200, { action: evidence })
   }
 
   if (url.pathname === '/github-app/complete' && req.method === 'GET') {
+    const setupActionId = githubAppSetup.status().action_id ?? null
     try {
       const completed = await githubAppSetup.complete({
         code: url.searchParams.get('code'),
         state: url.searchParams.get('state'),
       })
       reduction.journal('github_app_setup_completed', { app: completed.app, replay: !completed.ok })
+      const current = setupActionId ? actions.get(setupActionId) : null
+      if (current && !['confirmed', 'refused', 'failed'].includes(current.status)) {
+        reduction.recordAction({ ...current, status: 'confirmed', receipt: { app: completed.app } })
+      }
       return json(200, completed)
     } catch (e) {
       reduction.journal('github_app_setup_failed', { error: e.message })
+      const current = setupActionId ? actions.get(setupActionId) : null
+      if (current && !['confirmed', 'refused', 'failed'].includes(current.status)) {
+        reduction.recordAction({ ...current, status: 'failed', reason: e.message })
+      }
       return json(400, { error: e.message })
     }
   }
@@ -3249,6 +3352,27 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
   // being looked at would spend a number every time the operator glanced at the
   // screen, and numbers only go up.
   if (url.pathname === '/console/new' && req.method === 'POST') {
+    const { action_id: actionId } = await readBody(req)
+    if (actionId != null) {
+      if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(String(actionId))) {
+        return json(400, { error: 'action_id is not a valid Action id' })
+      }
+      const action = {
+        action_id: String(actionId), kind: 'console-conversation-open',
+        target: 'conversation-registry', conflict_key: 'conversation-registry',
+      }
+      const evidence = await actions.run(action, async () => {
+        const key = reduction.openConsoleConversation()
+        const session = sessionForConsoleKey(key)
+        log(`console: opened browser conversation ${key}`)
+        return { status: 'confirmed', receipt: { key, session } }
+      })
+      return json(200, {
+        action: evidence,
+        key: evidence.receipt?.key,
+        session: evidence.receipt?.session,
+      })
+    }
     const key = reduction.openConsoleConversation()
     log(`console: opened browser conversation ${key}`)
     return json(200, { key, session: sessionForConsoleKey(key) })
@@ -3259,8 +3383,28 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
   // 409 rather than a silent success, because the page may be showing a list
   // another device has already changed.
   if (url.pathname === '/console/delete' && req.method === 'POST') {
-    const key = String((await readBody(req)).key ?? '')
+    const { key: rawKey, action_id: actionId } = await readBody(req)
+    const key = String(rawKey ?? '')
     if (!isConsoleKey(key)) return json(400, { error: `\`${key}\` is not a browser conversation key` })
+    if (actionId != null) {
+      if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(String(actionId))) {
+        return json(400, { error: 'action_id is not a valid Action id' })
+      }
+      const action = {
+        action_id: String(actionId), kind: 'console-conversation-delete',
+        target: key, conflict_key: `conversation:${key}`,
+      }
+      const evidence = await actions.run(action, async () => {
+        if (!reduction.deleteConsoleConversation(key)) {
+          return { status: 'refused', reason: `there is no conversation \`${key}\` — it may already be deleted` }
+        }
+        revokeConversationToken(DATA, key)
+        log(`console: deleted browser conversation ${key} — its number is spent`)
+        return { status: 'confirmed', receipt: { key } }
+      })
+      const code = evidence.status === 'confirmed' ? 200 : evidence.status === 'failed' ? 500 : 409
+      return json(code, { action: evidence, ...(evidence.reason ? { error: evidence.reason } : {}) })
+    }
     if (!reduction.deleteConsoleConversation(key)) {
       return json(409, { ok: false, error: `there is no conversation \`${key}\` — it may already be deleted` })
     }
@@ -3298,34 +3442,63 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
   if (url.pathname === '/answer' && req.method === 'POST') {
     const body = await readBody(req)
     const { id, attachments, by, via, index, files: inline } = body
-    let answer = String(body.answer ?? '')
-    // An option index is the same answer a Discord button sends (#712,
-    // ADR-0025): every surface resolves a pick to the option's own words, so
-    // the record and the agent read one text whichever control was pressed.
-    const live = reduction.resolveLive(String(id ?? '')).record
-    const picked = Number.isInteger(index) ? live?.options?.[index] : undefined
-    if (picked !== undefined) answer = String(picked)
-    // A browser reply's files (#712) are written first, then walk the same
-    // containment gate the bridge's downloads walk, so one path reads them.
-    const written = live?.status === 'open' ? writeReplyFiles(live.id, inline) : { paths: [], refusals: [] }
-    if (written.refusals.length) return json(400, { ok: false, reason: 'files', error: written.refusals.join('; ') })
-    // Attachment paths get read and inlined into an agent's context, so they
-    // pass the same containment gate as outbound attachments rather than being
-    // trusted because the caller reached loopback.
-    const { files } = outboundFiles('rest', [...(attachments ?? []), ...written.paths])
-    if (written.paths.length) answer = [answer, ...written.paths.map((p) => `[attachment: ${p}]`)].filter(Boolean).join('\n')
-    // #266: the console names the operator who pressed and the surface they
-    // pressed on, so the journal and the feed say `answered by <login> via
-    // dashboard` rather than attributing every browser answer to `rest`. The
-    // default is what every caller before this one already sent.
-    const result = gate.answer(id, {
-      answer: String(answer), attachments: files.map((f) => f.attachment), by: named(by), via: named(via),
+    const settleAnswer = () => {
+      let answer = String(body.answer ?? '')
+      // An option index is the same answer a Discord button sends (#712,
+      // ADR-0025): every surface resolves a pick to the option's own words, so
+      // the record and the agent read one text whichever control was pressed.
+      const live = reduction.resolveLive(String(id ?? '')).record
+      const picked = Number.isInteger(index) ? live?.options?.[index] : undefined
+      if (picked !== undefined) answer = String(picked)
+      // A browser reply's files (#712) are written first, then walk the same
+      // containment gate the bridge's downloads walk, so one path reads them.
+      const written = live?.status === 'open' ? writeReplyFiles(live.id, inline) : { paths: [], refusals: [] }
+      if (written.refusals.length) return { ok: false, reason: 'files', error: written.refusals.join('; ') }
+      // Attachment paths get read and inlined into an agent's context, so they
+      // pass the same containment gate as outbound attachments rather than being
+      // trusted because the caller reached loopback.
+      const { files } = outboundFiles('rest', [...(attachments ?? []), ...written.paths])
+      if (written.paths.length) answer = [answer, ...written.paths.map((p) => `[attachment: ${p}]`)].filter(Boolean).join('\n')
+      // #266: the console names the operator who pressed and the surface they
+      // pressed on, so the journal and the feed say `answered by <login> via
+      // dashboard` rather than attributing every browser answer to `rest`. The
+      // default is what every caller before this one already sent.
+      const result = gate.answer(id, {
+        answer: String(answer), attachments: files.map((f) => f.attachment), by: named(by), via: named(via),
+      })
+      // A second answer gets the first receipt (#712, ADR-0025): the refusal
+      // carries who answered, where, when and what, so the surface that lost the
+      // race shows the mark and never a second question. Nothing is journalled.
+      if (!result.ok && result.record?.status === 'answered') result.receipt = answerReceipt(result.record)
+      return result
+    }
+
+    const actionId = body.action_id == null ? '' : String(body.action_id)
+    if (!actionId) {
+      const result = settleAnswer()
+      return json(result.ok ? 200 : result.reason === 'files' ? 400 : 409, result)
+    }
+    if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(actionId)) {
+      return json(400, { error: 'action_id is not a valid Action id' })
+    }
+    const action = {
+      action_id: actionId, kind: 'escalation-answer', target: String(id ?? ''),
+      conflict_key: `answer:${String(id ?? '')}`,
+    }
+    const evidence = await actions.run(action, async () => {
+      const result = settleAnswer()
+      return result.ok
+        ? { status: 'confirmed', receipt: answerReceipt(result.record) }
+        : { status: 'refused', reason: result.reason, error: result.error, receipt: result.receipt ?? null }
     })
-    // A second answer gets the first receipt (#712, ADR-0025): the refusal
-    // carries who answered, where, when and what, so the surface that lost the
-    // race shows the mark and never a second question. Nothing is journalled.
-    if (!result.ok && result.record?.status === 'answered') result.receipt = answerReceipt(result.record)
-    return json(result.ok ? 200 : 409, result)
+    const ok = evidence.status === 'confirmed'
+    const result = {
+      ok, action: evidence,
+      ...(evidence.reason ? { reason: evidence.reason } : {}),
+      ...(evidence.error ? { error: evidence.error } : {}),
+      ...(evidence.receipt ? { receipt: evidence.receipt } : {}),
+    }
+    return json(ok ? 200 : evidence.reason === 'files' ? 400 : 409, result)
   }
 
   // The console's note (#266). A note in Discord is any message in an agent's
@@ -3349,7 +3522,26 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
     const body = await readBody(req)
     const by = typeof body.by === 'string' ? body.by.trim() : ''
     if (!by) return json(400, { error: 'a feed read names the operator login that read it' })
-    return json(200, reduction.markFeedRead(named(by)))
+    const actionId = String(body.action_id ?? '')
+    if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(actionId)) {
+      return json(400, { error: 'action_id is not a valid Action id' })
+    }
+    const login = named(by).toLowerCase()
+    const action = {
+      action_id: actionId,
+      kind: 'feed-read',
+      target: login,
+      conflict_key: `feed-read:${login}`,
+    }
+    const evidence = await actions.run(action, async () => {
+      const conflict = actions.overview().find((candidate) =>
+        candidate.action_id !== action.action_id && candidate.conflict_key === action.conflict_key
+        && !['confirmed', 'refused', 'failed'].includes(candidate.status))
+      if (conflict) return { status: 'refused', reason: 'another Feed visit for this login is already being recorded' }
+      const receipt = reduction.markFeedRead(login, { action })
+      return { status: 'confirmed', receipt }
+    })
+    return json(evidence.status === 'confirmed' ? 200 : 409, { action: evidence })
   }
 
   if (url.pathname === '/cancel' && req.method === 'POST') {
@@ -3406,8 +3598,29 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
   // seam Discord uses — two hand-rolled copies of log+journal+dispatch had
   // already drifted apart.
   if (url.pathname === '/command' && req.method === 'POST') {
-    const { text, by } = await readBody(req)
+    const { text, by, action_id: actionId } = await readBody(req)
     if (typeof text !== 'string' || !text.trim()) return json(400, { error: 'body must carry {text}' })
+    if (actionId != null) {
+      let action
+      try {
+        action = actionForCommand(text, actionId)
+      } catch (error) {
+        return json(400, { error: error.message })
+      }
+      const evidence = await actions.run(action, async (controls) => {
+        const reply = await gate.command(text, named(by), { action: { ...controls, actionId: action.action_id } })
+        const current = actions.get(action.action_id)
+        if (!current) return { status: 'refused', reason: reply }
+        if (action.kind === 'credential-sign-in') {
+          if (/^❌/.test(reply)) return { status: 'failed', reason: reply }
+          if (current.status === 'accepted' || current.status === 'progress') return { status: current.status }
+          return { status: 'confirmed' }
+        }
+        if (/^⚙️ dispatched\b/.test(reply)) return { status: 'confirmed' }
+        return { status: 'failed', reason: reply }
+      })
+      return json(200, { action: evidence })
+    }
     const reply = await gate.command(text, named(by))
     return json(200, { reply })
   }
@@ -3461,26 +3674,172 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
     return json(200, aistackStatus())
   }
   if (url.pathname === '/aistack/register' && req.method === 'POST') {
-    const out = await aistackReg.begin()
-    return json(out.ok === false ? 409 : 200, out.ok === false ? out : aistackStatus())
+    const { action_id: actionId } = await readBody(req).catch(() => ({}))
+    if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(String(actionId ?? ''))) {
+      return json(400, { error: 'action_id is not a valid Action id' })
+    }
+    const action = {
+      action_id: String(actionId), kind: 'aistack-register', target: 'aistack-machine',
+      conflict_key: 'aistack:machine-registration',
+    }
+    const recorded = actions.get(action.action_id)
+    if (recorded) return json(200, { action: recorded })
+    const conflict = actions.overview().find((candidate) => candidate.conflict_key === action.conflict_key
+      && !['confirmed', 'refused', 'failed'].includes(candidate.status))
+    const reason = aistackReg.registered()
+      ? 'this box is already registered with aistack — revoke the machine at aistack.to/settings/machines and delete the credential on the box before registering it again'
+      : conflict ? 'another machine-registration Action is already in progress' : null
+    if (reason) {
+      const refused = reduction.recordAction({ ...action, status: 'refused', reason })
+      return json(409, { ok: false, error: reason, action: refused })
+    }
+    const evidence = await actions.run(action, async (controls) => {
+      controls.accept()
+      controls.progress('Starting the device login')
+      const out = await aistackReg.begin({ actionId: action.action_id })
+      if (!out.ok) return { status: 'failed', reason: out.error }
+      controls.progress('Waiting for approval', {
+        receipt: { code: out.flow.code, url: out.flow.url, expires_at: out.flow.expires_at },
+      })
+      return { status: 'progress' }
+    })
+    return json(200, { action: evidence })
   }
   if (url.pathname === '/aistack/cancel' && req.method === 'POST') {
-    const out = aistackReg.cancel()
-    return json(out.ok === false ? 409 : 200, out.ok === false ? out : aistackStatus())
+    const { action_id: actionId } = await readBody(req).catch(() => ({}))
+    if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(String(actionId ?? ''))) {
+      return json(400, { error: 'action_id is not a valid Action id' })
+    }
+    const action = {
+      action_id: String(actionId), kind: 'aistack-cancel', target: 'aistack-machine',
+      conflict_key: 'aistack:machine-registration',
+    }
+    const recorded = actions.get(action.action_id)
+    if (recorded) return json(200, { action: recorded })
+    const flow = aistackStatus().flow
+    const conflict = actions.overview().find((candidate) => candidate.conflict_key === action.conflict_key
+      && !['confirmed', 'refused', 'failed'].includes(candidate.status))
+    const reason = flow?.phase !== 'waiting'
+      ? 'no aistack registration is waiting'
+      : conflict && conflict.kind !== 'aistack-register' ? 'another machine-registration Action is already in progress' : null
+    if (reason) {
+      const refused = reduction.recordAction({ ...action, status: 'refused', reason })
+      return json(409, { ok: false, error: reason, action: refused })
+    }
+    if (conflict) reduction.recordAction({ ...conflict, status: 'failed', reason: 'The registration was cancelled before approval' })
+    const evidence = await actions.run(action, async (controls) => {
+      controls.accept()
+      const out = aistackReg.cancel({ restored: flow })
+      if (!out.ok) return { status: 'failed', reason: out.error }
+      return { status: 'confirmed', receipt: { outcome: 'cancelled' } }
+    })
+    return json(200, { action: evidence })
   }
   if (url.pathname === '/aistack/optin' && req.method === 'POST') {
-    const out = await aistackReg.optIn()
-    if (out.ok === false) return json(409, out)
-    return json(200, { ok: true, said: out.said, ...aistackStatus() })
+    const { action_id: actionId } = await readBody(req).catch(() => ({}))
+    if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(String(actionId ?? ''))) {
+      return json(400, { error: 'action_id is not a valid Action id' })
+    }
+    const action = {
+      action_id: String(actionId), kind: 'aistack-optin', target: 'aistack-machine',
+      conflict_key: 'aistack:machine-registration',
+    }
+    const recorded = actions.get(action.action_id)
+    if (recorded) return json(200, { action: recorded })
+    const conflict = actions.overview().find((candidate) => candidate.conflict_key === action.conflict_key
+      && !['confirmed', 'refused', 'failed'].includes(candidate.status))
+    const reason = !aistackReg.registered()
+      ? "register the box with aistack first — the standing permission is granted with the box's own token"
+      : conflict ? 'another machine-registration Action is already in progress' : null
+    if (reason) {
+      const refused = reduction.recordAction({ ...action, status: 'refused', reason })
+      return json(409, { ok: false, error: reason, action: refused })
+    }
+    const evidence = await actions.run(action, async (controls) => {
+      controls.accept()
+      controls.progress('Granting the standing permission')
+      const out = await aistackReg.optIn()
+      if (!out.ok) return { status: 'failed', reason: out.error }
+      return { status: 'confirmed', receipt: { said: out.said } }
+    })
+    return json(200, { action: evidence })
+  }
+
+  if (url.pathname === '/settings/action' && req.method === 'POST') {
+    const body = await readBody(req).catch(() => ({}))
+    const actionId = String(body?.action_id ?? '')
+    const paths = [...new Set(Array.isArray(body?.paths) ? body.paths.map(String) : [])].sort()
+    const allowed = new Set(['curia.local.yaml', 'routing.local.yaml'])
+    if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(actionId)) {
+      return json(400, { error: 'action_id is not a valid Action id' })
+    }
+    if (!paths.length || paths.some((candidate) => !allowed.has(candidate))) {
+      return json(400, { error: 'paths must name curia.local.yaml, routing.local.yaml, or both' })
+    }
+
+    const recorded = actions.get(actionId)
+    if (recorded) return json(200, { action: recorded })
+    const wanted = new Set(paths)
+    const conflict = actions.overview().find((candidate) =>
+      candidate.kind === 'settings-save'
+      && !['confirmed', 'refused', 'failed'].includes(candidate.status)
+      && String(candidate.target).split(',').some((candidatePath) => wanted.has(candidatePath)))
+    const action = {
+      action_id: actionId,
+      kind: 'settings-save',
+      target: paths.join(','),
+      conflict_key: `settings:${paths.join('+')}`,
+    }
+    if (conflict) {
+      const refused = reduction.recordAction({
+        ...action,
+        status: 'refused',
+        reason: `${paths.join(' and ')} is already being saved`,
+      })
+      return json(200, { action: refused })
+    }
+    reduction.recordAction({ ...action, status: 'accepted' })
+    const progress = reduction.recordAction({
+      ...action,
+      status: 'progress',
+      progress: `Writing ${paths.join(' and ')}`,
+    })
+    return json(200, { action: progress })
+  }
+
+  if (url.pathname === '/settings/action/finish' && req.method === 'POST') {
+    const body = await readBody(req).catch(() => ({}))
+    const action = actions.get(String(body?.action_id ?? ''))
+    if (!action || action.kind !== 'settings-save') return json(404, { error: 'settings Action not found' })
+    if (['confirmed', 'refused', 'failed'].includes(action.status)) return json(200, { action })
+    const status = ['confirmed', 'refused', 'failed'].includes(body?.status) ? body.status : 'failed'
+    const settled = reduction.recordAction({
+      ...action,
+      status,
+      ...(body?.reason != null ? { reason: String(body.reason) } : {}),
+      ...(body?.receipt != null ? { receipt: body.receipt } : {}),
+    })
+    return json(200, { action: settled })
   }
 
   if (url.pathname === '/reload' && req.method === 'POST') {
     const body = await readBody(req).catch(() => ({}))
     const by = named(body?.by)
+    const actionId = String(body?.action_id ?? '')
+    const action = actionId ? actions.get(actionId) : null
+    const written = Array.isArray(body?.written) ? body.written.map(String) : []
+    if (action && !['confirmed', 'refused', 'failed'].includes(action.status)) {
+      reduction.recordAction({ ...action, status: 'progress', progress: 'Applying settings' })
+    }
+    const settle = (status, detail) => {
+      if (!action || ['confirmed', 'refused', 'failed'].includes(actions.get(actionId)?.status)) return null
+      return reduction.recordAction({ ...action, status, ...detail })
+    }
     const decline = (reason, detail) => {
       reduction.journal('config_reload_declined', { by, reason, ...detail })
       log(`reload declined for ${by}: ${detail.error ?? detail.key}`)
-      return json(200, { ok: false, reason, ...detail })
+      const evidence = settle('confirmed', { receipt: { written, applied: [], reload: { ok: false, reason, ...detail } } })
+      return json(200, { ok: false, reason, ...detail, ...(evidence ? { action: evidence } : {}) })
     }
 
     let nextCuria
@@ -3540,7 +3899,8 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
     log(applied.length
       ? `config reloaded by ${by}: ${applied.join(', ')}`
       : `config reloaded by ${by} — the file says what this daemon was already running`)
-    return json(200, { ok: true, by, applied, loaded_at: configLoadedAt })
+    const evidence = settle('confirmed', { receipt: { written, applied } })
+    return json(200, { ok: true, by, applied, loaded_at: configLoadedAt, ...(evidence ? { action: evidence } : {}) })
   }
 
   // The restart (#249 item 6, built by #265). No sudoers, no host change and no
@@ -3560,10 +3920,46 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
   if (url.pathname === '/restart' && req.method === 'POST') {
     const body = await readBody(req).catch(() => ({}))
     const by = typeof body?.by === 'string' ? body.by : 'loopback'
-    reduction.journal('restart_requested', { by, exit_code: RESTART_EXIT_CODE })
+    const actionId = body?.action_id == null ? null : String(body.action_id)
+    let evidence = null
+    if (actionId != null) {
+      if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(actionId)) {
+        return json(400, { error: 'action_id is not a valid Action id' })
+      }
+      const action = {
+        action_id: actionId,
+        kind: 'daemon-restart',
+        target: 'daemon',
+        conflict_key: 'daemon:lifecycle',
+      }
+      const uptime = body?.uptime_s
+      const recorded = actions.get(actionId)
+      if (recorded) return json(200, { ok: true, by, exit_code: RESTART_EXIT_CODE, action: recorded })
+      const conflict = actions.overview().find((candidate) =>
+        candidate.conflict_key === action.conflict_key
+        && !['confirmed', 'refused', 'failed'].includes(candidate.status))
+      if (conflict) {
+        const refused = reduction.recordAction({
+          ...action,
+          status: 'refused',
+          reason: 'the daemon is already restarting',
+        })
+        return json(409, { ok: false, error: refused.reason, action: refused })
+      }
+      evidence = reduction.recordAction({
+        ...action,
+        status: 'accepted',
+        ...(typeof uptime === 'number' && Number.isFinite(uptime) && uptime >= 0 ? { receipt: { uptime_s: uptime } } : {}),
+      })
+    }
+    reduction.journal('restart_requested', {
+      by, exit_code: RESTART_EXIT_CODE, ...(actionId ? { action_id: actionId } : {}),
+    })
     log(`restart requested by ${by} — exiting ${RESTART_EXIT_CODE} so the supervisor respawns this process`)
     res.writeHead(200, { 'content-type': 'application/json' })
-    return res.end(JSON.stringify({ ok: true, by, exit_code: RESTART_EXIT_CODE }), () => {
+    return res.end(JSON.stringify({
+      ok: true, by, exit_code: RESTART_EXIT_CODE, ...(evidence ? { action: evidence } : {}),
+    }), () => {
       goodbyeThenExit('restart', RESTART_EXIT_CODE, RESTART_DELAY_MS)
     })
   }

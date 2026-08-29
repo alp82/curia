@@ -524,6 +524,37 @@ describe('ticketless skill dispatch (#684)', () => {
 })
 
 describe('in-flight admission guard (criterion 3)', () => {
+  test('an Action is accepted after the claim and reports progress before slow preparation finishes', async () => {
+    let releaseClone
+    const clone = new Promise((resolve) => { releaseClone = resolve })
+    const evidence = []
+    const d = makeDispatcher({
+      createPrivateClone: async (root, repo, ticket) => {
+        await clone
+        return fakePrivateClone(root, repo, ticket)
+      },
+    })
+
+    const start = d.start('42', {
+      repo: 'o/r', by: 'test',
+      action: {
+        accept: () => evidence.push(['accepted']),
+        progress: (message) => evidence.push(['progress', message]),
+      },
+    })
+    await waitFor(() => evidence.length >= 2)
+
+    assert.deepEqual(evidence, [
+      ['accepted'],
+      ['progress', 'Preparing the agent workspace'],
+    ])
+    assert.ok(events.some((event) => event.type === 'dispatch_claimed'), 'acceptance follows the durable claim')
+    assert.ok(!events.some((event) => event.type === 'agent_spawned'), 'the slow operation is still running')
+
+    releaseClone()
+    assert.match(await start, /dispatched/)
+  })
+
   test('a second start() interleaving with the first is refused, and the ticket is claimed exactly once', async () => {
     let claims = 0
     let spawns = 0
@@ -1876,11 +1907,11 @@ describe('the claim assigns dispatch.claim_login (#390)', () => {
 
 describe('the agent mints its GitHub token (#389)', () => {
   const envFileOf = (session) => {
-    const file = path.join(tmp, 'work', 'cfg', session, ENV_FILE)
+    const file = path.join(tmp, 'work', 'cfg', session, 'claude', ENV_FILE)
     return Object.fromEntries(fs.readFileSync(file, 'utf8').split('\n')
       .filter(Boolean).map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]))
   }
-  const cfgOf = (session) => path.join(tmp, 'work', 'cfg', session)
+  const cfgOf = (session) => path.join(tmp, 'work', 'cfg', session, 'claude')
   const hostsOf = (session) => path.join(cfgOf(session), GH_DIR, 'hosts.yml')
 
   // A minter shaped like the real one and reaching no GitHub: a fresh token per
@@ -2136,12 +2167,12 @@ describe('every spawn path authenticates the agent the same way (#53, #156)', ()
   // is frozen for the agent's life by construction, and a file in the config dir
   // is what the dispatch tick can rewrite under a running agent (#659).
   const envFileOf = (session) => {
-    const file = path.join(tmp, 'work', 'cfg', session, ENV_FILE)
+    const file = path.join(tmp, 'work', 'cfg', session, 'claude', ENV_FILE)
     return Object.fromEntries(fs.readFileSync(file, 'utf8').split('\n')
       .filter(Boolean).map((l) => [l.slice(0, l.indexOf('=')), l.slice(l.indexOf('=') + 1)]))
   }
   const credentialOf = (session) => JSON.parse(
-    fs.readFileSync(path.join(tmp, 'work', 'cfg', session, '.credentials.json'), 'utf8'),
+    fs.readFileSync(path.join(tmp, 'work', 'cfg', session, 'claude', '.credentials.json'), 'utf8'),
   ).claudeAiOauth
 
   test('the initial spawn puts nothing in the pane, no credential in the env file, and the credential in a file', async () => {
@@ -3458,6 +3489,24 @@ describe('reconcile sweeps abandoned credential copies (W6)', () => {
 
     assert.deepEqual(swept, ['curia-77'], 'the codex credential copy outlived its agent')
     assert.ok(events.some((e) => e.type === 'credentials_swept' && e.agent === 'curia-77'))
+  })
+
+  test('a dead agent loses credentials from every per-Harness root', async () => {
+    const sessionRoot = path.join(tmp, 'work', 'cfg', 'curia-77')
+    for (const [harness, file] of [['claude', '.credentials.json'], ['codex', 'auth.json']]) {
+      const dir = path.join(sessionRoot, harness)
+      fs.mkdirSync(dir, { recursive: true })
+      fs.writeFileSync(path.join(dir, file), '{}')
+    }
+    const swept = []
+    const d = makeDispatcher({
+      listSessions: async () => [],
+      removeCredentials: (dir) => swept.push(path.relative(sessionRoot, dir)),
+    })
+
+    await d.reconcile({ boot: false })
+
+    assert.deepEqual(swept.sort(), ['claude', 'codex'])
   })
 
   test('an INDETERMINATE session list sweeps nothing (the W1 interaction)', async () => {
@@ -5812,12 +5861,15 @@ describe('dispatching across two harnesses (#39)', () => {
     await d.start('42', { repo: 'o/r', by: 'test' })
     assert.deepEqual(seeded, ['codex'])
     assert.deepEqual(harnessed, ['codex'])
+    const journalled = events.find((event) => event.type === 'agent_spawned')
+    assert.equal(journalled.adapter, 'codex')
+    assert.equal(journalled.config_layout, 1)
     // the CLI model id, not the routing name
     assert.match(spawn.shellCmd, /codex --model gpt-5\.5/)
     // #195: the pane carries NO environment at all — the container's env file
     // carries CODEX_HOME, and a pane env would show every value in `ps`
     assert.deepEqual(spawn.env, {})
-    assert.match(fs.readFileSync(path.join(tmp, 'work', 'cfg', 'curia-42', ENV_FILE), 'utf8'), /^CODEX_HOME=/m)
+    assert.match(fs.readFileSync(path.join(tmp, 'work', 'cfg', 'curia-42', 'codex', ENV_FILE), 'utf8'), /^CODEX_HOME=/m)
   })
 
   // The bug this ordering fixes: `harness` used to be read off the REQUESTED
@@ -5875,10 +5927,12 @@ describe('dispatching across two harnesses (#39)', () => {
     // #195: the pane carries no environment either time — the claude
     // variables are in the container env file the respawn rewrote
     assert.deepEqual(spawns[1].env, {})
-    const envFile = fs.readFileSync(path.join(tmp, 'work', 'cfg', 'curia-42', ENV_FILE), 'utf8')
+    const envFile = fs.readFileSync(path.join(tmp, 'work', 'cfg', 'curia-42', 'claude', ENV_FILE), 'utf8')
     assert.match(envFile, /^CLAUDE_CONFIG_DIR=/m)
     assert.match(envFile, /^CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT=/m)
     assert.equal(/^CLAUDE_SECURESTORAGE_CONFIG_DIR=/m.test(envFile), false, 'the container denies the host HOME')
+    assert.equal(fs.existsSync(path.join(tmp, 'work', 'cfg', 'curia-42', 'codex')), true,
+      'the fallback preserves the source Harness root instead of reusing its native state')
     // and the watchdog that follows must read the NEW harness's marker
     assert.ok(events.some((e) => e.type === 'agent_spawned' && e.harness === 'claude'))
   })
@@ -8068,6 +8122,33 @@ describe('signing the anthropic lane back in (#660)', () => {
     assert.match(said, /paste the code/i)
     assert.ok(!/one-time code that lives fifteen minutes/.test(said), 'that is the codex lane’s sentence')
     assert.ok(events.some((e) => e.type === 'reauth_requested' && e.provider === 'anthropic'))
+  })
+
+  test('the browser receives acceptance and image progress before the login session can start', async () => {
+    let finishImage
+    const image = new Promise((resolve) => { finishImage = resolve })
+    const d = makeDispatcher({ ensureAgentImage: async () => image })
+    d.reauth.newSession = async () => {}
+    d.reauth.hasSession = async () => false
+    const seen = []
+    const action = {
+      actionId: 'atlas-reauth-anthropic',
+      accept: () => seen.push('accepted'),
+      progress: (progress) => seen.push(progress),
+    }
+
+    const pending = d.startReauth({ provider: 'anthropic', by: 'u1', action })
+    await Promise.resolve()
+    assert.deepEqual(seen, ['accepted', 'Preparing the agent image'])
+
+    finishImage({ ref: 'curia-agent:test' })
+    await pending
+    assert.deepEqual(seen, [
+      'accepted', 'Preparing the agent image', 'Starting the credential sign-in session', 'Waiting for browser sign-in',
+    ])
+    assert.ok(events.some((event) => event.type === 'reauth_started'
+      && event.action_id === 'atlas-reauth-anthropic'))
+    assert.equal(d.credentialsStatus().reauth.action_id, 'atlas-reauth-anthropic')
   })
 
   // #661, closing #645 finding 4. The terminal is the path that ALWAYS works —
