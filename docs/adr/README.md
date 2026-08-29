@@ -20,6 +20,8 @@ One file per standing decision. A decision earns an ADR when it still constrains
 ## Dispatch and routing
 
 - [ADR-0004](0004-label-only-routing.md): Model routing reads labels only. Quota awareness is cooling on two triggers, a landed cap and a hot reading, and exhaustion makes the frontier the queue.
+- [ADR-0029](0029-selectable-harnesses-satisfy-one-behavioral-contract.md): A selectable harness proves Curia's complete lifecycle through one public adapter. Optional conveniences are declared, and shared automated and live conformance checks guard the boundary. Decided, not built.
+- [ADR-0030](0030-harness-adapters-compose-native-behavior.md): A static registry returns composed Harness adapters. Shared services own invariants, adapters own native behavior, and the journal owns runtime identity. Decided, not built.
 - [ADR-0022](0022-the-overseers-command-understanding.md): The overseer quotes a refusal and copies ids verbatim, a roundtrip test guards the seam, a typed verb runs before a model turn, and the map tool splits in two. Decided, not built.
 - [ADR-0023](0023-the-skill-dispatch-from-prose.md): A skill asked for in prose starts the ticket that carries it, and a `skill` verb runs the ask no ticket carries. No confirm press, because the review gate holds every tracker write, and its card groups the proposed tickets by waves. Decided, not built.
 

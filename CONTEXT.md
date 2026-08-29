@@ -127,6 +127,14 @@ The operator's move of a live agent to another routing label, from the `model` b
 The program an agent runs under: claude or codex. It is a function of the model: `models.<x>.harness` states one value, and no command overrides it. A pin that disagreed with the model built `codex --model opus`, which is not a model.
 _Avoid_: backend, lane.
 
+**Selectable harness**:
+A Harness that has proved Curia's complete agent lifecycle and may therefore receive a model through routing. Missing operator conveniences are allowed only when the Harness declares them and Curia refuses or hides the unavailable act before touching its pane.
+_Avoid_: supported CLI, installed harness.
+
+**Harness adapter**:
+The one boundary that translates a Harness's native configuration, launch, pane, transcript, instruction, tool-channel, and completion behavior into the Selectable harness contract.
+_Avoid_: harness row, harness branch.
+
 **Cooling**:
 A hold on a model or provider. Three triggers write three kinds of entry, and every start path steps the fallback chain over all three. Two of them end at a stated reset; a **credential hold** ends when a person acts.
 
@@ -699,6 +707,10 @@ The patch text of one file, fetched on demand and never on the poll. The browser
 **Operator verb**:
 An act the console carries: start, answer, and the review gate. Each one is a POST to the sidecar, which composes the daemon call from the fields the page sends. A browser never hands over a command line. Start goes through the command seam the slash verbs use, so a press from the console journals the same event a typed command does. The Agents page carries no verb of its own (#709): a note, a cancel or a teleport on one agent is a Chat act, where the overseer's typed verbs run it through the same seam. The sidecar's note, cancel, teleport and per-agent diff routes still answer, but no Atlas page presses them.
 
+**Optimistic transition**:
+Atlas's immediate, visibly pending projection of a valid operator verb before shared daemon evidence arrives. It bridges that gap only; daemon evidence confirms, advances, refuses, or fails the act for every client.
+_Avoid_: optimistic state (the projection isn't confirmed state), loading state (the operator already acted).
+
 **Routed model**:
 The model a takeable ticket gets if it starts now. Reconcile computes it with the daemon's own precedence rule and joins it onto each frontier item, so the console names the account a press spends before spending it. It states what routing decides, not what a spawn does: cooling is read at the spawn, and the feed reports the chain it walked.
 
@@ -764,6 +776,14 @@ _Avoid_: usage (that is the raw percent, which says nothing about speed).
 How full an agent's context window is. The numerator is the last request's input tokens from the transcript. The denominator comes from the best source that has one: the window the codex transcript states, then `max_input_tokens` from `GET /v1/models/<id>` for the model id the claude transcript names, then `models.<name>.context_window`. It is never clamped — a figure above 100% says the denominator is wrong, not that the agent is full.
 
 ### State and evidence
+
+**Action**:
+One locally validated operator attempt to change shared state. Its identity stays the same across retries and every surface that reports its outcome.
+_Avoid_: mutation, operation, request.
+
+**Action evidence**:
+A daemon-owned fact that says an Action was accepted, advanced, confirmed, refused, or failed. A browser projection and a transport outcome are not Action evidence.
+_Avoid_: action state, HTTP result.
 
 **Journal**:
 Curia's durable record of its own events, append-only and in time order. It is the daemon's only durable artifact, and the reduction is derived from it. It is a `node:sqlite` database at `daemon/data/events.db`. To journal an event is to write one row of that record.

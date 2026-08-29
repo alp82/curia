@@ -287,10 +287,7 @@ export class SelfDeploy {
     // successor announces — the poll below simply dies with it.
     this.resolvePending({ announce: this.announce ?? undefined })
       .catch((e) => this.log(`deploy watch failed: ${e.message}`))
-    return [
-      `${note}🚀 deploy handed off: ${short(prev)} → ${short(next)}. The daemon restarts now.`,
-      `The sibling health-checks the successor and rolls back to ${short(prev)} if it does not come up — either way the outcome lands here.`,
-    ].join('\n')
+    return `${note}⏳ deploying curia (${short(prev)} → ${short(next)}) now...`
   }
 
   // The surviving daemon's half, called once at boot: wait for the sibling to
@@ -311,25 +308,25 @@ export class SelfDeploy {
     let text
     if (state === 'landed') {
       this.reduction.journal('deploy_landed', { prev, next })
-      text = `🚀 deploy landed: ${short(prev)} → ${short(next)} — the health check passed`
+      text = `🚀 curia deploy finished (${short(prev)} → ${short(next)}) successfully`
     } else if (state === 'merge-refused') {
       // Nothing was recreated: the sibling refused the fast-forward before it
       // touched a container, so the running daemon never stopped. The excerpt
       // carries git's own words — "untracked working tree files would be
       // overwritten" reads very differently from a crash-looping successor.
       this.reduction.journal('deploy_merge_refused', { prev, next, reason })
-      text = `❌ deploy refused: git could not fast-forward to ${short(next)} — nothing was recreated, ${short(prev)} never stopped.\n${this.logExcerpt() || 'See daemon/data/deploy.log.'}`
+      text = `❌ curia deploy failed (${short(prev)} → ${short(next)}): git could not fast-forward. Nothing was recreated, and ${short(prev)} never stopped.\n${this.logExcerpt() || 'See daemon/data/deploy.log.'}`
     } else if (state === 'rolled-back') {
       this.reduction.journal('deploy_rolled_back', { prev, next, reason })
-      text = `⚠️ deploy ROLLED BACK: ${reason ?? `${short(next)} failed its health check`} — running ${short(prev)} again. See daemon/data/deploy.log.`
+      text = `⚠️ curia deploy rolled back (${short(prev)} → ${short(next)}): ${reason ?? `${short(next)} failed its health check`}. Running ${short(prev)} again. See daemon/data/deploy.log.`
     } else if (state === 'lockout') {
       // A daemon that can say this survived, so the word is one notch too
       // dark — but the sibling gave up, and that deserves the loud spelling.
       this.reduction.journal('deploy_rolled_back', { prev, next, reason: 'lockout: the rollback health check failed too' })
-      text = `🛑 deploy failed AND the rollback health check failed (${short(prev)} → ${short(next)}) — the box needs eyes. See daemon/data/deploy.log.`
+      text = `🛑 curia deploy failed (${short(prev)} → ${short(next)}), and the rollback health check failed. The box needs eyes. See daemon/data/deploy.log.`
     } else {
       this.reduction.journal('deploy_unresolved', { prev, next, state })
-      text = `⚠️ deploy outcome unknown: the sibling never wrote a result (last state **${state}**, ${short(prev)} → ${short(next)}). See daemon/data/deploy.log.`
+      text = `⚠️ curia deploy outcome is unknown (${short(prev)} → ${short(next)}): the sibling never wrote a result (last state **${state}**). See daemon/data/deploy.log.`
     }
     // The dashboard's record (#562), written before the marker goes away.
     try {

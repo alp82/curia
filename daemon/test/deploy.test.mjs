@@ -109,7 +109,7 @@ describe('the daemon half: preflight and hand-off', () => {
   test('the preflight checks the active host login from curia home', async () => {
     const { deploy, gh, docker } = build()
     const reply = await deploy.run({ by: 'u1' })
-    assert.match(reply, /deploy handed off/)
+    assert.match(reply, /deploying curia/)
     assert.equal(gh.length, 1)
     assert.deepEqual(gh[0].args, ['auth', 'status', '--hostname', 'github.com', '--active'])
     assert.equal(gh[0].options.env.HOME, '/home/alp/curia-work/home')
@@ -160,7 +160,7 @@ describe('the daemon half: preflight and hand-off', () => {
     const { deploy, reduction, docker, git } = build({ dirty: ' M daemon/package-lock.json\n' })
     const reply = await deploy.run({ by: 'u1' })
     assert.match(reply, /discarded npm lockfile churn in daemon\/package-lock\.json/)
-    assert.match(reply, /deploy handed off/)
+    assert.match(reply, /deploying curia/)
     assert.deepEqual(git.find((args) => args[0] === 'checkout'), ['checkout', '--', 'daemon/package-lock.json'])
     assert.equal(reduction.events[0].type, 'deploy_lockfile_churn_discarded')
     assert.deepEqual(reduction.events[0].files, ['daemon/package-lock.json'])
@@ -215,7 +215,7 @@ describe('the daemon half: preflight and hand-off', () => {
     })
     const reply = await deploy.run({ by: 'u1' })
     assert.match(reply, /removed untracked docs\/check\.sh/)
-    assert.match(reply, /deploy handed off/)
+    assert.match(reply, /deploying curia/)
     assert.equal(fs.existsSync(path.join(repoRoot, 'docs/check.sh')), false)
     assert.equal(reduction.events[0].type, 'deploy_untracked_dup_discarded')
     assert.deepEqual(reduction.events[0].files, ['docs/check.sh'])
@@ -260,7 +260,7 @@ describe('the daemon half: preflight and hand-off', () => {
   test('an untracked file the deploy does not touch stays none of its business', async () => {
     const { deploy, docker } = build({ untracked: 'config/curia.local.yaml\n', added: 'daemon/src/new.mjs\n' })
     const reply = await deploy.run({ by: 'u1' })
-    assert.match(reply, /deploy handed off/)
+    assert.match(reply, /deploying curia/)
     assert.equal(docker.length, 1)
   })
 
@@ -274,7 +274,7 @@ describe('the daemon half: preflight and hand-off', () => {
   test('the hand-off writes the marker, journals, and starts the sibling', async () => {
     const { deploy, reduction, docker } = build()
     const reply = await deploy.run({ by: 'u1' })
-    assert.match(reply, /deploy handed off: a{7} → b{7}/)
+    assert.equal(reply, '⏳ deploying curia (aaaaaaa → bbbbbbb) now...')
     const marker = deploy.readMarker()
     assert.equal(marker.state, 'handed-off')
     assert.equal(marker.prev, PREV)
@@ -301,7 +301,7 @@ describe('the daemon half: preflight and hand-off', () => {
 
     const reply = await deploy.run({ by: 'u1' })
 
-    assert.match(reply, /deploy handed off/)
+    assert.match(reply, /deploying curia/)
     assert.deepEqual(calls, ['parked'])
     assert.equal(docker.length, 1)
   })
@@ -347,7 +347,7 @@ describe('the surviving daemon half: resolution', () => {
     const { said, p } = resolve(deploy)
     assert.equal(await p, 'landed')
     assert.deepEqual(reduction.events, [{ type: 'deploy_landed', prev: PREV, next: NEXT }])
-    assert.match(said[0], /deploy landed/)
+    assert.equal(said[0], '🚀 curia deploy finished (aaaaaaa → bbbbbbb) successfully')
     assert.equal(deploy.readMarker(), null)
   })
 
@@ -363,7 +363,7 @@ describe('the surviving daemon half: resolution', () => {
     assert.equal(await p, 'rolled-back')
     assert.equal(reduction.events[0].type, 'deploy_rolled_back')
     assert.equal(reduction.events[0].reason, 'health check failed')
-    assert.match(said[0], /ROLLED BACK/)
+    assert.equal(said[0], '⚠️ curia deploy rolled back (aaaaaaa → bbbbbbb): health check failed. Running aaaaaaa again. See daemon/data/deploy.log.')
   })
 
   // #562: a refused merge recreated nothing, so the announcement must not read
@@ -374,8 +374,7 @@ describe('the surviving daemon half: resolution', () => {
     const { said, p } = resolve(deploy)
     assert.equal(await p, 'merge-refused')
     assert.equal(reduction.events[0].type, 'deploy_merge_refused')
-    assert.match(said[0], /deploy refused/)
-    assert.match(said[0], /nothing was recreated/)
+    assert.equal(said[0], '❌ curia deploy failed (aaaaaaa → bbbbbbb): git could not fast-forward. Nothing was recreated, and aaaaaaa never stopped.\nSee daemon/data/deploy.log.')
     assert.doesNotMatch(said[0], /health check/)
     assert.equal(deploy.readMarker(), null)
   })
@@ -386,6 +385,14 @@ describe('the surviving daemon half: resolution', () => {
     const { said, p } = resolve(deploy)
     assert.equal(await p, 'rolled-back')
     assert.match(said[0], /docker compose could not recreate the services/)
+  })
+
+  test('a failed rollback uses the same compact deploy shape', async () => {
+    const { deploy } = build()
+    writeMarker(deploy, 'lockout')
+    const { said, p } = resolve(deploy)
+    assert.equal(await p, 'lockout')
+    assert.equal(said[0], '🛑 curia deploy failed (aaaaaaa → bbbbbbb), and the rollback health check failed. The box needs eyes. See daemon/data/deploy.log.')
   })
 
   // The dashboard's record (#562): the marker dies with the announcement, so
@@ -457,7 +464,7 @@ describe('the surviving daemon half: resolution', () => {
     const { said, p } = resolve(deploy)
     assert.equal(await p, 'handed-off')
     assert.equal(reduction.events[0].type, 'deploy_unresolved')
-    assert.match(said[0], /outcome unknown/)
+    assert.equal(said[0], '⚠️ curia deploy outcome is unknown (aaaaaaa → bbbbbbb): the sibling never wrote a result (last state **handed-off**). See daemon/data/deploy.log.')
     assert.equal(deploy.readMarker(), null)
   })
 })
