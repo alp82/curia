@@ -1,5 +1,7 @@
 // Model routing (#13): label resolution, two-level cooling cache, transitive
 // fallback candidates, spawn-command build, usage-limit parse.
+
+import { CODEX_CREDIT_GATE_RE, CODEX_LIMIT_RE } from './codexharness.mjs'
 //
 // Two providers since #39, which is what #13 asked for and what #33 deferred.
 // The shapes that were already here for one provider now carry real weight: a
@@ -461,12 +463,7 @@ export const LIMIT_PATTERNS = {
   // instant in its transcript, and #handleLimit reads it there (#175). What
   // stays conservative is the case neither surface states: an hour.
   openai: {
-    reached: new RegExp(
-      `you${AP}ve (?:hit|reached) your (?:usage limit|workspace credit limit)`
-      + `|(?:you${AP}re|your workspace is) out of credits`
-      + '|(?:^|[^a-z])usage limit reached',
-      'i',
-    ),
+    reached: CODEX_LIMIT_RE,
     scopeOf: () => 'provider',
     reset: null,
   },
@@ -489,7 +486,7 @@ export const CREDIT_GATE_PATTERNS = {
   // Codex renders this modal over a healthy-looking composer footer. Require
   // both modal lines, so its session-opening reset notice and status footer
   // remain healthy-session text under field-notes contract 4.
-  openai: /approaching rate limits[\s\S]{0,500}switch to [^\n?]+ for lower credit usage\?/i,
+  openai: CODEX_CREDIT_GATE_RE,
 }
 
 export function parseCreditGate(paneText, provider = 'anthropic') {

@@ -1,11 +1,12 @@
 // The public Harness adapter seam (ADR-0029 and ADR-0030).
 //
-// Claude now owns its native behavior behind this seam. Codex still delegates
-// to its legacy implementation until the next migration step.
+// Claude and Codex own their native behavior behind this seam. Shared services
+// select an adapter and provide the ports that retain Curia's invariants.
 
-import { buildResumeCmd, buildSpawnCmd } from './routing.mjs'
+import { buildResumeCmd, buildSpawnCmd, parseCreditGate, parseUsageLimit } from './routing.mjs'
 import { CONSUMER_NAMES, PROVIDER_CREDENTIALS } from './credentials.mjs'
 import { createClaudeHarnessAdapter } from './claudeharness.mjs'
+import { createCodexHarnessAdapter } from './codexharness.mjs'
 
 export const HARNESS_FACETS = Object.freeze([
   'identity',
@@ -104,7 +105,7 @@ export function validateHarnessAdapter(adapter, {
   }
 
   for (const method of ['refuseRepository', 'prepare']) requireFunction('setup', setup, method)
-  for (const method of ['freshCommand', 'resumeCommand', 'isReady', 'processDied', 'interrupt', 'send']) {
+  for (const method of ['freshCommand', 'resumeCommand', 'isReady', 'classifyLimit', 'processDied', 'interrupt', 'send']) {
     requireFunction('lifecycle', lifecycle, method)
   }
   for (const method of ['discover', 'events', 'activity', 'usage']) requireFunction('evidence', evidence, method)
@@ -245,71 +246,14 @@ export function spawnIdentity(event = {}) {
   })
 }
 
-const portCall = (ports, port, operation, ...args) => {
-  const fn = ports?.[port]?.[operation]
-  if (typeof fn !== 'function') contractFault(`Harness call needs ${port}.${operation}() through its ports`)
-  return fn(...args)
-}
-
-function legacyAdapter({ name, provider, capabilities }) {
-  const capabilityOperations = {
-    modelSwitch: (context, ports) => portCall(ports, 'pane', 'modelSwitch', context),
-    reasoningEffort: (context, ports) => portCall(ports, 'pane', 'reasoningEffort', context),
-    transcriptUsage: (context, ports) => portCall(ports, 'transcript', 'usage', context),
-    nativeSkills: (context, ports) => portCall(ports, 'filesystem', 'nativeSkills', context),
-    richMetadata: (context, ports) => portCall(ports, 'transcript', 'richMetadata', context),
-  }
-  return {
-    identity: {
-      name,
-      provider,
-      credentialConsumer: name,
-      configLayoutVersion: CURRENT_CONFIG_LAYOUT,
-    },
-    setup: {
-      refuseRepository: (context, ports) => portCall(ports, 'filesystem', 'refuseRepository', context),
-      prepare: (context, ports) => portCall(ports, 'filesystem', 'prepare', context),
-    },
-    lifecycle: {
-      freshCommand: ({ routing, model, promptFile }) => buildSpawnCmd(routing, name, model, promptFile),
-      resumeCommand: ({ routing, model }) => buildResumeCmd(routing, name, model),
-      isReady: ({ routing, paneText }) => Boolean(routing.harnesses?.[name]?.readyRe?.test(paneText)),
-      processDied: (context, ports) => portCall(ports, 'process', 'died', context),
-      interrupt: (context, ports) => portCall(ports, 'process', 'interrupt', context),
-      send: (context, ports) => portCall(ports, 'pane', 'send', context),
-    },
-    evidence: {
-      discover: (context, ports) => portCall(ports, 'transcript', 'discover', context),
-      events: (context, ports) => portCall(ports, 'transcript', 'events', context),
-      activity: (context, ports) => portCall(ports, 'transcript', 'activity', context),
-      usage: (context, ports) => portCall(ports, 'transcript', 'usage', context),
-    },
-    control: {
-      capabilities,
-      operations: Object.fromEntries(
-        Object.entries(capabilities)
-          .filter(([, supported]) => supported)
-          .map(([capability]) => [capability, capabilityOperations[capability]]),
-      ),
-      enforceCompletion: (context, ports) => portCall(ports, 'toolChannel', 'enforceCompletion', context),
-    },
-  }
-}
-
-const sharedCapabilities = Object.freeze({
-  modelSwitch: true,
-  reasoningEffort: true,
-  transcriptUsage: true,
-  nativeSkills: true,
-  richMetadata: true,
-})
-
 export const HARNESS_REGISTRY = createHarnessRegistry([
   createClaudeHarnessAdapter({
     buildFreshCommand: ({ routing, model, promptFile }) => buildSpawnCmd(routing, 'claude', model, promptFile),
     buildResumeCommand: ({ routing, model }) => buildResumeCmd(routing, 'claude', model),
+    classifyLimit: (paneText) => parseUsageLimit(paneText, 'anthropic')
+      ?? parseCreditGate(paneText, 'anthropic'),
   }),
-  legacyAdapter({ name: 'codex', provider: 'openai', capabilities: sharedCapabilities }),
+  createCodexHarnessAdapter(),
 ], {
   providers: Object.keys(PROVIDER_CREDENTIALS),
   credentialConsumers: CONSUMER_NAMES,

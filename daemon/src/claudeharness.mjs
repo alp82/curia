@@ -54,7 +54,7 @@ async function switchModel({ session, model, readbackMs = 15_000 }, ports) {
   }
 }
 
-export function createClaudeHarnessAdapter({ buildFreshCommand, buildResumeCommand }) {
+export function createClaudeHarnessAdapter({ buildFreshCommand, buildResumeCommand, classifyLimit }) {
   return {
     identity: {
       name: 'claude',
@@ -70,6 +70,7 @@ export function createClaudeHarnessAdapter({ buildFreshCommand, buildResumeComma
       freshCommand: (context) => buildFreshCommand(context),
       resumeCommand: (context) => buildResumeCommand(context),
       isReady: ({ paneText }) => ready(paneText),
+      classifyLimit: ({ paneText }) => classifyLimit(paneText),
       processDied: (context, ports) => call(ports, 'process', 'died', context),
       interrupt: (context, ports) => call(ports, 'process', 'interrupt', context),
       send: (context, ports) => call(ports, 'pane', 'send', context),
