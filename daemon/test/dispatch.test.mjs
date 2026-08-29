@@ -5679,6 +5679,7 @@ describe('live model switching (#717)', () => {
     const reply = await d.switchModel('42', { model: 'opus', by: 'operator-1' })
 
     assert.match(reply, /mid-turn/)
+    assert.deepEqual(steps.filter((step) => step.act === 'key').map((step) => step.key), ['C-u', 'C-y'])
     assert.equal(d.agents.get('curia-42').model, 'sonnet')
   })
 

@@ -34,6 +34,19 @@ import { daemonGhEnv } from './daemongh.mjs'
 // the salvage branch's stamp (#649). One stamp shape for the whole daemon: UTC,
 // colons folded to hyphens, sorting in write order.
 import { stampFor } from './backup.mjs'
+import {
+  CLAUDE_API_KEY_TAIL_LENGTH,
+  CLAUDE_CONFIG_ROOT_ENV,
+  CLAUDE_REPO_SKILL_ROOTS,
+  CLAUDE_WORKSPACE,
+  CURIA_MCP_SERVER_NAME,
+  LOOPBACK_HOST,
+  claudeApiKeyApproval,
+  claudeUntrustedProjectConfig,
+  writeClaudeConnection,
+} from './claudeworkspace.mjs'
+
+export { CLAUDE_API_KEY_TAIL_LENGTH, claudeApiKeyApproval, writeClaudeConnection }
 
 // The mandatory communication rules (#133): a curia-owned copy of the
 // operator's STE writing standard, seeded into every config dir as the CLI's
@@ -558,7 +571,7 @@ export const HARNESS_NAMES = ['claude', 'codex']
 // time — a harness whose CLI reads a different variable is then answered here,
 // once, for the agent spawn and the usage sync alike.
 export const CONFIG_ROOT_ENV = Object.freeze({
-  claude: 'CLAUDE_CONFIG_DIR',
+  claude: CLAUDE_CONFIG_ROOT_ENV,
   codex: 'CODEX_HOME',
 })
 
@@ -639,13 +652,13 @@ function toml(value) {
 // The daemon's own address, as the agent reaches it. A bare pane reaches it on
 // loopback; a container's loopback is the container, so it reaches the same
 // listener through the docker host gateway instead (#156).
-export const LOOPBACK = '127.0.0.1'
+export const LOOPBACK = LOOPBACK_HOST
 
 // The name curia's own MCP server carries in the agent's `.mcp.json`, and the
 // one name the claude harness's allowlist admits (#180). One constant, because the
 // two must never drift: an allowlist that does not name the server curia writes
 // leaves the agent with no tools at all.
-export const MCP_SERVER_NAME = 'curia'
+export const MCP_SERVER_NAME = CURIA_MCP_SERVER_NAME
 
 function curiaMcpUrl(daemonPort, agent, ticket, host = LOOPBACK) {
   return `http://${host}:${daemonPort}/mcp?agent=${agent}&ticket=${ticket}`
@@ -687,26 +700,11 @@ function curiaMcpUrl(daemonPort, agent, ticket, host = LOOPBACK) {
 // SIGKILL, and this deadline is still the only bound there.
 const CODEX_TOOL_TIMEOUT_S = 86_400
 
-// Claude Code stores only the final 20 characters when the operator approves
-// a custom API key. Keep that upstream storage shape here, rather than writing
-// the complete secret into a durable config file.
-export const CLAUDE_API_KEY_TAIL_LENGTH = 20
-
-export function claudeApiKeyApproval(apiKey) {
-  if (!apiKey) return null
-  if (apiKey.length < CLAUDE_API_KEY_TAIL_LENGTH) {
-    throw new Error(`the deployed Claude API key is shorter than ${CLAUDE_API_KEY_TAIL_LENGTH} characters`)
-  }
-  return apiKey.slice(-CLAUDE_API_KEY_TAIL_LENGTH)
+function writeSecretFile(file, data) {
+  fs.writeFileSync(file, data, { mode: 0o600 })
+  fs.chmodSync(file, 0o600)
 }
 
-// The Stop hook, identical on both harnesses: POST the hook's own stdin payload to
-// the daemon, which answers `{decision:"block", reason}` while a step of the
-// ending is outstanding (#54).
-//
-// The token header rides beside the ticket's own content type (#159). Both
-// values are quote-free by construction — a hex token and a daemon-owned port —
-// so the single-quoted curl arguments need no escaping rule.
 function stopHookCommand(daemonPort, agent, host = LOOPBACK, token) {
   return [
     `curl -s -X POST 'http://${host}:${daemonPort}/agent_done?agent=${agent}'`,
@@ -716,191 +714,8 @@ function stopHookCommand(daemonPort, agent, host = LOOPBACK, token) {
   ].join(' ')
 }
 
-// The four connection-settings files now carry the agent's secret, so none of them is
-// world-readable. On the bare path that is belt only (a sibling agent runs as
-// the same host user); in a container the mount arrives owned by the same uid the
-// agent runs as, so 0600 is still readable by the one agent that needs it.
-function writeSecretFile(file, data) {
-  fs.writeFileSync(file, data, { mode: 0o600 })
-  fs.chmodSync(file, 0o600) // the mode applies only on create; a reused config dir already has one
-}
-
-// THE CLAUDE HARNESS'S WHOLE REACH BACK INTO THE DAEMON, in one writer.
-//
-// A `.mcp.json` beside a `.claude/settings.json` that says
-// `enableAllProjectMcpServers` — the pair is what makes the CLI trust a project
-// server with no prompt, and either file alone is a harness with no tools. Two
-// callers write it: an agent worktree here, and a conversation's own project
-// directory (`overseeridentity.mjs`). They differ in the directory, the server
-// name and whether a Stop hook rides along; everything else — the shape of the
-// server entry, the header that carries the secret, the bypass mode, the 0600
-// on both files — is one rule and lives here.
-//
-// Returns the path of the `.mcp.json` it wrote.
-export function writeClaudeConnection({
-  dir, serverName, url, header, token, hooks = null, env = null,
-}) {
-  fs.mkdirSync(dir, { recursive: true })
-  const mcpFile = path.join(dir, '.mcp.json')
-  writeSecretFile(mcpFile, JSON.stringify({
-    mcpServers: {
-      // #159. Claude Code sends a per-server `headers` object on every request
-      // to an http MCP server (`claude mcp add --header` writes this exact
-      // shape).
-      [serverName]: { type: 'http', url, headers: { [header]: token } },
-    },
-  }, null, 2))
-  const dotClaude = path.join(dir, '.claude')
-  fs.mkdirSync(dotClaude, { recursive: true })
-  writeSecretFile(path.join(dotClaude, 'settings.json'), JSON.stringify({
-    enableAllProjectMcpServers: true,
-    permissions: { defaultMode: 'bypassPermissions' },
-    ...(env ? { env } : {}),
-    ...(hooks ? { hooks } : {}),
-  }, null, 2))
-  return mcpFile
-}
-
 const HARNESS = {
-  claude: {
-    // The CLI's global-memory file, and the ONLY per-session channel either
-    // harness keeps outside the conversation (#340). Codex carries `AGENTS.md`
-    // as world state and restates it every turn ("These AGENTS.md instructions
-    // replace all previously provided AGENTS.md instructions"); a user message
-    // is conversation, and conversation goes stale — codex tells the model that
-    // the last user request is current and previous ones are stale. So curia's
-    // standing orders live HERE, not in `prompt.md`.
-    //
-    // A new harness must name its own file. That is the whole reason this is a
-    // table row rather than a ternary: a lane whose CLI has no such file cannot
-    // carry standing orders that survive turn one, and this row is where that
-    // has to be answered.
-    memoryFile: 'CLAUDE.md',
-    // Which PROVIDER's credential this harness runs on (#648). It is a row here
-    // rather than a ternary at the two call sites for the reason `memoryFile`
-    // is: a new harness has to answer it, and `config.mjs` refuses a configured
-    // harness whose provider has no contract row. A harness added with no
-    // credential story is how the #641 bug returns.
-    provider: 'anthropic',
-    // CLAUDE_SECURESTORAGE_CONFIG_DIR is what separates config from credentials.
-    // Claude Code resolves its credential store through it and falls back to
-    // CLAUDE_CONFIG_DIR only when it is unset, so pointing it at the host's
-    // ~/.claude puts the agent on the host's *exact* credentials path — the
-    // same file, the same refresh lineage, the same atomic-rename write. That is
-    // precisely what a second host session does, which is why several host
-    // sessions coexist for days while an agent holding a frozen copy died at the
-    // first host-side refresh (#34). Everything else stays isolated by
-    // CLAUDE_CONFIG_DIR: settings, allowlist, permission mode, CLAUDE.md, MCP
-    // connectors, projects (#23/#29).
-    //
-    // An absolute path, not the empty string that also selects ~/.claude:
-    // explicit beats HOME-dependent, and `env K=` through tmux is a needless
-    // edge. Porting to macOS would want the empty form instead — a non-empty
-    // value also suffixes the keychain service name, which would break sharing
-    // where the keychain, not the plaintext file, is the store.
-    hostStore: () => path.join(os.homedir(), '.claude'),
-    // CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT (ms): Claude Code aborts an HTTP MCP
-    // call after 300 s with no response or progress notification, and ONLY a
-    // progress notification bound to the call's own progressToken resets that
-    // timer — the keepalive's logging branch never does (#104, the 314 s
-    // death). The keepalive covers a client that offered a token; this floor
-    // covers one that did not. One day, the same bound as
-    // CODEX_TOOL_TIMEOUT_S below; a call whose daemon actually died is aborted
-    // by the transport-drop watchdog instead, about 120 s after the death
-    // (#341, three runs at 119.5 s, 118.9 s and 119.2 s in
-    // docs/research/tool-channel-mid-session.md — this comment said 90 s).
-    //
-    // A CONTAINER cannot have that (#156): the host store lives in the host
-    // HOME, which is the first thing the boundary denies. The variable is
-    // dropped rather than pointed somewhere else, so Claude Code falls back to
-    // CLAUDE_CONFIG_DIR — the agent's own mounted dir — and the credential
-    // arrives as an environment variable instead (sandbox.mjs). That is the
-    // frozen-credential shape #53 fixed for the bare path, accepted back by
-    // #148 as the sandbox's one remaining host-secret exposure.
-    env: (cfgDir, { sandboxed = false } = {}) => ({
-      [CONFIG_ROOT_ENV.claude]: cfgDir,
-      ...(sandboxed ? {} : { CLAUDE_SECURESTORAGE_CONFIG_DIR: path.join(os.homedir(), '.claude') }),
-      CLAUDE_CODE_MCP_TOOL_IDLE_TIMEOUT: String(86_400_000),
-    }),
-
-    // Exact prototype.md §1 shape, verified live: no first-spawn dialog ever
-    // appears. The projects key MUST be the absolute worktree path (matched
-    // exactly).
-    seed: (cfgDir, wtPath, { apiKey = null } = {}) => {
-      const approvedApiKey = claudeApiKeyApproval(apiKey)
-      fs.writeFileSync(path.join(cfgDir, '.claude.json'), JSON.stringify({
-        hasCompletedOnboarding: true,
-        installMethod: 'native',
-        autoUpdates: false,
-        theme: 'dark',
-        numStartups: 1,
-        projects: {
-          [wtPath]: {
-            hasTrustDialogAccepted: true,
-            hasCompletedProjectOnboarding: true,
-            hasClaudeMdExternalIncludesApproved: true,
-            hasClaudeMdExternalIncludesWarningShown: true,
-          },
-        },
-        ...(approvedApiKey ? {
-          customApiKeyResponses: { approved: [approvedApiKey], rejected: [] },
-        } : {}),
-      }, null, 2))
-      // The MCP namespace is bounded HERE, in the two settings keys below
-      // (#180), because nothing else reaches it. `CLAUDE_CONFIG_DIR` holds the
-      // #23/#29 line for config-borne servers, but the operator's account-level
-      // claude.ai connectors — Notion, Gmail, Drive, Calendar — do not travel
-      // through the config dir. Claude Code fetches them over the wire from the
-      // account behind the credential, which #53 shares with the host on
-      // purpose. So a bare-pane agent listed 38 tools where curia configured
-      // six, and could read and write the operator's mail and documents. The
-      // container boundary does not touch it either: the fetch is an ordinary
-      // outbound HTTPS call, and #148 leaves the network open because wayfinder
-      // needs `gh` and the web.
-      //
-      // `disableClaudeAiConnectors` is the source control. Claude Code reads it
-      // from ANY settings source, and this file is the user source, so the
-      // agent's own config dir is enough — the credential does not change.
-      // Measured against the pinned CLI: the check is FIRST in its eligibility
-      // chain, ahead of every auth branch, and the debug line names the setting
-      // by name (docs/live-checks/180).
-      //
-      // `allowedMcpServers` is the second belt, and it bounds the whole
-      // namespace rather than one source: only the server curia writes is
-      // admitted, whatever route another arrives by. Its entries are OBJECTS,
-      // not strings — `['curia']` fails schema validation, and an invalid
-      // allowlist enforces an EMPTY one, which takes curia's own server down
-      // with it. That trap was measured, not reasoned about.
-      //
-      // #344 made the one-server line a DECISION and not only a setting: a
-      // read-only MCP history server was proposed here and refused. History
-      // that ever reaches an agent arrives as tools on the server below, so
-      // this list stays at one entry.
-      fs.writeFileSync(path.join(cfgDir, 'settings.json'), JSON.stringify({
-        skipDangerousModePermissionPrompt: true,
-        disableClaudeAiConnectors: true,
-        allowedMcpServers: [{ serverName: MCP_SERVER_NAME }],
-        cleanupPeriodDays: 36500,
-      }, null, 2))
-    },
-
-    // .mcp.json (curia HTTP MCP side channel) + .claude/settings.json (all-project
-    // MCP on, bypass permissions, Stop hook → /agent_done) — spike #29 shapes
-    // with per-agent substitution. Both land in the worktree and are hidden from
-    // git by the base clone's info/exclude (see ensureBaseClone).
-    connectionSettings: ({ wtPath, agent, ticket, daemonPort, daemonHost, reasoningEffort, token }) => {
-      writeClaudeConnection({
-        dir: wtPath,
-        serverName: MCP_SERVER_NAME,
-        url: curiaMcpUrl(daemonPort, agent, ticket, daemonHost),
-        header: TOKEN_HEADER,
-        token,
-        env: reasoningEffort ? { CLAUDE_CODE_EFFORT_LEVEL: reasoningEffort } : null,
-        hooks: { Stop: [{ hooks: [{ type: 'command', command: stopHookCommand(daemonPort, agent, daemonHost, token) }] }] },
-      })
-    },
-  },
-
+  claude: CLAUDE_WORKSPACE,
   codex: {
     // See the claude row: this is the durable channel, and #340 measured it.
     memoryFile: 'AGENTS.md',
@@ -1145,7 +960,7 @@ const HARNESS = {
 export function untrustedProjectConfig(wtPath, harness) {
   const planted = harness === 'codex'
     ? path.join(wtPath, '.codex', 'hooks.json')
-    : path.join(wtPath, '.claude', 'settings.local.json')
+    : claudeUntrustedProjectConfig(wtPath)
   return fs.existsSync(planted) ? planted : null
 }
 
@@ -1155,7 +970,7 @@ export function untrustedProjectConfig(wtPath, harness) {
 // `.claude/skills`. Neither CLI has a config key that turns a repo root off.
 const REPO_SKILL_ROOTS = {
   codex: [['.codex', 'skills'], ['.agents', 'skills']],
-  claude: [['.claude', 'skills']],
+  claude: CLAUDE_REPO_SKILL_ROOTS,
 }
 
 // The name a SKILL.md claims in its frontmatter. Codex keys a skill on this

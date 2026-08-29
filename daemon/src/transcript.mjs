@@ -27,7 +27,19 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
-import { renderCompositeSend } from './composite.mjs'
+import {
+  claudeTranscriptFiles,
+  claudeTranscriptForSession,
+  claudeTranscriptPresent,
+  parseClaudeTranscriptEvent,
+} from './claudetranscript.mjs'
+import {
+  curiaSendBrief,
+  curiaToolSend,
+  curiaToolText,
+  firstTranscriptLine as firstLine,
+  isCuriaSend,
+} from './transcriptformat.mjs'
 
 export const TRANSCRIPT_HARNESSES = ['claude', 'codex']
 
@@ -42,7 +54,7 @@ function readdirSafe(dir) {
 // it has one (it knows what it spawned); this is the fallback for re-adopted
 // and lab sessions.
 export function detectHarness(cfgDir) {
-  if (fs.existsSync(path.join(cfgDir, 'projects'))) return 'claude'
+  if (claudeTranscriptPresent(cfgDir)) return 'claude'
   if (fs.existsSync(path.join(cfgDir, 'sessions'))) return 'codex'
   return null
 }
@@ -61,17 +73,6 @@ function newestFile(files) {
 }
 
 // Every transcript a config dir holds, per harness.
-function claudeFiles(cfgDir) {
-  const projects = path.join(cfgDir, 'projects')
-  const files = []
-  for (const proj of readdirSafe(projects)) {
-    for (const f of readdirSafe(path.join(projects, proj))) {
-      if (f.endsWith('.jsonl')) files.push(path.join(projects, proj, f))
-    }
-  }
-  return files
-}
-
 // A spawned codex subagent writes a second rollout into its parent's config
 // directory. Its first line identifies it, so it must not win the parent's
 // newest-file lookup while the parent waits (#544, #545).
@@ -109,7 +110,7 @@ function codexFiles(cfgDir) {
   return files
 }
 
-const FILES = { claude: claudeFiles, codex: codexFiles }
+const FILES = { claude: claudeTranscriptFiles, codex: codexFiles }
 
 // What each harness NAMES a session's transcript. The claude harness names the
 // file after the session id — measured on the box (docs/live-checks/
@@ -118,7 +119,7 @@ const FILES = { claude: claudeFiles, codex: codexFiles }
 // rather than measured: no codex conversation is keyed today, because the
 // overseer is the one thing curia keys and it runs the claude harness.
 const NAMES_SESSION = {
-  claude: (base, id) => base === `${id}.jsonl`,
+  claude: claudeTranscriptForSession,
   codex: (base, id) => base.startsWith('rollout-') && base.endsWith(`-${id}.jsonl`),
 }
 
@@ -215,137 +216,6 @@ export function firstPrompt(harness, file, { max = 90, bytes = LABEL_BYTES } = {
     }
   }
   return null
-}
-
-function firstLine(s, n = 200) {
-  const line = String(s ?? '').split('\n').find((l) => l.trim()) ?? ''
-  return line.length > n ? `${line.slice(0, n)}…` : line
-}
-
-// ---------------------------------------------------------------------------
-// claude harness
-// ---------------------------------------------------------------------------
-
-// Line types the claude CLI writes that carry nothing a timeline shows —
-// enumerated from real agent transcripts on this box. `summary` is the
-// compaction artifact; the file-history pair is checkpointing; the rest are
-// UI bookkeeping.
-const CLAUDE_UNRENDERED = new Set([
-  'system', 'ai-title', 'attachment', 'file-history-delta',
-  'file-history-snapshot', 'last-prompt', 'mode', 'permission-mode', 'summary',
-])
-
-// One line that says what a tool call is DOING, per tool — the only place this
-// harness's tool vocabulary is known (spike shape).
-function claudeToolBrief(name, input = {}) {
-  if (name === 'Bash') return firstLine(input.command)
-  if (name === 'Read' || name === 'Write' || name === 'Edit' || name === 'NotebookEdit') {
-    return String(input.file_path ?? '')
-  }
-  if (name === 'Grep' || name === 'Glob') return `${input.pattern ?? ''} ${input.path ?? ''}`.trim()
-  if (name === 'TodoWrite') return `${input.todos?.length ?? 0} items`
-  if (name?.startsWith('mcp__curia__')) {
-    if (isCuriaSend(input)) return curiaSendBrief(input)
-    return firstLine(input.prompt ?? input.summary ?? input.message ?? JSON.stringify(input))
-  }
-  if (name === 'Task' || name === 'Agent') return firstLine(input.description ?? input.prompt)
-  return firstLine(JSON.stringify(input), 160)
-}
-
-// The full operator-facing text of a curia surface call (#108 item 1): notify
-// and its siblings carry prose written FOR the timeline's reader, so the
-// one-line brief must not be all that survives. ask_human keeps only the brief
-// here — its full body renders from the daemon's own escalation record.
-function curiaToolText(input = {}) {
-  const t = input.prompt ?? input.message ?? input.summary
-  return typeof t === 'string' && t.trim() ? t : null
-}
-
-// The composite send a curia call carries (#716, ADR-0026), rendered by the
-// one renderer Discord posts from, so Atlas Chat draws the same sequence under
-// the same rails. The deciding message is marked rather than dropped: the
-// page draws it from the daemon's escalation record, as it draws every card.
-// A `messages` value the renderer cannot read is no sequence, and the brief
-// stands alone, because a transcript line must never break the room.
-function curiaToolSend(input = {}) {
-  if (!Array.isArray(input.messages) || !input.messages.length) return null
-  try {
-    return renderCompositeSend(input.messages)
-      .map(({ rail, body, deciding, format, label }) => ({ rail, body, deciding, format, label }))
-  } catch {
-    return null
-  }
-}
-
-// One line for a send: how many messages, and their labels in order.
-function curiaSendBrief(input = {}) {
-  const labels = input.messages.map((m) => String(m?.label ?? m?.format ?? '?').trim())
-  return `send of ${input.messages.length}: ${labels.join(' · ')}`
-}
-
-const isCuriaSend = (input) => Array.isArray(input?.messages) && input.messages.length > 0
-
-function claudeResultText(content) {
-  if (typeof content === 'string') return content
-  if (Array.isArray(content)) {
-    return content.map((c) => (c?.type === 'text' ? c.text : `[${c?.type}]`)).join('\n')
-  }
-  return JSON.stringify(content ?? '')
-}
-
-function claudeItems(e) {
-  const at = e.timestamp ?? null
-  if (e.type === 'assistant') {
-    const out = []
-    for (const c of e.message?.content ?? []) {
-      if (c.type === 'text' && c.text?.trim()) out.push({ kind: 'say', at, text: c.text })
-      // Real agents store thinking signature-only with empty text (#72/#73
-      // measured 41 of 41), so this arm almost never fires — kept because a
-      // transcript that DOES carry text should show it.
-      else if (c.type === 'thinking' && c.thinking?.trim()) out.push({ kind: 'think', at, text: c.thinking })
-      else if (c.type === 'tool_use') {
-        const item = { kind: 'tool', at, id: c.id, name: c.name, brief: claudeToolBrief(c.name, c.input) }
-        if (c.name?.startsWith('mcp__curia__')) {
-          const text = curiaToolText(c.input)
-          if (text) item.text = text
-          const send = curiaToolSend(c.input)
-          if (send) item.send = send
-        }
-        out.push(item)
-      }
-    }
-    return out
-  }
-  if (e.type === 'user') {
-    const content = e.message?.content
-    if (typeof content === 'string') {
-      return content.trim() ? [{ kind: 'prompt', at, text: content }] : []
-    }
-    const out = []
-    for (const c of content ?? []) {
-      if (c.type === 'tool_result') {
-        const text = claudeResultText(c.content)
-        out.push({
-          kind: 'result', at, forId: c.tool_use_id, ok: !c.is_error,
-          brief: firstLine(text, 300), lines: text.split('\n').length,
-        })
-      } else if (c.type === 'text' && c.text?.trim()) {
-        out.push({ kind: 'prompt', at, text: c.text })
-      } else if (c.type === 'image') {
-        out.push({ kind: 'note', at, text: '[image]' })
-      }
-    }
-    return out
-  }
-  // A message driven in mid-turn is ENQUEUED, then removed when the turn picks
-  // it up and it reappears as a plain user message. Only the enqueue is
-  // rendered — the moment the other device's input became visible.
-  if (e.type === 'queue-operation') {
-    if (e.operation === 'enqueue' && e.content) return [{ kind: 'queued', at, text: String(e.content) }]
-    return []
-  }
-  if (CLAUDE_UNRENDERED.has(e.type)) return []
-  return null // unknown vocabulary — the caller reports it
 }
 
 // ---------------------------------------------------------------------------
@@ -471,7 +341,7 @@ function codexItems(e) {
 
 // ---------------------------------------------------------------------------
 
-const READERS = { claude: claudeItems, codex: codexItems }
+const READERS = { claude: parseClaudeTranscriptEvent, codex: codexItems }
 
 // Read the messages that the Chat surface can render from transcript lines.
 // The branch selection lives here so agent and overseer conversations don't
