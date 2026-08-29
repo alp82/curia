@@ -135,8 +135,8 @@ function cfgEntries(root) {
 
 // Rule 2. Every claude root the CLI can scan, as absolute paths. A config
 // directory counts when it holds a `projects/` directory, which is where the
-// claude harness writes its transcripts. A directory without one is a codex,
-// opencode, or pi session, or a claude session that has not written yet, and
+// claude harness writes its transcripts. A directory without one is a codex
+// session or a claude session that has not written yet, and
 // passing it would only make the list longer.
 //
 // The order is newest first, so a truncated list would keep the freshest work.

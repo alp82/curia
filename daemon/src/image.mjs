@@ -31,6 +31,7 @@ import { spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { execFileP } from './exec.mjs'
 import { lastFrame, readable } from './logline.mjs'
+import { PRODUCTION_HARNESSES } from './productionharnesses.mjs'
 
 const DIR = path.dirname(fileURLToPath(import.meta.url))
 
@@ -44,9 +45,9 @@ export const BUILD_CONTEXT = path.dirname(DOCKERFILE)
 export const DOCKER_BIN = process.env.DOCKER_BIN ?? 'docker'
 export const BUILD_CMD = 'npm run build-agent-image --prefix daemon'
 
-// A build pulls a base image, fetches gh, and installs four harness CLIs that
-// are ~700 MB of native binary between them. Measured at ~4 minutes cold on the
-// box; ten leaves room for a slow mirror without leaving a dispatch hanging
+// A build pulls a base image, fetches gh, and installs the selectable Harness
+// CLIs. A cold build takes about four minutes on the box. Ten minutes leaves
+// room for a slow mirror without leaving a dispatch hanging
 // on a wedged builder forever.
 export const BUILD_TIMEOUT_MS = 10 * 60_000
 
@@ -54,8 +55,8 @@ export const BUILD_TIMEOUT_MS = 10 * 60_000
 // one list because it is the contract between the two files: an ARG added
 // there and missed here would build with the empty string and pin nothing.
 const BUILD_ARGS = [
-  'NODE_VERSION', 'CLAUDE_VERSION', 'CODEX_VERSION', 'OPENCODE_VERSION',
-  'PI_VERSION', 'GH_VERSION', 'PLAYWRIGHT_VERSION', 'TTYD_VERSION', 'AGENT_UID',
+  'NODE_VERSION', ...Object.values(PRODUCTION_HARNESSES).map(({ buildArg }) => buildArg),
+  'GH_VERSION', 'PLAYWRIGHT_VERSION', 'TTYD_VERSION', 'AGENT_UID',
 ]
 
 // The pins as they are named in config/curia.yaml, mapped to the ARG each one
@@ -67,10 +68,9 @@ const BUILD_ARGS = [
 // compose anchor rebuilds the other three.
 export const SANDBOX_KEYS = {
   node_version: 'NODE_VERSION',
-  claude_version: 'CLAUDE_VERSION',
-  codex_version: 'CODEX_VERSION',
-  opencode_version: 'OPENCODE_VERSION',
-  pi_version: 'PI_VERSION',
+  ...Object.fromEntries(Object.values(PRODUCTION_HARNESSES).map(
+    ({ versionKey, buildArg }) => [versionKey, buildArg],
+  )),
   gh_version: 'GH_VERSION',
   playwright_version: 'PLAYWRIGHT_VERSION',
   ttyd_version: 'TTYD_VERSION',

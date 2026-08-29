@@ -459,6 +459,11 @@ export function loadCuriaConfig(file, { checkPaths = true, localFile, env = proc
     if (typeof sb.image !== 'string' || !IMAGE_NAME_RE.test(sb.image)) {
       fail(src, `sandbox.image must be a docker repository name (got ${JSON.stringify(sb.image)})`)
     }
+    for (const key of Object.keys(sb)) {
+      if (key.endsWith('_version') && !Object.hasOwn(SANDBOX_KEYS, key)) {
+        fail(src, `sandbox.${key} does not name a selectable Harness`)
+      }
+    }
     for (const key of Object.keys(SANDBOX_KEYS)) {
       if (key === 'agent_uid') continue
       // YAML reads `1.62` as a number and `1.62.1` as a string, and both are
@@ -548,8 +553,8 @@ export function loadRoutingConfig(file, { localFile } = {}) {
     if (m.id !== undefined && (typeof m.id !== 'string' || !SAFE_SUBSTITUTION.test(m.id))) {
       fail(src, `models.${name}.id must be a quote-free model name (got ${JSON.stringify(m.id)})`)
     }
-    // The shared union catches spelling mistakes. The harness map then catches
-    // an effort the target CLI cannot state, such as `ultra` on pi.
+    // The shared union catches spelling mistakes. The Harness adapter then
+    // catches an effort that the target CLI cannot state.
     if (m.reasoning_effort !== undefined && !REASONING_EFFORTS.includes(m.reasoning_effort)) {
       fail(src, `models.${name}.reasoning_effort must be one of ${REASONING_EFFORTS.join('|')} (got ${JSON.stringify(m.reasoning_effort)})`)
     }

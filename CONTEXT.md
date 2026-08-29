@@ -355,7 +355,7 @@ The boundary around an agent: one Docker container per agent, holding its own cl
 `harnesses.<name>.sandbox` in `routing.yaml`: `docker` or `none`. Per harness. The claude harness is on and soaking, the codex harness follows.
 
 **Agent image**:
-The one image every agent container runs. It carries every harness at a pinned version and nothing per-ticket: claude, codex, opencode, and pi ([#696](https://github.com/alp82/curia/issues/696)). The build asks each one for its version as the worker user and fails when the answer isn't the pin, so routing can never select a command line interface the container lacks. Its tag is a content address over the Dockerfile and the pins, so a bump names an image the box does not have and the daemon rebuilds.
+The one image every agent container runs. It carries every Selectable harness at a pinned version and nothing per-ticket: claude and codex ([#696](https://github.com/alp82/curia/issues/696)). The build asks each one for its version as the worker user and fails when the answer isn't the pin, so routing can never select a command line interface the container lacks. Its tag is a content address over the Dockerfile and the pins, so a bump names an image the box does not have and the daemon rebuilds.
 
 **Image pin**:
 A container named `curia-agent-pin`, created against the live agent image and never started. The box's nightly docker cleanup deletes every image no container references, and no label protects one, so the reference is what keeps the image alive overnight. The daemon checks the pin on every dispatch. A new tag moves the pin and then removes every superseded tag of the same repository. See [#337](https://github.com/alp82/curia/issues/337) and [#350](https://github.com/alp82/curia/issues/350).

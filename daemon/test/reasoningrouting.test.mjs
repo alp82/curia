@@ -103,10 +103,10 @@ describe('reasoning effort config', () => {
 
   test('boot refuses a model default that its harness cannot state', () => {
     const yaml = routingYaml(['untyped: gpt'], 'ultra')
-      .replace('harness: codex', 'harness: pi')
+      .replace('harness: codex', 'harness: unknown')
     assert.throws(
       () => load(yaml),
-      /models\.gpt\.reasoning_effort "ultra" is not supported by the pi harness/,
+      /models\.gpt\.reasoning_effort "ultra" is not supported by the unknown harness/,
     )
   })
 })

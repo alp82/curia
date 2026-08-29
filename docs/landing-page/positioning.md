@@ -211,9 +211,8 @@ The operator judged the current lines machine made, and ordered a rewrite for th
   ("Maps turn the pile into a queue", "Answer from the couch", "You are in charge") and keep
   their meanings. The dogfood line carries no count: "planned, decided" links the tickets and
   "written" links the merged pull requests, so nothing on the page regenerates on build day.
-  Scene 7 names Pi and Opencode as supported on the operator's word that support lands soon.
-  `config/routing.yaml` ships `claude` and `codex` today, and the build must check that file on
-  build day so the line does not ship ahead of the code.
+  Scene 7 names Claude Code and Codex as supported. The production Harness contract and a static
+  consistency test keep that current product claim aligned with routing and the agent image.
 - No sound and no bottom bar. The system reduced-motion setting decides motion.
 - The banned words, the banned moves and the two failure modes below still hold.
 

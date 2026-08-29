@@ -27,11 +27,9 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
-let defaultRegistry = null
+import { HARNESS_REGISTRY } from './harnesses.mjs'
 
-export function setTranscriptHarnessRegistry(registry) {
-  defaultRegistry = registry
-}
+const defaultRegistry = HARNESS_REGISTRY
 
 function adapterFor(candidate, registry = defaultRegistry) {
   if (!registry) throw new Error('the Harness transcript registry is not initialized')

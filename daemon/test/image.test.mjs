@@ -18,6 +18,8 @@ import {
   BUILD_CONTEXT, DEFAULT_IMAGE, DOCKERFILE, PIN_CONTAINER, SANDBOX_KEYS,
   buildArgs, imageDigest, agentImageRef, ensureAgentImage,
 } from '../src/image.mjs'
+import { HARNESS_REGISTRY } from '../src/harnesses.mjs'
+import { PRODUCTION_HARNESSES, PRODUCTION_HARNESS_NAMES } from '../src/productionharnesses.mjs'
 import { withSeededHome } from './fixtures/skills.mjs'
 
 const PINS = {
@@ -25,8 +27,6 @@ const PINS = {
   node_version: '24.19.0',
   claude_version: '2.1.220',
   codex_version: '0.146.0',
-  opencode_version: '1.18.23',
-  pi_version: '0.84.3',
   gh_version: '2.97.0',
   playwright_version: '1.62.1',
   ttyd_version: '1.7.7',
@@ -87,8 +87,6 @@ describe('the image tag (#154)', () => {
       NODE_VERSION: '24.19.0',
       CLAUDE_VERSION: '2.1.220',
       CODEX_VERSION: '0.146.0',
-      OPENCODE_VERSION: '1.18.23',
-      PI_VERSION: '0.84.3',
       GH_VERSION: '2.97.0',
       PLAYWRIGHT_VERSION: '1.62.1',
       TTYD_VERSION: '1.7.7',
@@ -116,17 +114,14 @@ describe('the image tag (#154)', () => {
 
 })
 
-// The harness set the image carries (#696). Routing can pick any of the four,
+// The Harness set the image carries (#696). Routing can pick any of them,
 // so a container missing one turns a routing decision into a dead pane. The
 // build itself proves the install - the `--version` loop in the Dockerfile is
 // what fails a bad build - and these checks prove the Dockerfile still asks
 // for that proof, for every harness, at the pinned version.
-const HARNESSES = [
-  { cli: 'claude', pkg: '@anthropic-ai/claude-code', arg: 'CLAUDE_VERSION' },
-  { cli: 'codex', pkg: '@openai/codex', arg: 'CODEX_VERSION' },
-  { cli: 'opencode', pkg: 'opencode-ai', arg: 'OPENCODE_VERSION' },
-  { cli: 'pi', pkg: '@earendil-works/pi-coding-agent', arg: 'PI_VERSION' },
-]
+const HARNESSES = Object.entries(PRODUCTION_HARNESSES).map(([cli, contract]) => ({
+  cli, pkg: contract.package, arg: contract.buildArg,
+}))
 
 describe('the harnesses in the image (#696)', () => {
   test('every harness installs from npm at the version its ARG pins', () => {
@@ -164,6 +159,7 @@ describe('the harnesses in the image (#696)', () => {
   })
 
   test('a harness the router can pick is a harness the pins name', () => {
+    assert.deepEqual(HARNESS_REGISTRY.names, PRODUCTION_HARNESS_NAMES)
     for (const { cli } of HARNESSES) {
       const key = `${cli}_version`
       assert.ok(PINS[key], `no sandbox pin names ${cli}`)
@@ -345,8 +341,6 @@ describe('sandbox config (#154)', () => {
     '  node_version: 24.19.0',
     '  claude_version: 2.1.220',
     '  codex_version: 0.146.0',
-    '  opencode_version: 1.18.23',
-    '  pi_version: 0.84.3',
     '  gh_version: 2.97.0',
     '  playwright_version: 1.62.1',
     '  ttyd_version: 1.7.7',
@@ -367,15 +361,23 @@ describe('sandbox config (#154)', () => {
     const cfg = loadCuriaConfig(writeConfig(FULL))
     assert.equal(cfg.sandbox.image, DEFAULT_IMAGE)
     assert.equal(cfg.sandbox.claude_version, '2.1.220')
-    assert.equal(cfg.sandbox.opencode_version, '1.18.23')
+    assert.equal(cfg.sandbox.codex_version, '0.146.0')
     assert.equal(cfg.sandbox.agent_uid, 1000)
   })
 
   test('a missing pin is refused, naming the key', () => {
-    for (const key of ['node_version', 'claude_version', 'codex_version', 'opencode_version', 'pi_version', 'gh_version', 'playwright_version', 'ttyd_version']) {
+    for (const key of ['node_version', 'claude_version', 'codex_version', 'gh_version', 'playwright_version', 'ttyd_version']) {
       const lines = FULL.filter((l) => !l.trim().startsWith(`${key}:`))
       assert.throws(() => loadCuriaConfig(writeConfig(lines)), new RegExp(`sandbox\\.${key}`))
     }
+  })
+
+  test('a version pin for an unselectable Harness is refused', () => {
+    const lines = [...FULL, '  retired_version: 1.0.0']
+    assert.throws(
+      () => loadCuriaConfig(writeConfig(lines)),
+      /sandbox\.retired_version does not name a selectable Harness/,
+    )
   })
 
   test('an unpinned version is refused — `latest` is the failure this section prevents', () => {
@@ -441,6 +443,25 @@ describe('the shipped config (#154)', () => {
     const text = fs.readFileSync(upstream, 'utf8')
     assert.match(text, /`v\d+\.\d+\.\d+`/, 'UPSTREAM.md names no upstream release')
     assert.match(text, /`[0-9a-f]{40}`/, 'UPSTREAM.md names no upstream commit')
+  })
+})
+
+describe('the current product Harness surface (#835)', () => {
+  test('the landing page represents exactly the production Harnesses', () => {
+    const file = path.resolve(import.meta.dirname, '..', '..', 'docs', 'index.html')
+    const html = fs.readFileSync(file, 'utf8')
+    const represented = [...new Set(
+      [...html.matchAll(/data-h="([^"]+)"/g)].map((match) => match[1]),
+    )].sort()
+    assert.deepEqual(represented, [...PRODUCTION_HARNESS_NAMES].sort())
+    assert.match(html, /Claude Code and Codex are supported/)
+  })
+
+  test('the positioning source names only the production Harnesses as supported', () => {
+    const file = path.resolve(import.meta.dirname, '..', '..', 'docs', 'landing-page', 'positioning.md')
+    const text = fs.readFileSync(file, 'utf8')
+    assert.match(text, /Scene 7 names Claude Code and Codex as supported/)
+    assert.doesNotMatch(text, /\b(?:OpenCode|Opencode|Pi)\b/)
   })
 })
 
