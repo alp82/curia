@@ -65,6 +65,18 @@ Implementation follows this order:
 4. Remove superseded private tables and central Harness branches.
 5. Add OpenCode, then Pi, only after the existing adapters pass automated and live checks.
 
+### Codex migration checks
+
+The Codex extraction moves native code without changing the pinned command-line interface or worker image. Run these recorded checks again before treating the migrated adapter as deployable:
+
+- Recheck container setup and credential delivery with [the Codex container check](../live-checks/158-codex-container.md) and [the credential replacement check](../live-checks/644-credential-swap-heals.md).
+- Recheck bounded skills and tools with [the skill-root check](../live-checks/171-codex-skill-roots.md), [the feature-table check](../live-checks/207-codex-feature-table.md), and [the skill-arming check](../live-checks/399-codex-skill-arming.md).
+- Recheck completion enforcement with [the Codex Stop-hook check](../live-checks/447-codex-stop-hook.md).
+- Recheck pane and rollout behavior with [the attach-surface check](../live-checks/176-codex-attach-surfaces.md), [the tool-channel check](../live-checks/194-tool-channel.md), and [the session-memory check](../live-checks/360-codex-session-memory.md).
+- Run the full-loop rehearsal from ADR-0029, including same-conversation resume and restart-based model switching.
+
+Automated fixtures guard the extracted byte shapes. These live checks still guard process boundaries, terminal geometry, credential reads, and conversation identity.
+
 ## Considered options
 
 - **One declarative row per Harness** was rejected because native lifecycle, completion, and recovery behavior are state machines, not configuration values.

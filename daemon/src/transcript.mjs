@@ -34,18 +34,13 @@ import {
   parseClaudeTranscriptEvent,
 } from './claudetranscript.mjs'
 import {
-  curiaSendBrief,
-  curiaToolSend,
-  curiaToolText,
-  firstTranscriptLine as firstLine,
-  isCuriaSend,
-} from './transcriptformat.mjs'
+  codexTranscriptFiles,
+  codexTranscriptForSession,
+  codexTranscriptPresent,
+  parseCodexTranscriptEvent,
+} from './codextranscript.mjs'
 
 export const TRANSCRIPT_HARNESSES = ['claude', 'codex']
-
-function readdirSafe(dir) {
-  try { return fs.readdirSync(dir) } catch { return [] }
-}
 
 // Which harness wrote this config dir, by positive on-disk evidence: the claude
 // harness creates `projects/`, codex's creates `sessions/`. Null when
@@ -55,7 +50,7 @@ function readdirSafe(dir) {
 // and lab sessions.
 export function detectHarness(cfgDir) {
   if (claudeTranscriptPresent(cfgDir)) return 'claude'
-  if (fs.existsSync(path.join(cfgDir, 'sessions'))) return 'codex'
+  if (codexTranscriptPresent(cfgDir)) return 'codex'
   return null
 }
 
@@ -76,41 +71,7 @@ function newestFile(files) {
 // A spawned codex subagent writes a second rollout into its parent's config
 // directory. Its first line identifies it, so it must not win the parent's
 // newest-file lookup while the parent waits (#544, #545).
-function codexThreadSource(file) {
-  let fd
-  try { fd = fs.openSync(file, 'r') } catch { return null }
-  try {
-    const size = Math.min(fs.fstatSync(fd).size, 16 * 1024)
-    const buf = Buffer.alloc(size)
-    fs.readSync(fd, buf, 0, size, 0)
-    const first = buf.toString('utf8').split('\n').find((line) => line.trim())
-    if (!first) return null
-    const event = JSON.parse(first)
-    return event?.type === 'session_meta' ? event.payload?.thread_source ?? null : null
-  } catch {
-    return null
-  } finally {
-    fs.closeSync(fd)
-  }
-}
-
-function codexFiles(cfgDir) {
-  // sessions/<year>/<month>/<day>/rollout-*.jsonl
-  const files = []
-  const walk = (dir, depth) => {
-    for (const entry of readdirSafe(dir)) {
-      const p = path.join(dir, entry)
-      if (depth < 3) walk(p, depth + 1)
-      else if (entry.startsWith('rollout-') && entry.endsWith('.jsonl') && codexThreadSource(p) !== 'subagent') {
-        files.push(p)
-      }
-    }
-  }
-  walk(path.join(cfgDir, 'sessions'), 0)
-  return files
-}
-
-const FILES = { claude: claudeTranscriptFiles, codex: codexFiles }
+const FILES = { claude: claudeTranscriptFiles, codex: codexTranscriptFiles }
 
 // What each harness NAMES a session's transcript. The claude harness names the
 // file after the session id — measured on the box (docs/live-checks/
@@ -120,7 +81,7 @@ const FILES = { claude: claudeTranscriptFiles, codex: codexFiles }
 // overseer is the one thing curia keys and it runs the claude harness.
 const NAMES_SESSION = {
   claude: claudeTranscriptForSession,
-  codex: (base, id) => base.startsWith('rollout-') && base.endsWith(`-${id}.jsonl`),
+  codex: codexTranscriptForSession,
 }
 
 // The newest root transcript in a config dir, by mtime.
@@ -218,130 +179,7 @@ export function firstPrompt(harness, file, { max = 90, bytes = LABEL_BYTES } = {
   return null
 }
 
-// ---------------------------------------------------------------------------
-// codex harness
-// ---------------------------------------------------------------------------
-
-// event_msg is codex's live-UI event stream and every payload type it carries
-// is DUPLICATED by (or derivable from) a response_item on the same file —
-// agent_message/user_message mirror `message` items, mcp_tool_call_end mirrors
-// a function_call_output, token_count/task_started/task_complete are counters.
-// Rendering from response_item alone avoids double items, so event_msg is
-// tolerated wholesale rather than allowlisted per payload type: a NEW event
-// subtype is additive UI noise, not a vocabulary break. The break signal for
-// this harness is an unknown response_item payload or an unknown top-level type.
-const CODEX_TOPLEVEL_UNRENDERED = new Set([
-  'event_msg', 'session_meta', 'turn_context', 'world_state', 'compacted',
-])
-
-// reasoning is stored encrypted with no text (same fact as claude's
-// signature-only thinking — the terminal shows it live, no timeline can).
-const CODEX_ITEM_UNRENDERED = new Set(['reasoning', 'ghost_snapshot'])
-
-function codexDisplayName(name, namespace) {
-  // namespace "mcp__curia" + name "ask_human" → "curia.ask_human", matching
-  // how the page shows the claude harness's mcp__curia__ tools.
-  if (namespace) return `${String(namespace).replace(/^mcp__/, '')}.${name}`
-  return name
-}
-
-function codexArgs(raw) {
-  try { return JSON.parse(raw ?? '{}') ?? {} } catch { return {} }
-}
-
-function codexToolBrief(name, args) {
-  if (name === 'exec_command' || name === 'shell') return firstLine(args.cmd ?? args.command)
-  if (name === 'write_stdin') return firstLine(args.chars)
-  if (name === 'ask_human' || name === 'notify' || name === 'report_result' || name === 'request_review') {
-    if (isCuriaSend(args)) return curiaSendBrief(args)
-    return firstLine(args.prompt ?? args.message ?? args.summary ?? JSON.stringify(args))
-  }
-  return firstLine(JSON.stringify(args), 160)
-}
-
-// A codex tool output is a plain string on the classic tools and an ARRAY of
-// content blocks on 0.146's exec harness — and the array is the only path an
-// image takes to the model (measured on #176: an MCP `image` block arrives as
-// `{type:"input_image", image_url:"data:…"}`). Flatten to text, with each
-// image standing in as [image] — the claude harness's own spelling — so a
-// message whose only cargo is a screenshot renders as something rather than
-// as "[object Object]".
-function codexOutputText(output) {
-  if (!Array.isArray(output)) return String(output ?? '')
-  return output
-    .map((b) => (String(b?.type ?? '').includes('image') ? '[image]' : String(b?.text ?? '')))
-    .filter((s) => s.trim()).join('\n')
-}
-
-// exec_command outputs open with a bookkeeping preamble; the human wants the
-// command's own first line.
-function codexResultText(output) {
-  const s = codexOutputText(output)
-  const m = /^Output:\n?/m.exec(s)
-  return m ? s.slice(m.index + m[0].length) : s
-}
-
-function codexItems(e) {
-  const at = e.timestamp ?? null
-  if (e.type === 'response_item') {
-    const p = e.payload ?? {}
-    if (p.type === 'message') {
-      if (p.role !== 'assistant' && p.role !== 'user') return [] // developer: injected context, not conversation
-      const parts = p.content ?? []
-      const text = parts
-        .filter((c) => c?.type === 'output_text' || c?.type === 'input_text')
-        .map((c) => c.text).filter((t) => t?.trim()).join('\n')
-      const out = []
-      if (text) out.push({ kind: p.role === 'assistant' ? 'say' : 'prompt', at, text })
-      // #176 gap 9: an image block used to render as NO item at all, where the
-      // claude harness shows [image] (its user-message image case). Same note here.
-      for (const c of parts) {
-        if (String(c?.type ?? '').includes('image')) out.push({ kind: 'note', at, text: '[image]' })
-      }
-      return out
-    }
-    if (p.type === 'function_call') {
-      const args = codexArgs(p.arguments)
-      const item = {
-        kind: 'tool', at, id: p.call_id ?? p.id,
-        name: codexDisplayName(p.name, p.namespace),
-        brief: codexToolBrief(p.name, args),
-      }
-      if (String(p.namespace ?? '').startsWith('mcp__curia')) {
-        const text = curiaToolText(args)
-        if (text) item.text = text
-        const send = curiaToolSend(args)
-        if (send) item.send = send
-      }
-      return [item]
-    }
-    if (p.type === 'function_call_output' || p.type === 'custom_tool_call_output') {
-      const text = codexResultText(p.output)
-      const exit = /Process exited with code (\d+)/.exec(codexOutputText(p.output))
-      return [{
-        kind: 'result', at, forId: p.call_id, ok: exit ? exit[1] === '0' : true,
-        brief: firstLine(text, 300), lines: text.split('\n').length,
-      }]
-    }
-    // 0.146's exec harness (measured on #176): MCP calls no longer arrive as
-    // namespaced function_calls — the model writes a custom_tool_call named
-    // `exec` whose `input` is JS driving `tools.mcp__<server>__<tool>`. The
-    // input is a raw string, not JSON arguments.
-    if (p.type === 'custom_tool_call') {
-      return [{ kind: 'tool', at, id: p.call_id ?? p.id, name: p.name, brief: firstLine(String(p.input ?? ''), 160) }]
-    }
-    if (p.type === 'tool_search_call') return [{ kind: 'tool', at, id: p.id, name: 'tool_search', brief: firstLine(p.query ?? '') }]
-    if (p.type === 'tool_search_output') return [{ kind: 'result', at, forId: p.id, ok: true, brief: '', lines: 1 }]
-    if (CODEX_ITEM_UNRENDERED.has(p.type)) return []
-    return null // unknown response_item vocabulary
-  }
-  if (CODEX_TOPLEVEL_UNRENDERED.has(e.type)) return []
-  return null
-}
-
-// ---------------------------------------------------------------------------
-
-const READERS = { claude: parseClaudeTranscriptEvent, codex: codexItems }
+const READERS = { claude: parseClaudeTranscriptEvent, codex: parseCodexTranscriptEvent }
 
 // Read the messages that the Chat surface can render from transcript lines.
 // The branch selection lives here so agent and overseer conversations don't

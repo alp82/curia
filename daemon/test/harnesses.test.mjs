@@ -36,7 +36,7 @@ function fakeAdapter(name = 'fake', overrides = {}) {
       configLayoutVersion: 1,
     },
     setup: methods(['refuseRepository', 'prepare']),
-    lifecycle: methods(['freshCommand', 'resumeCommand', 'isReady', 'processDied', 'interrupt', 'send']),
+    lifecycle: methods(['freshCommand', 'resumeCommand', 'isReady', 'classifyLimit', 'processDied', 'interrupt', 'send']),
     evidence: methods(['discover', 'events', 'activity', 'usage']),
     control: {
       capabilities,
@@ -170,6 +170,65 @@ describe('Harness capabilities and durable identity', () => {
       ['send', 'curia-1', '/model opus'],
       ['key', 'curia-1', 'Enter'],
       ['key', 'curia-1', 'C-y'],
+    ])
+  })
+
+  test('the Codex adapter drives native behavior through fake ports', async () => {
+    const adapter = HARNESS_REGISTRY.get('codex')
+    const steps = []
+    const ports = createHarnessPorts({
+      filesystem: {
+        refuseRepository: (context) => ({ refused: context.wtPath }),
+        prepare: (context) => ({ prepared: context.cfgDir }),
+        nativeSkills: methods(['nativeSkills']).nativeSkills,
+      },
+      process: methods(['died', 'interrupt']),
+      pane: {
+        capture: methods(['capture']).capture,
+        send: methods(['send']).send,
+        key: (session, value) => { steps.push(['key', session, value]) },
+        kill: (session) => { steps.push(['kill', session]) },
+        resume: ({ session, model }) => { steps.push(['resume', session, model]) },
+        reasoningEffort: methods(['reasoningEffort']).reasoningEffort,
+      },
+      transcript: {
+        discover: methods(['discover']).discover,
+        events: methods(['events']).events,
+        activity: (context) => ({ file: context.cfgDir, mtimeMs: 2 }),
+        usage: methods(['usage']).usage,
+        richMetadata: methods(['richMetadata']).richMetadata,
+      },
+      toolChannel: methods(['enforceCompletion']),
+    })
+    const routing = {
+      models: { gpt: { id: 'gpt-5.6-sol' } },
+      harnesses: {
+        codex: {
+          template: 'codex --model {model} "$(cat {prompt_file})"',
+          resumeTemplate: 'codex resume --last --model {model}',
+        },
+      },
+    }
+
+    assert.equal(adapter.lifecycle.isReady({ paneText: 'gpt-5.6-sol high · ~/work' }), true)
+    assert.deepEqual(adapter.lifecycle.classifyLimit({ paneText: "You've hit your usage limit." }), {
+      scope: 'provider', resetAt: null,
+    })
+    assert.match(adapter.lifecycle.freshCommand({ routing, model: 'gpt', promptFile: '/cfg/prompt.md' }), /gpt-5\.6-sol/)
+    assert.match(adapter.lifecycle.resumeCommand({ routing, model: 'gpt' }), /resume --last/)
+    assert.deepEqual(adapter.setup.prepare({ cfgDir: '/cfg' }, ports), { prepared: '/cfg' })
+    assert.deepEqual(adapter.evidence.activity({ cfgDir: '/cfg' }, ports), { file: '/cfg', mtimeMs: 2 })
+    assert.equal(adapter.control.enforceCompletion({}, ports), 'enforceCompletion')
+    assert.deepEqual(
+      await requireHarnessCapability(adapter, 'modelSwitch', {
+        session: 'curia-2', model: 'gpt-5.5',
+      }, ports),
+      { status: 'switched', resumed: true, recorded: true },
+    )
+    assert.deepEqual(steps, [
+      ['key', 'curia-2', 'C-u'],
+      ['kill', 'curia-2'],
+      ['resume', 'curia-2', 'gpt-5.5'],
     ])
   })
 

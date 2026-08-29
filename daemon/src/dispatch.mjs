@@ -25,7 +25,7 @@ import {
   deleteRemoteBranch, pullRequestDiff, approvePullRequest,
 } from './github.mjs'
 import {
-  resolveModel, candidates, spawnModelId, parseUsageLimit, parseCreditGate,
+  resolveModel, candidates, spawnModelId,
   carriesLimitPhrase, resolveReviewer, isActive, Cooling, SAME_PROVIDER_STAMP, namedModel,
   reasoningEffortFor, harnessReasoningEffort,
 } from './routing.mjs'
@@ -3204,7 +3204,8 @@ export class Dispatcher {
   // until the composer appears. stallSweep keeps polling after that contract
   // ends, so a later account fault reaches the same handler and cooling store.
   async #classifyPaneLimit(agent, pane, { postReady = false } = {}) {
-    const limit = parseUsageLimit(pane, agent.provider) ?? parseCreditGate(pane, agent.provider)
+    const adapter = this.harnesses.get(agent.harness)
+    const limit = adapter.lifecycle.classifyLimit({ paneText: pane })
     if (!limit) return 'none'
     if (agent.promptCarriesLimitText) {
       // The ticket's own text can produce this match. Veto readiness and every
@@ -6734,49 +6735,16 @@ export class Dispatcher {
       return `ℹ️ \`${session}\` already runs on **${spawnModelId(this.routing, model)}**.`
     }
 
-    const adapter = this.harnesses.get(agent.harness)
-    if (agent.harness === 'claude') return this.#switchInPane(adapter, agent, model, by)
-
-    try {
-      await this.deps.sendKey(session, 'C-u')
-    } catch (e) {
-      return `❌ could not clear pending composer text in \`${session}\`: ${failureProse(e.message)}`
-    }
-
-    try {
-      await this.deps.killSession(session)
-    } catch (e) {
-      return `❌ could not stop \`${session}\` for its model switch: ${failureProse(e.message)}`
-    }
-
-    const previousRequested = agent.requestedModel
-    agent.requestedModel = model
-    try {
-      await this.#respawnOn(agent, model, {
-        operator_model_switch: true,
-        switched_from: agent.model,
-        requested_model: model,
-        by: by ?? 'unknown',
-      }, { resume: true })
-    } catch (e) {
-      agent.requestedModel = previousRequested
-      const released = await this.#releaseClaim(agent, `operator model switch failed: ${e.message}`)
-      return `❌ could not switch \`${session}\` to \`${model}\`: ${failureProse(e.message)}. ${released ? 'The claim is released.' : 'The issue is still assigned.'}`
-    }
-    return this.#switchedLine(agent, model, { resumed: true })
+    return this.#switchWithAdapter(this.harnesses.get(agent.harness), agent, model, by)
   }
 
-  // The claude in-pane switch. The composer is already cut. The pane answers
-  // in one of three shapes the prototype captured: "Set model to" (done),
-  // "Switch model?" (one confirm, Enter), or an API error line (the CLI's own
-  // live validation refused the target; the old model stands). A pane that
-  // says none of them inside the budget is reported as unconfirmed and the
-  // record is left alone, because a record that names a model the pane never
-  // took is the lie the status line exists to avoid.
-  async #switchInPane(adapter, agent, model, by) {
+  // The adapter owns the native switch. Claude drives its in-pane dialog;
+  // Codex restarts through `resume`. This method owns only the shared record.
+  async #switchWithAdapter(adapter, agent, model, by) {
     const session = agent.session
     const id = spawnModelId(this.routing, model)
     const from = agent.model
+    const previousRequested = agent.requestedModel
     let verdict
     try {
       verdict = await requireHarnessCapability(adapter, 'modelSwitch', {
@@ -6786,9 +6754,29 @@ export class Dispatcher {
           capture: this.deps.capturePane,
           key: this.deps.sendKey,
           send: this.deps.sendText,
+          kill: this.deps.killSession,
+          resume: async () => {
+            agent.requestedModel = model
+            try {
+              await this.#respawnOn(agent, model, {
+                operator_model_switch: true,
+                switched_from: from,
+                requested_model: model,
+                by: by ?? 'unknown',
+              }, { resume: true })
+            } catch (error) {
+              agent.requestedModel = previousRequested
+              error.modelSwitchStopped = true
+              throw error
+            }
+          },
         },
       })
     } catch (e) {
+      if (e.modelSwitchStopped) {
+        const released = await this.#releaseClaim(agent, `operator model switch failed: ${e.message}`)
+        return `❌ could not switch \`${session}\` to \`${model}\`: ${failureProse(e.message)}. ${released ? 'The claim is released.' : 'The issue is still assigned.'}`
+      }
       return `❌ could not switch \`${session}\`: ${failureProse(e.message)}`
     }
     if (verdict.status === 'active') {
@@ -6803,6 +6791,7 @@ export class Dispatcher {
     if (verdict.status !== 'switched') {
       return `⚠️ \`${session}\` did not confirm the switch to **${id}** in time. It is recorded as still on **${spawnModelId(this.routing, from)}**; the terminal shows what the pane took.`
     }
+    if (verdict.recorded) return this.#switchedLine(agent, model, { resumed: verdict.resumed === true })
     agent.model = model
     agent.requestedModel = model
     agent.provider = this.routing.models[model].provider

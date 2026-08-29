@@ -19,15 +19,9 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { parse as parseYaml } from 'yaml'
 import { execFileP } from './exec.mjs'
 import { endingProse, CHARTING_NEVER, REVIEWER_NEVER, dutyLines, ALL_AS_RECOMMENDED } from './lifecycle.mjs'
-import { TOKEN_HEADER } from './agenttoken.mjs'
 import { forgetGhCredentials } from './agentgh.mjs'
-// One expiry parser for the whole daemon (#642). The broker in credentials.mjs
-// refreshes on the same reading this seed refuses on, and a second parser here
-// would be free to disagree with it about whether a dispatch may proceed.
-import { codexAccessTokenExpiry } from './credentials.mjs'
 // the daemon's own minted credential (#390, ADR-0018) — every clone, fetch and
 // push below reaches GitHub as `curia-sh[bot]` rather than as the operator
 import { daemonGhEnv } from './daemongh.mjs'
@@ -45,8 +39,20 @@ import {
   claudeUntrustedProjectConfig,
   writeClaudeConnection,
 } from './claudeworkspace.mjs'
+import {
+  CODEX_CONFIG_ROOT_ENV,
+  CODEX_REPO_SKILL_ROOTS,
+  CODEX_WORKSPACE,
+  codexUntrustedProjectConfig,
+  writeCodexSkillPointers,
+} from './codexworkspace.mjs'
 
-export { CLAUDE_API_KEY_TAIL_LENGTH, claudeApiKeyApproval, writeClaudeConnection }
+export {
+  CLAUDE_API_KEY_TAIL_LENGTH,
+  claudeApiKeyApproval,
+  writeClaudeConnection,
+  writeCodexSkillPointers as writeSkillPointers,
+}
 
 // The mandatory communication rules (#133): a curia-owned copy of the
 // operator's STE writing standard, seeded into every config dir as the CLI's
@@ -572,7 +578,7 @@ export const HARNESS_NAMES = ['claude', 'codex']
 // once, for the agent spawn and the usage sync alike.
 export const CONFIG_ROOT_ENV = Object.freeze({
   claude: CLAUDE_CONFIG_ROOT_ENV,
-  codex: 'CODEX_HOME',
+  codex: CODEX_CONFIG_ROOT_ENV,
 })
 
 export function configRootEnvFor(harness = 'claude') {
@@ -645,293 +651,13 @@ export function agentEnv(cfgDir, harness = 'claude', { sandboxed = false } = {})
 // URL, so this is belt rather than need — but an unescaped backslash or quote
 // in a config file the daemon writes would fail at codex startup, where the
 // symptom is an agent sitting at a parse error nobody reads.
-function toml(value) {
-  return `"${String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
-}
-
-// The daemon's own address, as the agent reaches it. A bare pane reaches it on
-// loopback; a container's loopback is the container, so it reaches the same
-// listener through the docker host gateway instead (#156).
 export const LOOPBACK = LOOPBACK_HOST
-
-// The name curia's own MCP server carries in the agent's `.mcp.json`, and the
-// one name the claude harness's allowlist admits (#180). One constant, because the
-// two must never drift: an allowlist that does not name the server curia writes
-// leaves the agent with no tools at all.
 export const MCP_SERVER_NAME = CURIA_MCP_SERVER_NAME
-
-function curiaMcpUrl(daemonPort, agent, ticket, host = LOOPBACK) {
-  return `http://${host}:${daemonPort}/mcp?agent=${agent}&ticket=${ticket}`
-}
-
-// How long codex may wait on one curia tool call. Its default is 300 s, and it
-// is a HARD deadline on the call, not an idle timer — so #34's MCP-stream
-// keepalive, which is what lifts Claude Code's identical 300 s abort, does
-// nothing here. That was found the way #34's was: a live agent held a
-// `request_review` open, the human took five minutes, and the call died with
-// `tool call error: timed out awaiting tools/call after 300s` — twice, because
-// the agent correctly retried it (#56's standing order) into a second deadline.
-//
-// A day, not a literal infinity: codex wants a number, and this is the one place
-// #11's "blocks for as long as the human takes" is bounded. It is ~3x the
-// longest real block on record (7 h 53 m, #56), and a block that outlives it
-// re-dispatches rather than resolving anything (#11/#12). The keepalive stays on
-// for the claude harness and costs nothing here.
-//
-// #371 then measured what else this number bounds, and it is more than the human
-// wait. Codex has NO transport-drop watchdog: when the daemon dies holding a
-// call, the client is told nothing and waits out this deadline from the moment
-// the CALL was made. Measured three ways in
-// docs/research/tool-channel-mid-session-codex.md — still waiting 595 s and
-// 295 s after the death at this value, and dying at 60.009 s and 60.007 s with
-// the value cut to 60. The claude row above is told in ~120 s instead, which is
-// why #341's retry ladder works there and cannot fire here.
-//
-// So one number serves two jobs that pull apart: generous to a slow human, and
-// a day of silence for an agent a restart stranded. Changing it is a decision
-// against #34, not a tuning.
-//
-// #426 took that decision and left the number ALONE. One value cannot be both
-// jobs, so the second job moves off it: the daemon says goodbye. Before it
-// exits, a restart, a SIGTERM and a crash each end every blocked call with a
-// tool ERROR, which is the error #341's ladder needs and the thing codex never
-// gets by itself. That reaches the agent in about a second rather than in a
-// day, and it costs the slow human nothing. What the goodbye cannot reach is a
-// SIGKILL, and this deadline is still the only bound there.
-const CODEX_TOOL_TIMEOUT_S = 86_400
-
-function writeSecretFile(file, data) {
-  fs.writeFileSync(file, data, { mode: 0o600 })
-  fs.chmodSync(file, 0o600)
-}
-
-function stopHookCommand(daemonPort, agent, host = LOOPBACK, token) {
-  return [
-    `curl -s -X POST 'http://${host}:${daemonPort}/agent_done?agent=${agent}'`,
-    `-H 'Content-Type: application/json'`,
-    `-H '${TOKEN_HEADER}: ${token}'`,
-    '-d @-',
-  ].join(' ')
-}
 
 const HARNESS = {
   claude: CLAUDE_WORKSPACE,
-  codex: {
-    // See the claude row: this is the durable channel, and #340 measured it.
-    memoryFile: 'AGENTS.md',
-    // See the claude row (#648). `openai` is the name the routing table and
-    // `Cooling` use; `codex` is the consumer that runs on it.
-    provider: 'openai',
-    // Codex hides a skill whose manifest says so, and its catalog is the only
-    // channel that re-arms a skill without pasting it (#399). See
-    // writeSkillPointers. A new harness answers this row for itself: a CLI with
-    // no catalog of its own writes no pointers and needs none.
-    skillPointers: writeSkillPointers,
-    // CODEX_HOME is the whole config dir: settings, skills, sessions, logs AND
-    // the credential file, with no second variable to split them (Claude's
-    // CLAUDE_SECURESTORAGE_CONFIG_DIR has no codex equivalent). Sharing the
-    // host's credentials therefore has to happen inside the dir.
-    hostStore: () => path.join(os.homedir(), '.codex'),
-    env: (cfgDir) => ({ [CONFIG_ROOT_ENV.codex]: cfgDir }),
-
-    // A SYMLINK to the host's auth.json, which is the same shared-store property
-    // #53 landed for Claude and — read this carefully — reached by the opposite
-    // mechanism. #53 found that a symlinked Claude credential file is REPLACED by
-    // a regular file on the agent's first refresh, because Claude writes
-    // temp-then-rename over an unresolved path, stranding the host on the
-    // rotated-away token. Codex does not: it opens the path
-    // O_WRONLY|O_CREAT|O_TRUNC, which follows the link and writes the host's own
-    // file (verified by strace, and by watching a write through the link land on
-    // the target while the link survived). So here the link is the fix, not the
-    // trap.
-    //
-    // Rebuilt on every seed, and any regular file at that path is removed first:
-    // a config dir reused from a run that somehow left a real credential behind
-    // must not keep it, because a stale copy that still parses is the silent
-    // return to the frozen-token failure.
-    //
-    // The cost is the same one #53 accepted: an agent can reach the host's real
-    // credential file, so it has a host session's blast radius there. The one
-    // difference worth stating is that codex's write is NOT atomic — a truncating
-    // in-place rewrite, where Claude's is a rename — so a refresh racing a read
-    // can be seen torn. The window is one small write and nothing in codex locks
-    // that file (its own locks live under $CODEX_HOME/tmp, which is per-agent
-    // and so shares nothing), and the failure re-dispatches (#11/#12).
-    // A CONTAINER cannot have the link, and cannot have the sharing either
-    // (#158). It mounts no host HOME, so a link into `~/.codex` resolves to
-    // nothing inside — the silent shape #156 found with skills. The credential
-    // is a FILE in `CODEX_HOME`, and `CODEX_HOME` is the config dir the
-    // container already mounts, so delivery is a copy and needs no new mount.
-    //
-    // The copy is READ-ONLY, and that is the whole decision rather than a
-    // detail. `auth.json` on this box carries a `refresh_token`, and providers
-    // rotate those: an agent that refreshed its copy would invalidate the
-    // token the HOST still holds — #53's stranding, arriving by the other harness.
-    // So the container agent is frozen on the token it started with, which is
-    // the same bound #156 accepted for the claude harness and stated.
-    //
-    // 0400 is a bound against accident, not against the agent: the container
-    // runs as uid 1000 and owns the file, so it could chmod it back. What it
-    // buys is that an ordinary in-place refresh FAILS rather than silently
-    // rotating the host away.
-    //
-    // AND THE COPY MUST NOT START EXPIRED (#351). The 0400 bit blocks the
-    // write-back, not the refresh: a refresh is a network call, and the server
-    // rotates the refresh token the moment it succeeds. A copy whose access
-    // token is already expired refreshes on first use, the rotated credential
-    // lives only in process memory, and the next re-read presents the old
-    // refresh token — which the server refuses as already used. That strands
-    // the agent AND the host store, because both hold the same spent token.
-    // So an expired host token refuses the dispatch here, loudly and before
-    // any claim work is lost. The bound this buys is one access-token
-    // lifetime: an agent that outlives a fresh token still dies on the same
-    // sequence, and only the API-key shape (ADR-0007's, for the claude lane)
-    // removes the lineage entirely.
-    seed: (cfgDir, _wtPath, { sandboxed = false } = {}) => {
-      const dest = path.join(cfgDir, 'auth.json')
-      const host = path.join(os.homedir(), '.codex', 'auth.json')
-      fs.rmSync(dest, { force: true })
-      if (!sandboxed) {
-        fs.symlinkSync(host, dest)
-        return
-      }
-      if (!fs.existsSync(host)) {
-        throw new Error(`no codex credential for the container: ${host} does not exist, and a sandboxed codex agent cannot reach the host store — type \`reauth\` to sign in from a browser (#642)`)
-      }
-      const raw = fs.readFileSync(host, 'utf8')
-      const expiry = codexAccessTokenExpiry(raw)
-      if (expiry !== null && expiry <= Date.now()) {
-        throw new Error(`refusing to seed the codex credential into the container: the host access token expired ${new Date(expiry).toISOString()}. A copy that starts expired refreshes at once, the server rotates the refresh token, and the read-only copy cannot store the rotation — that strands the host store too (#351) — type \`reauth\` to sign in from a browser first (#642)`)
-      }
-      fs.writeFileSync(dest, raw)
-      fs.chmodSync(dest, 0o400)
-    },
-
-    // Everything the codex harness needs is in the config dir, so nothing is written
-    // into the watched repo at all — no .mcp.json, no settings file, nothing to
-    // git-exclude.
-    //
-    // `[projects.<wt>] trust_level` is the codex analogue of Claude's
-    // hasTrustDialogAccepted: without it the first spawn stops at a "Do you trust
-    // the contents of this directory?" prompt and the agent never reaches its
-    // composer (observed, before this line existed).
-    connectionSettings: ({ wtPath, cfgDir, agent, ticket, daemonPort, daemonHost, reasoningEffort, token, skills }) => {
-      writeSecretFile(path.join(cfgDir, 'config.toml'), [
-        '# Written by the curia daemon per agent. Never hand-edited.',
-        '',
-        // Written whenever routing states one, because a model's OWN default is
-        // not a constant across models: gpt-5.5 defaults to medium and
-        // gpt-5.6-sol to low, so changing `models.<name>.id` alone would move
-        // the effort underneath the harness without saying so. Stating it makes the
-        // model and the depth two separate, visible decisions.
-        ...(reasoningEffort ? [`model_reasoning_effort = ${toml(reasoningEffort)}`, ''] : []),
-        '[features]',
-        'hooks = true',
-        // The tool set is bounded HERE (#172), and this table is the whole lever:
-        // every one of these is `stable` and defaults to TRUE on the pinned
-        // codex, so curia carried them without ever choosing them. A live agent
-        // held `mcp__codex_apps__plugin_management` — search, install and
-        // uninstall apps — plus `_update_app_permissions`, and none of it was
-        // named in `[mcp_servers]` or in the bounds.
-        //
-        // This is the codex half of the fault #180 fixed on claude, and the
-        // mechanism rhymes: the `codex_apps` namespace follows the ChatGPT
-        // credential rather than the config file, and ADR-0007 shares that
-        // credential with the host on purpose. The container boundary (#148)
-        // does not reach it either — a connector call is ordinary outbound
-        // HTTPS, and the network is open because wayfinder needs `gh` and the
-        // web.
-        //
-        // `apps` and `plugins` are the namespace itself, and #207's live read
-        // confirmed both bite: the mcp-resource tools and `request_plugin_install`
-        // drop out of a real agent's tool set when they are false.
-        //
-        // `multi_agent` was written against `resume_agent` and `close_agent`, and
-        // #207 measured it as a no-op on 0.146: the family moved to
-        // `collaboration.*` and off the flag, and a live agent under this very
-        // table spawned a sub-agent (`Started /root/pong`,
-        // docs/live-checks/207). The operator then ruled the collaboration
-        // tools ALLOWED (2026-08-05): they are the codex spelling of claude's
-        // own subagents, which curia has never forbidden, and the review gate
-        // reads the output either way. The key stays because it is true to its
-        // name and costs nothing.
-        //
-        // The trap is the OPPOSITE shape to #180's, and it was measured both
-        // ways. A key codex does not know is ignored in silence, so a rename
-        // upstream fails as a no-op rather than as a dead agent. A key with the
-        // wrong TYPE is a hard config error that stops the spawn at startup.
-        // So nothing here can quietly take curia's own MCP server down, and a
-        // typo buys back the whole surface with nothing to say so. That is why
-        // the guard is a live read of `codex features list` (docs/live-checks/172)
-        // rather than a unit test on the string this writes. `multi_agent` is
-        // that trap CAUGHT, one ticket later.
-        'apps = false',
-        'plugins = false',
-        'multi_agent = false',
-        // The rest of the default-on registry curia never chose (#207). All
-        // seven were measured INERT for a CLI agent on the pinned codex: with
-        // all of them false, a live agent's tool set is byte-identical, in the
-        // TUI lane and the exec lane, bare and in the container. They gate the
-        // Codex desktop app and IDE surfaces, not this one — no browser or
-        // computer-use tool ever reached a CLI agent's definitions, and
-        // `in_app_updates = false` does not even remove `codex update` from the
-        // CLI. So these lines remove no capability today. They are a pin: each
-        // is `stable` and defaults to TRUE, so the next version bump that does
-        // attach one of them to the CLI meets a stated choice instead of a
-        // default nobody made (operator ruling, 2026-08-05, docs/live-checks/207).
-        'browser_use = false',
-        'browser_use_external = false',
-        'browser_use_full_cdp_access = false',
-        'in_app_browser = false',
-        'computer_use = false',
-        'in_app_updates = false',
-        'skill_mcp_dependency_install = false',
-        '',
-        // The skill bound (#171). #57's install list is the whole skill set an
-        // agent may see, and CODEX_HOME does not enforce it: codex also reads
-        // `$HOME/.agents/skills`, with no config key to turn that root off on
-        // the pinned codex. So the bound is subtractive — one disable entry per
-        // host skill the seed did not install, exact-name match, resolved
-        // against every root at load (verified live: the model-visible prompt
-        // then lists exactly the installed nine, docs/live-checks/171).
-        //
-        // `bundled` covers gap 2 of the same inventory: codex plants six skills
-        // of its own under `<cfgDir>/skills/.system` on every start,
-        // `skill-installer` — which installs more — among them. Nothing curia
-        // chose, so it is pinned off like the feature table above; false also
-        // deletes the planted cache dir (verified live). Same silent-rename
-        // caveat as `[features]`: an unknown key is ignored without a word, so
-        // the guard is the live read, not a unit test on this string.
-        '[skills]',
-        'bundled = { enabled = false }',
-        ...codexSkillDenyList(skills?.install).flatMap((name) => [
-          '',
-          '[[skills.config]]',
-          `name = ${toml(name)}`,
-          'enabled = false',
-        ]),
-        '',
-        `[projects.${toml(wtPath)}]`,
-        'trust_level = "trusted"',
-        '',
-        `[mcp_servers.${MCP_SERVER_NAME}]`,
-        `url = ${toml(curiaMcpUrl(daemonPort, agent, ticket, daemonHost))}`,
-        `tool_timeout_sec = ${CODEX_TOOL_TIMEOUT_S}`,
-        // #159, the codex spelling of the claude harness's `headers` object. An
-        // inline table, which is what `codex mcp list --json` reads back as the
-        // transport's `http_headers`. `bearer_token_env_var` is the other option
-        // codex offers and it is the wrong one here: it names an ENVIRONMENT
-        // VARIABLE, which puts the secret back in `ps` on the bare path.
-        `http_headers = { ${toml(TOKEN_HEADER)} = ${toml(token)} }`,
-        '',
-      ].join('\n'))
-      writeSecretFile(path.join(cfgDir, 'hooks.json'), JSON.stringify({
-        hooks: { Stop: [{ hooks: [{ type: 'command', command: stopHookCommand(daemonPort, agent, daemonHost, token) }] }] },
-      }, null, 2))
-    },
-  },
+  codex: CODEX_WORKSPACE,
 }
-
 // A config file the WATCHED REPO carries, which curia does not write and cannot
 // vouch for. Returns the offending path, or null. One exposure per harness, same
 // shape on both: a file the harness loads with no prompt, whose hooks would
@@ -959,7 +685,7 @@ const HARNESS = {
 // flag (#105).
 export function untrustedProjectConfig(wtPath, harness) {
   const planted = harness === 'codex'
-    ? path.join(wtPath, '.codex', 'hooks.json')
+    ? codexUntrustedProjectConfig(wtPath)
     : claudeUntrustedProjectConfig(wtPath)
   return fs.existsSync(planted) ? planted : null
 }
@@ -969,7 +695,7 @@ export function untrustedProjectConfig(wtPath, harness) {
 // config dir plus `.agents/skills` at the spawn cwd; claude reads
 // `.claude/skills`. Neither CLI has a config key that turns a repo root off.
 const REPO_SKILL_ROOTS = {
-  codex: [['.codex', 'skills'], ['.agents', 'skills']],
+  codex: CODEX_REPO_SKILL_ROOTS,
   claude: CLAUDE_REPO_SKILL_ROOTS,
 }
 
@@ -1093,173 +819,6 @@ export function installSkills(cfgDir, skills, { copy = false } = {}) {
     else fs.symlinkSync(src, path.join(dir, name), 'dir')
   }
   return names
-}
-
-// The skills codex HIDES from its own catalog, read off upstream's manifest
-// rather than decided here (#399). A skill whose `agents/openai.yaml` carries
-// `policy.allow_implicit_invocation: false` is absent from the
-// `<skills_instructions>` developer message, so the model never learns it
-// exists. Today that is `wayfinder` and `implement`.
-//
-// The manifest IS the question, so it is the thing read. If upstream lists a
-// skill in a later release, curia writes no pointer for it and the pointer
-// simply stops existing — no list here to fall out of date, and no patched byte
-// to break in silence.
-//
-// A skill with no manifest at all is listed: `allow_implicit_invocation`
-// defaults to true. That is why a pointer needs no manifest of its own.
-function hiddenSkillNames(cfgDir, names) {
-  return (names ?? []).filter((name) => {
-    const manifest = path.join(cfgDir, 'skills', name, 'agents', 'openai.yaml')
-    let doc
-    try {
-      doc = parseYaml(fs.readFileSync(manifest, 'utf8'))
-    } catch {
-      return false // no manifest, or one codex itself could not read: codex lists it
-    }
-    return doc?.policy?.allow_implicit_invocation === false
-  })
-}
-
-// The one line a `SKILL.md` contributes to the codex catalog. Read from the
-// installed file, never held as a copy here, so a skill-tree bump carries into
-// the pointer at the next seed with nothing to synchronise.
-//
-// PARSED as YAML rather than matched with a regex, and the reason is a real bug
-// this caught: `implement` writes its description as a QUOTED scalar, so the
-// obvious `description:[ \t]*(.+)` capture returns the quotes too. Appending a
-// sentence to that produced `description: "..." Read ...`, which is invalid
-// YAML — and codex answers invalid frontmatter by dropping the skill from its
-// catalog IN SILENCE. The pointer existed on disk and reached no model.
-function skillDescription(cfgDir, name) {
-  let text
-  try {
-    text = fs.readFileSync(path.join(cfgDir, 'skills', name, 'SKILL.md'), 'utf8')
-  } catch {
-    return null
-  }
-  if (!text.startsWith('---')) return null
-  const end = text.indexOf('\n---', 3)
-  if (end === -1) return null
-  let front
-  try {
-    front = parseYaml(text.slice(3, end))
-  } catch {
-    return null
-  }
-  const description = front?.description
-  return typeof description === 'string' && description.trim() ? description.trim() : null
-}
-
-// A pointer per hidden skill, so the codex catalog names it again (#399).
-//
-// #360 closed every cheap way to re-arm a skill on codex: a second `$wayfinder`
-// adds an 11,867-character copy and keeps the first, and neither a tool result
-// nor `AGENTS.md` resolves a mention at all. What survives is the catalog — a
-// developer message, world state, restated every turn and never stale. The
-// operator rejected the obvious way in (flip `allow_implicit_invocation` in the
-// vendored manifest) on 2026-08-16: a patched vendored byte is brittle, and a
-// skill-tree update breaks it without a word.
-//
-// So curia writes a file it OWNS instead, beside the `standing.md` it already
-// writes here, and patches nothing. Measured on the pinned codex
-// (docs/live-checks/399): a listed skill costs about 270 characters per turn and
-// NEVER pastes its body. The 11,867 characters arrive only from a `$name` typed
-// by a user, which is why the codex spawn prompt no longer types one.
-//
-// Three properties make this stable rather than clever:
-//
-//   - The description is READ from the installed skill, so the trigger fires on
-//     the same tasks the real skill claims, and an upstream reword carries
-//     through at the next seed.
-//   - Hidden-ness is read from upstream's manifest, so upstream stays the
-//     authority on which skills need a pointer at all.
-//   - The name is `curia-<name>` and not `<name>`. Codex keys a skill on the
-//     name in its frontmatter, so a pointer claiming `wayfinder` would put two
-//     skills under one name — the ambiguity #224 measured, created on purpose.
-//     The prefix also says whose file it is to anyone reading the config dir.
-//
-// It is GENERATED per agent rather than committed to the tree, for the same
-// reason `standing.md` is: it names an absolute path that only exists once the
-// config dir does. And it is written from `seedConfigDir`, AFTER
-// `installSkills` — that call wipes `<cfgDir>/skills` on every re-arm, and a
-// pointer written anywhere else would vanish on the respawn a usage limit
-// forces. That is #340's `standing.md` trap, one directory over.
-export function writeSkillPointers(cfgDir, names) {
-  const written = []
-  for (const name of hiddenSkillNames(cfgDir, names)) {
-    const description = skillDescription(cfgDir, name)
-    if (!description) continue // a skill with no description contributes no catalog line to match on
-    const target = path.join(cfgDir, 'skills', name, 'SKILL.md')
-    const pointer = path.join(cfgDir, 'skills', `curia-${name}`)
-    fs.mkdirSync(pointer, { recursive: true })
-    // Both values are emitted as JSON strings, which are valid YAML
-    // double-quoted scalars. The description is upstream's prose and carries
-    // whatever upstream put in it — quotes, colons, em-dashes — and a
-    // hand-spliced line is how the `implement` pointer broke in silence.
-    fs.writeFileSync(path.join(pointer, 'SKILL.md'), [
-      '---',
-      `name: ${JSON.stringify(`curia-${name}`)}`,
-      `description: ${JSON.stringify(`${description} Read ${target} in full before you act on this.`)}`,
-      '---',
-      '',
-      `This is the \`${name}\` skill. Read \`${target}\` completely, then follow it.`,
-      '',
-      'Curia installed that file and it is the whole skill. This pointer exists because codex does',
-      'not list `' + name + '` in its own skill catalog, and it restates none of the skill itself.',
-      '',
-      // The read-once rule, and it is the whole reason this file is worth
-      // owning (#399). Codex tells the model to read a skill completely every
-      // time it uses one, and not to carry a skill across turns. A model that
-      // obeys both re-reads on every turn: measured at 12,299 characters per
-      // turn for wayfinder, which STACKS, so it is worse than the 11,867-char
-      // mention this replaced. Curia cannot edit codex's rule and it can write
-      // its own, in the one file upstream does not own.
-      `Read \`${target}\` ONCE in a session. If you have already read it, you are still running it,`,
-      'and reading it again only repeats what you have. Say that you are using this skill, then act.',
-      '',
-      'The curia standing orders win wherever the two disagree.',
-      '',
-    ].join('\n'))
-    written.push(`curia-${name}`)
-  }
-  return written
-}
-
-// The second skill root the codex harness reads, and the reason #171 exists.
-// CODEX_HOME does not bound skills: the pinned codex (0.146) reads
-// `$HOME/.agents/skills` unconditionally, beside `$CODEX_HOME/skills`
-// (source: core-skills root loader; measured with `codex debug prompt-input`
-// under a fresh CODEX_HOME — all 25 host skills appeared, the four #57
-// excludes among them, docs/live-checks/171). The claude harness has no such
-// root: the same isolated-config-dir check showed only the installed skill
-// plus Claude Code's own built-ins.
-function codexHostSkillsRoot() {
-  return path.join(os.homedir(), '.agents', 'skills')
-}
-
-// The names the host root would leak past the install list. Codex 0.146 has no
-// off switch for the root itself, so the bound is a per-name deny list in
-// config.toml, computed when the agent is armed. Canonicalisation makes the
-// name selector safe here: the installed nine are symlinks into the same host
-// tree, and a denied name is exactly a name the seed did not install.
-//
-// Computed at arm time, so a skill the operator adds to the host root DURING a
-// run leaks until the next arm. That race is accepted: the alternative is a
-// watcher on the operator's own skill tree.
-function codexSkillDenyList(install) {
-  const installed = new Set(install ?? [])
-  let entries = []
-  try {
-    entries = fs.readdirSync(codexHostSkillsRoot(), { withFileTypes: true })
-  } catch {
-    return []
-  }
-  return entries
-    .filter((e) => e.isDirectory() || e.isSymbolicLink())
-    .map((e) => e.name)
-    .filter((name) => !installed.has(name))
-    .sort()
 }
 
 // ---- the durable instruction channel (#340) ---------------------------------
