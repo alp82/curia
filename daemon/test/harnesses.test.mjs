@@ -127,6 +127,52 @@ describe('Harness ports and normalized evidence', () => {
 })
 
 describe('Harness capabilities and durable identity', () => {
+  test('the Claude adapter drives native behavior through fake ports', async () => {
+    const adapter = HARNESS_REGISTRY.get('claude')
+    const steps = []
+    const panes = [
+      '❯ /model opus\nSwitch model?\n❯ 1. Yes, switch to opus',
+      '❯ /model opus\nSet model to opus\n❯',
+    ]
+    const ports = createHarnessPorts({
+      filesystem: {
+        refuseRepository: (context) => ({ refused: context.wtPath }),
+        prepare: (context) => ({ prepared: context.cfgDir }),
+      },
+      process: methods(['died', 'interrupt']),
+      pane: {
+        capture: () => panes.shift() ?? '',
+        send: (session, value) => { steps.push(['send', session, value]); return { status: 'sent' } },
+        key: (session, value) => { steps.push(['key', session, value]) },
+      },
+      transcript: {
+        discover: methods(['discover']).discover,
+        events: methods(['events']).events,
+        activity: (context) => ({ file: context.cfgDir, mtimeMs: 1 }),
+        usage: methods(['usage']).usage,
+        richMetadata: methods(['richMetadata']).richMetadata,
+      },
+      toolChannel: methods(['enforceCompletion']),
+    })
+
+    assert.equal(adapter.lifecycle.isReady({ paneText: '⏵⏵ bypass permissions' }), true)
+    assert.deepEqual(adapter.setup.prepare({ cfgDir: '/cfg' }, ports), { prepared: '/cfg' })
+    assert.deepEqual(adapter.evidence.activity({ cfgDir: '/cfg' }, ports), { file: '/cfg', mtimeMs: 1 })
+    assert.equal(adapter.control.enforceCompletion({}, ports), 'enforceCompletion')
+    assert.deepEqual(
+      await requireHarnessCapability(adapter, 'modelSwitch', {
+        session: 'curia-1', model: 'opus', readbackMs: 500,
+      }, ports),
+      { status: 'switched' },
+    )
+    assert.deepEqual(steps, [
+      ['key', 'curia-1', 'C-u'],
+      ['send', 'curia-1', '/model opus'],
+      ['key', 'curia-1', 'Enter'],
+      ['key', 'curia-1', 'C-y'],
+    ])
+  })
+
   test('unsupported controls refuse before a pane operation can run', () => {
     const adapter = createHarnessRegistry([fakeAdapter()]).get('fake')
     assert.throws(

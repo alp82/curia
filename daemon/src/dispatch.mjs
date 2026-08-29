@@ -29,7 +29,7 @@ import {
   carriesLimitPhrase, resolveReviewer, isActive, Cooling, SAME_PROVIDER_STAMP, namedModel,
   reasoningEffortFor, harnessReasoningEffort,
 } from './routing.mjs'
-import { HARNESS_REGISTRY, spawnIdentity } from './harnesses.mjs'
+import { HARNESS_REGISTRY, requireHarnessCapability, spawnIdentity } from './harnesses.mjs'
 import { hasSession, listSessions, newSession, capturePane, killSession, sendText, sendKey, paneShowsActiveTurn } from './tmux.mjs'
 import {
   createPrivateClone, removeWorkspace,
@@ -340,10 +340,13 @@ function reTest(re, text) {
 
 // Pane text confirms a stalled transcript only when it shows a narrow idle or
 // error signal. An active marker vetoes the match.
-export function paneConfirmsStall(pane, readyRe) {
+export function paneConfirmsStall(pane, readyClassifier) {
   const tail = paneTail(pane)
   if (paneShowsActiveTurn(pane, STALL_ACTIVE_LINES)) return false
-  return STALL_ERROR_RE.test(tail) || reTest(readyRe, tail)
+  const ready = typeof readyClassifier === 'function'
+    ? readyClassifier(tail)
+    : reTest(readyClassifier, tail)
+  return STALL_ERROR_RE.test(tail) || ready
 }
 
 // A nudge reached the harness when the pane changed from the confirmed stall
@@ -1795,19 +1798,31 @@ export class Dispatcher {
   // there is since #195. Shared by the first dispatch and by the cross-harness
   // respawn a usage limit forces.
   #armAgent({ session, ticket, harness, model, reasoningEffort = null, wtPath, cfgDir }) {
-    this.deps.seedConfigDir(cfgDir, GUEST_WT, this.config.skills, harness, { sandboxed: true })
     // A FRESH secret per arm (#159), minted before the connection settings that carry it.
     // The cross-harness respawn arms again, so the pane a usage limit killed
     // stops being able to speak for this name the moment its successor is armed.
     const token = this.deps.mintAgentToken(this.dataDir, session)
-    this.deps.writeConnectionSettings({
-      wtPath: GUEST_WT, hostWtPath: wtPath, cfgDir, agent: session, ticket,
-      daemonPort: this.daemonPort, daemonHost: GUEST_DAEMON_HOST, token,
-      harness, reasoningEffort: harnessReasoningEffort(harness,
+    const adapter = this.harnesses.get(harness)
+    adapter.setup.prepare({
+      session, ticket, harness, model, wtPath, cfgDir, token,
+      reasoningEffort: harnessReasoningEffort(harness,
         reasoningEffort ?? this.routing.models[model].reasoning_effort ?? null),
-      // The codex harness turns this into its skill deny list (#171); the
-      // claude harness does not read it.
       skills: this.config.skills,
+    }, {
+      filesystem: {
+        prepare: (context) => {
+          this.deps.seedConfigDir(
+            context.cfgDir, GUEST_WT, context.skills, context.harness, { sandboxed: true },
+          )
+          this.deps.writeConnectionSettings({
+            wtPath: GUEST_WT, hostWtPath: context.wtPath, cfgDir: context.cfgDir,
+            agent: context.session, ticket: context.ticket,
+            daemonPort: this.daemonPort, daemonHost: GUEST_DAEMON_HOST, token: context.token,
+            harness: context.harness, reasoningEffort: context.reasoningEffort,
+            skills: context.skills,
+          })
+        },
+      },
     })
   }
 
@@ -2611,12 +2626,24 @@ export class Dispatcher {
     const wayOut = where === 'respawn'
       ? 'The harness this agent was dispatched on does not load it, and the fallback harness does. Remove the file from the repo, or dispatch the ticket again once a harness that does not load it is warm'
       : 'Remove the file from the repo, or dispatch on another harness if only one harness loads it (`/start <ticket> <model>`)'
-    const planted = untrustedProjectConfig(wtPath, harnessName)
+    const adapter = this.harnesses.get(harnessName)
+    const { planted, plants } = adapter.setup.refuseRepository({
+      wtPath, harness: harnessName, skills: this.config.skills?.install,
+    }, {
+      filesystem: {
+        refuseRepository: ({ wtPath: target, harness, skills }) => {
+          const planted = untrustedProjectConfig(target, harness)
+          return {
+            planted,
+            plants: planted ? [] : plantedSkills(target, harness, skills),
+          }
+        },
+      },
+    })
     // #224: the same family, one step milder — a repo skill under a name curia
     // installs impersonates the seeded tooling, and on the codex harness it is
     // listed to the model beside and before the installed copy. A repo skill
     // under any other name stays welcome.
-    const plants = planted ? [] : plantedSkills(wtPath, harnessName, this.config.skills?.install)
     if (!planted && !plants.length) return
     const e = planted
       ? new Error(`${planted} is a config file curia did not write, and the ${harnessName} harness loads it with no prompt — hooks in it would run unreviewed, with no model in the loop. ${wayOut}`)
@@ -3212,10 +3239,8 @@ export class Dispatcher {
   async #watchdog(agent) {
     // Resolved once, and loudly: readiness that silently never matches is #33's
     // live-only defect, and its whole symptom was silence.
-    const readyRe = this.routing.harnesses[agent.harness]?.readyRe
-    if (!readyRe) {
-      throw new Error(`no readiness marker for harness "${agent.harness}" on ${agent.session} — refusing to watch a pane against nothing`)
-    }
+    const adapter = this.harnesses.get(agent.harness)
+    const isReady = (paneText) => adapter.lifecycle.isReady({ paneText, routing: this.routing })
     const deadline = Date.now() + this.config.dispatch.ready_timeout_s * 1000
     while (Date.now() < deadline) {
       await sleep(2000)
@@ -3293,7 +3318,7 @@ export class Dispatcher {
       }
       // Per harness (#39): the claude composer's `⏵⏵` marker never appears in a
       // codex pane, whose composer says `<model> <effort> · <cwd>`.
-      if (readyRe.test(tail)) {
+      if (isReady(tail)) {
         agent.state = 'ready'
         // The anchor the tool-channel grace window is measured from (#194).
         agent.readyAt = Date.now()
@@ -6709,13 +6734,14 @@ export class Dispatcher {
       return `ℹ️ \`${session}\` already runs on **${spawnModelId(this.routing, model)}**.`
     }
 
+    const adapter = this.harnesses.get(agent.harness)
+    if (agent.harness === 'claude') return this.#switchInPane(adapter, agent, model, by)
+
     try {
       await this.deps.sendKey(session, 'C-u')
     } catch (e) {
       return `❌ could not clear pending composer text in \`${session}\`: ${failureProse(e.message)}`
     }
-
-    if (agent.harness === 'claude') return this.#switchInPane(agent, model, by)
 
     try {
       await this.deps.killSession(session)
@@ -6747,23 +6773,27 @@ export class Dispatcher {
   // says none of them inside the budget is reported as unconfirmed and the
   // record is left alone, because a record that names a model the pane never
   // took is the lie the status line exists to avoid.
-  async #switchInPane(agent, model, by) {
+  async #switchInPane(adapter, agent, model, by) {
     const session = agent.session
     const id = spawnModelId(this.routing, model)
     const from = agent.model
-    let sent
+    let verdict
     try {
-      sent = await this.deps.sendText(session, `/model ${id}`, { readbackMs: 0 })
+      verdict = await requireHarnessCapability(adapter, 'modelSwitch', {
+        session, model: id, readbackMs: this.switchReadbackMs,
+      }, {
+        pane: {
+          capture: this.deps.capturePane,
+          key: this.deps.sendKey,
+          send: this.deps.sendText,
+        },
+      })
     } catch (e) {
-      return `❌ could not type the switch into \`${session}\`: ${failureProse(e.message)}`
+      return `❌ could not switch \`${session}\`: ${failureProse(e.message)}`
     }
-    if (sent?.status === 'not-sent') {
+    if (verdict.status === 'active') {
       return `⏳ \`${session}\` is mid-turn, so the switch was not typed. Pick again when the turn ends.`
     }
-    const verdict = await this.#switchVerdict(session, from)
-    // Whatever the pane said, the cut text goes back: the operator's queued
-    // words are not the switch's to spend.
-    await this.deps.sendKey(session, 'C-y').catch(() => {})
     if (verdict.status === 'refused') {
       this.reduction.journal('model_switch_refused', {
         repo: agent.repo, ticket: agent.ticket, agent: session, model, from, by: by ?? 'unknown', why: verdict.why,
@@ -6793,33 +6823,6 @@ export class Dispatcher {
       reasoning_effort: agent.reasoningEffort ?? null, by: by ?? 'unknown', operator_model_switch: true, live: true,
     })
     return this.#switchedLine(agent, model, { resumed: false })
-  }
-
-  // Read the pane until it states the switch's outcome. The confirm is
-  // answered here, once: the CLI asks it only after its validation passed.
-  async #switchVerdict(session, from) {
-    const deadline = Date.now() + this.switchReadbackMs
-    let confirmed = false
-    let pane = ''
-    while (true) {
-      try {
-        pane = await this.deps.capturePane(session)
-      } catch {
-        pane = ''
-      }
-      const tail = String(pane ?? '').split('\n').slice(-25).join('\n')
-      if (/Set model to /.test(tail)) return { status: 'switched' }
-      const err = tail.match(/(API error:[^\n]*(?:\n[^\n]*){0,3}|Unable to validate model[^\n]*)/)
-      if (err && !/Switch model\?/.test(tail)) {
-        return { status: 'refused', why: err[1].replace(/\s+/g, ' ').trim().slice(0, 200) }
-      }
-      if (!confirmed && /Switch model\?/.test(tail)) {
-        confirmed = true
-        await this.deps.sendKey(session, 'Enter')
-      }
-      if (Date.now() >= deadline) return { status: 'unconfirmed', pane: tail }
-      await sleepFor(Math.min(250, Math.max(1, deadline - Date.now())))
-    }
   }
 
   #switchedLine(agent, model, { resumed }) {
@@ -7116,7 +7119,12 @@ export class Dispatcher {
 
       let activity
       try {
-        activity = this.deps.transcriptActivity(w.harness, w.cfgDir)
+        const adapter = this.harnesses.get(w.harness)
+        activity = adapter.evidence.activity({ harness: w.harness, cfgDir: w.cfgDir }, {
+          transcript: {
+            activity: ({ harness, cfgDir }) => this.deps.transcriptActivity(harness, cfgDir),
+          },
+        })
       } catch {
         continue
       }
@@ -7124,8 +7132,9 @@ export class Dispatcher {
       const lastGrowth = Math.max(activity.mtimeMs, w.readyAt ?? 0, w.spawnedAt ?? 0)
       if (Date.now() - lastGrowth < this.stallTimeoutMs) continue
 
-      const readyRe = this.routing.harnesses[w.harness]?.readyRe
-      if (!paneConfirmsStall(pane, readyRe)) continue
+      const adapter = this.harnesses.get(w.harness)
+      const isReady = (paneText) => adapter.lifecycle.isReady({ paneText, routing: this.routing })
+      if (!paneConfirmsStall(pane, isReady)) continue
       if (this.agents.get(w.session) !== w || w.state !== 'ready') continue
 
       this.reduction.journal('stall_detected', {
@@ -7133,7 +7142,7 @@ export class Dispatcher {
         idle_ms: Math.round(Date.now() - lastGrowth),
       })
       if (!recovery.nudged) {
-        const accepted = await this.#nudgeStalledAgent(w, pane, readyRe)
+        const accepted = await this.#nudgeStalledAgent(w, pane, isReady)
         if (accepted) continue
       }
       if (!recovery.respawned) {

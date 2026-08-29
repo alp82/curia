@@ -1,12 +1,11 @@
 // The public Harness adapter seam (ADR-0029 and ADR-0030).
 //
-// This first migration step makes the contract executable while Claude and
-// Codex still delegate native setup and orchestration to their existing
-// implementations. Later migration steps move those implementations behind
-// the five facets without changing this interface.
+// Claude now owns its native behavior behind this seam. Codex still delegates
+// to its legacy implementation until the next migration step.
 
 import { buildResumeCmd, buildSpawnCmd } from './routing.mjs'
 import { CONSUMER_NAMES, PROVIDER_CREDENTIALS } from './credentials.mjs'
+import { createClaudeHarnessAdapter } from './claudeharness.mjs'
 
 export const HARNESS_FACETS = Object.freeze([
   'identity',
@@ -306,7 +305,10 @@ const sharedCapabilities = Object.freeze({
 })
 
 export const HARNESS_REGISTRY = createHarnessRegistry([
-  legacyAdapter({ name: 'claude', provider: 'anthropic', capabilities: sharedCapabilities }),
+  createClaudeHarnessAdapter({
+    buildFreshCommand: ({ routing, model, promptFile }) => buildSpawnCmd(routing, 'claude', model, promptFile),
+    buildResumeCommand: ({ routing, model }) => buildResumeCmd(routing, 'claude', model),
+  }),
   legacyAdapter({ name: 'codex', provider: 'openai', capabilities: sharedCapabilities }),
 ], {
   providers: Object.keys(PROVIDER_CREDENTIALS),
