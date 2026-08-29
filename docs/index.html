@@ -81,6 +81,22 @@
   main { position: relative; z-index: 1; }
   canvas.layer { position: fixed; inset: 0; z-index: 0; pointer-events: none; width: 100%; height: 100%; }
 
+  /* Keep the compositing budget small on devices that report limited
+     memory or CPU. The story and its motion stay intact. These rules
+     remove only effects that require large intermediate textures. */
+  .perf-lite .scene .shot > *,
+  .perf-lite #preview .pv-dev,
+  .perf-lite #preview .pv-desk,
+  .perf-lite #atlas .at-scr,
+  .perf-lite #term-scene .tm-stage,
+  .perf-lite .dc { filter: none !important; }
+  .perf-lite .pv-bar,
+  .perf-lite .pv-sw,
+  .perf-lite .r8-stage {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+
   .skip {
     position: fixed; left: 0.5rem; top: 0.5rem; z-index: 60;
     background: var(--accent); color: #06231a; padding: 0.5rem 0.8rem; border-radius: 6px;
@@ -3392,6 +3408,17 @@ if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').m
   if (runSec) runSec.classList.add('still');
 }
 
+/* Browser hardware hints aren't exact, but they let a constrained
+   device avoid the page's costliest raster effects before the first
+   frame. The canvas also uses this signal to lower its backing-store
+   resolution and the number of moving cards, without changing layout. */
+var lowPower = !!(
+  (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4) ||
+  (navigator.deviceMemory && navigator.deviceMemory <= 4) ||
+  (navigator.connection && navigator.connection.saveData)
+);
+if (lowPower) document.body.classList.add('perf-lite');
+
 /* Scene 9, settled at round 7 as the bar: two sliders. RAM steps 2, 4,
    8, 16 GB, and the agent count is clamped to what fits after the
    system's 1 GB. Every column is 0.1 GB, so the strip thins as the box
@@ -3484,15 +3511,27 @@ if (prefersStill || !window.IntersectionObserver) {
     var at = document.getElementById('atlas');
     if (!at) return;
     /* #773 round 3: on a phone the two screens take turns in front. */
+    var grid = null, flipTimer = null;
     if (window.matchMedia && window.matchMedia('(max-width: 40rem)').matches) {
-      var grid = document.getElementById('at');
-      if (grid) setInterval(function () { grid.classList.toggle('flip'); }, 3600);
+      grid = document.getElementById('at');
+    }
+    function startFlip() {
+      if (!grid || flipTimer) return;
+      flipTimer = setInterval(function () { grid.classList.toggle('flip'); }, 3600);
+    }
+    function stopFlip() {
+      if (!flipTimer) return;
+      clearInterval(flipTimer);
+      flipTimer = null;
     }
     var seen = new IntersectionObserver(function (entries) {
       entries.forEach(function (e) {
-        if (!e.isIntersecting) return;
-        seen.unobserve(e.target);
-        e.target.classList.add('seen');
+        if (e.isIntersecting) {
+          e.target.classList.add('seen');
+          startFlip();
+        } else {
+          stopFlip();
+        }
       });
     }, { rootMargin: '0px 0px -10% 0px', threshold: 0.04 });
     seen.observe(at);
@@ -3807,8 +3846,16 @@ function pTick() {
   var vh = window.innerHeight, mid = vh / 2;
   pScenes.forEach(function (sc) {
     var r = sc.getBoundingClientRect();
+    /* A custom-property write repaints the scene's full background.
+       Don't touch scenes that are well outside the viewport, and don't
+       write the same rounded value twice. */
+    if (r.bottom < -vh || r.top > vh * 2) return;
     var d = r.top > mid ? r.top - mid : (r.bottom < mid ? mid - r.bottom : 0);
-    sc.style.setProperty('--p', clampNum(1 - d / (vh * 0.55), 0, 1).toFixed(3));
+    var next = clampNum(1 - d / (vh * 0.55), 0, 1).toFixed(3);
+    if (sc._p !== next) {
+      sc.style.setProperty('--p', next);
+      sc._p = next;
+    }
   });
 }
 function pQueue() { if (!pPending) { pPending = true; requestAnimationFrame(pTick); } }
@@ -4062,7 +4109,11 @@ function clampNum(v, a, b) { return v < a ? a : v > b ? b : v; }
     var list = chars(el);
     var k = Math.round(f * list.length);
     if (el._k !== k) {
-      for (var j = 0; j < list.length; j++) {
+      /* Scroll usually changes this by a few characters. Update only
+         that delta instead of scanning every span on every frame. */
+      var old = el._k == null ? list.length : el._k;
+      var lo = Math.min(old, k), hi = Math.max(old, k);
+      for (var j = lo; j < hi; j++) {
         var want = j >= k;
         if (list[j]._off !== want) {
           list[j].className = want ? 'ch-off' : '';
@@ -4196,8 +4247,8 @@ function clampNum(v, a, b) { return v < a ? a : v > b ? b : v; }
   }, { passive: true });
 
   var raf = 0;
-  (function tick() {
-    raf = requestAnimationFrame(tick);
+  function tick() {
+    raf = 0;
     if (document.hidden) return;
     var v = vh();
     var pr = pin.getBoundingClientRect();
@@ -4217,7 +4268,14 @@ function clampNum(v, a, b) { return v < a ? a : v > b ? b : v; }
     /* The claim sticks at the top, so its rect stops moving and cannot
        time the beat. The track never sticks, so it can. */
     answer(q >= 1 && track.getBoundingClientRect().top < v * (END - BEAT) + lead);
-  })();
+  }
+  function queueTick() {
+    if (!raf) raf = requestAnimationFrame(tick);
+  }
+  window.addEventListener('scroll', queueTick, { passive: true });
+  window.addEventListener('resize', queueTick, { passive: true });
+  window.addEventListener('visibilitychange', queueTick);
+  queueTick();
 })();
 
 /* ================================================================
@@ -4284,7 +4342,10 @@ function runArc() {
   function rgb(c) { return 'rgb(' + (c[0] | 0) + ',' + (c[1] | 0) + ',' + (c[2] | 0) + ')'; }
   function rgba(c, a) { return 'rgba(' + (c[0] | 0) + ',' + (c[1] | 0) + ',' + (c[2] | 0) + ',' + clamp(a, 0, 1) + ')'; }
 
-  var dpr = Math.min(window.devicePixelRatio || 1, 2);
+  /* A 2x full-viewport canvas has four times as many pixels as a 1x
+     canvas. A 1.5x ceiling stays sharp on fast high-density screens;
+     constrained devices use 1x so scrolling keeps its frame budget. */
+  var dpr = Math.min(window.devicePixelRatio || 1, lowPower ? 1 : 1.5);
   var W = 0, H = 0;
   function size() {
     var w = canvas.clientWidth, h = canvas.clientHeight;
@@ -5114,9 +5175,10 @@ function runArc() {
      The span is how many screens of scroll the order beat is given, and
      the tail room under the claim is set from it. */
   var ORDER_SPAN = window.innerWidth < 620 ? 3.2 : 4.2;   /* a phone: one screen less (#773 round 2) */
-  /* EVERY piece of work makes the journey: the mess is cleared out, and
-     nothing of it is left standing at the end. */
-  var TRAVEL_N = MESS.length;
+  /* Every rendered piece of work makes the journey. Constrained devices
+     render a smaller representative set to keep the same story within
+     a smaller frame budget. */
+  var TRAVEL_N = lowPower ? Math.min(9, MESS.length) : MESS.length;
   document.documentElement.style.setProperty('--tail', ((ORDER_SPAN + 0.19) * 100).toFixed(0) + 'svh');
 
   /* Which map each piece of work belongs to, and what it turns out to
@@ -5219,19 +5281,26 @@ function runArc() {
     };
   }
 
-  var raf = 0, last = 0, clock = 0;
+  var raf = 0, last = 0, clock = 0, arcActive = false, slowPaints = 0;
 
   function frame(ts) {
-    raf = requestAnimationFrame(frame);
-    if (document.hidden) return;
+    raf = 0;
+    if (document.hidden || !arcActive) return;
     var dt = Math.min(0.05, (ts - last) / 1000 || 0.016);
     last = ts;
     clock += dt;
-    size();
+    /* rAF spacing sees costs that JS paint timing cannot, including
+       software raster and compositing. A rare miss decays away; a
+       sustained cluster asks for the constrained tier. */
+    slowPaints = dt > 0.020 ? slowPaints + 1 : Math.max(0, slowPaints - 0.02);
 
     var arcBox = arcEl.getBoundingClientRect();
     ctx.clearRect(0, 0, W, H);
-    if (arcBox.bottom < -40 || arcBox.top > H + 40) return;
+    if (arcBox.bottom < -40 || arcBox.top > H + 40) {
+      raf = requestAnimationFrame(frame);
+      return;
+    }
+    var paintStart = performance.now();
 
     var wide = W >= 620;
     MAX_MAPS = wide ? 3 : 1;
@@ -5313,7 +5382,7 @@ function runArc() {
     /* curia sends work out of whichever rim faces its maps */
     S.portsDown = nMaps > 0 && S.mapsY > S.nodeY;
 
-    var n = MESS.length;
+    var n = TRAVEL_N;
     var cw = clamp((b.x1 - b.x0) * 0.38, 92, CARD_W);
     var chw = cw / 2 + 6, chh = CARD_H * (cw / CARD_W) / 2 + 6;
     S.cloudRY *= lerp(1, 2.8, S.orbitMix);
@@ -5487,10 +5556,59 @@ function runArc() {
       drawAgent(ax, ay, 9 * Math.max(s2, 0.75),
         cy2.agent.in * (1 - cy2.agent.off) * mapsA, cy2.agent.working);
     }
+
+    /* Hardware hints miss some old or thermally constrained machines.
+       If frame delivery or canvas painting repeatedly consumes the
+       16.7 ms budget, downgrade in place before scrolling stutters. */
+    if (!lowPower) {
+      if (performance.now() - paintStart > 11) slowPaints += 1;
+      if (slowPaints >= 4) {
+        lowPower = true;
+        document.body.classList.add('perf-lite');
+        dpr = Math.min(window.devicePixelRatio || 1, 1);
+        TRAVEL_N = Math.min(9, MESS.length);
+        W = 0; H = 0;
+        size();
+      }
+    }
+    raf = requestAnimationFrame(frame);
   }
 
   size();
-  raf = requestAnimationFrame(frame);
+  function startArc() {
+    arcActive = true;
+    if (!document.hidden && !raf) {
+      last = 0;
+      raf = requestAnimationFrame(frame);
+    }
+  }
+  function stopArc() {
+    arcActive = false;
+    if (raf) cancelAnimationFrame(raf);
+    raf = 0;
+    ctx.clearRect(0, 0, W, H);
+  }
+  if (window.IntersectionObserver) {
+    new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (entry.isIntersecting) startArc(); else stopArc();
+      });
+    }, { rootMargin: '120px 0px' }).observe(arcEl);
+    /* IntersectionObserver reports asynchronously. Paint the opening
+       hero immediately when it starts in view, so the first visual
+       frame never waits for the observer callback. */
+    var firstArcRect = arcEl.getBoundingClientRect();
+    if (firstArcRect.bottom >= -120 && firstArcRect.top <= window.innerHeight + 120) startArc();
+  } else {
+    startArc();
+  }
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) stopArc();
+    else {
+      var r = arcEl.getBoundingClientRect();
+      if (r.bottom >= -120 && r.top <= window.innerHeight + 120) startArc();
+    }
+  });
   window.addEventListener('resize', size, { passive: true });
 }
 
