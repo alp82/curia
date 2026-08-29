@@ -183,8 +183,22 @@ function writeConnectionSettings({
 }
 
 export const CODEX_WORKSPACE = Object.freeze({
+  configRootEnv: CODEX_CONFIG_ROOT_ENV,
   memoryFile: CODEX_MEMORY_FILE,
   provider: 'openai',
+  repoSkillRoots: CODEX_REPO_SKILL_ROOTS,
+  untrustedProjectConfig: codexUntrustedProjectConfig,
+  connectionWorktree: ({ wtPath }) => wtPath,
+  skillInvocation: ({ skill, skillTarget }) => (
+    skill ? `$${skill}${skillTarget ? ` ${skillTarget}` : ''}` : null
+  ),
+  wayfinderInvocation: () => null,
+  deferredToolOrders: () => [
+    '- **Load deferred Curia tools once.** If `ALL_TOOLS` holds Curia schemas, return every',
+    '  `mcp__curia__*` definition from one `exec` call before your first Curia call. Keep the output',
+    '  in context, and use the same definitions for every later Curia call.',
+    '',
+  ],
   skillPointers: writeCodexSkillPointers,
   hostStore: () => path.join(os.homedir(), '.codex'),
   env: (cfgDir) => ({ [CODEX_CONFIG_ROOT_ENV]: cfgDir }),
@@ -192,4 +206,6 @@ export const CODEX_WORKSPACE = Object.freeze({
   connectionSettings: writeConnectionSettings,
 })
 
-export const codexUntrustedProjectConfig = (wtPath) => path.join(wtPath, '.codex', 'hooks.json')
+export function codexUntrustedProjectConfig(wtPath) {
+  return path.join(wtPath, '.codex', 'hooks.json')
+}

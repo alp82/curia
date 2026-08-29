@@ -27,6 +27,7 @@ import { CodexCredentialBroker } from '../src/credentials.mjs'
 import { CLEAR_MAP_FOG, KEEP_MAP_OPEN, MAP_FOG_VERB } from '../src/mapfog.mjs'
 import { OPENAI_CREDIT_GATE_PANE } from './fixtures/panes.mjs'
 import { workingAnthropicStore, TEST_ANTHROPIC_TOKEN } from './fixtures/credentials.mjs'
+import { HARNESS_REGISTRY, createHarnessRegistry } from '../src/harnesses.mjs'
 
 const ROUTING = {
   defaults: { untyped: 'sonnet' },
@@ -159,6 +160,7 @@ function makeDispatcher(deps = {}, {
   // one spawns `npx`, and a test that forgot to pass one must run nothing rather
   // than reach the network.
   aistack = null,
+  harnessRegistry = null,
   // Discarded by default. A test that asserts on a boot line passes a collector,
   // because the lines it wants are written inside the constructor (#377).
   log = () => {},
@@ -312,6 +314,7 @@ function makeDispatcher(deps = {}, {
   const d = new Dispatcher({
     config,
     routing,
+    harnessRegistry,
     reduction,
     notify: (ticket, message) => notifies.push({ ticket, message }),
     // the #94 confirm seams: records land in `escalations` so the dispatcher's
@@ -5848,6 +5851,76 @@ describe('live model switching (#717)', () => {
 })
 
 describe('dispatching across two harnesses (#39)', () => {
+  test('a registry-only fixture adapter dispatches without a shared Harness branch', async () => {
+    const noCapabilities = {
+      modelSwitch: false, reasoningEffort: true, transcriptUsage: false,
+      nativeSkills: false, richMetadata: false,
+    }
+    const fixture = {
+      identity: {
+        name: 'fixture', provider: 'anthropic', credentialConsumer: 'claude', configLayoutVersion: 1,
+      },
+      setup: {
+        workspace: {
+          configRootEnv: 'FIXTURE_HOME', memoryFile: 'FIXTURE.md', repoSkillRoots: [],
+          hostStore: () => '/fixture',
+          env: (cfgDir) => ({ FIXTURE_HOME: cfgDir }),
+          seed: () => {}, connectionSettings: () => {},
+          connectionWorktree: ({ wtPath }) => wtPath,
+          untrustedProjectConfig: (wtPath) => path.join(wtPath, '.fixture-untrusted'),
+          skillInvocation: () => null, wayfinderInvocation: () => null,
+          deferredToolOrders: () => [],
+        },
+        refuseRepository: () => ({ planted: null, plants: [] }),
+        prepare: (context, ports) => ports.filesystem.prepare(context),
+      },
+      lifecycle: {
+        freshCommand: ({ model }) => `fixture fresh ${model}`,
+        resumeCommand: ({ model }) => `fixture resume ${model}`,
+        isReady: ({ paneText }) => paneText.includes('fixture ready'),
+        classifyLimit: () => null,
+        processDied: () => null, interrupt: () => null, send: () => null,
+        strandedCallRecovery: () => false,
+        rewind: () => ({ landingId: null, remains: [] }),
+      },
+      evidence: {
+        discover: () => null, events: () => [], activity: () => null, usage: () => null,
+        native: {
+          files: () => [], namesSession: () => false, present: () => false,
+          parse: () => [], identity: () => null, unknownType: () => 'unknown',
+        },
+      },
+      control: {
+        capabilities: noCapabilities,
+        operations: { reasoningEffort: (effort) => effort },
+        enforceCompletion: (context, ports) => ports.toolChannel.enforceCompletion(context),
+      },
+    }
+    const registry = createHarnessRegistry([...HARNESS_REGISTRY.values(), fixture])
+    const routing = {
+      defaults: { untyped: { model: 'fixture-model', effort: 'high' } },
+      models: { 'fixture-model': { provider: 'anthropic', harness: 'fixture' } },
+      fallbacks: {},
+      harnesses: { fixture: {
+        template: 'unused', resumeTemplate: 'unused', readyRe: /fixture ready/,
+        toolChannelGraceS: 15,
+      } },
+    }
+    let spawn = null
+    const d = makeDispatcher({
+      newSession: async (options) => { spawn = options },
+    }, { routing, harnessRegistry: registry })
+
+    const reply = await d.start('42', { repo: 'o/r', by: 'test' })
+
+    assert.match(reply, /dispatched/)
+    assert.match(spawn.shellCmd, /fixture fresh fixture-model/)
+    assert.match(fs.readFileSync(
+      path.join(tmp, 'work', 'cfg', 'curia-42', 'fixture', ENV_FILE), 'utf8',
+    ), /^FIXTURE_HOME=/m)
+    assert.equal(d.agents.get('curia-42').adapter, 'fixture')
+  })
+
   test('a research ticket seeds and spawns the codex harness end to end', async () => {
     const seeded = []
     const harnessed = []

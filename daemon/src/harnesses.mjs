@@ -3,10 +3,13 @@
 // Claude and Codex own their native behavior behind this seam. Shared services
 // select an adapter and provide the ports that retain Curia's invariants.
 
-import { buildResumeCmd, buildSpawnCmd, parseCreditGate, parseUsageLimit } from './routing.mjs'
+import {
+  buildResumeCmd, buildSpawnCmd, parseCreditGate, parseUsageLimit, setRoutingHarnessRegistry,
+} from './routing.mjs'
 import { CONSUMER_NAMES, PROVIDER_CREDENTIALS } from './credentials.mjs'
 import { createClaudeHarnessAdapter } from './claudeharness.mjs'
 import { createCodexHarnessAdapter } from './codexharness.mjs'
+import { setTranscriptHarnessRegistry } from './transcript.mjs'
 
 export const HARNESS_FACETS = Object.freeze([
   'identity',
@@ -105,10 +108,27 @@ export function validateHarnessAdapter(adapter, {
   }
 
   for (const method of ['refuseRepository', 'prepare']) requireFunction('setup', setup, method)
-  for (const method of ['freshCommand', 'resumeCommand', 'isReady', 'classifyLimit', 'processDied', 'interrupt', 'send']) {
+  if (!plainObject(setup.workspace)) contractFault(`Harness ${identity.name} setup needs a workspace implementation`)
+  for (const method of [
+    'hostStore', 'env', 'seed', 'connectionSettings', 'connectionWorktree',
+    'untrustedProjectConfig', 'skillInvocation', 'wayfinderInvocation', 'deferredToolOrders',
+  ]) requireFunction('setup.workspace', setup.workspace, method)
+  for (const field of ['configRootEnv', 'memoryFile']) {
+    if (typeof setup.workspace[field] !== 'string' || !setup.workspace[field]) {
+      contractFault(`Harness ${identity.name} workspace needs a non-empty ${field}`)
+    }
+  }
+  if (!Array.isArray(setup.workspace.repoSkillRoots)) {
+    contractFault(`Harness ${identity.name} workspace needs repoSkillRoots`)
+  }
+  for (const method of ['freshCommand', 'resumeCommand', 'isReady', 'classifyLimit', 'processDied', 'interrupt', 'send', 'strandedCallRecovery', 'rewind']) {
     requireFunction('lifecycle', lifecycle, method)
   }
   for (const method of ['discover', 'events', 'activity', 'usage']) requireFunction('evidence', evidence, method)
+  if (!plainObject(evidence.native)) contractFault(`Harness ${identity.name} evidence needs a native transcript implementation`)
+  for (const method of ['files', 'namesSession', 'present', 'parse', 'identity', 'unknownType']) {
+    requireFunction('evidence.native', evidence.native, method)
+  }
   requireFunction('control', control, 'enforceCompletion')
 
   if (!plainObject(control.capabilities)) contractFault(`Harness ${identity.name} control needs capabilities`)
@@ -258,3 +278,6 @@ export const HARNESS_REGISTRY = createHarnessRegistry([
   providers: Object.keys(PROVIDER_CREDENTIALS),
   credentialConsumers: CONSUMER_NAMES,
 })
+
+setTranscriptHarnessRegistry(HARNESS_REGISTRY)
+setRoutingHarnessRegistry(HARNESS_REGISTRY)

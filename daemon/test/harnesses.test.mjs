@@ -17,6 +17,7 @@ import {
   unknownNativeEvidence,
 } from '../src/harnesses.mjs'
 import { Reduction } from '../src/reduction.mjs'
+import { HarnessRuntime } from '../src/harnessruntime.mjs'
 
 const methods = (names) => Object.fromEntries(names.map((name) => [name, () => name]))
 
@@ -35,9 +36,21 @@ function fakeAdapter(name = 'fake', overrides = {}) {
       credentialConsumer: 'test-consumer',
       configLayoutVersion: 1,
     },
-    setup: methods(['refuseRepository', 'prepare']),
-    lifecycle: methods(['freshCommand', 'resumeCommand', 'isReady', 'classifyLimit', 'processDied', 'interrupt', 'send']),
-    evidence: methods(['discover', 'events', 'activity', 'usage']),
+    setup: {
+      ...methods(['refuseRepository', 'prepare']),
+      workspace: {
+        configRootEnv: 'FAKE_HOME', memoryFile: 'FAKE.md', repoSkillRoots: [],
+        ...methods([
+          'hostStore', 'env', 'seed', 'connectionSettings', 'connectionWorktree',
+          'untrustedProjectConfig', 'skillInvocation', 'wayfinderInvocation', 'deferredToolOrders',
+        ]),
+      },
+    },
+    lifecycle: methods(['freshCommand', 'resumeCommand', 'isReady', 'classifyLimit', 'processDied', 'interrupt', 'send', 'strandedCallRecovery', 'rewind']),
+    evidence: {
+      ...methods(['discover', 'events', 'activity', 'usage']),
+      native: methods(['files', 'namesSession', 'present', 'parse', 'identity', 'unknownType']),
+    },
     control: {
       capabilities,
       operations: {},
@@ -123,6 +136,41 @@ describe('Harness ports and normalized evidence', () => {
       type: 'unknown_native_evidence', nativeType: 'future_item', source: 'fixture',
     })
     assert.throws(() => normalizedEvent('made_up'), /unknown normalized Harness event/)
+  })
+})
+
+describe('registry-supplied shared orchestration', () => {
+  test('a fixture-only adapter exercises launch, resume, evidence, refusal, and fallback', () => {
+    const fixture = fakeAdapter('fixture', {
+      lifecycle: {
+        ...methods(['isReady', 'classifyLimit', 'processDied', 'interrupt', 'send', 'strandedCallRecovery', 'rewind']),
+        freshCommand: ({ model }) => `fixture start ${model}`,
+        resumeCommand: ({ model }) => `fixture resume ${model}`,
+      },
+      evidence: {
+        ...methods(['discover', 'activity', 'usage']),
+        events: () => [normalizedEvent('assistant_message', { text: 'fixture evidence' })],
+        native: methods(['files', 'namesSession', 'present', 'parse', 'identity', 'unknownType']),
+      },
+    })
+    const runtime = new HarnessRuntime(createHarnessRegistry([fixture]))
+
+    assert.equal(runtime.command('fixture', { model: 'one' }), 'fixture start one')
+    assert.equal(runtime.command('fixture', { model: 'one' }, { resume: true }), 'fixture resume one')
+    assert.deepEqual(runtime.events('fixture', {}), [{
+      type: 'assistant_message', text: 'fixture evidence',
+    }])
+    assert.throws(
+      () => runtime.control('fixture', 'modelSwitch'),
+      (error) => error instanceof HarnessCapabilityError,
+    )
+    assert.deepEqual(runtime.fallback({ from: 'claude', to: 'fixture' }), {
+      crossHarness: true, preserveWorktree: true, reuseNativeConversation: false,
+    })
+    assert.throws(
+      () => runtime.fallback({ from: 'claude', to: 'fixture', resume: true }),
+      /refusing to resume native claude conversation state on the fixture Harness/,
+    )
   })
 })
 

@@ -10,10 +10,8 @@
 // and the worktrees cut from it were the bare tmux path, and they are gone —
 // from the code here, and by hand from the one box that carried leftovers.
 //
-// The config dir is per HARNESS since #39: `CLAUDE_CONFIG_DIR` for the claude
-// harness, `CODEX_HOME` for the codex one. See the HARNESS table below — it is the
-// one place the two harnesses differ on disk, and everything above it (worktrees,
-// branches, landing) is harness-blind.
+// The config dir is per Harness. The selected adapter owns its native root;
+// everything above that root (worktrees, branches, and landing) is Harness-neutral.
 
 import fs from 'node:fs'
 import os from 'node:os'
@@ -28,22 +26,15 @@ import { daemonGhEnv } from './daemongh.mjs'
 // the salvage branch's stamp (#649). One stamp shape for the whole daemon: UTC,
 // colons folded to hyphens, sorting in write order.
 import { stampFor } from './backup.mjs'
+import { HARNESS_REGISTRY } from './harnesses.mjs'
 import {
   CLAUDE_API_KEY_TAIL_LENGTH,
-  CLAUDE_CONFIG_ROOT_ENV,
-  CLAUDE_REPO_SKILL_ROOTS,
-  CLAUDE_WORKSPACE,
   CURIA_MCP_SERVER_NAME,
   LOOPBACK_HOST,
   claudeApiKeyApproval,
-  claudeUntrustedProjectConfig,
   writeClaudeConnection,
 } from './claudeworkspace.mjs'
 import {
-  CODEX_CONFIG_ROOT_ENV,
-  CODEX_REPO_SKILL_ROOTS,
-  CODEX_WORKSPACE,
-  codexUntrustedProjectConfig,
   writeCodexSkillPointers,
 } from './codexworkspace.mjs'
 
@@ -88,13 +79,28 @@ export function worktreePathFor(root, repo, n) {
 // roots a usage sync scans.
 export const CFG_DIR = 'cfg'
 
+function adapterFor(candidate = null) {
+  if (candidate?.identity && candidate?.setup) return candidate
+  const name = candidate ?? 'claude'
+  try {
+    return HARNESS_REGISTRY.get(name)
+  } catch {
+    throw new Error(`no agent harness for harness "${name}" - registered Harnesses: ${HARNESS_REGISTRY.names.join(', ')}`)
+  }
+}
+
+function workspaceFor(candidate = null) {
+  const adapter = adapterFor(candidate)
+  const workspace = adapter.setup.workspace
+  if (!workspace) throw new Error(`Harness "${adapter.identity.name}" has no workspace implementation`)
+  return workspace
+}
+
 export function cfgDirFor(root, session, harness = null) {
   const sessionRoot = path.join(root, CFG_DIR, session)
   if (harness === null) return sessionRoot
-  if (!HARNESS_NAMES.includes(harness)) {
-    throw new Error(`no configuration root for Harness "${harness}" - known Harnesses: ${HARNESS_NAMES.join(', ')}`)
-  }
-  return path.join(sessionRoot, harness)
+  const adapter = adapterFor(harness)
+  return path.join(sessionRoot, adapter.identity.name)
 }
 
 export function branchFor(n) {
@@ -569,35 +575,28 @@ export function removeCredentials(cfgDir) {
 // without it the spawn stalls at a "Hooks need review" menu before the first
 // turn, and no hook runs at all.
 
-export const HARNESS_NAMES = ['claude', 'codex']
+export const HARNESS_NAMES = HARNESS_REGISTRY.names
 
 // WHICH ENVIRONMENT VARIABLE CARRIES A HARNESS'S CONFIG ROOT. The HARNESS rows
 // below build their env from this map rather than spelling the name inline, and
 // `aistack.mjs` reads it rather than naming the same two variables a second
 // time — a harness whose CLI reads a different variable is then answered here,
 // once, for the agent spawn and the usage sync alike.
-export const CONFIG_ROOT_ENV = Object.freeze({
-  claude: CLAUDE_CONFIG_ROOT_ENV,
-  codex: CODEX_CONFIG_ROOT_ENV,
-})
+export const CONFIG_ROOT_ENV = Object.freeze(Object.fromEntries(
+  HARNESS_REGISTRY.values().map((adapter) => [
+    adapter.identity.name,
+    workspaceFor(adapter).configRootEnv,
+  ]),
+))
 
 export function configRootEnvFor(harness = 'claude') {
-  harnessDef(harness)
-  return CONFIG_ROOT_ENV[harness]
-}
-
-function harnessDef(harness) {
-  const h = HARNESS[harness]
-  if (!h) {
-    throw new Error(`no agent harness for harness "${harness}" — known harnesses: ${HARNESS_NAMES.join(', ')}`)
-  }
-  return h
+  return workspaceFor(harness).configRootEnv
 }
 
 // Where the host's own credential store lives for a harness — the single file
 // every agent of that harness shares (#53).
 export function hostStorageDir(harness = 'claude') {
-  return harnessDef(harness).hostStore()
+  return workspaceFor(harness).hostStore()
 }
 
 // The provider whose credential a harness runs on (#648). One reader, because
@@ -605,7 +604,7 @@ export function hostStorageDir(harness = 'claude') {
 // agree — two answers here would be the claude row and the overseer row drifting
 // apart by another road.
 export function harnessProvider(harness) {
-  return harnessDef(harness).provider
+  return adapterFor(harness).identity.provider
 }
 
 // ---- the agent's GitHub authority (#155, retired by #466) -------------------
@@ -644,7 +643,7 @@ export function retiredAgentTokenKeys(env = process.env) {
 // The overseer's own turn takes this same env and no GitHub value at all
 // (overseerturn.mjs), which is what that arm always wanted.
 export function agentEnv(cfgDir, harness = 'claude', { sandboxed = false } = {}) {
-  return harnessDef(harness).env(cfgDir, { sandboxed })
+  return workspaceFor(harness).env(cfgDir, { sandboxed })
 }
 
 // TOML basic string. The values here are daemon-generated paths and a loopback
@@ -654,10 +653,6 @@ export function agentEnv(cfgDir, harness = 'claude', { sandboxed = false } = {})
 export const LOOPBACK = LOOPBACK_HOST
 export const MCP_SERVER_NAME = CURIA_MCP_SERVER_NAME
 
-const HARNESS = {
-  claude: CLAUDE_WORKSPACE,
-  codex: CODEX_WORKSPACE,
-}
 // A config file the WATCHED REPO carries, which curia does not write and cannot
 // vouch for. Returns the offending path, or null. One exposure per harness, same
 // shape on both: a file the harness loads with no prompt, whose hooks would
@@ -684,9 +679,7 @@ const HARNESS = {
 // conventionally git-ignored, so a tracked copy in a watched repo is already a
 // flag (#105).
 export function untrustedProjectConfig(wtPath, harness) {
-  const planted = harness === 'codex'
-    ? codexUntrustedProjectConfig(wtPath)
-    : claudeUntrustedProjectConfig(wtPath)
+  const planted = workspaceFor(harness).untrustedProjectConfig(wtPath)
   return fs.existsSync(planted) ? planted : null
 }
 
@@ -694,11 +687,6 @@ export function untrustedProjectConfig(wtPath, harness) {
 // against the pinned CLIs (#224, docs/live-checks/224). Codex reads the project
 // config dir plus `.agents/skills` at the spawn cwd; claude reads
 // `.claude/skills`. Neither CLI has a config key that turns a repo root off.
-const REPO_SKILL_ROOTS = {
-  codex: CODEX_REPO_SKILL_ROOTS,
-  claude: CLAUDE_REPO_SKILL_ROOTS,
-}
-
 // The name a SKILL.md claims in its frontmatter. Codex keys a skill on this
 // name and ignores the directory, so a plant can sit in an innocently named
 // directory (measured, #224). Claude keys on the directory name instead.
@@ -727,7 +715,7 @@ export function plantedSkills(wtPath, harness, install) {
   const installed = new Set(install ?? [])
   if (!installed.size) return []
   const found = []
-  for (const root of REPO_SKILL_ROOTS[harness] ?? []) {
+  for (const root of workspaceFor(harness).repoSkillRoots ?? []) {
     const dir = path.join(wtPath, ...root)
     let entries = []
     try {
@@ -846,7 +834,7 @@ export function installSkills(cfgDir, skills, { copy = false } = {}) {
 export const STANDING_FILE = 'standing.md'
 
 export function memoryFileFor(harness) {
-  return harnessDef(harness).memoryFile
+  return workspaceFor(harness).memoryFile
 }
 
 // voice.md + standing.md -> the CLI's global-memory file. Idempotent, and safe
@@ -871,8 +859,9 @@ export function composeMemoryFile(cfgDir, harness) {
 // it as a `projects` key, which Claude Code matches against its own cwd — and a
 // container's cwd is the mount point, not the host path. Everything this
 // function WRITES goes to `cfgDir`, which is always the host path.
-export function seedConfigDir(cfgDir, wtPath, skills = null, harness = 'claude', { sandboxed = false, apiKey = null } = {}) {
-  const h = harnessDef(harness)
+export function seedConfigDir(cfgDir, wtPath, skills = null, harness = 'claude', { sandboxed = false, apiKey = null, adapter = null } = {}) {
+  const selected = adapter ?? harness
+  const h = workspaceFor(selected)
   fs.mkdirSync(cfgDir, { recursive: true })
   // No credential is COPIED here — every harness shares the host's own store
   // instead (#53). Sweep first: a cfg dir reused across dispatches, or from
@@ -891,7 +880,7 @@ export function seedConfigDir(cfgDir, wtPath, skills = null, harness = 'claude',
   //
   // Composed rather than copied since #340: the same file also carries the
   // standing orders, and a re-arm must not drop them. See composeMemoryFile.
-  composeMemoryFile(cfgDir, harness)
+  composeMemoryFile(cfgDir, selected)
   // One read-only directory, and nothing else from the host: no allowlist, no
   // MCP connectors, no saved permission mode (#23/#29). Both CLIs read
   // `<config dir>/skills/<name>/SKILL.md`, so #57's install is harness-blind —
@@ -914,7 +903,7 @@ export function seedConfigDir(cfgDir, wtPath, skills = null, harness = 'claude',
 // pane, the docker host gateway from a container.
 export function writeConnectionSettings({
   wtPath, cfgDir, agent, ticket, daemonPort, harness = 'claude', reasoningEffort = null,
-  hostWtPath = wtPath, daemonHost = LOOPBACK, token, skills = null,
+  hostWtPath = wtPath, daemonHost = LOOPBACK, token, skills = null, adapter = null,
 }) {
   // The connection settings are the ONLY way an agent learns its token (#159), so a caller
   // that forgot one would write connection settings whose every call the daemon then
@@ -922,8 +911,9 @@ export function writeConnectionSettings({
   if (!/^[0-9a-f]{64}$/.test(String(token ?? ''))) {
     throw new Error(`refusing to write the connection settings for ${agent} without a minted agent token — every call it makes would be refused`)
   }
-  harnessDef(harness).connectionSettings({
-    wtPath: harness === 'claude' ? hostWtPath : wtPath,
+  const h = workspaceFor(adapter ?? harness)
+  h.connectionSettings({
+    wtPath: h.connectionWorktree({ wtPath, hostWtPath }),
     cfgDir, agent, ticket, daemonPort, daemonHost, reasoningEffort, token, skills,
   })
 }
@@ -1085,14 +1075,8 @@ export function exchangeBlock(exchange = []) {
 // complex Curia call made one to three ALL_TOOLS lookups. Each returned lookup
 // cost another model request. Load the Curia catalog once so later calls reuse
 // conversation state. Claude receives its schemas directly and needs no order.
-const DEFERRED_CURIA_ORDER = [
-  '- **Load deferred Curia tools once.** If `ALL_TOOLS` holds Curia schemas, return every',
-  '  `mcp__curia__*` definition from one `exec` call before your first Curia call. Keep the output',
-  '  in context, and use the same definitions for every later Curia call.',
-]
-
 function deferredCuriaOrder(harness) {
-  return harness === 'codex' ? [...DEFERRED_CURIA_ORDER, ''] : []
+  return workspaceFor(harness).deferredToolOrders()
 }
 
 // Prompt file lives in the config dir, not the worktree.
@@ -1170,16 +1154,14 @@ function deferredCuriaOrder(harness) {
 export function writePrompt(cfgDir, issue, {
   repo, wtPath, mapNumber = null, type = null, charting = false, newMap = false,
   instruction = null, ports = null, harness = 'claude', exchange = [], handoff = false,
-  prototypeVariations, skill = null, skillTarget = null,
+  prototypeVariations, skill = null, skillTarget = null, adapter = null,
 }) {
   if (type === 'wayfinder:prototype' && (!Number.isInteger(prototypeVariations) || prototypeVariations <= 0)) {
     throw new Error('prototypeVariations must be a positive integer for a prototype dispatch')
   }
   const promptFile = path.join(cfgDir, 'prompt.md')
-  // An unknown harness would take the claude spelling of the invocation in
-  // silence, which is the failure #173 exists to end. harnessDef throws on a
-  // name no harness owns.
-  harnessDef(harness)
+  const selected = adapter ?? harness
+  const workspace = workspaceFor(selected)
   const n = issue.number
   const branch = branchFor(n)
   const ticketUrl = `https://github.com/${repo}/issues/${n}`
@@ -1226,14 +1208,10 @@ export function writePrompt(cfgDir, issue, {
   // loose idea. The operator's sentence IS that idea, and it rides the params
   // below rather than the invocation line — the line is one line, and this one
   // is a paragraph the operator wrote.
-  const sigil = harness === 'codex' ? null : '/wayfinder'
-  const invocation = skill
-    ? [`${harness === 'codex' ? '$' : '/'}${skill}${skillTarget ? ` ${skillTarget}` : ''}`, '']
-    : !sigil || !(newMap || mapNumber)
-      ? []
-      : newMap
-        ? [sigil, '']
-        : [`${sigil} ${mapUrl}${charting ? '' : ` ticket #${n}`}`, '']
+  const invocationLine = skill
+    ? workspace.skillInvocation({ skill, skillTarget })
+    : workspace.wayfinderInvocation({ newMap, mapUrl, ticket: n, charting })
+  const invocation = invocationLine ? [invocationLine, ''] : []
 
   // The params of a NEW-map dispatch (#241). The difference from a map dispatch
   // is one fact with consequences everywhere: the map does not exist. So this
@@ -1646,7 +1624,7 @@ export function writePrompt(cfgDir, issue, {
     '',
     ...allParams,
     '',
-    `Your bounds, your tools and the ending are in \`${memoryFileFor(harness)}\`, which this harness`,
+    `Your bounds, your tools and the ending are in \`${memoryFileFor(selected)}\`, which this harness`,
     'loads as standing instructions rather than as one message. They hold for every turn of this',
     'ticket, and they beat any skill they disagree with.',
     '',
@@ -1667,7 +1645,7 @@ export function writePrompt(cfgDir, issue, {
     '',
     '## Your tools (the `curia` MCP server)',
     '',
-    ...deferredCuriaOrder(harness),
+    ...deferredCuriaOrder(selected),
     ...tools,
     '',
     '## How this ends',
@@ -1695,7 +1673,7 @@ export function writePrompt(cfgDir, issue, {
 
   fs.writeFileSync(promptFile, promptBody)
   fs.writeFileSync(path.join(cfgDir, STANDING_FILE), standingBody)
-  composeMemoryFile(cfgDir, harness)
+  composeMemoryFile(cfgDir, selected)
   return promptFile
 }
 
@@ -1714,9 +1692,10 @@ export function writePrompt(cfgDir, issue, {
 // `wtPath` is the checkout AS THE AGENT SEES IT (#156), like everywhere else:
 // the mount point inside a container, the host path outside one.
 export function writeReviewPrompt(cfgDir, issue, {
-  repo, wtPath, branch, baseBranch, sha, model, builderModel, ticketUrl = null, harness = 'claude',
+  repo, wtPath, branch, baseBranch, sha, model, builderModel, ticketUrl = null, harness = 'claude', adapter = null,
 }) {
-  harnessDef(harness)
+  const selected = adapter ?? harness
+  adapterFor(selected)
   const promptFile = path.join(cfgDir, 'prompt.md')
   const n = issue.number
   const url = ticketUrl ?? `https://github.com/${repo}/issues/${n}`
@@ -1800,7 +1779,7 @@ export function writeReviewPrompt(cfgDir, issue, {
     '',
     '## Your tools (the `curia` MCP server)',
     '',
-    ...deferredCuriaOrder(harness),
+    ...deferredCuriaOrder(selected),
     '- `notify` — a status line for the human. Returns at once. Use it to say what you are reading.',
     '  `kind` says what they must DO: `progress` (nothing), `look` (open a file or a page now),',
     '  `ask` (reply when they can). A reviewer reads, so its lines are `progress`.',

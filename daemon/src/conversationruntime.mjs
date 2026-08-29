@@ -3,6 +3,8 @@
 
 import { readActiveTranscript } from './transcript.mjs'
 import { capturePane, paneShowsActiveTurn, sendKey, sendText } from './tmux.mjs'
+import { HARNESS_REGISTRY } from './harnesses.mjs'
+import { HarnessRuntime } from './harnessruntime.mjs'
 
 const defaultPane = {
   active: async (session) => paneShowsActiveTurn(await capturePane(session)),
@@ -42,11 +44,15 @@ function operatorTurns(read) {
 }
 
 export class ConversationRuntime {
-  constructor({ pane = defaultPane, reduction, reopenCard = null, prepare = async () => {} }) {
+  constructor({
+    pane = defaultPane, reduction, reopenCard = null, prepare = async () => {},
+    harnessRuntime = new HarnessRuntime(HARNESS_REGISTRY),
+  }) {
     this.pane = pane
     this.reduction = reduction
     this.reopenCard = reopenCard
     this.prepare = prepare
+    this.harnessRuntime = harnessRuntime
   }
 
   async takeBack({ session, role, harness, source, landing = null, target: requestedTarget = null }) {
@@ -70,12 +76,14 @@ export class ConversationRuntime {
     const previousWords = typedWords(previous.prompt.text, recorded)
     await this.prepare(session, role)
     if (await this.pane.active(session)) await this.pane.key(session, 'Escape')
-    await this.#rewind(session, harness)
+    const rewind = await this.harnessRuntime.rewind(harness, { session, target }, {
+      pane: { key: (targetSession, key) => this.pane.key(targetSession, key) },
+    })
 
-    if (harness === 'claude' && target.parentUuid) {
+    if (rewind.landingId) {
       this.reduction.journal('transcript_landed', {
         session,
-        landing_uuid: target.parentUuid,
+        landing_uuid: rewind.landingId,
         tail_uuid: read.headUuid,
       })
     }
@@ -83,15 +91,7 @@ export class ConversationRuntime {
     const receipt = {
       headline: 'Took back your last message.',
       landing: `The conversation continues after “${oneLine(previousWords)}”`,
-      remains: harness === 'claude'
-        ? [
-            'Files restored with the conversation.',
-            'Shell side effects, Curia verbs, subagent edits, and commits stand.',
-          ]
-        : [
-            'The tree stands. Only the conversation rewound.',
-            'Shell side effects, Curia verbs, subagent edits, and commits stand.',
-          ],
+      remains: [...rewind.remains],
     }
     if (requeued.length) {
       receipt.remains.push(`Returned ${requeued.length} unread note${requeued.length === 1 ? '' : 's'} to the queue.`)
@@ -101,7 +101,7 @@ export class ConversationRuntime {
       role,
       harness,
       text: targetWords,
-      landing_uuid: harness === 'claude' ? target.parentUuid : null,
+      landing_uuid: rewind.landingId,
       transcript_tail_uuid: read.headUuid ?? null,
       receipt,
     })
@@ -216,19 +216,4 @@ export class ConversationRuntime {
     return { ok: true, composer: record.answer, correction, receipt }
   }
 
-  async #rewind(session, harness) {
-    if (harness === 'claude') {
-      for (const key of ['Escape', 'Escape', 'Up', 'Enter', 'Enter', 'C-c']) {
-        await this.pane.key(session, key)
-      }
-      return
-    }
-    if (harness === 'codex') {
-      for (const key of ['Escape', 'Escape', 'Enter', 'C-u']) {
-        await this.pane.key(session, key)
-      }
-      return
-    }
-    throw new Error(`the ${harness} harness has no checked rewind flow`)
-  }
 }

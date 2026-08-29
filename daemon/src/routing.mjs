@@ -2,6 +2,12 @@
 // fallback candidates, spawn-command build, usage-limit parse.
 
 import { CODEX_CREDIT_GATE_RE, CODEX_LIMIT_RE } from './codexharness.mjs'
+
+let defaultHarnessRegistry = null
+
+export function setRoutingHarnessRegistry(registry) {
+  defaultHarnessRegistry = registry
+}
 //
 // Two providers since #39, which is what #13 asked for and what #33 deferred.
 // The shapes that were already here for one provider now carry real weight: a
@@ -11,18 +17,16 @@ import { CODEX_CREDIT_GATE_RE, CODEX_LIMIT_RE } from './codexharness.mjs'
 
 export const REASONING_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max', 'ultra']
 
-const HARNESS_EFFORTS = {
-  claude: { low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max', ultra: 'ultracode' },
-  codex: { low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max', ultra: 'ultra' },
-  opencode: { low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max', ultra: 'ultra' },
-  pi: { low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max' },
-}
-
 // The CLI-facing spelling, or null when this harness cannot state the effort.
 // Claude's ultracode mode is the measured spelling of the shared ultra tier.
-export function harnessReasoningEffort(harness, effort) {
+export function harnessReasoningEffort(harness, effort, registry = defaultHarnessRegistry) {
   if (!effort) return null
-  return HARNESS_EFFORTS[harness]?.[effort] ?? null
+  let adapter = harness?.identity ? harness : null
+  if (!adapter && registry) {
+    try { adapter = registry.get(harness) } catch { return null }
+  }
+  if (adapter?.control?.capabilities?.reasoningEffort !== true) return null
+  return adapter.control.operations.reasoningEffort(effort)
 }
 
 const defaultRoute = (routing, type) => {
@@ -47,7 +51,7 @@ export function resolveModel(routing, labels, override) {
 // The effort belongs to the ticket type, not to its default model. A model
 // label changes the model without erasing the type's cost and depth choice.
 // The model default remains the answer when the type states no override.
-export function reasoningEffortFor(routing, labels, model) {
+export function reasoningEffortFor(routing, labels, model, registry = defaultHarnessRegistry) {
   let route = null
   for (const label of labels ?? []) {
     if (!label.startsWith('wayfinder:')) continue
@@ -58,8 +62,8 @@ export function reasoningEffortFor(routing, labels, model) {
   const harness = routing.models?.[model]?.harness
   const modelDefault = routing.models?.[model]?.reasoning_effort ?? null
   const wanted = route?.effort ?? modelDefault
-  if (harnessReasoningEffort(harness, wanted)) return wanted
-  return harnessReasoningEffort(harness, modelDefault) ? modelDefault : null
+  if (harnessReasoningEffort(harness, wanted, registry)) return wanted
+  return harnessReasoningEffort(harness, modelDefault, registry) ? modelDefault : null
 }
 
 // The model a HUMAN named, or null when routing picked it from the type table

@@ -809,9 +809,12 @@ function handOffAnswer(record) {
   // agent having reached this daemon process. The composer and the whole reason
   // live in messaging.mjs.
   const w = dispatcher.agents.get(record.agent)
+  const strandedCall = Boolean(w) && dispatcher.harnessRuntime.needsStrandedCallRecovery(
+    w.harness, { spoken: Boolean(w.mcpLastAt) },
+  )
   notifyThread(record.ticket, handOffLine({
     agent: record.agent, ticket: record.ticket, harness: w?.harness ?? null,
-    live: Boolean(w), spoken: Boolean(w?.mcpLastAt),
+    live: Boolean(w), spoken: Boolean(w?.mcpLastAt), strandedCall,
   }))
   log(`escalation ${record.id} answered with no live receiver — hand-off note queued for ${record.agent}`)
 }

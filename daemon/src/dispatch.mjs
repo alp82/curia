@@ -29,7 +29,8 @@ import {
   carriesLimitPhrase, resolveReviewer, isActive, Cooling, SAME_PROVIDER_STAMP, namedModel,
   reasoningEffortFor, harnessReasoningEffort,
 } from './routing.mjs'
-import { HARNESS_REGISTRY, requireHarnessCapability, spawnIdentity } from './harnesses.mjs'
+import { HARNESS_REGISTRY, spawnIdentity } from './harnesses.mjs'
+import { HarnessRuntime } from './harnessruntime.mjs'
 import { hasSession, listSessions, newSession, capturePane, killSession, sendText, sendKey, paneShowsActiveTurn } from './tmux.mjs'
 import {
   createPrivateClone, removeWorkspace,
@@ -422,6 +423,7 @@ export class Dispatcher {
     this.config = config
     this.routing = routing
     this.harnesses = harnessRegistry ?? HARNESS_REGISTRY
+    this.harnessRuntime = new HarnessRuntime(this.harnesses)
     this.reduction = reduction
     this.notify = notify
     // The plain channel line, injected by index.mjs the way the backup's
@@ -1580,7 +1582,7 @@ export class Dispatcher {
     // always the model typed. `review` reads its harness the same way.
     const useModel = cands[0]
     const harnessName = this.routing.models[useModel].harness
-    const reasoningEffort = reasoningEffortFor(this.routing, labels, useModel)
+    const reasoningEffort = reasoningEffortFor(this.routing, labels, useModel, this.harnesses)
     if (!this.routing.harnesses[harnessName] || !this.harnesses.has(harnessName)) {
       return `❌ unknown harness \`${harnessName}\` — registered harnesses: ${this.harnesses.names.join(', ')}`
     }
@@ -1627,7 +1629,8 @@ export class Dispatcher {
     })
     action?.progress('Preparing the agent workspace')
 
-    const cfgDir = cfgDirFor(this.root, session, harnessName)
+    const adapter = this.harnesses.get(harnessName)
+    const cfgDir = cfgDirFor(this.root, session, adapter)
     // Declared outside the try so the finally can release the pending
     // reservation (#allocatePorts) on BOTH endings — after `agents.set` the
     // ports are covered by the live-agent scan, and on a failed dispatch
@@ -1669,6 +1672,7 @@ export class Dispatcher {
         // #173: the wayfinder invocation is spelled per harness, so the prompt
         // is no longer harness-blind.
         harness: harnessName,
+        adapter,
         // #374: every question a human has already answered on this session.
         // The session name is the key and it does not change across dispatches,
         // so a resumed agent reads the exchange its predecessor paid for. On a
@@ -1803,22 +1807,23 @@ export class Dispatcher {
     // stops being able to speak for this name the moment its successor is armed.
     const token = this.deps.mintAgentToken(this.dataDir, session)
     const adapter = this.harnesses.get(harness)
-    adapter.setup.prepare({
+    this.harnessRuntime.prepare(harness, {
       session, ticket, harness, model, wtPath, cfgDir, token,
       reasoningEffort: harnessReasoningEffort(harness,
-        reasoningEffort ?? this.routing.models[model].reasoning_effort ?? null),
+        reasoningEffort ?? this.routing.models[model].reasoning_effort ?? null, this.harnesses),
       skills: this.config.skills,
     }, {
       filesystem: {
         prepare: (context) => {
           this.deps.seedConfigDir(
-            context.cfgDir, GUEST_WT, context.skills, context.harness, { sandboxed: true },
+            context.cfgDir, GUEST_WT, context.skills, context.harness,
+            { sandboxed: true, adapter },
           )
           this.deps.writeConnectionSettings({
             wtPath: GUEST_WT, hostWtPath: context.wtPath, cfgDir: context.cfgDir,
             agent: context.session, ticket: context.ticket,
             daemonPort: this.daemonPort, daemonHost: GUEST_DAEMON_HOST, token: context.token,
-            harness: context.harness, reasoningEffort: context.reasoningEffort,
+            harness: context.harness, adapter, reasoningEffort: context.reasoningEffort,
             skills: context.skills,
           })
         },
@@ -1831,12 +1836,10 @@ export class Dispatcher {
   // `--env-file`, and a pane env would put every value of it in `ps` — the cost
   // #155 measured and asked #156 not to repeat.
   async #spawnPlan({ session, ticket, repo, harness, model, wtPath, cfgDir, promptFile, ports, reviewer = false, resume = false }) {
-    const adapter = this.harnesses.get(harness)
-    const harnessCmd = resume
-      ? adapter.lifecycle.resumeCommand({ routing: this.routing, model })
-      : adapter.lifecycle.freshCommand({
-          routing: this.routing, model, promptFile: path.join(GUEST_CFG, path.basename(promptFile)),
-        })
+    const harnessCmd = this.harnessRuntime.command(harness, {
+      routing: this.routing, model,
+      promptFile: path.join(GUEST_CFG, path.basename(promptFile)),
+    }, { resume })
     const container = await this.#prepareContainer({
       session, ticket, repo, harness, model, wtPath, cfgDir, spawnCmd: harnessCmd,
       sandbox: this.config.sandbox, ports, reviewer,
@@ -2091,11 +2094,12 @@ export class Dispatcher {
   // The CODEX lane is not here: `seedConfigDir` writes that copy, because it is
   // the same act as seeding `CODEX_HOME` and it carries the #351 expired-at-seed
   // refusal with it. One consumer, one delivery, and the contract says which.
-  #writeModelCredential(harness, cfgDir, ticket) {
-    if (CONSUMER_CREDENTIALS[harness]?.provider !== ANTHROPIC_PROVIDER) return null
+  #writeModelCredential(adapter, cfgDir, ticket) {
+    const consumer = adapter.identity.credentialConsumer
+    if (CONSUMER_CREDENTIALS[consumer]?.provider !== ANTHROPIC_PROVIDER) return null
     const record = this.anthropic?.read()
     if (!record) {
-      throw new Error(`refusing to start a claude agent for #${ticket}: curia owns no anthropic credential. ${this.anthropic
+      throw new Error(`refusing to start the ${adapter.identity.name} Harness for #${ticket}: curia owns no anthropic credential. ${this.anthropic
         ? 'Run reauth anthropic to sign in'
         : 'This daemon brokers no model credential'}. An agent handed no credential dies at its first turn with a claim already taken`)
     }
@@ -2559,9 +2563,9 @@ export class Dispatcher {
     // place of a silent death somewhere in the middle of a ticket. It also
     // refuses rather than falling back to `~/.claude` or to an API key — both
     // rungs left this ladder with the map's subscription-only decision.
-    this.#writeModelCredential(harness, cfgDir, ticket)
+    this.#writeModelCredential(this.harnesses.get(harness), cfgDir, ticket)
     const envFile = writeEnvFile(path.join(cfgDir, ENV_FILE), {
-      ...agentEnv(GUEST_CFG, harness, { sandboxed: true }),
+      ...agentEnv(GUEST_CFG, this.harnesses.get(harness), { sandboxed: true }),
       // The PATH to the credential above, and no credential in it (#389). It is
       // set here rather than inside `agentEnv`, because this is where the file
       // it names gets written.
@@ -2626,16 +2630,16 @@ export class Dispatcher {
     const wayOut = where === 'respawn'
       ? 'The harness this agent was dispatched on does not load it, and the fallback harness does. Remove the file from the repo, or dispatch the ticket again once a harness that does not load it is warm'
       : 'Remove the file from the repo, or dispatch on another harness if only one harness loads it (`/start <ticket> <model>`)'
-    const adapter = this.harnesses.get(harnessName)
-    const { planted, plants } = adapter.setup.refuseRepository({
+    const { planted, plants } = this.harnessRuntime.refuseRepository(harnessName, {
       wtPath, harness: harnessName, skills: this.config.skills?.install,
     }, {
       filesystem: {
         refuseRepository: ({ wtPath: target, harness, skills }) => {
-          const planted = untrustedProjectConfig(target, harness)
+          const targetAdapter = this.harnesses.get(harness)
+          const planted = untrustedProjectConfig(target, targetAdapter)
           return {
             planted,
-            plants: planted ? [] : plantedSkills(target, harness, skills),
+            plants: planted ? [] : plantedSkills(target, targetAdapter, skills),
           }
         },
       },
@@ -2942,13 +2946,14 @@ export class Dispatcher {
   // made and leaves the builder untouched, because the cross-check owns nothing
   // the ticket depends on.
   async #spawnReviewer({ session, ticket, repo, issue, model, builderModel, harnessName, sameProvider, by, tellBuilder = true }) {
-    const cfgDir = cfgDirFor(this.root, session, harnessName)
+    const adapter = this.harnesses.get(harnessName)
+    const cfgDir = cfgDirFor(this.root, session, adapter)
     let checkout = null
     try {
       checkout = await this.deps.createReviewCheckout(this.root, repo, ticket)
       this.#assertNoPlantedConfig(checkout.path, harnessName)
       const labels = (issue.labels ?? []).map((label) => typeof label === 'string' ? label : label.name)
-      const reasoningEffort = reasoningEffortFor(this.routing, labels, model)
+      const reasoningEffort = reasoningEffortFor(this.routing, labels, model, this.harnesses)
       this.#armAgent({ session, ticket, harness: harnessName, model, reasoningEffort, wtPath: checkout.path, cfgDir })
       // No published ports: a reviewer starts no dev server, and
       // `publish_preview` is one of the four tools curia refuses it. Three
@@ -2958,6 +2963,7 @@ export class Dispatcher {
         sha: checkout.sha, model: spawnModelId(this.routing, model),
         builderModel: spawnModelId(this.routing, builderModel),
         harness: harnessName,
+        adapter,
       })
       fs.rmSync(path.join(this.dataDir, 'results', `${session}.json`), { force: true })
 
@@ -3204,8 +3210,7 @@ export class Dispatcher {
   // until the composer appears. stallSweep keeps polling after that contract
   // ends, so a later account fault reaches the same handler and cooling store.
   async #classifyPaneLimit(agent, pane, { postReady = false } = {}) {
-    const adapter = this.harnesses.get(agent.harness)
-    const limit = adapter.lifecycle.classifyLimit({ paneText: pane })
+    const limit = this.harnessRuntime.classifyLimit(agent.harness, { paneText: pane })
     if (!limit) return 'none'
     if (agent.promptCarriesLimitText) {
       // The ticket's own text can produce this match. Veto readiness and every
@@ -3240,8 +3245,7 @@ export class Dispatcher {
   async #watchdog(agent) {
     // Resolved once, and loudly: readiness that silently never matches is #33's
     // live-only defect, and its whole symptom was silence.
-    const adapter = this.harnesses.get(agent.harness)
-    const isReady = (paneText) => adapter.lifecycle.isReady({ paneText, routing: this.routing })
+    const isReady = (paneText) => this.harnessRuntime.isReady(agent.harness, { paneText, routing: this.routing })
     const deadline = Date.now() + this.config.dispatch.ready_timeout_s * 1000
     while (Date.now() < deadline) {
       await sleep(2000)
@@ -3605,6 +3609,7 @@ export class Dispatcher {
   // about when it matters.
   async #respawnOn(agent, next, journalData = {}, { freshPorts = false, resume = false } = {}) {
     const nextHarness = this.routing.models[next].harness
+    this.harnessRuntime.fallback({ from: agent.harness, to: nextHarness, resume })
     // A provider change cannot resume the old harness conversation. The cold
     // successor gets the warm private clone and an explicit statement of what
     // handoff preserves. This loss of reasoning context is the accepted cost.
@@ -3650,8 +3655,9 @@ export class Dispatcher {
     const allocated = !agent.reviewer && (freshPorts || !agent.ports)
     const ports = agent.reviewer ? [] : (allocated ? await this.#allocatePorts() : agent.ports)
     try {
-      const reasoningEffort = reasoningEffortFor(this.routing, agent.labels ?? [], next)
-      agent.cfgDir = cfgDirFor(this.root, agent.session, nextHarness)
+      const nextAdapter = this.harnesses.get(nextHarness)
+      const reasoningEffort = reasoningEffortFor(this.routing, agent.labels ?? [], next, this.harnesses)
+      agent.cfgDir = cfgDirFor(this.root, agent.session, nextAdapter)
       this.#armAgent({
         session: agent.session, ticket: agent.ticket, harness: nextHarness,
         model: next, reasoningEffort, wtPath: agent.wtPath, cfgDir: agent.cfgDir,
@@ -3768,6 +3774,8 @@ export class Dispatcher {
         sha: agent.sha,
         model: spawnModelId(this.routing, agent.model),
         builderModel: spawnModelId(this.routing, agent.builderModel),
+        harness: nextHarness,
+        adapter: this.harnesses.get(nextHarness),
       })
       agent.promptHarness = nextHarness
       return
@@ -3785,6 +3793,7 @@ export class Dispatcher {
       prototypeVariations: this.config.dispatch.prototype_variations,
       ports,
       harness: nextHarness,
+      adapter: this.harnesses.get(nextHarness),
       handoff,
       // #374: a fallback respawn rewrites the prompt, so it rewrites the
       // exchange with it. Without this the agent that crossed harnesses would
@@ -5109,6 +5118,20 @@ export class Dispatcher {
   }
 
   async onStopHook(agentName, { stopHookActive = false } = {}) {
+    const agent = this.agents.get(agentName)
+    if (!agent?.harness) return this.#enforceCompletion(agentName, { stopHookActive })
+    return this.harnessRuntime.enforceCompletion(agent.harness, {
+      agentName, stopHookActive,
+    }, {
+      toolChannel: {
+        enforceCompletion: ({ agentName: name, stopHookActive: active }) => (
+          this.#enforceCompletion(name, { stopHookActive: active })
+        ),
+      },
+    })
+  }
+
+  async #enforceCompletion(agentName, { stopHookActive = false } = {}) {
     // #194's backstop, FIRST and before the nudge. An agent that got here having
     // never sent an `/mcp` request has no way to satisfy any item of the ending
     // — `open_pull_request`, `request_review` and `report_result` are all curia
@@ -6426,10 +6449,10 @@ export class Dispatcher {
       if (seen.has(record.agent)) continue
       if (record.awaited !== true || hasResolver(record.id)) continue
       const w = this.agents.get(record.agent)
-      if (!w || w.harness !== 'codex' || w.mcpLastAt) continue
+      if (!w || !this.harnessRuntime.needsStrandedCallRecovery(w.harness, { spoken: Boolean(w.mcpLastAt) })) continue
       seen.add(record.agent)
       stranded.push({
-        agent: record.agent, ticket: w.ticket ?? String(record.ticket), id: record.id,
+        agent: record.agent, ticket: w.ticket ?? String(record.ticket), id: record.id, harness: w.harness,
         text: paneGoodbye({ id: record.id }),
       })
     }
@@ -6442,10 +6465,10 @@ export class Dispatcher {
       // are cheap.
       if (this.reviewWaits.has(String(park.ticket))) continue
       const w = this.agents.get(park.agent)
-      if (!w || w.harness !== 'codex' || w.mcpLastAt) continue
+      if (!w || !this.harnessRuntime.needsStrandedCallRecovery(w.harness, { spoken: Boolean(w.mcpLastAt) })) continue
       seen.add(park.agent)
       stranded.push({
-        agent: park.agent, ticket: w.ticket ?? park.ticket, on: park.on,
+        agent: park.agent, ticket: w.ticket ?? park.ticket, on: park.on, harness: w.harness,
         text: parkPaneGoodbye(park),
       })
     }
@@ -6454,10 +6477,10 @@ export class Dispatcher {
       parked: stranded.filter((s) => s.on).map((s) => s.agent),
     })
     if (!stranded.length) {
-      this.log('boot sweep: the last daemon died with no last word, and no codex agent was left parked')
+      this.log('boot sweep: the last daemon died with no last word, and no Harness needed parked-call recovery')
       return { swept: [] }
     }
-    this.log(`boot sweep: ${stranded.length} parked codex agent(s) — ${stranded.map((s) => s.agent).join(', ')}`)
+    this.log(`boot sweep: ${stranded.length} parked agent(s) need Harness recovery - ${stranded.map((s) => s.agent).join(', ')}`)
     // Concurrent because the panes are independent, and `sendText` queues per
     // pane (#223) — so the two writes of one agent stay in order whatever else
     // is being written elsewhere.
@@ -6485,7 +6508,7 @@ export class Dispatcher {
   // `on` is set for a builder parked on a verdict and null for an open record,
   // and the two say different things: one question is still open and unanswered,
   // and the other has no question at all — a verdict waits instead.
-  async #wakeStrandedPane({ id = null, on = null, agent, ticket, text }) {
+  async #wakeStrandedPane({ id = null, on = null, agent, ticket, text, harness }) {
     const held = on === 'ending' ? '`report_result`' : '`request_review`'
     try {
       await this.deps.sendKey(agent, 'Escape')
@@ -6507,8 +6530,8 @@ export class Dispatcher {
     }
     this.reduction.journal('pane_sweep_delivered', { agent, ticket, id, on })
     this.notify(ticket, on
-      ? `⚠️ curia died with no last word, and \`${agent}\` was left parked on a cross-check verdict with no way to be told. Curia pressed Escape in its pane and typed the news, so that codex agent calls ${held} again by itself. Nothing was approved and nothing was rejected, and curia still holds the verdict.`
-      : `⚠️ curia died with no last word, and \`${agent}\` was left parked inside **${id}** with no way to be told. Curia pressed Escape in its pane and typed the news, so that codex agent asks the same question again by itself. Nothing was answered, and the card stands.`)
+      ? `⚠️ curia died with no last word, and \`${agent}\` was left parked on a cross-check verdict with no way to be told. Curia pressed Escape in its pane and typed the news, so that ${harness} agent calls ${held} again by itself. Nothing was approved and nothing was rejected, and curia still holds the verdict.`
+      : `⚠️ curia died with no last word, and \`${agent}\` was left parked inside **${id}** with no way to be told. Curia pressed Escape in its pane and typed the news, so that ${harness} agent asks the same question again by itself. Nothing was answered, and the card stands.`)
     return true
   }
 
@@ -6747,7 +6770,7 @@ export class Dispatcher {
     const previousRequested = agent.requestedModel
     let verdict
     try {
-      verdict = await requireHarnessCapability(adapter, 'modelSwitch', {
+      verdict = await this.harnessRuntime.control(adapter.identity.name, 'modelSwitch', {
         session, model: id, readbackMs: this.switchReadbackMs,
       }, {
         pane: {
@@ -7108,8 +7131,7 @@ export class Dispatcher {
 
       let activity
       try {
-        const adapter = this.harnesses.get(w.harness)
-        activity = adapter.evidence.activity({ harness: w.harness, cfgDir: w.cfgDir }, {
+        activity = this.harnessRuntime.activity(w.harness, { harness: w.harness, cfgDir: w.cfgDir }, {
           transcript: {
             activity: ({ harness, cfgDir }) => this.deps.transcriptActivity(harness, cfgDir),
           },
@@ -7121,8 +7143,7 @@ export class Dispatcher {
       const lastGrowth = Math.max(activity.mtimeMs, w.readyAt ?? 0, w.spawnedAt ?? 0)
       if (Date.now() - lastGrowth < this.stallTimeoutMs) continue
 
-      const adapter = this.harnesses.get(w.harness)
-      const isReady = (paneText) => adapter.lifecycle.isReady({ paneText, routing: this.routing })
+      const isReady = (paneText) => this.harnessRuntime.isReady(w.harness, { paneText, routing: this.routing })
       if (!paneConfirmsStall(pane, isReady)) continue
       if (this.agents.get(w.session) !== w || w.state !== 'ready') continue
 

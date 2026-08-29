@@ -23,6 +23,10 @@ export const CODEX_CAPABILITIES = Object.freeze({
   richMetadata: true,
 })
 
+const CODEX_EFFORTS = Object.freeze({
+  low: 'low', medium: 'medium', high: 'high', xhigh: 'xhigh', max: 'max', ultra: 'ultra',
+})
+
 function command({ routing, model, promptFile = null, resume = false }) {
   const config = routing.harnesses?.codex
   if (!config) {
@@ -66,6 +70,19 @@ async function switchModel({ session, model }, ports) {
   return { status: 'switched', resumed: true, recorded: true }
 }
 
+async function rewind({ session }, ports) {
+  for (const key of ['Escape', 'Escape', 'Enter', 'C-u']) {
+    await call(ports, 'pane', 'key', session, key)
+  }
+  return {
+    landingId: null,
+    remains: [
+      'The tree stands. Only the conversation rewound.',
+      'Shell side effects, Curia verbs, subagent edits, and commits stand.',
+    ],
+  }
+}
+
 export function createCodexHarnessAdapter() {
   return {
     identity: {
@@ -75,6 +92,7 @@ export function createCodexHarnessAdapter() {
       configLayoutVersion: 1,
     },
     setup: {
+      workspace: CODEX_WORKSPACE,
       refuseRepository: (context, ports) => call(ports, 'filesystem', 'refuseRepository', context),
       prepare: (context, ports) => call(ports, 'filesystem', 'prepare', context),
     },
@@ -86,8 +104,20 @@ export function createCodexHarnessAdapter() {
       processDied: (context, ports) => call(ports, 'process', 'died', context),
       interrupt: (context, ports) => call(ports, 'process', 'interrupt', context),
       send: (context, ports) => call(ports, 'pane', 'send', context),
+      strandedCallRecovery: ({ spoken = false } = {}) => !spoken,
+      rewind,
     },
     evidence: {
+      native: Object.freeze({
+        files: codexTranscriptFiles,
+        namesSession: codexTranscriptForSession,
+        present: codexTranscriptPresent,
+        parse: parseCodexTranscriptEvent,
+        identity: () => null,
+        unknownType: (event) => event?.type === 'response_item'
+          ? `response_item/${event.payload?.type}`
+          : String(event?.type),
+      }),
       discover: (context, ports) => call(ports, 'transcript', 'discover', context),
       events: (context, ports) => call(ports, 'transcript', 'events', context),
       activity: (context, ports) => call(ports, 'transcript', 'activity', context),
@@ -97,7 +127,7 @@ export function createCodexHarnessAdapter() {
       capabilities: CODEX_CAPABILITIES,
       operations: {
         modelSwitch: switchModel,
-        reasoningEffort: (context, ports) => call(ports, 'pane', 'reasoningEffort', context),
+        reasoningEffort: (effort) => CODEX_EFFORTS[effort] ?? null,
         transcriptUsage: (context, ports) => call(ports, 'transcript', 'usage', context),
         nativeSkills: (context, ports) => call(ports, 'filesystem', 'nativeSkills', context),
         richMetadata: (context, ports) => call(ports, 'transcript', 'richMetadata', context),
@@ -106,3 +136,10 @@ export function createCodexHarnessAdapter() {
     },
   }
 }
+import {
+  codexTranscriptFiles,
+  codexTranscriptForSession,
+  codexTranscriptPresent,
+  parseCodexTranscriptEvent,
+} from './codextranscript.mjs'
+import { CODEX_WORKSPACE } from './codexworkspace.mjs'

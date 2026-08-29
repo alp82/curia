@@ -6,6 +6,7 @@ import path from 'node:path'
 import {
   harnessReasoningEffort, resolveModel, reasoningEffortFor,
 } from '../src/routing.mjs'
+import { HARNESS_REGISTRY } from '../src/harnesses.mjs'
 import { loadRoutingConfig } from '../src/config.mjs'
 
 const routing = {
@@ -18,6 +19,17 @@ const routing = {
     opus: { provider: 'anthropic', harness: 'claude', reasoning_effort: 'high' },
     gpt: { provider: 'openai', harness: 'codex', reasoning_effort: 'medium' },
   },
+}
+
+const fixtureAdapter = {
+  identity: { name: 'fixture' },
+  control: {
+    capabilities: { reasoningEffort: true },
+    operations: { reasoningEffort: (effort) => effort === 'ultra' ? null : effort },
+  },
+}
+const fixtureRegistry = {
+  get: (name) => name === 'fixture' ? fixtureAdapter : HARNESS_REGISTRY.get(name),
 }
 
 describe('ticket-type reasoning effort', () => {
@@ -35,24 +47,24 @@ describe('ticket-type reasoning effort', () => {
     assert.equal(reasoningEffortFor(routing, ['wayfinder:prototype'], 'gpt'), 'ultra')
     assert.equal(harnessReasoningEffort('codex', 'ultra'), 'ultra')
 
-    const withPiFallback = {
+    const withFixtureFallback = {
       ...routing,
       models: {
         ...routing.models,
-        pi: { provider: 'openai', harness: 'pi', reasoning_effort: 'medium' },
+        fixture: { provider: 'openai', harness: 'fixture', reasoning_effort: 'medium' },
       },
     }
-    assert.equal(reasoningEffortFor(withPiFallback, ['wayfinder:prototype'], 'pi'), 'medium')
-    assert.equal(harnessReasoningEffort('pi', 'medium'), 'medium')
+    assert.equal(reasoningEffortFor(withFixtureFallback, ['wayfinder:prototype'], 'fixture', fixtureRegistry), 'medium')
+    assert.equal(harnessReasoningEffort('fixture', 'medium', fixtureRegistry), 'medium')
 
-    withPiFallback.models.pi.reasoning_effort = 'ultra'
-    assert.equal(reasoningEffortFor(withPiFallback, ['wayfinder:prototype'], 'pi'), null)
+    withFixtureFallback.models.fixture.reasoning_effort = 'ultra'
+    assert.equal(reasoningEffortFor(withFixtureFallback, ['wayfinder:prototype'], 'fixture', fixtureRegistry), null)
   })
 
   test('harness spelling maps the shared effort vocabulary onto each CLI', () => {
     assert.equal(harnessReasoningEffort('claude', 'ultra'), 'ultracode')
-    assert.equal(harnessReasoningEffort('opencode', 'ultra'), 'ultra')
-    assert.equal(harnessReasoningEffort('pi', 'ultra'), null)
+    assert.equal(harnessReasoningEffort('fixture', 'high', fixtureRegistry), 'high')
+    assert.equal(harnessReasoningEffort('fixture', 'ultra', fixtureRegistry), null)
   })
 })
 
