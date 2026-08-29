@@ -1349,27 +1349,21 @@
                              › turn, the • Ran row with its └ output, the
                              separators around an answer, the
                              <model> <effort> · <cwd> footer
-       pi 0.84.2             the version and key-hint header, the plain
-                             turn lines, the two composer rules, the
-                             two-row footer with the context percentage
-       opencode 1.18.18      the block wordmark, the ┃ gutter on a turn,
-                             the ▣ row that closes one, the ╹▀ rule, the
-                             two-column footer
 
      The chrome around them is the embedded terminal decided at #537
      (prototypes/embedded-terminal/), with its tmux status line.
 
-     A terminal is a CHARACTER GRID, so all four panes are authored at
+     A terminal is a CHARACTER GRID, so both panes are authored at
      exactly 58 columns and the script scales the font until 58 columns
      fill the frame. That is what makes the box drawing meet: the Codex
-     banner box, the opencode ╹▀ rule, the Claude composer rules and
+     banner box, the Claude composer rules and
      every ─ separator end on the same column at every width. Line
      height is exactly 1, because a browser draws │ at the glyph height
      and any leading opens a gap the real terminal does not have. With
      no script the clamp keeps it close and the pane clips rather than
      reflowing.
 
-     Each pane is a SCROLLBACK and a COMPOSER, the way all four TUIs
+     Each pane is a SCROLLBACK and a COMPOSER, the way both TUIs
      are built: .tm-out holds the transcript and is pushed to the
      bottom of the pane, .tm-in holds the input row and the status
      footer and never moves.
@@ -1389,7 +1383,7 @@
      round 2, at a desktop width no agent here can see.
 
      ROUND 3 varies the one thing round 2 opened and nothing else: how
-     the rail carries four harnesses and their marks. ?id=1..5 —
+     the rail carries both harnesses and their marks. ?id=1..5 —
        1 tile   a filled tile behind each mark, name and sub beside it
        2 glyph  no tile; a large bare mark, and a bar on the active row
        3 grid   two by two cards, the mark over the name
@@ -1437,7 +1431,7 @@
   }
   .tm-pane[hidden] { display: none; }
   /* The scrollback sits at the BOTTOM of the pane and the composer under
-     it, the way all four TUIs hold their input row against the last
+     it, the way both TUIs hold their input row against the last
      line. margin-top: auto does that, and the pane stays a block box:
      with display: flex here, the per-line spans the printer needs would
      each become a flex item and the newlines between them would take
@@ -1448,40 +1442,20 @@
     font-family: var(--mono); font-size: inherit;
     line-height: 1; color: #d7dce4; white-space: pre;
   }
-  /* BLOCK ART IS DRAWN, NOT SET. The Claude Code mark and the opencode
-     wordmark are rows of █ ▀ ▛ ▝. A browser draws those at the FONT's
+  /* BLOCK ART IS DRAWN, NOT SET. The Claude Code mark is made from
+     rows of block characters. A browser draws those at the FONT's
      metrics rather than at the line box, so two rows of them do not tile
      at line height 1: the halves detach and the mark reads as cut off,
      which is what the operator saw. Each ROW is one SVG of the same
      rectangles, one em tall and as many ch wide as it has cells, so the
      rows stay rows, the halves meet, and the grid is unchanged. */
   .tm-out .art, .tm-in .art { display: inline-block; vertical-align: top; height: 1em; }
-  /* opencode's composer border. As a run of ▀ glyphs it rendered as a light
-     bar across the pane and read as a scrollbar. Drawn, and dim. */
-  .tm-in .ocr { color: #232b33; }
   .tm-in .dd { color: #5c6675; }
-
-  /* The opencode wordmark, taken from its own source rather than from a
-     capture: anomalyco/opencode, packages/tui/src/logo.ts for the four rows
-     and packages/tui/src/component/logo.tsx for how they are coloured. "open"
-     is the muted colour and "code" the plain one, each against a `shadow` that
-     is a 25% tint of that colour toward the background.
-
-     The shadow is carried on the BACKGROUND of a cell, so `_` in the source is
-     a SPACE whose background is filled. That is why no tmux text capture could
-     ever have held this mark: half of it is colour, and a text capture records
-     colour as a blank. This repo's capture also caught the pane mid-scroll and
-     held only the bottom two of the four rows, which is why d, n and o looked
-     identical in it — rows 0 and 1 are the only things that separate them. */
-  .tm-out .art.oc .lm { fill: #8a93a3; }
-  .tm-out .art.oc .ls { fill: #2b2f36; }
-  .tm-out .art.oc .rm { fill: #e6e9ef; }
-  .tm-out .art.oc .rs { fill: #424549; }
 
   /* NOTHING IN A PANE IS ITALIC. The colored runs were <i> elements, which a
      browser slants by default. An oblique face does not sit on the character
      grid the whole scene rests on: the columns drift, and the last glyph of a
-     run overhangs and is clipped, which is what cut the opencode wordmark. */
+     run overhangs and is clipped. */
   .tm-out *, .tm-in * { font-style: normal; }
   /* the 58-column ruler the script measures the frame against */
   .tm-ruler {
@@ -1490,9 +1464,9 @@
     font-family: var(--mono); font-size: var(--tmfs, clamp(0.4rem, 2.05vw, 0.8rem));
   }
 
-  /* Read off the four TUIs: Claude Code carries a warm clay accent on
-     its mark, its elapsed line and its permission mode, opencode a
-     bright wordmark, and Codex and pi are nearly monochrome. Nothing
+  /* Read off both TUIs: Claude Code carries a warm clay accent on
+     its mark, its elapsed line and its permission mode, while Codex is
+     nearly monochrome. Nothing
      here is guessed structure — the hues are the one thing a text
      capture cannot record. */
   .tm-out .lg, .tm-out .sp { color: #d97757; }
@@ -1509,9 +1483,6 @@
   .tm-out .pad, .tm-in .pad { color: transparent; }
   .tm-in .cur { background: #d7dce4; color: #0b0e12; animation: blink 1.05s steps(1) infinite; }
   @keyframes blink { 50% { background: none; color: #d7dce4; } }
-  /* opencode prints its wordmark in its own accent, not Claude's clay */
-  .tm-pane[data-h="opencode"] .tm-out .lg { color: #d7dce4; }
-
   /* ---- the printer. A line is hidden, revealed, or mid-type. Typing
      clips the line to a whole number of characters, which a monospace
      grid makes exact: 1ch IS one column. No per-character spans, so
@@ -3026,44 +2997,6 @@
 
 <span class="d">  gpt-5.6-sol high · ~/gravity</span></pre>
           </div>
-          <div class="tm-pane" data-h="pi" role="group" aria-label="Pi, the waterfall">
-            <pre class="tm-out"><span class="d"> pi v0.84.2</span>
-<span class="d"> escape interrupt · ctrl+c/ctrl+d clear/exit · / commands</span>
-<span class="d"> ! bash · ctrl+o more</span>
-
-
- GRAVITY — is a pangram the right specimen text?
-<span class="d"> A pangram proves coverage, not rhythm. Foundries</span>
-<span class="d"> set real prose under it for the small sizes, and</span>
-<span class="d"> keep the pangram for the large ones.</span></pre>
-            <pre class="tm-in"><span class="bd">──────────────────────────────────────────────────────────</span>
- <span class="cur"> </span>
-<span class="bd">──────────────────────────────────────────────────────────</span>
-<span class="d"> ~/gravity</span>
-<span class="d"> 0.0%/128k (auto)</span><span class="pad">                        </span><span class="d">claude-opus-5</span></pre>
-          </div>
-          <div class="tm-pane" data-h="opencode" role="group" aria-label="Opencode, the waterfall">
-            <pre class="tm-out"><span class="pad">         </span><svg class="art oc" data-cols="39" viewBox="0 0 78 2" preserveAspectRatio="none" aria-hidden="true" style="width:39ch"><rect class="rm" x="66" y="1" width="2" height="1"/></svg>
-<span class="pad">         </span><svg class="art oc" data-cols="39" viewBox="0 0 78 2" preserveAspectRatio="none" aria-hidden="true" style="width:39ch"><rect class="lm" x="0" y="0" width="2" height="1"/><rect class="lm" x="0" y="1" width="2" height="1"/><rect class="lm" x="2" y="0" width="2" height="1"/><rect class="lm" x="4" y="0" width="2" height="1"/><rect class="lm" x="6" y="0" width="2" height="1"/><rect class="lm" x="6" y="1" width="2" height="1"/><rect class="lm" x="10" y="0" width="2" height="1"/><rect class="lm" x="10" y="1" width="2" height="1"/><rect class="lm" x="12" y="0" width="2" height="1"/><rect class="lm" x="14" y="0" width="2" height="1"/><rect class="lm" x="16" y="0" width="2" height="1"/><rect class="lm" x="16" y="1" width="2" height="1"/><rect class="lm" x="20" y="0" width="2" height="1"/><rect class="lm" x="20" y="1" width="2" height="1"/><rect class="lm" x="22" y="0" width="2" height="1"/><rect class="lm" x="24" y="0" width="2" height="1"/><rect class="lm" x="26" y="0" width="2" height="1"/><rect class="lm" x="26" y="1" width="2" height="1"/><rect class="lm" x="30" y="0" width="2" height="1"/><rect class="lm" x="30" y="1" width="2" height="1"/><rect class="lm" x="32" y="0" width="2" height="1"/><rect class="lm" x="34" y="0" width="2" height="1"/><rect class="lm" x="36" y="1" width="2" height="1"/><rect class="rm" x="40" y="0" width="2" height="1"/><rect class="rm" x="40" y="1" width="2" height="1"/><rect class="rm" x="42" y="0" width="2" height="1"/><rect class="rm" x="44" y="0" width="2" height="1"/><rect class="rm" x="46" y="0" width="2" height="1"/><rect class="rm" x="50" y="0" width="2" height="1"/><rect class="rm" x="50" y="1" width="2" height="1"/><rect class="rm" x="52" y="0" width="2" height="1"/><rect class="rm" x="54" y="0" width="2" height="1"/><rect class="rm" x="56" y="0" width="2" height="1"/><rect class="rm" x="56" y="1" width="2" height="1"/><rect class="rm" x="60" y="0" width="2" height="1"/><rect class="rm" x="60" y="1" width="2" height="1"/><rect class="rm" x="62" y="0" width="2" height="1"/><rect class="rm" x="64" y="0" width="2" height="1"/><rect class="rm" x="66" y="0" width="2" height="1"/><rect class="rm" x="66" y="1" width="2" height="1"/><rect class="rm" x="70" y="0" width="2" height="1"/><rect class="rm" x="70" y="1" width="2" height="1"/><rect class="rm" x="72" y="0" width="2" height="1"/><rect class="rm" x="74" y="0" width="2" height="1"/><rect class="rm" x="76" y="0" width="2" height="1"/><rect class="rm" x="76" y="1" width="2" height="1"/></svg>
-<span class="pad">         </span><svg class="art oc" data-cols="39" viewBox="0 0 78 2" preserveAspectRatio="none" aria-hidden="true" style="width:39ch"><rect class="lm" x="0" y="0" width="2" height="1"/><rect class="lm" x="0" y="1" width="2" height="1"/><rect class="ls" x="2" y="0" width="2" height="1"/><rect class="ls" x="2" y="1" width="2" height="1"/><rect class="ls" x="4" y="0" width="2" height="1"/><rect class="ls" x="4" y="1" width="2" height="1"/><rect class="lm" x="6" y="0" width="2" height="1"/><rect class="lm" x="6" y="1" width="2" height="1"/><rect class="lm" x="10" y="0" width="2" height="1"/><rect class="lm" x="10" y="1" width="2" height="1"/><rect class="ls" x="12" y="0" width="2" height="1"/><rect class="ls" x="12" y="1" width="2" height="1"/><rect class="ls" x="14" y="0" width="2" height="1"/><rect class="ls" x="14" y="1" width="2" height="1"/><rect class="lm" x="16" y="0" width="2" height="1"/><rect class="lm" x="16" y="1" width="2" height="1"/><rect class="lm" x="20" y="0" width="2" height="1"/><rect class="lm" x="20" y="1" width="2" height="1"/><rect class="lm" x="22" y="0" width="2" height="1"/><rect class="ls" x="22" y="1" width="2" height="1"/><rect class="lm" x="24" y="0" width="2" height="1"/><rect class="ls" x="24" y="1" width="2" height="1"/><rect class="lm" x="26" y="0" width="2" height="1"/><rect class="ls" x="26" y="1" width="2" height="1"/><rect class="lm" x="30" y="0" width="2" height="1"/><rect class="lm" x="30" y="1" width="2" height="1"/><rect class="ls" x="32" y="0" width="2" height="1"/><rect class="ls" x="32" y="1" width="2" height="1"/><rect class="ls" x="34" y="0" width="2" height="1"/><rect class="ls" x="34" y="1" width="2" height="1"/><rect class="lm" x="36" y="0" width="2" height="1"/><rect class="lm" x="36" y="1" width="2" height="1"/><rect class="rm" x="40" y="0" width="2" height="1"/><rect class="rm" x="40" y="1" width="2" height="1"/><rect class="rs" x="42" y="0" width="2" height="1"/><rect class="rs" x="42" y="1" width="2" height="1"/><rect class="rs" x="44" y="0" width="2" height="1"/><rect class="rs" x="44" y="1" width="2" height="1"/><rect class="rs" x="46" y="0" width="2" height="1"/><rect class="rs" x="46" y="1" width="2" height="1"/><rect class="rm" x="50" y="0" width="2" height="1"/><rect class="rm" x="50" y="1" width="2" height="1"/><rect class="rs" x="52" y="0" width="2" height="1"/><rect class="rs" x="52" y="1" width="2" height="1"/><rect class="rs" x="54" y="0" width="2" height="1"/><rect class="rs" x="54" y="1" width="2" height="1"/><rect class="rm" x="56" y="0" width="2" height="1"/><rect class="rm" x="56" y="1" width="2" height="1"/><rect class="rm" x="60" y="0" width="2" height="1"/><rect class="rm" x="60" y="1" width="2" height="1"/><rect class="rs" x="62" y="0" width="2" height="1"/><rect class="rs" x="62" y="1" width="2" height="1"/><rect class="rs" x="64" y="0" width="2" height="1"/><rect class="rs" x="64" y="1" width="2" height="1"/><rect class="rm" x="66" y="0" width="2" height="1"/><rect class="rm" x="66" y="1" width="2" height="1"/><rect class="rm" x="70" y="0" width="2" height="1"/><rect class="rm" x="70" y="1" width="2" height="1"/><rect class="rm" x="72" y="0" width="2" height="1"/><rect class="rs" x="72" y="1" width="2" height="1"/><rect class="rm" x="74" y="0" width="2" height="1"/><rect class="rs" x="74" y="1" width="2" height="1"/><rect class="rm" x="76" y="0" width="2" height="1"/><rect class="rs" x="76" y="1" width="2" height="1"/></svg>
-<span class="pad">         </span><svg class="art oc" data-cols="39" viewBox="0 0 78 2" preserveAspectRatio="none" aria-hidden="true" style="width:39ch"><rect class="lm" x="0" y="0" width="2" height="1"/><rect class="lm" x="2" y="0" width="2" height="1"/><rect class="lm" x="4" y="0" width="2" height="1"/><rect class="lm" x="6" y="0" width="2" height="1"/><rect class="lm" x="10" y="0" width="2" height="1"/><rect class="lm" x="10" y="1" width="2" height="1"/><rect class="lm" x="12" y="0" width="2" height="1"/><rect class="lm" x="14" y="0" width="2" height="1"/><rect class="lm" x="16" y="0" width="2" height="1"/><rect class="lm" x="20" y="0" width="2" height="1"/><rect class="lm" x="22" y="0" width="2" height="1"/><rect class="lm" x="24" y="0" width="2" height="1"/><rect class="lm" x="26" y="0" width="2" height="1"/><rect class="lm" x="30" y="0" width="2" height="1"/><rect class="ls" x="32" y="0" width="2" height="1"/><rect class="ls" x="34" y="0" width="2" height="1"/><rect class="lm" x="36" y="0" width="2" height="1"/><rect class="rm" x="40" y="0" width="2" height="1"/><rect class="rm" x="42" y="0" width="2" height="1"/><rect class="rm" x="44" y="0" width="2" height="1"/><rect class="rm" x="46" y="0" width="2" height="1"/><rect class="rm" x="50" y="0" width="2" height="1"/><rect class="rm" x="52" y="0" width="2" height="1"/><rect class="rm" x="54" y="0" width="2" height="1"/><rect class="rm" x="56" y="0" width="2" height="1"/><rect class="rm" x="60" y="0" width="2" height="1"/><rect class="rm" x="62" y="0" width="2" height="1"/><rect class="rm" x="64" y="0" width="2" height="1"/><rect class="rm" x="66" y="0" width="2" height="1"/><rect class="rm" x="70" y="0" width="2" height="1"/><rect class="rm" x="72" y="0" width="2" height="1"/><rect class="rm" x="74" y="0" width="2" height="1"/><rect class="rm" x="76" y="0" width="2" height="1"/></svg>
-
-
-<span class="bx">  ┃</span>
-<span class="bx">  ┃  </span>GRAVITY — build the fonts page
-<span class="bx">  ┃</span>
-
-<span class="d">     built site/ — fonts.html 14.2 kB, fonts 148 kB</span>
-
-<span class="bu">     ▣  </span><span class="d">Build · gpt-5.6-sol · 1.3s</span></pre>
-            <pre class="tm-in"><span class="bx">  ┃</span>
-<span class="bx">  ┃  </span><span class="cur"> </span>
-<span class="bx">  ┃</span>
-<span class="bx">  ┃  </span><span class="d">Build · gpt-5.6-sol </span><span class="dd">OpenAI</span>
-<span class="bx">  ╹</span><span class="ocr"><svg class="art" data-cols="55" viewBox="0 0 110 2" preserveAspectRatio="none" aria-hidden="true" style="width:55ch"><g fill="currentColor"><rect x="0" y="0" width="110" height="1"/></g></svg></span>
-<span class="d">   tab agents  ctrl+p commands</span>
-<span class="d">  ~/gravity</span><span class="pad">                                    </span><span class="d">1.18.18</span></pre>
-          </div>
         </div>
             </div>
             <!-- the tmux status line stays, without the window list (round 2) -->
@@ -3711,11 +3644,11 @@ if (prefersStill || !window.IntersectionObserver) {
 
    Three jobs, none of which the page depends on: it fits the panes to
    58 columns, it switches the harness, and it prints the session. With
-   no script all four panes stand whole, one under the other, at the
+   no script both panes stand whole, one under the other, at the
    CSS clamp size.
 
    THE FIT is what makes the panes read as terminals. A terminal is a
-   character grid: the Codex banner box, the opencode ╹▀ rule, the
+   character grid: the Codex banner box, the
    Claude composer rules and every ─ separator are authored at exactly
    58 columns, so they meet only if 58 columns are exactly as wide as
    the frame. The ruler is a 58ch box measured against the live frame,
@@ -3728,10 +3661,8 @@ if (prefersStill || !window.IntersectionObserver) {
 
    THE RELAY was settled at round 2. Claude Code prints a line every
    190ms, holds, and hands to Codex, which carries on — the two curia
-   really dispatches to today (config/routing.yaml). Pi and opencode
-   stand ready on the rail rather than joining the relay, because a
-   four-way relay runs past twenty seconds and round 2's note was that
-   the motion was hard to follow. The run happens ONCE: round 1 replayed
+   really dispatches to today (config/routing.yaml). The run happens
+   ONCE: round 1 replayed
    it on every entry, so scrolling back restarted the session under the
    reader.
    ================================================================ */

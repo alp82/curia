@@ -4,7 +4,7 @@ import path from 'node:path'
 import { parse as parseYaml } from 'yaml'
 
 import { TOKEN_HEADER } from './agenttoken.mjs'
-import { codexAccessTokenExpiry } from './credentials.mjs'
+import { codexAccessTokenExpiry } from './codexcredential.mjs'
 
 export const CODEX_CONFIG_ROOT_ENV = 'CODEX_HOME'
 export const CODEX_MEMORY_FILE = 'AGENTS.md'

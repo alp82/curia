@@ -38,6 +38,11 @@ import { TRANSIENT_RETRY_BOUND } from './credentialpolicy.mjs'
 // work" (#660) — and it asks it with the headers `usage.mjs` already owns. The
 // import runs one way: nothing in the usage reader knows about this module.
 import { MODELS_URL, ANTHROPIC_VERSION, anthropicCredential } from './usage.mjs'
+import { CONSUMER_NAMES } from './credentialcontracts.mjs'
+import { codexAccessTokenExpiry, codexTokenClock } from './codexcredential.mjs'
+
+export { CONSUMER_NAMES } from './credentialcontracts.mjs'
+export { codexAccessTokenExpiry, codexTokenClock } from './codexcredential.mjs'
 
 // ---- reading the credential ------------------------------------------------
 
@@ -47,40 +52,6 @@ import { MODELS_URL, ANTHROPIC_VERSION, anthropicCredential } from './usage.mjs'
 // for the daemon, for the tmux pane, and for the `docker run` inside it.
 export const codexHostStore = (home = null) => path.join(home ?? os.homedir(), '.codex')
 export const codexAuthFile = (home = null) => path.join(codexHostStore(home), 'auth.json')
-
-// The clock the SERVER stamped on the access token, in epoch milliseconds.
-//
-// The token is a JWT, so both values are claims in its payload, read without
-// verification: the daemon is not the audience, it only needs the two numbers.
-// `iat` is what makes the refresh margin a fraction of a real lifetime rather
-// than a constant somebody guessed — see `refreshMarginMs`.
-//
-// Nulls on ANY parse failure, on purpose. `workspace.mjs`'s #351 refusal stands
-// on a measured expiry, and this module's refresh decision does too: a
-// credential file this parser cannot read proves nothing about the token's life,
-// and a guess would either refresh every tick or never.
-export function codexTokenClock(authJson) {
-  try {
-    const token = JSON.parse(authJson)?.tokens?.access_token
-    const payload = JSON.parse(Buffer.from(String(token).split('.')[1], 'base64url').toString('utf8'))
-    return {
-      iat: Number.isFinite(payload.iat) ? payload.iat * 1000 : null,
-      exp: Number.isFinite(payload.exp) ? payload.exp * 1000 : null,
-    }
-  } catch {
-    return { iat: null, exp: null }
-  }
-}
-
-// When the codex access token expires, in epoch milliseconds — or null when the
-// file does not answer the question.
-//
-// It lived in `workspace.mjs` until #642, which needed the same parse. One
-// parser, two callers: a second one would be free to disagree with the first
-// about whether a dispatch may proceed.
-export function codexAccessTokenExpiry(authJson) {
-  return codexTokenClock(authJson).exp
-}
 
 // ---- when to refresh -------------------------------------------------------
 
@@ -1338,8 +1309,6 @@ export const CONSUMER_CREDENTIALS = Object.freeze({
     heal: 'next-turn',
   }),
 })
-
-export const CONSUMER_NAMES = Object.freeze(Object.keys(CONSUMER_CREDENTIALS))
 
 // The delivery shapes this daemon knows how to perform. A consumer naming
 // anything else is a consumer nothing delivers to, and `config.mjs` refuses it

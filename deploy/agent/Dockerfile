@@ -29,8 +29,6 @@ FROM node:${NODE_VERSION}-bookworm-slim
 
 ARG CLAUDE_VERSION
 ARG CODEX_VERSION
-ARG OPENCODE_VERSION
-ARG PI_VERSION
 ARG GH_VERSION
 ARG PLAYWRIGHT_VERSION
 ARG TTYD_VERSION
@@ -95,19 +93,15 @@ RUN set -eux; \
     ttyd --version
 ENV TTYD_BIN=/usr/local/bin/ttyd
 
-# Every harness the router can pick, at the exact versions the box runs (#696).
-# Claude and codex were the first two; opencode and pi joined them so routing
-# can never select a command line interface the container doesn't carry. All
-# four are plain npm globals, so they land in /usr/local/bin and every user in
+# Every Harness the router can pick, at the exact versions the box runs (#696).
+# Both are plain npm globals, so they land in /usr/local/bin and every user in
 # the image reaches them. The npm cache from this layer is dropped rather than
 # left in the image: the run-time cache is a mounted volume, and a stale copy
 # baked at build time only costs size.
 RUN set -eux; \
     npm install -g --no-fund --no-audit \
       "@anthropic-ai/claude-code@${CLAUDE_VERSION}" \
-      "@openai/codex@${CODEX_VERSION}" \
-      "opencode-ai@${OPENCODE_VERSION}" \
-      "@earendil-works/pi-coding-agent@${PI_VERSION}"; \
+      "@openai/codex@${CODEX_VERSION}"; \
     npm cache clean --force
 
 # Chromium's OS libraries, but not chromium. #148 keeps browsers out of the
@@ -177,8 +171,6 @@ RUN set -eux; \
     printf '%s\n' \
       "claude ${CLAUDE_VERSION}" \
       "codex ${CODEX_VERSION}" \
-      "opencode ${OPENCODE_VERSION}" \
-      "pi ${PI_VERSION}" \
       > /usr/local/share/curia-harness-pins; \
     chmod 0444 /usr/local/share/curia-harness-pins; \
     while read -r cli want; do \
@@ -193,8 +185,6 @@ LABEL org.opencontainers.image.title="curia agent" \
       org.opencontainers.image.source="https://github.com/alp82/curia" \
       curia.claude-version="${CLAUDE_VERSION}" \
       curia.codex-version="${CODEX_VERSION}" \
-      curia.opencode-version="${OPENCODE_VERSION}" \
-      curia.pi-version="${PI_VERSION}" \
       curia.gh-version="${GH_VERSION}" \
       curia.ttyd-version="${TTYD_VERSION}" \
       curia.playwright-version="${PLAYWRIGHT_VERSION}" \

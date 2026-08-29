@@ -113,7 +113,7 @@ describe('the recorded answer a re-asked question takes back (#369, reduction)',
   test('every part of the payload is part of the question', () => {
     parkedAnswer(reduction, { kind: 'choice', prompt: 'which harness?', options: ['claude', 'codex'], answer: 'claude' })
     assert.equal(reduction.recordedAnswerFor({ agent: 'curia-9', kind: 'choice', prompt: 'which harness?', options: ['claude', 'codex'] })?.record.answer, 'claude')
-    assert.equal(reduction.recordedAnswerFor({ agent: 'curia-9', kind: 'choice', prompt: 'which harness?', options: ['claude', 'codex', 'pi'] }), null)
+    assert.equal(reduction.recordedAnswerFor({ agent: 'curia-9', kind: 'choice', prompt: 'which harness?', options: ['claude', 'codex', 'unknown'] }), null)
     assert.equal(reduction.recordedAnswerFor({ agent: 'curia-9', kind: 'free-text', prompt: 'which harness?', options: ['claude', 'codex'] }), null)
   })
 

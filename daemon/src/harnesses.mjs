@@ -6,10 +6,10 @@
 import {
   buildResumeCmd, buildSpawnCmd, parseCreditGate, parseUsageLimit, setRoutingHarnessRegistry,
 } from './routing.mjs'
-import { CONSUMER_NAMES, PROVIDER_CREDENTIALS } from './credentials.mjs'
+import { CONSUMER_NAMES, PROVIDER_NAMES } from './credentialcontracts.mjs'
 import { createClaudeHarnessAdapter } from './claudeharness.mjs'
 import { createCodexHarnessAdapter } from './codexharness.mjs'
-import { setTranscriptHarnessRegistry } from './transcript.mjs'
+import { PRODUCTION_HARNESS_NAMES } from './productionharnesses.mjs'
 
 export const HARNESS_FACETS = Object.freeze([
   'identity',
@@ -275,9 +275,15 @@ export const HARNESS_REGISTRY = createHarnessRegistry([
   }),
   createCodexHarnessAdapter(),
 ], {
-  providers: Object.keys(PROVIDER_CREDENTIALS),
+  providers: PROVIDER_NAMES,
   credentialConsumers: CONSUMER_NAMES,
 })
 
-setTranscriptHarnessRegistry(HARNESS_REGISTRY)
+if (HARNESS_REGISTRY.names.some((name, index) => name !== PRODUCTION_HARNESS_NAMES[index])
+  || HARNESS_REGISTRY.names.length !== PRODUCTION_HARNESS_NAMES.length) {
+  contractFault(
+    `registered Harnesses must match the production image contract: ${PRODUCTION_HARNESS_NAMES.join(', ')}`,
+  )
+}
+
 setRoutingHarnessRegistry(HARNESS_REGISTRY)
