@@ -118,13 +118,35 @@ export function composeReviewBody(payload = {}) {
 //
 // The parts read top down as the operator's eye does. The headline says what the
 // work came to, the visual shows it, the summary says what changed, and the
-// spoiler holds the facts a reader may want and nobody needs.
+// spoiler holds optional facts. A wayfinder report then closes on its map
+// updates and new frontier.
 export function composeResultBody(payload = {}) {
   const parts = []
   if (has(payload.headline)) parts.push(`**${String(payload.headline).trim()}**`)
   parts.push(...visualBlocks(payload))
   if (has(payload.summary)) parts.push(String(payload.summary).trim())
   if (has(payload.detail)) parts.push(`Details: ||${String(payload.detail).trim()}||`)
+  const wayfinder = composeWayfinderResult(payload)
+  if (wayfinder) parts.push(wayfinder)
+  return parts.join('\n\n')
+}
+
+// A wayfinder ending closes on the tracker state it left behind. These fields
+// stay structured until this composer, so Discord does not depend on an agent
+// remembering to repeat them inside its summary or in prose after the tool
+// call. Empty arrays are real readings and render as "None."
+export function composeWayfinderResult(payload = {}) {
+  const parts = []
+  if (Array.isArray(payload.map_updates)) {
+    const rows = payload.map_updates.map((item) => `- ${String(item?.text ?? '').trim()}`)
+    parts.push(['**Map updates**', ...(rows.length ? rows : ['None.'])].join('\n'))
+  }
+  if (Array.isArray(payload.new_frontier)) {
+    const rows = payload.new_frontier.map((item) => (
+      `- \`#${item?.ticket ?? '?'}\` **${String(item?.title ?? '').trim()}**`
+    ))
+    parts.push(['**New frontier**', ...(rows.length ? rows : ['None.'])].join('\n'))
+  }
   return parts.join('\n\n')
 }
 

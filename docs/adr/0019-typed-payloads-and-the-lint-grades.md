@@ -5,6 +5,8 @@
 
 > **Amended by [ADR-0026](0026-the-composite-send.md) (#640).** The `visual` FIELD below retires, and `picture`, `table` and `diagram` replace it. `images` is renamed `attachments`. The never-stacked small-print rule gains one named exception, the question background. The prose cap of a composite send is 1600, and a question background is Grade B at 600. Everything else on this page stands.
 
+> **Amended on August 29, 2026.** A wayfinder `report_result` also requires `map_updates[]` entries of `{ text }` and `new_frontier[]` entries of `{ ticket, title }`. Empty arrays are explicit readings. Curia closes the report with both sections, so Discord receives the tracker state that the agent's local final prose used to carry alone.
+
 ## Context
 
 Agent prose reaches the operator on five surfaces: `ask_human`, the review gate, `report_result`, `notify` and the cross-check verdict. Every one of them takes a free string today.
@@ -44,16 +46,17 @@ Every `ask_human` kind takes `headline` (required), and `detail`, `visual`, `tim
 | `ask_human` approve-reject | none | `options[]`, exactly two |
 | `ask_human` preview-review | `preview_url` | `options[]`, exactly two |
 | `request_review` | `headline`, `summary`, `charting` | `detail`, `visual` |
-| `report_result` | `ticket`, `status`, `headline`, `summary` | `detail`, `visual`, `details` |
+| `report_result` | `ticket`, `status`, `headline`, `summary`; for wayfinder, `map_updates`, `new_frontier` | `detail`, `visual`, `details` |
 | `notify` | `message` | `kind`, `detail`, `visual`, `images` |
 | verdict | `headline`, `summary`, `findings[]` of `{ text, severity }` | `detail`, `visual`, `findings[].out_of_scope` |
 
-Four rules read this table.
+Five rules read this table.
 
 1. **A round is typed.** `questions[]` replaces the numbered questions an agent writes inside one prose prompt (#285). curia derives the **✅ All as recommended** button from the array: the button renders when every question carries a `recommendation`, and it renders on no other round. The `recommended` boolean retires. An agent could set that flag on a round where one question had no recommendation, and the button then lied about it. A derived button cannot lie.
 2. **approve-reject and preview-review keep curia's button words.** When the agent gives two options, curia takes the two consequences and keeps its own labels. The order is fixed: approve first.
 3. **`details` on `report_result` stays a free record.** It is machine-facing, no surface renders it, and no lint reads it.
 4. **The verdict floor is a headline, a summary and a findings list.** The list may be empty, and a finding carries a severity. [#421](https://github.com/alp82/curia/issues/421) settled both, and the second section below is what it settled. The `notify` kind set was [#420](https://github.com/alp82/curia/issues/420)'s decision the same way, and the first section below is what it settled.
+5. **A wayfinder ending carries the tracker state it leaves.** `map_updates[]` has one `{ text }` entry per map or child-ticket change. `new_frontier[]` has the complete takeable frontier after those writes, with each ticket's number and title. An empty array says that section is empty. A missing array says nothing and is refused for a wayfinder session.
 
 ### The notify kind set (#420)
 

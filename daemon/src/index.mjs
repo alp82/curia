@@ -2419,6 +2419,13 @@ function buildMcpServer(agent, ticket) {
       headline: z.string().optional().describe('What the work came to, in one line, at most 150 characters. No markdown and no link.'),
       detail: z.string().optional().describe('Short FACTS, rendered as a spoiler. One line, 500 characters.'),
       ...VISUAL_SHAPE,
+      map_updates: z.array(z.object({
+        text: z.string().optional().describe('One map or child-ticket change. One line, at most 500 characters.'),
+      })).optional().describe('Wayfinder sessions: every map and child-ticket change made this session, in reading order. Send an empty list when nothing changed.'),
+      new_frontier: z.array(z.object({
+        ticket: z.number().int().positive().optional().describe('The bare issue number.'),
+        title: z.string().optional().describe('The ticket title. One line, at most 150 characters.'),
+      })).optional().describe('Wayfinder sessions: the complete takeable frontier after all map writes. Send an empty list when the frontier is empty.'),
       // ADR-0023: a skill run's product is tracker writes, and the receipt
       // names them by their real numbers. Only a skill run fills this.
       published: z.array(z.number().int().positive()).optional().describe('Skill runs only: the issue numbers you created after the approved gate, in the order you created them.'),
@@ -2452,7 +2459,9 @@ function buildMcpServer(agent, ticket) {
       // linted call, so nothing of its own can spend those three attempts, and
       // the Stop hook's report words fit a verdict as they stand.
       const reviewer = dispatcher.isReviewerSession(agent)
-      const floor = reviewer ? verdictFloorFaults(result) : resultFloorFaults(result)
+      const floor = reviewer
+        ? verdictFloorFaults(result)
+        : resultFloorFaults(result, { wayfinder: dispatcher.isWayfinderSession(agent) })
       const judged = lintGate.judge({
         agent, kind: RESULT_KIND, faults: [...floor, ...(reviewer ? lintVerdict(result) : lintResult(result))],
         schema: floor.length > 0, prompt: result.summary ?? null, payload: result,

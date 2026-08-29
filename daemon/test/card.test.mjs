@@ -157,14 +157,21 @@ describe('composeResultReport: the ending report (#419)', () => {
     summary: 'The report takes a headline, a summary, a detail and a table.',
     detail: 'The composer is daemon/src/card.mjs.',
     table: 'headline  150\nsummary   600',
+    map_updates: [
+      { text: 'Closed #419 and added its decision to the map.' },
+      { text: 'Graduated the retry question from fog into #423.' },
+    ],
+    new_frontier: [{ ticket: 423, title: 'Choose the retry boundary' }],
   }
 
-  test('the parts read top down: headline, table, summary, spoiler', () => {
+  test('the parts close with the map updates and the new frontier', () => {
     assert.equal(composeResultBody(REPORT), [
       '**The ending report is typed, and curia lays it out.**',
       '```\nheadline  150\nsummary   600\n```',
       'The report takes a headline, a summary, a detail and a table.',
       'Details: ||The composer is daemon/src/card.mjs.||',
+      '**Map updates**\n- Closed #419 and added its decision to the map.\n- Graduated the retry question from fog into #423.',
+      '**New frontier**\n- `#423` **Choose the retry boundary**',
     ].join('\n\n'))
   })
 
@@ -187,6 +194,11 @@ describe('composeResultReport: the ending report (#419)', () => {
   test('curia writes the fence, so an agent that fenced its table is not fenced twice', () => {
     const body = composeResultBody({ table: '```\na\nb\n```' })
     assert.equal(body, '```\na\nb\n```')
+  })
+
+  test('empty wayfinder readings are stated instead of disappearing', () => {
+    assert.equal(composeResultBody({ map_updates: [], new_frontier: [] }),
+      '**Map updates**\nNone.\n\n**New frontier**\nNone.')
   })
 })
 

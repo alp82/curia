@@ -52,6 +52,12 @@ const FOLLOW_UP_RECORD = [
   'of question cards.',
 ]
 
+const WAYFINDER_REPORT = [
+  'In `report_result`, put every map or child-ticket change in `map_updates`, one `text` entry per',
+  'change. Put the complete takeable frontier AFTER those writes in `new_frontier`, one ticket number',
+  'and title per entry. Send an empty array when either list is empty. curia renders both in Discord.',
+]
+
 export const ENDING = [
   {
     key: 'commit',
@@ -120,6 +126,7 @@ export const ENDING = [
         'on their answer. Name anything still standing under Not yet specified, because that fog is what',
         'holds the close and it has to be graduated or ruled before the map can end.',
         ...FOLLOW_UP_RECORD,
+        ...WAYFINDER_REPORT,
       ]
       : [
         `Then resolve the ticket on the tracker with \`gh\`: post the resolution as a comment on ${repo}#{n},`,
@@ -240,6 +247,7 @@ export const CHARTING_ENDING = [
     key: 'report',
     prose: () => [
       'Call `report_result` exactly once, with `resolved` and a summary of what you changed on the map.',
+      ...WAYFINDER_REPORT,
       'curia posts that summary as a comment on the map. It never closes the map.',
     ],
     todo: (s) => (s.hasResult ? null : 'call `report_result` exactly once'),
@@ -283,6 +291,7 @@ export const NEW_MAP_ENDING = [
     key: 'report',
     prose: () => [
       'Call `report_result` exactly once, with `resolved` and a summary of what you charted.',
+      ...WAYFINDER_REPORT,
       'curia posts that summary as a comment on the map you created. It never closes the map.',
     ],
     todo: (s) => (s.hasResult ? null : 'call `report_result` exactly once'),

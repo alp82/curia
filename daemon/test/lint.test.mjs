@@ -384,6 +384,24 @@ describe('lintResult: the ending report (#419)', () => {
     assert.deepEqual(resultFloorFaults({ headline: 'h', summary: 's' }), [])
   })
 
+  test('a wayfinder report requires explicit map updates and a complete frontier reading', () => {
+    const base = { headline: 'h', summary: 's' }
+    assert.match(names(resultFloorFaults(base, { wayfinder: true })), /map_updates: missing/)
+    assert.match(names(resultFloorFaults(base, { wayfinder: true })), /new_frontier: missing/)
+    assert.deepEqual(resultFloorFaults({ ...base, map_updates: [], new_frontier: [] }, { wayfinder: true }), [])
+  })
+
+  test('wayfinder entries keep their required structure and prose grades', () => {
+    const floor = resultFloorFaults({
+      headline: 'h', summary: 's', map_updates: [{}], new_frontier: [{ ticket: 0 }],
+    })
+    assert.match(names(floor), /map_updates\[0\]\.text: missing/)
+    assert.match(names(floor), /new_frontier\[0\]\.ticket: missing/)
+    assert.match(names(floor), /new_frontier\[0\]\.title: missing/)
+    assert.match(names(lintResult({ map_updates: [{ text: 'changed; then moved on' }] })), /a semicolon/)
+    assert.match(names(lintResult({ new_frontier: [{ ticket: 8, title: 'A title — with a dash' }] })), /an em-dash/)
+  })
+
   test('findings are the verdict\'s field, so a builder that sends them is refused (#421)', () => {
     const faults = resultFloorFaults({ headline: 'h', summary: 's', findings: [{ text: 't', severity: 'note' }] })
     assert.match(names(faults), /findings: the cross-check reviewer's field/)
@@ -394,6 +412,8 @@ describe('lintResult: the ending report (#419)', () => {
     assert.equal(isTypedResult({ headline: 'h' }), true)
     assert.equal(isTypedResult({ detail: 'd' }), true)
     assert.equal(isTypedResult({ diagram: 'v' }), true)
+    assert.equal(isTypedResult({ map_updates: [] }), true)
+    assert.equal(isTypedResult({ new_frontier: [] }), true)
   })
 
   test('a report carrying a summary has text, so the cap ends in a flagged send', () => {

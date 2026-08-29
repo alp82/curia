@@ -3400,6 +3400,15 @@ export class Dispatcher {
     })
   }
 
+  // Wayfinder reports owe Discord the map changes and the frontier they left.
+  // Reconcile restores both labels and the charting flag, so this stays true
+  // across a daemon restart without trusting a field in the report itself.
+  isWayfinderSession(agentName) {
+    const w = this.agents.get(agentName)
+    return Boolean(w?.charting || w?.skillName === 'wayfinder'
+      || (w?.labels ?? []).some((label) => String(label).startsWith('wayfinder:')))
+  }
+
   // The grace window, opened at the composer marker and closed by the first
   // `/mcp` request. Measured on the claude harness (#194, docs/live-checks/194):
   // the handshake lands about 3 s after spawn and about 2.5 s AHEAD of the

@@ -204,8 +204,12 @@ describe('an untyped ask_human is refused since the flip (#422, real boot)', () 
       const notify = listed.tools.find((tool) => tool.name === 'notify')
       assert.ok(review.inputSchema.properties.tracker_writes)
       assert.equal(notify.inputSchema.properties.tracker_writes, undefined)
+      assert.equal(notify.inputSchema.properties.map_updates, undefined)
+      assert.equal(notify.inputSchema.properties.new_frontier, undefined)
       const report = listed.tools.find((tool) => tool.name === 'report_result')
       assert.ok(report.inputSchema.properties.published, 'the receipt reads the real numbers from `published`')
+      assert.ok(report.inputSchema.properties.map_updates, 'wayfinder map changes have a typed report field')
+      assert.ok(report.inputSchema.properties.new_frontier, 'the new frontier has a typed report field')
 
       const result = await c.callTool({
         name: 'request_review',

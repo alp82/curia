@@ -1537,6 +1537,8 @@ export function writePrompt(cfgDir, issue, {
     // thread reads first, and the map pointer takes it as the gist.
     '- `report_result` — exactly once, at the very end. `headline` says what the session came to in one',
     '  line, and `summary` says what you charted. Both become curia\'s comment on the map.',
+    '  `map_updates` names every map or child-ticket change. `new_frontier` is the complete takeable',
+    '  frontier after those writes. Send an empty array for either section when it is empty.',
     '- `publish_preview` belongs to a ticket dispatch. A research note is read as a diff, so there is',
     '  nothing here to preview.',
   ] : [
@@ -1575,6 +1577,11 @@ export function writePrompt(cfgDir, issue, {
     '  call `publish_preview` again with the right path — not by pasting a URL into your summary.',
     '- `report_result` — exactly once, at the very end. `headline` says what the work came to in one',
     '  line, and `summary` says what changed. curia lints both, and it lays the report out itself.',
+    ...(mapNumber ? [
+      '  For this wayfinder session, `map_updates` names every map or child-ticket change, and',
+      '  `new_frontier` is the complete takeable frontier after those writes. Send an empty array for',
+      '  either section when it is empty. curia renders both in Discord.',
+    ] : []),
   ]
 
   // #165, ADR-0010: the gate's third button. The builder is told this at spawn

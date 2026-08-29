@@ -432,14 +432,30 @@ export function hasText(payload = {}) {
 // headline is a flagged send, and this is what keeps its one line intact.
 export function isTypedResult(payload = {}) {
   return present(payload.headline) || present(payload.detail) || hasVisualField(payload)
+    || Array.isArray(payload.map_updates) || Array.isArray(payload.new_frontier)
 }
 
 // The report's floor. `summary` was required by the schema before #419, and the
 // flip (#422) added the `headline` beside it. Both are unconditional now.
-export function resultFloorFaults(payload = {}) {
+export function resultFloorFaults(payload = {}, { wayfinder = false } = {}) {
   const faults = retiredFieldFaults(payload)
   if (!present(payload.headline)) faults.push('headline: missing. Say what the work came to in one line.')
   if (!present(payload.summary)) faults.push('summary: missing. Say what you did and what it came to.')
+  if (wayfinder && !Array.isArray(payload.map_updates)) {
+    faults.push('map_updates: missing. Send one entry per map change, or an empty list when nothing changed.')
+  }
+  if (wayfinder && !Array.isArray(payload.new_frontier)) {
+    faults.push('new_frontier: missing. Send the complete takeable frontier, or an empty list when it is empty.')
+  }
+  ;(payload.map_updates ?? []).forEach((item, i) => {
+    if (!present(item?.text)) faults.push(`map_updates[${i}].text: missing. Say what changed on the map or one of its tickets.`)
+  })
+  ;(payload.new_frontier ?? []).forEach((item, i) => {
+    if (!Number.isInteger(item?.ticket) || item.ticket <= 0) {
+      faults.push(`new_frontier[${i}].ticket: missing. Send the positive issue number.`)
+    }
+    if (!present(item?.title)) faults.push(`new_frontier[${i}].title: missing. Send the ticket title.`)
+  })
   // `findings` belongs to the cross-check verdict and to nothing else (#421). A
   // builder that sent them would lose them in silence: no lint reads them here
   // and no surface renders them, and losing information in silence is the one
@@ -456,6 +472,12 @@ export function lintResult(payload = {}) {
   if (present(payload.detail)) faults.push(...gradeA('detail', payload.detail, CAPS.detail))
   faults.push(...lintVisualFields(payload))
   if (present(payload.summary)) faults.push(...gradeB('summary', payload.summary))
+  ;(payload.map_updates ?? []).forEach((item, i) => {
+    if (present(item?.text)) faults.push(...gradeA(`map_updates[${i}].text`, item.text, CAPS.detail))
+  })
+  ;(payload.new_frontier ?? []).forEach((item, i) => {
+    if (present(item?.title)) faults.push(...gradeA(`new_frontier[${i}].title`, item.title, CAPS.headline))
+  })
   return faults
 }
 

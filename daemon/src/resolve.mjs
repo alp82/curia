@@ -47,6 +47,7 @@
 // or a map body rewritten from a partial view.
 
 import { parentNumberOf, hasLabel } from './github.mjs'
+import { composeWayfinderResult } from './card.mjs'
 
 export const DECISIONS_HEADING = /^##\s+Decisions so far\s*$/i
 
@@ -130,8 +131,9 @@ export function insertMapPointer(body, line) {
 export function reportProse(result) {
   const headline = String(result?.headline ?? '').trim()
   const summary = String(result?.summary ?? '').trim()
-  if (!headline && !summary) return '(no summary)'
-  return [headline && `**${headline}**`, summary].filter(Boolean).join('\n\n')
+  const wayfinder = composeWayfinderResult(result)
+  if (!headline && !summary && !wayfinder) return '(no summary)'
+  return [headline && `**${headline}**`, summary, wayfinder].filter(Boolean).join('\n\n')
 }
 
 export function fallbackResolutionComment(result) {

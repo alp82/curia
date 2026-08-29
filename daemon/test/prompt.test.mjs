@@ -452,6 +452,19 @@ describe('the ordered ending', () => {
     }
   })
 
+  test('every wayfinder ending sends map updates and the complete new frontier to Discord', () => {
+    for (const generatedInstructions of [
+      write({ mapNumber: 1, type: 'wayfinder:task' }),
+      write({ mapNumber: 147, type: 'wayfinder:map', charting: true }),
+      write({ mapNumber: null, type: 'wayfinder:map', charting: true, newMap: true }),
+    ]) {
+      assert.match(generatedInstructions, /`map_updates`[^.]*every map or child-ticket change/i)
+      assert.match(generatedInstructions, /`new_frontier`[^.]*complete\s+takeable\s+frontier/i)
+      assert.match(generatedInstructions, /empty array/i)
+      assert.match(generatedInstructions, /Discord/i)
+    }
+  })
+
   test('blocked is still the honest way out, and the Stop hook is announced', () => {
     const p = write({ mapNumber: 1 })
     assert.match(p, /`report_result` with status `blocked`/)

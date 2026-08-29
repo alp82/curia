@@ -149,6 +149,19 @@ describe('comment bodies', () => {
     assert.match(nonCleanComment({ agent: 'curia-42', result, released: true }), /\*\*The report is typed\.\*\*/)
   })
 
+  test('a wayfinder report keeps its map updates and new frontier in curia-written records', () => {
+    const result = {
+      headline: 'The route advanced.',
+      summary: 'One question moved out of fog.',
+      map_updates: [{ text: 'Created #43 from the retry fog.' }],
+      new_frontier: [{ ticket: 43, title: 'Choose the retry boundary' }],
+    }
+    const prose = reportProse(result)
+    assert.match(prose, /\*\*Map updates\*\*[\s\S]*Created #43 from the retry fog/)
+    assert.match(prose, /\*\*New frontier\*\*[\s\S]*`#43` \*\*Choose the retry boundary\*\*/)
+    assert.match(fallbackResolutionComment(result), /\*\*New frontier\*\*/)
+  })
+
   test('an untyped report reads exactly as it did before the headline existed', () => {
     assert.equal(reportProse({ summary: 'did the thing' }), 'did the thing')
     assert.equal(reportProse({}), '(no summary)')
