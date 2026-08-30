@@ -1,4 +1,5 @@
-// The overseer's verb catalogue (#314), nine tools since #692.
+// The overseer's verb catalogue (#314), including numberless ticket and map
+// creation for chat conversations.
 //
 // The catalogue moved out of `overseer.mjs` for the reason the standing orders
 // moved into `overseerprompt.mjs`: it outlives that file. The in-daemon host
@@ -39,6 +40,13 @@ export function canonicalFor(verb, args = {}) {
     // instruction: `start` no longer charts, so it carries no sentence.
     case 'start':
       return `start ${args.repo ? `${args.repo}#` : ''}${args.ticket}${args.model ? ` model=${args.model}` : ''}`
+    case 'ticket_new': {
+      let text = `ticket${args.repo ? ` ${args.repo}` : ''}`
+      if (args.model) text += ` model=${args.model}`
+      const instruction = String(args.instruction ?? '').replace(/\s+/g, ' ').trim()
+      if (instruction) text += ` ${instruction}`
+      return text
+    }
     // #692, ADR-0022: two tools, one router verb. `map_update` requires the map
     // number and `map_new` has no number field at all, so the shape the model
     // could get wrong is now the shape it cannot call. Both compose `map`, so
@@ -131,6 +139,15 @@ export const VERB_SPECS = [
     description: 'Claim a ticket and dispatch an agent to WORK it. Use the repo field when the ticket number alone is ambiguous. Given a MAP number, this dispatches that map\'s next takeable ticket — it does NOT update the map; the map tool does that.',
     args: { ticket: ticketArg, repo: repoArg, model: modelArg },
   },
+  {
+    verb: 'ticket_new',
+    description: 'Create a NEW mapless ticket from the operator\'s brief and immediately work it in this conversation thread. Use this after the operator accepts your suggestion, or when they explicitly ask to create and work a ticket. Use map_new instead when the work needs discovery or several sessions.',
+    args: {
+      repo: z.string().optional().describe('repo qualifier — with no issue number it must be the repo\'s own name. Add it only when more than one repo is watched.'),
+      instruction: z.string().describe('The complete ticket brief, in the operator\'s own words. On a later acceptance such as "yes", use the original request, not the acceptance message.'),
+      model: modelArg,
+    },
+  },
   // #692, ADR-0022: the map tool is two tools. The exists-test used to be prose
   // in the standing orders ("the test between the two shapes is whether the map
   // EXISTS"), and prose is what an A-class incident argues with. It is a schema
@@ -181,7 +198,7 @@ export const VERB_SPECS = [
   },
 ]
 
-// The eight names, in catalogue order. `overseerprompt.mjs` builds the allowed
+// The names, in catalogue order. `overseerprompt.mjs` builds the allowed
 // list from this one array, so a verb added here cannot be a tool the standing
 // orders never admit.
 export const VERB_TOOLS = VERB_SPECS.map((s) => s.verb)

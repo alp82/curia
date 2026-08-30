@@ -433,6 +433,23 @@ describe('parseCommand', () => {
     assert.equal(seen[0].instruction, 'chart the next feature')
   })
 
+  test('a new ticket uses the sole watched repo and keeps the current thread', async () => {
+    const seen = []
+    const router = new CommandRouter({
+      dispatcher: {
+        config: { watch: [{ repo: 'alp82/curia' }] },
+        startNew: async (opts) => { seen.push(opts); return 'ok' },
+      },
+      attach: {},
+      log: () => {},
+    })
+    assert.equal(await router.handle('ticket fix the settings save flow', 'user-1', { threadId: 'thread-1' }), 'ok')
+    assert.deepEqual(seen, [{
+      repo: 'alp82/curia', model: undefined, instruction: 'fix the settings save flow',
+      by: 'user-1', threadId: 'thread-1',
+    }])
+  })
+
   // #255: the first word is the repo when it NAMES a watched repo, and the
   // first word of the brief when it does not. Only the router can rule, so the
   // rule is tested here.

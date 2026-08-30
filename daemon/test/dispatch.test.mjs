@@ -377,6 +377,50 @@ function makeDispatcher(deps = {}, {
 
 const typesOf = () => events.map((e) => e.type)
 
+describe('chat ticket creation', () => {
+  test('creates a mapless ticket and starts it in the same thread', async () => {
+    const writes = []
+    const d = makeDispatcher({
+      createIssue: async (repo, proposal) => {
+        writes.push({ repo, proposal })
+        return {
+          number: 91, title: proposal.title, body: proposal.body,
+          state: 'open', assignees: [], labels: [], html_url: 'https://github.com/o/r/issues/91',
+        }
+      },
+    })
+    const starts = []
+    d.start = async (number, options) => {
+      starts.push({ number, options })
+      return '⚙️ dispatched o/r#91'
+    }
+
+    const reply = await d.startNew({
+      repo: 'o/r', instruction: 'Fix the settings save flow.', by: 'operator-1', threadId: 'thread-1',
+    })
+
+    assert.equal(reply, '⚙️ dispatched o/r#91')
+    assert.deepEqual(writes, [{
+      repo: 'o/r', proposal: {
+        title: 'Fix the settings save flow.', body: 'Fix the settings save flow.', labels: ['ready-for-agent'],
+      },
+    }])
+    assert.deepEqual(starts, [{
+      number: '91',
+      options: { repo: 'o/r', model: undefined, by: 'operator-1', threadId: 'thread-1' },
+    }])
+    assert.ok(events.some((event) => event.type === 'chat_ticket_created' && event.ticket === '91'))
+  })
+
+  test('reports a created ticket when its start is refused', async () => {
+    const d = makeDispatcher()
+    d.start = async () => '❌ no model is available'
+    const reply = await d.startNew({ repo: 'o/r', instruction: 'Fix settings.' })
+    assert.match(reply, /created o\/r#99, but it was not started/)
+    assert.match(reply, /❌ no model is available/)
+  })
+})
+
 describe('ticketless skill dispatch (#684)', () => {
   test('creates one durable record and binds the intended skill to its prompt', async () => {
     const writes = []

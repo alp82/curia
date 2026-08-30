@@ -126,10 +126,12 @@ export function issueComments(repo, n) {
   return ghJSONL(['api', '--paginate', `repos/${repo}/issues/${n}/comments?per_page=100`, '--jq', '.[]'], { repo })
 }
 
-// A ticketless skill run gets one durable record before its agent starts. The
-// record is mechanics, not one of the proposed tracker writes the gate holds.
-export function createIssue(repo, { title, body }) {
-  return withBodyFile(JSON.stringify({ title, body }), async (file) => JSON.parse(await gh([
+// Chat ticket creation and ticketless skill runs create their durable record
+// before an agent starts. Labels are optional because skill records stay off
+// the frontier, while chat tickets must remain takeable if their start fails.
+export function createIssue(repo, { title, body, labels = undefined }) {
+  const payload = labels ? { title, body, labels } : { title, body }
+  return withBodyFile(JSON.stringify(payload), async (file) => JSON.parse(await gh([
     'api', '--method', 'POST', `repos/${repo}/issues`, '--input', file,
   ], { repo })))
 }

@@ -165,6 +165,7 @@ const spawnKind = ({ reviewer = false, charting = false }) => (reviewer ? 'revie
 // operator and writes it on the issue it creates. This one only has to say
 // which charting session this is, on the status line and in the thread name.
 const NEW_MAP_TITLE_MAX = 60
+const NEW_TICKET_TITLE_MAX = 80
 
 // The issue record a new-map dispatch works from (#241). Nothing on GitHub
 // answers to it — the map does not exist — so it is synthesised from the
@@ -188,6 +189,13 @@ function newMapIssue(handle, instruction) {
     state: 'open',
     assignees: [],
   }
+}
+
+function newTicketTitle(instruction) {
+  const one = String(instruction).replace(/\s+/g, ' ').trim()
+  return one.length > NEW_TICKET_TITLE_MAX
+    ? `${one.slice(0, NEW_TICKET_TITLE_MAX - 1).trimEnd()}…`
+    : one
 }
 
 // The tracker doc every watched repo is meant to carry (#57 step 3). The
@@ -1129,6 +1137,34 @@ export class Dispatcher {
   }
 
   // ---- start -----------------------------------------------------------------
+
+  // A chat can turn a bounded request into its durable record and work it in
+  // the same thread. The issue is created before `start`, so the ordinary
+  // ticket path still owns claiming, routing, workspace setup, and cleanup.
+  async startNew({ repo, model, instruction = null, by, threadId = null } = {}) {
+    const brief = String(instruction ?? '').trim()
+    if (!brief) return '❌ a new ticket needs a sentence to work from'
+    if (!repo) return '❌ a new ticket needs a repo — nothing says where to create the issue'
+    if (!this.config.watch.some((w) => w.repo === repo)) return `❌ \`${repo}\` is not on the watch list`
+
+    let issue
+    try {
+      issue = await this.deps.createIssue(repo, {
+        title: newTicketTitle(brief), body: brief, labels: ['ready-for-agent'],
+      })
+    } catch (error) {
+      return `❌ could not create the ticket in ${repo}: ${error.message}`
+    }
+    this.reduction.journal('chat_ticket_created', {
+      repo, ticket: String(issue.number), agent: `curia-${issue.number}`,
+      by: by ?? 'unknown', url: issue.html_url ?? null,
+    })
+    const reply = await this.start(String(issue.number), { repo, model, by, threadId })
+    if (String(reply ?? '').startsWith('❌') || String(reply ?? '').startsWith('⚠️')) {
+      return `🎫 created ${repo}#${issue.number}, but it was not started. ${reply}`
+    }
+    return reply ?? this.#exhaustedReply()
+  }
 
   // A ticketless skill request starts from a target issue, then creates one
   // record issue that owns the run. Product issues remain proposals until the

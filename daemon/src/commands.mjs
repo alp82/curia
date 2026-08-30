@@ -180,6 +180,14 @@ function parseNewMap(rest) {
   return cmd
 }
 
+// A new ticket has the same numberless command shape as a new map. The router
+// resolves the possible repo word because only the watch list can distinguish
+// a repo name from the first word of the operator's brief.
+function parseNewTicket(rest) {
+  const cmd = parseNewMap(rest)
+  return cmd ? { ...cmd, verb: 'ticket' } : null
+}
+
 // The new-map RULING (#241, made a pure function by #692). The parser marks one
 // candidate word and stops, because only the watch list says whether that word
 // names a repo or opens the operator's sentence. This decides, and it takes the
@@ -195,7 +203,7 @@ function parseNewMap(rest) {
 // would put a token in the way of the shortest form of the command. Two or
 // more, and curia refuses rather than picking the first: a map is a standing
 // artifact, and one charted into the wrong repo is a manual move.
-export function newMapPlan(cmd, watched = []) {
+function newArtifactPlan(cmd, watched, { noun, action }) {
   const word = cmd.repoWord
   const named = word
     ? watched.find((r) => {
@@ -206,15 +214,27 @@ export function newMapPlan(cmd, watched = []) {
   // A word that names no repo is the first word of the brief, so it goes back
   // in front of the sentence it was taken from.
   const instruction = named ? cmd.instruction : [word, cmd.instruction].filter(Boolean).join(' ')
-  if (!instruction) return { error: `❌ \`map ${word}\` names a repo and nothing to chart.\n${MAP_SHAPES}` }
+  if (!instruction) {
+    if (noun === 'map') return { error: `❌ \`map ${word}\` names a repo and nothing to chart.\n${MAP_SHAPES}` }
+    return { error: `❌ \`ticket ${word}\` names a repo and nothing to work on` }
+  }
   if (named) return { repo: named, instruction }
   if (watched.length === 1) return { repo: watched[0], instruction }
-  if (!watched.length) return { error: '❌ no repo is on the watch list, so there is nowhere to chart a new map' }
-  return { error: `❌ ${watched.length} repos are watched, so a new map needs one named first: ${watched.map((r) => `\`map ${r} …\``).join(' or ')}` }
+  if (!watched.length) return { error: `❌ no repo is on the watch list, so there is nowhere to ${action} a new ${noun}` }
+  return { error: `❌ ${watched.length} repos are watched, so a new ${noun} needs one named first: ${watched.map((r) => `\`${noun} ${r} …\``).join(' or ')}` }
+}
+
+export function newMapPlan(cmd, watched = []) {
+  return newArtifactPlan(cmd, watched, { noun: 'map', action: 'chart' })
+}
+
+export function newTicketPlan(cmd, watched = []) {
+  return newArtifactPlan(cmd, watched, { noun: 'ticket', action: 'create' })
 }
 
 // 'tickets [repo]' | 'next [repo]' | 'status'
 // | 'start <n>|<owner/repo#n> [model=x]'
+// | 'ticket [repo] [model=x] <instruction>'
 // | 'map <n>|<owner/repo#n> [model=x] [<instruction>]'
 // | 'map [repo] [model=x] <instruction>'
 // | 'cancel <n>|all' | 'resume <n> [model=x]' | 'resume all' | 'attach <n>'
@@ -251,6 +271,8 @@ export function parseCommand(text) {
     // ticket. It never charts, and it never carries an instruction.
     case 'start':
       return parseIssueRef({ verb: 'start' }, rest)
+    case 'ticket':
+      return parseNewTicket(rest)
     // The map-update verb (#221), replacing `start <map> -- <instruction>`.
     // The operator's own word, ruled over `chart` on the grounds that it is the
     // word they already reach for.
@@ -336,6 +358,7 @@ const USAGE = [
   '`status` — agents running, agents waiting on input, recent cancelled and finished',
   '`start <n>|repo#<n> [model=x]` — claim + dispatch an agent (repo: any unambiguous part of the name)',
   '`start <map>` — dispatch that map\'s next takeable ticket',
+  '`ticket [repo] <instruction>` — create a mapless ticket from your words, then work it in this thread',
   '`map <n> [<instruction>]` — dispatch a charting agent on a `wayfinder:map` issue; the sentence after the number is what it should change, with or without a `--` in front of it',
   '`map [repo] <instruction>` — dispatch a charting agent with NO map: it settles the destination with you and creates the `wayfinder:map` issue itself. The first word is the repo only when it names a watched one',
   '`cancel <n>|all` — immediate teardown (the overseer\'s interpreted cancel posts a ✅/❌ confirm instead)',
@@ -404,6 +427,14 @@ export class CommandRouter {
           if (repo.error) return repo.error
           return await this.dispatcher.start(cmd.ticket, {
             repo: repo.repo, model: cmd.model, by: userId, threadId, action,
+          })
+        }
+        case 'ticket': {
+          const plan = newTicketPlan(cmd, (this.dispatcher.config?.watch ?? []).map((w) => w.repo))
+          if (plan.error) return plan.error
+          return await this.dispatcher.startNew({
+            repo: plan.repo, model: cmd.model, instruction: plan.instruction,
+            by: userId, threadId,
           })
         }
         case 'map': {

@@ -6,7 +6,7 @@
 
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { parseCommand, newMapPlan } from '../src/commands.mjs'
+import { parseCommand, newMapPlan, newTicketPlan } from '../src/commands.mjs'
 import { canonicalFor, verbHandlers, VERB_SPECS, VERB_TOOLS } from '../src/overseerverbs.mjs'
 import { buildSystemPrompt, ALLOWED_TOOLS } from '../src/overseerprompt.mjs'
 
@@ -20,6 +20,10 @@ describe('canonicalFor', () => {
     assert.equal(canonicalFor('next'), 'next')
     assert.equal(canonicalFor('next', { repo: 'alp82/curia' }), 'next alp82/curia')
     assert.equal(canonicalFor('status'), 'status')
+    assert.equal(
+      canonicalFor('ticket_new', { repo: 'alp82/curia', instruction: 'fix the settings save flow' }),
+      'ticket alp82/curia fix the settings save flow',
+    )
     assert.equal(canonicalFor('start', { ticket: '85' }), 'start 85')
     assert.equal(canonicalFor('start', { ticket: '85', repo: 'alp82/curia' }), 'start alp82/curia#85')
     assert.equal(
@@ -102,6 +106,12 @@ describe('canonicalFor', () => {
         `the system prompt does not teach the phrase "${phrase}"`,
       )
     }
+  })
+
+  test('the overseer suggests one ticket for work that fits one session', () => {
+    assert.match(PROMPT, /single session/)
+    assert.match(PROMPT, /suggest creating a ticket and working on it in this thread/)
+    assert.match(PROMPT, /Do not call `ticket_new` until the operator accepts/)
   })
 
   // #221: `start` no longer charts, so it can no longer carry a sentence. A
@@ -218,8 +228,8 @@ describe('the command round trip, generated (#692)', () => {
   test('every verb in the catalogue gets generated cases', () => {
     assert.deepEqual([...new Set(cases.map((c) => c.verb))], [...VERB_TOOLS])
     // The count is stated so a silently emptied powerset cannot pass as
-    // coverage: 10 verbs, 29 argument combinations.
-    assert.equal(cases.length, 29)
+    // coverage: 11 verbs, 33 argument combinations.
+    assert.equal(cases.length, 33)
   })
 
   for (const { verb, args } of cases) {
@@ -231,13 +241,16 @@ describe('the command round trip, generated (#692)', () => {
 
       // The router verb. Both map tools compose the one `map` verb, which is
       // the whole point of splitting the tool rather than the grammar.
-      const routerVerb = verb.startsWith('map') ? 'map' : verb
+      const routerVerb = verb.startsWith('map') ? 'map' : verb === 'ticket_new' ? 'ticket' : verb
       assert.equal(cmd.verb, routerVerb)
 
       // The new-map shape hands its repo ruling to the router, so the fields
       // are read after that ruling rather than off the raw parse.
       const isNewMap = routerVerb === 'map' && !cmd.ticket
-      const plan = isNewMap ? newMapPlan(cmd, WATCHED) : null
+      const isNewTicket = routerVerb === 'ticket'
+      const plan = isNewMap
+        ? newMapPlan(cmd, WATCHED)
+        : isNewTicket ? newTicketPlan(cmd, WATCHED) : null
       assert.ok(!plan?.error, `the new-map ruling refused \`${text}\`: ${plan?.error}`)
 
       const got = {
@@ -255,7 +268,7 @@ describe('the command round trip, generated (#692)', () => {
         const want = gone.includes(field) ? undefined : args[field]
         // The new-map shape with no repo named falls back to the sole watched
         // repo, and that fallback is the router's answer, not a lost field.
-        if (field === 'repo' && isNewMap && want === undefined) {
+        if (field === 'repo' && (isNewMap || isNewTicket) && want === undefined) {
           assert.equal(got.repo, WATCHED[0])
           continue
         }
@@ -314,5 +327,26 @@ describe('the map tool is two tools (#692)', () => {
     assert.match(PROMPT, /map_update/)
     assert.match(PROMPT, /map_new/)
     assert.ok(!/`map`/.test(PROMPT), 'the standing orders still name a `map` tool that no longer exists')
+  })
+})
+
+describe('new-ticket tool', () => {
+  const spec = () => VERB_SPECS.find((s) => s.verb === 'ticket_new')
+
+  test('requires the complete brief and has no issue-number field', () => {
+    assert.ok(!spec().args.instruction.isOptional())
+    assert.ok(!('ticket' in spec().args))
+  })
+
+  test('composes the numberless ticket command shape', () => {
+    assert.equal(
+      canonicalFor('ticket_new', { repo: 'alp82/curia', model: 'opus', instruction: 'fix settings' }),
+      'ticket alp82/curia model=opus fix settings',
+    )
+    const cmd = parseCommand('ticket alp82/curia model=opus fix settings')
+    assert.equal(cmd.verb, 'ticket')
+    assert.deepEqual(newTicketPlan(cmd, ['alp82/curia']), {
+      repo: 'alp82/curia', instruction: 'fix settings',
+    })
   })
 })
