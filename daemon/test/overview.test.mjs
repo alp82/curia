@@ -401,7 +401,7 @@ describe('the Feed read stamp (#704)', () => {
     const future = new Date(Date.now() + 60_000).toISOString()
     a.journal('feed_read', { by: 'alp@example.com', ts: future })
     const action = {
-      action_id: 'atlas-feed-read-monotonic', kind: 'feed-read', target: 'alp@example.com',
+      action_id: 'app-feed-read-monotonic', kind: 'feed-read', target: 'alp@example.com',
       conflict_key: 'feed-read:alp@example.com',
     }
 

@@ -253,7 +253,7 @@ describe('an untyped ask_human is refused since the flip (#422, real boot)', () 
             {
               format: 'choice', label: 'decision', headline: 'Which surface should answer?',
               options: [
-                { label: 'Use Atlas.', handle: 'Atlas', consequence: 'The browser records the answer.' },
+                { label: 'Use Curia app.', handle: 'Curia app', consequence: 'The browser records the answer.' },
                 { label: 'Use Discord.', handle: 'Discord', consequence: 'The thread records the answer.' },
               ],
             },
@@ -278,7 +278,7 @@ describe('an untyped ask_human is refused since the flip (#422, real boot)', () 
       {
         format: 'choice', label: 'decision', headline: 'Which surface should answer?', attachments: [],
         options: [
-          { label: 'Use Atlas.', handle: 'Atlas', consequence: 'The browser records the answer.' },
+          { label: 'Use Curia app.', handle: 'Curia app', consequence: 'The browser records the answer.' },
           { label: 'Use Discord.', handle: 'Discord', consequence: 'The thread records the answer.' },
         ],
       },
@@ -287,16 +287,16 @@ describe('an untyped ask_human is refused since the flip (#422, real boot)', () 
 
     const open = await until(async () => (await openEscalations(port)).find((e) => e.agent === 'curia-422-composite'), 'the composite card')
     assert.match(open.prompt, /^-# 2 of 2 · decision\n\*\*Which surface should answer\?\*\*/)
-    assert.deepEqual(open.options, ['Use Atlas.', 'Use Discord.'])
-    assert.equal(open.payload.options[0].handle, 'Atlas')
+    assert.deepEqual(open.options, ['Use Curia app.', 'Use Discord.'])
+    assert.equal(open.payload.options[0].handle, 'Curia app')
 
     const send = journalEvents(path.join(tmp, 'data')).find((event) => event.type === 'composite_send' && event.agent === 'curia-422-composite')
     assert.deepEqual(send.messages, messages)
     await request(port, 'POST', '/answer', {
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ id: open.id, answer: 'Use Atlas.' }),
+      body: JSON.stringify({ id: open.id, answer: 'Use Curia app.' }),
     })
-    assert.match((await call).content.map((part) => part.text ?? '').join('\n'), /Use Atlas\./)
+    assert.match((await call).content.map((part) => part.text ?? '').join('\n'), /Use Curia app\./)
     assert.equal(send.tool, 'ask_human')
     await c.close().catch(() => {})
   })

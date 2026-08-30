@@ -705,7 +705,7 @@ describe('TimelineSurface', () => {
     surface = new TimelineSurface({
       port: 0,
       servePort: 8444,
-      atlasServePort: 8445,
+      appServePort: 8445,
       index: DEFAULT_TIMELINE_INDEX,
       workspaceRoot: workspaceRoot(),
       log: () => {},
@@ -865,7 +865,7 @@ describe('TimelineSurface', () => {
 
   test('take back accepts before the rewind and keeps its result as shared Action evidence', async () => {
     const session = 'curia-703'
-    const actionId = 'atlas-chat-take-back-1'
+    const actionId = 'app-chat-take-back-1'
     const cfg = path.join(workspaceRoot(), 'cfg', session, 'projects', 'p')
     fs.mkdirSync(cfg, { recursive: true })
     fs.writeFileSync(path.join(cfg, 'run.jsonl'), recordedTranscript('transcript-1-after-rewind.jsonl'))
@@ -936,7 +936,7 @@ describe('TimelineSurface', () => {
 
       const res = await fetch(`http://127.0.0.1:${port}/send`, {
         method: 'POST', body: JSON.stringify({
-          session: 'curia-9', text: 'Use production instead.', action_id: 'atlas-chat-correction',
+          session: 'curia-9', text: 'Use production instead.', action_id: 'app-chat-correction',
         }),
       })
 
@@ -1067,7 +1067,7 @@ describe('TimelineSurface', () => {
 
   test('a delivered message returns confirmed Action evidence and retry does not send twice', async () => {
     const body = {
-      session: 'curia-9', text: 'hello once', action_id: 'atlas-chat-send-1',
+      session: 'curia-9', text: 'hello once', action_id: 'app-chat-send-1',
     }
     const first = await post('/send', body)
     assert.equal(first.status, 200)
@@ -1091,16 +1091,16 @@ describe('TimelineSurface', () => {
     assert.equal(bad.status, 400)
     const esc = await fetch(`http://127.0.0.1:${port}/key`, {
       method: 'POST', body: JSON.stringify({
-        session: 'curia-9', key: 'escape', action_id: 'atlas-pane-key-1',
+        session: 'curia-9', key: 'escape', action_id: 'app-pane-key-1',
       }),
     })
     assert.equal(esc.status, 200)
     assert.deepEqual(await esc.json(), {
       action: {
-        action_id: 'atlas-pane-key-1', kind: 'pane-key', target: 'curia-9',
-        conflict_key: 'pane:curia-9', status: 'confirmed', revision: actions.get('atlas-pane-key-1').revision,
-        started_at: actions.get('atlas-pane-key-1').started_at,
-        updated_at: actions.get('atlas-pane-key-1').updated_at,
+        action_id: 'app-pane-key-1', kind: 'pane-key', target: 'curia-9',
+        conflict_key: 'pane:curia-9', status: 'confirmed', revision: actions.get('app-pane-key-1').revision,
+        started_at: actions.get('app-pane-key-1').started_at,
+        updated_at: actions.get('app-pane-key-1').updated_at,
         receipt: { key: 'Escape' },
       },
     })
@@ -1109,7 +1109,7 @@ describe('TimelineSurface', () => {
     const sentCount = sent.length
     const retry = await fetch(`http://127.0.0.1:${port}/key`, {
       method: 'POST', body: JSON.stringify({
-        session: 'curia-9', key: 'escape', action_id: 'atlas-pane-key-1',
+        session: 'curia-9', key: 'escape', action_id: 'app-pane-key-1',
       }),
     })
     assert.equal(retry.status, 200)
@@ -1125,28 +1125,28 @@ describe('TimelineSurface', () => {
       return { status: res.status, body: await res.json() }
     }
 
-    const noPane = await act('atlas-pane-no-pane', DRIVEN)
+    const noPane = await act('app-pane-no-pane', DRIVEN)
     assert.equal(noPane.status, 409)
     assert.equal(noPane.body.action.status, 'refused')
     assert.equal(noPane.body.action.conflict_key, `pane:${DRIVEN}`)
     assert.match(noPane.body.action.reason, /not a terminal/)
 
     endedSessions.add('curia-ended')
-    const ended = await act('atlas-pane-ended', 'curia-ended')
+    const ended = await act('app-pane-ended', 'curia-ended')
     endedSessions.delete('curia-ended')
     assert.equal(ended.status, 409)
     assert.equal(ended.body.action.status, 'refused')
     assert.match(ended.body.action.reason, /has ended/)
 
     pane = PANE_TRUST
-    const dialog = await act('atlas-pane-dialog', 'curia-9', 'enter')
+    const dialog = await act('app-pane-dialog', 'curia-9', 'enter')
     pane = PANE_COMPOSER
     assert.equal(dialog.status, 409)
     assert.equal(dialog.body.action.status, 'refused')
     assert.match(dialog.body.action.reason, /would drive its selection blind/)
 
     keyFailure = 'tmux socket is unavailable'
-    const failed = await act('atlas-pane-tmux-failed', 'curia-9')
+    const failed = await act('app-pane-tmux-failed', 'curia-9')
     keyFailure = null
     assert.equal(failed.status, 502)
     assert.equal(failed.body.action.status, 'failed')
@@ -1166,7 +1166,7 @@ describe('TimelineSurface', () => {
       const instance = new TimelineSurface({
         port: 0,
         servePort: 8444,
-        atlasServePort: 8445,
+        appServePort: 8445,
         index: DEFAULT_TIMELINE_INDEX,
         workspaceRoot: workspaceRoot(),
         log: () => {},
@@ -1214,7 +1214,7 @@ describe('TimelineSurface', () => {
       const instance = new TimelineSurface({
         port: 0,
         servePort: 8444,
-        atlasServePort: 8445,
+        appServePort: 8445,
         index: DEFAULT_TIMELINE_INDEX,
         workspaceRoot: workspaceRoot(),
         log: () => {},
@@ -1262,7 +1262,7 @@ describe('TimelineSurface', () => {
     let instance = new TimelineSurface({
       port: 0,
       servePort: 8444,
-      atlasServePort: 8445,
+      appServePort: 8445,
       index: DEFAULT_TIMELINE_INDEX,
       workspaceRoot: workspaceRoot(),
       log: () => {},
@@ -1289,7 +1289,7 @@ describe('TimelineSurface', () => {
     instance = new TimelineSurface({
       port: 0,
       servePort: 8444,
-      atlasServePort: 8445,
+      appServePort: 8445,
       index: DEFAULT_TIMELINE_INDEX,
       workspaceRoot: workspaceRoot(),
       log: () => {},
@@ -1315,7 +1315,7 @@ describe('TimelineSurface', () => {
       const instance = new TimelineSurface({
         port: 0,
         servePort: 8444,
-        atlasServePort: 8445,
+        appServePort: 8445,
         index: DEFAULT_TIMELINE_INDEX,
         workspaceRoot: workspaceRoot(),
         log: () => {},
@@ -1368,7 +1368,7 @@ describe('TimelineSurface', () => {
       const instance = new TimelineSurface({
         port: 0,
         servePort: 8444,
-        atlasServePort: 8445,
+        appServePort: 8445,
         index: DEFAULT_TIMELINE_INDEX,
         workspaceRoot: workspaceRoot(),
         log: () => {},
@@ -1496,11 +1496,11 @@ describe('TimelineSurface', () => {
     delivery = { status: 'unconfirmed', pane: PANE_COMPOSER }
     try {
       const r = await post('/send', {
-        session: 'curia-9', text: 'check this action once', action_id: 'atlas-chat-unconfirmed',
+        session: 'curia-9', text: 'check this action once', action_id: 'app-chat-unconfirmed',
       })
       assert.equal(r.status, 202)
       await new Promise((resolve) => setImmediate(resolve))
-      const action = actions.get('atlas-chat-unconfirmed')
+      const action = actions.get('app-chat-unconfirmed')
       assert.equal(action.status, 'progress')
       assert.deepEqual(action.receipt, { outcome: 'sent_unconfirmed' })
 
@@ -1511,8 +1511,8 @@ describe('TimelineSurface', () => {
         message: { content: 'check this action once' },
       })}\n`)
       await sse(port, 'session=curia-9&once=1')
-      assert.equal(actions.get('atlas-chat-unconfirmed').status, 'confirmed')
-      assert.deepEqual(actions.get('atlas-chat-unconfirmed').receipt, { outcome: 'delivered' })
+      assert.equal(actions.get('app-chat-unconfirmed').status, 'confirmed')
+      assert.deepEqual(actions.get('app-chat-unconfirmed').receipt, { outcome: 'delivered' })
     } finally {
       delivery = null
     }
@@ -1534,7 +1534,7 @@ describe('TimelineSurface', () => {
     delivery = { status: 'not-sent', pane: '✻ Working' }
     try {
       const r = await post('/send', {
-        session: 'curia-9', text: 'keep this', action_id: 'atlas-chat-not-sent',
+        session: 'curia-9', text: 'keep this', action_id: 'app-chat-not-sent',
       })
       assert.equal(r.status, 409)
       const action = (await r.json()).action
@@ -1601,14 +1601,14 @@ describe('TimelineSurface', () => {
       const card = opened.events.find((event) => event.event === 'dialog').data.card
       const firstRequest = post('/dialog-answer', {
         session: 'curia-action-race', dialog: card.id, index: 2, client: 'phone',
-        action_id: 'atlas-dialog-phone',
+        action_id: 'app-dialog-phone',
       })
       while (!dialogAnswers.some((answer) => answer.session === 'curia-action-race')) {
         await new Promise((resolve) => setImmediate(resolve))
       }
       const secondRequest = post('/dialog-answer', {
         session: 'curia-action-race', dialog: card.id, index: 1, client: 'desktop',
-        action_id: 'atlas-dialog-desktop',
+        action_id: 'app-dialog-desktop',
       })
 
       const second = await secondRequest
@@ -1622,7 +1622,7 @@ describe('TimelineSurface', () => {
       const first = await firstRequest
       assert.equal(first.status, 202)
       assert.equal((await first.json()).action.status, 'accepted')
-      const won = await actions.settled('atlas-dialog-phone')
+      const won = await actions.settled('app-dialog-phone')
       assert.equal(won.status, 'confirmed')
       assert.equal(won.receipt.answer, 'Preview')
       assert.equal(dialogAnswers.filter((answer) => answer.session === 'curia-action-race').length, 1)
@@ -1644,12 +1644,12 @@ describe('TimelineSurface', () => {
       const card = opened.events.find((event) => event.event === 'dialog').data.card
       const response = await post('/dialog-answer', {
         session: 'curia-action-failure', dialog: card.id, index: 2, client: 'phone',
-        action_id: 'atlas-dialog-failure',
+        action_id: 'app-dialog-failure',
       })
       assert.equal(response.status, 202)
       assert.equal((await response.json()).action.status, 'accepted')
 
-      const failed = await actions.settled('atlas-dialog-failure')
+      const failed = await actions.settled('app-dialog-failure')
       assert.equal(failed.status, 'failed')
       assert.match(failed.reason, /tmux socket is unavailable/)
       const refreshed = await sse(port, 'session=curia-action-failure')
@@ -1658,10 +1658,10 @@ describe('TimelineSurface', () => {
       dialogAnswerFailure = null
       const retry = await post('/dialog-answer', {
         session: 'curia-action-failure', dialog: card.id, index: 1, client: 'desktop',
-        action_id: 'atlas-dialog-retry',
+        action_id: 'app-dialog-retry',
       })
       assert.equal(retry.status, 202)
-      assert.equal((await actions.settled('atlas-dialog-retry')).status, 'confirmed')
+      assert.equal((await actions.settled('app-dialog-retry')).status, 'confirmed')
     } finally {
       dialogAnswerFailure = null
       pane = PANE_COMPOSER
@@ -1845,7 +1845,7 @@ describe('TimelineSurface', () => {
     driverDelivery = { completion: new Promise((resolve) => { complete = resolve }) }
     try {
       const r = await post('/send', {
-        session: DRIVEN, text: 'inspect the frontier', action_id: 'atlas-chat-overseer',
+        session: DRIVEN, text: 'inspect the frontier', action_id: 'app-chat-overseer',
       })
       assert.equal(r.status, 202)
       const accepted = (await r.json()).action
@@ -1854,11 +1854,11 @@ describe('TimelineSurface', () => {
       assert.equal(accepted.conflict_key, 'turn:console-2')
 
       await new Promise((resolve) => setImmediate(resolve))
-      assert.equal(actions.get('atlas-chat-overseer').status, 'progress')
-      assert.match(actions.get('atlas-chat-overseer').progress, /waiting for the overseer response/i)
+      assert.equal(actions.get('app-chat-overseer').status, 'progress')
+      assert.match(actions.get('app-chat-overseer').progress, /waiting for the overseer response/i)
 
       complete({ ok: true })
-      assert.equal((await actions.settled('atlas-chat-overseer')).status, 'confirmed')
+      assert.equal((await actions.settled('app-chat-overseer')).status, 'confirmed')
     } finally {
       driverDelivery = null
     }
@@ -1902,7 +1902,7 @@ describe('TimelineSurface', () => {
     }
   })
 
-  test('link lands on the Atlas Chat route, and refuses bad names (#711)', async () => {
+  test('link lands on the Curia app Chat route, and refuses bad names (#711)', async () => {
     assert.equal(await surface.link('curia-9'), `https://box.tailnet.ts.net:8445/#chat/curia-9`)
     await assert.rejects(() => surface.link('root-shell'), /not a valid curia session name/)
   })
@@ -1910,7 +1910,7 @@ describe('TimelineSurface', () => {
   test('assert withdraws the legacy serve rule once and publishes nothing (#711)', async () => {
     offs.length = 0
     const s2 = new TimelineSurface({
-      port: 0, servePort: 8444, atlasServePort: 8445, index: DEFAULT_TIMELINE_INDEX, workspaceRoot: workspaceRoot(), log: () => {},
+      port: 0, servePort: 8444, appServePort: 8445, index: DEFAULT_TIMELINE_INDEX, workspaceRoot: workspaceRoot(), log: () => {},
       deps: {
         journal: (type, detail) => journal.push({ type, ...detail }),
         identityCheck: () => null,
@@ -1961,7 +1961,7 @@ describe('TimelineSurface', () => {
   test('a surface that never bound is not verified, and composes no link', async () => {
     const s3 = new TimelineSurface({
       port: surface.port, // already taken by the first surface
-      servePort: 8446, atlasServePort: 8445, index: DEFAULT_TIMELINE_INDEX, workspaceRoot: workspaceRoot(), log: () => {},
+      servePort: 8446, appServePort: 8445, index: DEFAULT_TIMELINE_INDEX, workspaceRoot: workspaceRoot(), log: () => {},
       deps: {
         journal: (type, detail) => journal.push({ type, ...detail }),
         identityCheck: () => null,

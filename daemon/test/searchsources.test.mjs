@@ -15,7 +15,7 @@ test('GitHub results distinguish maps from ticket conversations', async () => {
   const source = githubSearchSource({
     repos: () => ['o/r'],
     searchIssues: async (repo) => [
-      { repo, number: 7, title: 'Atlas map', body: '## Decisions so far\n\n- Keep one search term contract.\n', url: 'https://github.com/o/r/issues/7', labels: [{ name: 'wayfinder:map' }] },
+      { repo, number: 7, title: 'Curia app map', body: '## Decisions so far\n\n- Keep one search term contract.\n', url: 'https://github.com/o/r/issues/7', labels: [{ name: 'wayfinder:map' }] },
       { repo, number: 8, title: 'Search ticket', body: 'search term', labels: [] },
     ],
   })
@@ -29,10 +29,10 @@ test('GitHub results distinguish maps from ticket conversations', async () => {
 test('journal search uses an escaped substring query', async () => {
   const db = new DatabaseSync(':memory:')
   db.exec('create table events (id integer, ts text, type text, body text)')
-  db.prepare('insert into events values (?, ?, ?, ?)').run(1, '2026-08-25T10:00:00Z', 'notify', JSON.stringify({ message: '100% Atlas' }))
+  db.prepare('insert into events values (?, ?, ?, ?)').run(1, '2026-08-25T10:00:00Z', 'notify', JSON.stringify({ message: '100% Curia app' }))
   const rows = await journalSearchSource(db).search('100%')
   assert.equal(rows.length, 1)
-  assert.equal(rows[0].snippet, '100% Atlas')
+  assert.equal(rows[0].snippet, '100% Curia app')
   db.close()
 })
 
@@ -40,12 +40,12 @@ test('transcript search returns only operator-facing parsed text', async () => {
   const dir = path.join(root, 'cfg', 'curia-7', 'projects', 'workspace')
   fs.mkdirSync(dir, { recursive: true })
   fs.writeFileSync(path.join(dir, 'session.jsonl'), [
-    JSON.stringify({ type: 'system', secret: 'Atlas hidden' }),
-    JSON.stringify({ type: 'assistant', timestamp: '2026-08-25T10:00:00Z', message: { content: [{ type: 'text', text: 'Atlas visible' }] } }),
+    JSON.stringify({ type: 'system', secret: 'Curia app hidden' }),
+    JSON.stringify({ type: 'assistant', timestamp: '2026-08-25T10:00:00Z', message: { content: [{ type: 'text', text: 'Curia app visible' }] } }),
   ].join('\n'))
-  const rows = await transcriptSearchSource({ workspaceRoot: root }).search('Atlas')
+  const rows = await transcriptSearchSource({ workspaceRoot: root }).search('Curia app')
   assert.equal(rows.length, 1)
-  assert.equal(rows[0].snippet, 'Atlas visible')
+  assert.equal(rows[0].snippet, 'Curia app visible')
   assert.equal(rows[0].conversation, 'curia-7')
 })
 
@@ -60,19 +60,19 @@ test('transcript search reads a new per-Harness configuration root', async () =>
   assert.equal(rows[0].conversation, 'curia-8')
 })
 
-test('overseer transcript search lands on the Atlas session name', async () => {
+test('overseer transcript search lands on the Curia app session name', async () => {
   const session = '11111111-2222-4333-8444-555555555555'
   const dir = path.join(root, 'cfg', 'curia-overseer', 'projects', 'workspace')
   fs.mkdirSync(dir, { recursive: true })
   fs.writeFileSync(path.join(dir, `${session}.jsonl`), JSON.stringify({
     type: 'assistant',
-    message: { content: [{ type: 'text', text: 'Overseer Atlas result' }] },
+    message: { content: [{ type: 'text', text: 'Overseer Curia app result' }] },
   }))
 
   const rows = await transcriptSearchSource({
     workspaceRoot: root,
     overseerSessions: () => [{ key: 'console-9', session }],
-  }).search('Overseer Atlas')
+  }).search('Overseer Curia app')
 
   assert.equal(rows[0].conversation, 'curia-console-9')
 })

@@ -41,7 +41,7 @@ import fs from 'node:fs'
 import http from 'node:http'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { assertServe, serveOff, attachBase, atlasChatUrl, validSessionName } from './attach.mjs'
+import { assertServe, serveOff, attachBase, appChatUrl, validSessionName } from './attach.mjs'
 import { paneTail } from './dispatch.mjs'
 import { sendText, sendKey, sendDialogOption, capturePane } from './tmux.mjs'
 import { detectHarness, findTranscript, transcriptForSession, readActiveTranscript } from './transcript.mjs'
@@ -227,17 +227,17 @@ async function readBody(req) {
 
 export class TimelineSurface {
   constructor({
-    port, servePort, index, workspaceRoot, atlasServePort = null,
+    port, servePort, index, workspaceRoot, appServePort = null,
     log = console.log, pollMs = 600, dialogProbeMs = 2000, deps = {},
   }) {
     this.port = port
     // The port the LEGACY rule published this surface on. #711 retired that
-    // rule: Atlas reaches this listener over loopback through the sidecar,
+    // rule: Curia app reaches this listener over loopback through the sidecar,
     // and the port is kept only so reconcile can keep withdrawing what an
     // older daemon left in tailscaled.
     this.servePort = servePort
-    // Where Atlas is published. Every chat link composes against it now.
-    this.atlasServePort = atlasServePort
+    // Where Curia app is published. Every chat link composes against it now.
+    this.appServePort = appServePort
     this.retired = false
     this.index = index
     this.workspaceRoot = workspaceRoot
@@ -259,7 +259,7 @@ export class TimelineSurface {
       draftFor: () => '',
       recordDraft: () => {},
       // actions: the daemon's shared Action coordinator. Pane keys use it when
-      // Atlas supplies an action_id; older callers keep the legacy response.
+      // Curia app supplies an action_id; older callers keep the legacy response.
       actions: null,
       // harnessFor(session): the dispatcher's word, with detectHarness as the
       // on-disk fallback for re-adopted and lab sessions.
@@ -400,7 +400,7 @@ export class TimelineSurface {
   }
 
   // Reconcile hook, beside #assertAttachSurface. Since #711 the hook PUBLISHES
-  // NOTHING: the Chat surface is the Atlas page, and the sidecar pipes its
+  // NOTHING: the Chat surface is the Curia app page, and the sidecar pipes its
   // routes to this listener over loopback. What the hook still does is
   // withdraw the legacy rule — `tailscale serve --bg` config persists in
   // tailscaled, so a daemon that skipped this would leave a previous run's
@@ -423,15 +423,15 @@ export class TimelineSurface {
   }
 
   // The composed link (#54/#68's rule: every link a human gets comes from
-  // curia's own records). It lands on the Atlas Chat route (#711), and it is
+  // curia's own records). It lands on the Curia app Chat route (#711), and it is
   // refused while this listener is down, because that route reads through it.
   async link(session) {
     if (!validSessionName(session)) throw new Error(`"${session}" is not a valid curia session name`)
     const { verified } = await this.assert()
     if (verified === false) throw new Error(`the timeline surface is down — see the daemon log`)
-    if (!this.atlasServePort) throw new Error('the timeline was constructed with no Atlas serve port, so it cannot compose a chat link')
+    if (!this.appServePort) throw new Error('the timeline was constructed with no Curia app serve port, so it cannot compose a chat link')
     const base = await this.deps.attachBase()
-    return atlasChatUrl(base, this.atlasServePort, session)
+    return appChatUrl(base, this.appServePort, session)
   }
 
   // ---------------------------------------------------------------------------
@@ -907,7 +907,7 @@ export class TimelineSurface {
 
         // Claim before the pane write. Two Chat clients can tap the same card
         // together, and only one may reach tmux. Shared acceptance is emitted
-        // after that synchronous claim, so Atlas can return while the write is
+        // after that synchronous claim, so Curia app can return while the write is
         // still pending without weakening first-valid-wins.
         s.dialogAnswer = dialogId
         controls?.accept({ progress: `Choosing ${option.marker} · ${option.label}…` })
@@ -1007,7 +1007,7 @@ export class TimelineSurface {
           return { status: 'confirmed', receipt: { outcome: 'delivered' }, code: 200 }
         }
         // A driven session takes the words as a turn. Acceptance is durable
-        // before pane preparation starts, so Atlas does not hold this request
+        // before pane preparation starts, so Curia app does not hold this request
         // open for the model's work.
         if (driver) {
           controls?.accept({ progress: 'Preparing the conversation' })

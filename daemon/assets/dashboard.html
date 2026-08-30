@@ -1,7 +1,7 @@
 <!doctype html>
 <meta charset="utf-8">
 <!-- The console (#263 the shell, #264 the read screens, #265 the settings write,
-     #266 the operator verbs, #661 the Credentials screen, #686 the Atlas frame,
+     #266 the operator verbs, #661 the Credentials screen, #686 the Curia app frame,
      #699 the drill-in sections and the save dock), on the look settled by the
      prototypes (#248, #525): dark-first tokens, system mono for data, one
      accent.
@@ -14,14 +14,14 @@
      carries it).
 
      The read screens draw one payload: `GET /api/overview`, which is the
-     sidecar's held snapshot of the daemon's own `GET /overview` (#262).
+     sidecar's held snapshot of the service's own `GET /overview` (#262).
      Credentials (#661) is one of them: it draws the poll and takes no read of
      its own, and its single button goes through the verb seam below. A chat
      (#267) draws nothing: it is the timeline page, served at /chat. What the
      Chat screen draws is the PICKER over the browser conversations (#333), off
      a read of its own — `GET /api/console`, taken on arrival, not on the poll.
 
-     THE VERBS (#266) POST to the sidecar, never to the daemon. It composes each
+     THE VERBS (#266) POST to the sidecar, never to the service. It composes each
      daemon call from the fields the page sends, so this page names a ticket, an
      escalation id or an agent — never a command line.
 
@@ -43,7 +43,7 @@
 <meta name="curia-dashboard" content="proto=15">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark light">
-<title>Atlas · Curia</title>
+<title>Curia app</title>
 <style>
   /* ---------- tokens: dark-first (#248) ---------- */
   :root {
@@ -575,8 +575,8 @@
   .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
   .btn.danger { color: var(--bad); border-color: var(--bad); background: transparent; }
   .btn.sm { padding: 2px 8px; font-size: 12px; }
-  /* The restart where it is the mitigation (#362): a save the daemon declined,
-     and the Maintenance button while the daemon and the files disagree. */
+  /* The restart where it is the mitigation (#362): a save the service declined,
+     and the Maintenance button while the service and the files disagree. */
   .btn.restart-hot { background: var(--bad); border-color: var(--bad); color: #fff; font-weight: 600; }
   .btn[disabled] { opacity: .55; cursor: default; }
 
@@ -669,7 +669,7 @@
   pre.hunks .hl.at { color: var(--accent); }
   pre.hunks .hl.meta { color: var(--ink-faint); }
 
-  /* ---------- the chat (#267, a page of Atlas by #711) ----------
+  /* ---------- the chat (#267, a page of Curia app by #711) ----------
      The picker is two sections, one per role; the room is one transcript over
      one composer. Both render from the page state. */
   .chat-section { max-width: 720px; margin: 0 0 18px; }
@@ -731,7 +731,7 @@
      rewrites #app's innerHTML every few seconds, and an iframe that is moved
      or rebuilt reconnects its WebSocket, so the frame that carries ttyd has
      to sit where the redraw never reaches. Same origin, one route: the
-     sidecar proxies /terminal/ to ttyd behind the Atlas identity check. */
+     sidecar proxies /terminal/ to ttyd behind the Curia app identity check. */
   .terminal-dock { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: flex; flex-direction: column; height: min(60vh, 640px); background: #111; border-top: 1px solid var(--line); box-shadow: 0 -8px 24px rgba(0,0,0,.35); }
   .terminal-dock .dock-head { display: flex; align-items: center; gap: 8px; padding: 4px 10px; background: var(--bg-raise); color: var(--ink-dim); font-size: 12px; border-bottom: 1px solid var(--line); }
   .terminal-dock .dock-head .grow { flex: 1; }
@@ -739,7 +739,7 @@
   @media (max-width: 760px) {
     /* On a phone the dock stops at the notch bar, and ttyd's own touch key
        row rides inside the frame: the attach page shows it on a coarse
-       pointer and hides it on a desktop, so Atlas adds no second row. */
+       pointer and hides it on a desktop, so Curia app adds no second row. */
     .terminal-dock { height: 55vh; height: 55dvh; bottom: calc(70px + env(safe-area-inset-bottom)); }
   }
 
@@ -776,7 +776,7 @@ const SCREENS = {
 };
 const NAMES = Object.keys(SCREENS);
 
-/* A usage window is spent at the same number the daemon calls spent
+/* A usage window is spent at the same number the service calls spent
    (usage.mjs SPENT_PCT). One name for one thing: the page must not invent a
    second threshold for the same fact. */
 const SPENT_PCT = 95;
@@ -819,7 +819,7 @@ var payload = null;   /* the sidecar's last answer */
 var reachable = true; /* is the SIDECAR itself answering — a different fact from daemon_up */
 var settings = null;  /* the last read of curia.yaml + routing.yaml off disk */
 var draft = null;     /* the same, with the operator's unsaved edits on it */
-var repos = null;     /* the watchable repos, read through the daemon on demand */
+var repos = null;     /* the watchable repos, read through the service on demand */
 var conversations = null; /* the browser conversations (#333), read on the Chat screen only */
 var aistack = null;   /* the aistack registration and sync verdict (#706), read on that section only */
 var aistackAct = { busy: null, said: null, poll: null }; /* which aistack press is in flight, and what it answered */
@@ -874,7 +874,7 @@ function finishAction(actionId) {
 
 let localActionSequence = 0;
 function beginLocalAction(key) {
-  const actionId = `atlas-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
+  const actionId = `app-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
   return beginAction({ action_id: actionId, kind: "browser", target: key, conflict_key: key });
 }
 
@@ -948,7 +948,7 @@ function needsYou(o) {
 
 /* ---- the operator verbs (#266) ----------------------------------------------
 
-   Every verb is ONE POST to the sidecar, which composes the daemon call from
+   Every verb is ONE POST to the sidecar, which composes the service call from
    the fields sent here. This page never sends a command line: it names a repo,
    a ticket, an escalation id or an agent, and the sidecar builds the rest.
 
@@ -967,7 +967,7 @@ function needsYou(o) {
       ticket already claimed: each comes back in words, under the control that
       asked, and none of them is a failure of this page. */
 
-/* The literal answers every surface sends. The daemon classifies the ANSWER
+/* The literal answers every surface sends. The service classifies the ANSWER
    (lifecycle.mjs classifyReviewAnswer, bridge.mjs #buttons), so this page must
    not teach it a second vocabulary for the same act. */
 const APPROVE = "approve";
@@ -990,7 +990,7 @@ function said(key) {
 }
 /* Curia speaks Discord markdown everywhere else, and one reply reaching two
    surfaces is the point of the command seam — so the page renders the little of
-   it a reply uses rather than asking the daemon for a second wording. */
+   it a reply uses rather than asking the service for a second wording. */
 function mdLite(s) {
   return esc(s)
     .replace(/`([^`]+)`/g, (_, x) => `<code>${x}</code>`)
@@ -1038,7 +1038,7 @@ function receiptLine(x) {
 
 function outcome(b) {
   if (typeof b.reply === "string") return b.reply;
-  /* The daemon's `next_needs` ride the reply for Discord. Atlas does not read
+  /* The service's `next_needs` ride the reply for Discord. Curia app does not read
      them (#718): the handoff sheet ranks the next items as Home ranks them,
      off the fresh overview, so the two surfaces cannot disagree. */
   if (b.ok) return "Answered. It is with the agent.";
@@ -1056,7 +1056,7 @@ function typed(id) {
 async function startTicket(repo, ticket) {
   const target = `${repo}#${ticket}`;
   const key = `start:${target}`;
-  const actionId = `atlas-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
+  const actionId = `app-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
   const action = beginAction({
     action_id: actionId, kind: "dispatch", target, conflict_key: `dispatch:${target}`,
     projection: { phase: "starting" },
@@ -1089,8 +1089,8 @@ async function startTicket(repo, ticket) {
 }
 /* One answer, three shapes (#712, ADR-0025): words, an option index, or
    files. The index is what a button, a select and a numbered reply all send,
-   so a Discord press and an Atlas tap resolve the same option. Files ride the
-   answer inline, and the daemon writes them where the card said they land. */
+   so a Discord press and a Curia app tap resolve the same option. Files ride the
+   answer inline, and the service writes them where the card said they land. */
 async function answerEsc(id, body) {
   if (busy("answer:" + id)) return null;
   const answer = typeof body === "string" ? { answer: body } : { ...body };
@@ -1098,7 +1098,7 @@ async function answerEsc(id, body) {
   const projected = Number.isInteger(answer.index)
     ? record?.options?.[answer.index] ?? `option ${answer.index + 1}`
     : String(answer.answer ?? "").trim();
-  const actionId = `atlas-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
+  const actionId = `app-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
   const action = beginAction({
     action_id: actionId, kind: "escalation-answer", target: id,
     conflict_key: `answer:${id}`, projection: { answer: projected },
@@ -1164,7 +1164,7 @@ function markerIndex(r, text) {
 }
 
 /* The files a reply carries, read from the card's own input as base64. The
-   size cap is the daemon's, said here before the upload rather than after. */
+   size cap is the service's, said here before the upload rather than after. */
 const MAX_REPLY_FILE_BYTES = 8 * 1024 * 1024;
 function replyFilesOf(field) {
   const el = document.getElementById(field);
@@ -1223,7 +1223,7 @@ function reconcileAnswerActions(o) {
 /* ---- the reading's own age ------------------------------------------------- */
 
 /* Three states, and they are three different facts: the sidecar is
-   unreachable, the daemon is not answering it, or all is well. */
+   unreachable, the service is not answering it, or all is well. */
 function readbar(p) {
   if (!reachable) {
     return `<div class="readbar down"><span class="dot"></span><b>the console is offline</b>
@@ -1233,7 +1233,7 @@ function readbar(p) {
   if (!p.daemon_up) {
     /* The sidecar is up and holding the last good reading — which is exactly
        what it exists for. Say which reading, and why it is not moving. */
-    return `<div class="readbar down"><span class="dot"></span><b>daemon restarting</b>
+    return `<div class="readbar down"><span class="dot"></span><b>service restarting</b>
       <span>showing the snapshot from ${esc(ago(p.read_at))}</span>
       <span class="spacer"></span>
       <span class="why">not answering on :${esc(p.daemon_port)} since ${esc(ago(p.error_since))} — ${esc(p.error)}</span></div>`;
@@ -1303,7 +1303,7 @@ function searchOverlay() {
     }).join("")}</div>` : `<div class="empty">Nothing matches.</div>`;
   }
   return `<section class="search-sheet" role="dialog" aria-label="Global search"><div class="search-box">
-    <input id="atlas-search" type="search" value="${esc(state.q)}" placeholder="tickets · decisions · journal · Chat" oninput="searchType(this.value)" autofocus>
+    <input id="app-search" type="search" value="${esc(state.q)}" placeholder="tickets · decisions · journal · Chat" oninput="searchType(this.value)" autofocus>
     <button class="btn" onclick="closeSearch()">Close</button></div>${body}</section>`;
 }
 
@@ -1372,7 +1372,7 @@ async function runSearch(generation = ++searchGeneration) {
   render();
 }
 function noSnapshot(p, title, right) {
-  return `${head(p, title, right)}<div class="later">No snapshot yet. The sidecar is up and has not read the daemon successfully even once.</div>`;
+  return `${head(p, title, right)}<div class="later">No snapshot yet. The sidecar is up and has not read the service successfully even once.</div>`;
 }
 function later(p, what, ticket) {
   return `${head(p, SCREENS[UI.screen][0])}
@@ -1400,7 +1400,7 @@ function agentDot(a) {
 }
 
 /* The context meter (#264, usage.mjs ctxOnWire). No reading is "—", never 0%.
-   A figure above 100% is the daemon's own complaint about the denominator, not
+   A figure above 100% is the service's own complaint about the denominator, not
    a reading about the agent, so it is marked rather than drawn flat. */
 function ctxCell(a) {
   if (a.ctx_pct == null) return `<span class="dim-note">—</span>`;
@@ -1420,7 +1420,7 @@ function contactCell(a) {
   if (a.last_contact_s != null) return esc(dur(a.last_contact_s));
   return `<span class="dim-note">${a.uptime_s == null ? "adopted" : "never"}</span>`;
 }
-const CONTACT_NOTE = "contact is how long ago the agent last reached curia on its side channel, as this daemon process heard it. never is an agent that has said nothing since it spawned. adopted is an agent this process never spawned, so its silence belongs to the daemon restart.";
+const CONTACT_NOTE = "contact is how long ago the agent last reached curia on its side channel, as this service process heard it. never is an agent that has said nothing since it spawned. adopted is an agent this process never spawned, so its silence belongs to the service restart.";
 
 /* The fleet, narrow: the home's right column. `agents: null` is an unreadable
    tmux, which is the opposite fact from an idle box, so it renders as neither a
@@ -1522,7 +1522,7 @@ function spentWindows(usage) {
    as "7d rolls 14:20" in red. It also drops a window whose instant has already
    passed, so a spent one awaiting its next probe lost its note entirely.
 
-   The LATEST spent window is the one the operator waits on — the rule the daemon
+   The LATEST spent window is the one the operator waits on — the rule the service
    already runs (`spentReset`, usage.mjs rule 4): two spent windows are two caps,
    and the earlier one rolling changes nothing. Where this page DIVERGES from it
    is that rule about a reset already past. Cooling drops it, because waiting for
@@ -1773,7 +1773,7 @@ function diffCard(key, digest, error, query, prUrl) {
   </div>`;
 }
 
-/* The same words the daemon prints on the Discord card (diffdigest.mjs
+/* The same words the service prints on the Discord card (diffdigest.mjs
    RANK_RULE), for a digest journalled before the rule rode the record. */
 const RANK_RULE = "source first, then tests, then docs, generated and lock files last — largest first inside each class";
 
@@ -1803,7 +1803,7 @@ function gateCard(r) {
 
 /* A credential warning (#380). It sits above the spent windows because it is
    the only item on this list nobody else will fix: a window rolls by itself,
-   and a grant does not. The words are the daemon's own measurement — what it
+   and a grant does not. The words are the service's own measurement — what it
    could not reach and the act that ends it — so this composes no second account
    of them.
 
@@ -1846,7 +1846,7 @@ function dispatchHoldCard(h) {
    at all about a dead anthropic one. */
 
 /* The five states the wire can carry, and what each means for the box. `valid`
-   and `expiring` are silent on this list: the daemon refreshes inside the last
+   and `expiring` are silent on this list: the service refreshes inside the last
    quarter of a token's life and says nothing about work it is already doing.
    `unowned` is silent because there is nothing to press, and `unknown` because
    a credential seeded from an env file states no date — that is a fact for the
@@ -1854,12 +1854,12 @@ function dispatchHoldCard(h) {
    find what is actually wrong. */
 const CRED_STATE = {
   valid:      { tone: "ok",   says: "healthy" },
-  expiring:   { tone: "ok",   says: "inside the last quarter of its life — the daemon refreshes it on a tick" },
+  expiring:   { tone: "ok",   says: "inside the last quarter of its life — the service refreshes it on a tick" },
   expired:    { tone: "bad",  says: "dead: no agent on this lane can take a turn", act: true },
   unreadable: { tone: "bad",  says: "on disk but unparseable — curia cannot judge its life", act: true },
   absent:     { tone: "bad",  says: "there is no credential file at all", act: true },
   unknown:    { tone: "idle", says: "seeded from an env file, so curia knows no date for it" },
-  unowned:    { tone: "idle", says: "not brokered by this daemon" },
+  unowned:    { tone: "idle", says: "not brokered by this service" },
 };
 const credState = (c) => CRED_STATE[c.state] ?? { tone: "idle", says: c.why ?? "" };
 /* A consumer the operator has to act on. A HELD lane counts whatever the state
@@ -1915,9 +1915,9 @@ function credLink(words) {
 function attentionItems(o) {
   const waitMinutes = (opened) => opened ? Math.max(0, Math.floor((Date.now() - Date.parse(opened)) / 60_000)) : 0;
   /* THE UNBLOCK TERM READS THE WIRE (#761). No row on `escalations` or
-     `review_gate` ever carried an `unblocks` field: the daemon builds them in
+     `review_gate` ever carried an `unblocks` field: the service builds them in
      `wireEscalation` and the review-gate mapper, and neither writes one. What
-     the daemon does emit is the blocked set of every map, which names its
+     the service does emit is the blocked set of every map, which names its
      blockers, and the frontier's takeable items, each naming what it unblocks.
      Both are keyed on the bare ticket number: an escalation carries no repo,
      so a repo-qualified key would match nothing and score zero for ever, which
@@ -2024,7 +2024,7 @@ function handoffGo(i) {
 
 /* The journal speaks in types and fields. The page speaks in sentences.
    A type this table does not name still reads: the fallback says the type in
-   words and names whatever subject the event carries, so an event the daemon
+   words and names whatever subject the event carries, so an event the service
    grows tomorrow is legible the day it ships instead of rendering blank. */
 const who = (e) => (e.agent ? `<b>${esc(e.agent)}</b>` : "");
 const tkt = (e) => (e.ticket == null || e.ticket === "" ? "" : `<span class="mono">${esc(ticketName(e.repo, e.ticket))}</span>`);
@@ -2092,9 +2092,9 @@ const EVENTS = {
      says a wall was hit, this says curia stopped short of one. */
   provider_precooling: ["cooling", "warn", (e) => `${esc(e.provider)} is held before the limit — the ${esc(e.window)} window is at ${esc(e.pct)}%${e.reset_at ? `, and it lifts ${esc(clock(e.reset_at))}` : ""}`],
   provider_precooling_lifted: ["cooling", "", (e) => `${esc(e.provider)} is dispatching again${e.pct == null ? "" : ` — its fullest window reads ${esc(e.pct)}%`}`],
-  restart_requested: ["restart", "warn", (e) => `restart ordered by ${esc(e.by)} — the daemon exits ${esc(e.exit_code)} and the supervisor respawns it`],
+  restart_requested: ["restart", "warn", (e) => `restart ordered by ${esc(e.by)} — the service exits ${esc(e.exit_code)} and the supervisor respawns it`],
   /* The live reload (#362). A save applies, so the feed says what moved — and
-     a reload the daemon would not take says which key needs the restart. */
+     a reload the service would not take says which key needs the restart. */
   config_reloaded: ["config", "", (e) => `config reloaded by ${esc(e.by)}${
     e.keys?.length ? ` — ${esc(e.keys.join(", "))}` : " — nothing moved"}`],
   config_reload_declined: ["config", "warn", (e) => `config reload declined for ${esc(e.by)} — ${esc(snip(e.error, 160))}`],
@@ -2262,7 +2262,7 @@ function deployCard(o) {
   const version = (record, side) => record?.[`${side}_version`] ?? "version unavailable";
   if (d.in_flight) {
     return `<div class="h-sect"><h3>Deploy</h3>
-      <div class="unread">a deploy is in flight: ${esc(version(d.in_flight, "prev"))} → ${esc(version(d.in_flight, "next"))} — state ${esc(d.in_flight.state)}. The daemon restarts if it lands; this page keeps its last snapshot through that.</div></div>`;
+      <div class="unread">a deploy is in flight: ${esc(version(d.in_flight, "prev"))} → ${esc(version(d.in_flight, "next"))} — state ${esc(d.in_flight.state)}. The service restarts if it lands; this page keeps its last snapshot through that.</div></div>`;
   }
   if (d.verdict_read_error) {
     return `<div class="h-sect"><h3>Last deploy</h3>
@@ -2322,7 +2322,7 @@ function screenAgents(p) {
     ${needs ? `<span class="hot">${esc(needs)} need you</span>` : ""}
     <span>auto dispatch ${d.auto_dispatch ? "on" : "off"}</span>
     <span>bridge ${esc(o.bridge)}</span>
-    <span>daemon :${esc(d.port)} up ${esc(dur(d.uptime_s))}</span>
+    <span>service :${esc(d.port)} up ${esc(dur(d.uptime_s))}</span>
   </div>`;
   return `${head(p, "Agents", chat)}${bar}${agentFocus(o)}${untrackedLine(o)}`;
 }
@@ -2656,7 +2656,7 @@ function screenMaps(p) {
     ? `<div class="unread">The map snapshot could not be read \u2014 ${esc(snap.error)}. This is not an empty map set: there may be open maps curia cannot see right now.</div>`
     : "";
   if (!snap.computed_at && !snap.maps) {
-    return `${head(p, "Atlas \u00b7 Maps")}${failed}${
+    return `${head(p, "Curia \u00b7 Maps")}${failed}${
       failed ? "" : `<div class="later">No map snapshot has been computed yet. Reconcile computes it on the credentials that pass already holds, and stamps the instant it did.</div>`}`;
   }
   const maps = visibleMaps(o);
@@ -2674,7 +2674,7 @@ function screenMaps(p) {
       <div class="map-title"><b>${esc(map.title)}</b><span class="meta">${esc(map.repo)} · ${esc(ago(map.latest_event_at))} · <a href="${esc(mapUrl(map))}" onclick="event.stopPropagation()">#${esc(map.number)}</a>${map.deferred ? " · paused" : ""}</span></div>
       </div>${mapBand(o, map)}</section>`;
   }).join("") || `<div class="empty">No open map matches this project.</div>`;
-  return `${head(p, "Atlas \u00b7 Maps")} ${filters}${failed}<div class="map-layout"${
+  return `${head(p, "Curia \u00b7 Maps")} ${filters}${failed}<div class="map-layout"${
     UI.maps.open && selected ? " data-open" : ""}><div class="map-cards">${cards}</div>${mapDetail(o, selected)}</div>`;
 }
 
@@ -2736,7 +2736,7 @@ const shortRepo = (r) => String(r).split("/").pop();
 /* Start (#266). The dispatch order — claim, prepare, spawn — is `start`'s own,
    and the reply that comes back is curia's sentence about what it did.
 
-   Two facts ride beside the button. The ROUTED MODEL is the daemon's
+   Two facts ride beside the button. The ROUTED MODEL is the service's
    `resolveModel` answer, joined onto the item by reconcile, so the operator
    knows which account this press spends before spending it. And an agent
    ALREADY on this ticket replaces the button, because a second start on it is
@@ -2772,7 +2772,7 @@ function screenFeed(p) {
   const n = o.events?.length ?? 0;
   return `${head(p, "Feed", `<span class="dim-note">the journal's last ${esc(n)} event(s)</span>`)}
     ${UI.feed.note ? `<div class="unread">${esc(UI.feed.note)}</div>` : ""}
-    ${atlasFeed(o)}<details class="legacy-feed"><summary>Journal rows</summary>${feedList(o.events)}</details>`;
+    ${appFeed(o)}<details class="legacy-feed"><summary>Journal rows</summary>${feedList(o.events)}</details>`;
 }
 
 /* The Wire (#523): news at full size, everything else compressed between.
@@ -2855,7 +2855,7 @@ function feedMechanics(group, open) {
   return `<details class="feed-fold"${open ? " open" : ""}><summary>${group.length} mechanics · ${esc(clock(last))} – ${esc(clock(first))} — ${esc(kinds)}</summary>${rows.join("")}</details>`;
 }
 
-function atlasFeed(o) {
+function appFeed(o) {
   const family = UI.feed.family ?? "all";
   const all = [...(o.events ?? [])].reverse();
   const events = family === "all" ? all : all.filter((e) => feedFamily(e) === family);
@@ -2886,7 +2886,7 @@ function atlasFeed(o) {
 
 /* ---- the drill-in section frame (#699) --------------------------------------
 
-   Settings is the first Atlas page built as a LIST OF SECTIONS, and it is not
+   Settings is the first Curia app page built as a LIST OF SECTIONS, and it is not
    meant to be the last. So the frame lives here, above Settings, and Settings
    is one registration in it.
 
@@ -2986,11 +2986,11 @@ function drillIn(page, p) {
       and `settings`, so a field nobody touched is not written — which is what
       keeps a hand edit made while this tab was open from being clobbered by a
       save of something else.
-   3. A SAVE APPLIES (#362). The sidecar asks the daemon to reload after a
+   3. A SAVE APPLIES (#362). The sidecar asks the service to reload after a
       write that landed, and the answer rides back with the save. So the banner
-      states an outcome — applied, declined, or the daemon is not answering —
+      states an outcome — applied, declined, or the service is not answering —
       instead of handing the operator a second button to press. What "applied"
-      means is measured: the daemon reports the settings it is RUNNING, and
+      means is measured: the service reports the settings it is RUNNING, and
       this screen compares them against the file it read. */
 
 /* The six sections, in the order the list draws them. Each one is a whole
@@ -3009,7 +3009,7 @@ const SET_SECTIONS = [
     key: "projects", title: "Projects", gist: gistProjects, body: setProjects,
     hint: "The repos curia watches. It dispatches against these and no others.",
     patch: patchWatch, count: countWatch,
-    /* The repo list costs the daemon a GitHub call, so it is taken when this
+    /* The repo list costs the service a GitHub call, so it is taken when this
        section is opened and not before. */
     enter: () => { if (repos === null) loadRepos(); },
   },
@@ -3025,14 +3025,14 @@ const SET_SECTIONS = [
   {
     key: "aistack", title: "aistack", gist: gistAistack, body: setAistack,
     hint: "Whether this box publishes its token usage to your aistack stack, and the registration that decides it.",
-    /* Its own read, and only when asked for: it is a daemon file read that the
+    /* Its own read, and only when asked for: it is a service file read that the
        other sections have no use for. Re-read on every arrival rather than
        once, because the thing it reports can be changed on aistack.to. */
     enter: () => { loadAistack(); },
   },
   {
     key: "maintenance", title: "Maintenance", gist: gistMaintenance, body: setMaintenance,
-    hint: "Whether the daemon runs what the files say, and the restart for the keys a save cannot apply.",
+    hint: "Whether the service runs what the files say, and the restart for the keys a save cannot apply.",
   },
 ];
 DRILL_PAGES.settings = SET_SECTIONS;
@@ -3112,7 +3112,7 @@ function changeCount() {
    an operator must never learn about a restart from the outcome.
 
    A hand edit that rode along outside the live set is a different fact: this
-   screen cannot see it, and the daemon's own refusal is what names it, in the
+   screen cannot see it, and the service's own refusal is what names it, in the
    dock's declined state below. */
 function restartNeeds() {
   const p = settingsPatch();
@@ -3136,13 +3136,13 @@ function daemonRestartAction() {
   return actionFor({ conflict_key: "daemon:lifecycle" });
 }
 
-/* ---- what the daemon is running (#362) --------------------------------------
+/* ---- what the service is running (#362) --------------------------------------
 
    Applied is a fact curia measured, not a claim the save made. `GET /overview`
-   carries the settings the daemon RUNS and the instant it read them; this
+   carries the settings the service RUNS and the instant it read them; this
    compares them, key by key, against the file this screen read.
 
-   Null means curia cannot tell — no snapshot, no file read, or a daemon that is
+   Null means curia cannot tell — no snapshot, no file read, or a service that is
    not answering, whose last reading says what WAS true and not what is. Null is
    never drawn as agreement: "unknown" and "in step" are opposite facts. */
 const sameJSON = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
@@ -3177,7 +3177,7 @@ function runningDiff(p) {
    A clean screen carries no save chrome at all. The dock rises on the first
    edit with the count, the Save and a discard, and it names the restart the
    pending edits will need. After the press it stays in the same place and
-   states the outcome the daemon reported — applied, declined, offline — or the
+   states the outcome the service reported — applied, declined, offline — or the
    refusal, which moved nothing on disk. A button appears only where it IS the
    mitigation, so the one the dock offers is always the one to press. */
 
@@ -3201,11 +3201,11 @@ function saveDock() {
   }
   if (s.busy) return dock("", `<button class="btn" disabled>Saving\u2026</button>`);
   if (s.phase === "restarting") {
-    return dock("", `<span class="toast">The daemon exited nonzero and the supervisor respawns it.
+    return dock("", `<span class="toast">The service exited nonzero and the supervisor respawns it.
       This page serves its last snapshot meanwhile.</span>`);
   }
   if (s.phase === "restart-unknown") {
-    return dock("", `<span class="toast">The daemon may have taken the restart order.</span>
+    return dock("", `<span class="toast">The service may have taken the restart order.</span>
       <span class="why">${esc(s.error)}</span>`);
   }
   if (s.phase === "refused") {
@@ -3225,21 +3225,21 @@ function saveDock() {
   }
   if (s.phase === "applied") {
     return dock("saved", `<span class="ok-word">saved \u2713</span>
-      <span class="toast">${esc(s.note ?? "Saved.")} The daemon is running it.</span>`);
+      <span class="toast">${esc(s.note ?? "Saved.")} The service is running it.</span>`);
   }
   if (s.phase === "declined") {
-    /* The file moved a key a reload cannot apply, so the daemon kept the config
+    /* The file moved a key a reload cannot apply, so the service kept the config
        it booted with. The restart is the mitigation, and it is the loud one. */
     return dock("saved", `<span class="ok-word">saved \u2713</span>${restart}
-      <span class="toast">The daemon did not apply it.</span>
+      <span class="toast">The service did not apply it.</span>
       <span class="why">${esc(s.error)}</span>`);
   }
   if (s.phase === "offline") {
-    /* No button: a restart is not the mitigation for a daemon that is already
+    /* No button: a restart is not the mitigation for a service that is already
        not answering, and pressing one would be an order nobody takes. */
     return dock("saved", `<span class="ok-word">saved \u2713</span>
-      <span class="toast">The daemon is not answering, so it takes this file at its next boot.
-        If it refuses to boot, the daemon log names the key.</span>
+      <span class="toast">The service is not answering, so it takes this file at its next boot.
+        If it refuses to boot, the service log names the key.</span>
       <span class="why">${esc(s.error)}</span>`);
   }
   /* A save that found the files already saying it. Worth one sentence, and
@@ -3279,7 +3279,7 @@ function setRouting() {
         <option value="" ${row.effort ? "" : "selected"}>model default</option>
         ${["low", "medium", "high", "xhigh", "max", "ultra"].map((effort) =>
           `<option ${row.effort === effort ? "selected" : ""}>${effort}</option>`).join("")}
-      </select>${known ? "" : `<span class="dim-note">Switched off. The daemon refuses this config.</span>`}</div>`;
+      </select>${known ? "" : `<span class="dim-note">Switched off. The service refuses this config.</span>`}</div>`;
   }).join("");
   const mgr = `<div class="row"><span class="grow"><a href="#settings"
       onclick="UI.set.models=!UI.set.models;render();return false">${
@@ -3298,7 +3298,7 @@ function setRouting() {
 
 function gistProjects() { return esc(`${draft.watch.length} repo${draft.watch.length === 1 ? "" : "s"} watched`); }
 
-/* Projects. The repo list comes from the daemon, which holds the GitHub login;
+/* Projects. The repo list comes from the service, which holds the GitHub login;
    this page holds no credential at all. */
 function setProjects() {
   const watched = draft.watch.map((w) => w.repo);
@@ -3388,10 +3388,10 @@ function setConnections(p) {
     <div class="row"><span class="key grow">Key file</span><span>${esc(facts?.key_file ?? "")}</span></div>
     ${facts?.settings_url ? `<div class="row"><span class="key grow">Settings</span><span><a href="${esc(facts.settings_url)}" target="_blank" rel="noopener">App settings page on GitHub</a></span></div>` : ""}
     </div>
-    <p class="qhint">Curia adopts new credentials without exposing the private key to Atlas.</p>`
+    <p class="qhint">Curia adopts new credentials without exposing the private key to the Curia app.</p>`
     : app.status === "pending"
       ? `<p class="unread">GitHub App setup is pending until ${esc(ago(app.expires_at))}.</p>`
-      : `<p class="unread">No GitHub App is configured. Create one from Atlas.</p>`;
+      : `<p class="unread">No GitHub App is configured. Create one from the Curia app.</p>`;
   const setupAction = actionFor({ conflict_key: "github-app:setup" });
   const refreshAction = actionFor({ conflict_key: "github-app:installations" });
   const create = app.configured ? "" : `<p><input id="github-app-name" value="curia-box" aria-label="GitHub App name">
@@ -3417,7 +3417,7 @@ function setConnections(p) {
 }
 
 /* Maintenance (#362). Last, because it is the section an operator
-   reads rather than edits. It says one thing — whether the daemon runs the
+   reads rather than edits. It says one thing — whether the service runs the
    file — and carries the one act that answers a no. */
 function gistMaintenance(p) {
   const differs = runningDiff(p);
@@ -3433,16 +3433,16 @@ function setMaintenance(p) {
   let state;
   if (restart && !TERMINAL_ACTION.has(restart.status)) {
     state = restart.projection?.transport_error
-      ? `<p class="unread">The daemon may have taken the restart order. Agent panes remain running in their own container.</p>`
-      : `<p class="unread">Restarting daemon. Agent panes remain running in their own container.</p>`;
+      ? `<p class="unread">The service may have taken the restart order. Agent panes remain running in their own container.</p>`
+      : `<p class="unread">Restarting service. Agent panes remain running in their own container.</p>`;
   } else if (differs === null) {
-    state = `<p class="unread">curia cannot tell whether the daemon runs these files: ${
+    state = `<p class="unread">curia cannot tell whether the service runs these files: ${
       p?.daemon_up === false ? "it is not answering." : "there is no reading of it yet."}</p>`;
   } else if (differs.length) {
-    state = `<p class="unread">The daemon is NOT running the files. These differ:
+    state = `<p class="unread">The service is NOT running the files. These differ:
       <span class="mono">${differs.map(esc).join(", ")}</span>. A restart takes them.</p>`;
   } else {
-    state = `<p class="qhint">The daemon is running these files. It read them ${esc(ago(run?.loaded_at))}.</p>`;
+    state = `<p class="qhint">The service is running these files. It read them ${esc(ago(run?.loaded_at))}.</p>`;
   }
   /* #292: the screen reads two layers and writes only the top one. Said here,
      because "I saved and git shows nothing changed" must not be a puzzle the
@@ -3455,7 +3455,7 @@ function setMaintenance(p) {
     : "";
   return `${state}<div class="rows">
     <div class="row"><span class="grow"><button class="btn${differs?.length ? " restart-hot" : ""}"
-      ${UI.set.busy || restart ? "disabled" : ""} onclick="doRestart()">${restart && !TERMINAL_ACTION.has(restart.status) ? "Restarting daemon…" : "Restart daemon"}</button></span>${qq("set-restart")}</div>
+      ${UI.set.busy || restart ? "disabled" : ""} onclick="doRestart()">${restart && !TERMINAL_ACTION.has(restart.status) ? "Restarting service…" : "Restart service"}</button></span>${qq("set-restart")}</div>
     ${qhint("set-restart", `A restart is for the keys a save cannot apply: the ports,
       <span class="mono">workspace_root</span>, <span class="mono">sandbox</span>,
       <span class="mono">identity</span>, and every routing key this screen does not write.
@@ -3477,7 +3477,7 @@ function setMaintenance(p) {
       they are already holding. That deletes the ssh from the ceremony without
       moving the approval anywhere.
    2. IT DOES NOT SEE THE CREDENTIAL. The token lives in a file under curia's
-      HOME and never leaves the daemon. What arrives here is a code meant to be
+      HOME and never leaves the service. What arrives here is a code meant to be
       read aloud, a link meant to be opened, a proposed machine name, and the
       hosts the credential file is keyed by. There is no field on this wire
       that could carry a bearer.
@@ -3487,7 +3487,7 @@ function setMaintenance(p) {
       question that already has one.
 
    The read is its own, taken when the section is opened and after every press,
-   never on the poll: it costs the daemon a file read and the other sections
+   never on the poll: it costs the service a file read and the other sections
    have no use for it. While a login waits for approval the section re-reads on
    a short timer, because the thing it is waiting for happens on a different
    device and nothing else would tell it. */
@@ -3530,7 +3530,7 @@ async function aistackDo(act) {
   const conflict = actionFor({ conflict_key: "aistack:machine-registration" });
   if (conflict && !(act === "cancel" && conflict.kind === "aistack-register")) return null;
   if (conflict) finishAction(conflict.action_id);
-  const actionId = `atlas-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
+  const actionId = `app-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
   const action = beginAction({
     action_id: actionId, kind: "aistack-" + act, target: "aistack-machine",
     conflict_key: "aistack:machine-registration",
@@ -3596,8 +3596,8 @@ function gistAistack() {
 function setAistack() {
   if (!aistack) return `<p class="qhint">reading…</p>`;
   if (aistack.ok === false) {
-    return `<p class="unread">curia cannot say whether this box is registered: ${esc(aistack.error ?? "the daemon is not answering")}.
-      The registration lives on the daemon, so this section is blank exactly while the daemon is.</p>`;
+    return `<p class="unread">curia cannot say whether this box is registered: ${esc(aistack.error ?? "the service is not answering")}.
+      The registration lives on the service, so this section is blank exactly while the service is.</p>`;
   }
   const said = aistackAct.said
     ? `<p class="${aistackAct.said.ok ? "qhint" : "unread"}">${esc(aistackAct.said.text)}</p>`
@@ -3628,7 +3628,7 @@ function setAistack() {
   }
 
   /* The unregistered half. One button, plus the same two commands over ssh for
-     the operator who would rather type them — they are the daemon README's,
+     the operator who would rather type them — they are the service README's,
      and curia states them rather than making anyone go and find them. */
   if (!aistack.registered) {
     const why = ["failed", "expired", "cancelled"].includes(flow.phase)
@@ -3687,12 +3687,12 @@ function aistackCommands(a) {
       Run them as curia's own HOME, which is what those lines say. Curia picks the credential up on its next tick either way.`)}`;
 }
 
-/* ---- the chat (#267, many conversations by #333, a page of Atlas by #711) ----
+/* ---- the chat (#267, many conversations by #333, a page of Curia app by #711) ----
 
    Chat is two views under one route. `#chat` is the PICKER: every ticket
    conversation and every overseer conversation curia holds, in two sections,
    because the two roles own different work (ADR-0024). `#chat/<session>` is
-   the ROOM: one transcript, read through the daemon's active-branch tailer
+   the ROOM: one transcript, read through the service's active-branch tailer
    (#689) over server-sent events, and one composer.
 
    The room renders from STATE, never from the DOM. The whole page is redrawn
@@ -3819,7 +3819,7 @@ function chatPicker(p) {
   const count = conversations?.conversations?.length ?? null;
   const tools = count == null ? "" : `<span class="dim-note num">${count} conversation${count === 1 ? "" : "s"}</span>`;
   return `${head(p, "Chat", tools)}
-    ${down ? `<p class="unread">The chat is down while the daemon restarts. Your message reaches every conversation through it.</p>` : ""}
+    ${down ? `<p class="unread">The chat is down while the service restarts. Your message reaches every conversation through it.</p>` : ""}
     ${chatList()}`;
 }
 
@@ -3880,7 +3880,7 @@ function chatList() {
         Open one when the context above reads full. Deleting one spends its number for good.
         The overseer holds a reading shell over a checkout of every watched repo, so it can
         read a file or a diff — but it cannot write one: its GitHub token is read-only, and every
-        effect still crosses the daemon.</p>
+        effect still crosses the service.</p>
     </section>`;
 }
 
@@ -3927,7 +3927,7 @@ function chatRow(c) {
 /* Mint, then walk through the door. Opening a conversation you then have to
    find in a list is two acts where the operator asked for one. */
 async function doNewConversation() {
-  const actionId = `atlas-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
+  const actionId = `app-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
   const action = beginAction({
     action_id: actionId, kind: "console-conversation-open", target: "conversation-registry",
     conflict_key: "conversation-registry", projection: { navigate: true },
@@ -3942,7 +3942,7 @@ async function doDeleteConversation(key) {
   const ask = `Delete ${key}? Its number is spent for good — a later conversation never reuses it. `
     + `curia stops offering the conversation, and its transcript stays on the box.`;
   if (typeof confirm === "function" && !confirm(ask)) return;
-  const actionId = `atlas-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
+  const actionId = `app-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
   const action = beginAction({
     action_id: actionId, kind: "console-conversation-delete", target: key,
     conflict_key: `conversation:${key}`, projection: { deleting: true },
@@ -4034,7 +4034,7 @@ function chatOpenEscalation(r) {
     ${answerButtons(r)}${answerField(r)}${said("esc:" + r.id)}</div>`;
 }
 
-/* The transcript items and the daemon's own escalation record, interleaved by
+/* The transcript items and the service's own escalation record, interleaved by
    instant (#108 item 1): the record keeps the full question, the answer and
    who gave it, where the transcript's tool line is a clipped brief. The page's
    own notes (a failed send, a take-back receipt) land at their instant too. */
@@ -4184,7 +4184,7 @@ async function doChatSend() {
   if (!text.trim()) return;
   if (chatEnded()) return refuse("chat-send", ENDED_SENTENCE(chat.session));
   const conversation = chatConversationKey(chat.session);
-  const actionId = `atlas-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
+  const actionId = `app-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
   const action = beginAction({
     action_id: actionId, kind: "chat-message", target: conversation,
     conflict_key: `turn:${conversation}`, projection: { text },
@@ -4221,7 +4221,7 @@ async function doTakeBack(target = null) {
   const warning = "Take back your last message? Curia rewinds the conversation, but commands, commits, and other effects that already ran still stand.";
   if (typeof confirm === "function" && !confirm(warning)) return null;
   const conversation = chatConversationKey(chat.session);
-  const actionId = `atlas-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
+  const actionId = `app-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
   const action = beginAction({
     action_id: actionId, kind: "chat-take-back", target: conversation,
     conflict_key: `turn:${conversation}`,
@@ -4265,7 +4265,7 @@ function recoverTerminalChatTakeBackActions(observed) {
 }
 async function doChatKey(key) {
   const session = chat.session;
-  const actionId = `atlas-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
+  const actionId = `app-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
   const action = beginAction({
     action_id: actionId, kind: "pane-key", target: session,
     conflict_key: `pane:${session}`, projection: { key },
@@ -4297,7 +4297,7 @@ async function doDialogAnswer(dialog, index) {
     ? chat.dialog.card.options.find((candidate) => candidate.index === index)
     : null;
   if (!option) return;
-  const actionId = `atlas-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
+  const actionId = `app-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
   const action = beginAction({
     action_id: actionId, kind: "native-dialog-answer", target: `${session}:${dialog}`,
     conflict_key: `dialog:${session}:${dialog}`,
@@ -4338,7 +4338,7 @@ function chatAfterRender() {
 }
 
 async function doGitHubAppRefresh() {
-  const actionId = `atlas-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
+  const actionId = `app-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
   const action = beginAction({
     action_id: actionId, kind: "github-app-installations", target: "github-app-installations",
     conflict_key: "github-app:installations", projection: { phase: "reading" },
@@ -4352,7 +4352,7 @@ async function doGitHubAppRefresh() {
 async function doGitHubAppSetup() {
   const name = document.getElementById("github-app-name")?.value?.trim();
   if (!name) return refuse("github-app", "Enter a GitHub App name.");
-  const actionId = `atlas-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
+  const actionId = `app-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
   const action = beginAction({
     action_id: actionId, kind: "github-app-setup", target: "github-app-setup",
     conflict_key: "github-app:setup", projection: { phase: "opening-github" },
@@ -4419,7 +4419,7 @@ function reconcileGitHubAppActions() {
    and `expiring` are silent by design, so before this screen existed there was
    nowhere to look when nothing was wrong, and "when does this expire?" had no
    answer short of an incident. `unowned` in particular was an ABSENCE, and an
-   absence reads as nothing rather than as a fact about what this daemon owns.
+   absence reads as nothing rather than as a fact about what this service owns.
 
    Three rows, two stores. The claude containers and the overseer run on one
    value from one account, so each row names its provider rather than leaving an
@@ -4511,7 +4511,7 @@ function credFlow(r) {
          ${third}`}
     <div class="flow-fall">
       ${/* THE PATH THAT ALWAYS WORKS (#645 finding 4). The card named the
-            terminal and never linked it, and the daemon had composed the link
+            terminal and never linked it, and the service had composed the link
             for Discord since the first commit. It rides the payload now. */
         r.terminal_url
           ? `<a href="${esc(r.terminal_url)}" target="_blank" rel="noopener">Open the terminal instead →</a>`
@@ -4589,7 +4589,7 @@ function credSignIn(c, signer) {
 
 async function startReauth(provider) {
   const key = "reauth:" + provider;
-  const actionId = `atlas-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
+  const actionId = `app-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
   const action = beginAction({
     action_id: actionId, kind: "credential-sign-in", target: provider, conflict_key: key,
     projection: { phase: "starting" },
@@ -4637,12 +4637,12 @@ function reconcileCredentialActions() {
 function screenCredentials(p) {
   const o = p?.overview;
   if (!o) return noSnapshot(p, "Credentials");
-  /* Null is not empty (rule 2). A daemon that answered with no credentials
+  /* Null is not empty (rule 2). A service that answered with no credentials
      section at all is not a box that owns no credentials. */
   const c = o.credentials;
   if (!c) {
     return `${head(p, "Credentials")}
-      <div class="unread">This snapshot carries no credentials section — the daemon answering it is older than this page.</div>`;
+      <div class="unread">This snapshot carries no credentials section — the service answering it is older than this page.</div>`;
   }
   const rows = c.consumers ?? [];
   /* Two passes over the rows, each with a set that keeps one lane and one login
@@ -4660,7 +4660,7 @@ function screenCredentials(p) {
           <th>consumer</th><th>state</th><th>expires</th><th>last refresh</th><th>why</th><th></th>
         </tr></thead>
         <tbody>${rows.map((r) => credRow(r, signer, c.reauth, c.reauth_ended)).join("")}</tbody>
-      </table></div>` : `<div class="empty">This daemon brokers no model credential.</div>`}
+      </table></div>` : `<div class="empty">This service brokers no model credential.</div>`}
       <p class="dim-note" style="margin-top:10px">Subscription credentials only. curia holds no API key, and this page offers no field for one.</p>
     </div>`;
 }
@@ -4790,7 +4790,7 @@ function reconcileSettingsActions() {
       UI.set.note = `Wrote ${written.join(" and ")}, atomically, with the comments kept.`;
       if (receipt.reload?.ok === false) {
         UI.set.phase = "declined";
-        UI.set.error = receipt.reload.error || "the daemon gave no reason";
+        UI.set.error = receipt.reload.error || "the service gave no reason";
       } else {
         UI.set.phase = "applied";
       }
@@ -4809,7 +4809,7 @@ function reconcileDaemonRestartActions(p) {
 
   if (action.status === "refused" || action.status === "failed") {
     UI.set.phase = "refused";
-    UI.set.error = action.reason || "The daemon restart did not finish.";
+    UI.set.error = action.reason || "The service restart did not finish.";
     if (local) finishAction(local.action_id);
     return;
   }
@@ -4822,7 +4822,7 @@ function reconcileDaemonRestartActions(p) {
   if (p?.daemon_up && freshLife && (action.status === "confirmed" || action.receipt?.requested_at)) {
     UI.set.phase = "restarted";
     UI.set.error = null;
-    UI.set.note = `The daemon restarted and is answering. Up ${dur(uptime)}.`;
+    UI.set.note = `The service restarted and is answering. Up ${dur(uptime)}.`;
     if (local) finishAction(local.action_id);
   }
 }
@@ -4831,7 +4831,7 @@ async function doSave() {
   const patch = settingsPatch();
   if (!Object.keys(patch).length) return;
   const paths = settingsActionPaths(patch);
-  const actionId = `atlas-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
+  const actionId = `app-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
   const action = beginAction({
     action_id: actionId,
     kind: "settings-save",
@@ -4870,7 +4870,7 @@ async function doSave() {
     draft = clone(settings);
     /* The save carries the apply's own answer (#362). Three outcomes, and the
        page states the one that came back rather than guessing from the write:
-       applied, declined by the daemon, or a daemon that could not be asked. */
+       applied, declined by the service, or a service that could not be asked. */
     const r = body.reload;
     UI.set.error = null;
     if (!body.written?.length) {
@@ -4880,7 +4880,7 @@ async function doSave() {
       UI.set.note = `Wrote ${body.written.join(" and ")}, atomically, with the comments kept.`;
       if (r?.ok) UI.set.phase = "applied";
       else if (r?.reason === "daemon-down") { UI.set.phase = "offline"; UI.set.error = r.error; }
-      else { UI.set.phase = "declined"; UI.set.error = r?.error ?? "the daemon gave no reason"; }
+      else { UI.set.phase = "declined"; UI.set.error = r?.error ?? "the service gave no reason"; }
     }
     if (TERMINAL_ACTION.has(actionFor({ action_id: actionId })?.status) || !body.action || r?.reason === "daemon-down") {
       finishAction(actionId);
@@ -4893,9 +4893,9 @@ async function doSave() {
 }
 
 async function doRestart() {
-  const ask = "Restart the daemon? Running agents keep their tmux sessions — those live in their own container. Anything unsaved here is not written.";
+  const ask = "Restart the service? Running agents keep their tmux sessions — those live in their own container. Anything unsaved here is not written.";
   if (typeof confirm === "function" && !confirm(ask)) return;
-  const actionId = `atlas-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
+  const actionId = `app-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
   const uptime = payload?.overview?.daemon?.uptime_s;
   const action = beginAction({
     action_id: actionId,
@@ -4925,11 +4925,11 @@ async function doRestart() {
     }
     UI.set.error = null;
   } catch (e) {
-    /* The daemon may have taken the order and died before answering. Say
+    /* The service may have taken the order and died before answering. Say
        exactly that, and let the marker at the top of the page be the evidence:
-       it reads the daemon, and this reads a socket. */
+       it reads the service, and this reads a socket. */
     UI.set.phase = "restart-unknown";
-    UI.set.error = `${e.message} — the bar above says whether the daemon is answering`;
+    UI.set.error = `${e.message} — the bar above says whether the service is answering`;
     action.projection.transport_error = e.message;
   }
   UI.set.busy = false;
@@ -4945,7 +4945,7 @@ function render() {
   const app = document.getElementById("app");
   if (!app) return;
   const n = needsYou(payload?.overview);
-  /* The stale-daemon marker (#362). A daemon running something other than the
+  /* The stale-daemon marker (#362). A service running something other than the
      files is visible from every screen, so nobody has to open Settings to find
      out. It reads the same comparison the Maintenance section draws. */
   const stale = runningDiff(payload)?.length ? `<span class="nav-marker">stale</span>` : "";
@@ -4957,7 +4957,7 @@ function render() {
     ${searchOverlay()}
     ${handoffSheet()}
   </div>`;
-  document.title = (n ? `(${n}) ` : "") + "Atlas · Curia";
+  document.title = (n ? `(${n}) ` : "") + "Curia app";
   restoreField(field);
   if (UI.screen === "chat") chatAfterRender();
   /* The hunks a card just asked for (#355). Started AFTER the page is written,
@@ -4972,7 +4972,7 @@ function navMarker(k, needs, stale) {
   return "";
 }
 function desktopNav(needs, stale) {
-  return `<nav class="drawer" aria-label="Atlas pages"><span class="brand">curia · atlas</span>
+  return `<nav class="drawer" aria-label="Curia app pages"><span class="brand">curia · app</span>
     ${NAMES.map((k) => `<button class="${UI.screen === k ? "on" : ""}" onclick="goto('${k}')">
       <span class="nav-label">${SCREENS[k][0]}</span>${navMarker(k, needs, stale)}</button>`).join("")}
   </nav>`;
@@ -4982,7 +4982,7 @@ function mobileTab(k, icon, marker) {
     <span class="nav-icon" aria-hidden="true">${icon}</span><span class="nav-label">${SCREENS[k][0]}</span>${marker ?? ""}</button>`;
 }
 function mobileNav(needs, stale) {
-  return `<nav class="notchbar" aria-label="Atlas pages">
+  return `<nav class="notchbar" aria-label="Curia app pages">
     ${mobileTab("home", "⌂", navMarker("home", needs, stale))}
     ${mobileTab("maps", "▦")}
     <button class="agents-key ${UI.screen === "agents" || UI.screen === "chat" ? "on" : ""}" onclick="goto('agents')">
@@ -5031,7 +5031,7 @@ function enter(k) {
   if (k === "chat") loadConversations();
   if (k === "feed") recordFeedVisit();
 }
-/* The since-you-left marker's fact comes from the daemon (#704): the journal
+/* The since-you-left marker's fact comes from the service (#704): the journal
    holds the instant each login last opened the Feed, so a phone and a laptop
    under one login agree, and a cleared browser forgets nothing. Entering the
    Feed draws the marker at the PREVIOUS stamp and posts this visit; the marker
@@ -5042,7 +5042,7 @@ async function recordFeedVisit() {
   if (!operator) return;
   const previous = payload?.overview?.feed_reads?.[operator] ?? UI.feed.lastRead ?? null;
   UI.feed = { ...UI.feed, lastRead: previous, operator };
-  const actionId = `atlas-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
+  const actionId = `app-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
   const action = beginAction({
     action_id: actionId, kind: "feed-read", target: operator,
     conflict_key: "feed-read:" + operator, projection: { previous },
@@ -5107,7 +5107,7 @@ window.addEventListener("hashchange", () => {
 
 /* ---- the poll -------------------------------------------------------------
    The operator's call on #263: refresh while this tab is visible, and stop
-   when it is not. Every refresh costs the daemon a whole read of the journal
+   when it is not. Every refresh costs the service a whole read of the journal
    off disk, so a tab nobody is looking at must cost nothing. The interval is
    the sidecar's to state — it comes back inside the payload — so one config
    key governs both halves and they cannot drift apart. */

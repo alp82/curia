@@ -1,6 +1,6 @@
 // The global search query (#693, decided in #589).
 //
-// One request searches every source Atlas can land on: the GitHub facts
+// One request searches every source Curia app can land on: the GitHub facts
 // (tickets and maps), the decisions a map records under `## Decisions so far`,
 // the journal, and the local chat transcripts. The lens overlay in every screen
 // header calls this once, and the rows it draws come back already typed.
@@ -98,7 +98,7 @@ function resultOnWire(row, now) {
   }
 }
 
-// Atlas calls one checked interface while its source adapters own retrieval.
+// Curia app calls one checked interface while its source adapters own retrieval.
 // Discord thread bodies remain outside this source set.
 export class GlobalSearch {
   constructor({ now = Date.now, ...sources }) {
@@ -181,7 +181,7 @@ export function snippetAround(text, terms, { width = SNIPPET_WIDTH } = {}) {
 }
 
 // The typed landing target for a row. The caller renders the word; the surface
-// and its key are what Atlas routes on.
+// and its key are what Curia app routes on.
 export function landingFor(kind, fact) {
   switch (kind) {
     case 'ticket':

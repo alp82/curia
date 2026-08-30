@@ -89,7 +89,7 @@ describe('StatusLine', () => {
 
   test('dispatch Action acceptance posts promptly and meaningful progress edits it in place', async () => {
     line.onEvent({
-      type: 'action_evidence', action_id: 'atlas-start-822', kind: 'dispatch',
+      type: 'action_evidence', action_id: 'app-start-822', kind: 'dispatch',
       target: 'alp82/curia#822', conflict_key: 'dispatch:alp82/curia#822',
       status: 'accepted', revision: 10,
     })
@@ -100,7 +100,7 @@ describe('StatusLine', () => {
     assert.match(posts[0].text, /accepted/)
 
     line.onEvent({
-      type: 'action_evidence', action_id: 'atlas-start-822', kind: 'dispatch',
+      type: 'action_evidence', action_id: 'app-start-822', kind: 'dispatch',
       target: 'alp82/curia#822', conflict_key: 'dispatch:alp82/curia#822',
       status: 'progress', progress: 'Preparing the agent workspace', revision: 11,
     })
@@ -122,7 +122,7 @@ describe('StatusLine', () => {
     })
 
     rebuilt.onEvent({
-      type: 'action_evidence', action_id: 'atlas-start-822', kind: 'dispatch',
+      type: 'action_evidence', action_id: 'app-start-822', kind: 'dispatch',
       target: 'alp82/curia#822', conflict_key: 'dispatch:alp82/curia#822',
       status: 'progress', progress: 'Preparing the agent workspace', revision: 11,
     })
@@ -135,7 +135,7 @@ describe('StatusLine', () => {
 
   test('dispatch Action evidence is monotonic and repeated evidence is quiet', async () => {
     const action = {
-      type: 'action_evidence', action_id: 'atlas-start-822', kind: 'dispatch',
+      type: 'action_evidence', action_id: 'app-start-822', kind: 'dispatch',
       target: 'alp82/curia#822', conflict_key: 'dispatch:alp82/curia#822',
     }
     line.onEvent({ ...action, status: 'accepted', revision: 20 })
@@ -153,7 +153,7 @@ describe('StatusLine', () => {
 
   test('a refused dispatch Action renders its reason and winning receipt once', async () => {
     const refusal = {
-      type: 'action_evidence', action_id: 'atlas-start-refused', kind: 'dispatch',
+      type: 'action_evidence', action_id: 'app-start-refused', kind: 'dispatch',
       target: 'alp82/curia#823', conflict_key: 'dispatch:alp82/curia#823',
       status: 'refused', reason: 'the ticket is already claimed', revision: 30,
       receipt: {
@@ -178,7 +178,7 @@ describe('StatusLine', () => {
 
   test('accepted dispatch work that fails settles the existing line with one safe reason', async () => {
     const action = {
-      type: 'action_evidence', action_id: 'atlas-start-failed', kind: 'dispatch',
+      type: 'action_evidence', action_id: 'app-start-failed', kind: 'dispatch',
       target: 'alp82/curia#823', conflict_key: 'dispatch:alp82/curia#823',
     }
     line.onEvent({ ...action, status: 'accepted', revision: 40 })
@@ -206,13 +206,13 @@ describe('StatusLine', () => {
       log: () => {},
     })
     const action = {
-      type: 'action_evidence', action_id: 'atlas-start-recovered', kind: 'dispatch',
+      type: 'action_evidence', action_id: 'app-start-recovered', kind: 'dispatch',
       target: 'alp82/curia#823', conflict_key: 'dispatch:alp82/curia#823',
     }
 
     rebuilt.onEvent({ ...action, status: 'failed', reason: 'preparation stopped', revision: 51 })
     await rebuilt.settle()
-    rebuilt.onEvent({ ...action, action_id: 'atlas-start-confirmed', status: 'confirmed', revision: 52 })
+    rebuilt.onEvent({ ...action, action_id: 'app-start-confirmed', status: 'confirmed', revision: 52 })
     await rebuilt.settle()
 
     assert.equal(posts.length, 0, 'rebuild recovery does not add a terminal line')
@@ -225,7 +225,7 @@ describe('StatusLine', () => {
   test('Actions without a Discord representation stay off the status line', async () => {
     for (const kind of ['settings-save', 'feed-read', 'credential-sign-in']) {
       line.onEvent({
-        type: 'action_evidence', action_id: `atlas-${kind}`, kind,
+        type: 'action_evidence', action_id: `app-${kind}`, kind,
         target: kind, conflict_key: kind, status: 'accepted', revision: 30,
       })
     }

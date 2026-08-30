@@ -289,7 +289,7 @@ export class StatusLine {
       case 'action_evidence': {
         // An Action has a Discord representation only when its domain target
         // names a ticket thread. Today that is dispatch. Other Action kinds
-        // stay on Atlas rather than teaching this renderer their domains.
+        // stay on Curia app rather than teaching this renderer their domains.
         if (ev.kind !== 'dispatch' || !['accepted', 'progress', 'refused', 'failed'].includes(ev.status)) return
         const ticket = String(ev.target ?? '').match(/#(\d+)$/)?.[1]
         const progress = String(ev.progress ?? '').trim()

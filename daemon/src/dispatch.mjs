@@ -60,7 +60,7 @@ import { previewExpectation } from './previewgate.mjs'
 import { transcriptReset, holdVerdict, hottestPct, WARM_PCT } from './usage.mjs'
 import { transcriptActivity } from './transcript.mjs'
 // #698: the fog classifier the map snapshot already owns. The empty-map
-// question reads the same lines the Atlas map view draws, so a card and a
+// question reads the same lines the Curia app map view draws, so a card and a
 // screen can never disagree about what is still uncertain.
 import { fogFacts } from './mapsnapshot.mjs'
 import { mintAgentToken, forgetAgentToken, sweepAgentTokens } from './agenttoken.mjs'
@@ -8305,13 +8305,13 @@ export class Dispatcher {
     }
   }
 
-  // Atlas owns the same-origin terminal proxy. Reconcile actively withdraws
+  // Curia app owns the same-origin terminal proxy. Reconcile actively withdraws
   // the persisted standalone rule so an older daemon cannot leave it behind.
   async #assertAttachSurface() {
     const { serve_port: servePort } = this.config.attach
     try {
       await this.deps.serveOff({ servePort, log: this.log })
-      this.log(`reconcile: standalone terminal rule for :${servePort} withdrawn; Atlas now owns terminal access`)
+      this.log(`reconcile: standalone terminal rule for :${servePort} withdrawn; Curia app now owns terminal access`)
     } catch (e) {
       this.log(`WARNING: withdrawing the retired standalone terminal rule failed (${e.message}). Run \`tailscale serve --https=${servePort} off\` by hand.`)
     }

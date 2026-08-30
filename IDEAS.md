@@ -13,7 +13,6 @@ improvements
 * always close with map updates and new frontier
 * same ticket number of different repos is using same discord thread
 * discord supporting question styles with explanations and lists in them
-* rename Atlas
 * semantic versioning
 * ticket board/graph view
 * auto tasks

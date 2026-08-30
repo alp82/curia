@@ -195,7 +195,7 @@ describe('CSRF gate on the loopback surface (index.mjs, real boot)', () => {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ action_id: actionId }),
     })
-    const started = await post('/aistack/register', 'atlas-aistack-register-1')
+    const started = await post('/aistack/register', 'app-aistack-register-1')
     assert.equal(started.status, 200)
     assert.equal(JSON.parse(started.body).action.status, 'accepted')
 
@@ -206,25 +206,25 @@ describe('CSRF gate on the loopback surface (index.mjs, real boot)', () => {
       await new Promise((resolve) => setTimeout(resolve, 10))
     }
     assert.equal(status.flow.code, 'T72NNC')
-    assert.equal(status.flow.action_id, 'atlas-aistack-register-1')
-    assert.equal(status.actions.find((action) => action.action_id === 'atlas-aistack-register-1').status, 'progress')
+    assert.equal(status.flow.action_id, 'app-aistack-register-1')
+    assert.equal(status.actions.find((action) => action.action_id === 'app-aistack-register-1').status, 'progress')
 
-    const conflict = await post('/aistack/register', 'atlas-aistack-register-2')
+    const conflict = await post('/aistack/register', 'app-aistack-register-2')
     assert.equal(conflict.status, 409)
     assert.equal(JSON.parse(conflict.body).action.status, 'refused')
 
-    const cancelled = await post('/aistack/cancel', 'atlas-aistack-cancel-1')
+    const cancelled = await post('/aistack/cancel', 'app-aistack-cancel-1')
     assert.equal(cancelled.status, 200)
     assert.equal(JSON.parse(cancelled.body).action.status, 'accepted')
 
     for (let i = 0; i < 100; i++) {
       status = JSON.parse((await request(port, 'GET', '/aistack')).body)
-      const action = status.actions.find((candidate) => candidate.action_id === 'atlas-aistack-cancel-1')
+      const action = status.actions.find((candidate) => candidate.action_id === 'app-aistack-cancel-1')
       if (action?.status === 'confirmed') break
       await new Promise((resolve) => setTimeout(resolve, 10))
     }
     assert.equal(status.flow.phase, 'cancelled')
-    assert.equal(status.actions.find((action) => action.action_id === 'atlas-aistack-cancel-1').status, 'confirmed')
+    assert.equal(status.actions.find((action) => action.action_id === 'app-aistack-cancel-1').status, 'confirmed')
   })
 
   test('Feed reads are idempotent login-scoped Actions with monotonic cross-device cursors (#811)', async () => {
@@ -233,16 +233,16 @@ describe('CSRF gate on the loopback surface (index.mjs, real boot)', () => {
       body: JSON.stringify({ by: 'Tester@Example.com', action_id: actionId }),
     })
 
-    const first = JSON.parse((await visit('atlas-feed-read-device-one')).body).action
+    const first = JSON.parse((await visit('app-feed-read-device-one')).body).action
     assert.equal(first.status, 'confirmed')
     assert.equal(first.target, 'tester@example.com')
     assert.equal(first.conflict_key, 'feed-read:tester@example.com')
     assert.equal(first.receipt.previous, null)
 
-    const retry = JSON.parse((await visit('atlas-feed-read-device-one')).body).action
+    const retry = JSON.parse((await visit('app-feed-read-device-one')).body).action
     assert.deepEqual(retry, first, 'the same Action cannot stamp the cursor twice')
 
-    const second = JSON.parse((await visit('atlas-feed-read-device-two')).body).action
+    const second = JSON.parse((await visit('app-feed-read-device-two')).body).action
     assert.equal(second.receipt.previous, first.receipt.at)
     assert.ok(second.receipt.at > first.receipt.at)
   })
@@ -842,7 +842,7 @@ describe('POST /restart: the daemon journals and exits nonzero (#265, real boot)
   test('the order is answered first and the process exits nonzero after it', async () => {
     const res = await request(port, 'POST', '/restart', {
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ by: 'dashboard', action_id: 'atlas-daemon-restart', uptime_s: 91 }),
+      body: JSON.stringify({ by: 'dashboard', action_id: 'app-daemon-restart', uptime_s: 91 }),
     })
     assert.equal(res.status, 200, 'the answer leaves before the exit takes the socket')
     const body = JSON.parse(res.body)
@@ -1015,18 +1015,18 @@ describe('the console verbs on the loopback surface (#266, real boot)', () => {
       id = JSON.parse(res.body).id
     })
 
-    test('an Atlas answer and a later Discord answer agree on the shared winner', async () => {
+    test('a Curia app answer and a later Discord answer agree on the shared winner', async () => {
       const data = Buffer.from('a: 1\n').toString('base64')
       const res = await post('/answer', {
-        id, index: 1, answer: '', by: 'alp@example.com', via: 'dashboard', action_id: 'atlas-answer-esc-choice',
+        id, index: 1, answer: '', by: 'alp@example.com', via: 'dashboard', action_id: 'app-answer-esc-choice',
         files: [{ name: '../../notes.txt', data }, { name: 'shot.png', data: Buffer.from('png').toString('base64') }],
       })
       assert.equal(res.status, 200, res.body)
-      const atlas = JSON.parse(res.body)
-      assert.equal(atlas.action.status, 'confirmed')
-      assert.equal(atlas.action.kind, 'escalation-answer')
-      assert.equal(atlas.action.target, id)
-      assert.equal(atlas.action.conflict_key, `answer:${id}`)
+      const appResult = JSON.parse(res.body)
+      assert.equal(appResult.action.status, 'confirmed')
+      assert.equal(appResult.action.kind, 'escalation-answer')
+      assert.equal(appResult.action.target, id)
+      assert.equal(appResult.action.conflict_key, `answer:${id}`)
       const answered = journal().filter((e) => e.type === 'esc_answer' && e.id === id)
       assert.equal(answered.length, 1)
       const dir = path.join(dataDir, 'attachments', id)
@@ -1092,7 +1092,7 @@ describe('the console verbs on the loopback surface (#266, real boot)', () => {
   })
 
   test('a mint Action is idempotent and carries the new conversation for immediate navigation', async () => {
-    const action_id = 'atlas-console-new-1'
+    const action_id = 'app-console-new-1'
     const first = JSON.parse((await post('/console/new', { action_id })).body)
 
     assert.equal(first.action.status, 'confirmed')
@@ -1122,9 +1122,9 @@ describe('the console verbs on the loopback surface (#266, real boot)', () => {
   })
 
   test('delete Actions conflict per conversation and a stale delete is refused', async () => {
-    const created = JSON.parse((await post('/console/new', { action_id: 'atlas-console-new-delete' })).body)
+    const created = JSON.parse((await post('/console/new', { action_id: 'app-console-new-delete' })).body)
     const deleted = JSON.parse((await post('/console/delete', {
-      key: created.key, action_id: 'atlas-console-delete-1',
+      key: created.key, action_id: 'app-console-delete-1',
     })).body)
 
     assert.equal(deleted.action.status, 'confirmed')
@@ -1133,7 +1133,7 @@ describe('the console verbs on the loopback surface (#266, real boot)', () => {
     assert.equal(deleted.action.receipt.key, created.key)
 
     const stale = await post('/console/delete', {
-      key: created.key, action_id: 'atlas-console-delete-stale',
+      key: created.key, action_id: 'app-console-delete-stale',
     })
     assert.equal(stale.status, 409)
     const refusal = JSON.parse(stale.body)

@@ -471,13 +471,13 @@ describe('the settings write and the restart (#265)', () => {
       if (r.url === '/repos') return res.end(JSON.stringify({ login: 'alp82', repos: ['o/r', 'o/other'], error: null }))
       if (r.url === '/settings/action') return res.end(JSON.stringify({
         action: {
-          action_id: 'atlas-settings-sidecar-1', kind: 'settings-save', target: 'curia.local.yaml',
+          action_id: 'app-settings-sidecar-1', kind: 'settings-save', target: 'curia.local.yaml',
           conflict_key: 'settings:curia.local.yaml', status: 'progress', progress: 'Writing curia.local.yaml', revision: 1,
         },
       }))
       if (r.url === '/settings/action/finish') return res.end(JSON.stringify({
         action: {
-          action_id: 'atlas-settings-no-change-1', kind: 'settings-save', target: 'curia.local.yaml',
+          action_id: 'app-settings-no-change-1', kind: 'settings-save', target: 'curia.local.yaml',
           conflict_key: 'settings:curia.local.yaml', status: 'confirmed', revision: 2,
           receipt: { written: [], applied: [] },
         },
@@ -657,12 +657,12 @@ describe('the settings write and the restart (#265)', () => {
       ok: true,
       applied: ['dispatch.max_concurrent'],
       action: {
-        action_id: 'atlas-settings-sidecar-1', kind: 'settings-save', target: 'curia.local.yaml',
+        action_id: 'app-settings-sidecar-1', kind: 'settings-save', target: 'curia.local.yaml',
         conflict_key: 'settings:curia.local.yaml', status: 'confirmed', revision: 2,
         receipt: { written: ['curia.local.yaml'], applied: ['dispatch.max_concurrent'] },
       },
     }
-    const res = await save({ action_id: 'atlas-settings-sidecar-1', dispatch: { max_concurrent: 4 } })
+    const res = await save({ action_id: 'app-settings-sidecar-1', dispatch: { max_concurrent: 4 } })
     assert.equal(res.status, 200)
     const body = JSON.parse(res.text)
     assert.deepEqual(daemonCalls.filter((call) => ['/settings/action', '/reload'].includes(call.url)).map((call) => call.url), [
@@ -680,7 +680,7 @@ describe('the settings write and the restart (#265)', () => {
   })
 
   test('an Action that finds no change settles without asking for a reload', async () => {
-    const res = await save({ action_id: 'atlas-settings-no-change-1', dispatch: { max_concurrent: 2 } })
+    const res = await save({ action_id: 'app-settings-no-change-1', dispatch: { max_concurrent: 2 } })
     assert.equal(res.status, 200)
     const body = JSON.parse(res.text)
     assert.equal(body.action.status, 'confirmed')
@@ -768,19 +768,19 @@ describe('the settings write and the restart (#265)', () => {
   test('the restart is the DAEMON\'s to take: the sidecar only orders it', async () => {
     await req(surface.port, '/api/overview', { headers: served() })
     const res = await req(surface.port, '/api/restart', {
-      method: 'POST', headers: writes(), body: { action_id: 'atlas-daemon-restart' },
+      method: 'POST', headers: writes(), body: { action_id: 'app-daemon-restart' },
     })
     assert.equal(res.status, 200)
     assert.equal(JSON.parse(res.text).action.status, 'accepted')
     assert.deepEqual(daemonCalls, [{ method: 'POST', url: '/restart', origin: null }])
-    assert.deepEqual(restartRequestBody, { by: 'dashboard', action_id: 'atlas-daemon-restart', uptime_s: 90 })
-    assert.equal(surface.snapshot.actions[0].action_id, 'atlas-daemon-restart',
+    assert.deepEqual(restartRequestBody, { by: 'dashboard', action_id: 'app-daemon-restart', uptime_s: 90 })
+    assert.equal(surface.snapshot.actions[0].action_id, 'app-daemon-restart',
       'a refresh during process downtime recovers the accepted Action from the held snapshot')
   })
 
   test('the order carries no Origin onward — the daemon refuses every request that does', async () => {
     await req(surface.port, '/api/restart', {
-      method: 'POST', headers: writes(), body: { action_id: 'atlas-daemon-origin' },
+      method: 'POST', headers: writes(), body: { action_id: 'app-daemon-origin' },
     })
     assert.equal(daemonCalls[0].origin, null,
       'the sidecar composes its own call from a route it names in code, never forwards a browser\'s')
@@ -790,7 +790,7 @@ describe('the settings write and the restart (#265)', () => {
     await req(surface.port, '/api/overview', { headers: served() })
     assert.ok(surface.snapshotAt > 0)
     await req(surface.port, '/api/restart', {
-      method: 'POST', headers: writes(), body: { action_id: 'atlas-daemon-reread' },
+      method: 'POST', headers: writes(), body: { action_id: 'app-daemon-reread' },
     })
     assert.equal(surface.snapshotAt, 0)
   })
@@ -798,7 +798,7 @@ describe('the settings write and the restart (#265)', () => {
   test('a daemon that is not answering makes the restart an error, never a silent success', async () => {
     await new Promise((done) => daemon.close(done))
     const res = await req(surface.port, '/api/restart', {
-      method: 'POST', headers: writes(), body: { action_id: 'atlas-daemon-offline' },
+      method: 'POST', headers: writes(), body: { action_id: 'app-daemon-offline' },
     })
     assert.equal(res.status, 500)
     daemon = null
@@ -848,12 +848,12 @@ describe('the settings write and the restart (#265)', () => {
       daemonCalls = []
       aistackRequestBody = null
       const res = await req(surface.port, `/api/aistack/${act}`, {
-        method: 'POST', headers: writes(), body: { action_id: `atlas-aistack-${act}`, version: 'latest', home: '/etc' },
+        method: 'POST', headers: writes(), body: { action_id: `app-aistack-${act}`, version: 'latest', home: '/etc' },
       })
       assert.equal(res.status, 200)
       assert.deepEqual(daemonCalls, [{ method: 'POST', url: `/aistack/${act}`, origin: null }],
         'the route is the whole message, and the fields the browser sent went nowhere')
-      assert.deepEqual(aistackRequestBody, { action_id: `atlas-aistack-${act}` })
+      assert.deepEqual(aistackRequestBody, { action_id: `app-aistack-${act}` })
     }
   })
 
@@ -866,7 +866,7 @@ describe('the settings write and the restart (#265)', () => {
   test('a refusal from the daemon reads as one, not as this box failing', async () => {
     aistackAnswer = { ok: false, error: 'this box is already registered with aistack' }
     const res = await req(surface.port, '/api/aistack/register', {
-      method: 'POST', headers: writes(), body: { action_id: 'atlas-aistack-refused' },
+      method: 'POST', headers: writes(), body: { action_id: 'app-aistack-refused' },
     })
     assert.equal(res.status, 409)
     assert.match(JSON.parse(res.text).error, /already registered/)
@@ -969,7 +969,7 @@ describe('the operator verbs (#266)', () => {
   })
 
   test('a Feed read carries its Action identity and drops the held snapshot for reconciliation (#704, #811)', async () => {
-    const actionId = 'atlas-feed-read-alp'
+    const actionId = 'app-feed-read-alp'
     const evidence = {
       action_id: actionId, kind: 'feed-read', target: 'alp@example.com',
       conflict_key: 'feed-read:alp@example.com', status: 'confirmed', revision: 42,
@@ -984,7 +984,7 @@ describe('the operator verbs (#266)', () => {
   })
 
   test('GitHub App setup keeps conversion inside the daemon', async () => {
-    const actionId = 'atlas-github-app-setup'
+    const actionId = 'app-github-app-setup'
     const started = await press('/api/github-app/start', { name: 'curia-box', action_id: actionId })
     assert.equal(started.status, 200)
     // The redirect is composed from curia's own records - `attachBase()` and
@@ -1005,7 +1005,7 @@ describe('the operator verbs (#266)', () => {
   // GitHub would refuse never reaches the daemon.
   test('the setup start forwards the name and nothing the browser said about the redirect', async () => {
     await press('/api/github-app/start', {
-      name: 'curia-box', redirect_url: 'https://evil.example.com/', action_id: 'atlas-github-app-redirect',
+      name: 'curia-box', redirect_url: 'https://evil.example.com/', action_id: 'app-github-app-redirect',
     })
     assert.equal(sent('/github-app/start').body.redirect_url, 'https://box.tail1234.ts.net:8445/api/github-app/complete')
     calls = []
@@ -1027,10 +1027,10 @@ describe('the operator verbs (#266)', () => {
   // next page read is a fresh one so the owner rows show what was measured.
   test('the installation re-read reaches the daemon as a bare press and drops the snapshot', async () => {
     surface.snapshotAt = Date.now()
-    const out = await press('/api/github-app/refresh', { anything: 'ignored', action_id: 'atlas-github-app-read' })
+    const out = await press('/api/github-app/refresh', { anything: 'ignored', action_id: 'app-github-app-read' })
     assert.equal(out.status, 200)
     assert.equal(sent('/github-app/installations').method, 'POST')
-    assert.deepEqual(sent('/github-app/installations').body, { action_id: 'atlas-github-app-read' })
+    assert.deepEqual(sent('/github-app/installations').body, { action_id: 'app-github-app-read' })
     assert.equal(surface.snapshotAt, 0)
     assert.match(out.text, /Read 1 installation: alp82/)
   })
@@ -1042,7 +1042,7 @@ describe('the operator verbs (#266)', () => {
   // lets through - the gate refuses the rest, which the second press shows.
   test('a caller-written Host header does not move the setup redirect', async () => {
     await press('/api/github-app/start', {
-      name: 'curia-box', action_id: 'atlas-github-app-host',
+      name: 'curia-box', action_id: 'app-github-app-host',
     }, { host: '100.98.118.33:8445' })
     assert.equal(
       sent('/github-app/start').body.redirect_url,
@@ -1060,15 +1060,15 @@ describe('the operator verbs (#266)', () => {
   // so a press journals what a typed line journals.
   test('sign-in composes `reauth <provider>` and carries its Action identity', async () => {
     const accepted = {
-      action_id: 'atlas-reauth-anthropic', kind: 'credential-sign-in', target: 'anthropic',
+      action_id: 'app-reauth-anthropic', kind: 'credential-sign-in', target: 'anthropic',
       conflict_key: 'reauth:anthropic', status: 'accepted', revision: 42,
     }
     reply['/command'] = [200, { action: accepted }]
-    const res = await press('/api/reauth', { provider: 'anthropic', action_id: 'atlas-reauth-anthropic' })
+    const res = await press('/api/reauth', { provider: 'anthropic', action_id: 'app-reauth-anthropic' })
     assert.equal(res.status, 200)
     assert.equal(sent('/command').body.text, 'reauth anthropic')
     assert.equal(sent('/command').body.by, 'alp@example.com')
-    assert.equal(sent('/command').body.action_id, 'atlas-reauth-anthropic')
+    assert.equal(sent('/command').body.action_id, 'app-reauth-anthropic')
     assert.deepEqual(JSON.parse(res.text).action, accepted)
   })
 
@@ -1119,18 +1119,18 @@ describe('the operator verbs (#266)', () => {
   })
 
   test('global search forwards one bounded query and returns typed landing targets', async () => {
-    reply['/search?q=atlas'] = [200, {
-      query: 'atlas', errors: [], results: [{
-        kind: 'map', id: 'o/r#9', title: 'Atlas map', snippet: 'The map frontier', age_s: 60,
+    reply['/search?q=curia'] = [200, {
+      query: 'curia', errors: [], results: [{
+        kind: 'map', id: 'o/r#9', title: 'Curia app map', snippet: 'The map frontier', age_s: 60,
         attention: null, landing: { surface: 'maps', map: 9 },
       }],
     }]
 
-    const res = await read('/api/search?q=%20atlas%20')
+    const res = await read('/api/search?q=%20curia%20')
 
     assert.equal(res.status, 200)
     assert.equal(JSON.parse(res.text).results[0].landing.surface, 'maps')
-    assert.ok(sent('/search?q=atlas'))
+    assert.ok(sent('/search?q=curia'))
     calls = []
     assert.equal((await read('/api/search?q=')).status, 400)
     assert.equal((await read('/api/search?q=' + 'x'.repeat(201))).status, 400)
@@ -1188,28 +1188,28 @@ describe('the operator verbs (#266)', () => {
 
   test('a new conversation is one press, and the daemon mints the number', async () => {
     reply['/console/new'] = [200, { action: { status: 'confirmed' }, key: 'console-4', session: 'curia-console-4' }]
-    const res = await press('/api/console/new', { action_id: 'atlas-console-new-4' })
+    const res = await press('/api/console/new', { action_id: 'app-console-new-4' })
     assert.equal(res.status, 200)
     assert.equal(sent('/console/new').method, 'POST', 'never a GET — a page read must not spend a number')
-    assert.deepEqual(sent('/console/new').body, { action_id: 'atlas-console-new-4' })
+    assert.deepEqual(sent('/console/new').body, { action_id: 'app-console-new-4' })
     assert.equal(JSON.parse(res.text).session, 'curia-console-4')
   })
 
   test('a delete names one key, and a key the daemon does not hold comes back in words', async () => {
     reply['/console/delete'] = [200, { action: { status: 'confirmed', receipt: { key: 'console-2' } } }]
-    assert.equal((await press('/api/console/delete', { key: 'console-2', action_id: 'atlas-console-delete-2' })).status, 200)
-    assert.deepEqual(sent('/console/delete').body, { key: 'console-2', action_id: 'atlas-console-delete-2' })
+    assert.equal((await press('/api/console/delete', { key: 'console-2', action_id: 'app-console-delete-2' })).status, 200)
+    assert.deepEqual(sent('/console/delete').body, { key: 'console-2', action_id: 'app-console-delete-2' })
 
     calls = []
     reply['/console/delete'] = [409, { action: { status: 'refused', reason: 'there is no conversation `console-2`' }, error: 'there is no conversation `console-2`' }]
-    const res = await press('/api/console/delete', { key: 'console-2', action_id: 'atlas-console-delete-stale' })
+    const res = await press('/api/console/delete', { key: 'console-2', action_id: 'app-console-delete-stale' })
     assert.equal(res.status, 200, 'the sidecar carries daemon Action evidence instead of reclassifying it')
     assert.match(JSON.parse(res.text).error, /no conversation/)
   })
 
   test('a key the sidecar does not name is refused here, before the wire', async () => {
     for (const key of ['chat-2', 'console', 'console-2; rm -rf /', 'curia-console-2', '../2']) {
-      const res = await press('/api/console/delete', { key, action_id: 'atlas-console-delete-invalid' })
+      const res = await press('/api/console/delete', { key, action_id: 'app-console-delete-invalid' })
       assert.equal(res.status, 409, key)
       assert.match(JSON.parse(res.text).error, /browser conversation key/)
     }
@@ -1283,14 +1283,14 @@ describe('the operator verbs (#266)', () => {
       ok: false,
       reason: 'answered',
       action: {
-        action_id: 'atlas-answer-esc-7', kind: 'escalation-answer', target: 'esc-7',
+        action_id: 'app-answer-esc-7', kind: 'escalation-answer', target: 'esc-7',
         conflict_key: 'answer:esc-7', status: 'refused', revision: 14,
       },
       receipt: { by: 'phone', via: 'button', at: 'T', answer: 'Preview' },
     }]
-    const res = await press('/api/answer', { id: 'esc-7', index: 1, action_id: 'atlas-answer-esc-7' })
-    assert.equal(sent('/answer').body.action_id, 'atlas-answer-esc-7')
-    assert.equal(res.status, 200, 'Action evidence is data for Atlas, not a sidecar transport failure')
+    const res = await press('/api/answer', { id: 'esc-7', index: 1, action_id: 'app-answer-esc-7' })
+    assert.equal(sent('/answer').body.action_id, 'app-answer-esc-7')
+    assert.equal(res.status, 200, 'Action evidence is data for Curia app, not a sidecar transport failure')
     const body = JSON.parse(res.text)
     assert.equal(body.action.status, 'refused')
     assert.equal(body.receipt.by, 'phone')
@@ -1353,14 +1353,14 @@ describe('the operator verbs (#266)', () => {
 // the chat (#267)
 // ---------------------------------------------------------------------------
 //
-// Chat is a page of Atlas (#711), and the sidecar hands the six routes that
+// Chat is a page of Curia app (#711), and the sidecar hands the six routes that
 // page speaks straight through to the daemon's timeline listener. What matters
 // here is what the pipe does NOT do: it changes no header, so the identity the
 // timeline checks in-process is the identity the browser sent, and it buffers
 // nothing, so an event stream is still a stream. `/chat` is a door for the
 // links an older daemon handed out: it lands on the `#chat/<session>` route.
 
-describe('the chat (#267, a page of Atlas by #711)', () => {
+describe('the chat (#267, a page of Curia app by #711)', () => {
   let surface
   let timeline
   let seen // one entry per request the fake timeline received
@@ -1419,7 +1419,7 @@ describe('the chat (#267, a page of Atlas by #711)', () => {
     timeline?.close()
   })
 
-  test('/chat is a door into the Atlas room, and it asks the timeline for nothing', async () => {
+  test('/chat is a door into the Curia app room, and it asks the timeline for nothing', async () => {
     const res = await req(surface.port, '/chat?session=curia-console-2', { headers: served() })
     assert.equal(res.status, 303)
     assert.equal(res.headers.location, '/#chat/curia-console-2')
@@ -1529,7 +1529,7 @@ describe('the embedded terminal (#714)', () => {
     terminal?.close()
   })
 
-  test('Atlas serves ttyd under one same-origin terminal path', async () => {
+  test('Curia app serves ttyd under one same-origin terminal path', async () => {
     const response = await req(surface.port, TERMINAL_PAGE, { headers: served() })
     assert.equal(response.status, 200)
     assert.match(response.text, /ttyd/)

@@ -1,4 +1,4 @@
-// Creating curia's GitHub App from Atlas (#694, one stack since #764).
+// Creating curia's GitHub App from the Curia app (#694, one stack since #764).
 //
 // Four things are worth pinning: the manifest asks for the five repository
 // permissions and no events, and holds every permission any minted token can
@@ -100,11 +100,11 @@ describe('the manifest (#694)', () => {
     const setup = new GitHubAppSetup(paths('action'))
     setup.start({
       name: 'curia-alp', redirectUrl: 'https://box.example/github-app/complete',
-      actionId: 'atlas-github-app-setup',
+      actionId: 'app-github-app-setup',
     })
 
     const restarted = new GitHubAppSetup(paths('action'))
-    assert.equal(restarted.status().action_id, 'atlas-github-app-setup')
+    assert.equal(restarted.status().action_id, 'app-github-app-setup')
   })
 
   test('a redirect that is not https, or that carries more than a path, refuses', () => {

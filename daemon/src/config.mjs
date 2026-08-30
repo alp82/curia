@@ -222,7 +222,7 @@ export function loadCuriaConfig(file, { checkPaths = true, localFile, env = proc
 
   const a = cfg.attach
   if (!a || typeof a !== 'object') fail(src, '`attach` section missing')
-  // `serve_port` retired with #714: Atlas serves the terminal on its own
+  // `serve_port` retired with #714: Curia app serves the terminal on its own
   // address, and the only thing the daemon does with this port is withdraw
   // the standalone rule an older daemon asserted. Optional with the port that
   // rule always used, so a config that drops the line still withdraws it. It

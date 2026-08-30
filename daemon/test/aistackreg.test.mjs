@@ -214,12 +214,12 @@ describe('one login at a time, and each way it ends (#706)', () => {
       journal: (type, detail) => reduction.journal(type, detail),
     })
 
-    await r.begin({ actionId: 'atlas-aistack-register' })
+    await r.begin({ actionId: 'app-aistack-register' })
     const restarted = new Reduction(data)
 
     assert.deepEqual(restarted.aistackRegistration(), {
       phase: 'waiting', code: 'T72NNC', url: 'https://aistack.to/cli/auth?code=T72NNC',
-      action_id: 'atlas-aistack-register',
+      action_id: 'app-aistack-register',
       started_at: restarted.aistackRegistration().started_at,
       expires_at: restarted.aistackRegistration().expires_at,
     })
