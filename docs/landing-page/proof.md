@@ -16,7 +16,7 @@ answered one round of six questions, one per scene.
 
 **Every story scene is built HTML. No scene shows a screenshot.** The six scenes that show curia
 working are scenes 4 to 9 of [the storyboard](../../prototypes/landing-storyboard/NOTES.md): the
-grilling, the preview, the atlas, the harness, one ticket from issue to merge, and the VPS. The
+grilling, the preview, the app, the harness, one ticket from issue to merge, and the VPS. The
 operator ruled all six the same way, in their own words: "we can build the whole thing in html.
 as realistic as possible. that makes it easier to animate it".
 
@@ -25,7 +25,7 @@ Three rules follow from that round:
 - **Build each scene as realistic as possible.** Realism is the defence against the mockup read.
   HTML is what lets a scene move with the scroll, stay sharp on every screen, and never go stale.
 - **The content stays true.** The grilling question comes from a real escalation. The terminal
-  types lines from a real transcript. The atlas carries real map names. A drawn scene with
+  types lines from a real transcript. The app carries real map names. A drawn scene with
   invented content is the fake proof the brief bans.
 - **The screenshot list for the operator is empty.**
   [Capture the screenshots the story needs](https://github.com/alp82/curia/issues/602) has nothing

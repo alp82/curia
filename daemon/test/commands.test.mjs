@@ -538,8 +538,8 @@ describe('parseCommand', () => {
 })
 
 test('a browser credential sign-in reserves one provider and no other', () => {
-  assert.deepEqual(actionForCommand('reauth anthropic', 'atlas-reauth-anthropic'), {
-    action_id: 'atlas-reauth-anthropic',
+  assert.deepEqual(actionForCommand('reauth anthropic', 'app-reauth-anthropic'), {
+    action_id: 'app-reauth-anthropic',
     kind: 'credential-sign-in',
     target: 'anthropic',
     conflict_key: 'reauth:anthropic',

@@ -8206,7 +8206,7 @@ describe('signing the anthropic lane back in (#660)', () => {
     d.reauth.hasSession = async () => false
     const seen = []
     const action = {
-      actionId: 'atlas-reauth-anthropic',
+      actionId: 'app-reauth-anthropic',
       accept: () => seen.push('accepted'),
       progress: (progress) => seen.push(progress),
     }
@@ -8221,8 +8221,8 @@ describe('signing the anthropic lane back in (#660)', () => {
       'accepted', 'Preparing the agent image', 'Starting the credential sign-in session', 'Waiting for browser sign-in',
     ])
     assert.ok(events.some((event) => event.type === 'reauth_started'
-      && event.action_id === 'atlas-reauth-anthropic'))
-    assert.equal(d.credentialsStatus().reauth.action_id, 'atlas-reauth-anthropic')
+      && event.action_id === 'app-reauth-anthropic'))
+    assert.equal(d.credentialsStatus().reauth.action_id, 'app-reauth-anthropic')
   })
 
   // #661, closing #645 finding 4. The terminal is the path that ALWAYS works —

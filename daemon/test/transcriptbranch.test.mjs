@@ -77,7 +77,7 @@ test('the journal keeps the landing point through a restart', () => {
 })
 
 // The composite send on the Chat stream (#716). The one renderer Discord
-// posts from gives the transcript item its sequence, so Atlas draws the same
+// posts from gives the transcript item its sequence, so Curia app draws the same
 // rails. The deciding message is marked, because the page draws it as the
 // card from the daemon's record.
 const SEND = [

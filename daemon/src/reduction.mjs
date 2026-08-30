@@ -208,7 +208,7 @@ export class Reduction {
     this.transcriptLandings = new Map() // session -> rewind landing and transcript tail (#689)
     this.conversationTurns = new Map() // session -> sent operator turns and the queued notes each one carried (#702)
     this.carriedNotes = new Map() // session -> overseer notes a pane message took but no turn record has claimed yet (#702)
-    this.chatDrafts = new Map() // session -> latest shared Atlas Chat composer text (#821)
+    this.chatDrafts = new Map() // session -> latest shared Curia app Chat composer text (#821)
     this.actions = new Map() // action_id -> latest daemon-owned Action evidence (#803)
     this.revision = 0 // journal order, rebuilt identically on every boot (#803)
     this.seq = 0
@@ -2069,7 +2069,7 @@ export class Reduction {
   }
 
   // The device ceremony's last shared position. Unlike the child process,
-  // this survives a daemon restart and gives every Atlas client the same code,
+  // this survives a daemon restart and gives every Curia app client the same code,
   // expiry, and ending (#815).
   aistackRegistration() {
     return this.aistackFlow ? { ...this.aistackFlow } : null

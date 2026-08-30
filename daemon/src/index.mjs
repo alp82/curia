@@ -67,7 +67,7 @@ import { JournalBackup } from './backup.mjs'
 import { AistackSync } from './aistack.mjs'
 import { AistackRegistration } from './aistackreg.mjs'
 import {
-  probeTtyd, serveOff, attachBase, atlasTerminalUrl, validSessionName,
+  probeTtyd, serveOff, attachBase, appTerminalUrl, validSessionName,
   isConsoleKey, consoleKeyForSession, sessionForConsoleKey,
 } from './attach.mjs'
 import { probeOverseer } from './overseerservice.mjs'
@@ -1550,7 +1550,7 @@ const timelineIdentityCheck = (headers) =>
   identityRefusal(headers, { allow: identityAllow, hosts: timelineHosts })
 
 // /attach continuation: daemon-side whitelist refusal + liveness check, then
-// the same-origin Atlas URL. The dashboard owns the identity check and ttyd
+// the same-origin Curia app URL. The dashboard owns the identity check and ttyd
 // proxy. The legacy standalone terminal address stays withdrawn.
 const attachApi = {
   // `session` names WHICH agent on this ticket (#164): the builder by default,
@@ -1575,7 +1575,7 @@ const attachApi = {
       throw new Error(`the attach surface on ttyd port ${curiaConfig.attach.ttyd_port} is down or stale. Is the compose ttyd service up? See the daemon log.`)
     }
     const base = await attachBase()
-    return atlasTerminalUrl(base, curiaConfig.dashboard.serve_port, session)
+    return appTerminalUrl(base, curiaConfig.dashboard.serve_port, session)
   },
   // The timeline half of /attach (#74): same liveness gate, then the surface
   // composes its own link — or refuses, independently of the terminal half.
@@ -1678,8 +1678,8 @@ const conversationRuntime = new ConversationRuntime({
 const timeline = new TimelineSurface({
   port: curiaConfig.timeline.port,
   servePort: curiaConfig.timeline.serve_port,
-  // The Chat surface is the Atlas page (#711): every chat link lands there.
-  atlasServePort: curiaConfig.dashboard.serve_port,
+  // The Chat surface is the Curia app page (#711): every chat link lands there.
+  appServePort: curiaConfig.dashboard.serve_port,
   index: curiaConfig.timeline.index,
   workspaceRoot: curiaConfig.dispatch.workspace_root,
   log,
@@ -1753,7 +1753,7 @@ const router = new CommandRouter({ dispatcher, attach: attachApi, deploy: selfDe
 // slash verbs and REST use — journalled, logged and routed identically.
 //
 // Discord still uses the request boundary while the shared message renderer
-// moves over. Atlas uses the hosted pane and keeps this client for config and
+// moves over. Curia app uses the hosted pane and keeps this client for config and
 // transcript metadata during that cutover.
 const overseerTurns = new OverseerTurns()
 const overseerContainer = new OverseerClient({
@@ -1945,7 +1945,7 @@ function buildMcpServer(agent, ticket) {
   // `recommended` boolean over.
   // A composite `notify` (#716): every message of the send posts in order,
   // each under its rail, each with its own files, and the whole send journals
-  // once so Atlas and the timeline read the same sequence Discord did. It
+  // once so Curia app and the timeline read the same sequence Discord did. It
   // carries none of the single-call fields: a status line and a send are two
   // shapes, and a call that mixes them is refused before either goes out.
   async function notifyComposite(messages, attachments, raw) {
@@ -3041,7 +3041,7 @@ async function searchIssues(repo, query) {
   return JSON.parse(out).map((issue) => ({ ...issue, repo }))
 }
 
-function atlasSearch() {
+function appSearch() {
   return new GlobalSearch({
     github: githubSearchSource({ repos: () => curiaConfig.watch.map((entry) => entry.repo), searchIssues }),
     journal: journalSearchSource(reduction.db.db),
@@ -3215,7 +3215,7 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
 
   if (url.pathname === '/search' && req.method === 'GET') {
     try {
-      return json(200, await atlasSearch().query(url.searchParams.get('q')))
+      return json(200, await appSearch().query(url.searchParams.get('q')))
     } catch (e) {
       return json(400, { error: e.message })
     }

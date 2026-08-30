@@ -2,7 +2,7 @@
 // locks. A send is an ordered array, it carries at most four messages, at most
 // one of them decides, and the deciding one goes last.
 //
-// Every test here reads PURE DATA. Discord and Atlas are two renderers of what
+// Every test here reads PURE DATA. Discord and Curia app are two renderers of what
 // this module accepts, and #716 builds them.
 
 import { test, describe } from 'node:test'

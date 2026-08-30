@@ -88,8 +88,8 @@ const ahead = (minutes) => new Date(Date.now() + minutes * 60_000).toISOString()
 
 const OVERVIEW = () => ({
   at: at(0),
-  // `config` is the six reloadable settings the daemon is RUNNING (#362). It
-  // agrees with SETTINGS() below on purpose: the ordinary state is a daemon
+  // `config` is the six reloadable settings the service is RUNNING (#362). It
+  // agrees with SETTINGS() below on purpose: the ordinary state is a service
   // running the files, and each test that wants a stale one says so.
   daemon: {
     port: 4271,
@@ -238,7 +238,7 @@ const payload = (overrides = {}) => ({
 })
 
 // The model credentials (#642, #648, #661). The base OVERVIEW carries no
-// `credentials` section on purpose — a daemon older than the section is a real
+// `credentials` section on purpose — a service older than the section is a real
 // wire — so every test that wants one says so, out of these.
 //
 // `lane` is #661's field: what the credential did to the BOX, which is the half
@@ -284,7 +284,7 @@ const text = (html) => html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
 // prototype and deepEqual would refuse it on that alone.
 const plain = (x) => JSON.parse(JSON.stringify(x))
 
-describe('the Atlas frame (#686)', () => {
+describe('the Curia app frame (#686)', () => {
   let page
   let shell
 
@@ -295,13 +295,13 @@ describe('the Atlas frame (#686)', () => {
     page.render()
   })
 
-  test('the desktop drawer names every Atlas screen in the decided order', () => {
+  test('the desktop drawer names every Curia app screen in the decided order', () => {
     const drawer = /<nav class="drawer"[\s\S]*?<\/nav>/.exec(shell)?.[0]
     assert.ok(drawer)
     assert.deepEqual(
       [...drawer.matchAll(/<span class="nav-label">([^<]+)<\/span>/g)].map((match) => match[1]),
       // Credentials sits between Chat and Settings (#661). It landed while the
-      // Atlas frame was in review, so the two agreed on every screen but this
+      // Curia app frame was in review, so the two agreed on every screen but this
       // one until they met on `main`.
       ['Home', 'Maps', 'Agents', 'Feed', 'Chat', 'Credentials', 'Settings'],
     )
@@ -341,7 +341,7 @@ describe('the Atlas frame (#686)', () => {
     page.settings.dispatch.poll_interval_s = 5
     page.render()
     assert.match(shell, /class="nav-marker"[^>]*>stale<\/span>/)
-    assert.doesNotMatch(shell, /title="the daemon is not running these files">●/)
+    assert.doesNotMatch(shell, /title="the service is not running these files">●/)
   })
 
   test('light and dark themes state the same browser color contract', () => {
@@ -378,7 +378,7 @@ describe('the read screens (#264)', () => {
   before(() => { page = loadPage() })
 
   describe('home — the all-three (#248)', () => {
-    test('Atlas Home leads with the verdict and keeps map progress, momentum, and the type mix in one glance', () => {
+    test('Curia app Home leads with the verdict and keeps map progress, momentum, and the type mix in one glance', () => {
       const t = text(page.screenHome(payload()))
       assert.match(t, /2 needs you.*3 agents live/)
       assert.match(t, /Curia gets a face.*18\/22.*2 fog/)
@@ -797,10 +797,10 @@ describe('the read screens (#264)', () => {
       const el = { innerHTML: '' }
       page.document.getElementById = () => el
       page.render()
-      assert.equal(page.document.title, '(2) Atlas · Curia')
+      assert.equal(page.document.title, '(2) Curia app')
       page.payload = payload({ escalations: [], review_gate: [] })
       page.render()
-      assert.equal(page.document.title, 'Atlas · Curia')
+      assert.equal(page.document.title, 'Curia app')
       page.document.getElementById = () => null
     })
 
@@ -1233,7 +1233,7 @@ describe('the read screens (#264)', () => {
       assert.match(el.innerHTML, /class="notchbar"/)
       assert.match(el.innerHTML, /class="agents-key[^\"]*"/)
       const desktop = el.innerHTML.slice(el.innerHTML.indexOf('drawer'), el.innerHTML.indexOf('</nav>'))
-      assert.match(text(desktop), /curia · atlas Home 2 Maps Agents Feed Chat Credentials Settings/)
+      assert.match(text(desktop), /curia · app Home 2 Maps Agents Feed Chat Credentials Settings/)
       page.document.getElementById = () => null
     })
   })
@@ -1252,7 +1252,7 @@ describe('the read screens (#264)', () => {
       assert.deepEqual(posts.map(([u, i]) => [u, i.method, JSON.parse(i.body).action_id]), [
         ['/api/feed/read', 'POST', action.action_id],
       ])
-      assert.ok(!p.localStorage.getItem('atlas.feed.last-read:alp82@example.com'), 'no browser-local copy: the journal is the one record')
+      assert.ok(!p.localStorage.getItem('curia.app.feed.last-read:alp82@example.com'), 'no browser-local copy: the journal is the one record')
     })
 
     test('a first visit under a login draws no marker', () => {
@@ -1352,7 +1352,7 @@ describe('the read screens (#264)', () => {
     })
 
     test('an event nobody wrote prose for is still legible', () => {
-      // `credentials_swept` has no line in the table on purpose: the daemon
+      // `credentials_swept` has no line in the table on purpose: the service
       // grows event types, and the page must not go blank on the day one ships.
       const t = text(page.screenFeed(payload()))
       assert.match(t, /credentials swept — curia-263 · alp82\/curia#263/)
@@ -1431,7 +1431,7 @@ describe('the read screens (#264)', () => {
   })
 
   describe('the marker every screen carries (#263)', () => {
-    test('a daemon that is not answering shows the age of the held snapshot', () => {
+    test('a service that is not answering shows the age of the held snapshot', () => {
       page.reachable = true
       const p = payload()
       p.daemon_up = false
@@ -1439,7 +1439,7 @@ describe('the read screens (#264)', () => {
       p.error_since = at(30)
       p.read_at = at(90)
       const t = text(page.screenHome(p))
-      assert.match(t, /daemon restarting/)
+      assert.match(t, /service restarting/)
       assert.match(t, /showing the snapshot from 2m ago/)
       assert.match(t, /connect ECONNREFUSED/)
       assert.match(t, /Fleet \(3\)/, 'and the held snapshot is still drawn')
@@ -1455,21 +1455,21 @@ describe('the read screens (#264)', () => {
   describe('global search', () => {
     test('the header lens opens typed results with snippets, ages, attention words, and owning destinations', () => {
       page.UI.search = {
-        open: true, q: 'atlas', loading: false, error: null,
-        result: { query: 'atlas', errors: [], results: [
-          { kind: 'ticket', title: 'Build Atlas', snippet: 'One Atlas address', age_s: 60, attention: 'needs_you', landing: { surface: 'chat', conversation: 'curia-684' } },
-          { kind: 'map', title: 'Atlas map', snippet: 'The route', age_s: 120, attention: null, landing: { surface: 'maps', map: 244 } },
-          { kind: 'journal', title: 'Agent started', snippet: 'Atlas work began', age_s: 180, attention: null, landing: { surface: 'feed', event: 'event-4' } },
-          { kind: 'decision', title: 'Keep one spec', snippet: 'Atlas and Discord', age_s: 240, attention: null, landing: { surface: 'github', url: 'https://github.com/alp82/curia/issues/685' } },
+        open: true, q: 'curia', loading: false, error: null,
+        result: { query: 'curia', errors: [], results: [
+          { kind: 'ticket', title: 'Build Curia app', snippet: 'One Curia app address', age_s: 60, attention: 'needs_you', landing: { surface: 'chat', conversation: 'curia-684' } },
+          { kind: 'map', title: 'Curia app map', snippet: 'The route', age_s: 120, attention: null, landing: { surface: 'maps', map: 244 } },
+          { kind: 'journal', title: 'Agent started', snippet: 'Curia app work began', age_s: 180, attention: null, landing: { surface: 'feed', event: 'event-4' } },
+          { kind: 'decision', title: 'Keep one spec', snippet: 'Curia app and Discord', age_s: 240, attention: null, landing: { surface: 'github', url: 'https://github.com/alp82/curia/issues/685' } },
         ] },
       }
       assert.match(page.screenHome(payload()), /class="search-lens"/)
       const html = page.searchOverlay()
       const t = text(html)
       assert.match(html, /class="search-sheet"/)
-      assert.match(t, /needs you Build Atlas One Atlas address 1m Chat/)
-      assert.match(t, /map Atlas map The route 2m Maps/)
-      assert.match(t, /journal Agent started Atlas work began 3m Feed/)
+      assert.match(t, /needs you Build Curia app One Curia app address 1m Chat/)
+      assert.match(t, /map Curia app map The route 2m Maps/)
+      assert.match(t, /journal Agent started Curia app work began 3m Feed/)
       assert.match(html, /href="https:\/\/github\.com\/alp82\/curia\/issues\/685"/)
 
       page.payload = payload()
@@ -1480,13 +1480,13 @@ describe('the read screens (#264)', () => {
 
       page.UI.search.q = 'notes'
       page.searchGo('feed', 'event-4')
-      assert.match(page.atlasFeed(page.payload.overview), /class="feed-news needs focus"/)
+      assert.match(page.appFeed(page.payload.overview), /class="feed-news needs focus"/)
     })
 
     test('a ticket or chat hit opens the Chat room for that conversation', () => {
       page.payload = payload()
-      page.UI.search = { open: true, q: 'atlas', loading: false, error: null, result: { query: 'atlas', errors: [], results: [
-        { kind: 'chat', title: 'Chat curia-684', snippet: 'One Atlas address', age_s: 5, attention: null, landing: { surface: 'chat', conversation: 'curia-684' } },
+      page.UI.search = { open: true, q: 'curia', loading: false, error: null, result: { query: 'curia', errors: [], results: [
+        { kind: 'chat', title: 'Chat curia-684', snippet: 'One Curia app address', age_s: 5, attention: null, landing: { surface: 'chat', conversation: 'curia-684' } },
       ] } }
       assert.match(page.searchOverlay(), /href="#chat\/curia-684"[^>]*onclick="searchGo\('chat','curia-684'\)/)
 
@@ -1651,7 +1651,7 @@ describe('the settings screen (#265)', () => {
 
   // ---- the drill-in frame (#699) -------------------------------------------
   //
-  // The shape every later Atlas section page renders inside. What is pinned
+  // The shape every later Curia app section page renders inside. What is pinned
   // here is the frame's contract rather than these four sections' words: one
   // list, one open section, a way back, and a read that a section takes on
   // arrival instead of on every poll.
@@ -1721,7 +1721,7 @@ describe('the settings screen (#265)', () => {
     page.draft.routing.defaults.push({ type: 'map', model: 'fable' })
     page.settings.routing.defaults.push({ type: 'map', model: 'fable' })
     const t = text(screen('routing'))
-    assert.match(t, /Switched off\. The daemon refuses this config\./)
+    assert.match(t, /Switched off\. The service refuses this config\./)
   })
 
   // ---- projects ------------------------------------------------------------
@@ -1760,7 +1760,7 @@ describe('the settings screen (#265)', () => {
     assert.match(t, /prototype_variations/)
     assert.match(t, /messages_per_send/)
     assert.match(t, /live_pane_cap/)
-    assert.ok(!t.includes('workspace_root'), 'a path on the daemon\'s filesystem is not a thing this screen writes')
+    assert.ok(!t.includes('workspace_root'), 'a path on the service\'s filesystem is not a thing this screen writes')
   })
 
   // The #525 decision: a row says its key and nothing else until the `?` is
@@ -1891,7 +1891,7 @@ describe('the settings screen (#265)', () => {
     assert.equal(action.status, 'pending')
     assert.match(text(screen('dispatch')), /Saving settings/)
     assert.ok(page.beginAction({
-      action_id: 'atlas-unrelated-action-1', kind: 'chat-message', target: 'console-1', conflict_key: 'turn:console-1',
+      action_id: 'app-unrelated-action-1', kind: 'chat-message', target: 'console-1', conflict_key: 'turn:console-1',
     }), 'a settings file reservation does not take the global Action lock')
 
     answer({
@@ -1908,12 +1908,12 @@ describe('the settings screen (#265)', () => {
     })
     await saving
     assert.equal(page.actionFor({ action_id: action.action_id }), null)
-    assert.match(text(screen('dispatch')), /The daemon is running it/)
+    assert.match(text(screen('dispatch')), /The service is running it/)
   })
 
-  test('a refresh recovers settings write progress and reconciles the daemon apply receipt', () => {
+  test('a refresh recovers settings write progress and reconciles the service apply receipt', () => {
     const shared = {
-      action_id: 'atlas-settings-recovered-1', kind: 'settings-save', target: 'curia.local.yaml',
+      action_id: 'app-settings-recovered-1', kind: 'settings-save', target: 'curia.local.yaml',
       conflict_key: 'settings:curia.local.yaml', status: 'progress', revision: 10,
       progress: 'Applying settings',
     }
@@ -1929,35 +1929,35 @@ describe('the settings screen (#265)', () => {
     }])
     page.reconcileSettingsActions()
     assert.equal(page.actionFor({ action_id: shared.action_id }), null)
-    assert.match(text(screen('dispatch')), /The daemon did not apply it.*sandbox\.image/)
+    assert.match(text(screen('dispatch')), /The service did not apply it.*sandbox\.image/)
   })
 
-  test('applied: one sentence, and no button — the daemon took it', () => {
+  test('applied: one sentence, and no button — the service took it', () => {
     page.UI.set.phase = 'applied'
     page.UI.set.note = 'Wrote curia.local.yaml, atomically, with the comments kept.'
     const html = screen()
     assert.match(text(html), /saved ✓/)
-    assert.match(text(html), /The daemon is running it\./)
+    assert.match(text(html), /The service is running it\./)
     assert.ok(!html.includes('doRestart()'), 'an applied save needs no button at all')
   })
 
   test('declined: the key that differs is named, and the restart is the mitigation', () => {
     page.UI.set.phase = 'declined'
     page.UI.set.note = 'Wrote curia.local.yaml, atomically, with the comments kept.'
-    page.UI.set.error = 'curia.yaml `dispatch.workspace_root` changed, and that key is not one a reload applies — restart the daemon to take it'
+    page.UI.set.error = 'curia.yaml `dispatch.workspace_root` changed, and that key is not one a reload applies — restart the service to take it'
     const html = screen()
     assert.match(html, /restart-hot/, 'the restart is the loud one here, because it is what applies the file')
-    assert.match(text(html), /The daemon did not apply it\./)
+    assert.match(text(html), /The service did not apply it\./)
     assert.match(text(html), /dispatch\.workspace_root/)
   })
 
-  test('the daemon is down: the file is saved, no button, and the next boot is what takes it', () => {
+  test('the service is down: the file is saved, no button, and the next boot is what takes it', () => {
     page.UI.set.phase = 'offline'
-    page.UI.set.error = 'the daemon did not answer /reload within 4s'
+    page.UI.set.error = 'the service did not answer /reload within 4s'
     const html = screen()
-    assert.ok(!html.includes('doRestart()'), 'a restart is not the mitigation for a daemon that is already not answering')
+    assert.ok(!html.includes('doRestart()'), 'a restart is not the mitigation for a service that is already not answering')
     assert.match(text(html), /takes this file at its next boot/)
-    assert.match(text(html), /the daemon log names the key/)
+    assert.match(text(html), /the service log names the key/)
   })
 
   test('a refused save keeps the draft on screen and says nothing was written', () => {
@@ -2002,7 +2002,7 @@ describe('the settings screen (#265)', () => {
     page.UI.drill.settings = { open: 'connections', list: false }
     const html = page.screenSettings(p)
     const t = text(html)
-    assert.match(t, /No GitHub App is configured\. Create one from Atlas\./)
+    assert.match(t, /No GitHub App is configured\. Create one from the Curia app\./)
     assert.match(html, /href="https:\/\/github\.com\/settings\/apps\/new"/, 'the manual setup link is reachable')
     assert.match(html, /doGitHubAppSetup\(\)/)
     assert.doesNotMatch(html, /doGitHubAppRefresh\(\)/, 'nothing to re-read before an app exists')
@@ -2044,7 +2044,7 @@ describe('the settings screen (#265)', () => {
       installations: { state: 'unread', at: null, error: null }, owners: [], manual_url: null,
     }
     local.observeActions([{
-      action_id: 'atlas-github-app-read', kind: 'github-app-installations', target: 'github-app-installations',
+      action_id: 'app-github-app-read', kind: 'github-app-installations', target: 'github-app-installations',
       conflict_key: 'github-app:installations', status: 'progress', revision: 4,
       progress: 'Reading GitHub App installations',
     }])
@@ -2055,13 +2055,13 @@ describe('the settings screen (#265)', () => {
     assert.match(html, /button class="btn" disabled/)
 
     local.observeActions([{
-      action_id: 'atlas-github-app-read', kind: 'github-app-installations', target: 'github-app-installations',
+      action_id: 'app-github-app-read', kind: 'github-app-installations', target: 'github-app-installations',
       conflict_key: 'github-app:installations', status: 'failed', revision: 5,
       reason: 'The installation read failed: GitHub answered 502',
     }])
     local.reconcileGitHubAppActions()
 
-    assert.equal(local.actionFor({ action_id: 'atlas-github-app-read' }), null)
+    assert.equal(local.actionFor({ action_id: 'app-github-app-read' }), null)
     html = local.screenSettings(p)
     assert.match(text(html), /The installation read failed: GitHub answered 502/)
     assert.doesNotMatch(html, /button class="btn" disabled/)
@@ -2182,7 +2182,7 @@ describe('the settings screen (#265)', () => {
       flow: { phase: 'waiting', code: 'T72NNC', url: 'https://aistack.to/cli/auth?code=T72NNC' },
     }
     page.beginAction({
-      action_id: 'atlas-register-in-flight', kind: 'aistack-register', target: 'aistack-machine',
+      action_id: 'app-register-in-flight', kind: 'aistack-register', target: 'aistack-machine',
       conflict_key: 'aistack:machine-registration', projection: { phase: 'waiting' },
     })
 
@@ -2206,7 +2206,7 @@ describe('the settings screen (#265)', () => {
       flow: { phase: 'registered' },
     }
     const shared = {
-      action_id: 'atlas-aistack-optin', kind: 'aistack-optin', target: 'aistack-machine',
+      action_id: 'app-aistack-optin', kind: 'aistack-optin', target: 'aistack-machine',
       conflict_key: 'aistack:machine-registration', status: 'progress', revision: 4,
       progress: 'Granting the standing permission', started_at: 1, updated_at: 2,
     }
@@ -2288,10 +2288,10 @@ describe('the settings screen (#265)', () => {
     assert.match(t, /sync\.log/)
   })
 
-  // A daemon that is not answering is where this section's whole answer lives,
+  // A service that is not answering is where this section's whole answer lives,
   // so it says that rather than "not registered", which is a different fact.
-  test('a daemon that cannot be asked is unknown, never unregistered', () => {
-    page.aistack = { ok: false, error: 'the daemon did not answer /aistack within 10s' }
+  test('a service that cannot be asked is unknown, never unregistered', () => {
+    page.aistack = { ok: false, error: 'the service did not answer /aistack within 10s' }
     const t = text(screen('aistack'))
     assert.match(t, /curia cannot say whether this box is registered/)
     assert.ok(!t.includes('not an aistack machine'))
@@ -2305,7 +2305,7 @@ describe('the settings screen (#265)', () => {
   })
 
   // The whole point of keeping the flow daemon-side. The section draws what the
-  // daemon hands it, and the daemon hands it no secret — so a status that
+  // daemon hands it, and the service hands it no secret — so a status that
   // somehow carried one still has no line here that would draw it.
   test('nothing the section draws comes out of the credential file', () => {
     page.aistack = {
@@ -2323,33 +2323,33 @@ describe('the settings screen (#265)', () => {
 
   // ---- maintenance, and the marker on the nav (#362) ------------------------
 
-  test('maintenance reads last, and says the daemon runs the files when it does', () => {
+  test('maintenance reads last, and says the service runs the files when it does', () => {
     const html = screen('maintenance')
-    assert.match(text(html), /The daemon is running these files\./)
+    assert.match(text(html), /The service is running these files\./)
     assert.ok(!html.includes('restart-hot'), 'an ordinary restart button, because nothing disagrees')
     assert.match(html, /doRestart\(\)/, 'the one restart button lives here now')
     assert.deepEqual(rows(html), ['routing', 'projects', 'dispatch', 'connections', 'aistack', 'maintenance'], 'the sixth section, and it reads last')
   })
 
-  test('a daemon running something else names the keys, and the button goes red', () => {
+  test('a service running something else names the keys, and the button goes red', () => {
     page.settings.dispatch.max_concurrent = 9
     page.settings.routing.models[0].active = true
     page.draft = JSON.parse(JSON.stringify(page.settings))
     const html = screen('maintenance')
     assert.match(html, /restart-hot/)
-    assert.match(text(html), /The daemon is NOT running the files/)
+    assert.match(text(html), /The service is NOT running the files/)
     assert.match(text(html), /dispatch\.max_concurrent, routing\.models\.fable\.active/)
   })
 
-  // Null is not agreement. A daemon that is not answering says what WAS true.
-  test('a daemon that is not answering is unknown, never in step', () => {
+  // Null is not agreement. A service that is not answering says what WAS true.
+  test('a service that is not answering is unknown, never in step', () => {
     const p = { ...payload(), daemon_up: false }
     assert.equal(page.runningDiff(p), null)
     page.UI.drill.settings = { open: 'maintenance', list: false }
-    assert.match(text(page.screenSettings(p)), /cannot tell whether the daemon runs these files: it is not answering/)
+    assert.match(text(page.screenSettings(p)), /cannot tell whether the service runs these files: it is not answering/)
   })
 
-  test('restart projects immediately under the daemon lifecycle conflict', async () => {
+  test('restart projects immediately under the service lifecycle conflict', async () => {
     let release
     let sent
     page = loadPage({
@@ -2367,7 +2367,7 @@ describe('the settings screen (#265)', () => {
     const action = page.actionFor({ conflict_key: 'daemon:lifecycle' })
     assert.equal(action.status, 'pending')
     assert.equal(action.projection.uptime_s, 7200)
-    assert.match(text(screen('maintenance')), /Restarting daemon/)
+    assert.match(text(screen('maintenance')), /Restarting service/)
     assert.deepEqual(sent, { url: '/api/restart', body: { action_id: action.action_id } })
 
     release({
@@ -2397,8 +2397,8 @@ describe('the settings screen (#265)', () => {
 
   test('restart recovers after refresh and settles from daemon health and fresh uptime', () => {
     const shared = {
-      action_id: 'atlas-daemon-recovery', kind: 'daemon-restart', target: 'daemon', conflict_key: 'daemon:lifecycle',
-      status: 'progress', progress: 'Restarting daemon', revision: 20,
+      action_id: 'app-daemon-recovery', kind: 'daemon-restart', target: 'daemon', conflict_key: 'daemon:lifecycle',
+      status: 'progress', progress: 'Restarting service', revision: 20,
       receipt: { uptime_s: 7200, requested_at: at(5), exit_code: 75 },
     }
     let reading = payload({ actions: [shared] })
@@ -2407,7 +2407,7 @@ describe('the settings screen (#265)', () => {
     page.reconcileDaemonRestartActions(reading)
 
     assert.equal(page.actionFor({ conflict_key: 'daemon:lifecycle' }).status, 'progress')
-    assert.match(text(screen('maintenance')), /Restarting daemon/)
+    assert.match(text(screen('maintenance')), /Restarting service/)
 
     reading = payload({
       actions: [{
@@ -2420,7 +2420,7 @@ describe('the settings screen (#265)', () => {
     page.reconcileDaemonRestartActions(reading)
 
     assert.equal(page.actionFor({ conflict_key: 'daemon:lifecycle' }), null)
-    assert.match(text(screen('maintenance')), /The daemon restarted and is answering/)
+    assert.match(text(screen('maintenance')), /The service restarted and is answering/)
   })
 
   test('a lost restart receipt remains ambiguous until health evidence arrives', async () => {
@@ -2434,17 +2434,17 @@ describe('the settings screen (#265)', () => {
     assert.equal(page.actionFor({ conflict_key: 'daemon:lifecycle' }).status, 'pending')
     const t = text(screen('maintenance'))
     assert.match(t, /may have taken the restart order/)
-    assert.match(t, /bar above says whether the daemon is answering/)
+    assert.match(t, /bar above says whether the service is answering/)
     assert.doesNotMatch(t, /Refused — nothing was written/)
   })
 
-  test('the settings nav item carries a marker while the daemon and the files disagree', () => {
+  test('the settings nav item carries a marker while the service and the files disagree', () => {
     // `render` needs a mount point; everything else about the shell is inert.
     let html = ''
     page.document.getElementById = (id) => (id === 'app' ? { set innerHTML(v) { html = v } } : null)
     page.payload = payload()
     page.render()
-    assert.ok(!/Settings <span class="n">/.test(html), 'nothing to say while the daemon runs the files')
+    assert.ok(!/Settings <span class="n">/.test(html), 'nothing to say while the service runs the files')
     page.settings.dispatch.poll_interval_s = 5
     page.render()
     assert.match(html, /<span class="nav-label">Settings<\/span><span class="nav-marker">stale<\/span>/)
@@ -2452,10 +2452,10 @@ describe('the settings screen (#265)', () => {
 
   test('a restart the journal recorded reads as a sentence in the feed', () => {
     const p = payload({ events: [{ ts: at(30), type: 'restart_requested', by: 'dashboard', exit_code: 75 }] })
-    assert.match(text(page.screenFeed(p)), /restart ordered by dashboard — the daemon exits 75/)
+    assert.match(text(page.screenFeed(p)), /restart ordered by dashboard — the service exits 75/)
   })
 
-  test('the reload reads as a sentence too, and so does one the daemon declined', () => {
+  test('the reload reads as a sentence too, and so does one the service declined', () => {
     const p = payload({
       events: [
         { ts: at(40), type: 'config_reloaded', by: 'alp@example.com', keys: ['dispatch.max_concurrent', 'watch'] },
@@ -2468,7 +2468,7 @@ describe('the settings screen (#265)', () => {
   })
 })
 
-describe('Atlas Action bookkeeping', () => {
+describe('Curia app Action bookkeeping', () => {
   let page
   beforeEach(() => { page = loadPage() })
 
@@ -2706,7 +2706,7 @@ describe('the operator verbs (#266)', () => {
         ...action, status: 'progress', revision: 30, progress: 'Preparing the agent workspace',
       }])
 
-      rejectStart(new Error('the daemon did not answer /command within 5s'))
+      rejectStart(new Error('the service did not answer /command within 5s'))
       await pending
 
       assert.equal(local.UI.act.said, null)
@@ -2831,7 +2831,7 @@ describe('the operator verbs (#266)', () => {
         assert.equal(posted.body.id, 'esc-7')
         assert.equal(posted.body.index, 1)
         assert.deepEqual(posted.body.files, [])
-        assert.match(posted.body.action_id, /^atlas-/)
+        assert.match(posted.body.action_id, /^app-/)
         const t = text(local.screenHome(p))
         assert.match(t, /✅ answered by alp via button .*: Option 1, with its whole/)
         assert.doesNotMatch(t, /already answered/, 'the receipt, not the refusal')
@@ -2855,7 +2855,7 @@ describe('the operator verbs (#266)', () => {
       assert.match(page.screenHome(payload()), /answerTyped\('esc-7','ans-esc-7',escRecord\('esc-7'\)\)/)
     })
 
-    test('an approve-reject pair sends the two literals the daemon classifies', () => {
+    test('an approve-reject pair sends the two literals the service classifies', () => {
       const p = payload()
       p.overview.escalations[0].kind = 'approve-reject'
       p.overview.escalations[0].options = null
@@ -3064,7 +3064,7 @@ describe('the operator verbs (#266)', () => {
         next_needs: [{ headline: 'Review the map.', agent: 'curia-8', ticket: '8' }],
       })
       assert.match(said, /Answered/)
-      assert.doesNotMatch(said, /Review the map/, 'the daemon orders next_needs by age, and Atlas ranks as Home does instead')
+      assert.doesNotMatch(said, /Review the map/, 'the service orders next_needs by age, and Curia app ranks as Home does instead')
     })
 
     test('an in-flight answer leaves an independent Start control available', () => {
@@ -3250,9 +3250,9 @@ describe('the operator verbs (#266)', () => {
 //
 // The screen draws no message and frames nothing: the chat is the timeline
 // page, served at /chat. So what a test can pin is what the door SAYS — who is
-// behind it, where it goes, and that a daemon which is not answering is a chat
+// behind it, where it goes, and that a service which is not answering is a chat
 // that is not there, because every message reaches the overseer container
-// through the daemon (#315).
+// through the service (#315).
 
 describe('the chat screen (#267, the picker of #333)', () => {
   let page
@@ -3278,7 +3278,7 @@ describe('the chat screen (#267, the picker of #333)', () => {
   test('the picker has a Tickets section and an Overseer section, each with its own titles', () => {
     page.conversations = { conversations: [
       conv({ kind: 'overseer', deletable: true }),
-      conv({ kind: 'ticket', deletable: false, key: 'alp82/curia#684', session: 'curia-684', state: 'working', label: 'Build Atlas', repo: 'alp82/curia', ticket: 684, live: true }),
+      conv({ kind: 'ticket', deletable: false, key: 'alp82/curia#684', session: 'curia-684', state: 'working', label: 'Build Curia app', repo: 'alp82/curia', ticket: 684, live: true }),
       conv({ kind: 'ticket', deletable: false, key: 'alp82/curia#240', session: 'curia-240', state: 'done', label: 'Old work', repo: 'alp82/curia', ticket: 240, live: false }),
     ] }
     const html = page.screenChat(payload())
@@ -3288,7 +3288,7 @@ describe('the chat screen (#267, the picker of #333)', () => {
     const tickets = t.slice(t.indexOf('Tickets'), t.indexOf('Overseer'))
     const overseer = t.slice(t.indexOf('Overseer'))
     // a ticket row is titled by its tracker name and issue title
-    assert.match(tickets, /Build Atlas alp82\/curia#684 · working/)
+    assert.match(tickets, /Build Curia app alp82\/curia#684 · working/)
     // an ended agent stays in the list and says so
     assert.match(tickets, /Old work alp82\/curia#240 · ended · done/)
     assert.match(html, /<tr class="ended">[\s\S]*?href="#chat\/curia-240"/)
@@ -3323,10 +3323,10 @@ describe('the chat screen (#267, the picker of #333)', () => {
   })
 
   test('a list curia could not be asked for is not an empty one', () => {
-    page.conversations = { conversations: null, error: 'the daemon answered 500 on /console' }
+    page.conversations = { conversations: null, error: 'the service answered 500 on /console' }
     const t = text(page.screenChat(payload()))
     assert.match(t, /could not read your conversations/)
-    assert.match(t, /the daemon answered 500/)
+    assert.match(t, /the service answered 500/)
     assert.doesNotMatch(t, /No overseer conversation yet/)
   })
 
@@ -3430,19 +3430,19 @@ describe('the chat screen (#267, the picker of #333)', () => {
 
   test('it states the one thing the overseer cannot do, rather than leaving it to be found', () => {
     // #315: the overseer holds a reading shell now, so the limit that is left
-    // is the write — the read-only token, and every effect crossing the daemon.
+    // is the write — the read-only token, and every effect crossing the service.
     assert.match(text(page.screenChat(payload())), /it cannot write one/)
     assert.match(text(page.screenChat(payload())), /read-only/)
   })
 
-  test('a daemon that is not answering is a chat that is not there, and says which', () => {
+  test('a service that is not answering is a chat that is not there, and says which', () => {
     const p = payload()
     p.daemon_up = false
     p.error = 'connect ECONNREFUSED'
     p.error_since = at(30)
     const t = text(page.screenChat(p))
-    assert.match(t, /The chat is down while the daemon restarts/)
-    assert.match(t, /daemon restarting/, 'and the reading marker still says why')
+    assert.match(t, /The chat is down while the service restarts/)
+    assert.match(t, /service restarting/, 'and the reading marker still says why')
   })
 
   // The room (#711). It renders from `chat`, and the stream writes there
@@ -3452,7 +3452,7 @@ describe('the chat screen (#267, the picker of #333)', () => {
     beforeEach(() => {
       page.applyChatRoute(['chat', 'curia-684'])
       page.conversations = { conversations: [
-        conv({ kind: 'ticket', deletable: false, key: 'alp82/curia#684', session: 'curia-684', state: 'working', label: 'Build Atlas', repo: 'alp82/curia', ticket: 684, live: true }),
+        conv({ kind: 'ticket', deletable: false, key: 'alp82/curia#684', session: 'curia-684', state: 'working', label: 'Build Curia app', repo: 'alp82/curia', ticket: 684, live: true }),
         conv({ key: 'console-2', session: 'curia-console-2' }),
       ] }
     })
@@ -3461,7 +3461,7 @@ describe('the chat screen (#267, the picker of #333)', () => {
     test('#chat/<session> is the room, and the tab press is the picker again', () => {
       assert.equal(page.chat.session, 'curia-684')
       const html = page.screenChat(payload())
-      assert.match(text(html), /Build Atlas/)
+      assert.match(text(html), /Build Curia app/)
       assert.match(text(html), /ticket · curia-684 connecting/)
       assert.match(html, /href="#chat">← Chat</)
       assert.match(html, /id="chat-box"/, 'a live agent takes words')
@@ -3521,7 +3521,7 @@ describe('the chat screen (#267, the picker of #333)', () => {
       assert.doesNotMatch(one, /class="rail"[^<]*<\/span>[^<]*One message/)
     })
 
-    test('the daemon\'s escalation record interleaves with the transcript, and an open one is a banner', () => {
+    test('the service\'s escalation record interleaves with the transcript, and an open one is a banner', () => {
       page.chatReceive('items', [{ kind: 'say', text: 'first', at: at(300) }, { kind: 'say', text: 'third', at: at(100) }])
       page.chatReceive('esc_history', [{ id: 'esc-7', kind: 'question', prompt: 'Which branch?', options: ['a', 'b'], opened_at: at(200), closed_at: at(150), status: 'answered', answer: 'a', answered_by: 'alp', answered_via: 'dashboard' }])
       page.chatReceive('escalations', [{ id: 'esc-8', kind: 'question', prompt: 'Ship it?', options: null, opened_at: at(50), nudges: 0 }])
@@ -3541,7 +3541,7 @@ describe('the chat screen (#267, the picker of #333)', () => {
       assert.equal(page.chat.terminal, true)
       const dock = page.terminalDock()
       assert.match(dock, /<iframe src="\/terminal\/\?arg=curia-684"/)
-      assert.doesNotMatch(dock, /touch|Esc|Tab/, 'Atlas adds no key row of its own; ttyd\'s page carries it on a coarse pointer')
+      assert.doesNotMatch(dock, /touch|Esc|Tab/, 'Curia app adds no key row of its own; ttyd\'s page carries it on a coarse pointer')
       html = page.screenChat(payload())
       assert.match(text(html), /Hide terminal/)
       page.chatToggleTerminal()
@@ -3618,7 +3618,7 @@ describe('the chat screen (#267, the picker of #333)', () => {
       } })
       room.applyChatRoute(['chat', 'curia-684'])
       room.conversations = { conversations: [
-        conv({ kind: 'ticket', deletable: false, key: 'alp82/curia#684', session: 'curia-684', state: 'working', label: 'Build Atlas', repo: 'alp82/curia', ticket: 684, live: true }),
+        conv({ kind: 'ticket', deletable: false, key: 'alp82/curia#684', session: 'curia-684', state: 'working', label: 'Build Curia app', repo: 'alp82/curia', ticket: 684, live: true }),
       ] }
       room.beginLocalAction('chat-send')
 
@@ -3705,33 +3705,33 @@ describe('the chat screen (#267, the picker of #333)', () => {
     test('shared sent evidence clears the matching pending text before the next overview', () => {
       page.chat.draft = 'sent through the stream'
       page.beginAction({
-        action_id: 'atlas-stream-send', kind: 'chat-message', target: 'curia-684',
+        action_id: 'app-stream-send', kind: 'chat-message', target: 'curia-684',
         conflict_key: 'turn:curia-684', projection: { text: 'sent through the stream' },
       })
 
       page.chatReceive('sent', {
-        text: 'sent through the stream', by: page.chat.client, action_id: 'atlas-stream-send',
+        text: 'sent through the stream', by: page.chat.client, action_id: 'app-stream-send',
       })
 
       assert.equal(page.chat.draft, '')
-      assert.ok(page.actionFor({ action_id: 'atlas-stream-send' }), 'overview still owns terminal reconciliation')
-      page.finishAction('atlas-stream-send')
+      assert.ok(page.actionFor({ action_id: 'app-stream-send' }), 'overview still owns terminal reconciliation')
+      page.finishAction('app-stream-send')
     })
 
     test('shared message progress is visible at the conversation composer', () => {
       page.beginAction({
-        action_id: 'atlas-overseer-progress', kind: 'chat-message', target: 'curia-684',
+        action_id: 'app-overseer-progress', kind: 'chat-message', target: 'curia-684',
         conflict_key: 'turn:curia-684', projection: { text: 'inspect the map' },
       })
       page.observeActions([{
-        action_id: 'atlas-overseer-progress', kind: 'chat-message', target: 'curia-684',
+        action_id: 'app-overseer-progress', kind: 'chat-message', target: 'curia-684',
         conflict_key: 'turn:curia-684', status: 'progress', revision: 11,
         progress: 'Message delivered; waiting for the overseer response',
         receipt: { outcome: 'delivered' },
       }])
 
       assert.match(text(page.screenChat(payload())), /Message delivered; waiting for the overseer response/)
-      page.finishAction('atlas-overseer-progress')
+      page.finishAction('app-overseer-progress')
     })
 
     test('Take back projects a rewind immediately and reconciles the shared composer and landing', async () => {
@@ -3792,7 +3792,7 @@ describe('the chat screen (#267, the picker of #333)', () => {
     test('refresh recovers another device\'s pending take back and its terminal result', async () => {
       const p = payload()
       p.overview.actions = [{
-        action_id: 'atlas-phone-take-back', kind: 'chat-take-back', target: 'curia-684',
+        action_id: 'app-phone-take-back', kind: 'chat-take-back', target: 'curia-684',
         conflict_key: 'turn:curia-684', status: 'accepted', revision: 20,
         progress: 'Rewinding the conversation…',
       }]
@@ -3801,7 +3801,7 @@ describe('the chat screen (#267, the picker of #333)', () => {
 
       await room.tick()
 
-      assert.equal(room.actionFor({ conflict_key: 'turn:curia-684' }).action_id, 'atlas-phone-take-back')
+      assert.equal(room.actionFor({ conflict_key: 'turn:curia-684' }).action_id, 'app-phone-take-back')
       assert.match(text(room.screenChat(room.payload)), /Rewinding the conversation…/)
 
       p.overview.actions = [{
@@ -3817,7 +3817,7 @@ describe('the chat screen (#267, the picker of #333)', () => {
       }]
       await room.tick()
 
-      assert.equal(room.actionFor({ action_id: 'atlas-phone-take-back' }), null)
+      assert.equal(room.actionFor({ action_id: 'app-phone-take-back' }), null)
       assert.equal(room.chat.draft, 'Edit these recovered words.')
       assert.match(text(room.screenChat(room.payload)), /conversation continues after “Earlier turn.”/i)
       room.applyChatRoute([])
@@ -3826,7 +3826,7 @@ describe('the chat screen (#267, the picker of #333)', () => {
     test('a cold refresh applies recent terminal take-back evidence once', async () => {
       const p = payload()
       p.overview.actions = [{
-        action_id: 'atlas-finished-take-back', kind: 'chat-take-back', target: 'curia-684',
+        action_id: 'app-finished-take-back', kind: 'chat-take-back', target: 'curia-684',
         conflict_key: 'turn:curia-684', status: 'confirmed', revision: 24,
         receipt: {
           composer: 'Recovered after refresh.', correction: null,
@@ -3905,7 +3905,7 @@ describe('the chat screen (#267, the picker of #333)', () => {
       } })
       room.applyChatRoute(['chat', 'curia-684'])
       room.conversations = { conversations: [
-        conv({ kind: 'ticket', deletable: false, key: 'alp82/curia#684', session: 'curia-684', state: 'working', label: 'Build Atlas', repo: 'alp82/curia', ticket: 684, live: true }),
+        conv({ kind: 'ticket', deletable: false, key: 'alp82/curia#684', session: 'curia-684', state: 'working', label: 'Build Curia app', repo: 'alp82/curia', ticket: 684, live: true }),
       ] }
 
       room.doChatKey('escape')
@@ -3934,9 +3934,9 @@ describe('the chat screen (#267, the picker of #333)', () => {
       let html = page.screenChat(payload())
       assert.match(html, /doDialogAnswer\('native-1', 2\)/)
       assert.match(text(html), /Which branch\? 1 · Stable · selected now 2 · Preview/)
-      page.chatReceive('dialog', { up: false, receipt: { dialog: 'native-1', index: 2, marker: '2', answer: 'Preview', by: 'atlas', at: at(1) } })
+      page.chatReceive('dialog', { up: false, receipt: { dialog: 'native-1', index: 2, marker: '2', answer: 'Preview', by: 'curia', at: at(1) } })
       html = page.screenChat(payload())
-      assert.match(text(html), /answered · atlas .* 2 · Preview/)
+      assert.match(text(html), /answered · curia .* 2 · Preview/)
       assert.doesNotMatch(html, /doDialogAnswer/)
     })
 
@@ -3951,7 +3951,7 @@ describe('the chat screen (#267, the picker of #333)', () => {
       assert.doesNotMatch(text(page.screenChat(payload())), /native dialog/)
     })
 
-    // The tap is the whole seam between the card and the daemon: it sends the
+    // The tap is the whole seam between the card and the service: it sends the
     // option index for the card the page holds, and a second tap gets the
     // first receipt (#712's rule) rather than a second answer.
     test('a native dialog choice projects immediately under its own dialog conflict', () => {
@@ -4010,7 +4010,7 @@ describe('the chat screen (#267, the picker of #333)', () => {
     test('refresh recovers another client\'s native-dialog claim until the shared receipt arrives', async () => {
       const p = payload()
       p.overview.actions = [{
-        action_id: 'atlas-dialog-phone', kind: 'native-dialog-answer',
+        action_id: 'app-dialog-phone', kind: 'native-dialog-answer',
         target: 'curia-684:native-3', conflict_key: 'dialog:curia-684:native-3',
         status: 'accepted', revision: 11, progress: 'Choosing B · Preview…',
       }]
@@ -4020,10 +4020,10 @@ describe('the chat screen (#267, the picker of #333)', () => {
 
       await room.tick()
 
-      assert.equal(room.actionFor({ conflict_key: 'dialog:curia-684:native-3' }).action_id, 'atlas-dialog-phone')
+      assert.equal(room.actionFor({ conflict_key: 'dialog:curia-684:native-3' }).action_id, 'app-dialog-phone')
       assert.match(text(room.screenChat(room.payload)), /Choosing B · Preview…/)
       room.chatReceive('dialog', { up: false, receipt: { dialog: 'native-3', index: 2, marker: 'B', answer: 'Preview', by: 'phone', at: at(1) } })
-      assert.equal(room.actionFor({ action_id: 'atlas-dialog-phone' }), null)
+      assert.equal(room.actionFor({ action_id: 'app-dialog-phone' }), null)
       assert.match(text(room.screenChat(room.payload)), /answered · phone .* B · Preview/)
       room.applyChatRoute([])
     })
@@ -4157,7 +4157,7 @@ describe('the Credentials screen (#661)', () => {
       ...action, status: 'progress', revision: 30, progress: 'Preparing the agent image',
     }])
     assert.match(text(local.screenCredentials(local.payload)), /Preparing the agent image/)
-    rejectRequest(new Error('the daemon did not answer /command within 5s'))
+    rejectRequest(new Error('the service did not answer /command within 5s'))
     await pending
 
     assert.equal(local.actionFor({ action_id: action.action_id }).status, 'progress')
@@ -4264,11 +4264,11 @@ describe('the Credentials screen (#661)', () => {
 
   // `unowned` is the state this screen exists to make legible: on the attention
   // list it was an ABSENCE, and an absence reads as nothing rather than as a
-  // fact about what this daemon owns.
+  // fact about what this service owns.
   test('unowned is a row with nothing to press, not a missing row', () => {
     const t = text(page.screenCredentials(payload({
       credentials: {
-        consumers: [{ consumer: 'codex', provider: 'openai', state: 'unowned', expires_at: null, lane: LANE('openai'), why: 'this daemon brokers no model credential for that provider' }],
+        consumers: [{ consumer: 'codex', provider: 'openai', state: 'unowned', expires_at: null, lane: LANE('openai'), why: 'this service brokers no model credential for that provider' }],
         reauth: null,
       },
     })))
@@ -4277,9 +4277,9 @@ describe('the Credentials screen (#661)', () => {
     assert.match(t, /nothing to press/)
   })
 
-  // Null is not empty (rule 2). A daemon older than this page answers with no
+  // Null is not empty (rule 2). A service older than this page answers with no
   // credentials section at all, and that is not a box that owns none.
-  test('a snapshot with no credentials section is not a daemon with no credentials', () => {
+  test('a snapshot with no credentials section is not a service with no credentials', () => {
     const t = text(page.screenCredentials(payload({ credentials: undefined })))
     assert.match(t, /carries no credentials section/)
     assert.match(t, /older than this page/)

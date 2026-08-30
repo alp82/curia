@@ -26,23 +26,23 @@ describe('global operator search (#693)', () => {
     })
     const search = new GlobalSearch({
       github: source('github', [
-        { kind: 'ticket', id: 'alp82/curia#684', title: 'Build Atlas', snippet: 'Atlas operator surface', updated_at: '2026-08-25T10:00:00Z', attention: 'needs you', conversation: 'curia-684' },
-        { kind: 'map', id: 'alp82/curia#685', title: 'Atlas map', snippet: 'Execution map', updated_at: '2026-08-25T09:00:00Z', map: 685 },
-        { kind: 'decision', id: 'decision:685:1', title: 'Keep one spec', snippet: 'Atlas and Discord', updated_at: '2026-08-24T09:00:00Z', url: 'https://github.com/alp82/curia/issues/685' },
+        { kind: 'ticket', id: 'alp82/curia#684', title: 'Build Curia app', snippet: 'Curia app operator surface', updated_at: '2026-08-25T10:00:00Z', attention: 'needs you', conversation: 'curia-684' },
+        { kind: 'map', id: 'alp82/curia#685', title: 'Curia app map', snippet: 'Execution map', updated_at: '2026-08-25T09:00:00Z', map: 685 },
+        { kind: 'decision', id: 'decision:685:1', title: 'Keep one spec', snippet: 'Curia app and Discord', updated_at: '2026-08-24T09:00:00Z', url: 'https://github.com/alp82/curia/issues/685' },
       ]),
       journal: source('journal', [
         { kind: 'journal', id: 'event-4', title: 'Agent started', snippet: 'curia-684', at: '2026-08-25T08:00:00Z' },
       ]),
       transcripts: source('transcripts', [
-        { kind: 'chat', id: 'console-2:7', title: 'Atlas discussion', snippet: 'show every map', at: '2026-08-25T07:00:00Z', conversation: 'console-2' },
+        { kind: 'chat', id: 'console-2:7', title: 'Curia app discussion', snippet: 'show every map', at: '2026-08-25T07:00:00Z', conversation: 'console-2' },
       ]),
       now: () => Date.parse('2026-08-25T11:00:00Z'),
     })
 
-    const result = await search.query('atlas')
+    const result = await search.query('curia')
 
     assert.deepEqual(calls.sort(), [
-      ['github', 'atlas'], ['journal', 'atlas'], ['transcripts', 'atlas'],
+      ['github', 'curia'], ['journal', 'curia'], ['transcripts', 'curia'],
     ])
     assert.deepEqual(result.results.map(({ kind, landing }) => ({ kind, landing })), [
       { kind: 'ticket', landing: { surface: 'chat', conversation: 'curia-684' } },

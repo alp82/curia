@@ -19,7 +19,7 @@
   no others, except the five condensed setup steps, which #587 left open.
   The visual baseline is the saga variant of prototypes/living-organism/
   (#508). Every proof scene is built HTML, ruled at #601: the Discord thread,
-  the phone, the atlas, the terminal, the ticket run and the box are drawn in
+  the phone, the app, the terminal, the ticket run and the box are drawn in
   HTML from real records, and no scene shows a screenshot.
 
   No sound and no bottom bar (docs/landing-page/positioning.md). The system
@@ -87,7 +87,7 @@
   .perf-lite .scene .shot > *,
   .perf-lite #preview .pv-dev,
   .perf-lite #preview .pv-desk,
-  .perf-lite #atlas .at-scr,
+  .perf-lite #app .at-scr,
   .perf-lite #term-scene .tm-stage,
   .perf-lite .dc { filter: none !important; }
   .perf-lite .pv-bar,
@@ -262,7 +262,7 @@
   /* The identity, locked at #624 over five operator rounds: duotone.
      Every scene owns a designed hue pair (--g1/--g2 inline on its
      section), leaning toward the hue of its medium: Discord blurple,
-     tailnet teal, atlas cyan, terminal green, gate indigo, merged
+     tailnet teal, app cyan, terminal green, gate indigo, merged
      forest. A stage-colored glow orb burns on the docking side as
      the scene arrives (--p, scroll-driven), over a fine grain, and
      the cut between scenes is the color boundary itself. Words are
@@ -1119,10 +1119,10 @@
   }
 
   /* ================================================================
-     Scene 6 — the atlas (#628). TWO screens of curia's own dashboard,
+     Scene 6 — the app (#628). TWO screens from the Curia app,
      tilted to face a claim that stands between them.
 
-     Both screens redraw a DECIDED curia screen in the V6 dashboard
+     Both screens redraw a DECIDED Curia app screen in the V6 app
      tokens (#519):
 
      - the home is the synthesis home of prototypes/home-directions/
@@ -1169,7 +1169,7 @@
   .at > .mp-scr { grid-area: mp; }
   /* #773 round 3: on a phone the two screens share one spot, each tilted
      toward the other, and take turns in front like flip covers. The
-     script turns them; without it the atlas stays in front. */
+     script turns them; without it the app stays in front. */
   @media (max-width: 40rem) {
     .at { grid-template-areas: "claim" "scr"; }
     .at > .hm-scr, .at > .mp-scr {
@@ -1208,11 +1208,11 @@
      .shot that used to carry that filter is gone from this scene, so
      the screens carry it themselves. And they come in with opacity
      alone, because a reveal transform would fight the tilt. */
-  #atlas .at-scr { filter: saturate(calc(0.6 + 0.4 * var(--p, 1))); }
-  .js #atlas .at-scr { opacity: 0; transition: opacity 0.55s var(--ease); }
-  .js #atlas.seen .at-scr { opacity: 1; }
-  .js #atlas.seen .mp-scr { transition-delay: 0.12s; }
-  #atlas .claim { position: relative; z-index: 4; }
+  #app .at-scr { filter: saturate(calc(0.6 + 0.4 * var(--p, 1))); }
+  .js #app .at-scr { opacity: 0; transition: opacity 0.55s var(--ease); }
+  .js #app.seen .at-scr { opacity: 1; }
+  .js #app.seen .mp-scr { transition-delay: 0.12s; }
+  #app .claim { position: relative; z-index: 4; }
   .at-ht {
     display: flex; justify-content: space-between; gap: 0.5rem;
     padding: 0.55rem 0.9rem; border-bottom: 1px solid #20242c;
@@ -1268,7 +1268,7 @@
   .at-nm { font-weight: 700; font-size: 0.8rem; min-width: 0; }
   .at-meta { margin: 0.2rem 0 0; font: 0.58rem var(--mono); color: #8a93a3; }
 
-  #atlas .rl { margin-top: 0.75rem; }
+  #app .rl { margin-top: 0.75rem; }
   .rrow {
     position: relative; display: flex; align-items: center; gap: 0.55rem;
     padding: 0.36rem 0 0.36rem 1.4rem; font-size: 0.74rem;
@@ -1300,7 +1300,7 @@
      nobody has specified yet. */
   /* #773 round 2: a phone keeps the dial, the running agent, two maps,
      the walked line and the frontier. The third map, the five blocked
-     rows and the fog go: the scene is the dashboard, not its depth. */
+     rows and the fog go: the scene is the app, not its depth. */
   @media (max-width: 40rem) {
     .hm-maps .quest:nth-child(n + 3), .waitr, .fogs { display: none; }
   }
@@ -1395,7 +1395,7 @@
 
      The scene is ONE composition canvas — the claim, the terminal and
      the fact line are grid items of .tm. No .wrap and no .shot: that
-     pair broke the preview scene at #627 round 3 and the atlas at #628
+     pair broke the preview scene at #627 round 3 and the app at #628
      round 2, at a desktop width no agent here can see.
 
      ROUND 3 varies the one thing round 2 opened and nothing else: how
@@ -1635,7 +1635,7 @@
         sends for the review kind (#escalationBody + reviewGateText):
         the head, curia's own question, what the agent did, the
         charting it proposes, the links, the two small-print lines,
-        and three buttons. Reject is RED, because the daemon builds it
+        and three buttons. Reject is RED, because the service builds it
         with ButtonStyle.Danger and the old card had it grey.
 
      Round 1 offers five ways to read the same six events, ?id=1..5.
@@ -1810,7 +1810,7 @@
        section, so maybe we should build upon those here too
 
        then when we have those, we should fill those shells with actual
-       simple spaced content. like curia atlas should look like a simple
+       simple spaced content. like curia app should look like a simple
        website that shows the frontier with the start button inside
        prominently
 
@@ -2423,7 +2423,7 @@
   @media (prefers-reduced-motion: reduce) {
     html { scroll-behavior: auto; }
     .js .rv, .js .tw { opacity: 1 !important; transform: none !important; clip-path: none !important; }
-    .js #atlas .at-scr { opacity: 1; }
+    .js #app .at-scr { opacity: 1; }
     .js .claim::before { transform: none !important; }
     * { animation-duration: 0.001ms !important; }
     .arc-words { padding-top: 4rem; }
@@ -2790,10 +2790,10 @@
     </div>
   </section>
 
-  <!-- Scene 6 · the atlas (#628). TWO screens of curia's own
-       dashboard, tilted to face a claim that stands between them.
+  <!-- Scene 6 · the app (#628). TWO screens from the Curia
+       app, tilted to face a claim that stands between them.
 
-       Both redraw decided curia screens in the V6 dashboard tokens:
+       Both redraw decided Curia screens in the V6 app tokens:
        the home is the synthesis home of prototypes/home-directions/
        (#519), and the map is the stops line of
        prototypes/frontier-visual/ (#588) — the blocked in their
@@ -2809,17 +2809,17 @@
        60rem. ?id=1..5 puts a composition class on the canvas, so the
        screens are written once and the page reads whole with no
        script. -->
-  <section class="scene sL" id="atlas" data-stage="agent" data-n="05" data-name="the atlas" style="--g1:#0e1c26;--g2:#081018">
+  <section class="scene sL" id="app" data-stage="agent" data-n="05" data-name="the app" style="--g1:#0e1c26;--g2:#081018">
     <div class="at" id="at">
       <header class="claim rv">
-        <p class="kick"><span class="kn">05</span><span class="kname">the atlas</span></p>
-        <h2 class="bold">A dashboard that shows where every map stands and which agents are
+        <p class="kick"><span class="kn">05</span><span class="kname">the app</span></p>
+        <h2 class="bold">The Curia app shows where every map stands and which agents are
           currently running.</h2>
       </header>
 
       <!-- the home screen (#519) -->
       <div class="at-scr hm-scr">
-        <div class="at-ht"><span>curia · atlas</span><span class="needs">1 needs you</span></div>
+        <div class="at-ht"><span>curia · app</span><span class="needs">1 needs you</span></div>
         <div class="at-body">
           <div class="hm-core">
             <div class="hm-ring">
@@ -2834,12 +2834,12 @@
           </div>
           <h3 class="hm-h">Agents</h3>
           <div class="hm-row"><i class="dot"></i>
-            <span class="ttl">claude · The atlas scene of the story page<span class="sub">#628 · prototype · claude-opus-5</span></span>
+            <span class="ttl">claude · The app scene of the story page<span class="sub">#628 · prototype · claude-opus-5</span></span>
             <span class="go">chat →</span></div>
           <h3 class="hm-h">Maps</h3>
           <div class="hm-maps">
             <div class="quest">
-              <div class="l1"><span class="ttl">Build the Atlas operator experience</span><span class="num">8/42</span></div>
+              <div class="l1"><span class="ttl">Build the Curia app operator experience</span><span class="num">8/42</span></div>
               <div class="qbar"><i style="width:19%"></i></div>
             </div>
             <div class="quest">
@@ -2856,7 +2856,7 @@
 
       <!-- the map screen (#588, the decided stops line) -->
       <div class="at-scr mp-scr">
-        <div class="at-ht"><span>curia · atlas · maps</span><span>#600</span></div>
+        <div class="at-ht"><span>curia · app · maps</span><span>#600</span></div>
         <div class="at-body">
           <div class="at-head">
             <span class="at-frac">10<span>/16</span><span class="fg">+2</span></span>
@@ -2867,7 +2867,7 @@
             <div class="rrow dim"><i class="stop s-walk"></i>
               <span class="ttl">10 walked<span class="sub">#627 the preview · #626 the Discord scene · #625 the opening arc</span></span></div>
             <div class="rrow"><i class="stop s-run"></i>
-              <span class="ttl">The atlas scene of the story page<span class="sub">runs · claude-opus-5 · #628</span></span>
+              <span class="ttl">The app scene of the story page<span class="sub">runs · claude-opus-5 · #628</span></span>
               <span class="go">chat →</span></div>
             <div class="front"><span class="frontlbl">the frontier</span><span class="frule"></span><span class="fcap">0 takeable</span></div>
             <div class="rrow below dim"><i class="stop s-fog"></i>
@@ -2875,7 +2875,7 @@
           </div>
           <div class="waitr">
             <p class="slbl">blocked · 5</p>
-            <div class="wrow"><i class="s-waitr"></i><span class="ttl">The terminal scene of the story page<span class="sub">#629 · behind the atlas scene</span></span></div>
+            <div class="wrow"><i class="s-waitr"></i><span class="ttl">The terminal scene of the story page<span class="sub">#629 · behind the app scene</span></span></div>
             <div class="wrow"><i class="s-waitr"></i><span class="ttl">The ticket run scene of the story page<span class="sub">#630 · behind the terminal scene</span></span></div>
             <div class="wrow"><i class="s-waitr"></i><span class="ttl">The VPS scene of the story page<span class="sub">#631 · behind the ticket run scene</span></span></div>
             <div class="wrow"><i class="s-waitr"></i><span class="ttl">Cut over to the story page<span class="sub">#604 · behind the VPS scene</span></span></div>
@@ -3111,13 +3111,13 @@
           <div>
             <div class="r8-lane" data-app="curia">
               <div class="pv-win">
-                <div class="pv-wt"><s></s><s></s><s></s><span class="wu"><b>box.tailnet.ts.net</b>/atlas</span></div>
+                <div class="pv-wt"><s></s><s></s><s></s><span class="wu"><b>box.tailnet.ts.net</b>/</span></div>
                 <div class="r12-app">
                   <div class="r12-bar">
                     <svg class="r8-mk" viewBox="0 0 16 16" aria-hidden="true"><use href="#mk-curia"/></svg>
                     <b>curia</b>
                   </div>
-                  <div class="r12-nav"><span class="on">Atlas</span><span>Maps</span><span>Agents</span><span>Settings</span></div>
+                  <div class="r12-nav"><span class="on">Curia app</span><span>Maps</span><span>Agents</span><span>Settings</span></div>
                   <div class="r12-body">
                     <div class="r10-front"><span>The frontier</span><s></s><em>1 takeable</em></div>
                     <div class="r10-tile">
@@ -3467,7 +3467,7 @@ function revealEverything() {
   reveal([].slice.call(document.querySelectorAll('.rv, .tw')));
   /* Scenes whose evidence comes in on opacity alone read that class
      rather than .in, so the fail-open path has to set it too. */
-  [].slice.call(document.querySelectorAll('#atlas, #preview')).forEach(function (n) {
+  [].slice.call(document.querySelectorAll('#app, #preview')).forEach(function (n) {
     n.classList.add('seen');
   });
 }
@@ -3508,7 +3508,7 @@ if (prefersStill || !window.IntersectionObserver) {
      transform would fight the tilt a composition puts on them. The
      scene carries the class and the screens read it. */
   (function () {
-    var at = document.getElementById('atlas');
+    var at = document.getElementById('app');
     if (!at) return;
     /* #773 round 3: on a phone the two screens take turns in front. */
     var grid = null, flipTimer = null;

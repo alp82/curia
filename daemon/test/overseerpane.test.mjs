@@ -144,7 +144,7 @@ describe('overseer conversations use the pane host (#688, #701)', () => {
     assert.deepEqual(state.pane.sends, [])
   })
 
-  test('pane names preserve Atlas routes and isolate other identities', () => {
+  test('pane names preserve Curia app routes and isolate other identities', () => {
     assert.equal(overseerPaneName('console-12'), 'curia-console-12')
     assert.equal(overseerPaneName('688'), 'curia-overseer-688')
     assert.match(overseerPaneName('discord/thread:12'), /^curia-overseer-[a-f0-9]{16}$/)
@@ -153,7 +153,7 @@ describe('overseer conversations use the pane host (#688, #701)', () => {
     assert.throws(() => overseerPaneSession('ticket-688'), /conversation key/)
   })
 
-  test('a deleted Atlas conversation cannot create or arm a pane', async () => {
+  test('a deleted Curia app conversation cannot create or arm a pane', async () => {
     const reduction = { ...storeDouble(), hasConsoleConversation: () => false }
     const state = hosted({ reduction })
 
@@ -377,7 +377,7 @@ describe('one complete pane message (#708)', () => {
       }),
     })
 
-    const out = await host.deliver('console-4', 'read the atlas scene')
+    const out = await host.deliver('console-4', 'read the curia scene')
 
     const sent = calls.sent[0].text
     assert.match(sent, /alp82\/orca is STALE/)

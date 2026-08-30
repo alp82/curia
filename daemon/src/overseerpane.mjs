@@ -275,7 +275,7 @@ export class OverseerPaneHost {
     this.containerId = containerId
     this.newSessionId = newSessionId
     this.livePaneCap = livePaneCap
-    // Read the watch list for each message. Atlas can change the list while the
+    // Read the watch list for each message. Curia app can change the list while the
     // daemon and a pane remain live.
     this.watchRepos = watchRepos
     this.startTimeoutMs = startTimeoutMs

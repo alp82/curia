@@ -3,7 +3,7 @@
 // `send.mjs` is the CONTRACT: how many messages a send carries, which one may
 // decide, where it sits, and which fields each format takes. This module is
 // the one renderer over that contract, and both operator surfaces read it.
-// Discord posts each rendered message as its own post, and Atlas Chat draws
+// Discord posts each rendered message as its own post, and Curia app Chat draws
 // the same sequence from the call the transcript carries, so neither surface
 // infers a message's intent on its own.
 //

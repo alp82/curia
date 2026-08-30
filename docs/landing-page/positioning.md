@@ -63,7 +63,7 @@ second app. No board to keep in sync.
 Rests on:
 
 - [ADR-0001](../adr/0001-github-is-the-only-durable-state-home.md) — GitHub is the only durable
-  state home; the daemon owns no authoritative state and re-derives everything after a crash.
+  state home; the service owns no authoritative state and re-derives everything after a crash.
 - [ADR-0004](../adr/0004-label-only-routing.md) — label-only routing. No model sits in the dispatch
   path.
 - `daemon/src/dispatch.mjs` — the frontier reads every watched repo, map lane before flat lane,
@@ -121,7 +121,7 @@ The proof brief is [`proof.md`](proof.md); what follows is what became of each i
 
 - **This page was planned, decided and written by curia itself** — agents dispatched from a Discord
   thread, grilling the operator, opening pull requests, and merging on approval. **On the page**, as
-  a line pointing at the merged pull requests, each stamped by the daemon with its session and model.
+  a line pointing at the merged pull requests, each stamped by the service with its session and model.
   The page said "charted" until 2026-08-05. That word is on this brief's own banned list of internal
   vocabulary, so [Polish the live page](https://github.com/alp82/curia/issues/137) replaced it.
 - **The rehearsal survived two daemon restarts inside one pass** — one while an agent's question was

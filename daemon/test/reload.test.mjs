@@ -202,7 +202,7 @@ describe('POST /reload (index.mjs, real boot)', () => {
 
   test('a settings save advances from write to apply through durable Action evidence', async () => {
     const action = {
-      action_id: 'atlas-settings-action-1',
+      action_id: 'app-settings-action-1',
       paths: ['curia.local.yaml'],
       by: 'alp@example.com',
     }
@@ -226,18 +226,18 @@ describe('POST /reload (index.mjs, real boot)', () => {
 
   test('settings Actions conflict by affected path, not through a global lock', async () => {
     const curia = await settingsAction({
-      action_id: 'atlas-settings-conflict-1', paths: ['curia.local.yaml'], by: 'alp@example.com',
+      action_id: 'app-settings-conflict-1', paths: ['curia.local.yaml'], by: 'alp@example.com',
     })
     assert.equal(curia.action.status, 'progress')
 
     const samePath = await settingsAction({
-      action_id: 'atlas-settings-conflict-2', paths: ['curia.local.yaml'], by: 'alp@example.com',
+      action_id: 'app-settings-conflict-2', paths: ['curia.local.yaml'], by: 'alp@example.com',
     })
     assert.equal(samePath.action.status, 'refused')
     assert.match(samePath.action.reason, /already being saved/)
 
     const routing = await settingsAction({
-      action_id: 'atlas-settings-conflict-3', paths: ['routing.local.yaml'], by: 'alp@example.com',
+      action_id: 'app-settings-conflict-3', paths: ['routing.local.yaml'], by: 'alp@example.com',
     })
     assert.equal(routing.action.status, 'progress', 'an unrelated settings path stays available')
 

@@ -135,7 +135,7 @@ describe('shared Action evidence', () => {
 
   test('daemon lifecycle evidence reconciles a restart Action after the process exits', () => {
     const restart = {
-      action_id: 'atlas-daemon-restart', kind: 'daemon-restart', target: 'daemon', conflict_key: 'daemon:lifecycle',
+      action_id: 'app-daemon-restart', kind: 'daemon-restart', target: 'daemon', conflict_key: 'daemon:lifecycle',
     }
     reduction.recordAction({ ...restart, status: 'accepted' })
     reduction.journal('restart_requested', {
@@ -174,7 +174,7 @@ describe('shared Action evidence', () => {
 
   test('credential sign-in facts reconcile progress and every ending after restart', async () => {
     const signIn = {
-      action_id: 'atlas-reauth-openai', kind: 'credential-sign-in', target: 'openai', conflict_key: 'reauth:openai',
+      action_id: 'app-reauth-openai', kind: 'credential-sign-in', target: 'openai', conflict_key: 'reauth:openai',
     }
     await actions.run(signIn, async ({ accept, progress }) => {
       accept()
@@ -194,7 +194,7 @@ describe('shared Action evidence', () => {
       ['reauth_code_expired', 'the one-time code expired'],
       ['reauth_abandoned', 'the sign-in session ended'],
     ]) {
-      const id = `atlas-${event}`
+      const id = `app-${event}`
       await actions.run({ ...signIn, action_id: id }, async ({ accept }) => {
         accept()
         return { status: 'progress' }
@@ -208,6 +208,6 @@ describe('shared Action evidence', () => {
     reduction = new Reduction(dir)
     actions = new ActionCoordinator(reduction)
     assert.equal(actions.get(signIn.action_id).status, 'confirmed')
-    assert.equal(actions.get('atlas-reauth_abandoned').status, 'failed')
+    assert.equal(actions.get('app-reauth_abandoned').status, 'failed')
   })
 })

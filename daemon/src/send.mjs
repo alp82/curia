@@ -9,7 +9,7 @@
 // So this module is the payload contract of that array and nothing else. It
 // says how many messages a send carries, which one may decide, where that one
 // sits, and which fields each format is allowed. It reads pure data and it
-// touches no surface: Discord and Atlas are two renderers of what it accepts,
+// touches no surface: Discord and Curia app are two renderers of what it accepts,
 // and #716 builds them.
 //
 // NOTHING LOOSENS. Every entry is one of the shapes ADR-0019 already types, and

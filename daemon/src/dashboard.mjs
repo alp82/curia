@@ -342,7 +342,7 @@ function words(value, what) {
   return s
 }
 
-// The chat (#267, a page of Atlas since #711). The Atlas page draws the
+// The chat (#267, a page of Curia app since #711). The Curia app page draws the
 // transcript and the composer itself, and the six routes it speaks are handed
 // straight through to the daemon's timeline listener on loopback. The
 // timeline's own Serve rule retired with #711: this is the only way in.
@@ -809,10 +809,10 @@ export class DashboardSurface {
     req.pipe(up)
   }
 
-  // The terminal shares Atlas's address. HTTP serves ttyd's built page and the
+  // The terminal shares Curia app's address. HTTP serves ttyd's built page and the
   // WebSocket carries its PTY. The sidecar checks identity and Origin before it
   // opens either path, then rewrites the upstream origin to ttyd's loopback
-  // address. ttyd receives no operator identity and holds no Atlas secret.
+  // address. ttyd receives no operator identity and holds no Curia app secret.
   #terminal(req, res, upstreamPath) {
     if (!this.terminalPort) {
       res.writeHead(503, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' })

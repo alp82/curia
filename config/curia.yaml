@@ -33,7 +33,7 @@ dispatch:
 
 attach:
   ttyd_port: 7681
-  # Retired by #714: the terminal is embedded in Atlas Chat through the
+  # Retired by #714: the terminal is embedded in Curia app Chat through the
   # sidecar's same-origin /terminal/ route. The daemon only withdraws the
   # standalone Serve rule an older daemon asserted here. Defaults to 8443.
   serve_port: 8443

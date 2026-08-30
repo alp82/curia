@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url'
 import { composeConfig, DEFAULT_REPO_ROOT } from './fixtures/compose.mjs'
 import {
   probeTtyd, WRAPPER_PATH, validSessionName,
-  attachUrl, atlasTerminalUrl, serveOff, DEFAULT_INDEX, CHROME_BASENAME, indexRefusal, readIndexStamp,
+  attachUrl, appTerminalUrl, serveOff, DEFAULT_INDEX, CHROME_BASENAME, indexRefusal, readIndexStamp,
   stampMeta, sha256, isChatHandle, nextChatHandle,
   isConsoleKey, nextConsoleKey, consoleSession, consoleKeyForSession, sessionForConsoleKey,
 } from '../src/attach.mjs'
@@ -89,9 +89,9 @@ describe('the built index asset (#70)', () => {
   const stampFor = (ttyd, chrome) => stampMeta({ ttyd, chrome: sha256(chrome) })
 
   test('#714: the shipped index carries the touch key row, shown on a coarse pointer only', () => {
-    // The embedded terminal in Atlas Chat is this page in an iframe. A phone
+    // The embedded terminal in Curia app Chat is this page in an iframe. A phone
     // gets its Esc, Tab and arrows from here, and a desktop gets no second
-    // row, so Atlas draws none of its own.
+    // row, so Curia app draws none of its own.
     const built = fs.readFileSync(DEFAULT_INDEX, 'utf8')
     assert.match(built, /pointer:fine/)
     assert.match(fs.readFileSync(path.join(path.dirname(DEFAULT_INDEX), CHROME_BASENAME), 'utf8'), /function coarse\(\)/)
@@ -221,12 +221,12 @@ describe('session-name gate', () => {
     assert.equal(attachUrl('host.ts.net', 8443, 'chat-2'), 'https://host.ts.net:8443/?arg=curia-chat-2')
   })
 
-  test('Atlas owns the same-origin terminal route', () => {
+  test('Curia app owns the same-origin terminal route', () => {
     assert.equal(
-      atlasTerminalUrl('host.ts.net', 9443, 'curia-42'),
+      appTerminalUrl('host.ts.net', 9443, 'curia-42'),
       'https://host.ts.net:9443/terminal/?arg=curia-42',
     )
-    assert.throws(() => atlasTerminalUrl('host.ts.net', 9443, '42; x'))
+    assert.throws(() => appTerminalUrl('host.ts.net', 9443, '42; x'))
   })
 })
 
