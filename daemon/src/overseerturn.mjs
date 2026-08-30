@@ -110,6 +110,19 @@ export const TURN_EVENTS = {
   end: 'end', // the turn is over, ok or not
 }
 
+function shortToolError(content, max = 160) {
+  const blocks = typeof content === 'string' ? [content] : Array.isArray(content) ? content : []
+  const text = blocks
+    .map((block) => typeof block === 'string' ? block : block?.type === 'text' ? block.text : '')
+    .filter(Boolean)
+    .join(' ')
+    .replace(/\s+/g, ' ')
+    .replace(/`/g, "'")
+    .trim()
+  if (!text) return null
+  return text.length <= max ? text : `${text.slice(0, max - 1).trimEnd()}…`
+}
+
 const MAX_BODY = 1024 * 1024
 
 async function readJsonBody(req) {
@@ -307,6 +320,7 @@ function runOneTurn({
       // reaches no handler, so the daemon narrated nothing for it, and the
       // operator must read the refusal rather than silence.
       const calls = new Map()
+      const curiaPrefix = `mcp__${MCP_SERVER_NAME}__`
       for await (const msg of q) {
         if (msg.type === 'system' && msg.subtype === 'init' && msg.session_id) {
           sessionId = msg.session_id
@@ -316,19 +330,31 @@ function runOneTurn({
           for (const block of msg.message?.content ?? []) {
             if (block.type !== 'tool_use') continue
             toolCalls += 1
-            const verb = String(block.name ?? '').replace(`mcp__${MCP_SERVER_NAME}__`, '')
-            calls.set(block.id, verb)
-            emit(TURN_EVENTS.verb, { name: verb })
+            const tool = String(block.name ?? '')
+            const curia = tool.startsWith(curiaPrefix)
+            const name = curia ? tool.slice(curiaPrefix.length) : tool
+            calls.set(block.id, { name, curia })
+            emit(TURN_EVENTS.verb, { name })
           }
         }
         if (msg.type === 'user') {
           const content = msg.message?.content
           for (const block of Array.isArray(content) ? content : []) {
             if (block.type !== 'tool_result') continue
-            const verb = calls.get(block.tool_use_id)
-            if (verb === undefined) continue
+            const call = calls.get(block.tool_use_id)
+            if (call === undefined) continue
             calls.delete(block.tool_use_id)
-            emit(TURN_EVENTS.verbResult, { name: verb })
+            // Local read tools never cross the command router. Their successful
+            // results are progress for the model, not router refusals for the
+            // operator. Only Curia tool results participate in this protocol.
+            if (!call.curia) continue
+            const error = block.is_error === true
+            const detail = error ? shortToolError(block.content) : null
+            emit(TURN_EVENTS.verbResult, {
+              name: call.name,
+              error,
+              ...(detail ? { detail } : {}),
+            })
           }
         }
         if (msg.type === 'result') result = msg

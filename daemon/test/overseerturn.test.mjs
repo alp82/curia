@@ -594,19 +594,120 @@ describe('the daemon half: OverseerClient (#314)', () => {
       queryFn: async function* () {
         yield { type: 'system', subtype: 'init', session_id: 's' }
         yield { type: 'assistant', message: { content: [{ type: 'tool_use', id: 't1', name: 'mcp__curia__start' }] } }
-        yield { type: 'user', message: { content: [{ type: 'tool_result', tool_use_id: 't1', is_error: true }] } }
+        yield {
+          type: 'user',
+          message: { content: [{ type: 'tool_result', tool_use_id: 't1', is_error: true, content: 'missing required field: ticket\nvalidation details' }] },
+        }
         yield { type: 'result', subtype: 'success', result: 'I could not start it', num_turns: 2 }
       },
     })
+    try {
+      const client = new OverseerClient({
+        reduction: storeDouble(), command: async () => '', workspaceRoot: root, port: c.port, daemonPort: 4271, log: quiet,
+      })
+      const status = []
+      const out = await client.runTurn('console-1', 'start it', { say: () => {}, status: (t) => status.push(t) })
+      assert.equal(out.ok, true)
+      assert.equal(out.toolCalls, 1)
+      assert.match(status.at(-1), /`start` refused before the router/)
+      assert.match(status.at(-1), /missing required field: ticket/)
+    } finally {
+      await c.stop()
+    }
+  })
+
+  test('a successful shell read does not read as a router refusal', async () => {
+    const root = tmpRoot('client-shell-read')
+    const c = await startContainer({
+      cfg: cfgFor(root),
+      sync: okSync([]),
+      queryFn: async function* () {
+        yield { type: 'system', subtype: 'init', session_id: 's' }
+        yield { type: 'assistant', message: { content: [{ type: 'tool_use', id: 't1', name: 'Bash' }] } }
+        yield {
+          type: 'user',
+          message: { content: [{ type: 'tool_result', tool_use_id: 't1', content: 'read checkout', is_error: false }] },
+        }
+        yield { type: 'result', subtype: 'success', result: 'I found it', num_turns: 2 }
+      },
+    })
+    try {
+      const client = new OverseerClient({
+        reduction: storeDouble(), command: async () => '', workspaceRoot: root, port: c.port, daemonPort: 4271, log: quiet,
+      })
+      const status = []
+      const out = await client.runTurn('console-1', 'find it', { say: () => {}, status: (t) => status.push(t) })
+      assert.equal(out.ok, true)
+      assert.equal(out.toolCalls, 1)
+      assert.ok(!status.some((s) => s.includes('refused before the router')))
+    } finally {
+      await c.stop()
+    }
+  })
+
+  test('the status keeps the checkout verdict and only the latest progress', async () => {
+    const root = tmpRoot('client-status-bound')
+    const lines = [
+      { event: 'note', text: 'checkouts: 1/1 fetched' },
+      ...Array.from({ length: 6 }, (_, i) => ({ event: 'note', text: `step ${i + 1}` })),
+      { event: 'answer', text: 'done' },
+      { event: 'end', ok: true, tool_calls: 0, secs: '0.1' },
+    ]
     const client = new OverseerClient({
-      reduction: storeDouble(), command: async () => '', workspaceRoot: root, port: c.port, daemonPort: 4271, log: quiet,
+      reduction: storeDouble(), command: async () => '', workspaceRoot: root, port: 1, daemonPort: 4271, log: quiet,
+      fetchImpl: async () => ({
+        ok: true,
+        body: (async function* () { for (const line of lines) yield `${JSON.stringify(line)}\n` })(),
+      }),
     })
     const status = []
-    const out = await client.runTurn('console-1', 'start it', { say: () => {}, status: (t) => status.push(t) })
-    assert.equal(out.ok, true)
-    assert.equal(out.toolCalls, 1)
-    assert.match(status.at(-1), /`start` refused before the router/)
-    await c.stop()
+    await client.runTurn('console-1', 'work', { say: () => {}, status: (t) => status.push(t) })
+    assert.match(status.at(-1), /checkouts: 1\/1 fetched/)
+    assert.doesNotMatch(status.at(-1), /step 1/)
+    assert.match(status.at(-1), /step 6/)
+    assert.equal((status.at(-1).match(/ · /g) ?? []).length, 4)
+  })
+
+  test('a corrected typed-tool refusal does not stay in the status', async () => {
+    const cases = [
+      ['map_new', 'map alp82/curia chart the settings'],
+      ['map_update', 'map 147 chart the settings'],
+      ['ticket_new', 'ticket alp82/curia fix the settings'],
+    ]
+    for (const [tool, command] of cases) {
+      const root = tmpRoot(`client-corrected-${tool}`)
+      const turns = new OverseerTurns()
+      const client = new OverseerClient({
+        reduction: storeDouble(), command: async () => 'working', workspaceRoot: root, port: 1, daemonPort: 4271,
+        turns, log: quiet,
+        fetchImpl: async (_url, init) => {
+          const request = JSON.parse(init.body)
+          const mcpUrl = new URL(request.mcp.url)
+          const turn = turns.claim(mcpUrl.searchParams.get('turn'), request.mcp.headers[TOKEN_HEADER])
+          assert.ok(turn)
+          return {
+            ok: true,
+            body: (async function* () {
+              const events = [
+                { event: 'session', id: 's' },
+                { event: 'verb', name: tool },
+                { event: 'verb_result', name: tool, error: true, detail: 'missing required field: instruction' },
+                { event: 'verb', name: tool },
+              ]
+              for (const event of events) yield `${JSON.stringify(event)}\n`
+              await turn.command(command)
+              yield `${JSON.stringify({ event: 'verb_result', name: tool, error: false })}\n`
+              yield `${JSON.stringify({ event: 'answer', text: 'done' })}\n`
+              yield `${JSON.stringify({ event: 'end', ok: true, tool_calls: 2, secs: '0.1' })}\n`
+            })(),
+          }
+        },
+      })
+      const status = []
+      await client.runTurn('console-1', 'work', { say: () => {}, status: (t) => status.push(t) })
+      assert.ok(status.some((s) => s.includes(`\`${command}\``)))
+      assert.ok(!status.some((s) => s.includes('refused before the router')))
+    }
   })
 })
 

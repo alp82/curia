@@ -45,6 +45,13 @@ import {
   OVERSEER_CONTAINER_MODEL, overseerConfigDirFor,
 } from './overseerturn.mjs'
 
+const MAX_STATUS_STEPS = 5
+const ROUTER_VERB_FOR_TOOL = new Map([
+  ['map_new', 'map'],
+  ['map_update', 'map'],
+  ['ticket_new', 'ticket'],
+])
+
 // The verb catalogue, served over HTTP MCP. One server per request, like the agent
 // surface: the transport is stateless, and the per-turn context is closed over
 // by `command` before this is ever called.
@@ -245,7 +252,11 @@ export class OverseerClient {
     this.busy.add(key)
     const steps = []
     const step = async (text) => {
+      if (steps.at(-1) === text) return
       steps.push(text)
+      // Keep the first verdict and the latest progress. A turn can inspect many
+      // files, but its one Discord status line must remain readable on a phone.
+      if (steps.length > MAX_STATUS_STEPS) steps.splice(1, steps.length - MAX_STATUS_STEPS)
       await status(smallPrint(`${SIGNALS.work} ${steps.join(' · ')}`))
     }
     try {
@@ -335,6 +346,15 @@ export class OverseerClient {
     let sessionId = null
     let toolCalls = 0
     let end = null
+    const pendingRefusals = new Map()
+    let refusalsFlushed = false
+    const flushRefusals = async () => {
+      if (refusalsFlushed) return
+      refusalsFlushed = true
+      for (const [name, detail] of pendingRefusals) {
+        await step(`${SIGNALS.warn} \`${name}\` refused before the router${detail ? `: ${detail}` : ''}`)
+      }
+    }
     try {
       const res = await this.fetchImpl(`${this.base}${TURN_PATH}`, {
         method: 'POST',
@@ -368,12 +388,23 @@ export class OverseerClient {
           // A result exists only after its handler returned, so the tally is
           // already settled. Nothing to claim means the MCP layer refused the
           // call: name the verb, not a command line nothing ran.
-          const left = turn.crossed.get(ev.name) ?? 0
-          if (left > 0) turn.crossed.set(ev.name, left - 1)
-          else await step(`${SIGNALS.warn} \`${ev.name}\` refused before the router`)
+          // Some typed tools compose a different router verb. Match the name
+          // that crossed the seam, while keeping the typed name in the warning.
+          const routerName = ROUTER_VERB_FOR_TOOL.get(ev.name) ?? ev.name
+          const left = turn.crossed.get(routerName) ?? 0
+          if (left > 0) {
+            turn.crossed.set(routerName, left - 1)
+            pendingRefusals.delete(ev.name)
+          } else if (ev.error !== false) {
+            // Hold the warning until the turn settles. A corrected retry should
+            // leave the operator with the successful command, not stale noise.
+            pendingRefusals.set(ev.name, ev.detail ?? null)
+          }
         } else if (ev.event === TURN_EVENTS.answer) {
+          await flushRefusals()
           await say(ev.text)
         } else if (ev.event === TURN_EVENTS.end) {
+          await flushRefusals()
           end = ev
         }
       }
