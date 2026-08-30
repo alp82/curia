@@ -81,6 +81,16 @@ describe('the device flow curia starts (#706)', () => {
     assert.deepEqual(seen, { code: 'AB12', url: 'https://aistack.to/cli/auth?code=AB12' })
   })
 
+  test('terminal styling around the code and link does not hide the device flow', () => {
+    const styled = [
+      'CODE \x1b[1m\x1b[38;2;163;230;53mT72NNC\x1b[0m',
+      'OPEN \x1b[38;2;120;120;120mhttps://aistack.to/cli/auth?code=T72NNC\x1b[0m',
+    ].join('\n')
+    assert.deepEqual(parseDeviceFlow(styled), {
+      code: 'T72NNC', url: 'https://aistack.to/cli/auth?code=T72NNC',
+    })
+  })
+
   test('output with neither half in it is not half a flow', () => {
     assert.equal(parseDeviceFlow('npm warn exec the following package was not found'), null)
     assert.equal(parseDeviceFlow(''), null)

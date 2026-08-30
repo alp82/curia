@@ -39,6 +39,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
+import { stripVTControlCharacters } from 'node:util'
 
 import {
   CLI_PACKAGE, CLI_RUNNER, DEFAULT_CLI_VERSION,
@@ -104,7 +105,7 @@ const URL_RE = /\bhttps:\/\/\S*\/cli\/auth\S*/
 // but curia shows the URL the CLI printed rather than one it composed, because
 // the composed one would be a guess about a route it does not own.
 export function parseDeviceFlow(text) {
-  const s = String(text ?? '')
+  const s = stripVTControlCharacters(String(text ?? ''))
   const url = URL_RE.exec(s)?.[0] ?? null
   const code = CODE_RE.exec(s)?.[1] ?? null
   if (!url && !code) return null
