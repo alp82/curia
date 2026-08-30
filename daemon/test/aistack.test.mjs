@@ -214,8 +214,8 @@ describe('the real child process (#695)', () => {
       // `exec`, so the kill reaches the sleep itself. A bash that only forked it
       // would die and leave the child holding the pipe open.
       `if [ ${sleep} -gt 0 ]; then exec sleep ${sleep}; fi`,
-      `echo ${JSON.stringify(stderr)} >&2`,
-      `echo ${JSON.stringify(stdout)}`,
+      `printf '%b\n' ${JSON.stringify(stderr)} >&2`,
+      `printf '%b\n' ${JSON.stringify(stdout)}`,
       `exit ${code}`,
     ].join('\n'))
     fs.chmodSync(bin, 0o755)
@@ -240,6 +240,23 @@ describe('the real child process (#695)', () => {
       runSync({ root, bin: stubNpx({ code: 7, stderr: 'not authenticated' }) }),
       /exited 7: not authenticated/,
     )
+  })
+
+  test('a non-zero exit removes terminal styling from the surfaced error', async () => {
+    register()
+    cfg('curia-1')
+    fs.mkdirSync(homeFor(root), { recursive: true })
+    let error
+    try {
+      await runSync({
+        root,
+        bin: stubNpx({ code: 1, stderr: '\x1b[38;2;248;113;113mno recent sessions\x1b[0m' }),
+      })
+    } catch (caught) {
+      error = caught
+    }
+    assert.match(error?.message ?? '', /exited 1: no recent sessions/)
+    assert.doesNotMatch(error?.message ?? '', /\x1b/)
   })
 
   test('a runner that is not on the box rejects by name', async () => {

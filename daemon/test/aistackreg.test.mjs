@@ -41,7 +41,10 @@ function writeCredential(token = 'x'.repeat(64)) {
 // A stub `npx`. It checks the argument shape curia promises to pass, prints
 // what the CLI prints, and optionally writes the credential the way an approved
 // login does.
-function stubNpx({ print = '', code = 0, sleep = 0, writes = false, expect = 'login' } = {}) {
+function stubNpx({
+  print = '', code = 0, sleep = 0, writes = false, expect = 'login',
+  expectClaude = null, expectCodex = null,
+} = {}) {
   const bin = path.join(root, 'npx-stub')
   const cred = credentialFile(root)
   fs.writeFileSync(bin, [
@@ -52,6 +55,8 @@ function stubNpx({ print = '', code = 0, sleep = 0, writes = false, expect = 'lo
       ? 'if [ "$3" != "login" ]; then echo "not the login: $3" >&2; exit 92; fi'
       : 'if [ "$3" != "sync" ] || [ "$4" != "--auto" ] || [ "$5" != "on" ]; then echo "not the opt-in" >&2; exit 92; fi',
     `case "$HOME" in ${homeFor(root)}) ;; *) echo "the command did not run as curia's HOME: $HOME" >&2; exit 93;; esac`,
+    expectClaude === null ? '' : `if [ "$CLAUDE_CONFIG_DIR" != "${expectClaude}" ]; then echo "wrong claude roots: $CLAUDE_CONFIG_DIR" >&2; exit 94; fi`,
+    expectCodex === null ? '' : `if [ "$CODEX_HOME" != "${expectCodex}" ]; then echo "wrong codex root: $CODEX_HOME" >&2; exit 95; fi`,
     // `%b`, so a multi-line `print` really is several lines, the way the CLI's
     // own output is.
     `printf '%b\\n' ${JSON.stringify(print)}`,
@@ -306,12 +311,26 @@ describe('the standing permission, which a registration alone does not grant (#7
     assert.deepEqual(events, [['aistack_optin', { version: DEFAULT_CLI_VERSION, ok: true }]])
   })
 
+  test('it detects sessions under curia\'s per-Harness config roots', async () => {
+    writeCredential()
+    const claude = path.join(root, 'cfg', 'curia-1', 'claude')
+    const codex = path.join(root, 'cfg', 'curia-2', 'codex')
+    fs.mkdirSync(path.join(claude, 'projects'), { recursive: true })
+    fs.mkdirSync(path.join(codex, 'sessions'), { recursive: true })
+    const r = reg({
+      bin: stubNpx({ expect: 'optin', expectClaude: claude, expectCodex: codex }),
+    })
+
+    assert.equal((await r.optIn()).ok, true)
+  })
+
   test('a refusal from the stack comes back as the CLI\'s own words', async () => {
     writeCredential()
-    const r = reg({ bin: stubNpx({ expect: 'optin', print: 'the stack has not permitted this machine', code: 5 }) })
+    const r = reg({ bin: stubNpx({ expect: 'optin', print: '\x1b[31mthe stack has not permitted this machine\x1b[0m', code: 5 }) })
     const out = await r.optIn()
     assert.equal(out.ok, false)
     assert.match(out.error, /exited 5: the stack has not permitted this machine/)
+    assert.doesNotMatch(out.error, /\x1b/)
   })
 })
 

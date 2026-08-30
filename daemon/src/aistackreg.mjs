@@ -43,7 +43,7 @@ import { stripVTControlCharacters } from 'node:util'
 
 import {
   CLI_PACKAGE, CLI_RUNNER, DEFAULT_CLI_VERSION,
-  credentialFile, hasCredential, homeFor,
+  credentialFile, hasCredential, homeFor, syncEnv,
 } from './aistack.mjs'
 
 // The CLI polls the approval every five seconds, thirty-six times: three
@@ -368,7 +368,10 @@ export class AistackRegistration {
       try {
         child = this.spawnFn(this.bin, args, {
           cwd: this.home(),
-          env: { ...this.env, HOME: this.home() },
+          // The opt-in command detects recent Harness sessions before it grants
+          // the standing permission. Those sessions live under curia's
+          // per-agent config roots, not under the durable HOME.
+          env: syncEnv(this.root, { env: this.env }),
           stdio: ['ignore', 'pipe', 'pipe'],
         })
       } catch (e) {
@@ -404,5 +407,5 @@ export class AistackRegistration {
 
 // The last thing a failing command said, which is the line worth repeating.
 function lastLine(text) {
-  return String(text ?? '').trim().split('\n').slice(-1)[0]?.trim() ?? ''
+  return stripVTControlCharacters(String(text ?? '')).trim().split('\n').slice(-1)[0]?.trim() ?? ''
 }

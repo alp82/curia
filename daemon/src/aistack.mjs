@@ -48,6 +48,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
+import { stripVTControlCharacters } from 'node:util'
 import { CFG_DIR, HARNESS_NAMES, configRootEnvFor } from './workspace.mjs'
 
 // Rule 4. The npm package, its binary, and the runner that fetches it.
@@ -228,7 +229,8 @@ export function runSync({
       }
       if (signal) return reject(new Error(`${bin} was killed on ${signal}`))
       if (code !== 0) {
-        const why = (stderr.trim() || stdout.trim() || '').split('\n').slice(-1)[0] ?? ''
+        const output = stripVTControlCharacters(stderr.trim() || stdout.trim() || '')
+        const why = output.split('\n').slice(-1)[0] ?? ''
         return reject(new Error(`${bin} exited ${code}${why ? `: ${why}` : ''}`))
       }
       resolve({ stdout: stdout.trim(), stderr: stderr.trim() })
