@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/alp82/curia/compare/v0.4.0...v0.4.1) (2026-08-30)
+
+
+### Bug Fixes
+
+* parse styled aistack device login output ([70842d1](https://github.com/alp82/curia/commit/70842d1c7c21869020ff58df5c4b0cda7068697c))
+
 ## [0.4.0](https://github.com/alp82/curia/compare/v0.3.0...v0.4.0) (2026-08-30)
 
 
