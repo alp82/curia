@@ -14,6 +14,79 @@ _Avoid_: Atlas, dashboard in user-facing prose.
 The long-running part of Curia that coordinates agents and holds the system state. Use **the service** after the first reference, and use **daemon** only for implementation identifiers and process-specific technical details.
 _Avoid_: daemon in user-facing prose.
 
+**Installation lifecycle**:
+The operator's complete path from a fresh supported host through a proven Full loop, including upgrades, recovery, and removal.
+_Avoid_: setup when referring to the complete lifecycle, onboarding when referring only to installation.
+
+**Integration setup**:
+The fixed first-run sequence that connects one installation to its required GitHub, Discord, Tailscale, and model-provider resources. It ends when each integration passes its current verification check.
+_Avoid_: onboarding, integration wizard.
+
+**Integration verification**:
+A fresh check that Curia can use an external resource with the authority required for the Full loop. A saved completion marker is not verification.
+_Avoid_: connection test, completed step.
+
+**Command channel**:
+The Discord text channel that an operator chooses during integration setup for Curia commands, conversations, and ticket threads. Its name is installation-specific.
+_Avoid_: `#curia` when referring to every installation.
+
+**Unprivileged lifecycle**:
+The installation lifecycle runs as the non-root operator and never escalates privileges. Curia may depend on host-managed Docker Engine and Tailscale installations, but it neither installs nor reconfigures them. Curia refuses lifecycle commands run as root.
+_Avoid_: rootless installation, which can imply rootless Docker or a host with no root-managed prerequisites.
+
+**Installation identity**:
+The durable configuration, history, and long-lived credentials that make a Curia installation the same installation after recovery on another supported host. Renewable short-lived tokens are derived from the installation identity rather than part of it.
+
+**Recovery backup**:
+An encrypted, portable copy of the installation identity. It excludes resumable work, native agent sessions, caches, runtime files, and renewable short-lived tokens.
+_Avoid_: journal backup, which describes only a copy of the event journal and cannot recover an installation.
+
+**Resumable work**:
+Worktrees and native agent session data that Curia preserves across same-host lifecycle operations. A recovery backup does not preserve resumable work. Before a planned backup, Curia salvages local-only work to GitHub and records live tickets as interrupted.
+
+**Operator configuration**:
+The documented, directly editable declaration of how one installation should behave. The Curia app and lifecycle interface validate and update it atomically. A running service rejects an invalid reload and keeps its loaded configuration in memory. Invalid configuration prevents the service from starting after a restart, and `curia doctor` reports the exact error. Generated state, release metadata, and secrets are not operator configuration.
+
+**Installation root**:
+The one operator-owned directory that holds an installed Curia system. It defaults to `$XDG_DATA_HOME/curia`, or `~/.local/share/curia` when `XDG_DATA_HOME` is unset. Its boundaries are `config/` for operator configuration, `secrets/` for long-lived credentials, `state/` for durable service and lifecycle state, `work/` for resumable work, `versions/` for verified installed artifacts, `cache/` for rebuildable data, and `run/` for disposable runtime data. Docker owns its own images, containers, networks, and volumes outside this directory.
+_Avoid_: workspace root, which names the current source deployment's mixed work and credential tree.
+
+**Installation record**:
+The atomic, owner-only `state/installation.json` file that identifies an installation root. It contains only a format version, a random installation ID, and the active Curia version. Lifecycle commands check ownership, permissions, and symbolic-link safety directly. Version manifests verify installed artifacts separately.
+_Avoid_: installation manifest, which can be confused with a release or version manifest.
+
+**Secret file**:
+An owner-only file under the installation root's `secrets/` boundary that holds one long-lived credential or private key. Curia gives each container read-only access to only the secret files that container consumes, and only the credential-owning service may replace one. Long-lived secrets never travel through environment variables, command arguments, logs, diagnostics, or browser responses.
+
+**Session-bound capability**:
+A generated token that identifies one resumable agent or overseer conversation. It lives with that session under `work/`, survives service and host restarts, reaches only its specific consumer, and is deleted when the session ends. It is neither an installation-identity secret nor disposable runtime data.
+
+Renewable external tokens and one-turn secrets live under `run/` or in memory and are recreated after restart.
+
+No Docker volume holds installation identity, durable state, or resumable work. Docker volumes contain only rebuildable caches or disposable runtime data, so Curia may recreate them without losing the installation.
+
+**Ordinary uninstall**:
+Removal of Curia's runnable system from one host while preserving operator configuration, secrets, durable state, and resumable work in the installation root. It reports the preserved root and the paths to reinstall or purge. External service resources remain untouched.
+_Avoid_: remove when it is unclear whether installation data survives.
+
+**Confirmed purge**:
+The explicit removal of the entire installation root and every Curia-labelled Docker resource after the operator confirms the exact local scope. External service resources remain separate cleanup work and are never silently deleted.
+_Avoid_: uninstall when local installation data is also removed.
+
+**Supported host**:
+A host inside Curia's tested operating-system and architecture matrix that meets the minimum resource profile and passes every functional preflight check.
+
+**Unsupported host**:
+A host outside Curia's tested matrix or below its minimum resource profile that passes functional preflight. Installation may continue after a warning, without lifecycle guarantees.
+
+**Refused condition**:
+A functional incompatibility that makes installation unsafe or predictably broken. Installation stops until the operator removes the condition.
+_Avoid_: unsupported when Curia has proved the installation cannot work.
+
+**Host check**:
+Curia's direct evaluation of host compatibility, prerequisites, and local service health during installation, update, or `curia doctor`. Curia doesn't persist findings or run a daily health subsystem. A service that can't start reports the dependency failure that prevents startup.
+_Avoid_: host health check, which implies a persistent or scheduled subsystem.
+
 ### The loop
 
 **Full loop**:
