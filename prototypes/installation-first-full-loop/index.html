@@ -79,6 +79,25 @@
     .seal-row { margin-top:18px; display:flex; justify-content:center; gap:12px; flex-wrap:wrap; }
     .seal { width:82px; height:82px; border-radius:50%; display:grid; place-items:center; text-align:center; border:2px dashed #506158; color:#708178; font-size:10px; transform:rotate(-5deg); }
     .seal:nth-child(even) { transform:rotate(5deg); }.seal.done { color:#14251c; border:4px double #14251c; background:var(--lime); }
+    .value-panel { min-height:230px; margin-bottom:16px; overflow:hidden; border:1px solid var(--line); border-radius:18px; padding:20px; background:white; }
+    .value-head { display:flex; justify-content:space-between; align-items:start; gap:18px; padding-bottom:14px; border-bottom:1px solid var(--line); }
+    .value-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:10px; margin-top:14px; }
+    .value-card { min-height:82px; padding:13px; border-radius:10px; background:#f2f5f2; }
+    .value-card strong { display:block; margin-bottom:4px; }
+    .value-card.action { background:#edf5fc; border-left:3px solid var(--blue); }
+    .brief { margin:14px 0 0; font-size:17px; line-height:1.5; }
+    .brief strong { color:var(--green); }
+    .attention-item { display:grid; grid-template-columns:90px 1fr auto; gap:12px; align-items:center; padding:12px 0; border-bottom:1px solid var(--line); }
+    .attention-item:last-child { border:0; }
+    .composer { margin-top:14px; padding:16px; border-radius:12px; background:#14251c; color:white; }
+    .composer-row { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
+    .chip { padding:6px 9px; border-radius:999px; color:#14251c; background:var(--lime); font-size:12px; font-weight:750; }
+    .chip.missing { color:#738078; background:#e6ebe7; }
+    .feed-item { display:grid; grid-template-columns:58px 1fr; gap:12px; padding:10px 0; border-bottom:1px solid var(--line); }
+    .feed-time { color:var(--muted); font:11px ui-monospace,monospace; }
+    .trace { display:grid; grid-template-columns:repeat(5,1fr); gap:6px; margin-top:16px; }
+    .trace-step { min-height:92px; padding:10px; border-radius:8px; color:#768179; background:#edf1ee; font:11px/1.35 ui-monospace,monospace; }
+    .trace-step.live { color:#163e27; background:#ddf0e4; }
     /* B: operations console with timeline and evidence. */
     .b-head { display:flex; justify-content:space-between; align-items:end; gap:20px; margin-bottom:20px; }
     .b-grid { display:grid; grid-template-columns:minmax(260px,.7fr) minmax(520px,1.3fr); gap:18px; }
@@ -144,6 +163,7 @@
       .topbar { padding:0 16px; }
       .host { display:none; }
       .d-tile { grid-column:span 6 !important; }
+      .value-grid,.trace { grid-template-columns:1fr; }
       .f-node { position:static; width:auto; height:auto; margin:10px; }
       .f-center { position:static; transform:none; margin:20px auto; }
     }
@@ -153,11 +173,11 @@
   <div id="app"></div>
   <script>
     const variants = [
-      { key: 'A', name: 'Constellation' },
-      { key: 'B', name: 'Mosaic' },
-      { key: 'C', name: 'Growing workspace' },
-      { key: 'D', name: 'System boot' },
-      { key: 'E', name: 'Proof seals' }
+      { key: 'A', name: 'Operator briefing' },
+      { key: 'B', name: 'Attention inbox' },
+      { key: 'C', name: 'First action' },
+      { key: 'D', name: 'Live activity' },
+      { key: 'E', name: 'Full-loop trace' }
     ];
     const steps = [
       { key:'github', name:'GitHub', summary:'Create and install the dedicated GitHub App' },
@@ -167,6 +187,9 @@
       { key:'full', name:'Full loop', summary:'Send one request from Discord and verify the result' }
     ];
     const state = { step:0, complete:[], provider:'openai', providers:[], failed:false, corrected:false, closed:false, reward:null, tailnetName:'curia.sh' };
+    const demo = new URLSearchParams(location.search).get('demo');
+    if (demo==='partial') state.complete.push('github','discord');
+    if (demo==='ready') { state.complete.push('github','discord','tailscale','model','full'); state.providers.push('openai','anthropic'); }
     const esc = s => String(s).replace(/[&<>\"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]));
     const variantKey = () => new URLSearchParams(location.search).get('variant')?.toUpperCase() || 'A';
     const current = () => steps[state.step];
@@ -183,7 +206,7 @@
     }
     function reward(key) {
       const rewards = {
-        github:`<strong>GitHub is connected.</strong><br>5 watched repositories · 14 open tickets · 2 frontier decisions ready to start.`,
+        github:`<strong>GitHub is connected.</strong><br>1 watched repository · 9 open tickets · 1 agent-ready ticket found.`,
         discord:`<strong>Discord is ready.</strong><br>Curia posted a confirmation in #curia and registered 6 commands.`,
         tailscale:`<strong>Your private Curia address is ready.</strong><br><code>https://${state.tailnetName}.example-tailnet.ts.net</code> · allowed operator alex@example.com`,
         model:`<strong>${state.providers.map(p=>p==='openai'?'OpenAI':'Anthropic').join(' and ')} ${state.providers.length>1?'are':'is'} ready.</strong><br>Curia completed a live model request and installed a working routing preset.`,
@@ -204,17 +227,16 @@
     function header() { return `<header class="topbar"><div class="brand"><span class="mark">C</span> Curia setup</div><div class="host">alp-workstation · local installation</div></header>`; }
     function cumulativeReward(kind) {
       const count=state.complete.length;
-      const title={A:'Your Curia constellation',B:'The Curia mosaic',C:'Your Curia workspace',D:'Curia system boot',E:'Installation proof'}[kind];
-      const caption={A:'Each verified connection lights one point in the same system.',B:'Each result contributes one piece to a single image.',C:'Each integration adds a working part to the operator workspace.',D:'Each verification brings one subsystem online.',E:'Each verified fact earns a seal on one installation record.'}[kind];
-      const head=`<div class="reward-title"><div><div class="eyebrow">Cumulative reward</div><strong>${title}</strong><br><small style="color:#aebdb4">${caption}</small></div><span class="reward-count">${count} / 5</span></div>`;
-      if(kind==='A') {
-        const points=[[70,70],[175,25],[280,70],[105,125],[245,125]];
-        return `<div class="reward-panel">${head}<svg class="constellation" viewBox="0 0 350 150">${points.map((p,i)=>`<line x1="175" y1="78" x2="${p[0]}" y2="${p[1]}" class="${isDone(steps[i].key)?'lit':''}"/>`).join('')}<circle cx="175" cy="78" r="25" class="${count===5?'lit':''}"/><text x="175" y="82" class="${count===5?'lit':''}">CURIA</text>${points.map((p,i)=>`<circle cx="${p[0]}" cy="${p[1]}" r="17" class="${isDone(steps[i].key)?'lit':''}"/><text x="${p[0]}" y="${p[1]+4}" class="${isDone(steps[i].key)?'lit':''}">${['GH','DC','TS','AI','GO'][i]}</text>`).join('')}</svg></div>`;
-      }
-      if(kind==='B') return `<div class="reward-panel">${head}<div class="mosaic">${steps.map((s,i)=>`<div class="mosaic-piece ${isDone(s.key)?'done':''}">${i===1?'C':s.name}</div>`).join('')}</div></div>`;
-      if(kind==='C') return `<div class="reward-panel">${head}<div class="diorama">${steps.map((s,i)=>`<div class="diorama-part ${isDone(s.key)?'done':''}" style="height:${52+i*13}px">${['Repository','Channel','Private route','Model desk','Live Curia'][i]}</div>`).join('')}</div></div>`;
-      if(kind==='D') return `<div class="reward-panel">${head}<div class="boot-grid">${steps.map((s,i)=>`<div class="boot-module ${isDone(s.key)?'done':''}">0${i+1}<br><br>${s.name}<br>${isDone(s.key)?'ONLINE':'STANDBY'}</div>`).join('')}</div></div>`;
-      return `<div class="reward-panel" style="background:#f5f0df;color:#17231d">${head.replaceAll('#aebdb4','#66736b')}<div class="seal-row">${steps.map(s=>`<div class="seal ${isDone(s.key)?'done':''}">${isDone(s.key)?'VERIFIED<br>':''}${s.name}</div>`).join('')}</div></div>`;
+      const title={A:'Your first operator briefing',B:'What needs attention',C:'Your first useful action',D:'What Curia can see now',E:'Full-loop evidence'}[kind];
+      const caption={A:'A live summary assembled from every connected service.',B:'Real work Curia discovered, ordered by what you can act on.',C:'Each connection contributes context or a delivery path to one action.',D:'Provider events become one operational feed.',E:'The exact data path from operator request to delivered result.'}[kind];
+      const head=`<div class="value-head"><div><div class="eyebrow">Setup payoff</div><strong>${title}</strong><br><small class="muted">${caption}</small></div><span class="status ${count?'done':'waiting'}">${count?'Live data':'Waiting for data'}</span></div>`;
+      if(!count) return `<div class="value-panel">${head}<p class="brief muted">Complete any connection to replace this explanation with data from that service.</p></div>`;
+      if(kind==='A') return `<div class="value-panel">${head}<p class="brief">${isDone('github')?`<strong>GitHub:</strong> Curia has 9 open tickets. “Chart Curia’s backup and replacement-host recovery lifecycle” is ready for an agent. `:''}${isDone('discord')?`<strong>Discord:</strong> #curia is ready and the setup confirmation reached your server. `:''}${isDone('tailscale')?`<strong>Access:</strong> ${state.tailnetName}.example-tailnet.ts.net is reachable only through your tailnet. `:''}${isDone('model')?`<strong>Models:</strong> ${state.providers.map(p=>p==='openai'?'OpenAI':'Anthropic').join(' and ')} can start work. `:''}${isDone('full')?`<strong>Result:</strong> The first request completed in 42 seconds.`:''}</p><div class="value-grid">${isDone('github')?`<div class="value-card action"><strong>Ready to start</strong>1 agent-ready ticket · 8 unassigned</div>`:''}${isDone('discord')?`<div class="value-card"><strong>Command surface</strong>#curia · 6 commands registered</div>`:''}${isDone('tailscale')?`<div class="value-card"><strong>Private access</strong>alex@example.com · 38 ms</div>`:''}${isDone('model')?`<div class="value-card"><strong>Available route</strong>${state.providers.length||1} provider · test response 1.4 s</div>`:''}</div></div>`;
+      if(kind==='B') return `<div class="value-panel">${head}${isDone('github')?`<div class="attention-item"><span class="status current">Ready</span><div><strong>Chart Curia’s backup and replacement-host recovery lifecycle</strong><br><span class="muted">Agent-ready · no assignee · opened yesterday</span></div><button class="button secondary">Start</button></div><div class="attention-item"><span class="status waiting">Map</span><div><strong>Specify Curia’s supported installation lifecycle</strong><br><span class="muted">5 decisions recorded · 7 still open</span></div><button class="button quiet">Open</button></div>`:''}${isDone('discord')?`<div class="attention-item"><span class="status problem">Mention</span><div><strong>alex asked “Can Curia pick up the recovery map?”</strong><br><span class="muted">#curia · 2 minutes ago</span></div><button class="button secondary">Reply</button></div>`:''}${isDone('tailscale')?`<div class="attention-item"><span class="status done">Access</span><div><strong>No access action needed</strong><br><span class="muted">${state.tailnetName}.example-tailnet.ts.net is reachable by alex@example.com.</span></div><button class="button quiet">Open</button></div>`:''}${isDone('model')?`<div class="attention-item"><span class="status done">Ready</span><div><strong>${state.providers.length||1} model provider can handle the ready ticket</strong><br><span class="muted">Verification request completed in 1.4 seconds.</span></div><button class="button secondary">Draft</button></div>`:''}${isDone('full')?`<div class="attention-item"><span class="status done">Done</span><div><strong>First Full loop delivered</strong><br><span class="muted">Result posted to #curia in 42 seconds.</span></div><button class="button quiet">View</button></div>`:''}</div>`;
+      if(kind==='C') return `<div class="value-panel">${head}<div class="composer"><div class="eyebrow">Prepared first action</div><h3 style="font-size:17px;margin:8px 0">Plan the next decision in Curia’s recovery lifecycle</h3><div class="composer-row"><span class="chip ${isDone('github')?'':'missing'}">${isDone('github')?'Issue 861 attached':'Add GitHub context'}</span><span class="chip ${isDone('discord')?'':'missing'}">${isDone('discord')?'Deliver to #curia':'Add delivery channel'}</span><span class="chip ${isDone('tailscale')?'':'missing'}">${isDone('tailscale')?'Private operator verified':'Verify operator'}</span><span class="chip ${isDone('model')?'':'missing'}">${isDone('model')?'GPT route ready':'Add model'}</span></div><div class="actions"><button class="button" ${['github','discord','tailscale','model'].every(isDone)?'':'disabled'}>Start this work</button><span style="color:#aebdb4">${['github','discord','tailscale','model'].filter(isDone).length}/4 inputs ready</span></div></div></div>`;
+      if(kind==='D') return `<div class="value-panel">${head}${isDone('github')?`<div class="feed-item"><span class="feed-time">14:08</span><div><strong>GitHub indexed 9 open tickets</strong><br><span class="muted">1 is ready for an agent. 1 active Wayfinder map found.</span></div></div>`:''}${isDone('discord')?`<div class="feed-item"><span class="feed-time">14:11</span><div><strong>Discord confirmation posted in #curia</strong><br><span class="muted">Operator alex found. 6 commands registered.</span></div></div>`:''}${isDone('tailscale')?`<div class="feed-item"><span class="feed-time">14:14</span><div><strong>Private app reachable at ${state.tailnetName}.example-tailnet.ts.net</strong><br><span class="muted">Tailscale identity verified from 100.91.24.8.</span></div></div>`:''}${isDone('model')?`<div class="feed-item"><span class="feed-time">14:16</span><div><strong>Model answered its verification request</strong><br><span class="muted">${state.providers.map(p=>p==='openai'?'OpenAI':'Anthropic').join(' + ')} · 1.4 seconds · routing preset active.</span></div></div>`:''}${isDone('full')?`<div class="feed-item"><span class="feed-time">14:18</span><div><strong>First Full loop completed</strong><br><span class="muted">Issue context read, agent ran, and result reached #curia.</span></div></div>`:''}</div>`;
+      const trace=[['Discord',isDone('discord'),'request 1842','#curia'],['Tailscale',isDone('tailscale'),'alex@example.com','38 ms'],['GitHub',isDone('github'),'issue 861','9 open'],['Model',isDone('model'),'response 7fa2','1.4 s'],['Result',isDone('full'),'message 991','42 s total']];
+      return `<div class="value-panel">${head}<div class="trace">${trace.map(t=>`<div class="trace-step ${t[1]?'live':''}"><strong>${t[0]}</strong><br><br>${t[1]?`${t[2]}<br>${t[3]}`:'No evidence yet'}</div>`).join('')}</div>${isDone('full')?`<div class="notice success"><strong>The evidence joins up.</strong> Request 1842 produced response 7fa2 and Discord message 991.</div>`:''}</div>`;
     }
     function guidedVariant(kind) { return `${header()}<main class="main"><div class="a-grid"><aside class="a-rail">${steps.map((s,i)=>`<button class="a-step ${i===state.step?'active':''} ${isDone(s.key)?'complete':''}" onclick="selectStep(${i})" style="width:100%;border-top:0;border-right:0;border-bottom:0;text-align:left"><span class="a-dot">${isDone(s.key)?'✓':i+1}</span><div><strong>${s.name}</strong><div class="muted">${isDone(s.key)?'Verified':s.key==='full'&&state.complete.filter(k=>k!=='full').length<4?'Needs setup':i===state.step?'Open':'Available'}</div></div></button>`).join('')}</aside><section class="a-work"><p class="muted">Choose any connection. Your progress is saved when you close this page.</p>${cumulativeReward(kind)}<div class="card">${content()}${stateDump()}</div></section></div></main>`; }
     function variantA() { return guidedVariant('A'); }
