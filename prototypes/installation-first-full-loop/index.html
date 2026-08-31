@@ -70,9 +70,7 @@
     .discord-preview .channel { display:flex; align-items:center; gap:8px; font-weight:800; }.discord-preview .message { margin-top:5px; padding-left:37px; font-size:11px; }
     .brand-logo { width:28px; height:28px; flex:0 0 auto; display:grid; place-items:center; border-radius:50%; }
     .github-logo { color:white; background:#24292f; }.github-logo svg { width:19px; height:19px; fill:currentColor; }
-    .discord-logo { position:relative; background:#fff; border-radius:9px; }
-    .discord-logo::before { content:""; width:19px; height:13px; border-radius:8px 8px 6px 6px; background:#5865f2; }
-    .discord-logo::after { content:"••"; position:absolute; top:5px; left:7px; color:white; font:900 9px/1 system-ui; letter-spacing:3px; }
+    .discord-logo { color:#5865f2; background:#fff; border-radius:9px; }.discord-logo svg { width:19px; height:19px; fill:currentColor; }
     .tail-preview { display:flex; align-items:center; gap:11px; padding:9px 10px; color:#f2f4f3; background:#252525; }
     .tail-logo { width:29px; display:grid; grid-template-columns:repeat(3,5px); gap:3px; flex:0 0 auto; }
     .tail-logo i { width:5px; height:5px; border-radius:50%; background:white; }.tail-logo i:nth-child(2n) { opacity:.35; }
@@ -88,6 +86,16 @@
     .service-icon .glyph { width:19px; height:19px; border-radius:5px; display:grid; place-items:center; color:white; background:#202722; font-size:10px; text-transform:none; }
     .service-icon.discord .glyph { background:#5865f2; }.service-icon.tailscale .glyph { background:#252525; }.service-icon.model .glyph { color:#252525; background:#d8c6ac; }.service-icon.full .glyph { background:#1d653f; }
     .visual-empty { margin-top:8px; color:#69756e; font-size:12px; }
+    .combo-side { height:120px; display:grid; grid-template-columns:minmax(0,1fr) 102px; gap:7px; align-items:stretch; }
+    .combo-side > * { min-width:0; }
+    .combo-side .native-preview { height:100%; margin:0; align-content:center; }
+    .combo-side .visual-metrics { grid-template-columns:1fr; margin:0; }
+    .combo-side .visual-metric { display:flex; align-items:center; justify-content:space-between; gap:4px; padding:4px 7px; text-align:left; }
+    .combo-side .visual-metric b { font-size:12px; }.combo-side .visual-metric small { text-align:right; font-size:8px; }
+    .combo-unified { margin-top:7px; overflow:hidden; border:1px solid #ccd5cf; border-radius:10px; background:white; }
+    .combo-unified .native-preview { margin:0; border:0; border-radius:0; }
+    .metric-line { display:flex; justify-content:space-around; gap:5px; padding:8px 7px; color:#435149; font-size:10px; }
+    .metric-line span { flex:1; text-align:center; border-right:1px solid #dce2dd; }.metric-line span:last-child { border:0; }.metric-line b { display:block; font-size:12px; }
     .a-work { max-width:690px; }
     .a-work .card { padding:30px; }
     .reward-panel { min-height:210px; margin-bottom:16px; overflow:hidden; position:relative; border-radius:18px; padding:22px; background:#13231b; color:white; }
@@ -204,9 +212,9 @@
   <div id="app"></div>
   <script>
     const variants = [
-      { key: 'A', name: 'Native metrics' },
-      { key: 'B', name: 'Visual metrics' },
-      { key: 'C', name: 'Native + evidence' }
+      { key: 'A', name: 'Stacked metrics' },
+      { key: 'B', name: 'Split metrics' },
+      { key: 'C', name: 'Unified metrics' }
     ];
     const steps = [
       { key:'github', name:'GitHub', summary:'Create and install the dedicated GitHub App' },
@@ -217,6 +225,7 @@
     ];
     const state = { step:0, complete:[], provider:'openai', providers:[], failed:false, corrected:false, closed:false, reward:null, tailnetName:'curia.sh' };
     const demo = new URLSearchParams(location.search).get('demo');
+    const hasGitHubTickets = new URLSearchParams(location.search).get('tickets')!=='none';
     if (demo==='partial') state.complete.push('github','discord');
     if (demo==='ready') { state.complete.push('github','discord','tailscale','model','full'); state.providers.push('openai','anthropic'); }
     const esc = s => String(s).replace(/[&<>\"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]));
@@ -271,33 +280,26 @@
       if(!isDone(step.key)) return `<div class="visual-empty">${step.key==='full'&&state.complete.filter(k=>k!=='full').length<4?'Available after the four connections are ready.':step.summary}</div>`;
       const dots='<i></i>'.repeat(9);
       const native={
-        github:`<div class="native-preview ticket-stub"><span class="brand-logo github-logo"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.64 0 8.13c0 3.59 2.29 6.64 5.47 7.71.4.08.55-.18.55-.39 0-.19-.01-.83-.01-1.51-2.01.38-2.53-.5-2.69-.96-.09-.23-.48-.96-.82-1.15-.28-.15-.68-.53-.01-.54.63-.01 1.08.59 1.23.83.72 1.23 1.87.88 2.33.67.07-.53.28-.88.51-1.08-1.78-.2-3.64-.9-3.64-4.01 0-.89.31-1.62.82-2.19-.08-.2-.36-1.04.08-2.16 0 0 .67-.22 2.2.84A7.4 7.4 0 0 1 8 3.92c.68 0 1.36.09 2 .27 1.53-1.06 2.2-.84 2.2-.84.44 1.12.16 1.96.08 2.16.51.57.82 1.3.82 2.19 0 3.12-1.87 3.81-3.65 4.01.29.25.54.73.54 1.49 0 1.08-.01 1.95-.01 2.22 0 .22.15.47.55.39A8.14 8.14 0 0 0 16 8.13C16 3.64 12.42 0 8 0Z"/></svg></span><span class="ticket-body"><span class="ticket-title">#861 · Chart backup and recovery lifecycle</span><span class="ticket-meta"><span>ready-for-agent</span><span>9 open · 1 ready</span></span></span></div>`,
-        discord:`<div class="native-preview discord-preview"><span class="channel"><span class="brand-logo discord-logo"></span><span># curia</span></span><div class="message"><strong>Curia</strong> Setup complete. I’m ready for your first request.</div></div>`,
+        github:`<div class="native-preview ticket-stub"><span class="brand-logo github-logo"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.64 0 8.13c0 3.59 2.29 6.64 5.47 7.71.4.08.55-.18.55-.39 0-.19-.01-.83-.01-1.51-2.01.38-2.53-.5-2.69-.96-.09-.23-.48-.96-.82-1.15-.28-.15-.68-.53-.01-.54.63-.01 1.08.59 1.23.83.72 1.23 1.87.88 2.33.67.07-.53.28-.88.51-1.08-1.78-.2-3.64-.9-3.64-4.01 0-.89.31-1.62.82-2.19-.08-.2-.36-1.04.08-2.16 0 0 .67-.22 2.2.84A7.4 7.4 0 0 1 8 3.92c.68 0 1.36.09 2 .27 1.53-1.06 2.2-.84 2.2-.84.44 1.12.16 1.96.08 2.16.51.57.82 1.3.82 2.19 0 3.12-1.87 3.81-3.65 4.01.29.25.54.73.54 1.49 0 1.08-.01 1.95-.01 2.22 0 .22.15.47.55.39A8.14 8.14 0 0 0 16 8.13C16 3.64 12.42 0 8 0Z"/></svg></span><span class="ticket-body">${hasGitHubTickets?`<span class="ticket-title">#861 · Chart backup and recovery lifecycle</span><span class="ticket-meta"><span>ready-for-agent</span><span>9 open · 1 ready</span></span>`:`<span class="ticket-title">alp82/curia is connected</span><span class="ticket-meta"><span>Issues, pull requests, and Actions ready</span><span>No open tickets</span></span>`}</span></div>`,
+        discord:`<div class="native-preview discord-preview"><span class="channel"><span class="brand-logo discord-logo"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.317 4.37a19.8 19.8 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.211.375-.445.865-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.618-1.25.077.077 0 0 0-.078-.037A19.74 19.74 0 0 0 3.677 4.37a.07.07 0 0 0-.032.028C.533 9.046-.319 13.58.099 18.058a.082.082 0 0 0 .031.056c2.053 1.508 4.041 2.423 5.993 3.03a.078.078 0 0 0 .084-.028c.462-.63.873-1.295 1.226-1.994a.076.076 0 0 0-.042-.106 12.3 12.3 0 0 1-1.872-.892.077.077 0 0 1-.008-.128c.126-.094.252-.192.372-.291a.074.074 0 0 1 .078-.01c3.928 1.793 8.18 1.793 12.061 0a.074.074 0 0 1 .079.009c.12.099.246.198.373.292a.077.077 0 0 1-.007.128c-.598.343-1.22.645-1.873.891a.077.077 0 0 0-.041.107c.36.698.772 1.363 1.225 1.993a.076.076 0 0 0 .084.029c1.961-.607 3.95-1.522 6.002-3.03a.077.077 0 0 0 .031-.055c.5-5.177-.838-9.674-3.548-13.66a.061.061 0 0 0-.031-.029ZM8.02 15.331c-1.183 0-2.157-1.086-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.095 2.157 2.419 0 1.333-.956 2.419-2.157 2.419Zm7.975 0c-1.183 0-2.157-1.086-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.095 2.157 2.419 0 1.333-.946 2.419-2.157 2.419Z"/></svg></span><span># curia</span></span><div class="message"><strong>Curia</strong> Setup complete. I’m ready for your first request.</div></div>`,
         tailscale:`<div class="native-preview tail-preview"><span class="tail-logo">${dots}</span><span><strong>${state.tailnetName}</strong><br><small>Online · alex@example.com · 38 ms</small></span></div>`,
         model:`<div class="native-preview model-preview"><span class="model-mark">◎</span><span class="model-mark anthropic">A</span><span><strong>OpenAI + Anthropic</strong><br><small>Routing ready · 1.4 s test</small></span></div>`,
         full:`<div class="native-preview loop-preview"><span>Discord<br><small>request 1842</small></span><b>→</b><span>GitHub<br><small>issue 861</small></span><b>→</b><span>Model<br><small>response 7fa2</small></span><b>→</b><span>#curia<br><small>42 s</small></span></div>`
       }[step.key];
       const metrics={
-        github:[['1','repository'],['9','open tickets'],['1','agent-ready']],
+        github:hasGitHubTickets?[['1','repository'],['9','open tickets'],['1','agent-ready']]:[['1','repository'],['0','open tickets'],['ready','automation']],
         discord:[['#curia','channel'],['6','commands'],['1','message sent']],
         tailscale:[['38 ms','private access'],['1','operator'],['online','Serve']],
         model:[['2','providers'],['1.4 s','test request'],['ready','routing']],
         full:[['42 s','end to end'],['3','linked IDs'],['1','result posted']]
       }[step.key];
       const metricStrip=`<div class="visual-metrics">${metrics.map(m=>`<span class="visual-metric"><b>${m[0]}</b><small>${m[1]}</small></span>`).join('')}</div>`;
-      const metricView=`<div class="service-icon ${step.key}"><span class="glyph">${{github:'⑂',discord:'#',tailscale:'∷',model:'AI',full:'✓'}[step.key]}</span>${step.name}</div>${metricStrip}`;
-      const evidence={
-        github:'installation 918274 · repository alp82/curia · scan 14:08:12',
-        discord:'guild 8421…92 · channel 1184…07 · message 991',
-        tailscale:'alex@example.com · 100.91.24.8 · Serve 38 ms',
-        model:`response 7fa2 · ${state.providers.join('+')||'openai'} · 1.4 s`,
-        full:'request 1842 → response 7fa2 → message 991 · 42 s'
-      }[step.key];
+      const metricLine=`<div class="metric-line">${metrics.map(m=>`<span><b>${m[0]}</b>${m[1]}</span>`).join('')}</div>`;
       if(kind==='A') return `${native}${metricStrip}`;
-      if(kind==='B') return metricView;
-      return `${native}<code style="display:block;margin-top:5px">${evidence}</code>`;
+      if(kind==='B') return `<div class="combo-side"><div>${native}</div>${metricStrip}</div>`;
+      return `<div class="combo-unified">${native}${metricLine}</div>`;
     }
-    function guidedVariant(kind) { const label={A:'a native service preview and its useful metrics',B:'visual metrics',C:'native previews and evidence'}[kind]; return `${header()}<main class="main"><div class="a-grid"><aside class="a-rail"><div style="padding:0 16px 14px"><div class="eyebrow">Your installation</div><h2 style="margin:4px 0">${state.complete.length}/5 verified</h2><p class="muted">Completed steps keep ${label} here.</p></div>${steps.map((s,i)=>`<button class="a-step ${i===state.step?'active':''} ${isDone(s.key)?'complete':''}" onclick="selectStep(${i})" style="width:100%;border-top:0;border-right:0;border-bottom:0;text-align:left"><span class="a-dot">${isDone(s.key)?'✓':i+1}</span><div class="a-copy"><strong>${s.name}</strong><div class="a-evidence">${railDetail(s,kind)}</div></div></button>`).join('')}</aside><section class="a-work"><p class="muted">Choose any connection. Every card keeps the same height before and after verification.</p><div class="card">${content()}${stateDump()}</div></section></div></main>`; }
+    function guidedVariant(kind) { const label={A:'a stacked native preview and metric strip',B:'a split native preview and metric column',C:'one unified native card with a metric footer'}[kind]; return `${header()}<main class="main"><div class="a-grid"><aside class="a-rail"><div style="padding:0 16px 14px"><div class="eyebrow">Your installation</div><h2 style="margin:4px 0">${state.complete.length}/5 verified</h2><p class="muted">Completed steps keep ${label} here.</p></div>${steps.map((s,i)=>`<button class="a-step ${i===state.step?'active':''} ${isDone(s.key)?'complete':''}" onclick="selectStep(${i})" style="width:100%;border-top:0;border-right:0;border-bottom:0;text-align:left"><span class="a-dot">${isDone(s.key)?'✓':i+1}</span><div class="a-copy"><strong>${s.name}</strong><div class="a-evidence">${railDetail(s,kind)}</div></div></button>`).join('')}</aside><section class="a-work"><p class="muted">Choose any connection. Every card keeps the same height before and after verification.</p><div class="card">${content()}${stateDump()}</div></section></div></main>`; }
     function variantA() { return guidedVariant('A'); }
     function variantB() { return guidedVariant('B'); }
     function variantC() { return guidedVariant('C'); }
