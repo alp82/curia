@@ -1,12 +1,10 @@
 # Installation and first Full loop prototype
 
-This throwaway prototype keeps the selected guided-path structure and compares five cumulative data products:
+This throwaway prototype keeps the selected guided-path structure and compares three ways to retain each setup result directly in its navigation rail:
 
-- `A`: an operator briefing combines live facts from every service.
-- `B`: an attention inbox finds work and requests that the operator can act on.
-- `C`: a first-action composer shows how each service contributes to useful work.
-- `D`: a live activity feed shows what Curia discovers as each service connects.
-- `E`: a Full-loop trace joins provider identifiers, timing, and delivery evidence.
+- `A`: the value rail explains what the connected service now enables and what Curia found.
+- `B`: the evidence rail retains provider identifiers, verified facts, and timing.
+- `C`: the combined rail shows both the operator value and compact technical evidence.
 
 Start it from the repository root:
 
