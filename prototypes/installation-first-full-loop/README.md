@@ -1,15 +1,12 @@
 # Installation and first Full loop prototype
 
-This throwaway prototype compares eight structures for Curia's setup connections:
+This throwaway prototype keeps the selected guided-path structure and compares five cumulative rewards:
 
-- `A`: a focused wizard with a persistent progress rail.
-- `B`: a verification console that emphasizes status and evidence.
-- `C`: a compact field checklist that keeps the whole journey visible.
-- `D`: a reward-led bento launchpad.
-- `E`: a keyboard-style command palette.
-- `F`: a non-linear connection map around Curia.
-- `G`: parallel identity and intelligence lanes.
-- `H`: a capability receipt that fills in as setup progresses.
+- `A`: verified integrations light a constellation around Curia.
+- `B`: every result adds a piece to one mosaic.
+- `C`: integrations construct a small operator workspace.
+- `D`: verification brings system modules online.
+- `E`: each external fact earns a seal on the installation proof.
 
 Start it from the repository root:
 
