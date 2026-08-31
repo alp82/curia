@@ -53,7 +53,7 @@
     /* A: focused step with persistent progress rail. */
     .a-grid { display:grid; grid-template-columns:390px minmax(0,1fr); gap:24px; }
     .a-rail { padding:20px 0; }
-    .a-step { display:flex; gap:11px; height:150px; padding:15px 16px; overflow:hidden; border-left:3px solid transparent; align-items:flex-start; }
+    .a-step { display:flex; gap:11px; height:190px; padding:15px 16px; overflow:hidden; border-left:3px solid transparent; align-items:flex-start; }
     .a-step.active { background:#fff; border-color:var(--green); }
     .a-dot { flex:0 0 24px; height:24px; border-radius:50%; display:grid; place-items:center; background:#dce2dd; font-size:12px; font-weight:800; }
     .a-step.complete .a-dot { background:var(--green); color:white; }
@@ -198,7 +198,7 @@
   <div id="app"></div>
   <script>
     const variants = [
-      { key: 'A', name: 'Native surfaces' },
+      { key: 'A', name: 'Native metrics' },
       { key: 'B', name: 'Visual metrics' },
       { key: 'C', name: 'Native + evidence' }
     ];
@@ -278,7 +278,8 @@
         model:[['2','providers'],['1.4 s','test request'],['ready','routing']],
         full:[['42 s','end to end'],['3','linked IDs'],['1','result posted']]
       }[step.key];
-      const metricView=`<div class="service-icon ${step.key}"><span class="glyph">${{github:'⑂',discord:'#',tailscale:'∷',model:'AI',full:'✓'}[step.key]}</span>${step.name}</div><div class="visual-metrics">${metrics.map(m=>`<span class="visual-metric"><b>${m[0]}</b><small>${m[1]}</small></span>`).join('')}</div>`;
+      const metricStrip=`<div class="visual-metrics">${metrics.map(m=>`<span class="visual-metric"><b>${m[0]}</b><small>${m[1]}</small></span>`).join('')}</div>`;
+      const metricView=`<div class="service-icon ${step.key}"><span class="glyph">${{github:'⑂',discord:'#',tailscale:'∷',model:'AI',full:'✓'}[step.key]}</span>${step.name}</div>${metricStrip}`;
       const evidence={
         github:'installation 918274 · repository alp82/curia · scan 14:08:12',
         discord:'guild 8421…92 · channel 1184…07 · message 991',
@@ -286,11 +287,11 @@
         model:`response 7fa2 · ${state.providers.join('+')||'openai'} · 1.4 s`,
         full:'request 1842 → response 7fa2 → message 991 · 42 s'
       }[step.key];
-      if(kind==='A') return native;
+      if(kind==='A') return `${native}${metricStrip}`;
       if(kind==='B') return metricView;
       return `${native}<code style="display:block;margin-top:5px">${evidence}</code>`;
     }
-    function guidedVariant(kind) { const label={A:'service-native previews',B:'visual metrics',C:'native previews and evidence'}[kind]; return `${header()}<main class="main"><div class="a-grid"><aside class="a-rail"><div style="padding:0 16px 14px"><div class="eyebrow">Your installation</div><h2 style="margin:4px 0">${state.complete.length}/5 verified</h2><p class="muted">Completed steps keep ${label} here.</p></div>${steps.map((s,i)=>`<button class="a-step ${i===state.step?'active':''} ${isDone(s.key)?'complete':''}" onclick="selectStep(${i})" style="width:100%;border-top:0;border-right:0;border-bottom:0;text-align:left"><span class="a-dot">${isDone(s.key)?'✓':i+1}</span><div class="a-copy"><strong>${s.name}</strong><div class="a-evidence">${railDetail(s,kind)}</div></div></button>`).join('')}</aside><section class="a-work"><p class="muted">Choose any connection. Every card keeps the same height before and after verification.</p><div class="card">${content()}${stateDump()}</div></section></div></main>`; }
+    function guidedVariant(kind) { const label={A:'a native service preview and its useful metrics',B:'visual metrics',C:'native previews and evidence'}[kind]; return `${header()}<main class="main"><div class="a-grid"><aside class="a-rail"><div style="padding:0 16px 14px"><div class="eyebrow">Your installation</div><h2 style="margin:4px 0">${state.complete.length}/5 verified</h2><p class="muted">Completed steps keep ${label} here.</p></div>${steps.map((s,i)=>`<button class="a-step ${i===state.step?'active':''} ${isDone(s.key)?'complete':''}" onclick="selectStep(${i})" style="width:100%;border-top:0;border-right:0;border-bottom:0;text-align:left"><span class="a-dot">${isDone(s.key)?'✓':i+1}</span><div class="a-copy"><strong>${s.name}</strong><div class="a-evidence">${railDetail(s,kind)}</div></div></button>`).join('')}</aside><section class="a-work"><p class="muted">Choose any connection. Every card keeps the same height before and after verification.</p><div class="card">${content()}${stateDump()}</div></section></div></main>`; }
     function variantA() { return guidedVariant('A'); }
     function variantB() { return guidedVariant('B'); }
     function variantC() { return guidedVariant('C'); }

@@ -2,7 +2,7 @@
 
 This throwaway prototype keeps the selected guided-path structure and compares three visual ways to retain each setup result directly in fixed-height navigation cards:
 
-- `A`: service-native surfaces show a GitHub ticket, Discord message, Tailscale device, model-provider marks, and Full-loop path.
+- `A`: the proposed hybrid puts useful metrics beneath each GitHub ticket, Discord message, Tailscale device, model-provider surface, and Full-loop path.
 - `B`: visual metrics summarize three concrete results from every connection.
 - `C`: service-native surfaces retain compact technical evidence underneath.
 
