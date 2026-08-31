@@ -1,10 +1,10 @@
 # Installation and first Full loop prototype
 
-This throwaway prototype keeps the selected guided-path structure and compares three ways to retain each setup result directly in its navigation rail:
+This throwaway prototype keeps the selected guided-path structure and compares three visual ways to retain each setup result directly in fixed-height navigation cards:
 
-- `A`: the value rail explains what the connected service now enables and what Curia found.
-- `B`: the evidence rail retains provider identifiers, verified facts, and timing.
-- `C`: the combined rail shows both the operator value and compact technical evidence.
+- `A`: service-native surfaces show a GitHub ticket, Discord message, Tailscale device, model-provider marks, and Full-loop path.
+- `B`: visual metrics summarize three concrete results from every connection.
+- `C`: service-native surfaces retain compact technical evidence underneath.
 
 Start it from the repository root:
 

@@ -53,7 +53,7 @@
     /* A: focused step with persistent progress rail. */
     .a-grid { display:grid; grid-template-columns:390px minmax(0,1fr); gap:24px; }
     .a-rail { padding:20px 0; }
-    .a-step { display:flex; gap:11px; padding:15px 16px; border-left:3px solid transparent; }
+    .a-step { display:flex; gap:11px; height:150px; padding:15px 16px; overflow:hidden; border-left:3px solid transparent; align-items:flex-start; }
     .a-step.active { background:#fff; border-color:var(--green); }
     .a-dot { flex:0 0 24px; height:24px; border-radius:50%; display:grid; place-items:center; background:#dce2dd; font-size:12px; font-weight:800; }
     .a-step.complete .a-dot { background:var(--green); color:white; }
@@ -61,6 +61,27 @@
     .a-evidence { margin-top:7px; color:#526158; font-size:12px; line-height:1.4; }
     .a-evidence code { color:#335141; font-size:11px; }
     .a-step.active .a-evidence { color:#34473c; }
+    .native-preview { margin-top:7px; border-radius:9px; overflow:hidden; text-align:left; }
+    .ticket-stub { padding:9px 10px; border:1px solid #cfd8d2; border-left:4px solid #59636e; background:#fff; }
+    .ticket-stub .ticket-title { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#29312d; font-weight:700; }
+    .ticket-stub .ticket-meta { display:flex; justify-content:space-between; margin-top:5px; color:#69756e; font-size:10px; }
+    .discord-preview { padding:9px 10px; color:#eceefc; background:#5865f2; }
+    .discord-preview .channel { font-weight:800; }.discord-preview .message { margin-top:5px; padding-left:9px; border-left:2px solid #ffffff70; font-size:11px; }
+    .tail-preview { display:flex; align-items:center; gap:11px; padding:9px 10px; color:#f2f4f3; background:#252525; }
+    .tail-logo { width:29px; display:grid; grid-template-columns:repeat(3,5px); gap:3px; flex:0 0 auto; }
+    .tail-logo i { width:5px; height:5px; border-radius:50%; background:white; }.tail-logo i:nth-child(2n) { opacity:.35; }
+    .model-preview { display:flex; align-items:center; gap:8px; padding:9px 10px; color:#202723; background:#eee9df; }
+    .model-mark { width:28px; height:28px; border-radius:50%; display:grid; place-items:center; color:white; background:#111; font-weight:800; }
+    .model-mark.anthropic { border-radius:6px; color:#1d1d1b; background:#d8c6ac; }
+    .loop-preview { display:flex; align-items:center; justify-content:space-between; gap:5px; padding:10px; color:#e8f7ed; background:#174e32; font-size:10px; }
+    .loop-preview b { color:var(--lime); font-size:14px; }
+    .visual-metrics { display:grid; grid-template-columns:repeat(3,1fr); gap:5px; margin-top:9px; }
+    .visual-metric { min-width:0; padding:8px 5px; border-radius:7px; text-align:center; color:#314038; background:#e9eeea; }
+    .visual-metric b { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:15px; }.visual-metric small { font-size:9px; text-transform:uppercase; letter-spacing:.04em; }
+    .service-icon { display:inline-flex; align-items:center; gap:6px; margin-bottom:3px; color:#38473f; font-size:10px; font-weight:800; text-transform:uppercase; letter-spacing:.05em; }
+    .service-icon .glyph { width:19px; height:19px; border-radius:5px; display:grid; place-items:center; color:white; background:#202722; font-size:10px; text-transform:none; }
+    .service-icon.discord .glyph { background:#5865f2; }.service-icon.tailscale .glyph { background:#252525; }.service-icon.model .glyph { color:#252525; background:#d8c6ac; }.service-icon.full .glyph { background:#1d653f; }
+    .visual-empty { margin-top:8px; color:#69756e; font-size:12px; }
     .a-work { max-width:690px; }
     .a-work .card { padding:30px; }
     .reward-panel { min-height:210px; margin-bottom:16px; overflow:hidden; position:relative; border-radius:18px; padding:22px; background:#13231b; color:white; }
@@ -177,9 +198,9 @@
   <div id="app"></div>
   <script>
     const variants = [
-      { key: 'A', name: 'Value rail' },
-      { key: 'B', name: 'Evidence rail' },
-      { key: 'C', name: 'Combined rail' }
+      { key: 'A', name: 'Native surfaces' },
+      { key: 'B', name: 'Visual metrics' },
+      { key: 'C', name: 'Native + evidence' }
     ];
     const steps = [
       { key:'github', name:'GitHub', summary:'Create and install the dedicated GitHub App' },
@@ -241,14 +262,23 @@
       return `<div class="value-panel">${head}<div class="trace">${trace.map(t=>`<div class="trace-step ${t[1]?'live':''}"><strong>${t[0]}</strong><br><br>${t[1]?`${t[2]}<br>${t[3]}`:'No evidence yet'}</div>`).join('')}</div>${isDone('full')?`<div class="notice success"><strong>The evidence joins up.</strong> Request 1842 produced response 7fa2 and Discord message 991.</div>`:''}</div>`;
     }
     function railDetail(step,kind) {
-      if(!isDone(step.key)) return step.key==='full'&&state.complete.filter(k=>k!=='full').length<4?'Available after the four connections are ready.':step.summary;
-      const value={
-        github:'1 watched repository · issue, pull-request, and Actions access ready. 9 open tickets found; 1 is agent-ready.',
-        discord:'#curia is ready for requests and results. 6 commands registered; confirmation delivered.',
-        tailscale:`Private app available at ${state.tailnetName}.example-tailnet.ts.net for alex@example.com.`,
-        model:`${state.providers.map(p=>p==='openai'?'OpenAI':'Anthropic').join(' and ')} ready for work. Verification response: 1.4 seconds.`,
-        full:'First request completed end to end. Result delivered to #curia in 42 seconds.'
+      if(!isDone(step.key)) return `<div class="visual-empty">${step.key==='full'&&state.complete.filter(k=>k!=='full').length<4?'Available after the four connections are ready.':step.summary}</div>`;
+      const dots='<i></i>'.repeat(9);
+      const native={
+        github:`<div class="native-preview ticket-stub"><span class="ticket-title">#861 · Chart backup and recovery lifecycle</span><span class="ticket-meta"><span>ready-for-agent</span><span>9 open · 1 ready</span></span></div>`,
+        discord:`<div class="native-preview discord-preview"><span class="channel"># curia</span><div class="message"><strong>Curia</strong> Setup complete. I’m ready for your first request.</div></div>`,
+        tailscale:`<div class="native-preview tail-preview"><span class="tail-logo">${dots}</span><span><strong>${state.tailnetName}</strong><br><small>Online · alex@example.com · 38 ms</small></span></div>`,
+        model:`<div class="native-preview model-preview"><span class="model-mark">◎</span><span class="model-mark anthropic">A</span><span><strong>OpenAI + Anthropic</strong><br><small>Routing ready · 1.4 s test</small></span></div>`,
+        full:`<div class="native-preview loop-preview"><span>Discord<br><small>request 1842</small></span><b>→</b><span>GitHub<br><small>issue 861</small></span><b>→</b><span>Model<br><small>response 7fa2</small></span><b>→</b><span>#curia<br><small>42 s</small></span></div>`
       }[step.key];
+      const metrics={
+        github:[['1','repository'],['9','open tickets'],['1','agent-ready']],
+        discord:[['#curia','channel'],['6','commands'],['1','message sent']],
+        tailscale:[['38 ms','private access'],['1','operator'],['online','Serve']],
+        model:[['2','providers'],['1.4 s','test request'],['ready','routing']],
+        full:[['42 s','end to end'],['3','linked IDs'],['1','result posted']]
+      }[step.key];
+      const metricView=`<div class="service-icon ${step.key}"><span class="glyph">${{github:'⑂',discord:'#',tailscale:'∷',model:'AI',full:'✓'}[step.key]}</span>${step.name}</div><div class="visual-metrics">${metrics.map(m=>`<span class="visual-metric"><b>${m[0]}</b><small>${m[1]}</small></span>`).join('')}</div>`;
       const evidence={
         github:'installation 918274 · repository alp82/curia · scan 14:08:12',
         discord:'guild 8421…92 · channel 1184…07 · message 991',
@@ -256,11 +286,11 @@
         model:`response 7fa2 · ${state.providers.join('+')||'openai'} · 1.4 s`,
         full:'request 1842 → response 7fa2 → message 991 · 42 s'
       }[step.key];
-      if(kind==='A') return value;
-      if(kind==='B') return `<code>${evidence}</code>`;
-      return `${value}<br><code>${evidence}</code>`;
+      if(kind==='A') return native;
+      if(kind==='B') return metricView;
+      return `${native}<code style="display:block;margin-top:5px">${evidence}</code>`;
     }
-    function guidedVariant(kind) { const label={A:'value',B:'verification evidence',C:'value and evidence'}[kind]; return `${header()}<main class="main"><div class="a-grid"><aside class="a-rail"><div style="padding:0 16px 14px"><div class="eyebrow">Your installation</div><h2 style="margin:4px 0">${state.complete.length}/5 verified</h2><p class="muted">Completed steps keep their ${label} here.</p></div>${steps.map((s,i)=>`<button class="a-step ${i===state.step?'active':''} ${isDone(s.key)?'complete':''}" onclick="selectStep(${i})" style="width:100%;border-top:0;border-right:0;border-bottom:0;text-align:left"><span class="a-dot">${isDone(s.key)?'✓':i+1}</span><div class="a-copy"><strong>${s.name}</strong><div class="a-evidence">${railDetail(s,kind)}</div></div></button>`).join('')}</aside><section class="a-work"><p class="muted">Choose any connection. Your progress and its result remain visible in the rail.</p><div class="card">${content()}${stateDump()}</div></section></div></main>`; }
+    function guidedVariant(kind) { const label={A:'service-native previews',B:'visual metrics',C:'native previews and evidence'}[kind]; return `${header()}<main class="main"><div class="a-grid"><aside class="a-rail"><div style="padding:0 16px 14px"><div class="eyebrow">Your installation</div><h2 style="margin:4px 0">${state.complete.length}/5 verified</h2><p class="muted">Completed steps keep ${label} here.</p></div>${steps.map((s,i)=>`<button class="a-step ${i===state.step?'active':''} ${isDone(s.key)?'complete':''}" onclick="selectStep(${i})" style="width:100%;border-top:0;border-right:0;border-bottom:0;text-align:left"><span class="a-dot">${isDone(s.key)?'✓':i+1}</span><div class="a-copy"><strong>${s.name}</strong><div class="a-evidence">${railDetail(s,kind)}</div></div></button>`).join('')}</aside><section class="a-work"><p class="muted">Choose any connection. Every card keeps the same height before and after verification.</p><div class="card">${content()}${stateDump()}</div></section></div></main>`; }
     function variantA() { return guidedVariant('A'); }
     function variantB() { return guidedVariant('B'); }
     function variantC() { return guidedVariant('C'); }
