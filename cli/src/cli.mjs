@@ -4,9 +4,10 @@ import { installationRoot } from './root.mjs'
 
 // The lifecycle interface's one entry point. `bin/curia.mjs` calls it with the
 // process's argv, env, and streams and exits with what it returns. Tests call
-// it with their own, and can hand in a `commands` table to observe how the
-// core treats a command that throws.
-export async function runCli({ argv, env, stdout, stderr, commands = lifecycleCommands }) {
+// it with their own, hand in a `uid` to stand in for another operator, and can
+// hand in a `commands` table to observe how the core treats a command that
+// throws.
+export async function runCli({ argv, env, stdout, stderr, uid = process.getuid(), commands = lifecycleCommands }) {
   const [name, ...args] = argv
 
   if (name === undefined) {
@@ -37,7 +38,7 @@ export async function runCli({ argv, env, stdout, stderr, commands = lifecycleCo
   }
 
   try {
-    return await command.run({ env, args, stdout, stderr, root: installationRoot(env) })
+    return await command.run({ env, args, stdout, stderr, uid, root: installationRoot(env) })
   } catch (e) {
     stderr.write(`curia ${name}: ${e.message}\n`)
     return e instanceof Refusal ? EXIT.refused : EXIT.failed
