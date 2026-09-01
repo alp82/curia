@@ -21,15 +21,15 @@ function capture() {
   }
 }
 
-async function run(argv, env = {}) {
+async function run(argv, env = {}, { uid = process.getuid() } = {}) {
   const io = capture()
-  const exit = await runCli({ argv, env, stdout: io.stdout, stderr: io.stderr })
+  const exit = await runCli({ argv, env, uid, stdout: io.stdout, stderr: io.stderr })
   return { exit, out: io.out(), err: io.err() }
 }
 
 function tempRoot() {
   const root = mkdtempSync(join(tmpdir(), 'curia-cli-'))
-  mkdirSync(join(root, 'state'), { recursive: true })
+  mkdirSync(join(root, 'state'), { recursive: true, mode: 0o700 })
   return root
 }
 
@@ -90,12 +90,46 @@ describe('command routing', () => {
 
   for (const name of ['install', 'reinstall', 'update', 'rollback', 'doctor', 'uninstall', 'purge']) {
     test(`${name} routes to its seam and reports that the command is not available yet`, async () => {
-      const r = await run([name])
-      assert.equal(r.exit, EXIT.refused)
-      assert.match(r.err, new RegExp(`^curia ${name}: not available in version ${packageVersion.replaceAll('.', '\\.')}`))
-      assert.equal(r.out, '')
+      const root = tempRoot()
+      try {
+        const r = await run([name], { CURIA_ROOT: join(root, 'fresh') })
+        assert.equal(r.exit, EXIT.refused)
+        assert.match(r.err, new RegExp(`^curia ${name}: not available in version ${packageVersion.replaceAll('.', '\\.')}`))
+        assert.equal(r.out, '')
+      } finally {
+        rmSync(root, { recursive: true, force: true })
+      }
     })
   }
+
+  test('a lifecycle command refuses root execution before anything else', async () => {
+    const r = await run(['install'], { CURIA_ROOT: '/nonexistent/curia' }, { uid: 0 })
+    assert.equal(r.exit, EXIT.refused)
+    assert.match(r.err, /^curia install: this command runs as root/)
+  })
+
+  test('a lifecycle command refuses an unknown nonempty root', async () => {
+    const root = tempRoot()
+    try {
+      writeFileSync(join(root, 'stray'), 'x')
+      const r = await run(['update'], { CURIA_ROOT: root })
+      assert.equal(r.exit, EXIT.refused)
+      assert.match(r.err, /^curia update: .* is not a Curia installation/)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test('version stays read-only and reports even a root the boundary would refuse', async () => {
+    const root = tempRoot()
+    try {
+      writeFileSync(join(root, 'stray'), 'x')
+      const r = await run(['version'], { CURIA_ROOT: root })
+      assert.equal(r.exit, EXIT.ok)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
 
   test('a command refuses an unknown option before it runs', async () => {
     const r = await run(['doctor', '--frobnicate'])

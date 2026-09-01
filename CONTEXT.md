@@ -55,6 +55,9 @@ _Avoid_: workspace root, which names the current source deployment's mixed work 
 The atomic, owner-only `state/installation.json` file that identifies an installation root. It contains only a format version, a random installation ID, and the active Curia version. Lifecycle commands check ownership, permissions, and symbolic-link safety directly. Version manifests verify installed artifacts separately.
 _Avoid_: installation manifest, which can be confused with a release or version manifest.
 
+**Lifecycle-operation lock**:
+The `run/lifecycle.lock` file that serializes lifecycle commands on one installation root. A command takes it after the root boundary accepts the root and before it changes anything, and releases it on success or failure. A second command refuses while a live process holds the lock and takes over a lock whose process is gone. See [the command reference](docs/operator/command-reference.md#the-lifecycle-lock).
+
 **Secret file**:
 An owner-only file under the installation root's `secrets/` boundary that holds one long-lived credential or private key. Curia gives each container read-only access to only the secret files that container consumes, and only the credential-owning service may replace one. Long-lived secrets never travel through environment variables, command arguments, logs, diagnostics, or browser responses.
 
