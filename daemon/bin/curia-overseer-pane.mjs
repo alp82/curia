@@ -8,11 +8,10 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { loadCuriaConfig } from '../src/config.mjs'
-import { checkoutsRootFor, syncCheckouts } from '../src/checkouts.mjs'
+import { syncCheckouts } from '../src/checkouts.mjs'
 import { modelCredentialEnv, overseerConfigDirFor, overseerHomeFor, overseerProcessEnv, OVERSEER_CONTAINER_MODEL } from '../src/overseerturn.mjs'
 import { buildSystemPrompt, checkoutReport, toolsFor } from '../src/overseerprompt.mjs'
 import { installCredentialConfig } from '../src/overseercreds.mjs'
-import { overseerTokensRootFor } from '../src/overseertoken.mjs'
 import { agentEnv, seedConfigDir } from '../src/workspace.mjs'
 
 const DIR = path.dirname(fileURLToPath(import.meta.url))
@@ -50,13 +49,13 @@ const repos = cfg.watch.map((entry) => entry.repo)
 const configDir = overseerConfigDirFor(root)
 const home = overseerHomeFor(root)
 fs.mkdirSync(home, { recursive: true })
-const credential = modelCredentialEnv(root)
-seedConfigDir(configDir, home, null, 'claude', { apiKey: credential.env.ANTHROPIC_API_KEY })
+const credential = modelCredentialEnv(configDir)
+seedConfigDir(configDir, home, null, 'claude', { apiKey: credential.env.ANTHROPIC_API_KEY, sweep: false })
 
-await installCredentialConfig(repos, { dir: overseerTokensRootFor(root) })
-const checkouts = await syncCheckouts(root, repos)
+await installCredentialConfig(repos, { dir: cfg.paths.overseerTokens })
+const checkouts = await syncCheckouts(root, repos, { base: cfg.paths.overseerRepos })
 const prompt = [
-  buildSystemPrompt({ shell: true, checkoutsRoot: checkoutsRootFor(root), repos }),
+  buildSystemPrompt({ shell: true, checkoutsRoot: cfg.paths.overseerRepos, repos }),
   checkoutReport(checkouts),
 ].join('\n\n')
 const { allowed, disallowed } = toolsFor({ shell: true })

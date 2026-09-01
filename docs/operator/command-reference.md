@@ -34,14 +34,14 @@ Curia creates the root and seven directories inside it. The following table list
 | Directory | Holds | Across update, reinstall, and uninstall |
 |---|---|---|
 | `config/` | `config.yaml`, your operator configuration. See [Operator configuration](configuration.md). | Preserved |
-| `secrets/` | Long-lived credentials and private keys, one owner-only file each. | Preserved |
-| `state/` | Durable service state and the installation record, `state/installation.json`. | Preserved |
-| `work/` | Worktrees and native agent sessions that can resume. | Preserved |
+| `secrets/` | Long-lived credentials, one owner-only file each. See [Secrets, mounts, and what survives](secrets.md). | Preserved |
+| `state/` | The installation record `state/installation.json`, the journal, attachments, results, and the service's own token records. | Preserved |
+| `work/` | Worktrees, per-session config directories, and the overseer's native sessions, all of which can resume. | Preserved |
 | `versions/` | Installed versions: the pinned runtime, the lifecycle interface, and the Compose bundle of each. | Replaceable |
-| `cache/` | Rebuildable mirrors and download caches. | Removable |
-| `run/` | The lifecycle lock, sockets, and staging for one operation. | Removable |
+| `cache/` | The overseer's mirrors of origin and the containers' home directory with its tool caches. | Removable |
+| `run/` | The lifecycle lock, renewable tokens, sockets, and staging for one operation. | Removable |
 
-The root and all seven directories are owned by you with mode `0700`. Configuration, secret, and state files use mode `0600`. Curia sets these modes itself and doesn't depend on your `umask`. Only `curia purge` removes the preserved directories.
+The root and all seven directories are owned by you with mode `0700`. Configuration, secret, and state files use mode `0600`. Curia sets these modes itself and doesn't depend on your `umask`. Only `curia purge` removes the preserved directories. What each container mounts from the root, and what a restart keeps, is in [Secrets, mounts, and what survives](secrets.md).
 
 `state/installation.json` is the installation record. It holds three fields and nothing else: `format` (the record format, `1`), `installationId` (a random ID that Curia generates once per installation), and `activeVersion` (the installed version the launcher runs). Curia writes the record atomically, so the file is always either the previous complete record or the new one.
 

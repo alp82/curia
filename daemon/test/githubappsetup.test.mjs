@@ -17,11 +17,15 @@ import path from 'node:path'
 import {
   APP_ID_KEY,
   APP_KEY_FILE_KEY,
+  APP_SECRET,
   APP_SETUP_STATE_RE,
   GitHubAppSetup,
   MANIFEST_PERMISSIONS,
   ROLES,
+  minterFrom,
 } from '../src/githubapp.mjs'
+import { ensureLayout } from '../../cli/src/root.mjs'
+import { secretPath } from '../../cli/src/secrets.mjs'
 
 let root
 let pem
@@ -153,6 +157,36 @@ describe('the conversion (#694)', () => {
     assert.deepEqual(replay, { ok: false, reason: 'already completed', app: { id: '42', slug: 'curia-alp' } })
     assert.equal(calls.length, 1, 'a replay must not reach GitHub at all')
     assert.equal(adopted.length, 1)
+  })
+
+  // Under an installation root (#867) the converted app is one owner-only
+  // secret file and no env file is touched: the key never leaves `secrets/`.
+  test('under an installation root the app lands in secrets/github-app.json, and nothing is written beside the daemon', async () => {
+    const p = paths('root')
+    const installRoot = path.join(root, 'install-root')
+    ensureLayout(installRoot, { uid: process.getuid() })
+    const adopted = []
+    const setup = new GitHubAppSetup({
+      root: installRoot,
+      stateFile: path.join(installRoot, 'state', 'github-app-setup.json'),
+      secretFile: path.join(installRoot, 'run', 'github-app-setup.conversion'),
+      fetchImpl: async () => response(converted()),
+      adopt: (facts) => adopted.push(facts),
+    })
+    const started = setup.start({ name: 'curia-alp', redirectUrl: 'https://box.example/complete' })
+
+    const completed = await setup.complete({ code: 'temporary-code', state: started.state })
+
+    assert.equal(completed.ok, true)
+    const secret = secretPath(installRoot, APP_SECRET)
+    assert.equal(fs.statSync(secret).mode & 0o777, 0o600)
+    assert.deepEqual(JSON.parse(fs.readFileSync(secret, 'utf8')), { id: '42', pem })
+    assert.deepEqual(adopted, [{ appId: '42', keyFile: secret }])
+    assert.equal(fs.existsSync(p.envFile), false, 'no env file is written under a root')
+    assert.equal(fs.existsSync(p.keyFile), false)
+    assert.equal(fs.existsSync(setup.secretFile), false, 'the conversion response does not outlive the setup')
+    assert.deepEqual(fs.readdirSync(path.join(installRoot, 'run')), [], 'run/ holds nothing once the setup is complete')
+    assert.equal(minterFrom({ root: installRoot }).appId, '42', 'the boot reads the same file back')
   })
 
   test('a replay that arrives while the first conversion is still in flight is refused too', async () => {

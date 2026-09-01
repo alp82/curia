@@ -54,8 +54,10 @@ import { OVERSEER_MCP_PATH } from './overseerturn.mjs'
 import { ConversationRuntime } from './conversationruntime.mjs'
 import { hasSession } from './tmux.mjs'
 import { retiredAgentTokenKeys } from './workspace.mjs'
-import { APP_ID_KEY, APP_KEY_FILE_KEY, GitHubAppSetup, installUrlFor, minterFrom } from './githubapp.mjs'
-import { CodexCredentialBroker, AnthropicCredentialStore, anthropicStoreFile } from './credentials.mjs'
+import { APP_ID_KEY, APP_KEY_FILE_KEY, APP_SECRET, GitHubAppSetup, installUrlFor, minterFrom } from './githubapp.mjs'
+import { CodexCredentialBroker, AnthropicCredentialStore } from './credentials.mjs'
+import { credentialsInEnvironment, readSecret, secretPath, secretsStatus } from '../../cli/src/secrets.mjs'
+import { readDiscordSettings, discordSettingsFromEnv, discordSettingsPath } from './discordsettings.mjs'
 import {
   OVERSEER_ENV_FILE, overseerEnvPath, loadOverseerEnv, daemonOnlyKeys, retiredTokenKeys,
 } from './overseertoken.mjs'
@@ -118,21 +120,31 @@ const ROOT = path.join(DIR, '..')
 // container the rename is not optional — compose refuses a missing `env_file` —
 // so this branch is for a dev box and for the moment between the rename and the
 // deploy.
-const envFile = path.join(ROOT, '.env.daemon')
-const legacyEnvFile = path.join(ROOT, '.env')
-const loadFrom = fs.existsSync(envFile) ? envFile : (fs.existsSync(legacyEnvFile) ? legacyEnvFile : null)
-if (loadFrom) {
-  for (const line of fs.readFileSync(loadFrom, 'utf8').split('\n')) {
-    const m = line.match(/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*)\s*$/)
-    if (m && !(m[1] in process.env)) process.env[m[1]] = m[2]
+//
+// UNDER AN INSTALLATION ROOT THERE IS NO ENV FILE (#867). Every long-lived
+// credential is a file in `secrets/`, and a credential that arrives in the
+// process environment anyway refuses the boot by key name, so the habit cannot
+// come back through a Compose edit. The value is never printed.
+const INSTALL_ROOT = process.env.CURIA_ROOT || null
+if (INSTALL_ROOT) {
+  const carried = credentialsInEnvironment(process.env)
+  if (carried.length) {
+    throw new Error(`refusing to start: ${carried.join(', ')} ${carried.length === 1 ? 'is' : 'are'} in the environment. Under an installation root a long-lived credential is a file in ${path.join(INSTALL_ROOT, 'secrets')} and never an environment variable. Remove the variable and write the secret file (docs/operator/secrets.md)`)
   }
+} else {
+  const envFile = path.join(ROOT, '.env.daemon')
+  const legacyEnvFile = path.join(ROOT, '.env')
+  const loadFrom = fs.existsSync(envFile) ? envFile : (fs.existsSync(legacyEnvFile) ? legacyEnvFile : null)
+  if (loadFrom) {
+    for (const line of fs.readFileSync(loadFrom, 'utf8').split('\n')) {
+      const m = line.match(/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*)\s*$/)
+      if (m && !(m[1] in process.env)) process.env[m[1]] = m[2]
+    }
+  }
+  if (loadFrom === legacyEnvFile) log('WARNING: daemon/.env is the old name. Rename it to daemon/.env.daemon (#313)')
 }
-if (loadFrom === legacyEnvFile) log('WARNING: daemon/.env is the old name. Rename it to daemon/.env.daemon (#313)')
 
 const PORT = Number(process.env.PORT ?? 4271)
-// CURIA_DATA_DIR mirrors CURIA_CONFIG_DIR: the boot test points both at a
-// fixture dir so a test run never writes into the real journal.
-const DATA = process.env.CURIA_DATA_DIR ?? path.join(ROOT, 'data')
 
 // Where a reply file lands, per question (#712, ADR-0025). The Discord bridge
 // has written downloaded thread attachments here since #34; a browser answer
@@ -179,20 +191,30 @@ function writeReplyFiles(id, files) {
   }
   return { paths, refusals }
 }
-// The command channel. The bridge opens it; the dispatcher names it, because a
-// confirm typed outside any thread renders there (#218).
-const CHANNEL = process.env.CURIA_CHANNEL ?? 'curia'
-fs.mkdirSync(path.join(DATA, 'results'), { recursive: true })
-// Daemon-owned, never mounted into a container: one agent's token is unreadable
-// by every other agent (#159).
-fs.mkdirSync(tokensDir(DATA), { recursive: true, mode: 0o700 })
-
 // dispatch-loop config (#33) — hand-edited YAML, validated on load; a bad
 // shape refuses the boot rather than limping
 const CONFIG_DIR = process.env.CURIA_CONFIG_DIR ?? path.join(ROOT, '..', 'config')
 const CURIA_FILE = path.join(CONFIG_DIR, 'curia.yaml')
 const ROUTING_FILE = path.join(CONFIG_DIR, 'routing.yaml')
 const curiaConfig = loadCuriaConfig(CURIA_FILE)
+
+// Where the service data lives (#867): `cfg.paths`, one answer for every
+// process. Under an installation root the journal and its neighbours are in
+// `state/`; without one, CURIA_DATA_DIR mirrors CURIA_CONFIG_DIR (the boot
+// test points both at a fixture dir so a test run never writes into the real
+// journal), else `daemon/data`.
+const DATA = process.env.CURIA_DATA_DIR ?? curiaConfig.paths.state ?? path.join(ROOT, 'data')
+
+// The Discord facts beside the token (#867): `state/discord.json` under an
+// installation root, the three env keys without one. The command channel is
+// one of them. The bridge opens it; the dispatcher names it, because a confirm
+// typed outside any thread renders there (#218).
+const discordSettings = INSTALL_ROOT ? readDiscordSettings(DATA) : discordSettingsFromEnv(process.env)
+const CHANNEL = discordSettings.channel
+fs.mkdirSync(path.join(DATA, 'results'), { recursive: true })
+// Daemon-owned, never mounted into a container: one agent's token is unreadable
+// by every other agent (#159).
+fs.mkdirSync(tokensDir(DATA), { recursive: true, mode: 0o700 })
 const routingConfig = loadRoutingConfig(ROUTING_FILE)
 // When the values this process RUNS were read off disk (#362). Boot sets it,
 // and a reload that applies moves it. `GET /overview` stamps the six live
@@ -331,9 +353,11 @@ function checkWatchedCredentials() {
 // at the first dispatch names the step that was missed.
 // `let`, because #694 adopts a converted app in process: the setup flow puts a
 // new minter here and hands it to the dispatcher without a restart.
-let appMinter = minterFrom({ daemonRoot: ROOT, log })
+let appMinter = minterFrom({ root: INSTALL_ROOT, daemonRoot: ROOT, log })
 if (!appMinter) {
-  log(`no GitHub App configured — set ${APP_ID_KEY} and ${APP_KEY_FILE_KEY} in daemon/.env.daemon (docs/github-app.md). No agent can be dispatched until it is`)
+  log(INSTALL_ROOT
+    ? `no GitHub App configured — the GitHub integration step of setup writes ${secretPath(INSTALL_ROOT, APP_SECRET)} (docs/operator/secrets.md). No agent can be dispatched until it does`
+    : `no GitHub App configured — set ${APP_ID_KEY} and ${APP_KEY_FILE_KEY} in daemon/.env.daemon (docs/github-app.md). No agent can be dispatched until it is`)
 } else {
   log(`GitHub App ${appMinter.appId}, key at ${appMinter.keyFile}`)
 }
@@ -362,11 +386,20 @@ function checkAppInstallations() {
 
 const githubAppSetup = new GitHubAppSetup({
   daemonRoot: ROOT,
+  // Under an installation root (#867) the converted app lands in
+  // `secrets/github-app.json`, the setup record in `state/`, and the one-hour
+  // conversion payload in `run/`, where a restart may discard it.
+  root: INSTALL_ROOT,
+  ...(INSTALL_ROOT ? {
+    stateFile: path.join(DATA, 'github-app-setup.json'),
+    secretFile: path.join(curiaConfig.paths.run, 'github-app-setup.conversion'),
+  } : {}),
   // In process (#694, one stack since #764): the minter this file holds is
   // replaced, the dispatcher is handed the new one, and the installation read
   // runs again, so the operator's next act is the install and not a restart.
   adopt: ({ appId, keyFile }) => {
     appMinter = minterFrom({
+      root: INSTALL_ROOT,
       daemonRoot: ROOT,
       env: { [APP_ID_KEY]: appId, [APP_KEY_FILE_KEY]: keyFile },
       log,
@@ -477,7 +510,7 @@ reduction.journal(DAEMON_BOOT, { pid: process.pid })
 // reason the codex broker is — it writes curia's real credential store, so the
 // process that actually runs the box is the one that hands it over.
 const anthropic = new AnthropicCredentialStore({
-  workspaceRoot: curiaConfig.dispatch.workspace_root,
+  file: curiaConfig.paths.anthropicStore,
   journal: (event, detail) => reduction.journal(event, detail),
 })
 
@@ -485,7 +518,7 @@ const anthropic = new AnthropicCredentialStore({
 // An environment token cannot act as disaster recovery because its age,
 // validity, and revocation state are not tracked on any curia surface (#726).
 if (!anthropic.read()) {
-  log(`WARNING: curia owns no anthropic credential at ${anthropicStoreFile(curiaConfig.dispatch.workspace_root)}. Run reauth anthropic before starting a claude agent or an overseer turn`)
+  log(`WARNING: curia owns no anthropic credential at ${anthropic.file}. Run reauth anthropic before starting a claude agent or an overseer turn`)
 }
 
 // EVERY BOOT NAMES A LEGACY KEY. A live subscription token in an env file is a
@@ -1499,6 +1532,7 @@ const dispatcher = new Dispatcher({
   // it writes curia's real credential store and rotates a real refresh token, so
   // the process that actually runs the box is the one that hands it over.
   credentials: new CodexCredentialBroker({
+    authFile: curiaConfig.paths.codexAuth,
     log,
     journal: (event, detail) => reduction.journal(event, detail),
   }),
@@ -2896,6 +2930,10 @@ async function overview() {
     // code, because a one-time auth code in a chat log is a credential in a
     // chat log.
     credentials: dispatcher.credentialsStatus(),
+    // The secret files by name and presence (#867), never by value. Null in the
+    // source deployment, which keeps its env file. `curia doctor` (#881) reads
+    // the same function directly.
+    secrets: INSTALL_ROOT ? secretsStatus(INSTALL_ROOT) : null,
     github_app: {
       ...githubAppSetup.status(),
       configured: Boolean(appMinter),
@@ -4149,10 +4187,16 @@ function onBridgeHealth(ev) {
   bridge?.announce(text).catch((e) => log(`bridge recovery notice failed: ${e.message}`))
 }
 
-if (process.env.DISCORD_BOT_TOKEN) {
-  const allowed = (process.env.DISCORD_ALLOWED_USERS ?? '').split(',').map((s) => s.trim()).filter(Boolean)
+// The bot token (#867): `secrets/discord-bot-token` under an installation root,
+// read once here and handed to the bridge and nothing else; the env key in the
+// source deployment. The allow list beside it is the whole auth gate.
+const discordToken = INSTALL_ROOT ? (readSecret(INSTALL_ROOT, 'discord-bot-token')?.trim() || null) : (process.env.DISCORD_BOT_TOKEN || null)
+if (discordToken) {
+  const allowed = discordSettings.allowed_users
   if (!allowed.length) {
-    log('DISCORD_ALLOWED_USERS is empty — refusing to start the bridge without an auth gate')
+    log(INSTALL_ROOT
+      ? `${discordSettingsPath(DATA)} names no allowed user — refusing to start the bridge without an auth gate`
+      : 'DISCORD_ALLOWED_USERS is empty — refusing to start the bridge without an auth gate')
   } else {
     // Set while a launch ladder is in flight, cleared only on success. The wedge
     // watchdog reads it so a bridge that is already retrying does not collect a
@@ -4163,9 +4207,9 @@ if (process.env.DISCORD_BOT_TOKEN) {
     const launchBridge = (attempt = 1) => {
       bridgeLaunching = true
       const b = new DiscordBridge({
-        token: process.env.DISCORD_BOT_TOKEN,
+        token: discordToken,
         allowedUsers: allowed,
-        guildId: process.env.CURIA_GUILD_ID,
+        guildId: discordSettings.guild_id ?? undefined,
         channelName: CHANNEL,
         dataDir: DATA,
         handlers: gate,
@@ -4237,5 +4281,7 @@ if (process.env.DISCORD_BOT_TOKEN) {
     wedgeTimer.unref()
   }
 } else {
-  log('no DISCORD_BOT_TOKEN — running without the bridge (REST-only)')
+  log(INSTALL_ROOT
+    ? `no ${secretPath(INSTALL_ROOT, 'discord-bot-token')} — running without the bridge (REST-only)`
+    : 'no DISCORD_BOT_TOKEN — running without the bridge (REST-only)')
 }

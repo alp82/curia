@@ -22,7 +22,7 @@ import {
   turnRoute, refuseTurn, checkoutNote, credentialPass, overseerConfigDirFor, overseerHomeFor,
   modelCredentialEnv, overseerProcessEnv,
 } from '../src/overseerturn.mjs'
-import { AnthropicCredentialStore, anthropicStoreFile } from '../src/credentials.mjs'
+import { AnthropicCredentialStore, CLAUDE_CREDENTIAL_FILE, writeClaudeCredentials } from '../src/credentials.mjs'
 import { unroutedNote } from '../src/overseercreds.mjs'
 import { overseerTokensRootFor, writeOverseerToken } from '../src/overseertoken.mjs'
 import { OverseerClient, OverseerTurns, buildVerbMcpServer, serveVerbMcp } from '../src/overseerclient.mjs'
@@ -359,20 +359,32 @@ describe('the model credential is a file the daemon rewrites (#648)', () => {
   const OAT = 'sk-ant-oat01-aaaaaaaaaaaaaaaaaaaaaaaaaaaa'
   const OAT2 = 'sk-ant-oat01-bbbbbbbbbbbbbbbbbbbbbbbbbbbb'
 
-  test('the store supplies the credential', () => {
+  // The copy in the overseer's own config directory, written by the daemon
+  // the way it writes every claude agent's (#867). The store itself stays on
+  // the daemon's side of the mount.
+  const copyOf = (root) => {
+    const dir = overseerConfigDirFor(root)
+    fs.mkdirSync(dir, { recursive: true })
+    return dir
+  }
+
+  test('the config-dir copy supplies the credential', () => {
     const root = tmpRoot('turn-cred')
-    new AnthropicCredentialStore({ workspaceRoot: root }).adopt(OAT)
-    const { env, note } = modelCredentialEnv(root)
+    const dir = copyOf(root)
+    writeClaudeCredentials(dir, { token: OAT, obtained_at: new Date().toISOString() })
+    const { env, note } = modelCredentialEnv(dir)
     assert.equal(env.CLAUDE_CODE_OAUTH_TOKEN, OAT)
     assert.equal(note, null)
   })
 
-  test('an empty store requires re-authentication', () => {
+  test('an absent copy requires re-authentication, and the note names the file', () => {
     const root = tmpRoot('turn-cred-none')
-    const { env, note } = modelCredentialEnv(root)
+    const dir = copyOf(root)
+    const { env, note } = modelCredentialEnv(dir)
     assert.deepEqual(env, {})
     assert.match(note, /no anthropic credential/)
     assert.match(note, /reauth anthropic/)
+    assert.ok(note.includes(path.join(dir, CLAUDE_CREDENTIAL_FILE)))
   })
 
   test('legacy model variables are removed from the inherited environment', () => {
@@ -389,8 +401,12 @@ describe('the model credential is a file the daemon rewrites (#648)', () => {
     // never do. Two turns against one running container, and the daemon
     // replaces the credential between them.
     const root = tmpRoot('turn-cred-reread')
+    const dir = copyOf(root)
+    // What the daemon does on adoption and on every tick: the store on its
+    // side, the copy on the container's.
     const store = new AnthropicCredentialStore({ workspaceRoot: root })
-    store.adopt(OAT)
+    const adopt = (token) => { store.adopt(token); writeClaudeCredentials(dir, store.read()) }
+    adopt(OAT)
     const seen = []
     const c = await startContainer({
       cfg: cfgFor(root, []),
@@ -406,10 +422,10 @@ describe('the model credential is a file the daemon rewrites (#648)', () => {
       await res.text()
     }
     await turn()
-    store.adopt(OAT2)
+    adopt(OAT2)
     await turn()
     assert.deepEqual(seen, [OAT, OAT2], 'the second turn read the file the daemon had just rewritten')
-    assert.ok(fs.existsSync(anthropicStoreFile(root)))
+    assert.ok(fs.existsSync(path.join(dir, CLAUDE_CREDENTIAL_FILE)))
     await c.stop()
   })
 })

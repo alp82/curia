@@ -176,8 +176,10 @@ services:
     environment:
       HOME: ${CURIA_WORKSPACE_ROOT:-/home/alp/curia-work}/home
       CURIA_TMUX_SOCKET: /run/curia-tmux/default
+    # NO DOCKER SOCKET (#867): the attach surface runs `tmux attach` over the
+    # socket volume and nothing else. Only the daemon and the tmux service,
+    # whose panes run `docker run`, reach the host dockerd.
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
       - ${CURIA_REPO_ROOT:-/home/alp/curia}:${CURIA_REPO_ROOT:-/home/alp/curia}
       - ${CURIA_WORKSPACE_ROOT:-/home/alp/curia-work}:${CURIA_WORKSPACE_ROOT:-/home/alp/curia-work}
       - tmux-sock:/run/curia-tmux
@@ -282,8 +284,9 @@ services:
       # states it. It is a path and not a secret.
       CURIA_OVERSEER_TOKEN_DIR: ${CURIA_WORKSPACE_ROOT:-/home/alp/curia-work}/overseer/tokens
     # NO ENV FILE ENTERS THIS CONTAINER (#726). The daemon writes GitHub tokens
-    # and the model credential into the read-only trees that follow. This keeps
-    # a legacy environment token from becoming an untracked fallback.
+    # into the read-only tree that follows and the model credential into the
+    # config dir (#867). This keeps a legacy environment token from becoming an
+    # untracked fallback.
     volumes:
       # The same mount list the dashboard runs on, and the same reason it names
       # files rather than trees: `daemon/` as a whole would carry `.env.daemon`
@@ -317,18 +320,13 @@ services:
       # removed. Read-only because nothing in here has a reason to write a
       # credential, and the shell in here is the reason to say so.
       - ${CURIA_WORKSPACE_ROOT:-/home/alp/curia-work}/overseer/tokens:${CURIA_WORKSPACE_ROOT:-/home/alp/curia-work}/overseer/tokens:ro
-      # THE MODEL CREDENTIAL, READ-ONLY, and the same shape for the same reason
-      # (#648). One file per provider, written by the daemon, re-read by every
-      # turn — so a replaced credential reaches the next turn with nothing
-      # restarted, which is what the env file above could never do.
+      # THE MODEL CREDENTIAL IS NOT MOUNTED (#867). It used to be the daemon's
+      # `credentials/` store, read-only. The daemon now writes this container a
+      # copy into the config dir below — the same `.credentials.json` every
+      # claude agent gets — and heals it on every tick, so a replaced credential
+      # still reaches the next turn with nothing restarted. A container that
+      # holds a shell never sees the store itself.
       #
-      # The tree is keyed by PROVIDER, not by consumer: this container and the
-      # claude agent containers run on one value from one account, and two copies
-      # would be two expiry answers free to disagree.
-      #
-      # Read-only because nothing in here has a reason to write a credential, and
-      # the shell in here is the reason to say so.
-      - ${CURIA_WORKSPACE_ROOT:-/home/alp/curia-work}/credentials:${CURIA_WORKSPACE_ROOT:-/home/alp/curia-work}/credentials:ro
       # The config dir, at the SAME PATH on both sides, because the Chat screen
       # reads the overseer's transcript off it (ADR-0015).
       - ${CURIA_WORKSPACE_ROOT:-/home/alp/curia-work}/cfg/curia-overseer:${CURIA_WORKSPACE_ROOT:-/home/alp/curia-work}/cfg/curia-overseer
