@@ -1,10 +1,10 @@
 # Installation and first Full loop prototype
 
-This throwaway prototype keeps the selected guided-path structure and compares three ways to combine a service-native surface with useful metrics in fixed-height navigation cards:
+This throwaway prototype keeps the selected guided-path structure. Each fixed-height navigation card owns its service header, setup state, and connection-data footer. Three variants compare brand-color behavior:
 
-- `A`: a metric strip sits below the native surface.
-- `B`: the native surface and a vertical metric column sit side by side.
-- `C`: the native surface and metric footer form one unified card.
+- `A`: every card always uses its brand color in the header and a neutral footer.
+- `B`: incomplete headers are dimmed; connected headers become vivid and their footers gain a light brand tint.
+- `C`: incomplete cards stay neutral; connected cards use brand color across the full surface.
 
 Start it from the repository root:
 

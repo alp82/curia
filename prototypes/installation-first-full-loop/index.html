@@ -52,7 +52,7 @@
     .reopen .button { background:var(--lime); color:#16221b; }
     /* A: focused step with persistent progress rail. */
     .a-grid { display:grid; grid-template-columns:390px minmax(0,1fr); gap:24px; }
-    .a-rail { padding:20px 0; }
+    .a-rail { display:flex; flex-direction:column; gap:12px; padding:20px 0; }
     .a-step { display:flex; gap:11px; height:190px; padding:15px 16px; overflow:hidden; border-left:3px solid transparent; align-items:flex-start; }
     .a-step.active { background:#fff; border-color:var(--green); }
     .a-dot { flex:0 0 24px; height:24px; border-radius:50%; display:grid; place-items:center; background:#dce2dd; font-size:12px; font-weight:800; }
@@ -96,6 +96,30 @@
     .combo-unified .native-preview { margin:0; border:0; border-radius:0; }
     .metric-line { display:flex; justify-content:space-around; gap:5px; padding:8px 7px; color:#435149; font-size:10px; }
     .metric-line span { flex:1; text-align:center; border-right:1px solid #dce2dd; }.metric-line span:last-child { border:0; }.metric-line b { display:block; font-size:12px; }
+    .service-card { --brand:#24292f; --on-brand:white; width:100%; height:190px; padding:0; overflow:hidden; border:1px solid #cfd7d1; border-radius:14px; color:var(--ink); background:white; text-align:left; box-shadow:0 1px 2px #14251c0a; }
+    .service-card.discord { --brand:#5865f2; }.service-card.tailscale { --brand:#252525; }.service-card.model { --brand:#d8c6ac; --on-brand:#20231f; }.service-card.full { --brand:#1d653f; }
+    .service-card.active { outline:3px solid var(--lime); outline-offset:2px; }
+    .service-card-head { height:78px; padding:13px 15px; color:var(--on-brand); background:var(--brand); }
+    .service-card-title { display:flex; align-items:center; gap:10px; font-size:15px; font-weight:800; }
+    .service-card-title .brand-logo { color:var(--brand); background:var(--on-brand); }
+    .service-card-title .tail-logo { width:28px; padding:4px; }
+    .service-card-title .model-logos { display:flex; gap:4px; }.service-card-title .model-mark { width:27px; height:27px; font-size:11px; }
+    .service-card-subtitle { margin:7px 0 0 38px; color:inherit; opacity:.78; font-size:11px; }
+    .service-card-footer { height:110px; padding:13px 15px; background:white; }
+    .service-card-footer strong { display:block; margin-bottom:4px; }
+    .service-card-footer code { color:inherit; font-size:10px; }
+    .service-card-footer .metric-line { margin:9px -5px -4px; padding:7px 0 0; border-top:1px solid #dce2dd; }
+    .empty-footer { color:#718078; font-size:12px; }
+    .treatment-b:not(.complete) .service-card-head { color:#536159; background:color-mix(in srgb,var(--brand) 22%,#eef1ee); }
+    .treatment-b:not(.complete) .service-card-title .brand-logo { color:#68756e; background:#fff9; }
+    .treatment-b.complete .service-card-footer { background:color-mix(in srgb,var(--brand) 8%,white); }
+    .treatment-c:not(.complete) .service-card-head { color:#4f5d55; background:#e7ebe8; }
+    .treatment-c:not(.complete) .service-card-title .brand-logo { color:#647169; background:white; }
+    .treatment-c.complete { color:var(--on-brand); background:var(--brand); border-color:var(--brand); }
+    .treatment-c.complete .service-card-footer { color:var(--on-brand); background:var(--brand); }
+    .treatment-c.complete .service-card-footer .metric-line { color:inherit; border-color:#ffffff35; }
+    .treatment-c.complete .muted { color:inherit; opacity:.72; }
+    .treatment-b:not(.complete) .tail-logo i,.treatment-c:not(.complete) .tail-logo i { background:#647169; }
     .a-work { max-width:690px; }
     .a-work .card { padding:30px; }
     .reward-panel { min-height:210px; margin-bottom:16px; overflow:hidden; position:relative; border-radius:18px; padding:22px; background:#13231b; color:white; }
@@ -194,8 +218,9 @@
     .h-detail { margin-top:24px; border-top:5px solid var(--ink); padding-top:22px; }
     @media (max-width:760px) {
       .a-grid,.b-grid,.g-board { grid-template-columns:1fr; }
-      .a-rail { display:flex; overflow:auto; padding:0; }
+      .a-rail { flex-direction:column; overflow:visible; padding:0; }
       .a-step { min-width:150px; border-left:0; border-bottom:3px solid transparent; }
+      .service-card { width:100%; }
       .c-summary { grid-template-columns:26px 1fr auto; }
       .c-summary .desc { display:none; }
       .c-detail { padding:4px 16px 18px 56px; }
@@ -212,9 +237,9 @@
   <div id="app"></div>
   <script>
     const variants = [
-      { key: 'A', name: 'Stacked metrics' },
-      { key: 'B', name: 'Split metrics' },
-      { key: 'C', name: 'Unified metrics' }
+      { key: 'A', name: 'Brand header' },
+      { key: 'B', name: 'Tinted footer' },
+      { key: 'C', name: 'Connected color' }
     ];
     const steps = [
       { key:'github', name:'GitHub', summary:'Create and install the dedicated GitHub App' },
@@ -299,7 +324,47 @@
       if(kind==='B') return `<div class="combo-side"><div>${native}</div>${metricStrip}</div>`;
       return `<div class="combo-unified">${native}${metricLine}</div>`;
     }
-    function guidedVariant(kind) { const label={A:'a stacked native preview and metric strip',B:'a split native preview and metric column',C:'one unified native card with a metric footer'}[kind]; return `${header()}<main class="main"><div class="a-grid"><aside class="a-rail"><div style="padding:0 16px 14px"><div class="eyebrow">Your installation</div><h2 style="margin:4px 0">${state.complete.length}/5 verified</h2><p class="muted">Completed steps keep ${label} here.</p></div>${steps.map((s,i)=>`<button class="a-step ${i===state.step?'active':''} ${isDone(s.key)?'complete':''}" onclick="selectStep(${i})" style="width:100%;border-top:0;border-right:0;border-bottom:0;text-align:left"><span class="a-dot">${isDone(s.key)?'✓':i+1}</span><div class="a-copy"><strong>${s.name}</strong><div class="a-evidence">${railDetail(s,kind)}</div></div></button>`).join('')}</aside><section class="a-work"><p class="muted">Choose any connection. Every card keeps the same height before and after verification.</p><div class="card">${content()}${stateDump()}</div></section></div></main>`; }
+    function brandLogo(key) {
+      if(key==='github') return `<span class="brand-logo github-logo"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.64 0 8.13c0 3.59 2.29 6.64 5.47 7.71.4.08.55-.18.55-.39 0-.19-.01-.83-.01-1.51-2.01.38-2.53-.5-2.69-.96-.09-.23-.48-.96-.82-1.15-.28-.15-.68-.53-.01-.54.63-.01 1.08.59 1.23.83.72 1.23 1.87.88 2.33.67.07-.53.28-.88.51-1.08-1.78-.2-3.64-.9-3.64-4.01 0-.89.31-1.62.82-2.19-.08-.2-.36-1.04.08-2.16 0 0 .67-.22 2.2.84A7.4 7.4 0 0 1 8 3.92c.68 0 1.36.09 2 .27 1.53-1.06 2.2-.84 2.2-.84.44 1.12.16 1.96.08 2.16.51.57.82 1.3.82 2.19 0 3.12-1.87 3.81-3.65 4.01.29.25.54.73.54 1.49 0 1.08-.01 1.95-.01 2.22 0 .22.15.47.55.39A8.14 8.14 0 0 0 16 8.13C16 3.64 12.42 0 8 0Z"/></svg></span>`;
+      if(key==='discord') return `<span class="brand-logo discord-logo"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.317 4.37a19.8 19.8 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.211.375-.445.865-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.618-1.25.077.077 0 0 0-.078-.037A19.74 19.74 0 0 0 3.677 4.37a.07.07 0 0 0-.032.028C.533 9.046-.319 13.58.099 18.058a.082.082 0 0 0 .031.056c2.053 1.508 4.041 2.423 5.993 3.03a.078.078 0 0 0 .084-.028c.462-.63.873-1.295 1.226-1.994a.076.076 0 0 0-.042-.106 12.3 12.3 0 0 1-1.872-.892.077.077 0 0 1-.008-.128c.126-.094.252-.192.372-.291a.074.074 0 0 1 .078-.01c3.928 1.793 8.18 1.793 12.061 0a.074.074 0 0 1 .079.009c.12.099.246.198.373.292a.077.077 0 0 1-.007.128c-.598.343-1.22.645-1.873.891a.077.077 0 0 0-.041.107c.36.698.772 1.363 1.225 1.993a.076.076 0 0 0 .084.029c1.961-.607 3.95-1.522 6.002-3.03a.077.077 0 0 0 .031-.055c.5-5.177-.838-9.674-3.548-13.66a.061.061 0 0 0-.031-.029ZM8.02 15.331c-1.183 0-2.157-1.086-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.095 2.157 2.419 0 1.333-.956 2.419-2.157 2.419Zm7.975 0c-1.183 0-2.157-1.086-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.095 2.157 2.419 0 1.333-.946 2.419-2.157 2.419Z"/></svg></span>`;
+      if(key==='tailscale') return `<span class="tail-logo">${'<i></i>'.repeat(9)}</span>`;
+      if(key==='model') return `<span class="model-logos"><span class="model-mark">◎</span><span class="model-mark anthropic">A</span></span>`;
+      return `<span class="brand-logo"><strong>C</strong></span>`;
+    }
+    function connectionMetrics(key) {
+      return {
+        github:hasGitHubTickets?[['1','repository'],['9','open tickets'],['1','agent-ready']]:[['1','repository'],['0','open tickets'],['ready','automation']],
+        discord:[['#curia','channel'],['6','commands'],['1','message sent']],
+        tailscale:[['38 ms','private access'],['1','operator'],['online','Serve']],
+        model:[['2','providers'],['1.4 s','test request'],['ready','routing']],
+        full:[['42 s','end to end'],['3','linked IDs'],['1','result posted']]
+      }[key];
+    }
+    function connectionFooter(step) {
+      if(!isDone(step.key)) return `<div class="empty-footer">${{
+        github:'Repository access and discovered work will appear here.',
+        discord:'The selected channel and command verification will appear here.',
+        tailscale:'The private address and verified operator will appear here.',
+        model:'Connected providers and the test route will appear here.',
+        full:'Request, response, and delivery evidence will appear here.'
+      }[step.key]}</div>`;
+      const data={
+        github:hasGitHubTickets?`<strong>#861 · Chart backup and recovery lifecycle</strong><span class="muted">ready-for-agent · alp82/curia</span>`:`<strong>alp82/curia is connected</strong><span class="muted">Issues, pull requests, and Actions ready</span>`,
+        discord:`<strong>#curia</strong><span class="muted">Confirmation delivered · 6 commands registered</span>`,
+        tailscale:`<strong>${state.tailnetName}.example-tailnet.ts.net</strong><span class="muted">alex@example.com · Serve 38 ms</span>`,
+        model:`<strong>OpenAI + Anthropic</strong><span class="muted">Routing ready · verification request 1.4 s</span>`,
+        full:`<strong>request 1842 → response 7fa2 → message 991</strong><span class="muted">Result delivered to #curia in 42 seconds</span>`
+      }[step.key];
+      const metrics=connectionMetrics(step.key);
+      return `${data}<div class="metric-line">${metrics.map(m=>`<span><b>${m[0]}</b>${m[1]}</span>`).join('')}</div>`;
+    }
+    function serviceSubtitle(step) {
+      if(isDone(step.key)) return step.key==='full'?'Full loop verified':step.key==='model'?'Two providers verified':'Connected and verified';
+      if(step.key==='full'&&state.complete.filter(k=>k!=='full').length<4) return 'Waiting for required connections';
+      return 'Ready to connect';
+    }
+    function serviceCard(step,i,kind) { return `<button class="service-card ${step.key} treatment-${kind.toLowerCase()} ${isDone(step.key)?'complete':''} ${i===state.step?'active':''}" onclick="selectStep(${i})"><header class="service-card-head"><div class="service-card-title">${brandLogo(step.key)}<span>${step.name}</span></div><div class="service-card-subtitle">${serviceSubtitle(step)}</div></header><div class="service-card-footer">${connectionFooter(step)}</div></button>`; }
+    function guidedVariant(kind) { const label={A:'brand-colored headers',B:'dimmed headers and tinted connected footers',C:'full brand color only after connection'}[kind]; return `${header()}<main class="main"><div class="a-grid"><aside class="a-rail"><div style="padding:0 16px 2px"><div class="eyebrow">Your installation</div><h2 style="margin:4px 0">${state.complete.length}/5 verified</h2><p class="muted">Comparing ${label}.</p></div>${steps.map((s,i)=>serviceCard(s,i,kind)).join('')}</aside><section class="a-work"><p class="muted">Choose any connection. The header, state, and data stay within one fixed-height card.</p><div class="card">${content()}${stateDump()}</div></section></div></main>`; }
     function variantA() { return guidedVariant('A'); }
     function variantB() { return guidedVariant('B'); }
     function variantC() { return guidedVariant('C'); }
