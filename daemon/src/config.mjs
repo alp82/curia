@@ -23,8 +23,9 @@ import { readOverseer } from './overseerservice.mjs'
 import { CONSUMER_NAMES, consumerContractFault, providerContractFault } from './credentials.mjs'
 import { HARNESS_REGISTRY } from './harnesses.mjs'
 import {
-  WATCH_MODES as OPERATOR_WATCH_MODES, readOperatorConfig, validateOperatorConfig,
+  WATCH_MODES as OPERATOR_WATCH_MODES, operatorConfigPath, readOperatorConfig, validateOperatorConfig,
 } from '../../cli/src/config.mjs'
+import { servicePaths } from './paths.mjs'
 
 // The legal watch modes come from the operator configuration contract (#866),
 // which the settings screen writes through. Re-exported here so the daemon's
@@ -189,7 +190,11 @@ export function overrideSummary(file) {
 export function loadCuriaConfig(file, { checkPaths = true, localFile, env = process.env, operator } = {}) {
   const layers = readLayered(file, { localFile })
   const cfg = layers.data
-  const operatorFile = operatorConfigFile(file)
+  // Under an installation root (#867) the operator configuration is the root's
+  // own `config/config.yaml`. Beside `curia.yaml` is the source deployment's.
+  const installRoot = env.CURIA_ROOT || null
+  if (installRoot && !path.isAbsolute(installRoot)) fail(file, `CURIA_ROOT must be an absolute path (got ${installRoot})`)
+  const operatorFile = installRoot ? operatorConfigPath(installRoot) : operatorConfigFile(file)
   const op = operator === undefined ? readOperatorConfig(operatorFile) : (operator === null ? null : validateOperatorConfig(operator))
   // What a refusal names. A merged config has two authors, so a message that
   // named the tracked file alone would send the operator to edit a line that is
@@ -247,9 +252,20 @@ export function loadCuriaConfig(file, { checkPaths = true, localFile, env = proc
   //
   // The variable is absent outside compose — a dev run, the suite — and then
   // there is no second answer to check against.
-  const mounted = env.CURIA_WORKSPACE_ROOT
-  if (mounted && path.resolve(mounted) !== path.resolve(d.workspace_root)) {
-    fail(src, `dispatch.workspace_root is ${d.workspace_root}, but compose mounts ${mounted} (CURIA_WORKSPACE_ROOT in deploy/.env) — worktrees would be written inside the container and lost on the next recreate`)
+  //
+  // THE INSTALLATION ROOT OUTRANKS BOTH (#867). Under `CURIA_ROOT` the
+  // worktrees live in `work/` inside the root, the Compose bundle mounts that
+  // boundary, and the file's own `workspace_root` is the source deployment's
+  // answer. `cfg.paths` states every service path once, for every process
+  // that loads this file.
+  cfg.paths = servicePaths({ root: installRoot, workspaceRoot: d.workspace_root })
+  if (installRoot) {
+    d.workspace_root = cfg.paths.workspaceRoot
+  } else {
+    const mounted = env.CURIA_WORKSPACE_ROOT
+    if (mounted && path.resolve(mounted) !== path.resolve(d.workspace_root)) {
+      fail(src, `dispatch.workspace_root is ${d.workspace_root}, but compose mounts ${mounted} (CURIA_WORKSPACE_ROOT in deploy/.env) — worktrees would be written inside the container and lost on the next recreate`)
+    }
   }
   // Who a claim assigns (#390, ADR-0018). A claim is an issue assignee, and
   // GitHub does not let an App be one — so the daemon calls as `curia-sh[bot]`

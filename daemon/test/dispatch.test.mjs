@@ -22,8 +22,9 @@ import { TEST_PINS, containerDeps, fakePrivateClone, seedConfigDirStub, withTest
 import { ENV_FILE, GUEST_CFG } from '../src/sandbox.mjs'
 import { GH_DIR, readGhCredentials, writeGhCredentials } from '../src/agentgh.mjs'
 import { readOverseerToken } from '../src/overseertoken.mjs'
-import { removeCredentials, writePrompt as writeWorkspacePrompt } from '../src/workspace.mjs'
-import { CodexCredentialBroker } from '../src/credentials.mjs'
+import { cfgDirFor, removeCredentials, writePrompt as writeWorkspacePrompt } from '../src/workspace.mjs'
+import { AnthropicCredentialStore, CodexCredentialBroker } from '../src/credentials.mjs'
+import { OVERSEER_SESSION } from '../src/overseerturn.mjs'
 import { CLEAR_MAP_FOG, KEEP_MAP_OPEN, MAP_FOG_VERB } from '../src/mapfog.mjs'
 import { OPENAI_CREDIT_GATE_PANE } from './fixtures/panes.mjs'
 import { workingAnthropicStore, TEST_ANTHROPIC_TOKEN } from './fixtures/credentials.mjs'
@@ -8372,9 +8373,25 @@ describe('signing the anthropic lane back in (#660)', () => {
     assert.ok(events.some((e) => e.type === 'credential_hold_lifted' && e.provider === 'anthropic'))
   })
 
-  // The OVERSEER is healed and is not in that list. Its delivery is the store
-  // behind a read-only mount, so there is nothing to push at it — `runOneTurn`
-  // re-reads the file the login just wrote (#648).
+  // The OVERSEER takes a copy in its own config dir, healed on the tick beside
+  // every live claude agent's (#867). It used to read the store behind a
+  // read-only mount; under an installation root a container that holds a
+  // shell gets no mount of `secrets/`.
+  test('the tick heals the overseer\'s copy once its config dir exists, and never before', () => {
+    const store = new AnthropicCredentialStore({ workspaceRoot: path.join(tmp, `overseer-heal-${Math.random().toString(36).slice(2)}`) })
+    store.adopt(TEST_ANTHROPIC_TOKEN)
+    const d = anthropicDispatcher({ anthropic: store })
+    const overseerDir = cfgDirFor(d.root, OVERSEER_SESSION)
+
+    assert.deepEqual(d.syncAnthropicCredentials().healed, [], 'no config dir, nothing to hand a credential to')
+
+    fs.mkdirSync(overseerDir, { recursive: true })
+    assert.deepEqual(d.syncAnthropicCredentials().healed, [OVERSEER_SESSION])
+    const copy = JSON.parse(fs.readFileSync(path.join(overseerDir, '.credentials.json'), 'utf8'))
+    assert.equal(copy.claudeAiOauth.accessToken, TEST_ANTHROPIC_TOKEN)
+    assert.deepEqual(d.syncAnthropicCredentials().healed, [], 'a copy that already matches is not rewritten')
+  })
+
   test('a login with no live claude agent still says what happened', async () => {
     const says = []
     const d = anthropicDispatcher()

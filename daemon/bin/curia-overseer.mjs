@@ -36,10 +36,8 @@ import http from 'node:http'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { loadCuriaConfig } from '../src/config.mjs'
-import { checkoutsRootFor } from '../src/checkouts.mjs'
 import { installCredentialConfig, unroutedOwners, unroutedNote } from '../src/overseercreds.mjs'
-import { overseerTokensRootFor } from '../src/overseertoken.mjs'
-import { AnthropicCredentialStore, anthropicStoreFile } from '../src/credentials.mjs'
+import { CLAUDE_CREDENTIAL_FILE, readClaudeCredentialToken } from '../src/credentials.mjs'
 import { readOverseer, overseerHandler, PING_PATH } from '../src/overseerservice.mjs'
 import { turnRoute, TURN_PATH, overseerConfigDirFor, overseerHomeFor } from '../src/overseerturn.mjs'
 
@@ -63,7 +61,7 @@ const configDir = overseerConfigDirFor(cfg.dispatch.workspace_root)
 // The tokens tree, at the same path on both sides of its read-only mount. It is
 // read HERE only for the boot report: a turn re-reads it, and the daemon writes
 // it, so a failure at this instant is news rather than a refusal.
-const tokensRoot = overseerTokensRootFor(cfg.dispatch.workspace_root)
+const tokensRoot = cfg.paths.overseerTokens
 try {
   const routed = await installCredentialConfig(repos, { dir: tokensRoot })
   for (const { owner, file } of routed) log(`git routes ${owner}/* through ${file}`)
@@ -72,13 +70,13 @@ try {
   log(`WARNING: the git credentials did not install (${String(e.message ?? e).split('\n')[0]}) — the first turn writes them again`)
 }
 
-// The boot report reads the same mounted store that every turn reads. An absent
-// record is actionable without handing the container another secret source.
-if (!new AnthropicCredentialStore({ workspaceRoot: cfg.dispatch.workspace_root }).read()) {
-  log(`WARNING: no anthropic credential at ${anthropicStoreFile(cfg.dispatch.workspace_root)}. Run reauth anthropic, or no turn can run a model`)
+// The boot report reads the same copy that every turn reads (#867). An absent
+// copy is actionable without handing the container another secret source.
+if (!readClaudeCredentialToken(configDir)) {
+  log(`WARNING: no anthropic credential at ${path.join(configDir, CLAUDE_CREDENTIAL_FILE)}. Run reauth anthropic, or no turn can run a model`)
 }
 
-log(`checkouts at ${checkoutsRootFor(cfg.dispatch.workspace_root)}, config dir at ${configDir}, turns run in ${overseerHomeFor(cfg.dispatch.workspace_root)}`)
+log(`checkouts at ${cfg.paths.overseerRepos}, config dir at ${configDir}, turns run in ${overseerHomeFor(cfg.dispatch.workspace_root)}`)
 
 // 0.0.0.0 inside the container, published as `127.0.0.1:<port>:<port>` by
 // compose. The container is on the bridge network, so this listener is reachable

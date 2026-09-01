@@ -43,9 +43,9 @@ import {
 // the agent's minted GitHub credential (#389, ADR-0018)
 import { GH_DIR, forgetGhCredentials, ghConfigDirFor, readGhCredentials, writeGhCredentials } from './agentgh.mjs'
 // the overseer's minted read-only credential (#392, the same ADR)
-import {
-  overseerTokensRootFor, readOverseerToken, writeOverseerToken, sweepOverseerTokens,
-} from './overseertoken.mjs'
+import { readOverseerToken, writeOverseerToken, sweepOverseerTokens } from './overseertoken.mjs'
+import { pathsOf } from './paths.mjs'
+import { OVERSEER_SESSION } from './overseerturn.mjs'
 import { ownersOf } from './overseercreds.mjs'
 import { ensureAgentImage } from './image.mjs'
 // the daemon-owned model credential (#642, ADR-0027)
@@ -1993,7 +1993,7 @@ export class Dispatcher {
   // in the chat, once per turn, through `unroutedNote`.
   async refreshOverseerCredentials() {
     if (!this.minter) return
-    const dir = overseerTokensRootFor(this.config.dispatch.workspace_root)
+    const dir = pathsOf(this.config).overseerTokens
     const owners = ownersOf((this.config.watch ?? []).map((w) => w.repo))
     for (const owner of owners) {
       let token = null
@@ -2080,6 +2080,18 @@ export class Dispatcher {
       }))
   }
 
+  // The anthropic targets are the live claude agents PLUS THE OVERSEER (#867):
+  // its delivery is a copy in its own config directory, the same shape an
+  // agent gets, so the tick that heals an agent heals the overseer's copy too.
+  // The directory exists once a pane or a turn has seeded it; before that
+  // there is nothing to hand a credential to.
+  #anthropicTargets() {
+    const targets = this.#credentialTargets()
+    const cfgDir = cfgDirFor(this.root, OVERSEER_SESSION)
+    if (fs.existsSync(cfgDir)) targets.push({ session: OVERSEER_SESSION, cfgDir, harness: 'claude' })
+    return targets
+  }
+
   // The anthropic half of the same tick (#648).
   //
   // NOTHING REFRESHES HERE, and that is the provider contract rather than an
@@ -2093,7 +2105,7 @@ export class Dispatcher {
   // the file already on disk standing, and the next tick is 60 s away.
   syncAnthropicCredentials() {
     if (!this.anthropic) return { healed: [] }
-    const { healed, errors } = this.anthropic.fanOut(this.#credentialTargets())
+    const { healed, errors } = this.anthropic.fanOut(this.#anthropicTargets())
     for (const { session, why } of errors) {
       this.log(`could not hand ${session ?? 'the claude agents'} the anthropic credential (${why}) — whatever it already holds stands until the next tick`)
     }

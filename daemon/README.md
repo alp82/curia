@@ -320,6 +320,16 @@ The daemon measures the credential the WATCH LIST stands on, every six hours, an
 
 **A GitHub that did not answer says nothing in either direction.** The reading is `unmeasured`, and it neither warns nor clears a warning that already stands.
 
+## Where the service data lives (#867)
+
+`loadCuriaConfig` attaches `cfg.paths`, and that is the only way a module learns where a credential store, a token tree, or the overseer's mirrors are. `src/paths.mjs` builds it. Under an installation root (`CURIA_ROOT`) every path comes from the lifecycle interface's own `cli/src/layout.mjs`: the journal and its neighbours in `state/`, the worktrees and config dirs in `work/` (which becomes `dispatch.workspace_root`, whatever the file says), the containers' `HOME` at `cache/home`, the overseer's mirrors at `cache/overseer-repos`, and its tokens at `run/overseer-tokens`. Without a root the paths are the source deployment's, off the workspace root, exactly as before.
+
+**The four long-lived credentials are files in `secrets/`, read through `cli/src/secrets.mjs`.** `secrets/discord-bot-token`, `secrets/github-app.json` (`{ id, pem }`), `secrets/anthropic.json` (the store `AnthropicCredentialStore` owns), and `secrets/codex-auth.json` (the store `CodexCredentialBroker` refreshes). The Discord facts beside the token, `allowed_users`, `guild_id`, and `channel`, are `state/discord.json`, read through `src/discordsettings.mjs`. Under a root the daemon loads no env file, and a credential key found in its environment refuses the boot by name. `GET /overview` carries `secrets`, each file by presence and never by value.
+
+**The overseer's model credential is a copy in its config dir**, the same `.credentials.json` a claude agent gets, written when a pane is prepared and healed on the tick beside every live agent's copy. It used to be the store behind a read-only mount of `credentials/`. A container that holds a shell gets no mount of `secrets/`, so `runOneTurn` and the pane read the copy, and the seed leaves it in place (`seedConfigDir` with `sweep: false`).
+
+The Compose shape of an installed Curia is `deploy/bundle/compose.yaml`, inspected against `SERVICE_MOUNTS` by `test/bundlecompose.test.mjs`. The operator's page is [Secrets, mounts, and what survives](../docs/operator/secrets.md).
+
 ## What an agent knows (#57)
 
 `seedConfigDir` symlinks the configured skills into `<CLAUDE_CONFIG_DIR>/skills/`, so an agent resolves in the same idiom a hand session does instead of being told about skills in its prompt (#49). Config is `skills.root` + `skills.install` in `curia.yaml`; the default list is `wayfinder`, `grilling`, `domain-modeling`, `research`, `prototype`, `implement`, `tdd`, `code-review`, `diagnosing-bugs`. The charting-and-PM skills (`to-tickets`, `triage`, `to-spec`, `handoff`) are withheld — `to-tickets` is mass ticket creation in the hands of an agent that carries charting authority.

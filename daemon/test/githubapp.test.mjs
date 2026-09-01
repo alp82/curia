@@ -13,7 +13,10 @@ import {
   appConfigFrom, readPrivateKey, keyFileIsPrivate, appJwt, permissionsFor,
   listInstallations, listInstallationRepos, mintInstallationToken, TokenMinter, minterFrom,
   MAX_REPO_PAGES, appFactsFrom, installUrlFor,
+  APP_SECRET, appConfigFromRoot, appSecretJson,
 } from '../src/githubapp.mjs'
+import { ensureLayout } from '../../cli/src/root.mjs'
+import { secretPath, writeSecret } from '../../cli/src/secrets.mjs'
 
 let dir
 let keyPair
@@ -491,5 +494,48 @@ describe('the minter this box gets (#352)', () => {
     })
     assert.ok(m)
     assert.match(said.join('\n'), /chmod 600/)
+  })
+})
+
+// Under an installation root (#867) the app is one owner-only secret file, and
+// the env keys are not read at all: the boot has already refused them.
+describe('the minter under an installation root (#867)', () => {
+  const rootFor = (name) => {
+    const installRoot = path.join(dir, name)
+    ensureLayout(installRoot, { uid: process.getuid() })
+    return installRoot
+  }
+  const pem = () => keyPair.privateKey.export({ type: 'pkcs1', format: 'pem' })
+
+  test('no secret file is no app, and reads as null', () => {
+    assert.equal(minterFrom({ root: rootFor('none'), env: { [APP_ID_KEY]: '7', [APP_KEY_FILE_KEY]: keyFile } }), null)
+  })
+
+  test('the secret file builds the minter, and names itself as the key file', () => {
+    const installRoot = rootFor('app')
+    writeSecret(installRoot, APP_SECRET, appSecretJson({ id: 7, pem: pem() }))
+    const m = minterFrom({ root: installRoot })
+    assert.equal(m.appId, '7')
+    assert.equal(m.key.type, 'private')
+    assert.equal(m.keyFile, secretPath(installRoot, APP_SECRET))
+  })
+
+  test('a secret other users can read refuses the boot rather than warning', () => {
+    const installRoot = rootFor('loose')
+    writeSecret(installRoot, APP_SECRET, appSecretJson({ id: 7, pem: pem() }))
+    fs.chmodSync(secretPath(installRoot, APP_SECRET), 0o644)
+    assert.throws(() => minterFrom({ root: installRoot }), /chmod 0600/)
+  })
+
+  test('a malformed secret refuses and names the shape, never the value', () => {
+    const installRoot = rootFor('bad')
+    writeSecret(installRoot, APP_SECRET, 'not json\n')
+    assert.throws(() => appConfigFromRoot(installRoot), /not JSON/)
+    writeSecret(installRoot, APP_SECRET, appSecretJson({ id: 'curia', pem: pem() }))
+    assert.throws(() => appConfigFromRoot(installRoot), /digits only/)
+    writeSecret(installRoot, APP_SECRET, appSecretJson({ id: 7, pem: keyPair.publicKey.export({ type: 'pkcs1', format: 'pem' }) }))
+    assert.throws(() => appConfigFromRoot(installRoot), /PUBLIC key/)
+    writeSecret(installRoot, APP_SECRET, appSecretJson({ id: 7, pem: 'garbage' }))
+    assert.throws(() => appConfigFromRoot(installRoot), (e) => !/garbage/.test(e.message) && /readable private key/.test(e.message))
   })
 })

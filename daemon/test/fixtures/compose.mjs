@@ -51,8 +51,16 @@ function resolve(node, env) {
 export const TEST_ENV = { DOCKER_GID: '998' }
 
 export function composeConfig(env = {}) {
-  const raw = YAML.parse(fs.readFileSync(COMPOSE_FILE, 'utf8'))
-  return resolve(raw, { ...TEST_ENV, ...env })
+  return composeConfigOf(COMPOSE_FILE, { ...TEST_ENV, ...env })
+}
+
+// The Compose shape of an installed Curia (#867), which the bundle (#869)
+// packages. Its variables have no defaults, so a caller states them all.
+export const BUNDLE_COMPOSE_FILE = path.join(REPO, 'deploy', 'bundle', 'compose.yaml')
+
+export function composeConfigOf(file, env = {}) {
+  const raw = YAML.parse(fs.readFileSync(file, 'utf8'))
+  return resolve(raw, env)
 }
 
 // The two roots as a box that has told compose nothing runs them. Written out

@@ -1,0 +1,160 @@
+# The Compose shape of an installed Curia (#867, implementing #851).
+#
+# This is the file the versioned Compose bundle (#869) packages under
+# `versions/<version>/` and `curia install` (#873) starts. It differs from
+# `deploy/compose.yaml`, which is the source deployment on one box, in three
+# ways that the tests in daemon/test/bundlecompose.test.mjs pin:
+#
+#   1. EVERY MOUNT IS A BOUNDARY OF THE INSTALLATION ROOT, or a path inside
+#      one, and each service gets only what `SERVICE_MOUNTS` in
+#      cli/src/layout.mjs grants it. No container sees the whole root.
+#   2. NO ENV FILE, AND NO CREDENTIAL IN THE ENVIRONMENT. Long-lived
+#      credentials are files under `secrets/`, which only the service mounts.
+#      The service refuses to boot if one of the credential keys is set anyway.
+#   3. ONLY THE SERVICE AND THE TMUX RUNTIME REACH THE DOCKER SOCKET.
+#
+# The interpolated variables are paths and numbers, never secrets. The
+# lifecycle interface writes them into an env file under `run/` when it starts
+# the project:
+#
+#   CURIA_ROOT      the installation root, absolute
+#   CURIA_UID       the operator's numeric user id
+#   CURIA_GID       the operator's numeric group id
+#   DOCKER_GID      the host's docker group id
+#   CURIA_*_IMAGE   the digest-pinned images, from the release manifest (#870)
+#
+# Host paths mount at their identical paths inside, as the source deployment
+# does: the service composes `docker run -v` lines from its own paths, and the
+# Chat screen reads the overseer's transcript off the config directory.
+#
+# The images carry the checkout at /opt/curia (daemon/, cli/, config/,
+# skills/) with the dependency tree installed, so nothing here mounts source.
+#
+# The two named volumes are runtime and disposable: the tmux socket, and
+# nothing else. The agent image's npm and browser caches are volumes the
+# service creates by name (daemon/src/sandbox.mjs). No volume holds
+# installation identity, durable state, or resumable work, so every volume can
+# be recreated without losing the installation.
+
+name: curia
+
+volumes:
+  # The tmux server socket, shared by the service, the tmux runtime, and the
+  # attach surface: /run/curia-tmux/default in every container.
+  tmux-sock:
+
+services:
+  daemon:
+    image: ${CURIA_DAEMON_IMAGE:?the digest-pinned service image, from the release manifest}
+    restart: on-failure
+    network_mode: host
+    user: "${CURIA_UID:?the operator's user id}:${CURIA_GID:?the operator's group id}"
+    group_add:
+      - "${DOCKER_GID:?host docker group id — getent group docker | cut -d: -f3}"
+    working_dir: /opt/curia/daemon
+    command: ["node", "src/index.mjs"]
+    environment:
+      CURIA_ROOT: ${CURIA_ROOT:?the installation root}
+      HOME: ${CURIA_ROOT:?the installation root}/cache/home
+      CURIA_TMUX_SOCKET: /run/curia-tmux/default
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/run/tailscale/tailscaled.sock:/var/run/tailscale/tailscaled.sock
+      # The service's grant (cli/src/layout.mjs SERVICE_MOUNTS.daemon): the
+      # operator configuration read-only, every secret file, and the four
+      # mutable boundaries it owns.
+      - ${CURIA_ROOT:?}/config:${CURIA_ROOT:?}/config:ro
+      - ${CURIA_ROOT:?}/secrets:${CURIA_ROOT:?}/secrets
+      - ${CURIA_ROOT:?}/state:${CURIA_ROOT:?}/state
+      - ${CURIA_ROOT:?}/work:${CURIA_ROOT:?}/work
+      - ${CURIA_ROOT:?}/cache:${CURIA_ROOT:?}/cache
+      - ${CURIA_ROOT:?}/run:${CURIA_ROOT:?}/run
+      - tmux-sock:/run/curia-tmux
+    depends_on:
+      - tmux
+
+  # The tmux server that holds the agent panes, outside the service's
+  # lifecycle. Its panes run `docker run` against host paths under work/, so it
+  # sees the work tree and the shared home and nothing else of the root.
+  tmux:
+    image: ${CURIA_TMUX_IMAGE:?the digest-pinned tmux image, from the release manifest}
+    restart: unless-stopped
+    stop_grace_period: 2m
+    network_mode: host
+    user: "${CURIA_UID:?}:${CURIA_GID:?}"
+    group_add:
+      - "${DOCKER_GID:?}"
+    tty: true
+    command: ["tmux", "-S", "/run/curia-tmux/default", "new-session", "-A", "-s", "keeper"]
+    environment:
+      HOME: ${CURIA_ROOT:?}/cache/home
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${CURIA_ROOT:?}/work:${CURIA_ROOT:?}/work
+      - ${CURIA_ROOT:?}/cache/home:${CURIA_ROOT:?}/cache/home
+      - tmux-sock:/run/curia-tmux
+
+  # The attach surface: `tmux attach` over the shared socket, behind the
+  # identity proxy. It needs nothing of the root and no Docker socket.
+  ttyd:
+    image: ${CURIA_TMUX_IMAGE:?}
+    restart: unless-stopped
+    stop_grace_period: 30s
+    network_mode: host
+    user: "${CURIA_UID:?}:${CURIA_GID:?}"
+    command:
+      [
+        "ttyd", "-W", "-a", "-O", "-p", "7681", "-i", "127.0.0.1",
+        "-t", "rendererType=dom",
+        "-I", "/opt/curia/daemon/assets/attach-index.html",
+        "/opt/curia/daemon/bin/curia-attach.sh",
+      ]
+    environment:
+      HOME: ${CURIA_ROOT:?}/cache/home
+      CURIA_TMUX_SOCKET: /run/curia-tmux/default
+    volumes:
+      - tmux-sock:/run/curia-tmux
+    depends_on:
+      - tmux
+
+  # The Curia app. It receives no installation-root mount: it reads and updates
+  # configuration through the service, and it holds no secret and no socket
+  # but tailscaled's, which is a capability rather than a secret.
+  dashboard:
+    image: ${CURIA_DASHBOARD_IMAGE:?the digest-pinned app image, from the release manifest}
+    restart: unless-stopped
+    network_mode: host
+    user: "${CURIA_UID:?}:${CURIA_GID:?}"
+    working_dir: /opt/curia/daemon
+    command: ["node", "/opt/curia/daemon/bin/curia-dashboard.mjs"]
+    environment:
+      CURIA_ROOT: ${CURIA_ROOT:?}
+      HOME: ${CURIA_ROOT:?}/cache/home
+    volumes:
+      - /var/run/tailscale/tailscaled.sock:/var/run/tailscale/tailscaled.sock
+
+  # The overseer, off the host network because it holds a shell. It receives
+  # its own config directory and native sessions read-write, its mirrors of
+  # origin read-write, and its renewable GitHub tokens read-only. Its model
+  # credential is a copy the service writes into the config directory, so no
+  # secret file is mounted here.
+  overseer:
+    image: ${CURIA_OVERSEER_IMAGE:?the digest-pinned overseer image, from the release manifest}
+    restart: unless-stopped
+    user: "${CURIA_UID:?}:${CURIA_GID:?}"
+    working_dir: /opt/curia/daemon
+    command: ["node", "/opt/curia/daemon/bin/curia-overseer.mjs"]
+    ports:
+      - "127.0.0.1:4274:4274"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      CURIA_ROOT: ${CURIA_ROOT:?}
+      HOME: ${CURIA_ROOT:?}/cache/home
+      CURIA_CONFIG: /opt/curia/config/curia.yaml
+      # Where the `gh` shim reads the owner's token. A path, not a secret.
+      CURIA_OVERSEER_TOKEN_DIR: ${CURIA_ROOT:?}/run/overseer-tokens
+    volumes:
+      - ${CURIA_ROOT:?}/work/cfg/curia-overseer:${CURIA_ROOT:?}/work/cfg/curia-overseer
+      - ${CURIA_ROOT:?}/cache/overseer-repos:${CURIA_ROOT:?}/cache/overseer-repos
+      - ${CURIA_ROOT:?}/run/overseer-tokens:${CURIA_ROOT:?}/run/overseer-tokens:ro

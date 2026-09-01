@@ -1155,15 +1155,17 @@ describe('the two contract tables (#648)', () => {
     assert.equal(typeof PROVIDER_CREDENTIALS.openai.refresh, 'function')
   })
 
-  test('the claude row and the overseer row point at ONE provider, and differ in delivery', () => {
+  test('the claude row and the overseer row point at ONE provider, and both take a copy in their config dir', () => {
     assert.equal(CONSUMER_CREDENTIALS.claude.provider, ANTHROPIC_PROVIDER)
     assert.equal(CONSUMER_CREDENTIALS.overseer.provider, ANTHROPIC_PROVIDER)
     assert.equal(CONSUMER_CREDENTIALS.claude.deliver.how, 'config-dir')
-    assert.equal(CONSUMER_CREDENTIALS.overseer.deliver.how, 'mount')
-    // What varies by provider and what varies by consumer are different axes.
-    // One table keyed on either writes the anthropic answer twice.
+    // #867: the overseer used to read the store behind a read-only mount. Under
+    // an installation root the store is one file in `secrets/`, and the
+    // container that holds a shell gets no mount of that boundary.
+    assert.equal(CONSUMER_CREDENTIALS.overseer.deliver.how, 'config-dir')
+    assert.equal(CONSUMER_CREDENTIALS.overseer.deliver.file, CONSUMER_CREDENTIALS.claude.deliver.file)
     assert.equal(CONSUMER_CREDENTIALS.claude.heal, 'in-place')
-    assert.equal(CONSUMER_CREDENTIALS.overseer.heal, 'next-turn')
+    assert.equal(CONSUMER_CREDENTIALS.overseer.heal, 'in-place')
   })
 
   test('a consumer curia cannot deliver to is named rather than discovered at dispatch', () => {

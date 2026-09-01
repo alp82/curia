@@ -141,7 +141,11 @@ All four mount at their identical paths inside. One mount line covers every watc
 
 `overseer/tokens` mounts **read-only** and holds one file per resource owner, and nothing else ([#392](https://github.com/alp82/curia/issues/392)). The daemon writes it on the dispatch tick, so the value turns over about every fifty minutes. A `permission denied` for that path in the daemon log means docker made the directory first. Fix it with `sudo chown -R 1000:1000 ~/curia-work/overseer/tokens`.
 
-`credentials/` mounts **read-only** too, and holds one file per model provider ([#648](https://github.com/alp82/curia/issues/648)). The overseer re-reads it on every turn, so replacing the model credential no longer means recreating that service. Same `permission denied` fix: `sudo chown -R 1000:1000 ~/curia-work/credentials`.
+`credentials/` is the daemon's model-credential store, one file per provider ([#648](https://github.com/alp82/curia/issues/648)). Since [#867](https://github.com/alp82/curia/issues/867) it is **not mounted** into the overseer: the daemon writes the overseer a copy into `cfg/curia-overseer/.credentials.json`, the same file every claude agent gets, when it prepares a pane and on every tick. Replacing the model credential still reaches the next turn with nothing recreated. Same `permission denied` fix for the store itself: `sudo chown -R 1000:1000 ~/curia-work/credentials`.
+
+The `ttyd` service holds no Docker socket since #867 either. It runs `tmux attach` over the socket volume and nothing else. Recreate `tmux`/`ttyd` at the next zero-agent window to apply that.
+
+**The packaged installation uses a different Compose file.** `deploy/bundle/compose.yaml` is the shape an installed Curia runs on: every mount is a boundary of the installation root, no env file exists, and the four long-lived credentials are files under `secrets/`. That file is what the versioned bundle packages and `curia install` starts. This box keeps running on `deploy/compose.yaml` and `daemon/.env.daemon` until its cutover, and the cutover runbook moves the env file's values into secret files. See [Secrets, mounts, and what survives](operator/secrets.md).
 
 ### The model credential moves to the store
 

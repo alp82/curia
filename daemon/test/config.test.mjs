@@ -934,3 +934,66 @@ describe('the aistack section (#695)', () => {
       'the switch is the machine credential under curia\'s HOME, not a config key')
   })
 })
+
+// ---- the installation root outranks the file (#867) --------------------------
+//
+// Under `CURIA_ROOT` the service data lives inside the root's boundaries, and
+// the loader states every path once as `cfg.paths`. The file's own
+// `workspace_root` is the source deployment's answer and yields to `work/`.
+
+describe('the installation root and the service paths (#867)', () => {
+  before(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-config-root-'))
+    root = path.join(tmp, 'host-skills')
+    fs.mkdirSync(root, { recursive: true })
+  })
+  after(() => { fs.rmSync(tmp, { recursive: true, force: true }) })
+
+  const noSkills = () => `skills:\n  root: ${root}\n  install: []`
+
+  test('without a root, the paths are the source deployment\'s, off the workspace root', () => {
+    const cfg = loadCuriaConfig(writeConfig(noSkills()), { env: {} })
+    const ws = path.join(tmp, 'work')
+    assert.equal(cfg.paths.root, null)
+    assert.equal(cfg.paths.workspaceRoot, ws)
+    assert.equal(cfg.paths.home, path.join(ws, 'home'))
+    assert.equal(cfg.paths.anthropicStore, path.join(ws, 'credentials', 'anthropic.json'))
+    assert.equal(cfg.paths.overseerRepos, path.join(ws, 'overseer', 'repos'))
+    assert.equal(cfg.paths.overseerTokens, path.join(ws, 'overseer', 'tokens'))
+    assert.equal(cfg.paths.secrets, null)
+    assert.equal(cfg.paths.state, null)
+  })
+
+  test('under a root, every path is inside the root and the workspace root is work/', () => {
+    const installRoot = path.join(tmp, 'install')
+    const cfg = loadCuriaConfig(writeConfig(noSkills()), { env: { CURIA_ROOT: installRoot } })
+    assert.equal(cfg.paths.root, installRoot)
+    assert.equal(cfg.dispatch.workspace_root, path.join(installRoot, 'work'))
+    assert.equal(cfg.paths.workspaceRoot, path.join(installRoot, 'work'))
+    assert.equal(cfg.paths.state, path.join(installRoot, 'state'))
+    assert.equal(cfg.paths.secrets, path.join(installRoot, 'secrets'))
+    assert.equal(cfg.paths.anthropicStore, path.join(installRoot, 'secrets', 'anthropic.json'))
+    assert.equal(cfg.paths.codexAuth, path.join(installRoot, 'secrets', 'codex-auth.json'))
+    assert.equal(cfg.paths.home, path.join(installRoot, 'cache', 'home'))
+    assert.equal(cfg.paths.overseerRepos, path.join(installRoot, 'cache', 'overseer-repos'))
+    assert.equal(cfg.paths.overseerTokens, path.join(installRoot, 'run', 'overseer-tokens'))
+    for (const [name, p] of Object.entries(cfg.paths)) {
+      if (p) assert.ok(p.startsWith(installRoot), `${name} (${p}) is outside the root`)
+    }
+  })
+
+  test('under a root the operator configuration is config/config.yaml in the root, not beside curia.yaml', () => {
+    const installRoot = path.join(tmp, 'install-op')
+    fs.mkdirSync(path.join(installRoot, 'config'), { recursive: true })
+    fs.writeFileSync(path.join(installRoot, 'config', 'config.yaml'), 'max_concurrent: 7\n')
+    const file = writeConfig(noSkills())
+    // A file beside curia.yaml would be the source deployment's, and it is not read.
+    fs.writeFileSync(operatorConfigFile(file), 'max_concurrent: 9\n')
+    const cfg = loadCuriaConfig(file, { env: { CURIA_ROOT: installRoot } })
+    assert.equal(cfg.dispatch.max_concurrent, 7)
+  })
+
+  test('a relative root is refused', () => {
+    assert.throws(() => loadCuriaConfig(writeConfig(noSkills()), { env: { CURIA_ROOT: 'relative' } }), /absolute/)
+  })
+})

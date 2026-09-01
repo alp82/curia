@@ -240,8 +240,11 @@ export async function ensureCheckout(root, repo, { clone = ghClone, now = () => 
 // and the turn goes ahead. What it does throw for is a root it cannot create,
 // because then there are no checkouts at all and saying so once beats saying it
 // per repo.
-export async function syncCheckouts(root, repos, { clone = ghClone, now = () => new Date(), urlFor = githubUrlFor } = {}) {
-  const base = checkoutsRootFor(root)
+//
+// `base` is where the tree sits: `cfg.paths.overseerRepos` (#867), which is
+// `cache/overseer-repos` under an installation root. Left out, it is the source
+// deployment's `overseer/repos` under the workspace root.
+export async function syncCheckouts(root, repos, { clone = ghClone, now = () => new Date(), urlFor = githubUrlFor, base = checkoutsRootFor(root) } = {}) {
   fs.mkdirSync(base, { recursive: true })
 
   const removed = pruneUnwatched(base, repos)
