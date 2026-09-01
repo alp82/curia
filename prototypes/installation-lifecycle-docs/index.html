@@ -1,0 +1,358 @@
+<!doctype html>
+<!--
+  THROWAWAY PROTOTYPE for “Design the canonical installation lifecycle documentation”.
+  Three documentation structures, switchable with ?variant=A, B, or C, on one route.
+  This file tests information architecture. It is not operator documentation and must not ship.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Curia operator guide structure prototype</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0a0c10;
+      --panel: #11151b;
+      --panel-2: #171c24;
+      --line: #29313d;
+      --text: #edf2f7;
+      --body: #bac4d0;
+      --dim: #8995a5;
+      --green: #7dd3a0;
+      --blue: #7ab8ff;
+      --amber: #efbd66;
+      --red: #f28b82;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.55 var(--sans); }
+    a { color: inherit; }
+    button { font: inherit; }
+    code { font-family: var(--mono); }
+    .prototype-note {
+      padding: 9px 18px; border-bottom: 1px solid #6b571f; background: #211d11;
+      color: #f6d995; text-align: center; font-size: 12px; letter-spacing: .02em;
+    }
+    .site-header {
+      min-height: 62px; padding: 0 28px; display: flex; align-items: center; justify-content: space-between;
+      border-bottom: 1px solid var(--line); background: rgba(10, 12, 16, .94); position: sticky; top: 0; z-index: 10;
+      backdrop-filter: blur(12px);
+    }
+    .brand { display: flex; align-items: center; gap: 11px; font-weight: 680; text-decoration: none; }
+    .brand-mark { width: 28px; height: 28px; border-radius: 8px; display: grid; place-items: center; background: var(--green); color: #092015; font-weight: 850; }
+    .header-links { display: flex; gap: 20px; color: var(--dim); font-size: 13px; }
+    .header-links a { text-decoration: none; }
+    .header-links a[aria-current="page"] { color: var(--text); }
+    .variant { display: none; min-height: calc(100vh - 92px); }
+    .variant.active { display: block; }
+    .eyebrow { color: var(--green); font: 700 11px/1.2 var(--mono); letter-spacing: .12em; text-transform: uppercase; }
+    h1, h2, h3 { line-height: 1.15; letter-spacing: -.025em; }
+    h1 { font-size: clamp(34px, 5vw, 58px); margin: 13px 0 18px; }
+    h2 { font-size: 27px; margin: 0; }
+    h3 { font-size: 17px; margin: 0; }
+    p { color: var(--body); }
+    .muted { color: var(--dim); }
+    .pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border: 1px solid var(--line); border-radius: 99px; color: var(--dim); font-size: 11px; }
+    .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
+    .command { padding: 13px 15px; border: 1px solid var(--line); border-radius: 9px; background: #090b0f; color: #d8e1eb; font: 13px/1.5 var(--mono); overflow-x: auto; }
+    .button { border: 0; border-radius: 8px; padding: 10px 14px; background: var(--green); color: #092015; font-weight: 750; cursor: pointer; }
+    .button.secondary { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); }
+    .separate-link { color: var(--blue); }
+
+    /* A: one guided lifecycle with a persistent journey rail. */
+    .a-shell { display: grid; grid-template-columns: 310px minmax(0, 1fr); }
+    .a-rail { min-height: calc(100vh - 92px); border-right: 1px solid var(--line); padding: 28px 20px 110px 28px; background: #0d1015; }
+    .a-rail h2 { font-size: 19px; margin-bottom: 5px; }
+    .a-group { margin-top: 25px; }
+    .a-group-title { margin: 0 0 9px; color: var(--dim); font: 700 10px/1 var(--mono); letter-spacing: .11em; text-transform: uppercase; }
+    .a-step { width: 100%; display: grid; grid-template-columns: 25px 1fr; gap: 9px; padding: 8px; border: 0; border-radius: 8px; background: transparent; color: var(--body); text-align: left; cursor: pointer; }
+    .a-step:hover, .a-step.selected { background: var(--panel-2); color: var(--text); }
+    .a-num { width: 22px; height: 22px; border: 1px solid var(--line); border-radius: 50%; display: grid; place-items: center; color: var(--dim); font: 10px/1 var(--mono); }
+    .a-step.selected .a-num { border-color: var(--green); color: var(--green); }
+    .a-step.optional .a-num { border-style: dashed; }
+    .a-main { max-width: 870px; padding: 58px clamp(28px, 6vw, 78px) 150px; }
+    .a-main h1 { max-width: 720px; }
+    .a-lede { max-width: 660px; font-size: 18px; }
+    .a-status { margin: 34px 0; display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    .a-stat { padding: 15px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+    .a-stat strong { display: block; font-size: 20px; }
+    .a-stat span { color: var(--dim); font-size: 12px; }
+    .a-content { margin-top: 34px; padding-top: 28px; border-top: 1px solid var(--line); }
+    .check { margin: 18px 0; padding: 15px; border-left: 3px solid var(--green); background: #101a16; }
+    .check strong { display: block; color: var(--green); margin-bottom: 3px; }
+    .next-row { display: flex; justify-content: space-between; gap: 15px; align-items: center; margin-top: 28px; }
+
+    /* B: task-oriented operator home. */
+    .b-wrap { max-width: 1180px; margin: 0 auto; padding: 54px 30px 150px; }
+    .b-hero { display: grid; grid-template-columns: 1.5fr 1fr; gap: 50px; align-items: end; }
+    .b-hero h1 { margin-bottom: 12px; }
+    .b-installation { padding: 18px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel); }
+    .b-installation-head { display: flex; justify-content: space-between; gap: 10px; }
+    .b-installation dl { display: grid; grid-template-columns: 1fr 1fr; gap: 13px; margin: 18px 0 0; }
+    .b-installation dt { color: var(--dim); font-size: 11px; }
+    .b-installation dd { margin: 1px 0 0; font: 12px/1.4 var(--mono); }
+    .b-search { width: 100%; margin: 35px 0 20px; padding: 16px 18px; border: 1px solid #3a4553; border-radius: 10px; background: #0e1218; color: var(--text); font: 15px var(--sans); }
+    .b-section-title { margin: 35px 0 13px; display: flex; align-items: baseline; justify-content: space-between; }
+    .b-section-title span { color: var(--dim); font-size: 12px; }
+    .b-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    .b-card { min-height: 150px; padding: 18px; border: 1px solid var(--line); border-radius: 11px; background: var(--panel); text-decoration: none; position: relative; }
+    .b-card:hover { border-color: #536276; background: var(--panel-2); }
+    .b-card .icon { font-size: 22px; }
+    .b-card h3 { margin: 15px 0 5px; }
+    .b-card p { margin: 0; font-size: 13px; }
+    .b-card .arrow { position: absolute; top: 16px; right: 16px; color: var(--dim); }
+    .b-card.primary { border-color: #355e48; background: linear-gradient(135deg, #111b17, #11151b); }
+    .b-footer { margin-top: 45px; padding-top: 20px; border-top: 1px solid var(--line); display: flex; justify-content: space-between; color: var(--dim); font-size: 13px; }
+
+    /* C: one continuous, printable runbook. */
+    .c-shell { display: grid; grid-template-columns: minmax(0, 1fr) 260px; max-width: 1120px; margin: 0 auto; padding: 55px 32px 160px; gap: 74px; }
+    .c-article { min-width: 0; }
+    .c-article h1 { max-width: 720px; }
+    .c-intro { max-width: 680px; font-size: 18px; }
+    .c-meta { display: flex; flex-wrap: wrap; gap: 8px; margin: 23px 0 40px; }
+    .c-phase { margin: 55px 0 0; scroll-margin-top: 95px; }
+    .c-phase-head { display: grid; grid-template-columns: 48px 1fr; gap: 15px; padding-bottom: 14px; border-bottom: 1px solid var(--line); }
+    .c-phase-number { color: var(--green); font: 700 24px/1 var(--mono); }
+    .c-phase p { max-width: 680px; }
+    .c-steps { margin: 20px 0 0 63px; padding: 0; list-style: none; }
+    .c-steps li { position: relative; padding: 0 0 25px 25px; border-left: 1px solid var(--line); }
+    .c-steps li::before { content: ''; position: absolute; width: 9px; height: 9px; border-radius: 50%; background: var(--blue); left: -5px; top: 6px; }
+    .c-steps strong { display: block; }
+    .c-steps p { margin: 4px 0 9px; font-size: 13px; }
+    .c-aside { position: sticky; top: 92px; align-self: start; padding: 17px; border: 1px solid var(--line); border-radius: 11px; background: var(--panel); }
+    .c-aside h2 { font-size: 15px; margin-bottom: 12px; }
+    .c-toc { margin: 0; padding: 0; list-style: none; }
+    .c-toc a { display: block; padding: 7px 8px; border-radius: 6px; color: var(--body); text-decoration: none; font-size: 13px; }
+    .c-toc a:hover { background: var(--panel-2); color: var(--text); }
+    .c-aside .separate { border-top: 1px solid var(--line); margin-top: 13px; padding-top: 13px; font-size: 12px; color: var(--dim); }
+
+    .state-drawer { margin-top: 55px; border: 1px dashed #4c5969; border-radius: 9px; padding: 13px; color: var(--dim); font: 11px/1.6 var(--mono); }
+    .state-drawer summary { cursor: pointer; color: var(--body); }
+    .switcher {
+      position: fixed; z-index: 30; left: 50%; bottom: 18px; transform: translateX(-50%);
+      display: flex; align-items: center; gap: 6px; padding: 7px; border: 1px solid #536173;
+      border-radius: 99px; background: #e8edf3; color: #10151b; box-shadow: 0 10px 35px #0009;
+    }
+    .switcher button { width: 34px; height: 34px; border: 0; border-radius: 50%; background: #cad3dd; color: #10151b; cursor: pointer; }
+    .switcher-label { min-width: 205px; text-align: center; font-size: 12px; font-weight: 750; }
+    @media (max-width: 800px) {
+      .header-links { display: none; }
+      .a-shell, .c-shell { display: block; }
+      .a-rail { min-height: 0; border-right: 0; border-bottom: 1px solid var(--line); padding-bottom: 24px; }
+      .a-group { display: inline-block; vertical-align: top; width: 49%; }
+      .b-hero { grid-template-columns: 1fr; }
+      .b-grid { grid-template-columns: 1fr 1fr; }
+      .c-aside { position: static; margin-top: 35px; }
+    }
+    @media (max-width: 520px) {
+      .site-header { padding: 0 17px; }
+      .a-group { display: block; width: 100%; }
+      .a-status, .b-grid { grid-template-columns: 1fr; }
+      .b-wrap, .c-shell { padding-left: 19px; padding-right: 19px; }
+      .c-steps { margin-left: 10px; }
+      .switcher-label { min-width: 170px; }
+    }
+    @media print {
+      .prototype-note, .site-header, .switcher, .c-aside { display: none !important; }
+      .variant { display: none !important; }
+      #variant-c { display: block !important; }
+      body { background: white; color: black; }
+      p, .muted { color: #333; }
+      .c-shell { display: block; max-width: none; padding: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="prototype-note">Throwaway information-architecture prototype. Commands and links are illustrative.</div>
+  <header class="site-header">
+    <a class="brand" href="#"><span class="brand-mark">c</span><span>Curia docs</span></a>
+    <nav class="header-links" aria-label="Documentation areas">
+      <a href="#" aria-current="page">Operator guide</a>
+      <a href="#">Concepts</a>
+      <a href="#">Reference</a>
+      <a href="#">Contributor setup ↗</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="variant" id="variant-a" aria-label="Guided lifecycle variant">
+      <div class="a-shell">
+        <aside class="a-rail">
+          <h2>Operator guide</h2>
+          <div class="muted">Follow one supported lifecycle.</div>
+          <div class="a-group">
+            <div class="a-group-title">Get Curia running</div>
+            <button class="a-step selected"><span class="a-num">1</span><span>Check prerequisites</span></button>
+            <button class="a-step"><span class="a-num">2</span><span>Install Curia</span></button>
+            <button class="a-step"><span class="a-num">3</span><span>Connect services</span></button>
+            <button class="a-step"><span class="a-num">4</span><span>Run your first Full loop</span></button>
+          </div>
+          <div class="a-group">
+            <div class="a-group-title">Run Curia</div>
+            <button class="a-step"><span class="a-num">5</span><span>Daily operation</span></button>
+            <button class="a-step"><span class="a-num">6</span><span>Check an installation</span></button>
+          </div>
+          <div class="a-group">
+            <div class="a-group-title">Change the installation</div>
+            <button class="a-step"><span class="a-num">7</span><span>Update or roll back</span></button>
+            <button class="a-step optional"><span class="a-num">8</span><span>Migrate the current deployment</span></button>
+            <button class="a-step"><span class="a-num">9</span><span>Uninstall or purge</span></button>
+          </div>
+          <div class="a-group">
+            <div class="a-group-title">When something fails</div>
+            <button class="a-step"><span class="a-num">?</span><span>Troubleshooting</span></button>
+          </div>
+        </aside>
+        <article class="a-main">
+          <div class="eyebrow">Step 1 of 9 · About 5 minutes</div>
+          <h1>Check the host before you install Curia</h1>
+          <p class="a-lede">Start with a supported Linux host and verify the accounts and host-managed services that Curia needs.</p>
+          <div class="a-status">
+            <div class="a-stat"><strong>2+</strong><span>x86-64 CPU cores</span></div>
+            <div class="a-stat"><strong>4 GB</strong><span>minimum memory</span></div>
+            <div class="a-stat"><strong>15 GB</strong><span>free disk space</span></div>
+          </div>
+          <div class="a-content">
+            <h2>Use a supported host</h2>
+            <p>Use Ubuntu 24.04 LTS or Debian 13 on x86-64. Run every Curia lifecycle command as the non-root operator.</p>
+            <h3>Install the host prerequisites</h3>
+            <p>Install Docker Engine, Docker Compose v2, and Tailscale from their official documentation. Curia verifies these services but doesn't install or reconfigure them.</p>
+            <div class="command">docker version<br>docker compose version<br>tailscale status</div>
+            <div class="check"><strong>Checkpoint</strong>Continue when the operator can use Docker without privilege escalation and the Tailscale node is online.</div>
+            <h3>Prepare the required accounts</h3>
+            <p>You need GitHub, Discord, Tailscale, and either an OpenAI or Anthropic subscription account. Curia guides the official connection flows after installation.</p>
+            <div class="next-row"><a class="separate-link" href="#">Why Curia requires these services</a><button class="button">Continue to installation →</button></div>
+          </div>
+          <details class="state-drawer"><summary>Prototype state</summary><div>variant=A; structure=ordered_lifecycle; current_topic=prerequisites; primary_action=continue; contributor_setup=separate; recovery=excluded</div></details>
+        </article>
+      </div>
+    </section>
+
+    <section class="variant" id="variant-b" aria-label="Operator task hub variant">
+      <div class="b-wrap">
+        <div class="b-hero">
+          <div>
+            <div class="eyebrow">Curia operator guide</div>
+            <h1>What do you need to do?</h1>
+            <p class="a-lede">Choose an operator task. Each guide starts with what it changes, what it preserves, and how you know it worked.</p>
+          </div>
+          <aside class="b-installation">
+            <div class="b-installation-head"><strong>Your installation</strong><span class="pill"><span class="dot"></span>Healthy</span></div>
+            <dl>
+              <div><dt>Version</dt><dd>1.4.2</dd></div>
+              <div><dt>Host</dt><dd>Ubuntu 24.04</dd></div>
+              <div><dt>Root</dt><dd>~/.local/share/curia</dd></div>
+              <div><dt>Update</dt><dd>1.5.0 available</dd></div>
+            </dl>
+          </aside>
+        </div>
+        <input class="b-search" aria-label="Search operator guides" placeholder="Search commands, errors, and operator tasks…">
+        <div class="b-section-title"><h2>Start here</h2><span>Fresh supported host to first Full loop</span></div>
+        <div class="b-grid">
+          <a class="b-card primary" href="#"><span class="icon">◇</span><span class="arrow">→</span><h3>Install Curia</h3><p>Check prerequisites, install the release, and open browser setup.</p></a>
+          <a class="b-card primary" href="#"><span class="icon">⌁</span><span class="arrow">→</span><h3>Connect required services</h3><p>Verify GitHub, Discord, Tailscale, and one model provider.</p></a>
+          <a class="b-card primary" href="#"><span class="icon">✓</span><span class="arrow">→</span><h3>Prove the installation</h3><p>Run one real Rehearsal ticket through the complete Full loop.</p></a>
+        </div>
+        <div class="b-section-title"><h2>Operate and maintain</h2><span>Tasks for an existing installation</span></div>
+        <div class="b-grid">
+          <a class="b-card" href="#"><span class="icon">▶</span><span class="arrow">→</span><h3>Run Curia day to day</h3><p>Start, stop, inspect status, and use the browser and Discord surfaces.</p></a>
+          <a class="b-card" href="#"><span class="icon">↻</span><span class="arrow">→</span><h3>Update or roll back</h3><p>Install a verified stable release or return to the retained release.</p></a>
+          <a class="b-card" href="#"><span class="icon">＋</span><span class="arrow">→</span><h3>Check with <code>curia doctor</code></h3><p>Run redacted host, configuration, integration, and service checks.</p></a>
+          <a class="b-card" href="#"><span class="icon">⇢</span><span class="arrow">→</span><h3>Migrate the current deployment</h3><p>Use the one-time runbook for the existing source installation.</p></a>
+          <a class="b-card" href="#"><span class="icon">−</span><span class="arrow">→</span><h3>Uninstall or purge</h3><p>Preserve the installation identity, or confirm complete local removal.</p></a>
+          <a class="b-card" href="#"><span class="icon">!</span><span class="arrow">→</span><h3>Fix a problem</h3><p>Find the observed message and retry the failed lifecycle step.</p></a>
+        </div>
+        <footer class="b-footer"><span>Looking for architecture or source setup?</span><a class="separate-link" href="#">Open contributor documentation ↗</a></footer>
+        <details class="state-drawer"><summary>Prototype state</summary><div>variant=B; structure=task_hub; current_installation=healthy; primary_action=choose_job; contributor_setup=separate; recovery=excluded</div></details>
+      </div>
+    </section>
+
+    <section class="variant" id="variant-c" aria-label="Single runbook variant">
+      <div class="c-shell">
+        <article class="c-article">
+          <div class="eyebrow">Canonical operator runbook</div>
+          <h1>Install and operate Curia</h1>
+          <p class="c-intro">This runbook takes one Curia installation through its complete supported lifecycle. Read in order for a new host, or use the contents to return to an operation.</p>
+          <div class="c-meta"><span class="pill">Ubuntu 24.04 or Debian 13</span><span class="pill">x86-64</span><span class="pill">Non-root operator</span><span class="pill">30-minute active-work target</span></div>
+
+          <section class="c-phase" id="c-prepare">
+            <div class="c-phase-head"><span class="c-phase-number">01</span><div><h2>Prepare the host</h2><p>Confirm host support, capacity, Docker Engine, Docker Compose, Tailscale, and account authority.</p></div></div>
+            <ol class="c-steps"><li><strong>Verify the supported host</strong><p>Use Ubuntu 24.04 LTS or Debian 13 on x86-64 with at least 2 CPU cores, 4 GB RAM, and 15 GB free disk.</p></li><li><strong>Verify host-managed services</strong><p>Docker and Tailscale must work for the non-root operator. Curia doesn't install or reconfigure them.</p><div class="command">docker version && docker compose version && tailscale status</div></li></ol>
+          </section>
+          <section class="c-phase" id="c-install">
+            <div class="c-phase-head"><span class="c-phase-number">02</span><div><h2>Install and connect Curia</h2><p>Run the verified bootstrap, then complete browser setup in any service order.</p></div></div>
+            <ol class="c-steps"><li><strong>Run the versioned Bash bootstrap</strong><p>The bootstrap verifies the release manifest and installs the pinned lifecycle runtime.</p><div class="command"># Illustrative only<br>bash ./curia-install-X.Y.Z.sh</div></li><li><strong>Connect GitHub, Discord, Tailscale, and a model provider</strong><p>Curia hands external consent to official sites and verifies each current connection.</p></li><li><strong>Run the first Full loop</strong><p>Use one marked Rehearsal ticket. Keep the resulting GitHub and Discord links as acceptance evidence.</p></li></ol>
+          </section>
+          <section class="c-phase" id="c-operate">
+            <div class="c-phase-head"><span class="c-phase-number">03</span><div><h2>Operate Curia</h2><p>Use the same launcher for routine status, service control, and direct diagnostics.</p></div></div>
+            <ol class="c-steps"><li><strong>Check the installation</strong><p>Run <code>curia doctor</code> for redacted, read-only checks. Retry the named failed step after correction.</p></li><li><strong>Use the browser and Discord</strong><p>Watch frontier work, dispatch agents, answer questions, and inspect results.</p></li></ol>
+          </section>
+          <section class="c-phase" id="c-change">
+            <div class="c-phase-head"><span class="c-phase-number">04</span><div><h2>Change the installation</h2><p>Update or roll back through one verified release contract.</p></div></div>
+            <ol class="c-steps"><li><strong>Update to the recommended stable release</strong><p>Run <code>curia update</code>. Curia stages and verifies the release before it switches services.</p></li><li><strong>Roll back when needed</strong><p>Run <code>curia rollback</code> to use the one retained, health-checked release.</p></li><li><strong>Migrate the current source deployment once</strong><p>Use the separate versioned cutover runbook. This path isn't a general migration feature.</p></li></ol>
+          </section>
+          <section class="c-phase" id="c-remove">
+            <div class="c-phase-head"><span class="c-phase-number">05</span><div><h2>Remove Curia</h2><p>Choose preservation or confirmed local deletion. External cleanup stays explicit.</p></div></div>
+            <ol class="c-steps"><li><strong>Uninstall and preserve identity</strong><p><code>curia uninstall</code> removes runnable resources and preserves <code>config/</code>, <code>secrets/</code>, <code>state/</code>, and <code>work/</code>.</p></li><li><strong>Purge local Curia data</strong><p>Confirmed purge removes the complete installation root and matching Curia resources.</p></li><li><strong>Review external cleanup</strong><p>Use the reported checklist to revoke or remove provider resources where required.</p></li></ol>
+          </section>
+          <section class="c-phase" id="c-troubleshoot">
+            <div class="c-phase-head"><span class="c-phase-number">06</span><div><h2>Troubleshoot by observed failure</h2><p>Find the command and message, apply one corrective action, then retry the current step.</p></div></div>
+            <ol class="c-steps"><li><strong>Preflight or lifecycle command failed</strong><p>Read the observed host or artifact problem and run the stated correction.</p></li><li><strong>A service connection failed</strong><p>Return to that service card, correct the provider-side state, and select <strong>Try again</strong>.</p></li><li><strong>Curia is installed but unhealthy</strong><p>Run <code>curia doctor</code>. The command checks without repairing or retaining diagnostic history.</p></li></ol>
+          </section>
+          <details class="state-drawer"><summary>Prototype state</summary><div>variant=C; structure=continuous_runbook; current_phase=all_visible; primary_action=find_in_contents_or_print; contributor_setup=separate; recovery=excluded</div></details>
+        </article>
+        <aside class="c-aside">
+          <h2>In this runbook</h2>
+          <ol class="c-toc"><li><a href="#c-prepare">01 Prepare the host</a></li><li><a href="#c-install">02 Install and connect</a></li><li><a href="#c-operate">03 Operate Curia</a></li><li><a href="#c-change">04 Change the installation</a></li><li><a href="#c-remove">05 Remove Curia</a></li><li><a href="#c-troubleshoot">06 Troubleshoot</a></li></ol>
+          <div class="separate">Source builds, tests, and local development live in <a class="separate-link" href="#">Contributor setup ↗</a>.</div>
+          <div class="separate">Backup and replacement-host recovery aren't part of this initial guide.</div>
+        </aside>
+      </div>
+    </section>
+  </main>
+
+  <div class="switcher" role="group" aria-label="Prototype variant switcher">
+    <button type="button" id="previous" aria-label="Previous variant">←</button>
+    <div class="switcher-label" id="switcher-label"></div>
+    <button type="button" id="next" aria-label="Next variant">→</button>
+  </div>
+
+  <script>
+    const variants = [
+      { key: 'A', name: 'Guided lifecycle' },
+      { key: 'B', name: 'Operator task hub' },
+      { key: 'C', name: 'Single runbook' }
+    ];
+    const params = new URLSearchParams(location.search);
+    let index = Math.max(0, variants.findIndex((item) => item.key === (params.get('variant') || 'A').toUpperCase()));
+
+    function render() {
+      const current = variants[index];
+      document.querySelectorAll('.variant').forEach((element) => element.classList.remove('active'));
+      document.querySelector(`#variant-${current.key.toLowerCase()}`).classList.add('active');
+      document.querySelector('#switcher-label').textContent = `${current.key} · ${current.name}`;
+      params.set('variant', current.key);
+      history.replaceState(null, '', `${location.pathname}?${params.toString()}${location.hash}`);
+    }
+
+    function move(delta) {
+      index = (index + delta + variants.length) % variants.length;
+      render();
+      scrollTo({ top: 0, behavior: 'instant' });
+    }
+
+    document.querySelector('#previous').addEventListener('click', () => move(-1));
+    document.querySelector('#next').addEventListener('click', () => move(1));
+    addEventListener('keydown', (event) => {
+      const target = event.target;
+      if (target.matches('input, textarea, [contenteditable]')) return;
+      if (event.key === 'ArrowLeft') move(-1);
+      if (event.key === 'ArrowRight') move(1);
+    });
+    render();
+  </script>
+</body>
+</html>
