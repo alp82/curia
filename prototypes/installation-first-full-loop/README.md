@@ -18,4 +18,6 @@ Add `&demo=partial` to preload GitHub and Discord data. Add `&demo=ready` to ins
 
 Add `&tickets=none` to model a connected GitHub repository with no tickets. The GitHub card then shows repository-level readiness instead of a fabricated ticket.
 
+Add `&error=tailscale` (or another step key) to inspect the selected red-tinted error treatment. Variant `B` is the selected direction.
+
 Each variant shares one in-memory simulation. The operator may configure integrations in any order. It includes a reward after every connection, close-and-reopen resumption, a failed Tailscale check with one corrective action and **Try again**, and the verified first Full loop.

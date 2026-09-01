@@ -99,17 +99,21 @@
     .service-card { --brand:#24292f; --on-brand:white; width:100%; height:190px; padding:0; overflow:hidden; border:1px solid #cfd7d1; border-radius:14px; color:var(--ink); background:white; text-align:left; box-shadow:0 1px 2px #14251c0a; }
     .service-card.discord { --brand:#5865f2; }.service-card.tailscale { --brand:#252525; }.service-card.model { --brand:#d8c6ac; --on-brand:#20231f; }.service-card.full { --brand:#1d653f; }
     .service-card.active { outline:3px solid var(--lime); outline-offset:2px; }
-    .service-card-head { height:78px; padding:13px 15px; color:var(--on-brand); background:var(--brand); }
+    .service-card-head { height:68px; padding:13px 15px; color:var(--on-brand); background:var(--brand); }
     .service-card-title { display:flex; align-items:center; gap:10px; font-size:15px; font-weight:800; }
+    .service-card-title > span:nth-last-child(2) { min-width:0; flex:1; }
     .service-card-title .brand-logo { color:var(--brand); background:var(--on-brand); }
     .service-card-title .tail-logo { width:28px; padding:4px; }
     .service-card-title .model-logos { display:flex; gap:4px; }.service-card-title .model-mark { width:27px; height:27px; font-size:11px; }
-    .service-card-subtitle { margin:7px 0 0 38px; color:inherit; opacity:.78; font-size:11px; }
-    .service-card-footer { height:110px; padding:13px 15px; background:white; }
+    .service-card-subtitle { flex:0 0 auto; padding:4px 7px; border-radius:999px; color:inherit; background:#ffffff20; opacity:.88; font-size:10px; font-weight:650; }
+    .service-card-footer { height:120px; padding:15px; background:white; }
     .service-card-footer strong { display:block; margin-bottom:4px; }
     .service-card-footer code { color:inherit; font-size:10px; }
-    .service-card-footer .metric-line { margin:9px -5px -4px; padding:7px 0 0; border-top:1px solid #dce2dd; }
-    .empty-footer { color:#718078; font-size:12px; }
+    .connection-primary { display:flex; align-items:flex-start; gap:8px; font-size:13px; font-weight:750; }
+    .connection-primary .emoji { flex:0 0 19px; font-size:15px; line-height:1.2; }
+    .connection-secondary { margin:8px 0 0 27px; color:#67746c; font-size:11px; line-height:1.45; }
+    .connection-secondary code { display:block; margin-top:3px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .empty-footer { display:flex; gap:8px; color:#718078; font-size:12px; line-height:1.45; }
     .treatment-b:not(.complete) .service-card-head { color:#536159; background:color-mix(in srgb,var(--brand) 22%,#eef1ee); }
     .treatment-b:not(.complete) .service-card-title .brand-logo { color:#68756e; background:#fff9; }
     .treatment-b.complete .service-card-footer { background:color-mix(in srgb,var(--brand) 8%,white); }
@@ -120,6 +124,13 @@
     .treatment-c.complete .service-card-footer .metric-line { color:inherit; border-color:#ffffff35; }
     .treatment-c.complete .muted { color:inherit; opacity:.72; }
     .treatment-b:not(.complete) .tail-logo i,.treatment-c:not(.complete) .tail-logo i { background:#647169; }
+    .service-card.error { border:2px solid #b64b42; background:#fff2ef; }
+    .service-card.error.active { outline-color:#b64b42; }
+    .service-card.error .service-card-head { color:#762d27; background:#f3cbc6; }
+    .service-card.error .service-card-title .brand-logo { color:#762d27; background:#fff8; }
+    .service-card.error .service-card-subtitle { color:#762d27; background:#fff7; opacity:1; }
+    .service-card.error .service-card-footer { color:#762d27; background:#fff0ed; }
+    .service-card.error .connection-secondary { color:#873e37; }
     .a-work { max-width:690px; }
     .a-work .card { padding:30px; }
     .reward-panel { min-height:210px; margin-bottom:16px; overflow:hidden; position:relative; border-radius:18px; padding:22px; background:#13231b; color:white; }
@@ -251,6 +262,7 @@
     const state = { step:0, complete:[], provider:'openai', providers:[], failed:false, corrected:false, closed:false, reward:null, tailnetName:'curia.sh' };
     const demo = new URLSearchParams(location.search).get('demo');
     const hasGitHubTickets = new URLSearchParams(location.search).get('tickets')!=='none';
+    const errorService = new URLSearchParams(location.search).get('error');
     if (demo==='partial') state.complete.push('github','discord');
     if (demo==='ready') { state.complete.push('github','discord','tailscale','model','full'); state.providers.push('openai','anthropic'); }
     const esc = s => String(s).replace(/[&<>\"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;'}[c]));
@@ -331,39 +343,35 @@
       if(key==='model') return `<span class="model-logos"><span class="model-mark">◎</span><span class="model-mark anthropic">A</span></span>`;
       return `<span class="brand-logo"><strong>C</strong></span>`;
     }
-    function connectionMetrics(key) {
-      return {
-        github:hasGitHubTickets?[['1','repository'],['9','open tickets'],['1','agent-ready']]:[['1','repository'],['0','open tickets'],['ready','automation']],
-        discord:[['#curia','channel'],['6','commands'],['1','message sent']],
-        tailscale:[['38 ms','private access'],['1','operator'],['online','Serve']],
-        model:[['2','providers'],['1.4 s','test request'],['ready','routing']],
-        full:[['42 s','end to end'],['3','linked IDs'],['1','result posted']]
-      }[key];
-    }
     function connectionFooter(step) {
-      if(!isDone(step.key)) return `<div class="empty-footer">${{
-        github:'Repository access and discovered work will appear here.',
-        discord:'The selected channel and command verification will appear here.',
-        tailscale:'The private address and verified operator will appear here.',
-        model:'Connected providers and the test route will appear here.',
-        full:'Request, response, and delivery evidence will appear here.'
+      if(hasError(step)) return `<div class="connection-primary"><span class="emoji">⚠️</span><span>${{
+        github:'GitHub access could not be verified',discord:'Curia cannot post in #curia',tailscale:'Tailscale Serve is not reachable',model:'The model verification request failed',full:'The first Full loop did not complete'
+      }[step.key]}</span></div><div class="connection-secondary">${{
+        github:'Check the GitHub App installation, then try again.',discord:'Allow View Channel and Send Messages for the Curia role.',tailscale:'Run tailscale serve --bg 3000, then try again.',model:'Reconnect the provider subscription, then try again.',full:'Open the failed stage and retry from its last verified boundary.'
       }[step.key]}</div>`;
-      const data={
-        github:hasGitHubTickets?`<strong>#861 · Chart backup and recovery lifecycle</strong><span class="muted">ready-for-agent · alp82/curia</span>`:`<strong>alp82/curia is connected</strong><span class="muted">Issues, pull requests, and Actions ready</span>`,
-        discord:`<strong>#curia</strong><span class="muted">Confirmation delivered · 6 commands registered</span>`,
-        tailscale:`<strong>${state.tailnetName}.example-tailnet.ts.net</strong><span class="muted">alex@example.com · Serve 38 ms</span>`,
-        model:`<strong>OpenAI + Anthropic</strong><span class="muted">Routing ready · verification request 1.4 s</span>`,
-        full:`<strong>request 1842 → response 7fa2 → message 991</strong><span class="muted">Result delivered to #curia in 42 seconds</span>`
+      if(!isDone(step.key)) return `<div class="empty-footer"><span>○</span><span>${{
+        github:'Repository and discovered-work data will appear after GitHub verifies.',
+        discord:'The channel and command result will appear after Discord verifies.',
+        tailscale:'The private address and operator will appear after Tailscale verifies.',
+        model:'Connected providers and the tested route will appear after sign-in.',
+        full:'Request-to-result evidence will appear after the Full loop completes.'
+      }[step.key]}</span></div>`;
+      return {
+        github:hasGitHubTickets?`<div class="connection-primary"><span class="emoji">🎫</span><span>#861 · Chart backup and recovery lifecycle</span></div><div class="connection-secondary">ready-for-agent · alp82/curia · 9 open tickets</div>`:`<div class="connection-primary"><span class="emoji">📦</span><span>alp82/curia</span></div><div class="connection-secondary">No open tickets · Issues, pull requests, and Actions ready</div>`,
+        discord:`<div class="connection-primary"><span class="emoji">💬</span><span>#curia</span></div><div class="connection-secondary">Confirmation delivered · 6 commands registered</div>`,
+        tailscale:`<div class="connection-primary"><span class="emoji">🔒</span><span>${state.tailnetName}.example-tailnet.ts.net</span></div><div class="connection-secondary">alex@example.com · Serve reachable in 38 ms</div>`,
+        model:`<div class="connection-primary"><span class="emoji">⚡</span><span>${state.providers.map(p=>p==='openai'?'OpenAI':'Anthropic').join(' + ')||'OpenAI'}</span></div><div class="connection-secondary">Routing ready · verification request completed in 1.4 s</div>`,
+        full:`<div class="connection-primary"><span class="emoji">✅</span><span>Result delivered to #curia in 42 seconds</span></div><div class="connection-secondary"><code>request 1842 → response 7fa2 → message 991</code></div>`
       }[step.key];
-      const metrics=connectionMetrics(step.key);
-      return `${data}<div class="metric-line">${metrics.map(m=>`<span><b>${m[0]}</b>${m[1]}</span>`).join('')}</div>`;
     }
+    function hasError(step) { return errorService===step.key || (step.key==='tailscale'&&state.failed); }
     function serviceSubtitle(step) {
-      if(isDone(step.key)) return step.key==='full'?'Full loop verified':step.key==='model'?'Two providers verified':'Connected and verified';
+      if(hasError(step)) return 'Action required';
+      if(isDone(step.key)) return step.key==='full'?'Full loop verified':step.key==='model'?(state.providers.length>1?'Two providers verified':'Provider verified'):'Connected and verified';
       if(step.key==='full'&&state.complete.filter(k=>k!=='full').length<4) return 'Waiting for required connections';
       return 'Ready to connect';
     }
-    function serviceCard(step,i,kind) { return `<button class="service-card ${step.key} treatment-${kind.toLowerCase()} ${isDone(step.key)?'complete':''} ${i===state.step?'active':''}" onclick="selectStep(${i})"><header class="service-card-head"><div class="service-card-title">${brandLogo(step.key)}<span>${step.name}</span></div><div class="service-card-subtitle">${serviceSubtitle(step)}</div></header><div class="service-card-footer">${connectionFooter(step)}</div></button>`; }
+    function serviceCard(step,i,kind) { return `<button class="service-card ${step.key} treatment-${kind.toLowerCase()} ${isDone(step.key)?'complete':''} ${hasError(step)?'error':''} ${i===state.step?'active':''}" onclick="selectStep(${i})"><header class="service-card-head"><div class="service-card-title">${brandLogo(step.key)}<span>${step.name}</span><span class="service-card-subtitle">${serviceSubtitle(step)}</span></div></header><div class="service-card-footer">${connectionFooter(step)}</div></button>`; }
     function guidedVariant(kind) { const label={A:'brand-colored headers',B:'dimmed headers and tinted connected footers',C:'full brand color only after connection'}[kind]; return `${header()}<main class="main"><div class="a-grid"><aside class="a-rail"><div style="padding:0 16px 2px"><div class="eyebrow">Your installation</div><h2 style="margin:4px 0">${state.complete.length}/5 verified</h2><p class="muted">Comparing ${label}.</p></div>${steps.map((s,i)=>serviceCard(s,i,kind)).join('')}</aside><section class="a-work"><p class="muted">Choose any connection. The header, state, and data stay within one fixed-height card.</p><div class="card">${content()}${stateDump()}</div></section></div></main>`; }
     function variantA() { return guidedVariant('A'); }
     function variantB() { return guidedVariant('B'); }
