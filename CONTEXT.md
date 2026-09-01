@@ -938,6 +938,7 @@ One box runs everything. Phones and PCs are pure clients on the tailnet.
 - **Bridge**: the Discord module inside the daemon. Thread-per-ticket rendering, buttons, attachment passthrough both directions.
 - **Router**: the deterministic command router inside the daemon. It parses the five verbs from Discord slash commands or REST.
 - **Agents**: one harness process per ticket, in tmux sessions named `curia-<n>`. A cross-check adds a reviewer beside one, in `curia-review-<n>`.
+- **Lifecycle interface** (`cli/`): the `@curia-sh/cli` package. It owns `curia install`, `reinstall`, `update`, `rollback`, `doctor`, `uninstall`, and `purge`, and it carries no service code. The stable launcher at `~/.local/bin/curia` reads the installation record and runs the lifecycle interface of the active version on that version's pinned runtime under `versions/<version>/`. The operator's view is [docs/operator/command-reference.md](docs/operator/command-reference.md).
 - **Sidecar** (`daemon/bin/curia-dashboard.mjs`): the Curia app's own Node process, in its own container. It imports the daemon's identity check, config rules and Serve helper, and reads the daemon over loopback.
 - **Surfaces**: the shared ttyd terminal, the timeline and the Curia app, all published with Tailscale Serve. Previews take their own port range.
 - **Config** (`config/`): two layers. `curia.yaml` (watch list, dispatch, attach, dashboard, skills) and `routing.yaml` (models, defaults, fallbacks, the cross-check pairing) are the base, hand-edited and tracked in git. `curia.local.yaml` and `routing.local.yaml` beside them hold this box's own answers, and git ignores them. The daemon reads a base file and the override over it: a mapping merges key by key, a list or a scalar replaces whole. The settings screen writes only the override, which is what keeps the box's checkout clean. Every file is written in the form the yaml document API prints back unchanged, so an edit rewrites the lines it changed and no others. A trailing comment takes one space before the `#`, and a comment block belongs above its key rather than after it.
@@ -960,6 +961,7 @@ Everything else is a cache that reconcile can rebuild.
 
 - `docs/adr/`: one file per standing decision, indexed at `docs/adr/README.md`.
 - `docs/research/`: research notes, one per investigation, indexed at `docs/research/README.md`.
+- `docs/operator/`: the operator's reference pages for an installed Curia, subordinate to the lifecycle guide.
 - `docs/live-checks/`: first-person agent evidence.
 - `docs/agents/`: tracker, triage, and domain-doc conventions for agents.
 - `docs/full-loop.md`: the rehearsal record of the PoC map. History, not a live procedure.

@@ -1,0 +1,30 @@
+{
+  "name": "@curia-sh/cli",
+  "version": "0.4.1",
+  "description": "Curia's lifecycle interface: install, update, roll back, diagnose, and remove one Curia installation.",
+  "type": "module",
+  "bin": {
+    "curia": "bin/curia.mjs"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/alp82/curia.git",
+    "directory": "cli"
+  },
+  "homepage": "https://curia.sh",
+  "//engines": "The host Node only matters while the package is invoked without an installed version, such as in this test suite. An installed Curia runs the lifecycle interface on its own pinned runtime under versions/<version>/node.",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "test": "node --test 'test/*.test.mjs'"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
