@@ -57,6 +57,10 @@ Every lifecycle command checks the root before it changes anything. Each check t
 
 A present but unreadable installation record is a failure (exit code `1`), not a refusal: Curia treats a damaged record as a damaged installation, never as a fresh directory.
 
+### When a lifecycle command refuses the host
+
+After the root, `curia install` and `curia update` check the host itself, and `curia doctor` runs the same checks. A refused host condition, such as another operating-system release, a busy port, or a Docker daemon your user can't reach, stops the command with exit code `3` and one corrective action. A warning, such as a host below the recommended profile, doesn't stop anything. The systems, the profile, every check, and every corrective action are in [Supported hosts and preflight checks](supported-hosts.md).
+
 ### The lifecycle lock
 
 One lifecycle operation runs at a time per installation root. A lifecycle command takes `run/lifecycle.lock` before it changes anything and releases the lock when it finishes, whether it succeeds or fails. A second command that finds the lock held stops with exit code `3` and names the process that holds it. Wait for that command to finish, then run yours again.
@@ -94,7 +98,7 @@ Every command and the launcher use the same four exit codes, so a script can bra
 | `2` | usage | The command line was wrong. Nothing ran. Run `curia help`. |
 | `3` | refused | Curia refused to start the operation. Nothing changed. The message names the condition and one corrective action. |
 
-A refusal is not a failure. It means Curia checked a precondition, such as a missing runtime file or an unsupported host, and stopped before touching anything.
+A refusal is not a failure. It means Curia checked a precondition, such as a missing runtime file or an unsupported host, and stopped before touching anything. The host preconditions are in [Supported hosts and preflight checks](supported-hosts.md).
 
 ## Environment
 

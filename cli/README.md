@@ -6,7 +6,7 @@ For the operator's view, read the [command reference](https://github.com/alp82/c
 
 ## What this version ships
 
-This version ships the stable launcher, the command vocabulary, the installation-root boundary, and the operator configuration contract. Every lifecycle command exists and routes. Each one opens its root through the boundary first, so the root refusals are real, and then refuses with exit code `3` and a message that names the version and the release map. The follow-up tickets in [Ship Curia's supported installation lifecycle](https://github.com/alp82/curia/issues/863) fill the commands in.
+This version ships the stable launcher, the command vocabulary, the installation-root boundary, the operator configuration contract, and the supported-host preflight. Every lifecycle command exists and routes. Each one opens its root through the boundary first, so the root refusals are real, and then refuses with exit code `3` and a message that names the version and the release map. The follow-up tickets in [Ship Curia's supported installation lifecycle](https://github.com/alp82/curia/issues/863) fill the commands in.
 
 ## Layout
 
@@ -20,6 +20,7 @@ This version ships the stable launcher, the command vocabulary, the installation
 - `src/lock.mjs`: `withLifecycleLock(root, operation)`, the exclusive lifecycle-operation lock at `run/lifecycle.lock`.
 - `src/layout.mjs`: `serviceLayout(root)`, where the service data lives inside the seven boundaries, and `SERVICE_MOUNTS`, what each container may mount. See [The service layout and the secret files](#the-service-layout-and-the-secret-files).
 - `src/secrets.mjs`: the catalogue of long-lived secret files under `secrets/`, their reader, writer, and status, shared with the Curia service.
+- `src/preflight.mjs`: the supported-host preflight. `gatherHostFacts` reads the host through injectable probes, `evaluateHostFacts` turns the facts into one report, and `preflight` does both and prints it. See [The host preflight](#the-host-preflight).
 - `src/launcher.mjs`: renders the stable `curia` launcher for one installation root.
 
 ## The root boundary
@@ -57,6 +58,20 @@ The reader is a strict subset of YAML written by hand, because the package has n
 - `credentialsInEnvironment(env)` names the environment keys that carry a credential. The service refuses to boot under a root while any of them is set. `redact(text, values)` replaces given values in a text on its way to a log or a response.
 
 A `SecretError` is not a `Refusal`, for the same reason a `ConfigError` is not: the command that meets one decides what it means.
+
+## The host preflight
+
+`src/preflight.mjs` is the one module that decides whether the host can carry an operation. `curia install` (#873) and `curia update` (#883) call it after `openRoot` and before the lock, and `curia doctor` (#881) calls it for its host section. The operator's view is [Supported hosts and preflight checks](https://github.com/alp82/curia/blob/main/docs/operator/supported-hosts.md).
+
+The interface:
+
+- `preflight({ uid, root, stdout }, probes)` gathers the facts, evaluates them, prints the report on `stdout`, and returns `{ ok, checks, refusal, facts }`. A command throws `report.refusal`, a `Refusal`, when `ok` is false. Pass `facts` instead of `uid` and `root` to evaluate facts you already have.
+- `gatherHostFacts({ uid, root }, probes)` reads the host into one plain object: `os`, `arch`, `cpus`, `memoryBytes`, `disk`, `ports`, `docker`, `compose`, `tailscale`, and `outbound`. Every read goes through `probes`, whose default is `hostProbes`: `exec`, `readFile`, `arch`, `cpus`, `memoryBytes`, `freeDiskBytes`, `socketAccessible`, `groups`, and `fetchOrigin`. A test hands in fakes, so the suite never depends on the machine it runs on. The test file's `ubuntu()` fixture is the shape of the facts.
+- `evaluateHostFacts(facts)` is pure. It returns one result per entry of `CHECKS`, in order, each `{ name, status, observed, action }` with `status` one of `passed`, `warning`, or `refused`. A refused check carries the one corrective action. `refusal` is one `Refusal` that lists every refused condition, so the operator sees all of them at once.
+- `renderPreflight(report)` prints one line per check and a summary line.
+- The constants are the contract: `SUPPORTED_SYSTEMS`, `MINIMUM_PROFILE`, `RECOMMENDED_PROFILE`, `TESTED_VERSIONS`, `REQUIRED_PORTS`, `SANDBOX_PORTS`, `RELEASE_ORIGINS`, and `CLOCK_SKEW_LIMIT_SECONDS`. `daemon/test/preflightports.test.mjs` keeps the ports in step with `config/curia.yaml`.
+
+Three probes create temporary resources, and each removes its own before it returns: the port probe listens on every port it tests and closes the listener; the Docker probe writes one temporary directory, opens one loopback HTTP listener, and runs one `--rm` container named `curia-preflight-<id>` that reads the directory through a bind mount and fetches the listener over the host network, then removes the container by force when the run failed or timed out, closes the listener, and deletes the directory. Nothing in the module installs or reconfigures the host.
 
 ## The launcher
 
