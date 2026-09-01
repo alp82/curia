@@ -33,7 +33,7 @@ Curia creates the root and seven directories inside it. The following table list
 
 | Directory | Holds | Across update, reinstall, and uninstall |
 |---|---|---|
-| `config/` | `config.yaml`, your operator configuration. | Preserved |
+| `config/` | `config.yaml`, your operator configuration. See [Operator configuration](configuration.md). | Preserved |
 | `secrets/` | Long-lived credentials and private keys, one owner-only file each. | Preserved |
 | `state/` | Durable service state and the installation record, `state/installation.json`. | Preserved |
 | `work/` | Worktrees and native agent sessions that can resume. | Preserved |

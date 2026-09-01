@@ -11,7 +11,7 @@ import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
-import { loadCuriaConfig, loadRoutingConfig, localConfigFile, overrideSummary } from '../src/config.mjs'
+import { loadCuriaConfig, loadRoutingConfig, localConfigFile, operatorConfigFile, overrideSummary } from '../src/config.mjs'
 import { DEFAULT_SKILLS, defaultSkillsRoot } from '../src/workspace.mjs'
  import { DEFAULT_INDEX } from '../src/attach.mjs'
 import { DEFAULT_TIMELINE_INDEX } from '../src/timeline.mjs'
@@ -768,6 +768,88 @@ describe('the tracked file and the override beside it (#292)', () => {
   })
 })
 
+// The operator configuration (#866): `config/config.yaml` beside `curia.yaml`,
+// read through the one contract module in `cli/src/config.mjs`. Its keys win
+// over the shipped file, and a file the contract refuses refuses the boot with
+// the contract's own message: the path, the line, the key, the rule.
+describe('the operator configuration layer (#866)', () => {
+  before(() => { tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-operator-cfg-')) })
+  after(() => { fs.rmSync(tmp, { recursive: true, force: true }) })
+
+  // Every `writeConfig` file in this describe shares one directory, so each
+  // case writes the operator file and removes it again.
+  const operator = (file, ...lines) => {
+    fs.writeFileSync(operatorConfigFile(file), `${lines.join('\n')}\n`)
+    return file
+  }
+  const without = (file) => fs.rmSync(operatorConfigFile(file), { force: true })
+
+  test('the file lives beside curia.yaml as config.yaml', () => {
+    assert.equal(operatorConfigFile('/x/config/curia.yaml'), '/x/config/config.yaml')
+  })
+
+  test('no operator file is the ordinary case of a source checkout, not an error', () => {
+    const file = writeConfig()
+    without(file)
+    assert.equal(loadCuriaConfig(file).dispatch.max_concurrent, 2)
+  })
+
+  test('every operator key wins over the shipped file, and the keys it leaves out keep the shipped answer', () => {
+    const file = operator(writeConfig(),
+      'max_concurrent: 3', 'auto_dispatch: true', 'poll_interval_s: 15', 'prototype_variations: 2',
+      'messages_per_send: 1', 'live_pane_cap: 7', 'watch:', '  - repo: op/one', '    mode: map', '  - repo: op/two')
+    const cfg = loadCuriaConfig(file)
+    without(file)
+    assert.equal(cfg.dispatch.max_concurrent, 3)
+    assert.equal(cfg.dispatch.auto_dispatch, true)
+    assert.equal(cfg.dispatch.poll_interval_s, 15)
+    assert.equal(cfg.dispatch.prototype_variations, 2)
+    assert.equal(cfg.dispatch.messages_per_send, 1)
+    assert.equal(cfg.overseer.live_pane_cap, 7)
+    assert.deepEqual(cfg.watch, [{ repo: 'op/one', mode: 'map' }, { repo: 'op/two', mode: 'auto' }])
+    assert.equal(cfg.dispatch.claim_login, 'alp82', 'a key outside the contract still comes from curia.yaml')
+  })
+
+  test('a partial file overrides only what it sets', () => {
+    const file = operator(writeConfig(), 'max_concurrent: 4')
+    const cfg = loadCuriaConfig(file)
+    without(file)
+    assert.equal(cfg.dispatch.max_concurrent, 4)
+    assert.equal(cfg.dispatch.poll_interval_s, 60)
+    assert.deepEqual(cfg.watch, [{ repo: 'o/r', mode: 'auto' }])
+  })
+
+  test('the operator file wins over the hand override too', () => {
+    const file = operator(writeConfig(), 'max_concurrent: 4')
+    fs.writeFileSync(localConfigFile(file), 'dispatch:\n  max_concurrent: 7\n')
+    const cfg = loadCuriaConfig(file)
+    without(file)
+    assert.equal(cfg.dispatch.max_concurrent, 4)
+  })
+
+  test('an invalid direct edit refuses the boot with the exact diagnostic', () => {
+    const file = operator(writeConfig(), 'max_concurrent: 4', 'auto_dispatch: sometimes')
+    assert.throws(() => loadCuriaConfig(file), (e) => {
+      assert.equal(e.message, `${operatorConfigFile(file)} line 2: \`auto_dispatch\` must be true or false (got sometimes)`)
+      return true
+    })
+    without(file)
+  })
+
+  test('a rule that reads two sections together still runs, and the refusal names the operator file', () => {
+    const file = operator(writeConfig(), 'max_concurrent: 500')
+    assert.throws(() => loadCuriaConfig(file), (e) => /config\.yaml: sandbox ports/.test(e.message))
+    without(file)
+  })
+
+  test('the loader takes a validated operator object in place of the file, which is how the app judges a save', () => {
+    const file = operator(writeConfig(), 'max_concurrent: 4')
+    assert.equal(loadCuriaConfig(file, { operator: { max_concurrent: 5 } }).dispatch.max_concurrent, 5)
+    assert.equal(loadCuriaConfig(file, { operator: null }).dispatch.max_concurrent, 2)
+    without(file)
+  })
+})
+
 // The whole decision rests on git not tracking the override, so the ignore rule
 // is pinned against git itself rather than against a reading of the pattern.
 describe('git ignores the override and tracks the base (#292)', () => {
@@ -788,6 +870,11 @@ describe('git ignores the override and tracks the base (#292)', () => {
 
   test('the atomic write’s candidate is ignored too, so a crash leaves no untracked file', () => {
     assert.equal(ignored('config/.curia.local.yaml.candidate'), true)
+  })
+
+  test('the operator configuration and its atomic temporary file are ignored (#866)', () => {
+    assert.equal(ignored('config/config.yaml'), true, 'the app writes it, so a tracked copy would dirty the checkout')
+    assert.equal(ignored('config/.config.yaml.123.abcdef.tmp'), true)
   })
 })
 

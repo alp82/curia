@@ -315,7 +315,7 @@ function reloadLine(reload) {
 
 function settingsPaths(patch) {
   const paths = []
-  if (patch && ['dispatch', 'overseer', 'watch'].some((key) => Object.hasOwn(patch, key))) paths.push('curia.local.yaml')
+  if (patch && ['dispatch', 'overseer', 'watch'].some((key) => Object.hasOwn(patch, key))) paths.push('config.yaml')
   if (patch && Object.hasOwn(patch, 'routing')) paths.push('routing.local.yaml')
   return paths
 }

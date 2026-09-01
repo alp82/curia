@@ -222,8 +222,12 @@ services:
       - ${CURIA_REPO_ROOT:-/home/alp/curia}/daemon/src:${CURIA_REPO_ROOT:-/home/alp/curia}/daemon/src:ro
       - ${CURIA_REPO_ROOT:-/home/alp/curia}/daemon/bin:${CURIA_REPO_ROOT:-/home/alp/curia}/daemon/bin:ro
       - ${CURIA_REPO_ROOT:-/home/alp/curia}/daemon/assets:${CURIA_REPO_ROOT:-/home/alp/curia}/daemon/assets:ro
-      # Read-write, and the only writable path it has: the dashboard rewrites
-      # curia.yaml and routing.yaml from the settings screens (#265).
+      # The operator configuration contract (#866): the settings screen writes
+      # config.yaml through the lifecycle interface's own module, which
+      # daemon/src imports at this relative path.
+      - ${CURIA_REPO_ROOT:-/home/alp/curia}/cli/src:${CURIA_REPO_ROOT:-/home/alp/curia}/cli/src:ro
+      # Read-write, and the only writable path it has: the dashboard writes
+      # config.yaml and routing.local.yaml from the settings screens (#265, #866).
       - ${CURIA_REPO_ROOT:-/home/alp/curia}/config:${CURIA_REPO_ROOT:-/home/alp/curia}/config
 
   # The overseer (#327 and #688). One long-lived container sits beside the
@@ -290,6 +294,10 @@ services:
       # (#314). It is the same agent seed the in-daemon host runs, so the
       # operator's communication rules cross the boundary with the model.
       - ${CURIA_REPO_ROOT:-/home/alp/curia}/daemon/assets:${CURIA_REPO_ROOT:-/home/alp/curia}/daemon/assets:ro
+      # The operator configuration contract (#866): daemon/src/config.mjs
+      # imports it from the lifecycle interface's package, so the source has to
+      # sit beside the daemon's at the same relative path.
+      - ${CURIA_REPO_ROOT:-/home/alp/curia}/cli/src:${CURIA_REPO_ROOT:-/home/alp/curia}/cli/src:ro
       # The watch list, read-only: the overseer reads which repos to check out
       # and never rewrites the config the settings screens own. It is re-read
       # per turn, because the settings screen rewrites it. BOTH things it feeds

@@ -3123,7 +3123,7 @@ function restartNeeds() {
 
 function settingsActionPaths(patch) {
   const paths = [];
-  if (["dispatch", "overseer", "watch"].some((key) => Object.prototype.hasOwnProperty.call(patch, key))) paths.push("curia.local.yaml");
+  if (["dispatch", "overseer", "watch"].some((key) => Object.prototype.hasOwnProperty.call(patch, key))) paths.push("config.yaml");
   if (Object.prototype.hasOwnProperty.call(patch, "routing")) paths.push("routing.local.yaml");
   return paths;
 }
@@ -3444,14 +3444,22 @@ function setMaintenance(p) {
   } else {
     state = `<p class="qhint">The service is running these files. It read them ${esc(ago(run?.loaded_at))}.</p>`;
   }
-  /* #292: the screen reads two layers and writes only the top one. Said here,
-     because "I saved and git shows nothing changed" must not be a puzzle the
-     operator has to solve on the box. */
+  /* #866: a config.yaml the contract refuses. The service keeps what it loaded
+     and will not start on the file after a restart, so the page says the exact
+     line rather than drawing the shipped answers as if they were the file's. */
+  if (settings?.operator_error) {
+    state += `<p class="unread">The service will not take <span class="mono">config.yaml</span>: ${esc(settings.operator_error)}.
+      Fix the file on the box. Until then the settings shown are the shipped answers, not the file's.</p>`;
+  }
+  /* #292, #866: the screen reads the layers and writes only the top one. Said
+     here, because "I saved and git shows nothing changed" must not be a puzzle
+     the operator has to solve on the box. */
   const writes = settings.writes
-    ? `A save writes <span class="mono">${esc(fileName(settings.writes.curia))}</span> and
+    ? `A save writes <span class="mono">${esc(fileName(settings.writes.curia))}</span> (your operator
+       configuration: concurrency, dispatch, the pane cap, and the watch list) and
        <span class="mono">${esc(fileName(settings.writes.routing))}</span>, beside the tracked files.
        Git does not track those, so the box's checkout stays clean and a deploy never collides with a
-       save. They hold what this box answers differently, and nothing else.`
+       save. Curia checks each file before it lands, and lands it in one step.`
     : "";
   return `${state}<div class="rows">
     <div class="row"><span class="grow"><button class="btn${differs?.length ? " restart-hot" : ""}"
