@@ -36,7 +36,8 @@ import { sayGoodbye, questionGoodbye, deathWasSilent, DAEMON_BOOT } from './good
 import { readable } from './logline.mjs'
 import { resolveOutboundFiles, inboundContent, ALLOWED_EXTENSIONS, safeLeaf } from './attachments.mjs'
 import { PreviewRegistry } from './preview.mjs'
-import { loadCuriaConfig, loadRoutingConfig, overrideSummary } from './config.mjs'
+import { loadCuriaConfig, loadRoutingConfig, operatorConfigFile, overrideSummary } from './config.mjs'
+import { readOperatorConfig } from '../../cli/src/config.mjs'
 import { PROBE_MARK, PROBE_PATH, GUEST_DAEMON_HOST, GUEST_WT, dockerGateway, probeSideChannel } from './sandbox.mjs'
 import { Cooling, providerOf } from './routing.mjs'
 import { Dispatcher } from './dispatch.mjs'
@@ -205,6 +206,14 @@ let configLoadedAt = new Date().toISOString()
 for (const name of ['curia.yaml', 'routing.yaml']) {
   const over = overrideSummary(path.join(CONFIG_DIR, name))
   if (over) log(`config: ${name} + ${path.basename(over.file)} (overrides: ${over.keys.join(', ') || 'none'})`)
+}
+// #866: the operator configuration, said out loud for the same reason. The
+// loader above already refused an invalid file, so this read cannot throw.
+{
+  const operator = readOperatorConfig(operatorConfigFile(CURIA_FILE))
+  log(operator
+    ? `config: config.yaml sets ${Object.keys(operator).join(', ') || 'nothing'}`
+    : 'config: no config.yaml — the shipped answers run')
 }
 // Every harness runs in a container since #195, so this is simply the harness
 // list — it names the containers the side channel below serves. The cross-file
@@ -3785,12 +3794,12 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
     const body = await readBody(req).catch(() => ({}))
     const actionId = String(body?.action_id ?? '')
     const paths = [...new Set(Array.isArray(body?.paths) ? body.paths.map(String) : [])].sort()
-    const allowed = new Set(['curia.local.yaml', 'routing.local.yaml'])
+    const allowed = new Set(['config.yaml', 'routing.local.yaml'])
     if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(actionId)) {
       return json(400, { error: 'action_id is not a valid Action id' })
     }
     if (!paths.length || paths.some((candidate) => !allowed.has(candidate))) {
-      return json(400, { error: 'paths must name curia.local.yaml, routing.local.yaml, or both' })
+      return json(400, { error: 'paths must name config.yaml, routing.local.yaml, or both' })
     }
 
     const recorded = actions.get(actionId)

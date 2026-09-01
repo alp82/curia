@@ -22,10 +22,47 @@ import { readDashboard } from './dashboard.mjs'
 import { readOverseer } from './overseerservice.mjs'
 import { CONSUMER_NAMES, consumerContractFault, providerContractFault } from './credentials.mjs'
 import { HARNESS_REGISTRY } from './harnesses.mjs'
+import {
+  WATCH_MODES as OPERATOR_WATCH_MODES, readOperatorConfig, validateOperatorConfig,
+} from '../../cli/src/config.mjs'
 
-// Exported because the settings screen writes this key (#265), and a second
-// list of the legal modes would be a second answer to one question.
-export const WATCH_MODES = ['auto', 'map', 'ready-for-agent']
+// The legal watch modes come from the operator configuration contract (#866),
+// which the settings screen writes through. Re-exported here so the daemon's
+// own callers keep one name for one list.
+export const WATCH_MODES = OPERATOR_WATCH_MODES
+
+// ---------------------------------------------------------------------------
+// the operator configuration (#866)
+// ---------------------------------------------------------------------------
+//
+// `config/config.yaml`, beside `curia.yaml`, holds operator intent: the
+// concurrency, the dispatch switches, the pane cap, and the watch list. It is
+// the file the operator edits by hand, the app saves, and `curia install`
+// writes. One module reads, validates, and writes it in every process
+// (`cli/src/config.mjs`), so the daemon, the app, and the lifecycle interface
+// cannot disagree about what the file means or what a refusal says.
+//
+// Its keys win over `curia.yaml` and over the hand override beside it. A key
+// the file leaves out keeps the shipped answer, so a source checkout without
+// the file runs exactly as before. An invalid file refuses the boot with the
+// contract's own message, which names the path, the line, the key, and the
+// rule. Nothing here falls back to an older copy: the running daemon keeps
+// what it loaded, and the next boot reads what is on disk.
+export const operatorConfigFile = (file) => path.join(path.dirname(file), 'config.yaml')
+
+// Lays a validated operator configuration over the merged `curia.yaml`
+// shape, before the rules below judge the whole.
+function applyOperatorConfig(cfg, op) {
+  if (!op) return
+  const d = cfg.dispatch && typeof cfg.dispatch === 'object' ? cfg.dispatch : (cfg.dispatch = {})
+  for (const key of ['max_concurrent', 'auto_dispatch', 'poll_interval_s', 'prototype_variations', 'messages_per_send']) {
+    if (op[key] !== undefined) d[key] = op[key]
+  }
+  if (op.live_pane_cap !== undefined) {
+    cfg.overseer = { ...(cfg.overseer && typeof cfg.overseer === 'object' ? cfg.overseer : {}), live_pane_cap: op.live_pane_cap }
+  }
+  if (op.watch !== undefined) cfg.watch = op.watch.map((w) => ({ repo: w.repo, mode: w.mode }))
+}
 
 // A GitHub login as GitHub itself allows one: letters, digits and single
 // hyphens, no hyphen at either end, 39 characters at most. The whole point of
@@ -144,14 +181,22 @@ export function overrideSummary(file) {
 // skipped is exactly what the sidecar cannot see and cannot change. Every other
 // rule — the shapes, the ports, the collisions, `3 × max_concurrent` against
 // the sandbox range — runs in both processes, unchanged.
-export function loadCuriaConfig(file, { checkPaths = true, localFile, env = process.env } = {}) {
+//
+// `operator` is the operator configuration (#866): left out, the loader reads
+// `config.yaml` beside `file` and takes none when there is no file; `null`
+// reads the shipped layers alone; an object is a candidate the app judges
+// before it writes, validated here by the contract's own rules first.
+export function loadCuriaConfig(file, { checkPaths = true, localFile, env = process.env, operator } = {}) {
   const layers = readLayered(file, { localFile })
   const cfg = layers.data
+  const operatorFile = operatorConfigFile(file)
+  const op = operator === undefined ? readOperatorConfig(operatorFile) : (operator === null ? null : validateOperatorConfig(operator))
   // What a refusal names. A merged config has two authors, so a message that
   // named the tracked file alone would send the operator to edit a line that is
   // no longer the one running.
-  const src = layers.localFile ? `${file} + ${layers.localFile}` : file
+  const src = [file, layers.localFile, op ? operatorFile : null].filter(Boolean).join(' + ')
   if (!cfg || typeof cfg !== 'object') fail(src, 'not a mapping')
+  applyOperatorConfig(cfg, op)
 
   if (!Array.isArray(cfg.watch) || !cfg.watch.length) fail(src, '`watch` must be a non-empty list')
   for (const entry of cfg.watch) {

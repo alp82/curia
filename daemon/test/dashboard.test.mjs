@@ -471,14 +471,14 @@ describe('the settings write and the restart (#265)', () => {
       if (r.url === '/repos') return res.end(JSON.stringify({ login: 'alp82', repos: ['o/r', 'o/other'], error: null }))
       if (r.url === '/settings/action') return res.end(JSON.stringify({
         action: {
-          action_id: 'app-settings-sidecar-1', kind: 'settings-save', target: 'curia.local.yaml',
-          conflict_key: 'settings:curia.local.yaml', status: 'progress', progress: 'Writing curia.local.yaml', revision: 1,
+          action_id: 'app-settings-sidecar-1', kind: 'settings-save', target: 'config.yaml',
+          conflict_key: 'settings:config.yaml', status: 'progress', progress: 'Writing config.yaml', revision: 1,
         },
       }))
       if (r.url === '/settings/action/finish') return res.end(JSON.stringify({
         action: {
-          action_id: 'app-settings-no-change-1', kind: 'settings-save', target: 'curia.local.yaml',
-          conflict_key: 'settings:curia.local.yaml', status: 'confirmed', revision: 2,
+          action_id: 'app-settings-no-change-1', kind: 'settings-save', target: 'config.yaml',
+          conflict_key: 'settings:config.yaml', status: 'confirmed', revision: 2,
           receipt: { written: [], applied: [] },
         },
       }))
@@ -608,9 +608,9 @@ describe('the settings write and the restart (#265)', () => {
     const body = JSON.parse(res.text)
     // #292: git tracks curia.yaml, so a save that touched it would leave the
     // box's checkout dirty and the next deploy would refuse to fast-forward.
-    assert.deepEqual(body.written, ['curia.local.yaml'])
+    assert.deepEqual(body.written, ['config.yaml'])
     assert.equal(fs.readFileSync(tracked, 'utf8'), before, 'the tracked file is byte for byte what it was')
-    assert.match(fs.readFileSync(path.join(cfgDir, 'curia.local.yaml'), 'utf8'), /max_concurrent: 4/)
+    assert.match(fs.readFileSync(path.join(cfgDir, 'config.yaml'), 'utf8'), /max_concurrent: 4/)
     assert.equal(body.settings.dispatch.max_concurrent, 4, 'the answer carries what landed, not what was sent')
   })
 
@@ -657,9 +657,9 @@ describe('the settings write and the restart (#265)', () => {
       ok: true,
       applied: ['dispatch.max_concurrent'],
       action: {
-        action_id: 'app-settings-sidecar-1', kind: 'settings-save', target: 'curia.local.yaml',
-        conflict_key: 'settings:curia.local.yaml', status: 'confirmed', revision: 2,
-        receipt: { written: ['curia.local.yaml'], applied: ['dispatch.max_concurrent'] },
+        action_id: 'app-settings-sidecar-1', kind: 'settings-save', target: 'config.yaml',
+        conflict_key: 'settings:config.yaml', status: 'confirmed', revision: 2,
+        receipt: { written: ['config.yaml'], applied: ['dispatch.max_concurrent'] },
       },
     }
     const res = await save({ action_id: 'app-settings-sidecar-1', dispatch: { max_concurrent: 4 } })
@@ -669,10 +669,11 @@ describe('the settings write and the restart (#265)', () => {
       '/settings/action', '/reload',
     ])
     assert.equal(body.action.status, 'confirmed')
-    assert.deepEqual(body.action.receipt.written, ['curia.local.yaml'])
+    assert.deepEqual(body.action.receipt.written, ['config.yaml'])
   })
 
   test('a save that wrote nothing asks for nothing — the file did not move', async () => {
+    fs.writeFileSync(path.join(cfgDir, 'config.yaml'), 'max_concurrent: 2\n')
     const res = await save({ dispatch: { max_concurrent: 2 } })
     assert.equal(JSON.parse(res.text).written.length, 0)
     assert.equal(JSON.parse(res.text).reload, null)
@@ -680,6 +681,7 @@ describe('the settings write and the restart (#265)', () => {
   })
 
   test('an Action that finds no change settles without asking for a reload', async () => {
+    fs.writeFileSync(path.join(cfgDir, 'config.yaml'), 'max_concurrent: 2\n')
     const res = await save({ action_id: 'app-settings-no-change-1', dispatch: { max_concurrent: 2 } })
     assert.equal(res.status, 200)
     const body = JSON.parse(res.text)
@@ -702,7 +704,7 @@ describe('the settings write and the restart (#265)', () => {
     const res = await save({ dispatch: { max_concurrent: 4 } })
     assert.equal(res.status, 200, 'the save is not the thing that failed')
     const body = JSON.parse(res.text)
-    assert.deepEqual(body.written, ['curia.local.yaml'])
+    assert.deepEqual(body.written, ['config.yaml'])
     assert.equal(body.reload.reason, 'restart-needed')
     assert.match(body.reload.error, /sandbox\.image/)
   })
@@ -712,9 +714,9 @@ describe('the settings write and the restart (#265)', () => {
     const res = await save({ dispatch: { max_concurrent: 4 } })
     assert.equal(res.status, 200)
     const body = JSON.parse(res.text)
-    assert.deepEqual(body.written, ['curia.local.yaml'])
+    assert.deepEqual(body.written, ['config.yaml'])
     assert.equal(body.reload.reason, 'daemon-down')
-    assert.match(fs.readFileSync(path.join(cfgDir, 'curia.local.yaml'), 'utf8'), /max_concurrent: 4/)
+    assert.match(fs.readFileSync(path.join(cfgDir, 'config.yaml'), 'utf8'), /max_concurrent: 4/)
   })
 
   // ---- the one guard the save owes (#362) ----------------------------------
@@ -734,7 +736,7 @@ describe('the settings write and the restart (#265)', () => {
     const res = await save({ watch: [{ repo: 'o/r', mode: 'auto' }] })
     assert.equal(res.status, 409)
     assert.match(res.text, /o\/other cannot leave the watch list while curia-362 runs on it/)
-    assert.ok(!fs.existsSync(path.join(cfgDir, 'curia.local.yaml')), 'nothing was written')
+    assert.ok(!fs.existsSync(path.join(cfgDir, 'config.yaml')), 'nothing was written')
   })
 
   test('the same removal lands when no agent is on that repo', async () => {

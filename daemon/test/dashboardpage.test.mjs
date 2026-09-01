@@ -1887,7 +1887,7 @@ describe('the settings screen (#265)', () => {
     page.setDispatchField('max_concurrent', '4')
 
     const saving = page.doSave()
-    const action = page.actionFor({ conflict_key: 'settings:curia.local.yaml' })
+    const action = page.actionFor({ conflict_key: 'settings:config.yaml' })
     assert.equal(action.status, 'pending')
     assert.match(text(screen('dispatch')), /Saving settings/)
     assert.ok(page.beginAction({
@@ -1897,12 +1897,12 @@ describe('the settings screen (#265)', () => {
     answer({
       ok: true,
       json: async () => ({
-        written: ['curia.local.yaml'],
+        written: ['config.yaml'],
         settings: { ...SETTINGS(), dispatch: { ...SETTINGS().dispatch, max_concurrent: 4 } },
         reload: { ok: true, applied: ['dispatch.max_concurrent'] },
         action: {
           ...action, status: 'confirmed', revision: 2,
-          receipt: { written: ['curia.local.yaml'], applied: ['dispatch.max_concurrent'] },
+          receipt: { written: ['config.yaml'], applied: ['dispatch.max_concurrent'] },
         },
       }),
     })
@@ -1913,8 +1913,8 @@ describe('the settings screen (#265)', () => {
 
   test('a refresh recovers settings write progress and reconciles the service apply receipt', () => {
     const shared = {
-      action_id: 'app-settings-recovered-1', kind: 'settings-save', target: 'curia.local.yaml',
-      conflict_key: 'settings:curia.local.yaml', status: 'progress', revision: 10,
+      action_id: 'app-settings-recovered-1', kind: 'settings-save', target: 'config.yaml',
+      conflict_key: 'settings:config.yaml', status: 'progress', revision: 10,
       progress: 'Applying settings',
     }
     page.observeActions([shared])
@@ -1923,7 +1923,7 @@ describe('the settings screen (#265)', () => {
     page.observeActions([{
       ...shared, status: 'confirmed', revision: 11,
       receipt: {
-        written: ['curia.local.yaml'], applied: [],
+        written: ['config.yaml'], applied: [],
         reload: { ok: false, reason: 'restart-needed', error: 'curia.yaml `sandbox.image` needs a restart' },
       },
     }])
@@ -1934,7 +1934,7 @@ describe('the settings screen (#265)', () => {
 
   test('applied: one sentence, and no button — the service took it', () => {
     page.UI.set.phase = 'applied'
-    page.UI.set.note = 'Wrote curia.local.yaml, atomically, with the comments kept.'
+    page.UI.set.note = 'Wrote config.yaml, atomically, with the comments kept.'
     const html = screen()
     assert.match(text(html), /saved ✓/)
     assert.match(text(html), /The service is running it\./)
@@ -1943,7 +1943,7 @@ describe('the settings screen (#265)', () => {
 
   test('declined: the key that differs is named, and the restart is the mitigation', () => {
     page.UI.set.phase = 'declined'
-    page.UI.set.note = 'Wrote curia.local.yaml, atomically, with the comments kept.'
+    page.UI.set.note = 'Wrote config.yaml, atomically, with the comments kept.'
     page.UI.set.error = 'curia.yaml `dispatch.workspace_root` changed, and that key is not one a reload applies — restart the service to take it'
     const html = screen()
     assert.match(html, /restart-hot/, 'the restart is the loud one here, because it is what applies the file')

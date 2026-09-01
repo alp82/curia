@@ -45,6 +45,69 @@ function request(port, method, urlPath, { body = null } = {}) {
   })
 }
 
+// The tracked files of one boot, and the shims a boot needs on the path. The
+// same fixture serves the running daemon below and the refused restart at the
+// end of this file.
+function writeFixture({ tmp, cfgDir, ttydPort, servePort, proxyPort }) {
+  const shim = path.join(tmp, 'shim')
+  fs.mkdirSync(cfgDir, { recursive: true })
+  fs.mkdirSync(shim, { recursive: true })
+  for (const bin of ['gh', 'tmux', 'tailscale']) {
+    const p = path.join(shim, bin)
+    fs.writeFileSync(p, '#!/bin/sh\nexit 1\n')
+    fs.chmodSync(p, 0o755)
+  }
+  const write = (file, lines) => fs.writeFileSync(file, `${lines.join('\n')}\n`)
+  write(path.join(cfgDir, 'curia.yaml'), [
+    'watch:',
+    '  - repo: example/fixture',
+    'dispatch:',
+    '  auto_dispatch: false',
+    '  max_concurrent: 2',
+    '  poll_interval_s: 60',
+    '  prototype_variations: 5',
+    `  workspace_root: ${path.join(tmp, 'work')}`,
+    '  claim_login: alp82',
+    '  ready_timeout_s: 45',
+    'attach:',
+    `  ttyd_port: ${ttydPort}`,
+    `  serve_port: ${servePort}`,
+    'identity:',
+    '  allow: [tester@example.com]',
+    `  proxy_port: ${proxyPort}`,
+    ...skillsYaml(seedSkillsRoot(tmp)),
+    ...sandboxYaml(),
+  ])
+  write(path.join(cfgDir, 'routing.yaml'), [
+    'defaults:',
+    '  untyped: sonnet',
+    'models:',
+    '  sonnet: { provider: anthropic, harness: claude }',
+    '  opus: { provider: anthropic, harness: claude }',
+    'harnesses:',
+    '  claude:',
+    '    template: claude --model {model} "$(cat {prompt_file})"',
+    '    resume_template: claude --model {model} --continue "Continue the interrupted work."',
+    "    ready: 'bypass permissions'",
+    '    tool_channel_grace_s: 15',
+  ])
+  return { shim }
+}
+
+function spawnDaemon({ daemonPort, cfgDir, tmp, shim }) {
+  return spawn(process.execPath, [DAEMON], {
+    env: {
+      ...process.env,
+      PORT: String(daemonPort),
+      CURIA_CONFIG_DIR: cfgDir,
+      CURIA_DATA_DIR: path.join(tmp, 'data'),
+      PATH: `${shim}:${process.env.PATH}`,
+      DISCORD_BOT_TOKEN: '',
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+}
+
 describe('POST /reload (index.mjs, real boot)', () => {
   let tmp
   let cfgDir
@@ -54,6 +117,7 @@ describe('POST /reload (index.mjs, real boot)', () => {
 
   const overCuria = () => path.join(cfgDir, 'curia.local.yaml')
   const overRouting = () => path.join(cfgDir, 'routing.local.yaml')
+  const operatorFile = () => path.join(cfgDir, 'config.yaml')
   const write = (file, lines) => fs.writeFileSync(file, `${lines.join('\n')}\n`)
 
   const reload = async (by = 'alp@example.com') => JSON.parse((await request(port, 'POST', '/reload', { body: { by } })).body)
@@ -64,61 +128,10 @@ describe('POST /reload (index.mjs, real boot)', () => {
   before(async () => {
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-reload-test-'))
     cfgDir = path.join(tmp, 'config')
-    const shim = path.join(tmp, 'shim')
-    fs.mkdirSync(cfgDir, { recursive: true })
-    fs.mkdirSync(shim, { recursive: true })
-    for (const bin of ['gh', 'tmux', 'tailscale']) {
-      const p = path.join(shim, bin)
-      fs.writeFileSync(p, '#!/bin/sh\nexit 1\n')
-      fs.chmodSync(p, 0o755)
-    }
     const [daemonPort, ttydPort, servePort, proxyPort] = await freePorts(4)
     port = daemonPort
-    write(path.join(cfgDir, 'curia.yaml'), [
-      'watch:',
-      '  - repo: example/fixture',
-      'dispatch:',
-      '  auto_dispatch: false',
-      '  max_concurrent: 2',
-      '  poll_interval_s: 60',
-      '  prototype_variations: 5',
-      `  workspace_root: ${path.join(tmp, 'work')}`,
-      '  claim_login: alp82',
-      '  ready_timeout_s: 45',
-      'attach:',
-      `  ttyd_port: ${ttydPort}`,
-      `  serve_port: ${servePort}`,
-      'identity:',
-      '  allow: [tester@example.com]',
-      `  proxy_port: ${proxyPort}`,
-      ...skillsYaml(seedSkillsRoot(tmp)),
-      ...sandboxYaml(),
-    ])
-    write(path.join(cfgDir, 'routing.yaml'), [
-      'defaults:',
-      '  untyped: sonnet',
-      'models:',
-      '  sonnet: { provider: anthropic, harness: claude }',
-      '  opus: { provider: anthropic, harness: claude }',
-      'harnesses:',
-      '  claude:',
-      '    template: claude --model {model} "$(cat {prompt_file})"',
-      '    resume_template: claude --model {model} --continue "Continue the interrupted work."',
-      "    ready: 'bypass permissions'",
-      '    tool_channel_grace_s: 15',
-    ])
-
-    child = spawn(process.execPath, [DAEMON], {
-      env: {
-        ...process.env,
-        PORT: String(daemonPort),
-        CURIA_CONFIG_DIR: cfgDir,
-        CURIA_DATA_DIR: path.join(tmp, 'data'),
-        PATH: `${shim}:${process.env.PATH}`,
-        DISCORD_BOT_TOKEN: '',
-      },
-      stdio: ['ignore', 'pipe', 'pipe'],
-    })
+    const { shim } = writeFixture({ tmp, cfgDir, ttydPort, servePort, proxyPort })
+    child = spawnDaemon({ daemonPort, cfgDir, tmp, shim })
     watch = watchDaemon(child)
     await waitForBoot(watch, async () => {
       try {
@@ -132,6 +145,7 @@ describe('POST /reload (index.mjs, real boot)', () => {
   beforeEach(async () => {
     fs.rmSync(overCuria(), { force: true })
     fs.rmSync(overRouting(), { force: true })
+    fs.rmSync(operatorFile(), { force: true })
     await reload()
   })
 
@@ -203,12 +217,12 @@ describe('POST /reload (index.mjs, real boot)', () => {
   test('a settings save advances from write to apply through durable Action evidence', async () => {
     const action = {
       action_id: 'app-settings-action-1',
-      paths: ['curia.local.yaml'],
+      paths: ['config.yaml'],
       by: 'alp@example.com',
     }
     const accepted = await settingsAction(action)
     assert.equal(accepted.action.status, 'progress')
-    assert.equal(accepted.action.progress, 'Writing curia.local.yaml')
+    assert.equal(accepted.action.progress, 'Writing config.yaml')
 
     write(overCuria(), ['dispatch:', '  max_concurrent: 5'])
     const applied = JSON.parse((await request(port, 'POST', '/reload', {
@@ -226,12 +240,12 @@ describe('POST /reload (index.mjs, real boot)', () => {
 
   test('settings Actions conflict by affected path, not through a global lock', async () => {
     const curia = await settingsAction({
-      action_id: 'app-settings-conflict-1', paths: ['curia.local.yaml'], by: 'alp@example.com',
+      action_id: 'app-settings-conflict-1', paths: ['config.yaml'], by: 'alp@example.com',
     })
     assert.equal(curia.action.status, 'progress')
 
     const samePath = await settingsAction({
-      action_id: 'app-settings-conflict-2', paths: ['curia.local.yaml'], by: 'alp@example.com',
+      action_id: 'app-settings-conflict-2', paths: ['config.yaml'], by: 'alp@example.com',
     })
     assert.equal(samePath.action.status, 'refused')
     assert.match(samePath.action.reason, /already being saved/)
@@ -288,9 +302,73 @@ describe('POST /reload (index.mjs, real boot)', () => {
     assert.match(out.error, /nope\.html, which does not exist/)
   })
 
+  // The operator configuration (#866): the file the app writes and the operator
+  // edits by hand, read through the contract module. A valid file applies the
+  // way an override does. An invalid one applies nothing, answers the
+  // contract's own diagnostic, and the daemon keeps what it loaded.
+  test('config.yaml applies through the same reload, and wins over the shipped file', async () => {
+    write(operatorFile(), ['max_concurrent: 4', 'auto_dispatch: true', 'watch:', '  - repo: example/fixture', '  - repo: example/operator', '    mode: map'])
+    const out = await reload()
+    assert.equal(out.ok, true)
+    assert.deepEqual(out.applied.sort(), ['dispatch.auto_dispatch', 'dispatch.max_concurrent', 'watch'])
+    const after = await running()
+    assert.equal(after.config.dispatch.max_concurrent, 4)
+    assert.equal(after.config.dispatch.auto_dispatch, true)
+    assert.deepEqual(after.config.watch, [
+      { repo: 'example/fixture', mode: 'auto' }, { repo: 'example/operator', mode: 'map' },
+    ])
+  })
+
+  test('an invalid config.yaml is rejected with the exact diagnostic, and the running daemon keeps its configuration', async () => {
+    write(operatorFile(), ['max_concurrent: 4'])
+    await reload()
+    assert.equal((await running()).config.dispatch.max_concurrent, 4)
+
+    write(operatorFile(), ['max_concurrent: 6', 'poll_interval_s: soon'])
+    const out = await reload()
+    assert.equal(out.ok, false)
+    assert.equal(out.reason, 'invalid')
+    assert.equal(out.error, `${operatorFile()} line 2: \`poll_interval_s\` must be a positive number (got soon)`)
+    assert.equal((await running()).config.dispatch.max_concurrent, 4, 'the loaded configuration stays in memory, untouched')
+    const last = (await events()).filter((e) => e.type === 'config_reload_declined').pop()
+    assert.equal(last.reason, 'invalid')
+  })
+
   test('a file that says what the daemon already runs applies nothing and refuses nothing', async () => {
     const out = await reload()
     assert.equal(out.ok, true)
     assert.deepEqual(out.applied, [])
+  })
+})
+
+// After a restart there is no loaded configuration to keep. An invalid
+// config.yaml stops the service from starting, and the one line it prints is
+// the same diagnostic the reload answered: the path, the line, the key, the
+// rule. `curia doctor` reports that same line (#881).
+describe('a restart on an invalid config.yaml refuses to start (#866, real boot)', () => {
+  let tmp
+
+  before(() => { tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-restart-test-')) })
+  after(() => { fs.rmSync(tmp, { recursive: true, force: true }) })
+
+  test('the boot dies naming the file and the line, and never listens', async () => {
+    const cfgDir = path.join(tmp, 'config')
+    const [daemonPort, ttydPort, servePort, proxyPort] = await freePorts(4)
+    const { shim } = writeFixture({ tmp, cfgDir, ttydPort, servePort, proxyPort })
+    fs.writeFileSync(path.join(cfgDir, 'config.yaml'), 'max_concurrent: 4\nmessages_per_send: 9\n')
+    const child = spawnDaemon({ daemonPort, cfgDir, tmp, shim })
+    const watch = watchDaemon(child)
+    try {
+      await assert.rejects(
+        () => waitForBoot(watch, () => false, 'the /state route'),
+        (e) => {
+          assert.match(e.message, /never got a daemon/)
+          assert.ok(e.message.includes(`${path.join(cfgDir, 'config.yaml')} line 2: \`messages_per_send\` must be a whole number from 1 through 4 (got 9)`), e.message)
+          return true
+        },
+      )
+    } finally {
+      if (child.exitCode === null) child.kill('SIGKILL')
+    }
   })
 })
