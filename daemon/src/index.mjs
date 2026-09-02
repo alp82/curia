@@ -73,6 +73,7 @@ import { githubVerifier } from './githubsetup.mjs'
 import { DiscordSetup } from './discordsetup.mjs'
 import { TailscaleSetup } from './tailscalesetup.mjs'
 import { OpenAISetup } from './openaisetup.mjs'
+import { AnthropicSetup } from './anthropicsetup.mjs'
 import { IntegrationSetup } from './setup.mjs'
 import {
   probeTtyd, serveOff, attachBase, appTerminalUrl, validSessionName,
@@ -1440,6 +1441,26 @@ const openaiSetup = new OpenAISetup({
   codexVersion: curiaConfig.sandbox?.codex_version ?? null,
   log,
 })
+// The Anthropic half of the model card (#879). The sign-in is the
+// dispatcher's own `claude setup-token` lane, reached through the same
+// closures; the credential is the store's file (`cfg.paths.anthropicStore`),
+// read by presence on every call; the minimal request is the usage probe's
+// own shape on `usage.probe_model`; the routing preset is the one OpenAI's
+// row applies, so both providers land in the same override.
+const anthropicSetup = new AnthropicSetup({
+  root: INSTALL_ROOT,
+  authFile: curiaConfig.paths.anthropicStore,
+  credentialFiles: { openai: curiaConfig.paths.codexAuth },
+  routing: { file: ROUTING_FILE, localFile: ROUTING_LOCAL, live: () => routingConfig, apply: applyRouting },
+  login: {
+    state: () => dispatcher.reauth?.state() ?? null,
+    ending: () => dispatcher.reauth?.ending ?? null,
+    start: ({ provider, by }) => dispatcher.startReauth({ provider, by }),
+  },
+  probeModel: curiaConfig.usage.probe_model,
+  claudeVersion: curiaConfig.sandbox?.claude_version ?? null,
+  log,
+})
 const integrationSetup = new IntegrationSetup({
   stateDir: DATA,
   log,
@@ -1448,6 +1469,7 @@ const integrationSetup = new IntegrationSetup({
     discord: discordSetup.verifier(),
     tailscale: tailscaleSetup.verifier(),
     openai: openaiSetup.verifier(),
+    anthropic: anthropicSetup.verifier(),
   },
 })
 
@@ -3876,6 +3898,18 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
   if (url.pathname === '/setup/openai/login' && req.method === 'POST') {
     openaiSetup.startLogin().catch((e) => log(`model setup: the openai sign-in start failed (${e.message})`))
     return json(200, { ok: true, ...openaiSetup.overview() })
+  }
+  // The Anthropic half (#879), the same two routes: the read is the panel's
+  // own (the credential by presence, its adoption and estimated expiry, the
+  // live sign-in with its link, the ending, routing readiness) and the write
+  // starts the `claude setup-token` lane and answers the read at once. Never
+  // a token in either direction.
+  if (url.pathname === '/setup/anthropic' && req.method === 'GET') {
+    return json(200, anthropicSetup.overview())
+  }
+  if (url.pathname === '/setup/anthropic/login' && req.method === 'POST') {
+    anthropicSetup.startLogin().catch((e) => log(`model setup: the anthropic sign-in start failed (${e.message})`))
+    return json(200, { ok: true, ...anthropicSetup.overview() })
   }
   if (url.pathname === '/identity' && req.method === 'GET') {
     return json(200, tailscaleSetup.identity())

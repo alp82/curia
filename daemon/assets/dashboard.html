@@ -900,7 +900,7 @@ var UI = {
   /* The setup frame's own state (#874): whether a read is in flight, and the
      one sentence the last press left behind. The selected card is not here —
      it is the record's `step`, kept by the service so a reopen restores it. */
-  setup: { busy: false, note: null, discord: null, discordBusy: null, tailscale: null, tailscaleBusy: null, openai: null, openaiBusy: null, openaiTimer: null },
+  setup: { busy: false, note: null, discord: null, discordBusy: null, tailscale: null, tailscaleBusy: null, openai: null, openaiBusy: null, openaiTimer: null, anthropic: null, anthropicBusy: null, anthropicTimer: null },
   /* The drill-in frame's own state (#699), one entry per page that is a list
      of sections: which section is open, and whether the phone is on the list
      in front of it. */
@@ -4812,7 +4812,7 @@ function screenCredentials(p) {
    GitHub card (#875) is `setupGitHub`, the Discord card (#876) `setupDiscord`,
    the Tailscale card (#877) `setupTailscale`, the model card `setupModel` with
    one row per provider, OpenAI (#878) in `setupOpenAI` and Anthropic (#879)
-   beside it. Safe progress a step wants back after
+   in `setupAnthropic`. Safe progress a step wants back after
    a close goes through `rememberSetupProgress`, never into browser storage.
    `runFullLoop` is the seam #880 fills; until then the action stays
    unavailable. */
@@ -5124,15 +5124,16 @@ async function doSetupTailscaleOperator() {
    beside the first without restructuring: each row draws its own state
    badge and its own panel, and the card's state is what the service
    composed out of both. OpenAI (#878) is `setupOpenAI`; Anthropic (#879)
-   is the stub row until its ticket lands. */
+   is `setupAnthropic`. */
 const SETUP_PROVIDERS = ["openai", "anthropic"];
 function setupModel(card, progress) {
   const rows = SETUP_PROVIDERS.map((key) => {
     const p = card.providers?.[key] ?? { title: key, state: "unavailable" };
     const badge = p.state === "connected" ? "Connected and verified" : p.state === "failed" ? "Action required"
       : p.state === "unavailable" ? "Not available" : "Ready to connect";
-    const body = key === "openai" ? setupOpenAI(p, card, progress)
-      : p.state === "unavailable" ? `<p class="qhint">Connecting Anthropic isn't available yet in this release. This row lights up when it lands.</p>` : "";
+    const body = p.state === "unavailable"
+      ? `<p class="qhint">Connecting ${esc(p.title ?? key)} isn't available yet in this release. This row lights up when it lands.</p>`
+      : key === "openai" ? setupOpenAI(p, card, progress) : setupAnthropic(p, card, progress);
     return `<div class="setup-provider ${esc(key)} ${esc(p.state)}">
       <div class="setup-provider-head"><b>${esc(p.title ?? key)}</b><span class="setup-badge">${esc(badge)}</span></div>
       ${body}</div>`;
@@ -5235,6 +5236,102 @@ async function doSetupOpenAILogin() {
   }
   UI.setup.openaiBusy = null;
   return loadOpenAISetup();
+}
+
+/* The Anthropic row (#879). One press, the subscription sign-in curia
+   already runs (`claude setup-token` in a session the service drives);
+   while it waits the panel draws the authorize link and the terminal
+   fallback the service composed, the typed lane of the Credentials
+   screen's own card: the operator pastes the code the browser shows back
+   into the terminal, and the token curia reads off the pane reaches the
+   store and never this page. Connected, it draws the safe facts of this
+   read. Never a key field. */
+function setupAnthropic(p, card, progress) {
+  const o = UI.setup.anthropic;
+  const detail = p.detail ?? null;
+  const flow = o?.login ?? null;
+  if (p.state === "connected" && detail) {
+    const expires = detail.credential?.expires_at ? Math.round((new Date(detail.credential.expires_at).getTime() - Date.now()) / 1000) : null;
+    const rows = `<div class="rows">
+      <div class="row"><span class="key grow">Credential</span><span>subscription token adopted ${esc(ago(detail.credential?.obtained_at))} · ${expires === null ? "expiry unknown" : `about ${esc(dur(Math.max(0, expires)))} left, an estimate from Anthropic's documented lifetime`}</span></div>
+      <div class="row"><span class="key grow">Verification</span><span>${esc(detail.request?.model)} answered in ${esc(detail.request?.ms)} ms · ${esc(ago(detail.request?.at))}</span></div>
+      <div class="row"><span class="key grow">Routing</span><span>${esc(detail.routing?.model)} for every ticket type that could not run${detail.routing?.applied ? " · preset applied by Curia" : " · ready"}</span></div>
+    </div>`;
+    return `${rows}<details><summary>Sign in to Anthropic again</summary>${setupAnthropicForm(o, flow, "Sign in to Anthropic again")}</details>`;
+  }
+  if (!o || o.loading) return `<p class="qhint">Reading the credential…</p>`;
+  const label = p.state === "failed" || o.secret?.state === "present" ? "Sign in to Anthropic again" : "Sign in to Anthropic";
+  return setupAnthropicForm(o, flow, label);
+}
+
+function setupAnthropicForm(o, flow, label) {
+  if (flow?.state === "waiting") return credFlow(flow);
+  const busy = UI.setup.anthropicBusy === "anthropic-setup:login" || flow?.state === "starting";
+  const ended = o?.ending && !flow
+    ? `<div class="setup-note">The last Anthropic sign-in ended: ${esc(o.ending.why ?? o.ending.state)}. Start it again whenever you're ready.</div>` : "";
+  const sentence = o?.said && !flow ? `<p class="qhint">${esc(o.said.split("\n")[0])}</p>` : "";
+  const problem = o?.error ? `<p class="qhint">${esc(o.error)}</p>` : o?.secret?.state === "refused" ? `<p class="qhint">${esc(o.secret.why)}</p>` : "";
+  return `${ended}${problem}
+    <ol class="setup-steps">
+      <li>Select <b>${esc(label)}</b>. Curia opens a sign-in session on this host and shows a link here.</li>
+      <li>Open the link, sign in to your Claude subscription, and paste the code the browser shows back into the terminal the row links to.</li>
+      <li>Curia reads the token off that terminal, asks Anthropic whether it authenticates, adopts it, completes one minimal model request, and applies the routing preset.</li>
+    </ol>
+    <p><button class="btn primary" ${busy ? "disabled" : ""} onclick="doSetupAnthropicLogin()">${busy ? "Starting…" : esc(label)}</button></p>
+    ${sentence}${said("anthropic-setup:login")}`;
+}
+
+/* The Anthropic row's reads and writes (#879), the OpenAI row's shape: the
+   panel's own read is polled while a login is starting or waiting, and the
+   moment the login is gone the frame verifies fresh. */
+async function loadAnthropicSetup() {
+  clearTimeout(UI.setup.anthropicTimer);
+  const before = UI.setup.anthropic?.login ?? null;
+  UI.setup.anthropic = { ...(UI.setup.anthropic ?? {}), loading: !UI.setup.anthropic };
+  render();
+  try {
+    const res = await fetch("/api/setup/anthropic", { headers: { accept: "application/json" }, cache: "no-store" });
+    if (!res.ok) throw new Error("the sidecar answered " + res.status);
+    UI.setup.anthropic = await res.json();
+  } catch (error) {
+    UI.setup.anthropic = { provider: "anthropic", secret: null, credential: null, login: null, ending: null, said: null, routing: null, error: error.message };
+  }
+  render();
+  const now = UI.setup.anthropic.login ?? null;
+  if (now && UI.screen === "setup") {
+    UI.setup.anthropicTimer = setTimeout(loadAnthropicSetup, 3000);
+  } else if (before && !now) {
+    return loadSetup();
+  }
+  return null;
+}
+function ensureAnthropicSetupRead() {
+  if (!setup?.cards || setupSelected() !== "model") return;
+  const card = setupCardOf("model");
+  if (!card || card.state === "unavailable" || card.providers?.anthropic?.state === "unavailable") return;
+  if (UI.setup.anthropic === null) loadAnthropicSetup();
+}
+async function doSetupAnthropicLogin() {
+  await rememberSetupProgress("model", { provider: "anthropic" });
+  UI.setup.anthropicBusy = "anthropic-setup:login";
+  UI.act.said = null;
+  render();
+  try {
+    const res = await fetch("/api/setup/anthropic/login", {
+      method: "POST", headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({}),
+    });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(out.error || ("the sidecar answered " + res.status));
+    UI.setup.anthropic = out;
+  } catch (error) {
+    UI.act.said = { key: "anthropic-setup:login", text: error.message, ok: false };
+    UI.setup.anthropicBusy = null;
+    render();
+    return null;
+  }
+  UI.setup.anthropicBusy = null;
+  return loadAnthropicSetup();
 }
 
 function setupUnavailable(card) {
@@ -5381,6 +5478,7 @@ async function loadSetup() {
   ensureDiscordSetupRead();
   ensureTailscaleSetupRead();
   ensureOpenAISetupRead();
+  ensureAnthropicSetupRead();
 }
 /* Try again is a fresh verification of everything, which is the only kind of
    verification there is. */
@@ -5400,6 +5498,7 @@ async function selectSetupCard(key) {
   ensureDiscordSetupRead();
   ensureTailscaleSetupRead();
   ensureOpenAISetupRead();
+  ensureAnthropicSetupRead();
   await writeSetup({ step: key });
 }
 function continueSetup() {

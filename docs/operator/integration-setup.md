@@ -149,7 +149,7 @@ The card remembers only the machine name (`progress.tailscale.machine_name`) for
 
 ## Connect OpenAI
 
-The **Model provider** card holds one row per provider, OpenAI and Anthropic. One verified provider is required, and you can add the second one later from the same card. This section is the OpenAI row. It connects the ChatGPT subscription Curia's codex agents run on, through the sign-in Curia already uses, and verifies it with one minimal model request. There is no API-key path: the row has no key field, and Curia holds no API key.
+The **Model provider** card holds one row per provider, OpenAI and Anthropic. One verified provider is required, and you can add the second one later from the same card. This section is the OpenAI row; [Connect Anthropic](#connect-anthropic) is the other. It connects the ChatGPT subscription Curia's codex agents run on, through the sign-in Curia already uses, and verifies it with one minimal model request. There is no API-key path: the row has no key field, and Curia holds no API key.
 
 ### Sign in
 
@@ -190,6 +190,51 @@ Routing in `routing.yaml` names a model per ticket type, and the shipped file ro
 The preset lands in the routing override file, the same file the Settings screen writes: `state/routing.local.yaml` in the installation root, or `config/routing.local.yaml` beside `routing.yaml` in the source deployment. The service applies it at once, with no restart. A routing that is ready is left alone, so a routing choice you make in Settings later isn't rewritten by a read, unless it routes a type to a model that can't run. When you add the second provider, its own verification switches its models back on.
 
 The card remembers only the provider you last signed in (`progress.model.provider`) for a reopen. The credential lives in `secrets/codex-auth.json` and nowhere else.
+
+## Connect Anthropic
+
+This section is the Anthropic row of the **Model provider** card. It connects the Claude subscription Curia's claude agents and the overseer run on, through the sign-in Curia already uses (`claude setup-token`), and verifies it with one minimal model request. There is no API-key path: the row has no key field, and Curia holds no API key. You can connect Anthropic alone, or beside OpenAI.
+
+### Sign in
+
+1. On the **Model provider** card, select **Sign in to Anthropic**. Curia opens a sign-in session on this host (`claude setup-token` in a session the service drives) and the row shows a link within a few seconds. The first press on a fresh installation can take longer, because the service prepares the agent image first.
+2. Open the link, sign in to your Claude subscription, and approve the request. The browser shows a code.
+3. Select **Open the terminal instead** on the row and paste the code into that terminal. Curia can't type it for you: the sign-in session refuses every write the service can make, which is what keeps automation out of a login prompt.
+4. Wait for the row to verify. The session prints the token once, Curia reads it off the terminal, asks Anthropic whether it authenticates, adopts it on a yes, and runs the verification.
+
+The credential lands in `secrets/anthropic.json` in the installation root, owner-only, mode `0600`, written by the same adoption that `reauth anthropic` uses. The record holds the token and the instant Curia adopted it. The link exists only in the service's memory while the login runs and in this panel. The token reaches the secret file and nothing else: not this page, not a log, not the service's own login state. The session closes after thirty minutes when nobody finishes it.
+
+A login that ends without a credential (the session closed, or Anthropic rejected the token Curia read) is said on the row, and **Sign in to Anthropic** starts it again.
+
+### What verification proves
+
+Every read of the card runs the same verification, in this order:
+
+1. The credential is on disk. Without it the row is plain, **Ready to connect**.
+2. The credential is within the secret boundary, is a subscription credential (`sk-ant-…`), and is inside its documented one-year lifetime, counted from the adoption. The token states no dates, so this is an estimate, and the row says so.
+3. Anthropic completes one minimal Messages request with the subscription credential, the same request Curia's account-usage probe makes: the cheapest model the service's `usage.probe_model` names, a one-line prompt, a few output tokens, no tools. Curia times this request.
+4. Routing is ready: every ticket type routes to an active model whose provider has a credential on disk, and every Anthropic model is on. When it isn't, Curia applies the routing preset, described in the next section.
+
+The card connects when steps 1 to 4 pass. The footer shows `Anthropic`, then `Routing ready · verification request completed in <n> s`. The row shows when the credential was adopted and the estimated time left, the model that answered and how long it took, and the routing preset. Curia records the adoption instant, the estimated expiry, the model, the message ID, the request ID Anthropic stamped, the stop reason, the token counts, the timing, and when. A subscription token carries no account identity, and Curia records none. It never records the token.
+
+A failed step names the failure and one action, for example `Anthropic refused the credential (HTTP 401: invalid x-api-key)` with `Sign in to Anthropic from this panel, then try again.` Do what the action says and select **Try again**. The following table lists the checks and their actions.
+
+| Failed check | Action |
+|---|---|
+| The secret file is a link, is owned by another user, or is readable past the owner. | Fix the file as the message says, or sign in again. |
+| The file isn't a subscription credential, or the credential passed its documented lifetime. | Sign in to Anthropic from this panel. |
+| Anthropic refuses the credential (HTTP 401 or 403). | Sign in to Anthropic from this panel. |
+| Anthropic answers HTTP 429. | Wait for the usage window to reset, or sign in with another subscription. |
+| Anthropic can't be reached, answers another error, answers something that isn't a message, or the message ends with a refusal. | Check outbound access (`curia doctor`), wait a moment, and try again. |
+| The routing preset can't be written. | Fix the routing override file the message names so the service can write it. |
+
+### The routing preset with Anthropic
+
+The preset is the one described under [Connect OpenAI](#the-routing-preset), applied for Anthropic. The shipped `routing.yaml` routes most ticket types to Anthropic models already, so with only Anthropic signed in, the rows that can't run (the `research` type, on `gpt`) move to the first Anthropic model routing names (`fable`) with their own reasoning effort, Anthropic's models switch on, and OpenAI's switch off. A type that routes to `fable` on an account without Fable usage credits falls down the chain `routing.yaml` names under `fallbacks`, the way any dispatch does.
+
+With both providers signed in, the preset covers both: every ticket type stays on the model it has when that model can run, and every model of both providers is on. Connecting the second provider switches its models back on and moves nothing that already runs. The override lands in the same `state/routing.local.yaml`, and the tracked `routing.yaml` is never edited.
+
+The card remembers only the provider you last signed in (`progress.model.provider`) for a reopen. The credential lives in `secrets/anthropic.json` and nowhere else.
 
 ## Verification is fresh
 

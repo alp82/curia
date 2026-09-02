@@ -10,7 +10,7 @@ Curia owns four long-lived credentials. Each one is a file in `secrets/`, owned 
 |---|---|---|
 | `secrets/discord-bot-token` | The Discord bot token, one line. | The Discord step of integration setup. |
 | `secrets/github-app.json` | The GitHub App: `{ "id": "<app id>", "pem": "<private key>" }`. | The GitHub step of integration setup, from GitHub's manifest conversion. |
-| `secrets/anthropic.json` | The Anthropic subscription credential that Curia adopted. | The Anthropic step of integration setup, or `reauth anthropic`. |
+| `secrets/anthropic.json` | The Anthropic subscription credential that Curia adopted, with the instant it was adopted. | The Anthropic row of the [model provider card](integration-setup.md#connect-anthropic), or `reauth anthropic`. Both run the same `claude setup-token` session, and Curia adopts the token only after Anthropic accepts it. |
 | `secrets/codex-auth.json` | The OpenAI Codex credential. | The OpenAI row of the [model provider card](integration-setup.md#connect-openai), or `reauth openai`. Both run the same `codex login --device-auth` session. Curia rewrites the file when it refreshes the credential. |
 
 A credential reaches a consumer through a file and nothing else. It never enters an environment variable, a Compose variable, a command argument, a log line, a diagnostic, or a browser response. The service refuses to start while any of these environment variables is set: `DISCORD_BOT_TOKEN`, `CURIA_GH_APP_ID`, `CURIA_GH_APP_KEY_FILE`, `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`, `GH_TOKEN`, `GITHUB_TOKEN`. The refusal names the variable and the secret file to use instead, and never prints the value.
