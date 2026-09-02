@@ -58,6 +58,13 @@ _Avoid_: installation manifest, which can be confused with a release or version 
 **Lifecycle-operation lock**:
 The `run/lifecycle.lock` file that serializes lifecycle commands on one installation root. A command takes it after the root boundary accepts the root and before it changes anything, and releases it on success or failure. A second command refuses while a live process holds the lock and takes over a lock whose process is gone. See [the command reference](docs/operator/command-reference.md#the-lifecycle-lock).
 
+**Release image**:
+One of the four container images a release builds and publishes by digest: `curia-daemon`, `curia-tmux` (the tmux runtime and the attach surface), `curia-dashboard`, and `curia-overseer`, under `ghcr.io/alp82`. Each is the `release` stage of its Dockerfile, which carries the checkout at `/opt/curia` read-only and assumes no uid and no host path. The agent image is not one: the service builds it on the host from its pins.
+_Avoid_: tag as identity; a version tag exists for browsing only.
+
+**Compose bundle**:
+The one Compose file of a release, `deploy/bundle/compose.yaml` rendered with every image as an exact digest, unpacked to `versions/<version>/bundle/` and started by the lifecycle interface under the fixed project name `curia`. It labels every container, the network, and the volume with the installation ID under `sh.curia.installation`, declares a health check per service, runs every container as the operator's numeric uid and gid, and interpolates five run-time values that are paths and numbers, never a secret. `cli/src/bundle.mjs` is its contract.
+
 **Host preflight**:
 The direct host checks that `curia install` and `curia update` run before they change anything, and that `curia doctor` reruns. `cli/src/preflight.mjs` reads the host through injectable probes into one facts object and evaluates it into one report, one result per check: `passed`, `warning`, or `refused` with what was observed and one corrective action ([#868](https://github.com/alp82/curia/issues/868), implementing [#850](https://github.com/alp82/curia/issues/850) and [#857](https://github.com/alp82/curia/issues/857)). A refused condition is a demonstrated incompatibility, such as another operating-system release, root execution, a busy required port, or a Docker daemon the operator can't reach. It stops the operation and there is no force flag. A warning is a nonblocking fact, such as a host below the recommended profile. Temporary probe resources are removed before the command continues. Curia supports Ubuntu 24.04 LTS and Debian 13 on x86-64 only. See [Supported hosts and preflight checks](docs/operator/supported-hosts.md).
 

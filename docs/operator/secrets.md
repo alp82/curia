@@ -55,6 +55,8 @@ Every process runs with `HOME` at `cache/home/` inside the root. That directory 
 
 Curia uses named volumes for the tmux socket and for the agents' npm and browser caches. No volume holds installation identity, durable state, or resumable work. Curia can recreate every volume without losing the installation.
 
+Every container, the Compose network, and the tmux socket volume carry the label `sh.curia.installation=<installation ID>`, so `curia purge` can find what belongs to this installation. The images, the project name, and the health checks are in [Release images and the Compose bundle](bundle.md).
+
 ## What survives
 
 The seven directories of the root fall into two groups. `config/`, `secrets/`, `state/`, and `work/` are preserved. `versions/`, `cache/`, and `run/` are replaceable. The following table says what each operation keeps.

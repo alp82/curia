@@ -1,9 +1,14 @@
-# The Compose shape of an installed Curia (#867, implementing #851).
+# The Compose shape of an installed Curia (#867 and #869, implementing #851
+# and #854).
 #
-# This is the file the versioned Compose bundle (#869) packages under
-# `versions/<version>/` and `curia install` (#873) starts. It differs from
-# `deploy/compose.yaml`, which is the source deployment on one box, in three
-# ways that the tests in daemon/test/bundlecompose.test.mjs pin:
+# This is the TEMPLATE of the versioned Compose bundle. The release workflow
+# (.github/workflows/release-images.yml) renders it once per release by
+# replacing each `CURIA_*_IMAGE` variable with that image's digest reference
+# (`cli/src/bundle.mjs`, `renderBundle`), and the rendered file is what
+# `versions/<version>/bundle/compose.yaml` holds and `curia install` (#873)
+# starts. It differs from `deploy/compose.yaml`, which is the source
+# deployment on one box, in these ways, and daemon/test/bundlecompose.test.mjs
+# pins every one of them:
 #
 #   1. EVERY MOUNT IS A BOUNDARY OF THE INSTALLATION ROOT, or a path inside
 #      one, and each service gets only what `SERVICE_MOUNTS` in
@@ -12,36 +17,56 @@
 #      credentials are files under `secrets/`, which only the service mounts.
 #      The service refuses to boot if one of the credential keys is set anyway.
 #   3. ONLY THE SERVICE AND THE TMUX RUNTIME REACH THE DOCKER SOCKET.
+#   4. EVERY IMAGE IS AN EXACT DIGEST, once rendered. No build stanza, no tag.
+#   5. ONE FIXED PROJECT NAME, `curia`, and every container, the network, and
+#      the volume carry the installation ID under `sh.curia.installation`.
+#      `curia purge` removes by that label and never by a name.
+#   6. EVERY SERVICE DECLARES A HEALTH CHECK that asks the process itself, and
+#      a start settles in order: the service and the attach surface wait for a
+#      healthy tmux runtime.
+#   7. CONTAINERS RUN AS THE OPERATOR'S NUMERIC UID AND GID. Nothing here or
+#      in the images assumes uid 1000.
 #
 # The interpolated variables are paths and numbers, never secrets. The
 # lifecycle interface writes them into an env file under `run/` when it starts
-# the project:
+# the project (`bundleEnvironment` in cli/src/bundle.mjs):
 #
-#   CURIA_ROOT      the installation root, absolute
-#   CURIA_UID       the operator's numeric user id
-#   CURIA_GID       the operator's numeric group id
-#   DOCKER_GID      the host's docker group id
-#   CURIA_*_IMAGE   the digest-pinned images, from the release manifest (#870)
+#   CURIA_ROOT             the installation root, absolute
+#   CURIA_UID              the operator's numeric user id
+#   CURIA_GID              the operator's numeric group id
+#   DOCKER_GID             the host's docker group id
+#   CURIA_INSTALLATION_ID  the installation ID from state/installation.json
 #
 # Host paths mount at their identical paths inside, as the source deployment
 # does: the service composes `docker run -v` lines from its own paths, and the
 # Chat screen reads the overseer's transcript off the config directory.
 #
 # The images carry the checkout at /opt/curia (daemon/, cli/, config/,
-# skills/) with the dependency tree installed, so nothing here mounts source.
+# skills/, and the agent image recipe under deploy/agent/) with the dependency
+# tree installed, root-owned and read-only to the operator, so nothing here
+# mounts source.
 #
-# The two named volumes are runtime and disposable: the tmux socket, and
-# nothing else. The agent image's npm and browser caches are volumes the
-# service creates by name (daemon/src/sandbox.mjs). No volume holds
-# installation identity, durable state, or resumable work, so every volume can
-# be recreated without losing the installation.
+# The one named volume is runtime and disposable: the tmux socket. The agent
+# image's npm and browser caches are volumes the service creates by name
+# (daemon/src/sandbox.mjs). No volume holds installation identity, durable
+# state, or resumable work, so every volume can be recreated without losing
+# the installation.
 
 name: curia
+
+networks:
+  # The bridge network the overseer sits on. Compose creates it as
+  # `curia_default`; the label is what makes it this installation's.
+  default:
+    labels:
+      sh.curia.installation: ${CURIA_INSTALLATION_ID:?the installation ID from state/installation.json}
 
 volumes:
   # The tmux server socket, shared by the service, the tmux runtime, and the
   # attach surface: /run/curia-tmux/default in every container.
   tmux-sock:
+    labels:
+      sh.curia.installation: ${CURIA_INSTALLATION_ID:?}
 
 services:
   daemon:
@@ -51,6 +76,8 @@ services:
     user: "${CURIA_UID:?the operator's user id}:${CURIA_GID:?the operator's group id}"
     group_add:
       - "${DOCKER_GID:?host docker group id — getent group docker | cut -d: -f3}"
+    labels:
+      sh.curia.installation: ${CURIA_INSTALLATION_ID:?}
     working_dir: /opt/curia/daemon
     command: ["node", "src/index.mjs"]
     environment:
@@ -70,8 +97,18 @@ services:
       - ${CURIA_ROOT:?}/cache:${CURIA_ROOT:?}/cache
       - ${CURIA_ROOT:?}/run:${CURIA_ROOT:?}/run
       - tmux-sock:/run/curia-tmux
+    # The service's own probe route on host loopback, the one the self-deploy
+    # sibling and every agent container already read. It answers only once the
+    # config loaded, the journal opened, and the listener bound.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-m", "3", "-o", "/dev/null", "http://127.0.0.1:4271/ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s
     depends_on:
-      - tmux
+      tmux:
+        condition: service_healthy
 
   # The tmux server that holds the agent panes, outside the service's
   # lifecycle. Its panes run `docker run` against host paths under work/, so it
@@ -84,6 +121,8 @@ services:
     user: "${CURIA_UID:?}:${CURIA_GID:?}"
     group_add:
       - "${DOCKER_GID:?}"
+    labels:
+      sh.curia.installation: ${CURIA_INSTALLATION_ID:?}
     tty: true
     command: ["tmux", "-S", "/run/curia-tmux/default", "new-session", "-A", "-s", "keeper"]
     environment:
@@ -93,6 +132,14 @@ services:
       - ${CURIA_ROOT:?}/work:${CURIA_ROOT:?}/work
       - ${CURIA_ROOT:?}/cache/home:${CURIA_ROOT:?}/cache/home
       - tmux-sock:/run/curia-tmux
+    # The server is healthy while the keeper session exists on the shared
+    # socket: that is what the service and the attach surface connect to.
+    healthcheck:
+      test: ["CMD", "tmux", "-S", "/run/curia-tmux/default", "has-session", "-t", "keeper"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
 
   # The attach surface: `tmux attach` over the shared socket, behind the
   # identity proxy. It needs nothing of the root and no Docker socket.
@@ -102,6 +149,8 @@ services:
     stop_grace_period: 30s
     network_mode: host
     user: "${CURIA_UID:?}:${CURIA_GID:?}"
+    labels:
+      sh.curia.installation: ${CURIA_INSTALLATION_ID:?}
     command:
       [
         "ttyd", "-W", "-a", "-O", "-p", "7681", "-i", "127.0.0.1",
@@ -114,8 +163,17 @@ services:
       CURIA_TMUX_SOCKET: /run/curia-tmux/default
     volumes:
       - tmux-sock:/run/curia-tmux
+    # ttyd serves the attach index on loopback. An answer means the listener
+    # is bound and the surface can hand out the page.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-m", "3", "-o", "/dev/null", "http://127.0.0.1:7681/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
     depends_on:
-      - tmux
+      tmux:
+        condition: service_healthy
 
   # The Curia app. It receives no installation-root mount: it reads and updates
   # configuration through the service, and it holds no secret and no socket
@@ -125,6 +183,8 @@ services:
     restart: unless-stopped
     network_mode: host
     user: "${CURIA_UID:?}:${CURIA_GID:?}"
+    labels:
+      sh.curia.installation: ${CURIA_INSTALLATION_ID:?}
     working_dir: /opt/curia/daemon
     command: ["node", "/opt/curia/daemon/bin/curia-dashboard.mjs"]
     environment:
@@ -132,6 +192,17 @@ services:
       HOME: ${CURIA_ROOT:?}/cache/home
     volumes:
       - /var/run/tailscale/tailscaled.sock:/var/run/tailscale/tailscaled.sock
+    # The app is fail-closed at boot: it dies when it cannot bind its loopback
+    # port. So an HTTP answer on that port is the app up. A local request
+    # carries no Tailscale identity and gets a 403, which is still an answer;
+    # only a listener that is gone or broken fails this. The app image carries
+    # node and no curl.
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4273/').then((r) => process.exit(r.status < 500 ? 0 : 1), () => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
 
   # The overseer, off the host network because it holds a shell. It receives
   # its own config directory and native sessions read-write, its mirrors of
@@ -142,6 +213,8 @@ services:
     image: ${CURIA_OVERSEER_IMAGE:?the digest-pinned overseer image, from the release manifest}
     restart: unless-stopped
     user: "${CURIA_UID:?}:${CURIA_GID:?}"
+    labels:
+      sh.curia.installation: ${CURIA_INSTALLATION_ID:?}
     working_dir: /opt/curia/daemon
     command: ["node", "/opt/curia/daemon/bin/curia-overseer.mjs"]
     ports:
@@ -158,3 +231,12 @@ services:
       - ${CURIA_ROOT:?}/work/cfg/curia-overseer:${CURIA_ROOT:?}/work/cfg/curia-overseer
       - ${CURIA_ROOT:?}/cache/overseer-repos:${CURIA_ROOT:?}/cache/overseer-repos
       - ${CURIA_ROOT:?}/run/overseer-tokens:${CURIA_ROOT:?}/run/overseer-tokens:ro
+    # The overseer's own `/ping`, the route the service reads before it sends
+    # a turn. Inside the container, because the port is published on the
+    # host's loopback and not on the bridge.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "-m", "3", "-o", "/dev/null", "http://127.0.0.1:4274/ping"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s

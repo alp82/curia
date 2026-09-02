@@ -37,7 +37,14 @@ name: curia
 # THE NODE PIN (ruled by #357, first value applied by #409). One patch version
 # runs every curia image, and this anchor is that version for the three images
 # built here. The fourth is the agent image, pinned by `sandbox.node_version` in
-# config/curia.yaml. Move both in one commit.
+# config/curia.yaml. Move both in one commit. A release reads the same value
+# from config/curia.yaml through deploy/bundle/pins.mjs, and
+# daemon/test/releaseimages.test.mjs keeps the anchor and the pin equal.
+#
+# EVERY BUILD NAMES `target: box` (#869). The Dockerfiles end in a `release`
+# stage that bakes the checkout at /opt/curia for the published images, and a
+# build that named no target would build that one. This box runs its code
+# from the repo mount, so it builds the stage before it.
 #
 # It is an anchor and not an interpolated variable on purpose: the pin is
 # committed, and `.env` beside this file is not. No Dockerfile carries a default
@@ -60,6 +67,7 @@ services:
     build:
       context: ..
       dockerfile: deploy/daemon/Dockerfile
+      target: box
       args:
         NODE_VERSION: *node-version
         CURIA_HOME: ${CURIA_WORKSPACE_ROOT:-/home/alp/curia-work}/home
@@ -119,6 +127,7 @@ services:
     build:
       context: ..
       dockerfile: deploy/tmux/Dockerfile
+      target: box
       args:
         CURIA_HOME: ${CURIA_WORKSPACE_ROOT:-/home/alp/curia-work}/home
     image: curia-tmux
@@ -197,6 +206,7 @@ services:
     build:
       context: ..
       dockerfile: deploy/dashboard/Dockerfile
+      target: box
       args:
         NODE_VERSION: *node-version
         CURIA_HOME: ${CURIA_WORKSPACE_ROOT:-/home/alp/curia-work}/home
@@ -252,6 +262,7 @@ services:
     build:
       context: ..
       dockerfile: deploy/overseer/Dockerfile
+      target: box
       args:
         NODE_VERSION: *node-version
         CLAUDE_VERSION: *claude-version

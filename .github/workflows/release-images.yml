@@ -1,0 +1,212 @@
+# The release images and the versioned Compose bundle (#869, implementing #849
+# and #854).
+#
+# On a release tag, which Release Please creates when the release pull request
+# merges, this workflow:
+#
+#   1. builds the four service images from the `release` stage of their
+#      Dockerfiles, with the Node and Claude Code pins read from
+#      config/curia.yaml, and pushes each to GHCR under its version tag;
+#   2. records the digest the registry returned for each image and attests
+#      the build provenance of that digest;
+#   3. renders deploy/bundle/compose.yaml against those digests, proves the
+#      result with the same tests the suite runs, and attaches the bundle, its
+#      checksum, and the digest set to the GitHub release of the tag.
+#
+# The version tag on an image is for discovery only. The bundle and the
+# release manifest (#870) name images by digest, never by tag. Publication
+# order and the stable-release index are #871's; this workflow leaves the
+# release as it found it, with three more assets.
+#
+# `workflow_dispatch` is a rehearsal of the same path on any branch: it pushes
+# the images under a commit tag, renders the bundle against their real
+# digests, and attaches nothing anywhere.
+#
+# Every action is pinned to a commit SHA, and each job holds only the
+# permissions it needs.
+
+name: Release images and bundle
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pins:
+    name: Read the release pins
+    runs-on: ubuntu-latest
+    outputs:
+      node: ${{ steps.pins.outputs.NODE_VERSION }}
+      claude: ${{ steps.pins.outputs.CLAUDE_VERSION }}
+      version: ${{ steps.version.outputs.version }}
+      release: ${{ steps.version.outputs.release }}
+    steps:
+      - name: Check out the tag
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.0.2
+
+      - name: Read the Node and Claude Code pins from config/curia.yaml
+        id: pins
+        run: node deploy/bundle/pins.mjs | tee -a "$GITHUB_OUTPUT"
+
+      - name: Name the version
+        id: version
+        env:
+          REF: ${{ github.ref }}
+          SHA: ${{ github.sha }}
+        run: |
+          if [[ "$REF" == refs/tags/v* ]]; then
+            echo "version=${REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          else
+            base=$(node -p "require('./daemon/package.json').version")
+            echo "version=${base}-rehearsal.${SHA:0:7}" >> "$GITHUB_OUTPUT"
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  images:
+    name: Build and push ${{ matrix.service }}
+    needs: pins
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    strategy:
+      fail-fast: true
+      matrix:
+        service: [daemon, tmux, dashboard, overseer]
+    steps:
+      - name: Check out the tag
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.0.2
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # The image manifest itself is the subject: no provenance or SBOM
+      # manifest list from the builder, so the digest the bundle names is the
+      # digest of the image and `docker pull <name>@<digest>` gets exactly it.
+      - name: Build the release stage and push it
+        id: build
+        uses: docker/build-push-action@53b7df96c91f9c12cc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: deploy/${{ matrix.service }}/Dockerfile
+          target: release
+          platforms: linux/amd64
+          push: true
+          provenance: false
+          sbom: false
+          tags: ghcr.io/alp82/curia-${{ matrix.service }}:${{ needs.pins.outputs.release == 'true' && needs.pins.outputs.version || format('sha-{0}', github.sha) }}
+          build-args: |
+            NODE_VERSION=${{ needs.pins.outputs.node }}
+            CLAUDE_VERSION=${{ needs.pins.outputs.claude }}
+          labels: |
+            org.opencontainers.image.version=${{ needs.pins.outputs.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      - name: Attest the build provenance of the pushed digest
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/alp82/curia-${{ matrix.service }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+      - name: Record the digest
+        env:
+          SERVICE: ${{ matrix.service }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p digests
+          printf '%s\n' "$DIGEST" > "digests/$SERVICE"
+          echo "$SERVICE $DIGEST"
+
+      - name: Hand the digest to the bundle job
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: digest-${{ matrix.service }}
+          path: digests/${{ matrix.service }}
+          if-no-files-found: error
+
+  bundle:
+    name: Render and attach the bundle
+    needs: [pins, images]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the tag
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.0.2
+
+      - name: Set up the pinned Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ needs.pins.outputs.node }}
+
+      - name: Collect the digests
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: digest-*
+          path: digests
+          merge-multiple: true
+
+      - name: Write the digest set
+        run: |
+          node -e '
+            const fs = require("node:fs")
+            const out = {}
+            for (const s of ["daemon", "tmux", "dashboard", "overseer"]) out[s] = fs.readFileSync(`digests/${s}`, "utf8").trim()
+            fs.writeFileSync("digests.json", JSON.stringify(out, null, 2))
+            console.log(JSON.stringify(out, null, 2))
+          '
+
+      - name: Render the bundle
+        env:
+          VERSION: ${{ needs.pins.outputs.version }}
+        run: node deploy/bundle/render.mjs --version "$VERSION" --digests digests.json --out dist
+
+      # The same tests the suite runs on every change, against the file that is
+      # about to be published: the mount contract, the labels, the health
+      # checks, the digest references, and Compose's own reading of it.
+      - name: Prove the bundle
+        run: |
+          npm ci --prefix daemon --no-fund --no-audit
+          npm test --prefix cli
+          node --test daemon/test/bundlecompose.test.mjs daemon/test/bundlerelease.test.mjs daemon/test/releaseimages.test.mjs
+          docker compose --env-file <(printf 'CURIA_ROOT=/tmp/curia\nCURIA_UID=1001\nCURIA_GID=1001\nDOCKER_GID=998\nCURIA_INSTALLATION_ID=00000000000000000000000000000000\n') \
+            -f "dist/curia-bundle-${{ needs.pins.outputs.version }}/compose.yaml" config --quiet
+
+      - name: Keep the rendered bundle as a run artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: curia-bundle-${{ needs.pins.outputs.version }}
+          path: |
+            dist/curia-bundle-*.tar.gz
+            dist/curia-bundle-*.tar.gz.sha256
+            dist/curia-images-*.json
+          if-no-files-found: error
+
+      - name: Attach the bundle, its checksum, and the digest set to the release
+        if: needs.pins.outputs.release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          VERSION: ${{ needs.pins.outputs.version }}
+        run: |
+          gh release upload "$TAG" \
+            "dist/curia-bundle-$VERSION.tar.gz" \
+            "dist/curia-bundle-$VERSION.tar.gz.sha256" \
+            "dist/curia-images-$VERSION.json" \
+            --clobber

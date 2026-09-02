@@ -7,7 +7,7 @@ Curia runs under docker compose on `coinmatica.net`, a Hetzner Cloud box (Ubuntu
 
 ## The compose stack
 
-`deploy/compose.yaml` defines five services, all built locally. Four run on the host network:
+`deploy/compose.yaml` defines five services, all built locally from the `box` stage of their Dockerfiles (the `release` stage after it is the published image, see [Release images and the Compose bundle](operator/bundle.md)). Four run on the host network:
 
 | Service | Restart | Role |
 | --- | --- | --- |
@@ -176,6 +176,8 @@ Curia also deploys itself, with no dev box in the loop ([#270](https://github.co
 - `fix:` selects a patch release.
 - `feat:` selects a minor release.
 - `feat!:` selects a major release.
+
+When Release Please creates the release tag, the release-images workflow (`.github/workflows/release-images.yml`) builds and pushes the four service images, renders the Compose bundle against their digests, and attaches the bundle, its checksum, and the digest set to the release. The tag is created with the Curia GitHub App's token, which is what lets it trigger a workflow. This box doesn't consume those artifacts until its cutover.
 
 The `open_pull_request` tool produces these titles from its `release_level` argument. The pull-request title workflow rejects titles that don't select a release. Release Please then opens or updates one release pull request with the version files and `daemon/CHANGELOG.md`. Merge that release pull request before you deploy. Until it merges, `main` still has the old version and the deploy gate refuses it.
 

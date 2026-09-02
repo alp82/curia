@@ -505,7 +505,7 @@ describe('the Node pin (#357, applied by #409)', () => {
     for (const name of [...Object.values(BUILT), 'agent']) {
       assert.match(
         dockerfile(name),
-        /^FROM node:\$\{NODE_VERSION\}-bookworm-slim$/m,
+        /^FROM node:\$\{NODE_VERSION\}-bookworm-slim( AS \w+)?$/m,
         `${name} does not build on the pinned node base image`,
       )
     }

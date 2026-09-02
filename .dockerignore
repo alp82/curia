@@ -1,0 +1,24 @@
+# The build context of every service image is the repository root, and the
+# release stages COPY named paths out of it (#869). This file keeps what a
+# release must never carry out of the context altogether, so a COPY that
+# named a tree by mistake could still not pick these up: secrets, the box's
+# own state and overrides, dependency trees, and git.
+.git
+.github
+.claude
+**/node_modules
+daemon/data
+daemon/.env*
+daemon/*.pem
+*.pem
+*.key
+secrets/
+config/config.yaml
+config/*.local.yaml
+config/.*.candidate
+config/.config.yaml.*.tmp
+prototypes
+docs
+spikes
+tmp
+**/*.log

@@ -540,6 +540,10 @@ export function loadCuriaConfig(file, { checkPaths = true, localFile, env = proc
     // its first write. Defaulted to the daemon's own uid, which is the only
     // value that can be right by construction.
     sb.agent_uid = sb.agent_uid ?? process.getuid?.()
+    // Under an installation root the file's answer is the source box's (#869).
+    // Every container of the bundle runs as the operator's uid, this process
+    // included, so the uid it runs as is the one that owns the worktrees.
+    if (installRoot) sb.agent_uid = process.getuid?.() ?? sb.agent_uid
     if (!(Number.isInteger(sb.agent_uid) && sb.agent_uid >= 0 && sb.agent_uid < 2 ** 31)) {
       fail(src, `sandbox.agent_uid must be a uid (got ${JSON.stringify(sb.agent_uid)})`)
     }

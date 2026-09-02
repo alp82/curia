@@ -69,3 +69,8 @@ export function composeConfigOf(file, env = {}) {
 export const DEFAULT_REPO_ROOT = '/home/alp/curia'
 export const DEFAULT_WORKSPACE_ROOT = '/home/alp/curia-work'
 export const DEFAULT_HOME = `${DEFAULT_WORKSPACE_ROOT}/home`
+
+// The same resolution over text that is not on disk: the rendered bundle.
+export function composeConfigOfText(text, env = {}) {
+  return resolve(YAML.parse(text), env)
+}

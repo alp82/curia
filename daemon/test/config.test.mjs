@@ -996,4 +996,14 @@ describe('the installation root and the service paths (#867)', () => {
   test('a relative root is refused', () => {
     assert.throws(() => loadCuriaConfig(writeConfig(noSkills()), { env: { CURIA_ROOT: 'relative' } }), /absolute/)
   })
+
+  // The shipped file says `agent_uid: 1000`, which is the source box's fact.
+  // Under a root the containers run as the operator (#869), and the service
+  // is one of them, so the uid it runs as is the uid the agents get.
+  test('under a root the agent uid is the service\'s own uid, whatever the shipped file says', () => {
+    const installRoot = path.join(tmp, 'install-uid')
+    const withUid = `${noSkills()}\n${sandboxYaml().join('\n').replace(/agent_uid: \d+/, 'agent_uid: 4242')}`
+    assert.equal(loadCuriaConfig(writeConfig(withUid), { env: {} }).sandbox.agent_uid, 4242)
+    assert.equal(loadCuriaConfig(writeConfig(withUid), { env: { CURIA_ROOT: installRoot } }).sandbox.agent_uid, process.getuid())
+  })
 })

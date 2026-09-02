@@ -37,7 +37,7 @@ Curia creates the root and seven directories inside it. The following table list
 | `secrets/` | Long-lived credentials, one owner-only file each. See [Secrets, mounts, and what survives](secrets.md). | Preserved |
 | `state/` | The installation record `state/installation.json`, the journal, attachments, results, and the service's own token records. | Preserved |
 | `work/` | Worktrees, per-session config directories, and the overseer's native sessions, all of which can resume. | Preserved |
-| `versions/` | Installed versions: the pinned runtime, the lifecycle interface, and the Compose bundle of each. | Replaceable |
+| `versions/` | Installed versions: the pinned runtime, the lifecycle interface, and the Compose bundle of each. See [Release images and the Compose bundle](bundle.md). | Replaceable |
 | `cache/` | The overseer's mirrors of origin and the containers' home directory with its tool caches. | Removable |
 | `run/` | The lifecycle lock, renewable tokens, sockets, and staging for one operation. | Removable |
 
