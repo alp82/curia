@@ -105,6 +105,7 @@ async function updated({ env, root, to = '1.4.0', docker = fakeDocker(), live = 
     acquireProbes: acquireProbesFor(artifacts),
     releaseProbes: releaseProbesFor(target),
     docker,
+    tailscale: fakeTailscale(),
     fetch: fakeLoopback(docker, { initial: ACTIVE, live }),
     sleep: async (ms) => { clock += ms },
     now: () => clock,
