@@ -21,6 +21,8 @@ The publication is gated at each step by `deploy/release/publish.mjs`, which ask
 
 For an image, "the same bytes" means the tag already points at a digest that the release workflow attested at this commit; that digest is reused as it is. For a release asset, the published bytes are downloaded and compared. For the package, the registry's recorded integrity is compared with the tarball the workflow packed.
 
+After the package step, the workflow runs `publish.mjs verify`, which downloads the published package, bundle, and checksum and verifies them the way an installation would. The registry can index a new version before it serves the tarball, and that lag was about two hours for 0.6.1. The verification asks for the tarball again every 20 seconds for up to 10 minutes and then fails with "the package tarball is missing". A longer lag doesn't need a new version. The release and package steps keep what they published, so once the registry serves the tarball, rerun the failed job with `gh run rerun <run-id> --failed`.
+
 The version tags on images exist for browsing. The bundle and the manifest name images by digest, and nothing an installation runs reads a tag.
 
 A rehearsal of the workflow (`workflow_dispatch` on any branch) pushes images under a commit tag, renders the bundle and manifest against their real digests, and publishes nothing: no release, no package.

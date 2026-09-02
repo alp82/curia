@@ -16,7 +16,7 @@ import { gzipSync } from 'node:zlib'
 
 import {
   PublicationError, PUBLICATION_ORDER,
-  planImage, attachAssets, publishRelease, publishPackage, checkSigningKey, verifyPublished,
+  planImage, attachAssets, publishRelease, publishPackage, checkSigningKey, verifyPublished, verificationFailure,
 } from '../../deploy/release/publish.mjs'
 import { createManifest, renderManifest, releaseAssets, PACKAGE_NAME } from '../../cli/src/manifest.mjs'
 import { renderBundle } from '../../cli/src/bundle.mjs'
@@ -364,7 +364,7 @@ describe('verifyPublished', () => {
   test('a release whose package the registry does not serve fails, and the report says which check', async () => {
     const d = dist()
     const out = lines()
-    const report = await verifyPublished({ version: VERSION, stdout: out }, {
+    const report = await verifyPublished({ version: VERSION, stdout: out, tarballWait: { atMost: 0 } }, {
       packageTarball: async () => null,
       downloadAsset: async (tag, name) => Buffer.from(d.files[name]),
       packument: async () => ({ error: 'HTTP 404' }),
@@ -372,6 +372,68 @@ describe('verifyPublished', () => {
     })
     assert.equal(report.ok, false)
     assert.deepEqual(report.checks.filter((c) => c.status === 'failed').map((c) => c.name), ['manifest', 'version', 'package integrity', 'bundle checksum', 'image digests', 'release manifest'])
+  })
+
+  // The registry indexes a version before it serves the tarball; 0.6.1 took
+  // about two hours (#890). The verification waits a bounded time for it.
+  function published() {
+    const d = dist()
+    const manifestText = d.files[releaseAssets(VERSION).manifest]
+    const tarball = archiveOf({
+      'package/package.json': `${JSON.stringify({ name: PACKAGE_NAME, version: VERSION })}\n`,
+      'package/manifest.json': manifestText,
+    })
+    return {
+      tarball,
+      probes: {
+        downloadAsset: async (tag, name) => Buffer.from(d.files[name]),
+        packument: async () => ({ integrity: sri(tarball), attested: true }),
+        releaseManifest: async () => manifestText,
+      },
+    }
+  }
+
+  test('a tarball the registry does not serve yet is asked for again every interval, and the report passes once it arrives', async () => {
+    const { tarball, probes } = published()
+    const slept = []
+    let asked = 0
+    const out = lines()
+    const report = await verifyPublished({ version: VERSION, stdout: out, tarballWait: { every: 20_000, atMost: 600_000 } }, {
+      ...probes,
+      packageTarball: async () => (++asked < 3 ? null : tarball),
+      sleep: async (ms) => { slept.push(ms) },
+    })
+    assert.equal(report.ok, true, out.text())
+    assert.equal(asked, 3)
+    assert.deepEqual(slept, [20_000, 20_000])
+    assert.equal(out.text().match(/the registry does not serve the package tarball yet/g).length, 2)
+    assert.match(out.text(), /waited 20s of 600s/)
+    assert.match(out.text(), /waited 40s of 600s/)
+  })
+
+  test('the wait for the tarball is bounded, and the report then fails on the missing package', async () => {
+    const { probes } = published()
+    const slept = []
+    let asked = 0
+    const out = lines()
+    const report = await verifyPublished({ version: VERSION, stdout: out, tarballWait: { every: 20_000, atMost: 60_000 } }, {
+      ...probes,
+      packageTarball: async () => { asked += 1; return null },
+      sleep: async (ms) => { slept.push(ms) },
+    })
+    assert.equal(report.ok, false)
+    assert.equal(asked, 4)
+    assert.deepEqual(slept, [20_000, 20_000, 20_000])
+    assert.match(report.refusal.message, /the package tarball is missing/)
+  })
+
+  test('the verify failure names the rerun of this workflow run, since the earlier steps keep what they published', () => {
+    const report = { ok: false, refusal: { message: 'package integrity: the package tarball is missing.' } }
+    const message = verificationFailure(report, { GITHUB_RUN_ID: '33614070854' })
+    assert.match(message, /^package integrity: the package tarball is missing\./)
+    assert.match(message, /gh run rerun 33614070854 --failed/)
+    assert.match(message, /once the registry serves the tarball/)
+    assert.match(verificationFailure(report, {}), /gh run rerun <run-id> --failed/)
   })
 })
 

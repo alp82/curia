@@ -117,6 +117,7 @@ export const publicationProbes = Object.freeze({
       return null
     }
   },
+  sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   // npm resolves `--pack-destination` against its working directory, which is
   // the package, so the destination is made absolute here and the error
   // carries npm's own words instead of the silenced command line.
@@ -287,10 +288,27 @@ export async function publishPackage({ version, dist: distArg, cli: cliArg, stdo
 // ---------------------------------------------------------------------------
 // After publication: is the version whole where an installation finds it?
 
-export async function verifyPublished({ version, stdout }, probes = publicationProbes) {
+// The registry indexes a new version before it serves the tarball, and the
+// lag is usually seconds but was about two hours for 0.6.1 (#890). The
+// download is asked for again every `every` ms for at most `atMost` ms, one
+// line per wait, and the report then says the tarball is missing.
+export const TARBALL_WAIT = Object.freeze({ every: 20_000, atMost: 600_000 })
+
+async function awaitTarball({ version, stdout, every, atMost }, probes) {
+  let waited = 0
+  for (;;) {
+    const tarball = await probes.packageTarball(PACKAGE_NAME, version)
+    if (tarball || waited + every > atMost) return tarball
+    await probes.sleep(every)
+    waited += every
+    stdout.write(`the registry does not serve the package tarball yet (waited ${Math.round(waited / 1000)}s of ${Math.round(atMost / 1000)}s), asking again\n`)
+  }
+}
+
+export async function verifyPublished({ version, stdout, tarballWait = TARBALL_WAIT }, probes = publicationProbes) {
   const tag = tagOf(version)
   const assets = releaseAssets(version)
-  const tarball = await probes.packageTarball(PACKAGE_NAME, version)
+  const tarball = await awaitTarball({ version, stdout, ...TARBALL_WAIT, ...tarballWait }, probes)
   const archive = await probes.downloadAsset(tag, assets.bundle).catch(() => null)
   const checksum = await probes.downloadAsset(tag, assets.checksum).catch(() => null)
   return verifyStagedRelease({
@@ -299,6 +317,14 @@ export async function verifyPublished({ version, stdout }, probes = publicationP
     archive: archive ? Buffer.from(archive) : null,
     checksum: checksum ? Buffer.from(checksum).toString('utf8') : null,
   }, { stdout }, { packument: probes.packument, releaseManifest: probes.releaseManifest, attestation: probes.attestation })
+}
+
+// The sentence `verify` fails with. Every earlier step keeps what it
+// published, so the fix for a registry that serves the tarball late is a
+// rerun of this run's failed jobs, not a new version.
+export function verificationFailure(report, env = process.env) {
+  const runId = env.GITHUB_RUN_ID || '<run-id>'
+  return `${report.refusal.message} The release and package steps keep what they published: once the registry serves the tarball, rerun the failed job with \`gh run rerun ${runId} --failed\`.`
 }
 
 // ---------------------------------------------------------------------------
@@ -354,7 +380,7 @@ async function main(argv) {
       const { version } = args(rest, ['version'])
       if (!isReleaseVersion(version)) throw new PublicationError(`${version} is not a release version`)
       const report = await verifyPublished({ version, stdout })
-      if (!report.ok) throw new PublicationError(report.refusal.message)
+      if (!report.ok) throw new PublicationError(verificationFailure(report))
       return
     }
     default:

@@ -1802,7 +1802,7 @@ describe('the Discord card routes (#876)', () => {
     daemon.close()
     const down = JSON.parse((await req(surface.port, '/api/setup/full-loop', { headers: served() })).text)
     assert.equal(down.state, null)
-    assert.match(down.error, /daemon|ECONNREFUSED|socket hang up/i)
+    assert.match(down.error, /daemon|ECONNREFUSED|ECONNRESET|socket hang up/i)
   })
 
   test('the panel read comes from the daemon unedited, and a daemon that cannot be asked answers the reason', async () => {
@@ -1812,7 +1812,7 @@ describe('the Discord card routes (#876)', () => {
     daemon.close()
     const down = JSON.parse((await req(surface.port, '/api/setup/discord', { headers: served() })).text)
     assert.equal(down.secret, null)
-    assert.match(down.error, /daemon|ECONNREFUSED|socket hang up/i)
+    assert.match(down.error, /daemon|ECONNREFUSED|ECONNRESET|socket hang up/i)
   })
 
   test('the token submission crosses once, as exactly the two fields, and the token is in no answer and no log line', async () => {
@@ -2030,7 +2030,7 @@ describe('the Tailscale card routes and the first-operator window (#877)', () =>
     const down = JSON.parse((await req(surface.port, '/api/setup/tailscale', { headers: served() })).text)
     assert.equal(down.requester, 'alp@example.com')
     assert.equal(down.node, null)
-    assert.match(down.error, /daemon|ECONNREFUSED|socket hang up/i)
+    assert.match(down.error, /daemon|ECONNREFUSED|ECONNRESET|socket hang up/i)
   })
 
   test('the confirmation sends the request\'s own login and the machine name, then reads the allowlist back so the window closes at once', async () => {
@@ -2131,7 +2131,7 @@ describe('the OpenAI card routes (#878)', () => {
     const down = JSON.parse((await req(surface.port, '/api/setup/openai', { headers: served() })).text)
     assert.equal(down.secret, null)
     assert.equal(down.login, null)
-    assert.match(down.error, /daemon|ECONNREFUSED|socket hang up/i)
+    assert.match(down.error, /daemon|ECONNREFUSED|ECONNRESET|socket hang up/i)
   })
 
   test('the sign-in press crosses with no field at all, whatever the browser sent, and answers the daemon\'s read; a refusal is the sentence the page shows', async () => {
@@ -2214,7 +2214,7 @@ describe('the Anthropic card routes (#879)', () => {
     const down = JSON.parse((await req(surface.port, '/api/setup/anthropic', { headers: served() })).text)
     assert.equal(down.secret, null)
     assert.equal(down.login, null)
-    assert.match(down.error, /daemon|ECONNREFUSED|socket hang up/i)
+    assert.match(down.error, /daemon|ECONNREFUSED|ECONNRESET|socket hang up/i)
   })
 
   test('the sign-in press crosses with no field at all, whatever the browser sent, and answers the daemon\'s read; a refusal is the sentence the page shows', async () => {
