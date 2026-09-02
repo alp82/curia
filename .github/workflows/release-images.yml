@@ -9,14 +9,17 @@
 #      config/curia.yaml, and pushes each to GHCR under its version tag;
 #   2. records the digest the registry returned for each image and attests
 #      the build provenance of that digest;
-#   3. renders deploy/bundle/compose.yaml against those digests, proves the
-#      result with the same tests the suite runs, and attaches the bundle, its
-#      checksum, and the digest set to the GitHub release of the tag.
+#   3. renders deploy/bundle/compose.yaml against those digests, writes the
+#      release manifest (#870) that binds the package version, the bundle
+#      checksum, the four digests, and this commit, proves the result with
+#      the same tests the suite runs, and attaches the bundle, its checksum,
+#      the digest set, and the manifest to the GitHub release of the tag.
 #
 # The version tag on an image is for discovery only. The bundle and the
-# release manifest (#870) name images by digest, never by tag. Publication
-# order and the stable-release index are #871's; this workflow leaves the
-# release as it found it, with three more assets.
+# release manifest name images by digest, never by tag. Publication order,
+# copying the manifest into the npm package before `npm publish`, and the
+# stable-release index are #871's; this workflow leaves the release as it
+# found it, with four more assets.
 #
 # `workflow_dispatch` is a rehearsal of the same path on any branch: it pushes
 # the images under a commit tag, renders the bundle against their real
@@ -175,11 +178,13 @@ jobs:
       - name: Render the bundle
         env:
           VERSION: ${{ needs.pins.outputs.version }}
-        run: node deploy/bundle/render.mjs --version "$VERSION" --digests digests.json --out dist
+          COMMIT: ${{ github.sha }}
+        run: node deploy/bundle/render.mjs --version "$VERSION" --digests digests.json --commit "$COMMIT" --out dist
 
-      # The same tests the suite runs on every change, against the file that is
-      # about to be published: the mount contract, the labels, the health
-      # checks, the digest references, and Compose's own reading of it.
+      # The same tests the suite runs on every change, against the files that
+      # are about to be published: the mount contract, the labels, the health
+      # checks, the digest references, the manifest that binds them, and
+      # Compose's own reading of the bundle.
       - name: Prove the bundle
         run: |
           npm ci --prefix daemon --no-fund --no-audit
@@ -196,9 +201,10 @@ jobs:
             dist/curia-bundle-*.tar.gz
             dist/curia-bundle-*.tar.gz.sha256
             dist/curia-images-*.json
+            dist/curia-manifest-*.json
           if-no-files-found: error
 
-      - name: Attach the bundle, its checksum, and the digest set to the release
+      - name: Attach the bundle, its checksum, the digest set, and the manifest to the release
         if: needs.pins.outputs.release == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -209,4 +215,5 @@ jobs:
             "dist/curia-bundle-$VERSION.tar.gz" \
             "dist/curia-bundle-$VERSION.tar.gz.sha256" \
             "dist/curia-images-$VERSION.json" \
+            "dist/curia-manifest-$VERSION.json" \
             --clobber

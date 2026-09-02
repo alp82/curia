@@ -174,14 +174,23 @@ export function writeInstallationRecord(root, record) {
   writeAtomically(recordPath(root), JSON.stringify(ordered, null, 2) + '\n', { mode: OWNER_ONLY_FILE })
 }
 
-// The two paths the launcher needs from an installed version: the pinned Node
-// runtime and the lifecycle interface's entry point. `versions/<version>/cli/`
-// holds the unpacked `@curia-sh/cli` package (the tarball's `package/` directory).
+// The paths of an installed version. The launcher reads the first two: the
+// pinned Node runtime and the lifecycle interface's entry point, where
+// `versions/<version>/cli/` holds the unpacked `@curia-sh/cli` package (the
+// tarball's `package/` directory). The rest are what the release manifest
+// (`cli/src/manifest.mjs`) verifies: the manifest the package embeds, the
+// retained package tarball and bundle archive exactly as downloaded, and the
+// unpacked Compose bundle the lifecycle interface starts.
 export function versionPaths(root, version) {
   const dir = join(root, 'versions', version)
   return {
     dir,
     node: join(dir, 'node', 'bin', 'node'),
     cli: join(dir, 'cli', 'bin', 'curia.mjs'),
+    manifest: join(dir, 'cli', 'manifest.json'),
+    package: join(dir, 'cli.tgz'),
+    bundleArchive: join(dir, 'bundle.tar.gz'),
+    bundleChecksum: join(dir, 'bundle.tar.gz.sha256'),
+    bundle: join(dir, 'bundle', 'compose.yaml'),
   }
 }

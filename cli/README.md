@@ -6,7 +6,7 @@ For the operator's view, read the [command reference](https://github.com/alp82/c
 
 ## What this version ships
 
-This version ships the stable launcher, the command vocabulary, the installation-root boundary, the operator configuration contract, and the supported-host preflight. Every lifecycle command exists and routes. Each one opens its root through the boundary first, so the root refusals are real, and then refuses with exit code `3` and a message that names the version and the release map. The follow-up tickets in [Ship Curia's supported installation lifecycle](https://github.com/alp82/curia/issues/863) fill the commands in.
+This version ships the stable launcher, the command vocabulary, the installation-root boundary, the operator configuration contract, the supported-host preflight, the Compose bundle contract, and the release manifest with its verification. Every lifecycle command exists and routes. Each one opens its root through the boundary first, so the root refusals are real, and then refuses with exit code `3` and a message that names the version and the release map. The follow-up tickets in [Ship Curia's supported installation lifecycle](https://github.com/alp82/curia/issues/863) fill the commands in.
 
 ## Layout
 
@@ -21,6 +21,8 @@ This version ships the stable launcher, the command vocabulary, the installation
 - `src/layout.mjs`: `serviceLayout(root)`, where the service data lives inside the seven boundaries, and `SERVICE_MOUNTS`, what each container may mount. See [The service layout and the secret files](#the-service-layout-and-the-secret-files).
 - `src/secrets.mjs`: the catalogue of long-lived secret files under `secrets/`, their reader, writer, and status, shared with the Curia service.
 - `src/bundle.mjs`: the Compose bundle contract: the project name, the installation label, the four release images, the run-time variables, and the render, inspect, and env-file functions. See [The Compose bundle](#the-compose-bundle).
+- `src/manifest.mjs`: the release manifest contract and the release verification: what one release is, how the manifest is created, rendered, and parsed, and the two verification doors that `curia install`, `curia update`, and `curia doctor` call. See [The release manifest](#the-release-manifest).
+- `src/archive.mjs`: `readArchive(bytes)`, a reader for gzipped tar archives, which is how the verification opens the package tarball and the bundle archive without a system `tar`.
 - `src/preflight.mjs`: the supported-host preflight. `gatherHostFacts` reads the host through injectable probes, `evaluateHostFacts` turns the facts into one report, and `preflight` does both and prints it. See [The host preflight](#the-host-preflight).
 - `src/launcher.mjs`: renders the stable `curia` launcher for one installation root.
 
@@ -86,6 +88,22 @@ Three probes create temporary resources, and each removes its own before it retu
 
 The module reads text by line and never a YAML tree, because the package has no dependencies and every question is answerable that way. The release script that uses it is `deploy/bundle/render.mjs`, which writes the bundle directory, a deterministic `.tar.gz`, its `.sha256`, and the digest set for one version. `deploy/bundle/pins.mjs` reads the Node and Claude Code pins the images build with from `config/curia.yaml`.
 
+## The release manifest
+
+`src/manifest.mjs` is the one place that says what a Curia release is and proves that a downloaded or installed one is whole. The release workflow writes the manifest through `deploy/bundle/render.mjs`, the publication step copies it into this package as `manifest.json`, and the lifecycle commands verify against it. The operator's view is [The release manifest and release verification](https://github.com/alp82/curia/blob/main/docs/operator/release-manifest.md).
+
+The contract:
+
+- `MANIFEST_FORMAT` (`1`), `PACKAGE_NAME` (`@curia-sh/cli`), `RELEASE_REPOSITORY` (`alp82/curia`), `RELEASE_WORKFLOW` (the signer workflow), and `MANIFEST_FILE` (`manifest.json`, so `versions/<version>/cli/manifest.json` once installed). `releaseAssets(version)` names the five files a release publishes: the manifest, the bundle archive, its `.sha256`, the digest set, and the package tarball.
+- `createManifest({ version, commit, bundleSha256, digests })` builds one from the facts the workflow holds. `renderManifest(manifest)` is the one text form, keys in contract order, so two manifests that say the same thing are the same bytes. `parseManifest(text)` validates every field, refuses any key outside the contract, and throws a `ManifestError` that names the field and the rule.
+- `evaluateRelease(facts)` is pure: facts in, `{ ok, checks, refusal, manifest }` out, one `{ name, status, observed, action }` per entry of `RELEASE_CHECKS` (`manifest`, `version`, `package integrity`, `bundle checksum`, `image digests`, `release manifest`) and, when the facts come from an installed version, `PROVENANCE_CHECKS` (`installed files`, `image provenance`, `package provenance`). `status` is `passed` or `failed`. `refusal` is one `Refusal` that lists every failed condition with its action. A null fact is a missing artifact and fails its check.
+- `verifyStagedRelease({ version, tarball, archive, checksum }, { stdout }, probes)` is the door for `curia install` (#873), `curia update` (#883), and the bootstrap (#872): the downloaded bytes in, the report printed and returned. The caller throws `report.refusal` when `ok` is false and unpacks when it is true.
+- `verifyInstalledRelease({ root, version, stdout }, probes)` is the door for `curia doctor` (#881). It reads the retained artifacts and the installed files under `versions/<version>/` through `versionPaths`, verifies them the same way, and adds the provenance checks. Read-only.
+- `releaseProbes` are the three network boundaries, each injectable: `packument(name, version)` asks the npm registry for the integrity value and whether provenance is recorded, `releaseManifest(version)` downloads the manifest asset from the GitHub release, and `attestation({ reference, commit, version })` runs `gh attestation verify` for one image digest. `attestationCommand(reference, { commit })` is the exact command line, which the report prints as the corrective action.
+- `renderVerification(report)` prints one line per check and a summary. No line carries a full digest, a full integrity value, or a manifest body.
+
+The tests build a complete release the way the workflow does (an archive, a manifest that binds it, a package tarball that embeds the manifest, and a fake registry) and then change one thing at a time. `daemon/test/bundlerelease.test.mjs` proves that `render.mjs` writes a manifest that binds what it rendered.
+
 ## The launcher
 
 The bootstrap writes `~/.local/bin/curia` once per installation. The launcher is a POSIX shell script with the installation root written into it. On each run it reads `state/installation.json`, takes `activeVersion`, and runs:
@@ -104,6 +122,6 @@ with `CURIA_ROOT` exported. An update changes the active version and never rewri
 npm test
 ```
 
-The suite has no dependencies and reads no file outside its own temporary directories. `test/package.test.mjs` runs `npm pack` and installs the tarball into an empty prefix, so it needs `npm` and `tar` on the path. The launcher tests run the rendered script with `/bin/sh` against a fake version directory whose `node` is a shell script that reports how it was called.
+The suite has no dependencies, reads no file outside its own temporary directories, and reaches no network. `test/package.test.mjs` runs `npm pack` and installs the tarball into an empty prefix, so it needs `npm` and `tar` on the path; the manifest and archive tests build their fixtures with the same `tar`. The launcher tests run the rendered script with `/bin/sh` against a fake version directory whose `node` is a shell script that reports how it was called.
 
 There is no build step. `npm pack` produces the release artifact.
