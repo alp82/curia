@@ -65,10 +65,11 @@ async function installed({ home = mkdtempSync(join(scratch, 'home-')), root = jo
 
 const releaseImage = (service) => `${IMAGE_REGISTRY}/${RELEASE_IMAGES[service]}`
 
-// The Docker host of an installation with a live agent, beside what is not
-// Curia's: another installation that runs the same daemon image, an
-// operator's own container and image, and an agent image whose name starts
-// with `curia-` but which is no release image.
+// The Docker host of an installation with a live agent on the release agent
+// image, beside what is not Curia's: another installation that runs the same
+// daemon image, an operator's own container and image, and a locally built
+// image named `curia-agent` (the source deployment's), which is under none
+// of the five release repositories.
 function dockerHostOf(id, { fail, shareDaemon = true } = {}) {
   const mine = { [INSTALLATION_LABEL]: id }
   const theirs = { [INSTALLATION_LABEL]: OTHER_ID }
@@ -95,7 +96,7 @@ function dockerHostOf(id, { fail, shareDaemon = true } = {}) {
     images: [
       ...Object.keys(RELEASE_IMAGES).map((s) => ({ id: image(s), repository: releaseImage(s), digest: DIGESTS[s] })),
       { id: 'img-old-daemon', repository: releaseImage('daemon'), digest: `sha256:${'9'.repeat(64)}` },
-      { id: 'img-agent', repository: 'curia-agent', tag: 'abc123' },
+      { id: 'img-local-agent', repository: 'curia-agent', tag: 'abc123' },
       { id: 'img-postgres', repository: 'postgres', tag: '16' },
     ],
   })
@@ -173,17 +174,17 @@ describe('a confirmed purge over an installed root', () => {
     assert.deepEqual(docker.host.networks.map((n) => n.id).sort(), ['n2', 'n3'])
     assert.deepEqual(docker.host.volumes.map((v) => v.name).sort(), ['curia_tmux-sock-other', 'pgdata'])
 
-    // Images: the release images nothing uses are removed. The daemon image
-    // the other installation runs stays, and so does everything that is not
-    // a release image, whatever its name.
-    for (const c of docker.calls.filter((c) => c[0] === 'image' && c[1] === 'ls')) {
-      const reference = c[c.indexOf('--filter') + 1]
-      assert.ok(Object.keys(RELEASE_IMAGES).some((s) => reference === `reference=${releaseImage(s)}`), `images are listed by exact repository: ${reference}`)
-    }
+    // Images: the release images nothing uses are removed, the agent image
+    // among them once the agent container is gone. The daemon image the
+    // other installation runs stays, and so does everything under none of
+    // the five release repositories, whatever its name.
+    const listed = docker.calls.filter((c) => c[0] === 'image' && c[1] === 'ls').map((c) => c[c.indexOf('--filter') + 1])
+    assert.deepEqual(listed.sort(), Object.keys(RELEASE_IMAGES).map((s) => `reference=${releaseImage(s)}`).sort(), 'images are listed by the five exact repositories')
     assert.ok(!docker.calls.some((c) => c[0] === 'image' && c[1] === 'rm' && c.includes('--force')), 'never forced')
-    assert.deepEqual(docker.host.images.map((i) => i.id).sort(), ['img-agent', 'img-daemon', 'img-postgres'])
+    assert.deepEqual(docker.host.images.map((i) => i.id).sort(), ['img-daemon', 'img-local-agent', 'img-postgres'])
     assert.match(r.out, new RegExp(`kept the image ${escape(releaseImage('daemon'))}@sha256:1{64}: in use by 1 container: curia-daemon-1`))
     assert.match(r.out, new RegExp(`removed the image ${escape(releaseImage('tmux'))}@sha256:2{64}`))
+    assert.match(r.out, new RegExp(`removed the image ${escape(releaseImage('agent'))}@sha256:5{64}`))
     assert.match(r.out, new RegExp(`removed the image ${escape(releaseImage('daemon'))}@sha256:9{64}`))
 
     // Tailscale: only the recorded route is turned off.
@@ -330,14 +331,14 @@ describe('repeating after a partial failure', () => {
 
   test('a purge over a root that already lost every Docker resource and route removes the root and says so', async () => {
     const { home, root, id } = await installed()
-    const docker = fakeDockerHost({ containers: [{ id: 'x2', name: 'postgres', labels: {} }], images: [{ id: 'img-agent', repository: 'curia-agent', tag: 'abc' }] })
+    const docker = fakeDockerHost({ containers: [{ id: 'x2', name: 'postgres', labels: {} }], images: [{ id: 'img-local-agent', repository: 'curia-agent', tag: 'abc' }] })
     const r = await purge({ home, root, docker, tailscale: fakeTailscale(), prompt: answering(root) })
     assert.equal(r.exit, EXIT.ok, r.error?.stack)
     assert.match(r.out, new RegExp(`no container, network, or volume carries the label of installation ${id}`))
     assert.match(r.out, /no recorded Serve route is standing; nothing to withdraw/)
     assert.match(r.out, /no release image is on this host/)
     assert.ok(!existsSync(root))
-    assert.deepEqual(docker.host.images.map((i) => i.id), ['img-agent'], 'an image that is not a release image stays, whatever its name')
+    assert.deepEqual(docker.host.images.map((i) => i.id), ['img-local-agent'], 'an image under no release repository stays, whatever its name')
     assert.deepEqual(docker.host.containers.map((c) => c.id), ['x2'])
   })
 

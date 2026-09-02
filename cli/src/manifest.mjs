@@ -4,7 +4,7 @@ import { execFile } from 'node:child_process'
 
 import { Refusal } from './exit.mjs'
 import { readArchive, ArchiveError } from './archive.mjs'
-import { IMAGE_REGISTRY, RELEASE_IMAGES, imageReference, inspectBundle } from './bundle.mjs'
+import { IMAGE_REGISTRY, RELEASE_IMAGES, AGENT_IMAGE, imageReference, inspectBundle } from './bundle.mjs'
 import { versionPaths } from './root.mjs'
 
 // The release manifest (#870, implementing #849 and #854).
@@ -12,7 +12,7 @@ import { versionPaths } from './root.mjs'
 // A Curia release is one immutable semantic version. This module is the one
 // place that says what identifies it: the manifest that binds the
 // `@curia-sh/cli` package version, the SHA-256 of the Compose bundle archive,
-// the exact digest of each of the four release images, and the commit and
+// the exact digest of each of the five release images, and the commit and
 // workflow that produced them. Nothing in it is a tag, and nothing in it is
 // compatibility metadata. A release is whole or it is not a release.
 //
@@ -49,7 +49,10 @@ export class ManifestError extends Error {
   }
 }
 
-export const MANIFEST_FORMAT = 1
+// Format 2 binds five images (#891): the agent image joined the four service
+// images. The images map is closed, so a format-1 manifest, which binds four,
+// is refused rather than read as a release with no agent image.
+export const MANIFEST_FORMAT = 2
 export const PACKAGE_NAME = '@curia-sh/cli'
 export const RELEASE_REPOSITORY = 'alp82/curia'
 export const RELEASE_WORKFLOW = '.github/workflows/release.yml'
@@ -195,7 +198,7 @@ export const RELEASE_CHECKS = Object.freeze([
   Object.freeze({ name: 'version', summary: 'The manifest and the package name the requested version.' }),
   Object.freeze({ name: 'package integrity', summary: 'The package tarball matches the integrity the npm registry records.' }),
   Object.freeze({ name: 'bundle checksum', summary: 'The bundle archive matches the checksum the manifest binds.' }),
-  Object.freeze({ name: 'image digests', summary: 'The bundle names exactly the image digests the manifest binds.' }),
+  Object.freeze({ name: 'image digests', summary: 'The bundle names exactly the service image digests the manifest binds, and the manifest binds the agent image.' }),
   Object.freeze({ name: 'release manifest', summary: 'The manifest on the GitHub release is the one the package carries.' }),
 ])
 
@@ -341,8 +344,10 @@ function checksumCheck({ version, bundle }, opened) {
 const IMAGE_LINE = /^\s*image:\s*(\S+)\s*$/
 
 // The bundle archive holds one file, `curia-bundle-<v>/compose.yaml`, and its
-// `image:` lines are exactly the manifest's references. Returns the compose
-// text when it does, so the installed-files check can compare it.
+// `image:` lines are exactly the manifest's service image references. The
+// agent image is bound by the manifest and named by no service: the
+// lifecycle interface pulls it, and the service runs agents from it. Returns
+// the compose text when it does, so the installed-files check can compare it.
 function bundleCompose({ version, bundle }, opened) {
   const archive = bundle?.archive
   if (!archive) return { problem: `the bundle archive ${releaseAssets(version).bundle} is missing.` }
@@ -361,11 +366,13 @@ function bundleCompose({ version, bundle }, opened) {
   const problems = inspectBundle(compose)
   if (problems.length) return { problem: `the bundle is not one Curia publishes: ${problems[0]}.` }
   if (!opened.manifest) return { problem: 'no manifest could be read, so the image digests cannot be confirmed.' }
-  const expected = new Map(Object.entries(opened.manifest.images).map(([service, { digest }]) => [imageReference(service, digest), service]))
+  const agent = imageReference(AGENT_IMAGE, opened.manifest.images[AGENT_IMAGE].digest)
+  const expected = new Map(Object.entries(opened.manifest.images).filter(([service]) => service !== AGENT_IMAGE).map(([service, { digest }]) => [imageReference(service, digest), service]))
   const found = new Set()
   for (const line of compose.split('\n')) {
     const image = IMAGE_LINE.exec(line)
     if (!image) continue
+    if (image[1] === agent) return { problem: `the bundle names ${image[1]}, which no service runs.` }
     if (!expected.has(image[1])) return { problem: `the bundle names ${image[1]}, which the manifest does not bind.` }
     found.add(image[1])
   }
@@ -379,7 +386,7 @@ function bundleCompose({ version, bundle }, opened) {
 function imagesCheck(facts, opened) {
   const { problem } = bundleCompose(facts, opened)
   if (problem) return failed('image digests', problem, DOWNLOAD_AGAIN)
-  return passed('image digests', `${Object.keys(RELEASE_IMAGES).length} images by digest`)
+  return passed('image digests', `${Object.keys(RELEASE_IMAGES).length - 1} images by digest in the bundle, and the agent image bound for the service`)
 }
 
 function releaseManifestCheck({ version, releaseManifest }, opened) {

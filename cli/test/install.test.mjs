@@ -12,7 +12,8 @@ import { SERVICES, serviceLayout } from '../src/layout.mjs'
 import { readInstallationRecord, versionPaths } from '../src/root.mjs'
 import { launcherPath } from '../src/launcher.mjs'
 import { composeEnvPath } from '../src/compose.mjs'
-import { LOGIN_URL, fakeDocker, fakeTailscale, healthy, hostProbes, loggedOutStatus, nodeStatus, release as releaseIn, releaseProbesFor, stageOf as stageIn } from './fixtures/install.mjs'
+import { imageReference } from '../src/bundle.mjs'
+import { DIGESTS, fakeDocker, fakeTailscale, healthy, hostProbes, loggedOutStatus, LOGIN_URL, nodeStatus, release as releaseIn, releaseProbesFor, stageOf as stageIn } from './fixtures/install.mjs'
 
 const VERSION = packageVersion
 
@@ -109,9 +110,12 @@ describe('clean install', () => {
       assert.ok(statSync(dir).isDirectory(), `${dir} exists before up`)
       assert.equal(statSync(dir).mode & 0o777, 0o700)
     }
-    // Docker was driven against the installed bundle, in order.
-    assert.deepEqual(a.docker.verbs(), ['pull', 'up', 'ps'])
-    assert.ok(a.docker.calls.every((c) => c[2] === composeEnvPath(root) && c[4] === paths.bundle))
+    // Docker was driven against the installed bundle, in order: the four
+    // service images through Compose, the agent image by its own digest, the
+    // project up, then health.
+    assert.deepEqual(a.docker.verbs(), ['pull', 'image pull', 'up', 'ps'])
+    assert.ok(a.docker.calls.filter((c) => c[0] === 'compose').every((c) => c[2] === composeEnvPath(root) && c[4] === paths.bundle))
+    assert.deepEqual(a.docker.calls.find((c) => c[0] === 'image'), ['image', 'pull', '--quiet', imageReference('agent', DIGESTS.agent)])
     // The steps and the completion.
     for (const [i, step] of INSTALL_STEPS.entries()) assert.match(a.out, new RegExp(`^\\[${i + 1}/${INSTALL_STEPS.length}\\] ${step}\\b`, 'm'), `prints step ${step}`)
     assert.match(a.out, new RegExp(`Curia ${VERSION.replaceAll('.', '\\.')} is installed and running`))
@@ -246,7 +250,7 @@ describe('a partial failure and the retry', () => {
     assert.equal(again.error, null, again.error?.stack)
     assert.equal(again.exit, EXIT.ok)
     assert.ok(existsSync(launcherPath({ HOME: home })))
-    assert.deepEqual(again.docker.verbs(), ['pull', 'up', 'ps'])
+    assert.deepEqual(again.docker.verbs(), ['pull', 'image pull', 'up', 'ps'])
   })
 
   test('a service that stays unhealthy names the health step and the service, and a launcher rerun without a stage resumes', async () => {
@@ -264,7 +268,7 @@ describe('a partial failure and the retry', () => {
     assert.equal(again.error, null, again.error?.stack)
     assert.equal(again.exit, EXIT.ok)
     assert.match(again.out, /\[4\/7\] stage\n.*already installed/)
-    assert.deepEqual(again.docker.verbs(), ['pull', 'up', 'ps'])
+    assert.deepEqual(again.docker.verbs(), ['pull', 'image pull', 'up', 'ps'])
   })
 
   test('a failed pull names the start step and quotes docker', async () => {
@@ -275,6 +279,17 @@ describe('a partial failure and the retry', () => {
     assert.equal(failed.exit, EXIT.failed)
     assert.match(failed.error.message, /^start failed: docker compose .* pull failed:/)
     assert.match(failed.error.message, /no such host/)
+  })
+
+  test('a failed pull of the agent image names the start step and the image, and the project is not brought up', async () => {
+    const r = release()
+    const { home, root } = fresh()
+    const docker = fakeDocker({ 'image pull': { ok: false, stdout: '', stderr: 'Error response from daemon: manifest unknown', code: 1 } })
+    const failed = await attempt({ home, root, stage: stageOf(r), r, docker })
+    assert.equal(failed.exit, EXIT.failed)
+    assert.match(failed.error.message, new RegExp(`^start failed: docker image pull --quiet ${imageReference('agent', DIGESTS.agent).replaceAll('.', '\\.')} failed:`))
+    assert.match(failed.error.message, /manifest unknown/)
+    assert.ok(!docker.verbs().includes('up'), 'nothing is started without the agent image')
   })
 })
 

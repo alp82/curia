@@ -1,15 +1,17 @@
 #!/usr/bin/env node
-// The build arguments of a release (#869).
+// The build arguments of a release (#869, the agent image's at #891).
 //
 // One Node patch version runs every Curia image, and one Claude Code version
 // runs the overseer and every claude agent. Both are pinned in
-// config/curia.yaml under `sandbox:`, beside the agent image's other pins, and
-// the release workflow reads them from here so the images it publishes run
-// the versions the suite ran on. The source deployment's anchors in
-// deploy/compose.yaml name the same two values, and
+// config/curia.yaml under `sandbox:`, beside the agent image's other pins
+// (codex, gh, playwright, ttyd), and the release workflow reads all of them
+// from here so the images it publishes run the versions the suite ran on.
+// The agent image is built from the same arguments the service used to build
+// it on the source box (daemon/src/image.mjs). The source deployment's
+// anchors in deploy/compose.yaml name the Node and Claude values, and
 // daemon/test/releaseimages.test.mjs keeps them equal.
 //
-//     node deploy/bundle/pins.mjs        NODE_VERSION=... CLAUDE_VERSION=...
+//     node deploy/bundle/pins.mjs        NODE_VERSION=... CLAUDE_VERSION=... CODEX_VERSION=... GH_VERSION=... PLAYWRIGHT_VERSION=... TTYD_VERSION=...
 //
 // Read by line rather than through a YAML reader, so the script needs no
 // dependency tree on the runner before the images are built.
@@ -20,7 +22,14 @@ import { fileURLToPath } from 'node:url'
 
 export const PINS_FILE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'config', 'curia.yaml')
 
-const PINS = { NODE_VERSION: 'node_version', CLAUDE_VERSION: 'claude_version' }
+const PINS = {
+  NODE_VERSION: 'node_version',
+  CLAUDE_VERSION: 'claude_version',
+  CODEX_VERSION: 'codex_version',
+  GH_VERSION: 'gh_version',
+  PLAYWRIGHT_VERSION: 'playwright_version',
+  TTYD_VERSION: 'ttyd_version',
+}
 
 export function releasePins(file = PINS_FILE) {
   const text = fs.readFileSync(file, 'utf8')

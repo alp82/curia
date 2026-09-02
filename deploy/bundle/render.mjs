@@ -6,11 +6,12 @@
 // `digests.json` maps each release image's service name to the sha256 digest
 // the registry returned when the release workflow pushed it:
 //
-//     { "daemon": "sha256:…", "tmux": "sha256:…", "dashboard": "sha256:…", "overseer": "sha256:…" }
+//     { "daemon": "sha256:…", "tmux": "sha256:…", "dashboard": "sha256:…", "overseer": "sha256:…", "agent": "sha256:…" }
 //
-// The script renders deploy/bundle/compose.yaml with those digests, refuses
-// anything the static inspection in cli/src/bundle.mjs objects to, and writes
-// into `--out`:
+// The script renders deploy/bundle/compose.yaml with the four service
+// digests (the agent image runs no service, so the bundle names it nowhere
+// and the manifest alone binds it), refuses anything the static inspection
+// in cli/src/bundle.mjs objects to, and writes into `--out`:
 //
 //     curia-bundle-<version>/compose.yaml     the bundle, what versions/<version>/bundle/ holds
 //     curia-bundle-<version>.tar.gz           the same, as one deterministic archive

@@ -1,21 +1,25 @@
 import { execFile } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { writeAtomically } from './atomic.mjs'
-import { bundleEnvironment } from './bundle.mjs'
+import { AGENT_IMAGE, bundleEnvironment, imageReference } from './bundle.mjs'
 import { SERVICES } from './layout.mjs'
+import { parseManifest } from './manifest.mjs'
 import { versionPaths } from './root.mjs'
 
 // The one seam between the lifecycle interface and Docker Compose (#873,
 // implementing #851 and #854).
 //
 // An installed version's Compose bundle is started, watched, and later
-// switched or torn down through this module and nothing else. It knows three
+// switched or torn down through this module and nothing else. It knows four
 // things: where the project's files are for one version of one root, how to
-// run `docker compose` against them, and what "healthy" means for the five
-// services the bundle declares. Every Docker call goes through `dockerRunner`,
-// which a test replaces with a fake, so the install sequence is proven against
-// packaged fixtures without a Docker daemon.
+// run `docker compose` against them, what "healthy" means for the five
+// services the bundle declares, and which agent image the version's release
+// manifest binds, which is the one image the bundle names no service from
+// and is pulled here beside the bundle's four (#891). Every Docker call goes
+// through `dockerRunner`, which a test replaces with a fake, so the install
+// sequence is proven against packaged fixtures without a Docker daemon.
 //
 // The project name is in the bundle itself (`name: curia`), so no command here
 // passes one. What a command passes is the env file under `run/` with the five
@@ -31,8 +35,8 @@ export class ComposeError extends Error {
 
 // How long a start may take before a service that is still starting counts
 // as failed: the daemon's start period is 60 s and every check allows three
-// 30 s retries, so four minutes covers a slow first pull of the agent image
-// recipe and a cold journal open.
+// 30 s retries, so four minutes covers a cold journal open. Every image,
+// the agent image included, is pulled before the project is up.
 export const HEALTH_TIMEOUT_MS = 240_000
 export const HEALTH_POLL_MS = 2_000
 
@@ -78,12 +82,47 @@ export async function compose(project, verb, { docker }) {
   throw new ComposeError(`docker ${args.join(' ')} failed:\n${detail}`)
 }
 
-// Pulls every image by its digest, then brings the project up detached.
-// `--remove-orphans` retires a container of a service the bundle no longer
-// declares, which is what a reinstall over an older bundle needs.
+// The agent image the version's release manifest binds, as the exact digest
+// reference the service starts every agent from. The manifest is the single
+// source: the bundle names no agent image, and the service reads the same
+// file, so nothing restates the digest where it could drift.
+export function agentImageOf(project) {
+  const file = versionPaths(project.root, project.version).manifest
+  let text
+  try {
+    text = readFileSync(file, 'utf8')
+  } catch (e) {
+    throw new ComposeError(`the release manifest ${file} cannot be read (${e.code === 'ENOENT' ? 'no such file' : e.message}), so the agent image of ${project.version} is unknown.`)
+  }
+  let manifest
+  try {
+    manifest = parseManifest(text)
+  } catch (e) {
+    throw new ComposeError(`the release manifest ${file} is not a release manifest (${e.message}), so the agent image of ${project.version} is unknown.`)
+  }
+  return imageReference(AGENT_IMAGE, manifest.images[AGENT_IMAGE].digest)
+}
+
+// Pulls the agent image by its digest. Compose pulls only what a service
+// names, so the fifth release image is pulled here, and a start or a switch
+// leaves the next agent nothing to fetch.
+export async function pullAgentImage(project, { docker = dockerRunner }) {
+  const reference = agentImageOf(project)
+  const args = ['image', 'pull', '--quiet', reference]
+  const result = await docker(args)
+  if (result.ok) return reference
+  const detail = result.missing ? 'docker is not on the path' : (result.stderr || result.stdout || `exit ${result.code}`).trim().split('\n').slice(-5).join('\n')
+  throw new ComposeError(`docker ${args.join(' ')} failed:\n${detail}`)
+}
+
+// Pulls every image by its digest, the four the bundle names and the agent
+// image, then brings the project up detached. `--remove-orphans` retires a
+// container of a service the bundle no longer declares, which is what a
+// reinstall over an older bundle needs.
 export async function startProject(project, { docker = dockerRunner, stdout }) {
   stdout?.write(`pulling the images of ${project.version} by digest\n`)
   await compose(project, ['pull'], { docker })
+  await pullAgentImage(project, { docker })
   stdout?.write(`starting the Compose project\n`)
   await compose(project, ['up', '--detach', '--remove-orphans', '--quiet-pull'], { docker })
 }

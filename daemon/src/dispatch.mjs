@@ -2271,6 +2271,9 @@ export class Dispatcher {
     try {
       image = await this.deps.ensureAgentImage(this.config.sandbox, {
         onLine: (line) => this.log(`[image reauth] ${line}`),
+        // Under an installation root the image is the release's, pulled and
+        // never built (#891).
+        root: pathsOf(this.config).root,
       })
     } catch (e) {
       return `❌ the agent image is not available, so the login has nothing to run in (${e.message})`
@@ -2511,8 +2514,13 @@ export class Dispatcher {
     // so the thread is told, once, rather than going quiet between the claim
     // and the spawn. `npm run build-agent-image` ahead of a bump keeps the
     // dispatch path warm.
+    //
+    // Under an installation root there is no build (#891): the image is the
+    // fifth release image, read from the installed release manifest and
+    // pulled by digest when the host lacks it.
     let said = false
     const image = await this.deps.ensureAgentImage(sandbox, {
+      root: pathsOf(this.config).root,
       onLine: (line) => {
         if (!said) {
           said = true
@@ -2528,6 +2536,7 @@ export class Dispatcher {
       this.reduction.journal('agent_image_built', { agent: session, ticket, image: image.ref })
       this.log(`built the agent image ${image.ref} for ${session}`)
     }
+    if (image.pulled) this.log(`pulled the release agent image ${image.ref} for ${session}`)
     // The pin and the prune (#350). Both are the image module's own work; what
     // belongs here is saying what happened. A failed pin does not refuse the
     // dispatch — the image is on the box — but it is the one warning that

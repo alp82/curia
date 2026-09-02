@@ -2,7 +2,7 @@
 // The publication gate (#871, implementing #849 and #854).
 //
 // The release workflow (.github/workflows/release.yml) publishes one version
-// in dependency order: the four images by digest, then the bundle and the
+// in dependency order: the five images by digest, then the bundle and the
 // manifest as assets of the draft release, then the release itself (which
 // creates the tag and locks the assets), then `@curia-sh/cli` last, with the
 // manifest inside it. This script is the one place that decides, for each of

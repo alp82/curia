@@ -16,7 +16,8 @@ import { createStableIndex, generateStableIndexKeys, signStableIndex } from '../
 import { isCompleteStage } from '../src/stage.mjs'
 import { CORE_SERVICES, READOPTION_TIMEOUT_MS } from '../src/switch.mjs'
 import { SERVICES } from '../src/layout.mjs'
-import { acquireProbesFor, artifactsOf, fakeDocker, fakeLoopback, fakeTailscale, healthy, hostProbes, loggedOutStatus, release as releaseIn, releaseProbesFor, stageOf as stageIn } from './fixtures/install.mjs'
+import { imageReference } from '../src/bundle.mjs'
+import { acquireProbesFor, artifactsOf, DIGESTS, fakeDocker, fakeLoopback, fakeTailscale, healthy, hostProbes, loggedOutStatus, release as releaseIn, releaseProbesFor, stageOf as stageIn } from './fixtures/install.mjs'
 
 const ACTIVE = packageVersion
 const NOW = '2026-09-02T10:00:00Z'
@@ -172,6 +173,11 @@ describe('a selected update', () => {
     assert.deepEqual(pull, ['pull', ...CORE_SERVICES])
     assert.deepEqual(up, ['up', '--detach', '--no-deps', ...CORE_SERVICES])
     assert.equal(bundleOf(a.docker.calls.find((c) => c.includes('up'))), '1.4.0')
+    // The target's agent image is pulled with its service images, so the
+    // next agent starts on it without a pull on the dispatch path.
+    const agentPull = a.docker.calls.findIndex((c) => c[0] === 'image' && c[1] === 'pull')
+    assert.deepEqual(a.docker.calls[agentPull], ['image', 'pull', '--quiet', imageReference('agent', DIGESTS.agent)])
+    assert.ok(agentPull < a.docker.calls.findIndex((c) => c.includes('up')), 'the agent image is pulled before the recreate')
     assert.ok(!verbs.some((v) => v[0] === 'down' || v[0] === 'stop' || v[0] === 'rm'), 'nothing is stopped')
     assert.ok(!verbs.some((v) => v.includes('tmux') || v.includes('ttyd') || v.includes('--remove-orphans')), 'tmux and ttyd keep running')
     assert.ok(verbs.indexOf(pull) < verbs.indexOf(up) && verbs.some((v, i) => i > verbs.indexOf(up) && v[0] === 'ps'), 'health is read after the recreate')
@@ -487,7 +493,7 @@ describe('failed validation', () => {
   test('a target whose artifacts fail the release door is refused at stage, and nothing lands under versions\/', async () => {
     const { env, root } = await installed()
     const target = release('1.4.0')
-    const a = await attempt({ env, root, index: indexOf({ stable: '1.4.0' }), targets: [target], probes: { deps: { releaseProbes: { ...releaseProbesFor(target), releaseManifest: async () => releaseIn(scratch, { version: '1.4.0', digests: { daemon: `sha256:${'9'.repeat(64)}`, tmux: `sha256:${'2'.repeat(64)}`, dashboard: `sha256:${'3'.repeat(64)}`, overseer: `sha256:${'4'.repeat(64)}` } }).text } } } })
+    const a = await attempt({ env, root, index: indexOf({ stable: '1.4.0' }), targets: [target], probes: { deps: { releaseProbes: { ...releaseProbesFor(target), releaseManifest: async () => releaseIn(scratch, { version: '1.4.0', digests: { ...DIGESTS, daemon: `sha256:${'9'.repeat(64)}` } }).text } } } })
     assert.equal(a.exit, EXIT.refused)
     assert.match(a.error.message, /^stage: /)
     assert.deepEqual(versionsOf(root), [ACTIVE])

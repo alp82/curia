@@ -318,7 +318,7 @@ describe('reinstall from the preserved root', () => {
       assert.match(io.out(), new RegExp(`reinstalling ${escape(VERSION)} over the installation at ${root} \\(installation ${id}\\)`))
       assert.equal(readInstallationRecord(root).installationId, id)
       assert.equal(readInstallationRecord(root).activeVersion, VERSION)
-      assert.deepEqual(docker.verbs(), ['pull', 'up', 'ps'])
+      assert.deepEqual(docker.verbs(), ['pull', 'image pull', 'up', 'ps'])
       assert.match(readFileSync(join(root, 'run', 'compose.env'), 'utf8'), new RegExp(`^CURIA_INSTALLATION_ID=${id}$`, 'm'))
       assert.ok(existsSync(launcherPath(env)), 'the launcher is back')
       assert.ok(existsSync(versionPaths(root, VERSION).bundle))

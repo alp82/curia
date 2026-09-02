@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url'
 
 import YAML from 'yaml'
 
+import { RELEASE_IMAGES } from '../../cli/src/bundle.mjs'
 import { RELEASE_WORKFLOW } from '../../cli/src/manifest.mjs'
 import { STABLE_INDEX_PATH } from '../../cli/src/stable.mjs'
 import { PUBLICATION_ORDER } from '../../deploy/release/publish.mjs'
@@ -68,7 +69,8 @@ describe('the release workflow', () => {
 
   test('every image is planned through the gate before it is built, and the build and attestation run only on a plan to build', () => {
     const job = release.jobs.images
-    assert.deepEqual(job.strategy.matrix.service, ['daemon', 'tmux', 'dashboard', 'overseer'])
+    assert.deepEqual(job.strategy.matrix.service, Object.keys(RELEASE_IMAGES))
+    assert.deepEqual(job.strategy.matrix.service, ['daemon', 'tmux', 'dashboard', 'overseer', 'agent'])
     const plan = job.steps.find((s) => s.id === 'plan')
     assert.match(plan.run, /publish\.mjs image/)
     assert.equal(plan.env.GH_TOKEN, '${{ github.token }}')
@@ -84,6 +86,24 @@ describe('the release workflow', () => {
     assert.equal(attest.with['push-to-registry'], true)
     const record = job.steps.find((s) => s.name === 'Record the digest')
     assert.equal(record.env.DIGEST, "${{ steps.plan.outputs.build == 'true' && steps.build.outputs.digest || steps.plan.outputs.digest }}")
+  })
+
+  test('every image is built from its own Dockerfile with every pin the agent image declares, and the digest set names all five', () => {
+    const { pins, images, bundle } = release.jobs
+    const build = images.steps.find((s) => s.id === 'build')
+    assert.equal(build.with.file, 'deploy/${{ matrix.service }}/Dockerfile')
+    // The agent image's build arguments are the pins in config/curia.yaml,
+    // the same inputs the service used to build it on the host. Every image
+    // gets the same set; an argument a Dockerfile does not declare is unused.
+    const args = Object.fromEntries(String(build.with['build-args']).trim().split('\n').map((l) => l.split('=')))
+    assert.deepEqual(Object.keys(args), ['NODE_VERSION', 'CLAUDE_VERSION', 'CODEX_VERSION', 'GH_VERSION', 'PLAYWRIGHT_VERSION', 'TTYD_VERSION'])
+    for (const [arg, value] of Object.entries(args)) {
+      const output = arg.replace('_VERSION', '').toLowerCase()
+      assert.equal(value, `\${{ needs.pins.outputs.${output} }}`, `${arg} comes from the pins job`)
+      assert.equal(pins.outputs[output], `\${{ steps.pins.outputs.${arg} }}`, `the pins job exposes ${arg}`)
+    }
+    const digests = bundle.steps.find((s) => s.name === 'Write the digest set')
+    assert.match(digests.run, /\["daemon", "tmux", "dashboard", "overseer", "agent"\]/)
   })
 
   test('each job holds only the permissions it needs, and the point of no return sits in the release environment', () => {

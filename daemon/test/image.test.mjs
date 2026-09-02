@@ -5,6 +5,11 @@
 //
 // The build itself is proved live on the box, not here — a test that shells
 // out to docker would take four minutes and fail on a machine without it.
+//
+// Under an installation root (#891) there is no build at all: the agent image
+// is the fifth release image, and the daemon takes its digest reference from
+// the installed release manifest, pulls it when the host lacks it, and
+// refuses to build. That path is proved here through the same fake docker.
 
 import { test, describe, before, after } from 'node:test'
 import assert from 'node:assert/strict'
@@ -21,6 +26,9 @@ import {
 import { HARNESS_REGISTRY } from '../src/harnesses.mjs'
 import { PRODUCTION_HARNESSES, PRODUCTION_HARNESS_NAMES } from '../src/productionharnesses.mjs'
 import { withSeededHome } from './fixtures/skills.mjs'
+import { createManifest, renderManifest } from '../../cli/src/manifest.mjs'
+import { imageReference } from '../../cli/src/bundle.mjs'
+import { ensureLayout, versionPaths, writeInstallationRecord } from '../../cli/src/root.mjs'
 
 const PINS = {
   image: 'curia-agent',
@@ -202,12 +210,83 @@ function fakeDocker({ images = [], pin = null, refuse = [] } = {}) {
       box.images = box.images.filter((i) => i !== rest[0])
       return { stdout: '', stderr: '' }
     }
+    if (cmd === 'pull') {
+      const ref = rest.at(-1)
+      if (refuse.includes(ref)) fail(`Error response from daemon: denied: requested access to the resource is denied`)
+      box.images.push(ref)
+      return { stdout: `${ref}\n`, stderr: '' }
+    }
     throw new Error(`the fake docker was asked for \`${argv.join(' ')}\``)
   }
   // The build seam: a build puts the tag on the box and nothing else.
   box.build = async (ref) => { box.images.push(ref.ref); return ref }
   return box
 }
+
+// An installation root whose active version holds a release manifest that
+// binds the agent image at `digest`, the way `curia install` leaves it.
+const AGENT_DIGEST = `sha256:${'5'.repeat(64)}`
+const RELEASE_REF = imageReference('agent', AGENT_DIGEST)
+function installationRoot({ manifest = true, digest = AGENT_DIGEST } = {}) {
+  const root = fs.mkdtempSync(path.join(tmp, 'root-'))
+  ensureLayout(root, { uid: process.getuid() })
+  writeInstallationRecord(root, { format: 1, installationId: 'a'.repeat(32), activeVersion: '1.2.3' })
+  if (manifest) {
+    const file = versionPaths(root, '1.2.3').manifest
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    const digests = { daemon: `sha256:${'1'.repeat(64)}`, tmux: `sha256:${'2'.repeat(64)}`, dashboard: `sha256:${'3'.repeat(64)}`, overseer: `sha256:${'4'.repeat(64)}`, agent: digest }
+    fs.writeFileSync(file, renderManifest(createManifest({ version: '1.2.3', commit: 'c'.repeat(40), bundleSha256: 'a'.repeat(64), digests })))
+  }
+  return root
+}
+
+describe('under an installation root the agent image is the fifth release image (#891)', () => {
+  test('the reference is the digest the installed release manifest binds, pulled when the host lacks it, and never built', async () => {
+    const box = fakeDocker({ images: [LIVE] })
+    box.build = async () => { throw new Error('an installation never builds the agent image') }
+    const out = await ensureAgentImage(PINS, { ...box, root: installationRoot() })
+    assert.equal(out.ref, RELEASE_REF)
+    assert.equal(out.digest, AGENT_DIGEST)
+    assert.equal(out.built, false)
+    assert.equal(out.pulled, true)
+    assert.ok(box.calls.includes(`pull --quiet ${RELEASE_REF}`), box.calls.join('\n'))
+    assert.ok(box.images.includes(RELEASE_REF))
+    // No pin and no sweep: the image is a release image the lifecycle
+    // interface pulled and `curia purge` removes, and a pin container would
+    // hold it against that purge.
+    assert.ok(!box.calls.some((c) => /^(create|images|rmi|inspect) /.test(c)), box.calls.join('\n'))
+    assert.deepEqual(out.pin, { created: false })
+    assert.deepEqual(out.pruned, [])
+  })
+
+  test('an image the host already holds is used as it is, with no pull', async () => {
+    const box = fakeDocker({ images: [RELEASE_REF] })
+    const out = await ensureAgentImage(PINS, { ...box, root: installationRoot() })
+    assert.equal(out.ref, RELEASE_REF)
+    assert.equal(out.pulled, false)
+    assert.ok(!box.calls.some((c) => c.startsWith('pull ')), 'it pulled an image it had')
+  })
+
+  test('the pins in curia.yaml do not name the image: two releases with different pins share nothing but the manifest', async () => {
+    const other = `sha256:${'6'.repeat(64)}`
+    const box = fakeDocker()
+    const out = await ensureAgentImage({ ...PINS, claude_version: '9.9.9' }, { ...box, root: installationRoot({ digest: other }) })
+    assert.equal(out.ref, imageReference('agent', other))
+    assert.ok(!out.ref.includes('9.9.9'))
+  })
+
+  test('a root without a release manifest refuses the dispatch by naming the file, and builds nothing', async () => {
+    const box = fakeDocker()
+    const root = installationRoot({ manifest: false })
+    await assert.rejects(ensureAgentImage(PINS, { ...box, root }), (e) => /versions\/1\.2\.3\/cli\/manifest\.json/.test(e.message) && /never builds/.test(e.message))
+    assert.deepEqual(box.calls, [])
+  })
+
+  test('a pull docker refuses is reported in docker\'s words', async () => {
+    const box = fakeDocker({ refuse: [RELEASE_REF] })
+    await assert.rejects(ensureAgentImage(PINS, { ...box, root: installationRoot() }), /denied/)
+  })
+})
 
 const LIVE = agentImageRef(PINS).ref
 const OLD = 'curia-agent:2.1.219-0.146.0-aaaaaaaa'

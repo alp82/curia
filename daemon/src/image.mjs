@@ -23,6 +23,20 @@
 // Nothing here reads the image at boot. The sandbox ships behind a per-harness
 // switch that is off by default (#148), so the build belongs on the dispatch
 // path of an agent that actually wants a container.
+//
+// UNDER AN INSTALLATION ROOT NOTHING IS BUILT (#891). The agent image is the
+// fifth release image: the release workflow builds it from this same
+// Dockerfile and the same pins, attests it, and the release manifest binds
+// its digest beside the four service images. `curia install` pulls it by
+// digest with the others, and the daemon reads that one reference from the
+// installed manifest (`versions/<active>/cli/manifest.json`, mounted
+// read-only) on every dispatch. The manifest is the single source: the
+// Compose bundle restates no digest for the daemon to read, so nothing can
+// drift between what was verified and what an agent runs. A host that lost
+// the image gets a pull, never a build; a root without the manifest refuses
+// the dispatch. The pin and the sweep below are the source box's: a release
+// image is removed by `curia purge`, and a pin container would hold it
+// against that.
 
 import fs from 'node:fs'
 import path from 'node:path'
@@ -32,6 +46,9 @@ import { fileURLToPath } from 'node:url'
 import { execFileP } from './exec.mjs'
 import { lastFrame, readable } from './logline.mjs'
 import { PRODUCTION_HARNESSES } from './productionharnesses.mjs'
+import { AGENT_IMAGE, imageReference } from '../../cli/src/bundle.mjs'
+import { parseManifest } from '../../cli/src/manifest.mjs'
+import { readInstallationRecord, versionPaths } from '../../cli/src/root.mjs'
 
 const DIR = path.dirname(fileURLToPath(import.meta.url))
 
@@ -48,8 +65,10 @@ export const BUILD_CMD = 'npm run build-agent-image --prefix daemon'
 // A build pulls a base image, fetches gh, and installs the selectable Harness
 // CLIs. A cold build takes about four minutes on the box. Ten minutes leaves
 // room for a slow mirror without leaving a dispatch hanging
-// on a wedged builder forever.
+// on a wedged builder forever. A pull of the release image is the same order
+// of size, so it gets the same room.
 export const BUILD_TIMEOUT_MS = 10 * 60_000
+export const PULL_TIMEOUT_MS = BUILD_TIMEOUT_MS
 
 // Every ARG the Dockerfile declares, in the order it declares them. Kept as
 // one list because it is the contract between the two files: an ARG added
@@ -185,6 +204,37 @@ export function buildAgentImage(ref, { onLine = () => {} } = {}) {
   })
 }
 
+// ---- the release image of an installation ------------------------------------------
+
+// The agent image the installed release binds, as the exact digest reference
+// `curia install` pulled: `ghcr.io/alp82/curia-agent@sha256:…`. Read from the
+// manifest of the active version on every call, for the reason imageDigest
+// gives: a switch changes the active version under a running daemon, and the
+// next agent must start from the release that is live.
+export function releaseAgentImage(root) {
+  const record = readInstallationRecord(root)
+  if (!record) throw new Error(`no installation record under ${root}, so the agent image of this installation is unknown; an installation pulls the agent image its release binds and never builds one`)
+  const file = versionPaths(root, record.activeVersion).manifest
+  let manifest
+  try {
+    manifest = parseManifest(fs.readFileSync(file, 'utf8'))
+  } catch (e) {
+    throw new Error(`the release manifest ${file} cannot be read (${e.code === 'ENOENT' ? 'no such file' : e.message}), so the agent image of ${record.activeVersion} is unknown; an installation pulls the agent image its release binds and never builds one`)
+  }
+  const { name, digest } = manifest.images[AGENT_IMAGE]
+  return { repo: name, tag: null, ref: imageReference(AGENT_IMAGE, digest), digest, version: record.activeVersion }
+}
+
+// `docker pull` by digest, quiet: the progress bars are terminal lines the
+// journal cannot keep (#190), and the one line that matters is the failure.
+export async function pullAgentImage(ref, { exec = execFileP, docker = DOCKER_BIN } = {}) {
+  try {
+    await exec(docker, ['pull', '--quiet', ref], { timeout: PULL_TIMEOUT_MS })
+  } catch (e) {
+    throw dockerError(e)
+  }
+}
+
 // ---- the pin, and the tags it lets go ---------------------------------------------
 //
 // The box runs Coolify, and its forced nightly cleanup deletes every image no
@@ -270,25 +320,33 @@ export async function pruneOtherTags(ref, { exec = execFileP, docker = DOCKER_BI
   return removed
 }
 
-// One build at a time per tag. Two dispatches landing together would otherwise
-// each run a four-minute build of the same image, and the second would win a
-// race it did not need to enter.
+// One build (or pull) at a time per reference. Two dispatches landing
+// together would otherwise each run a four-minute build of the same image,
+// and the second would win a race it did not need to enter.
 const inflight = new Map()
 
+async function once(key, work) {
+  if (!inflight.has(key)) inflight.set(key, work().finally(() => inflight.delete(key)))
+  return inflight.get(key)
+}
+
+// `root` is the installation root, and it changes the answer entirely: the
+// image is the release's, pulled and never built, with no pin and no sweep.
+// Without a root this is the source box, which builds as it always has.
 export async function ensureAgentImage(sandbox, {
-  onLine, exec = execFileP, docker = DOCKER_BIN, build = buildAgentImage,
+  onLine, exec = execFileP, docker = DOCKER_BIN, build = buildAgentImage, root = null,
 } = {}) {
   const seams = { exec, docker }
+  if (root) {
+    const release = releaseAgentImage(root)
+    const pulled = !(await imageExists(release.ref, seams))
+    if (pulled) await once(release.ref, () => pullAgentImage(release.ref, seams))
+    return { ...release, built: false, pulled, pin: { created: false }, pruned: [] }
+  }
   const ref = agentImageRef(sandbox)
   const built = !(await imageExists(ref.ref, seams))
 
-  if (built) {
-    if (!inflight.has(ref.ref)) {
-      const p = build(ref, { onLine }).finally(() => inflight.delete(ref.ref))
-      inflight.set(ref.ref, p)
-    }
-    await inflight.get(ref.ref)
-  }
+  if (built) await once(ref.ref, () => build(ref, { onLine }))
 
   // The pin moves BEFORE the prune, so the tag it used to hold is free to go.
   // A pin that cannot be made is reported, never thrown: the image is on the

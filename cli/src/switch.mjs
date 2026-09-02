@@ -1,7 +1,7 @@
 import { readdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { HEALTH_POLL_MS, compose, composeProject, dockerRunner, waitForHealth, writeComposeEnvironment } from './compose.mjs'
+import { HEALTH_POLL_MS, compose, composeProject, dockerRunner, pullAgentImage, waitForHealth, writeComposeEnvironment } from './compose.mjs'
 import { APP_PORT, SERVICE_PORT } from './doctor.mjs'
 import { writeInstallationRecord } from './root.mjs'
 
@@ -22,8 +22,10 @@ import { writeInstallationRecord } from './root.mjs'
 //      every agent container keep running: they are not named, `--no-deps`
 //      keeps Compose off the runtime the service depends on, and nothing
 //      removes orphans. An agent keeps the image it started on; the
-//      recreated service builds the target's agent image for the next
-//      spawn. The overseer comes back beside the service, which is the
+//      target's agent image is pulled here too, so the recreated service
+//      starts the next agent from the target release's image with no pull
+//      on the dispatch path. The recreated service reads that image from
+//      the target's release manifest; it builds nothing. The overseer comes back beside the service, which is the
 //      shape its replay of an interrupted turn was built for (ADR-0015).
 //   3. Acceptance: every declared service reports healthy, the service and
 //      the app report the target version on their `/ping` routes, and every
@@ -92,6 +94,7 @@ export async function switchRelease(
   writeComposeEnvironment(target, environment)
   say(`pulling the images of ${to} by digest`)
   await compose(target, ['pull', ...CORE_SERVICES], { docker })
+  await pullAgentImage(target, { docker })
   say(`recreating ${CORE_SERVICES.join(', ')} from ${to}; tmux, ttyd, and the agent containers keep running`)
   say('an agent keeps the image it started on; the next agent uses the image of the target release')
   say('the overseer replays a turn the switch interrupted, as it does after any restart')

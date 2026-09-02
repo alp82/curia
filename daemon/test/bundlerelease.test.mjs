@@ -24,6 +24,7 @@ const DIGESTS = {
   tmux: `sha256:${'2'.repeat(64)}`,
   dashboard: `sha256:${'3'.repeat(64)}`,
   overseer: `sha256:${'4'.repeat(64)}`,
+  agent: `sha256:${'5'.repeat(64)}`,
 }
 
 const gnuTar = /GNU tar/.test(spawnSync('tar', ['--version'], { encoding: 'utf8' }).stdout ?? '')
@@ -59,6 +60,10 @@ describe('deploy/bundle/render.mjs', { skip: gnuTar ? false : 'the bundle archiv
     assert.equal(images.version, VERSION)
     assert.deepEqual(Object.keys(images.images), Object.keys(RELEASE_IMAGES))
     assert.deepEqual(images.images.tmux, { name: `${IMAGE_REGISTRY}/curia-tmux`, digest: DIGESTS.tmux, reference: `${IMAGE_REGISTRY}/curia-tmux@${DIGESTS.tmux}` })
+    // The agent image is in the digest set and the manifest, and in the
+    // bundle it is not: no service runs it.
+    assert.deepEqual(images.images.agent, { name: `${IMAGE_REGISTRY}/curia-agent`, digest: DIGESTS.agent, reference: `${IMAGE_REGISTRY}/curia-agent@${DIGESTS.agent}` })
+    assert.ok(!compose.includes('curia-agent'), 'the bundle names no agent image')
 
     assert.match(r.stdout, new RegExp(`curia-bundle-${VERSION}.tar.gz\\s+sha256:${sum}`))
 
@@ -89,6 +94,9 @@ describe('deploy/bundle/render.mjs', { skip: gnuTar ? false : 'the bundle archiv
     const missing = render(path.join(dir, 'missing'), { ...DIGESTS, overseer: undefined })
     assert.equal(missing.status, 1)
     assert.match(missing.stderr, /overseer/)
+    const noAgent = render(path.join(dir, 'no-agent'), { ...DIGESTS, agent: undefined })
+    assert.equal(noAgent.status, 1)
+    assert.match(noAgent.stderr, /agent/)
     const tagged = render(path.join(dir, 'tagged'), { ...DIGESTS, daemon: 'v1.2.3' })
     assert.equal(tagged.status, 1)
     assert.match(tagged.stderr, /daemon/)

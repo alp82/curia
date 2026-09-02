@@ -32,6 +32,7 @@ const DIGESTS = {
   tmux: `sha256:${'2'.repeat(64)}`,
   dashboard: `sha256:${'3'.repeat(64)}`,
   overseer: `sha256:${'4'.repeat(64)}`,
+  agent: `sha256:${'5'.repeat(64)}`,
 }
 const TEMPLATE = fs.readFileSync(path.join(REPO, 'deploy', 'bundle', 'compose.yaml'), 'utf8')
 

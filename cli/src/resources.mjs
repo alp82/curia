@@ -73,7 +73,7 @@ export async function removeInstallationResources(installationId, { docker = doc
   return found
 }
 
-// The release images on the host: every image under one of the four exact
+// The release images on the host: every image under one of the five exact
 // repositories `RELEASE_IMAGES` names, whatever release it belongs to, as
 // `{ id, reference }` with the reference `<repository>@<digest>` (or
 // `<repository>:<tag>` for one pulled by tag). Images are not labelled with

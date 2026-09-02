@@ -44,7 +44,9 @@ import { tailscaleRunner } from './tailscale.mjs'
 //              Any other directory under versions/ is removed, so one release
 //              is installed.
 //   start      the Compose environment and the mount sources exist, the
-//              images are pulled by digest, and the project is up.
+//              five images are pulled by digest (the four the bundle names
+//              through Compose, the agent image from the release
+//              manifest), and the project is up.
 //   health     every declared service reports healthy.
 //
 // Every step is idempotent by inspection, not by a persisted operation record:

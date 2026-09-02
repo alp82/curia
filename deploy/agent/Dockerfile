@@ -6,6 +6,12 @@
 # mounts and passes in (#156), never a per-agent build: a build per dispatch
 # would put a network fetch and two npm installs on the dispatch path.
 #
+# Since #891 this is also the fifth release image: the release workflow
+# builds it once per release as `ghcr.io/alp82/curia-agent`, from the same
+# pins, attests it, binds its digest in the release manifest, and an
+# installation pulls it by digest and never builds it. The source deployment
+# still builds it on the box through daemon/src/image.mjs.
+#
 # Kept to the classic builder on purpose — the box runs docker 20.10, where
 # BuildKit is not the default. No heredocs, no `RUN --mount`, no `COPY --link`.
 #
@@ -25,7 +31,9 @@
 # a rebuild. The other three images name it the same way.
 ARG NODE_VERSION
 
-FROM node:${NODE_VERSION}-bookworm-slim
+# The one stage is named `release`, so the workflow builds it with the same
+# `--target release` as the four service images.
+FROM node:${NODE_VERSION}-bookworm-slim AS release
 
 ARG CLAUDE_VERSION
 ARG CODEX_VERSION
@@ -34,7 +42,10 @@ ARG PLAYWRIGHT_VERSION
 ARG TTYD_VERSION
 # The agent uid must match the host user that owns the mounted clone and cfg
 # dir, or the agent cannot write its own worktree. The box runs the daemon as
-# uid 1000 (`alp`).
+# uid 1000 (`alp`). The release build takes the default: the daemon starts
+# every container with `--user <operator uid>`, which overrides the image's
+# USER, and the paths the agent writes inside the image are opened to any uid
+# (see the chmod after the cache volumes).
 ARG AGENT_UID=1000
 
 # TUIs draw box characters. A container with no LANG lays them out as question
@@ -136,6 +147,15 @@ ENV NPM_CONFIG_CACHE=/cache/npm \
 RUN set -eux; \
     mkdir -p /cache/npm /cache/playwright-browsers /workspace; \
     chown -R agent:agent /cache /workspace
+
+# Open to any uid (#891). The release image is built once, with AGENT_UID at
+# its default, and every container runs as the operator's real uid through
+# `--user`, which the image cannot know. The home and the cache directories
+# are what a harness writes on its first run, and a volume created from an
+# image directory inherits its mode, so this is what keeps a first `npm`
+# or `playwright install` from failing under a uid the image never heard of.
+# A container is one agent's, so a world-writable home costs nothing.
+RUN chmod -R a+rwX /home/agent /cache /workspace
 
 # The kill guard's login-shell half (#385). The guard itself is written by the
 # daemon into the mounted config dir (`/cfg/bin`, see daemon/src/sandbox.mjs):

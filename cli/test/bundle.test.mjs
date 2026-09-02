@@ -2,12 +2,12 @@ import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 
 import {
-  COMPOSE_PROJECT, INSTALLATION_LABEL, IMAGE_REGISTRY, RELEASE_IMAGES, BUNDLE_VARIABLES,
+  COMPOSE_PROJECT, INSTALLATION_LABEL, IMAGE_REGISTRY, RELEASE_IMAGES, AGENT_IMAGE, BUNDLE_VARIABLES,
   imageReference, renderBundle, inspectBundle, bundleEnvironment, BundleError,
 } from '../src/bundle.mjs'
 
 const D = 'a'.repeat(64)
-const DIGESTS = { daemon: `sha256:${D}`, tmux: `sha256:${'b'.repeat(64)}`, dashboard: `sha256:${'c'.repeat(64)}`, overseer: `sha256:${'d'.repeat(64)}` }
+const DIGESTS = { daemon: `sha256:${D}`, tmux: `sha256:${'b'.repeat(64)}`, dashboard: `sha256:${'c'.repeat(64)}`, overseer: `sha256:${'d'.repeat(64)}`, agent: `sha256:${'e'.repeat(64)}` }
 
 // A template in the shape of deploy/bundle/compose.yaml: one image variable
 // per service and the run-time variables beside them.
@@ -33,11 +33,13 @@ const TEMPLATE = [
 ].join('\n')
 
 describe('the contract', () => {
-  test('one fixed project name, one label key, four release images under one registry', () => {
+  test('one fixed project name, one label key, five release images under one registry, one of them the agent image', () => {
     assert.equal(COMPOSE_PROJECT, 'curia')
     assert.equal(INSTALLATION_LABEL, 'sh.curia.installation')
     assert.equal(IMAGE_REGISTRY, 'ghcr.io/alp82')
-    assert.deepEqual(RELEASE_IMAGES, { daemon: 'curia-daemon', tmux: 'curia-tmux', dashboard: 'curia-dashboard', overseer: 'curia-overseer' })
+    assert.deepEqual(RELEASE_IMAGES, { daemon: 'curia-daemon', tmux: 'curia-tmux', dashboard: 'curia-dashboard', overseer: 'curia-overseer', agent: 'curia-agent' })
+    assert.equal(AGENT_IMAGE, 'agent')
+    assert.ok(AGENT_IMAGE in RELEASE_IMAGES, 'the agent image is a release image')
     assert.deepEqual(BUNDLE_VARIABLES, ['CURIA_ROOT', 'CURIA_UID', 'CURIA_GID', 'DOCKER_GID', 'CURIA_INSTALLATION_ID'])
   })
 
@@ -45,7 +47,8 @@ describe('the contract', () => {
     assert.equal(imageReference('daemon', `sha256:${D}`), `ghcr.io/alp82/curia-daemon@sha256:${D}`)
     assert.throws(() => imageReference('daemon', '1.2.3'), BundleError)
     assert.throws(() => imageReference('daemon', `sha256:${D.slice(1)}`), BundleError)
-    assert.throws(() => imageReference('agent', `sha256:${D}`), BundleError)
+    assert.equal(imageReference('agent', `sha256:${D}`), `ghcr.io/alp82/curia-agent@sha256:${D}`)
+    assert.throws(() => imageReference('worker', `sha256:${D}`), BundleError)
   })
 })
 

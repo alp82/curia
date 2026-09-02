@@ -28,12 +28,11 @@ import { externalChecklist, purgeCommand } from './uninstall.mjs'
 //              container, network, and volume that carries this
 //              installation's label, the same teardown as uninstall.
 //   routes     the Tailscale Serve routes Curia created, the same as uninstall.
-//   images     the release images nothing on the host uses any more. Found
-//              by their exact repositories, never by a name prefix, and
-//              removed only when Docker lists no container over them and
-//              accepts the removal without force. An image another
-//              installation runs stays. The agent image the service built is
-//              not a release image and stays.
+//   images     the release images nothing on the host uses any more, the
+//              agent image among them (#891). Found by their five exact
+//              repositories, never by a name prefix, and removed only when
+//              Docker lists no container over them and accepts the removal
+//              without force. An image another installation runs stays.
 //   root       the launcher when it names this root, then the installation
 //              root itself, last, with the installation record as the last
 //              file inside it, so a rerun over a half-removed root still
