@@ -113,16 +113,23 @@ function codexSkillDenyList(install) {
     .sort()
 }
 
-function seedCredential(cfgDir, { sandboxed = false } = {}) {
+// `credentialFile` is `cfg.paths.codexAuth` (#891): `secrets/codex-auth.json`
+// under an installation root, the home's `.codex/auth.json` without one. The
+// caller that has no config (the bare-path seed in the suite) gets the home's
+// file, which is what the source deployment's config names too. The reauth lane
+// writes that same file and the model card verifies it, so a spawn that read
+// any other path would refuse a credential the operator can see is connected -
+// the rehearsal's first dispatch did exactly that, looking in `cache/home`.
+function seedCredential(cfgDir, { sandboxed = false, credentialFile = null } = {}) {
   const destination = path.join(cfgDir, 'auth.json')
-  const host = path.join(os.homedir(), '.codex', 'auth.json')
+  const host = credentialFile ?? path.join(os.homedir(), '.codex', 'auth.json')
   fs.rmSync(destination, { force: true })
   if (!sandboxed) {
     fs.symlinkSync(host, destination)
     return
   }
   if (!fs.existsSync(host)) {
-    throw new Error(`no codex credential for the container: ${host} does not exist, and a sandboxed codex agent cannot reach the host store - type \`reauth\` to sign in from a browser (#642)`)
+    throw new Error(`no codex credential for the container: ${host} does not exist, and a sandboxed codex agent cannot reach curia's store - type \`reauth\` to sign in from a browser (#642)`)
   }
   const raw = fs.readFileSync(host, 'utf8')
   const expiry = codexAccessTokenExpiry(raw)
