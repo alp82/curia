@@ -112,7 +112,7 @@ The card remembers the server id and the channel name (`progress.discord.guild_i
 
 ## Connect Tailscale
 
-The Tailscale card verifies the Tailscale node this host already runs, publishes Curia's own Serve route for the app, and records the operator who may open Curia. The node joined your tailnet during `curia install`, under the name you gave it there; see [The tailnet step](install.md#the-tailnet-step). Curia never installs Tailscale, renames the node, or changes the tailnet's policy, and the card has no field: the node's name and address are facts it shows. Every failed check names the command you run on the host or the page you open in the Tailscale admin console.
+The Tailscale card verifies the Tailscale node this host already runs, names the node, publishes Curia's own Serve route for the app, and records the operator who may open Curia. The node joined your tailnet during `curia install`, under the name you gave it with `--name`; see [The tailnet step](install.md#the-tailnet-step). The card's one field is **Node name**, prefilled with the name the node has, and a changed name renames the node when you confirm. Curia never installs Tailscale, logs the node in, or changes the tailnet's policy. Every other failed check names the command you run on the host or the page you open in the Tailscale admin console.
 
 ### Who may open Curia
 
@@ -123,10 +123,22 @@ On a fresh installation, no operator is recorded, so the app admits the first ta
 ### Confirm the operator
 
 1. Open the Curia app at the address `curia install` printed, `https://<node>:8445/`, through Tailscale. A request on loopback carries no identity and can't confirm anything.
-2. On the **Tailscale** card, check the identity the panel names. It is the login Tailscale stamped on your request, and the browser can't change it. The panel also names the node and its address as facts. Curia doesn't rename the node. To rename it, run `sudo tailscale set --hostname <name>` on the host.
-3. Select **Confirm operator and verify**.
+2. On the **Tailscale** card, check the identity the panel names. It is the login Tailscale stamped on your request, and the browser can't change it. The panel also names the node and its address as facts.
+3. Check **Node name**. The field holds the name the node has. Keep it, or enter the name you want: a MagicDNS label, lowercase letters, digits, and hyphens, up to 63 characters, not starting or ending with a hyphen.
+4. Select **Confirm operator and verify**.
 
-Curia records the login, when it was confirmed, and the node's machine name, read from the node, in `state/tailscale.json` in the installation root, mode `0600`. From that moment the recorded login is the whole identity allowlist under an installation root, for the service and the app alike, with no restart. The `identity.allow` list in `curia.yaml` belongs to the source deployment and admits nobody under an installation root.
+Curia records the login, when it was confirmed, and the node's machine name in `state/tailscale.json` in the installation root, mode `0600`. From that moment the recorded login is the whole identity allowlist under an installation root, for the service and the app alike, with no restart. The `identity.allow` list in `curia.yaml` belongs to the source deployment and admits nobody under an installation root.
+
+### Rename the node
+
+When the name you confirmed equals the node's name, nothing changes. When it differs, Curia renames the node before it records anything:
+
+1. It runs `tailscale set --hostname <name>` on the host. The operator permission suffices. When Tailscale refuses, the card names `sudo tailscale set --operator=$USER` as the action and records nothing.
+2. It waits for `tailscaled` to report the new MagicDNS name, up to 30 seconds.
+3. It asserts Curia's Serve route again, because Serve keys its routes by the node's name.
+4. It records the new name and verifies the node under it.
+
+The page then shows the new address, `https://<name>.<tailnet>.ts.net:8445/`, as a link, and says that the address you are on stops working. Open the app at the new address to continue. `curia doctor` reads the recorded name and warns when the node carries another one.
 
 ### What verification proves
 
@@ -135,7 +147,7 @@ Every read of the card runs the same verification, in this order:
 1. An operator is recorded. Without one the card is plain, **Ready to connect**.
 2. `tailscale` answers on this host.
 3. The node is logged in, running, and online.
-4. The tailnet issues an HTTPS certificate for the node. Its name is the private address, and its first label is the machine name the record keeps, refreshed when the node was renamed by hand.
+4. The tailnet issues an HTTPS certificate for the node. Its name is the private address, and its first label is the machine name the record keeps, refreshed when the node was renamed by hand or from the card.
 5. Curia's own Serve route stands: the app on port `8445`, proxied to `127.0.0.1:4273`. Curia creates the route when it is missing and records it in `state/tailscale.json`. It creates no other route.
 6. The app answers on its own address and admits the recorded login. Curia times this request.
 
@@ -153,7 +165,7 @@ A failed step names the failure and one action, for example `The tailnet issues 
 | The app refuses the recorded login. | Restart Curia so the app reads the recorded operator. |
 | The app doesn't answer on `127.0.0.1:4273`. | Check the dashboard service with `docker compose ps`. |
 
-The card has no field, so it remembers nothing for a reopen. The recorded operator, the node's machine name, and Curia's Serve routes live in `state/tailscale.json`. Nothing in that file is a secret. `curia uninstall` reads the recorded routes to withdraw them.
+The **Node name** field is prefilled from the node on every read, so the card remembers nothing for a reopen. The recorded operator, the node's machine name, and Curia's Serve routes live in `state/tailscale.json`. Nothing in that file is a secret. `curia uninstall` reads the recorded routes to withdraw them.
 
 ## Connect OpenAI
 

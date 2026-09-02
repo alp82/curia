@@ -40,7 +40,7 @@ Before the hand-off to `curia install`. A refusal leaves nothing on the host: no
 | `tailnet: your user may not operate Tailscale on this host` | Your user isn't the Tailscale operator, so `tailscale up` and Serve are refused for it. | Run the `sudo tailscale set --operator=<user>` command the message names, then rerun. |
 | `tailnet: the tailnet issues no HTTPS certificate for this node` | HTTPS certificates are off for the tailnet. | Enable them under **DNS** in the [Tailscale admin console](https://login.tailscale.com/admin/dns), then rerun. |
 | `tailnet: this node is not logged in to a tailnet` on `curia reinstall` | Reinstall inspects the tailnet and never logs in. | Run `curia install`, which joins the tailnet, or `sudo tailscale up` on the host. |
-| `this node is named <x>, not <y>` (not a refusal) | The node was already logged in under another name. | Nothing; the install continues with the actual name. To rename it, run `sudo tailscale set --hostname <name>` on the host. |
+| `this node is named <x>, not <y>` (not a refusal) | The node was already logged in under another name. | Nothing; the install continues with the actual name. To rename it, enter the name in the **Node name** field of the Tailscale card, or run `sudo tailscale set --hostname <name>` on the host. |
 | `<name> is not a machine name` (exit `2`) | `--name` isn't a MagicDNS label. | Use lowercase letters, digits, and hyphens, up to 63 characters. |
 | `stage: ` and a verification check | The release didn't verify against its manifest. | The failure classes are in [When a check fails](../release-manifest.md#when-a-check-fails). |
 | `activate failed` | The launcher couldn't be written. | Check that `~/.local/bin` is a directory you own. |

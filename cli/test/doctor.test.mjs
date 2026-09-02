@@ -280,6 +280,38 @@ describe('curia doctor on a lost integration', () => {
   })
 })
 
+// The node's name is the Tailscale card's field since the #891 rehearsal, and
+// `state/tailscale.json` records it. The doctor reads the record and holds
+// it against the node the host reports.
+describe('curia doctor and the recorded node name', () => {
+  const record = (i, machine_name) => writeFileSync(join(i.root, 'state', 'tailscale.json'), JSON.stringify({ format: 1, operator: { login: OPERATOR, confirmed_at: '2026-09-02T10:00:00.000Z' }, machine_name, serve: [] }))
+
+  test('a recorded name the node carries passes and names the record', async () => {
+    const i = await installed()
+    record(i, 'host')
+    const d = await doctor(i, { fetch: fakeService() })
+    assert.equal(d.exit, EXIT.ok, d.out)
+    assert.equal(status(d.out, 'Tailscale node'), 'ok')
+    assert.match(line(d.out, 'Tailscale node'), /host, as state\/tailscale\.json records/)
+  })
+
+  test('a recorded name the node does not carry is a warning that names both and the card', async () => {
+    const i = await installed()
+    record(i, 'curia')
+    const d = await doctor(i, { fetch: fakeService() })
+    assert.equal(d.exit, EXIT.ok, d.out)
+    assert.equal(status(d.out, 'Tailscale node'), 'warning')
+    assert.match(line(d.out, 'Tailscale node'), /records the name curia, but the node is host/)
+    assert.match(d.out, /Node name/)
+  })
+
+  test('with no name recorded there is no node-name check: the admitted-operator check already says setup is pending', async () => {
+    const i = await installed()
+    const d = await doctor(i, { fetch: fakeService() })
+    assert.equal(status(d.out, 'Tailscale node'), undefined)
+  })
+})
+
 describe('curia doctor on a missing installation', () => {
   test('an absent root fails the installation check with the bootstrap as the action and checks nothing that needs a root', async () => {
     const home = mkdtempSync(join(scratch, 'home-'))

@@ -56,7 +56,7 @@ waiting for the login (up to 10 minutes)
 
 Open the link on any device where you're signed in to Tailscale, such as your laptop or phone, and approve the machine. The command continues on its own once the node is running. This is the one moment in the installation that needs you: the Curia app is reachable only through Tailscale, so the login can't wait for the browser.
 
-When the host is already logged in, the step reports the node's name and address instead and asks nothing. Curia never renames a node. If the name isn't the one you passed, the step says so and continues with the actual name; run `sudo tailscale set --hostname <name>` on the host to rename it, or pass `--name <actual name>` next time. The step is described in [The tailnet step](../install.md#the-tailnet-step).
+When the host is already logged in, the step reports the node's name and address instead and asks nothing. The tailnet step doesn't rename a node. If the name isn't the one you passed, the step says so and continues with the actual name; rename it later from the **Node name** field of the Tailscale card, run `sudo tailscale set --hostname <name>` on the host, or pass `--name <actual name>` next time. The step is described in [The tailnet step](../install.md#the-tailnet-step).
 
 ## What you should see
 

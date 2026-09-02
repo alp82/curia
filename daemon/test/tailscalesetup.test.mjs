@@ -1,12 +1,14 @@
 // The Tailscale card of integration setup (#877, filling the #874 seam under
 // the #852 contract).
 //
-// What is pinned: Curia detects Tailscale and never changes it, so every miss
-// names the command the operator runs; the identity that opened the app is
-// shown and recorded only on an explicit confirmation, into
+// What is pinned: Curia detects Tailscale and changes two things about it,
+// the node's name from the card's field and its own Serve route, so every
+// other miss names the command the operator runs; the identity that opened
+// the app is shown and recorded only on an explicit confirmation, into
 // `state/tailscale.json`, and that record is the identity allowlist under a
-// root; the node's name is a fact read from the node and recorded, never a
-// field the operator types or a comparison (#891); Curia creates and
+// root; the node's name is prefilled from the node, a name that equals it
+// changes nothing, and another name renames the node before anything is
+// recorded (the owner's decision at the #891 rehearsal); Curia creates and
 // records only its own Serve route; verification is the current fact, in
 // the order the operator meets it: the node, its login and connection, its
 // certificate, the Serve route, and the app's own admission of the
@@ -36,6 +38,8 @@ const status = (over = {}) => ({
   Self: { DNSName: `${DNS}.`, Online: true, TailscaleIPs: ['100.98.118.33', 'fd7a:115c:a1e0::1'] },
   ...over,
 })
+// The status of the same node under another name.
+const named = (name) => status({ CertDomains: [`${name}.tail1234.ts.net`], Self: { DNSName: `${name}.tail1234.ts.net.`, Online: true, TailscaleIPs: ['100.98.118.33', 'fd7a:115c:a1e0::1'] } })
 const serveConfig = (target = `http://127.0.0.1:${APP_PORT}`) => ({
   TCP: { [SERVE_PORT]: { HTTPS: true } },
   Web: { [`${DNS}:${SERVE_PORT}`]: { Handlers: { '/': { Proxy: target } } } },
@@ -53,6 +57,10 @@ function tailscaleCli(over = {}) {
     const key = args.join(' ')
     if (key === 'status --json') {
       if (state.status instanceof Error) throw state.status
+      if (state.pending && state.pending.reads-- <= 0) {
+        state.status = named(state.pending.name)
+        state.pending = null
+      }
       return { stdout: JSON.stringify(state.status), stderr: '' }
     }
     if (key === 'serve status --json') {
@@ -62,6 +70,14 @@ function tailscaleCli(over = {}) {
     if (args[0] === 'serve' && args[1] === '--bg') {
       if (state.publish instanceof Error) throw state.publish
       state.serve = serveConfig(args[3])
+      return { stdout: '', stderr: '' }
+    }
+    // `set --hostname` renames the node; tailscaled reports the new name
+    // after `renameLag` more status reads (at once by default, never when
+    // the lag is Infinity).
+    if (args[0] === 'set' && args[1] === '--hostname') {
+      if (state.rename instanceof Error) throw state.rename
+      state.pending = { name: args[2], reads: state.renameLag ?? 0 }
       return { stdout: '', stderr: '' }
     }
     throw new Error(`unexpected tailscale ${key}`)
@@ -98,7 +114,7 @@ describe('the Tailscale card (#877)', () => {
     const allow = new Set()
     const setup = new TailscaleSetup({
       root, stateDir, servePort: SERVE_PORT, appPort: APP_PORT, allow, exec: cli.exec, ...(probe ? { probe: probe.probe } : {}),
-      log: (line) => log.push(line), now: () => new Date('2026-09-02T10:00:00.000Z'), ...over,
+      log: (line) => log.push(line), now: () => new Date('2026-09-02T10:00:00.000Z'), sleep: async () => {}, ...over,
     })
     return { setup, cli, probe, log, allow, verify: setup.verifier() }
   }
@@ -206,6 +222,81 @@ describe('the Tailscale card (#877)', () => {
     })
   })
 
+  // The owner's decision at the #891 rehearsal: the node's name is a field
+  // of the card, prefilled with the name the node has, and a changed name
+  // renames the node. This is the one thing Curia changes about Tailscale
+  // besides its own Serve route.
+  describe('the node name', () => {
+    const NEW_DNS = 'curia.tail1234.ts.net'
+
+    test('confirming with the name the node already has changes nothing: no rename, and the record keeps that name', async () => {
+      const cli = tailscaleCli()
+      const { setup } = setupOver(cli)
+      const out = await setup.confirmOperator({ login: LOGIN, machine_name: 'curia-sh' })
+      assert.equal(out.renamed, null)
+      assert.equal(out.machine_name, 'curia-sh')
+      assert.equal(out.app_url, `https://${DNS}:${SERVE_PORT}/`)
+      assert.equal(readTailscaleRecord(stateDir).machine_name, 'curia-sh')
+      assert.ok(cli.calls.every((args) => args[0] !== 'set'), 'the node is not renamed')
+    })
+
+    test('confirming with another name renames the node, waits for tailscaled to report it, re-asserts the Serve route, records the name, and answers the new address', async () => {
+      const cli = tailscaleCli({ serve: serveConfig(), renameLag: 2 })
+      const { setup, log, probe } = setupOver(cli)
+      const out = await setup.confirmOperator({ login: LOGIN, machine_name: 'curia' })
+      assert.deepEqual(cli.calls.filter((a) => a[0] === 'set'), [['set', '--hostname', 'curia']])
+      assert.deepEqual(cli.calls.filter((a) => a[1] === '--bg'), [['serve', '--bg', `--https=${SERVE_PORT}`, `http://127.0.0.1:${APP_PORT}`]])
+      const setAt = cli.calls.findIndex((a) => a[0] === 'set')
+      const serveAt = cli.calls.findIndex((a) => a[1] === '--bg')
+      assert.ok(setAt < serveAt, 'the route is re-asserted after the rename')
+      assert.ok(cli.calls.slice(setAt + 1, serveAt).filter((a) => a.join(' ') === 'status --json').length >= 2, 'the daemon waited for the new name')
+      assert.deepEqual(out.renamed, { from: 'curia-sh', to: 'curia', previous_app_url: `https://${DNS}:${SERVE_PORT}/`, app_url: `https://${NEW_DNS}:${SERVE_PORT}/` })
+      assert.equal(out.app_url, `https://${NEW_DNS}:${SERVE_PORT}/`)
+      assert.equal(out.machine_name, 'curia')
+      assert.deepEqual(readTailscaleRecord(stateDir), { operator: { login: LOGIN, confirmed_at: '2026-09-02T10:00:00.000Z' }, machine_name: 'curia', serve: [] })
+      assert.match(log.join('\n'), /renamed the node curia-sh to curia/)
+      // The verification then proves the node under the new name.
+      const answer = await setup.verifier()({ progress: {} })
+      assert.equal(answer.ok, true, JSON.stringify(answer))
+      assert.equal(answer.primary, NEW_DNS)
+      assert.equal(answer.detail.machine_name, 'curia')
+      assert.equal(probe.probes.at(-1).headers.host, `${NEW_DNS}:${SERVE_PORT}`)
+    })
+
+    test('a rename tailscaled refuses is one refusal that names the operator command, and nothing is recorded', async () => {
+      const cli = tailscaleCli({ rename: cliError('Access denied: set requires root or operator permission') })
+      const { setup, allow } = setupOver(cli)
+      await assert.rejects(() => setup.confirmOperator({ login: LOGIN, machine_name: 'curia' }), (e) => e.refusal && /could not rename the node: Access denied/.test(e.message) && /sudo tailscale set --operator=\$USER/.test(e.message))
+      assert.equal(fs.existsSync(path.join(stateDir, 'tailscale.json')), false)
+      assert.deepEqual([...allow], [])
+      assert.ok(cli.calls.every((a) => a[1] !== '--bg'))
+    })
+
+    test('a node that keeps its old name after the rename is one refusal that names the wait, and nothing is recorded', async () => {
+      const cli = tailscaleCli({ renameLag: Infinity })
+      const { setup } = setupOver(cli)
+      await assert.rejects(() => setup.confirmOperator({ login: LOGIN, machine_name: 'curia' }), (e) => e.refusal && /still reports the name curia-sh/.test(e.message))
+      assert.equal(fs.existsSync(path.join(stateDir, 'tailscale.json')), false)
+    })
+
+    test('a name that is not a MagicDNS label is refused before tailscale is asked', async () => {
+      const cli = tailscaleCli()
+      const { setup } = setupOver(cli)
+      for (const bad of ['Curia.SH', '-curia', 'curia-', 'a'.repeat(64), 'curia sh', '']) {
+        await assert.rejects(() => setup.confirmOperator({ login: LOGIN, machine_name: bad }), (e) => e.refusal && /MagicDNS label/.test(e.message), bad)
+      }
+      assert.equal(cli.calls.length, 0)
+      assert.equal(fs.existsSync(path.join(stateDir, 'tailscale.json')), false)
+    })
+
+    test('a node that is logged out cannot be renamed here: the refusal names curia install', async () => {
+      const cli = tailscaleCli({ status: status({ BackendState: 'NeedsLogin', CertDomains: [], Self: { DNSName: '', Online: false } }) })
+      const { setup } = setupOver(cli)
+      await assert.rejects(() => setup.confirmOperator({ login: LOGIN, machine_name: 'curia' }), (e) => e.refusal && /not logged in/.test(e.message) && /curia install/.test(e.message))
+      assert.ok(cli.calls.every((a) => a[0] !== 'set'))
+    })
+  })
+
   describe('verification', () => {
     test('a confirmed operator on an online node with the route standing is connected: the address, the operator, and the timed admission', async () => {
       confirmed({ serve: [{ https: SERVE_PORT, target: `http://127.0.0.1:${APP_PORT}` }] })
@@ -269,9 +360,9 @@ describe('the Tailscale card (#877)', () => {
       assert.equal(answer.detail.stage, 'certificate')
     })
 
-    // Since #891 the operator names the node at `curia install`, and the
-    // card compares nothing: the node's name is a fact, and the record takes
-    // it when the node was renamed by hand.
+    // The operator names the node at `curia install` or from the card's
+    // field; the verifier compares nothing: the node's name is a fact, and
+    // the record takes it when the node was renamed by hand.
     test('a node named differently from what the record holds is a fact, not a failure: the card connects and the record takes the node\'s name', async () => {
       confirmed({ machine_name: 'curia-sh' })
       const cli = tailscaleCli({ status: status({ CertDomains: ['alp-workstation.tail1234.ts.net'], Self: { DNSName: 'alp-workstation.tail1234.ts.net.', Online: true } }) })
@@ -281,7 +372,7 @@ describe('the Tailscale card (#877)', () => {
       assert.equal(answer.primary, 'alp-workstation.tail1234.ts.net')
       assert.equal(answer.detail.machine_name, 'alp-workstation')
       assert.equal(readTailscaleRecord(stateDir).machine_name, 'alp-workstation')
-      assert.ok(cli.calls.every((args) => !args.includes('--hostname') && args[0] !== 'set'), 'Curia never renames the node')
+      assert.ok(cli.calls.every((args) => !args.includes('--hostname') && args[0] !== 'set'), 'the verifier never renames the node; only the confirmation does')
     })
 
     test('a missing Serve route is created as Curia\'s own, exactly the app on the Serve port, and recorded in state/tailscale.json', async () => {
