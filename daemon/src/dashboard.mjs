@@ -1374,6 +1374,16 @@ export class DashboardSurface {
           return out
         })
       }
+      // Register commands (#891): the one press that registers the manifest
+      // again on the selected server. It carries no field: the server is the
+      // one in state/discord.json, and the manifest is the bridge's own.
+      if (url.pathname === '/api/setup/discord/commands') {
+        return this.#write(res, async () => {
+          const out = await this.#daemon({ method: 'POST', path: '/setup/discord/commands', body: {}, accept: [200, 400], timeout: SETUP_TIMEOUT_MS })
+          if (out.ok === false) throw refuse(out.error)
+          return out
+        })
+      }
       // The Tailscale card (#877). The one write is the confirmation, composed
       // here as the login Serve stamped on THIS request and nothing else: the
       // browser cannot name who becomes the operator, only agree that it is

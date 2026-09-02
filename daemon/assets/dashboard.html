@@ -5183,11 +5183,13 @@ function setupDiscord(card, progress) {
   const secretPresent = card.state === "failed" || d?.secret === "present" || d?.secret === "refused";
   if (!secretPresent) return `${setupDiscordGuide()}${setupDiscordTokenForm(d, true)}`;
   if (!d || d.loading) return `<p class="qhint">Reading the bot's servers…</p>`;
-  const tokenFirst = DISCORD_STAGES_WITH_TOKEN_FORM.includes(stage) || d.secret === "refused" || Boolean(d.error);
+  /* A rate limit (#891) is a wait, not a refused token: the token form stays behind its fold. */
+  const tokenFirst = DISCORD_STAGES_WITH_TOKEN_FORM.includes(stage) || d.secret === "refused" || (Boolean(d.error) && !d.retry_after);
   const bot = d.bot ? `<div class="rows"><div class="row"><span class="key grow">Bot</span><span>${esc(d.bot.username)}${d.invite_url ? ` · <a href="${esc(d.invite_url)}" target="_blank" rel="noopener">Add the bot to a server</a>` : ""}</span></div></div>` : "";
-  const problem = d.error && !stage ? `<p class="qhint">${esc(d.error)}</p>` : "";
+  const problem = d.error && (!stage || stage === "rate_limit") ? `<p class="qhint">${esc(d.error)}</p>` : "";
   return `${bot}${problem}
     ${tokenFirst ? setupDiscordTokenForm(d, true) : ""}
+    ${stage === "commands" ? setupDiscordCommandsForm() : ""}
     ${setupDiscordChannelForm(d, progress, detail)}
     ${tokenFirst ? "" : `<details><summary>Replace the bot token</summary>${setupDiscordTokenForm(d, false)}</details>`}`;
 }
@@ -5228,6 +5230,16 @@ function setupDiscordChannelForm(d, progress, detail) {
 /* The wait for a server (#891): the invite link and the interval the panel
    re-reads on. No select and no channel field, because there is no server
    to pick yet and no name to give before there is. */
+/* Register commands (#891): the one press that registers Curia's slash
+   commands on the selected server again. A read compares what is registered
+   with Curia's manifest and never registers, so a difference is fixed here. */
+function setupDiscordCommandsForm() {
+  const busy = UI.setup.discordBusy === "discord-setup:commands";
+  return `<p><button class="btn primary" ${busy ? "disabled" : ""} onclick="doSetupDiscordCommands()">${busy ? "Registering…" : "Register commands"}</button>
+    <span class="dim-note">Registers Curia's slash commands in the selected server, replacing what is registered there.</span></p>
+    ${said("discord-setup:commands")}`;
+}
+
 function setupDiscordWait(d, detail) {
   const invite = d?.invite_url || detail?.invite_url;
   const every = payload?.poll_interval_s ?? 5;
@@ -5301,6 +5313,11 @@ async function doSetupDiscordChannel() {
   if (!channel) return refuse("discord-setup:channel", "Enter a channel name.");
   await rememberSetupProgress("discord", { guild_id: guildId, channel });
   const out = await discordSetupWrite("discord-setup:channel", "/api/setup/discord/channel", { guild_id: guildId, channel });
+  if (out) UI.setup.discord = null;
+  return loadSetup();
+}
+async function doSetupDiscordCommands() {
+  const out = await discordSetupWrite("discord-setup:commands", "/api/setup/discord/commands", {});
   if (out) UI.setup.discord = null;
   return loadSetup();
 }

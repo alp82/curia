@@ -92,7 +92,7 @@ While the panel waits, it reads the bot's servers again on the Setup page's refr
 2. Enter the command channel's name. The field suggests `curia`, but any name works, and you can change it before anything exists.
 3. Select **Connect channel**.
 
-**Connect channel** writes the server and the channel name to `state/discord.json`, then reuses a top-level text channel of that name when there is one and creates one when there is none. This press is the only step that creates anything in Discord: a verification read, whether on arrival, on the refresh, or on **Try again**, never picks a server for you and never creates a channel. A channel of that name under a category isn't the one, because the bridge opens only top-level channels. When Discord refuses the creation, the panel says why under the button, keeps your choice, and names the fix: give the bot Manage Channels, or create the text channel yourself, then select **Connect channel** again.
+**Connect channel** writes the server and the channel name to `state/discord.json`, then reuses a top-level text channel of that name when there is one and creates one when there is none, and registers Curia's slash commands on that server once. This press is the only step that creates anything in Discord: a verification read, whether on arrival, on the refresh, or on **Try again**, never picks a server for you, never creates a channel, and never registers the commands. A channel of that name under a category isn't the one, because the bridge opens only top-level channels. When Discord refuses the creation, the panel says why under the button, keeps your choice, and names the fix: give the bot Manage Channels, or create the text channel yourself, then select **Connect channel** again.
 
 ### What verification proves
 
@@ -105,14 +105,20 @@ Every read of the card runs the same verification, in this order:
 5. Your user ID is a member of that server.
 6. The command channel exists top-level as a text channel. Verification never creates it; **Connect channel** does.
 7. In that channel, the bot holds every permission the bridge uses.
-8. Curia registers its slash commands on that server.
+8. The slash commands registered on that server match Curia's, by name and description. Verification reads them and never registers them; **Connect channel** and the bridge's start do, and **Register commands** does it again.
 9. A confirmation message from Curia stands in the channel. Curia posts one when none is there.
+
+Each read makes only reads against Discord: the bot, its servers, the operator's membership, the channels, the bot's roles, the registered commands, and the channel's last 50 messages. The one write a read can make is the confirmation message, and only when none of Curia's stands in the channel. This matters because the Setup page reads the card every few seconds while it's open, and Discord counts every command registration against a daily limit per server. A version that registered on every read hit that limit within minutes of connecting (found in the #891 rehearsal).
 
 The card connects when steps 1 to 9 pass. The footer shows the channel and the server, then `Confirmation delivered · <n> commands registered`. The panel links the channel and the confirmation message, names the operator Curia found, and lists the registered commands.
 
 Curia looks for its own earlier confirmation before posting another, so opening **Setup** doesn't fill the channel with repeated lines. To get a fresh confirmation, delete the earlier one and select **Try again**.
 
 A failed step names the failure and one action, for example `curia can't Send Messages in #curia` with `Allow Send Messages for the bot in #curia's permissions, then try again.` Do what the action says and select **Try again**. When Discord refuses the token, the panel puts the token form first so you can submit a new one. Before you select a server, the card reads `No server is selected for <bot>`, and the action is the server and the channel in this panel.
+
+When the registered commands differ from Curia's, for example after an update that added a command or when another tool replaced them, the card reads `The commands registered in <server> differ from curia's: /tickets is not registered`, and the panel offers **Register commands**. That press registers the current manifest on the selected server, replacing what's there, and verifies fresh. The invite link is the fix only when Discord refuses the registration itself, which means the bot was added without the `applications.commands` scope.
+
+When Discord rate limits the bot, on any call, the card doesn't fail. It reports the fact and the wait, `Discord is rate limiting this bot; it answers again in 12 s`, keeps the state of its last verification (a connected card stays connected with that line as its footer, a failed one keeps its failure with the wait as the action), and the action is to wait. Don't add the bot again for a rate limit. The panel's own read says the same and keeps the token form behind its fold.
 
 ### After the card connects
 

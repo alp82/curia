@@ -20,6 +20,7 @@ import path from 'node:path'
 import { writeSecret, readSecret } from '../../cli/src/secrets.mjs'
 import { writeDiscordSettings, readDiscordSettings } from '../src/discordsettings.mjs'
 import { DiscordSetup, CONFIRMATION_MARK, CHANNEL_PERMISSIONS, channelPermissions } from '../src/discordsetup.mjs'
+import { SLASH_MANIFEST } from '../src/bridge.mjs'
 
 const TOKEN = 'MTIzNDU2Nzg5MDEyMzQ1Njc4.GaBcDe.this-token-must-never-be-shown-anywhere-1234'
 const OPERATOR = '111111111111111111'
@@ -51,7 +52,11 @@ const ALL = String(CHANNEL_PERMISSIONS.reduce((bits, p) => bits | p.bit, 0n) | (
 
 const guildRow = (over = {}) => ({ id: GUILD, name: 'Alp\'s workshop', permissions: ALL, ...over })
 const textChannel = (over = {}) => ({ id: CHANNEL, type: 0, name: 'curia', parent_id: null, permission_overwrites: [], ...over })
-const manifestAnswer = () => [200, ['tickets', 'next', 'status', 'skill', 'start', 'map', 'cancel', 'resume', 'attach', 'review', 'model', 'reauth'].map((name, i) => ({ id: String(i), name }))]
+// What Discord answers for the registered commands: the manifest as it
+// stands on the server, by name and description, in Discord's own order.
+const registered = (over = (rows) => rows) => over(SLASH_MANIFEST.map((c, i) => ({ id: String(i), name: c.name, description: c.description })))
+const manifestAnswer = () => [200, registered()]
+const RATE_LIMITED = [429, { message: 'You are being rate limited.', retry_after: 12.3, global: false }]
 
 // The happy path, route by route. A test overrides what it wants to fail.
 function happy(over = {}) {
@@ -62,6 +67,7 @@ function happy(over = {}) {
     [`/guilds/${GUILD}/members/${OPERATOR}`]: [200, { user: { id: OPERATOR, username: 'alp', global_name: 'Alp' }, roles: [] }],
     [`/users/@me/guilds/${GUILD}/member`]: [200, { user: { id: BOT }, roles: [] }],
     [`/guilds/${GUILD}/channels`]: [200, [textChannel()]],
+    [`/applications/${APP}/guilds/${GUILD}/commands`]: manifestAnswer(),
     [`PUT /applications/${APP}/guilds/${GUILD}/commands`]: manifestAnswer(),
     [`/channels/${CHANNEL}/messages?limit=50`]: [200, []],
     [`POST /channels/${CHANNEL}/messages`]: [200, { id: '777', timestamp: '2026-09-02T10:00:00.000Z' }],
@@ -212,7 +218,7 @@ describe('the Discord card (#876)', () => {
       writeSecret(root, 'discord-bot-token', TOKEN)
       writeDiscordSettings(stateDir, { allowed_users: [OPERATOR] })
       const { setup } = setupOver(happy({ [`/guilds/${GUILD}/channels`]: [200, [textChannel({ name: 'ops' })]] }))
-      assert.deepEqual(await setup.chooseChannel({ guild_id: GUILD, channel: 'ops' }), { settings: { allowed_users: [OPERATOR], guild_id: GUILD, channel: 'ops' }, channel: { id: CHANNEL, name: 'ops', created: false } })
+      assert.deepEqual(await setup.chooseChannel({ guild_id: GUILD, channel: 'ops' }), { settings: { allowed_users: [OPERATOR], guild_id: GUILD, channel: 'ops' }, channel: { id: CHANNEL, name: 'ops', created: false }, commands: SLASH_MANIFEST.map((c) => c.name) })
       assert.deepEqual(readDiscordSettings(stateDir), { allowed_users: [OPERATOR], guild_id: GUILD, channel: 'ops' })
       await assert.rejects(() => setup.chooseChannel({ guild_id: 'x', channel: 'ops' }), (e) => e.refusal && /server/.test(e.message))
       await assert.rejects(() => setup.chooseChannel({ guild_id: GUILD, channel: 'Bad Channel' }), (e) => e.refusal && /channel name/.test(e.message))
@@ -301,16 +307,124 @@ describe('the Discord card (#876)', () => {
   })
 
   describe('the commands and the confirmation', () => {
-    test('the commands are registered on the server from the bridge\'s own manifest, and a refusal names the scope', async () => {
+    test('a verification read reads the registered commands and never registers them (#891)', async () => {
       connected()
-      const { verify, d } = setupOver(happy({ [`PUT /applications/${APP}/guilds/${GUILD}/commands`]: [403, { message: 'Missing Access' }] }))
+      const { verify, d } = setupOver(happy())
+      const answer = await verify({ progress: {} })
+      assert.equal(answer.ok, true)
+      assert.equal(answer.detail.commands.length, SLASH_MANIFEST.length)
+      assert.equal(d.calls.some((c) => c.method === 'PUT'), false, 'a read makes no PUT')
+      assert.ok(d.calls.some((c) => c.method === 'GET' && c.route === `/applications/${APP}/guilds/${GUILD}/commands`))
+      await verify({ progress: {} })
+      assert.equal(d.calls.filter((c) => c.method === 'PUT').length, 0, 'and neither does the next one')
+    })
+
+    test('Connect channel registers the manifest once, and the read after it makes no PUT', async () => {
+      writeSecret(root, 'discord-bot-token', `${TOKEN}\n`)
+      writeDiscordSettings(stateDir, { allowed_users: [OPERATOR] })
+      const { setup, verify, d } = setupOver(happy())
+      const out = await setup.chooseChannel({ guild_id: GUILD, channel: 'curia' })
+      const puts = d.calls.filter((c) => c.method === 'PUT')
+      assert.equal(puts.length, 1)
+      assert.equal(puts[0].route, `/applications/${APP}/guilds/${GUILD}/commands`)
+      assert.ok(puts[0].body.some((c) => c.name === 'tickets' && c.description), 'the manifest the bridge registers is the one sent')
+      assert.equal(out.commands.length, SLASH_MANIFEST.length)
+      await verify({ progress: {} })
+      assert.equal(d.calls.filter((c) => c.method === 'PUT').length, 1)
+    })
+
+    test('registered commands that differ from the manifest by name or description fail on the commands, and the action is one press that registers again', async () => {
+      connected()
+      const drifted = registered((rows) => rows.filter((r) => r.name !== 'tickets').map((r) => (r.name === 'status' ? { ...r, description: 'An older sentence' } : r)))
+      let current = drifted
+      const { setup, verify, d } = setupOver(happy({ [`/applications/${APP}/guilds/${GUILD}/commands`]: () => [200, current] }))
       const answer = await verify({ progress: {} })
       assert.equal(answer.ok, false)
-      assert.match(answer.failed, /Discord refused the command registration: Missing Access/)
+      assert.equal(answer.detail.stage, 'commands')
+      assert.match(answer.failed, /\/tickets is not registered/)
+      assert.match(answer.failed, /\/status has another description/)
+      assert.match(answer.action, /Register commands/)
+      assert.doesNotMatch(answer.action, /invite link/)
+      assert.equal(d.calls.some((c) => c.method === 'PUT'), false, 'the read itself registers nothing')
+      const out = await setup.registerCommands()
+      assert.equal(d.calls.filter((c) => c.method === 'PUT').length, 1)
+      assert.equal(out.commands.length, SLASH_MANIFEST.length)
+      current = registered()
+      assert.equal((await verify({ progress: {} })).ok, true)
+    })
+
+    test('a read Discord refuses on the commands names the read, and the action is Register commands before the invite', async () => {
+      connected()
+      const { verify } = setupOver(happy({ [`/applications/${APP}/guilds/${GUILD}/commands`]: [403, { message: 'Missing Access' }] }))
+      const answer = await verify({ progress: {} })
+      assert.equal(answer.ok, false)
+      assert.match(answer.failed, /could not read the registered commands: Missing Access/)
+      assert.match(answer.action, /Register commands/)
       assert.match(answer.action, /applications\.commands/)
       assert.equal(answer.detail.stage, 'commands')
-      const put = d.calls.find((c) => c.method === 'PUT')
-      assert.ok(put.body.some((c) => c.name === 'tickets' && c.description), 'the manifest the bridge registers is the one sent')
+    })
+
+    test('a registration Discord refuses is the refusal Register commands answers, naming the scope', async () => {
+      connected()
+      const { setup } = setupOver(happy({ [`PUT /applications/${APP}/guilds/${GUILD}/commands`]: [403, { message: 'Missing Access' }] }))
+      await assert.rejects(() => setup.registerCommands(), (e) => e.refusal && /could not register the commands in Alp's workshop: Missing Access/.test(e.message) && /applications\.commands/.test(e.message) && !e.message.includes(TOKEN))
+    })
+
+    test('a rate limit is a fact with the wait, and the card keeps its previous state', async () => {
+      connected()
+      let limited = false
+      const { verify, d } = setupOver(happy({ '/users/@me': () => (limited ? RATE_LIMITED : [200, { id: BOT, username: 'curia-box', bot: true }]) }))
+      const before = await verify({ progress: {} })
+      assert.equal(before.ok, true)
+      limited = true
+      const seen = d.calls.length
+      const answer = await verify({ progress: {} })
+      assert.equal(answer.ok, true, 'the connected card stays connected')
+      assert.equal(answer.primary, before.primary)
+      assert.equal(answer.secondary, 'Discord is rate limiting this bot; it answers again in 13 s')
+      assert.deepEqual(answer.detail.rate_limit, { retry_after: 13, until: answer.detail.rate_limit.until })
+      assert.equal(answer.detail.channel.id, CHANNEL)
+      assert.ok(!JSON.stringify(answer).includes('invite link'))
+      assert.equal(d.calls.slice(seen).some((c) => c.method === 'PUT' || c.method === 'POST'), false, 'the limited read writes nothing')
+    })
+
+    test('a rate limit on the first read is a failed verification whose action is the wait, never the invite', async () => {
+      connected()
+      const { verify } = setupOver(happy({ '/users/@me': RATE_LIMITED }))
+      const answer = await verify({ progress: {} })
+      assert.equal(answer.ok, false)
+      assert.equal(answer.failed, 'Discord is rate limiting this bot; it answers again in 13 s')
+      assert.match(answer.action, /Wait 13 s/)
+      assert.doesNotMatch(answer.action, /invite/)
+      assert.equal(answer.detail.stage, 'rate_limit')
+      assert.equal(answer.detail.rate_limit.retry_after, 13)
+    })
+
+    test('a rate limit on the confirmation lookup posts nothing and keeps the previous failed card, with the wait as the action', async () => {
+      connected()
+      let limited = false
+      const { verify, d } = setupOver(happy({
+        [`/channels/${CHANNEL}/messages?limit=50`]: () => (limited ? RATE_LIMITED : [200, []]),
+        [`POST /channels/${CHANNEL}/messages`]: [403, { message: 'Missing Access' }],
+      }))
+      const before = await verify({ progress: {} })
+      assert.equal(before.detail.stage, 'confirmation')
+      limited = true
+      const posts = d.calls.filter((c) => c.method === 'POST').length
+      const answer = await verify({ progress: {} })
+      assert.equal(answer.ok, false)
+      assert.equal(answer.failed, before.failed)
+      assert.match(answer.action, /Wait 13 s/)
+      assert.equal(answer.detail.rate_limit.retry_after, 13)
+      assert.equal(d.calls.filter((c) => c.method === 'POST').length, posts, 'the limited read posts nothing')
+    })
+
+    test('the overview reports a rate limit as the wait, not as a refused bot', async () => {
+      connected()
+      const { setup } = setupOver(happy({ '/users/@me': RATE_LIMITED }))
+      const out = await setup.overview()
+      assert.equal(out.error, 'Discord is rate limiting this bot; it answers again in 13 s')
+      assert.equal(out.retry_after, 13)
     })
 
     test('a confirmation the channel does not hold yet is posted, and the connected card shows the channel, the delivery, and the commands', async () => {
@@ -359,7 +473,7 @@ describe('the Discord card (#876)', () => {
     test('a retry measures again: the same verifier that failed connects once the cause is gone', async () => {
       connected()
       let refuse = true
-      const { verify } = setupOver(happy({ [`PUT /applications/${APP}/guilds/${GUILD}/commands`]: () => (refuse ? [403, { message: 'Missing Access' }] : manifestAnswer()) }))
+      const { verify } = setupOver(happy({ [`/applications/${APP}/guilds/${GUILD}/commands`]: () => (refuse ? [403, { message: 'Missing Access' }] : manifestAnswer()) }))
       assert.equal((await verify({ progress: {} })).ok, false)
       refuse = false
       assert.equal((await verify({ progress: {} })).ok, true)

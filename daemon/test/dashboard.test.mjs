@@ -1732,6 +1732,7 @@ describe('the Discord card routes (#876)', () => {
       '/setup/discord': [200, { secret: 'present', source: 'file', bot: { id: '2', username: 'curia-box' }, guilds: [{ id: '333333333333333333', name: 'Alp' }], settings: { allowed_users: ['111111111111111111'], guild_id: null, channel: 'curia' }, invite_url: 'https://discord.com/oauth2/authorize?client_id=2', error: null }],
       '/setup/discord/token': [200, { ok: true, secret: 'present', bot: { id: '2', username: 'curia-box' }, guilds: [], settings: { allowed_users: ['111111111111111111'], guild_id: null, channel: 'curia' } }],
       '/setup/discord/channel': [200, { ok: true, settings: { allowed_users: ['111111111111111111'], guild_id: '333333333333333333', channel: 'ops' }, card: { key: 'discord', state: 'connected' } }],
+      '/setup/discord/commands': [200, { ok: true, commands: ['tickets', 'next'], card: { key: 'discord', state: 'connected' } }],
     }
     daemon = http.createServer((r, res) => {
       let buf = ''
@@ -1857,6 +1858,16 @@ describe('the Discord card routes (#876)', () => {
     assert.equal(bad.status, 409)
     assert.match(JSON.parse(bad.text).error, /is not a Discord channel name/)
     assert.equal(sent('/setup/discord/channel'), undefined)
+  })
+
+  test('Register commands (#891) crosses with no field at all, whatever the browser sent, and answers the verified card', async () => {
+    const res = await press('/api/setup/discord/commands', { token: TOKEN, guild_id: '999999999999999999' })
+    assert.equal(res.status, 200)
+    assert.deepEqual(sent('/setup/discord/commands').body, {})
+    const out = JSON.parse(res.text)
+    assert.deepEqual(out.commands, ['tickets', 'next'])
+    assert.equal(out.card.state, 'connected')
+    assert.ok(!res.text.includes(TOKEN))
   })
 })
 

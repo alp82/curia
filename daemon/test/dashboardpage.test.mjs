@@ -5188,6 +5188,47 @@ describe('integration setup (#874)', () => {
     assert.deepEqual(calls[1].body, { guild_id: '333333333333333333', channel: 'ops' })
   })
 
+  // #891: a read never registers the commands. A card that failed on them
+  // offers one press, Register commands, and never the invite link as the
+  // fix; the press lands on the sidecar with no field and re-reads the frame.
+  test('a Discord card that failed on the commands offers Register commands, and the press registers once, then verifies fresh', async () => {
+    page.setup = SETUP({ step: 'discord', cards: { discord: {
+      state: 'failed', badge: 'Action required',
+      error: { failed: "The commands registered in Alp's workshop differ from curia's: /tickets is not registered", action: 'Select Register commands in this panel to register the current commands, then try again.' },
+      detail: { stage: 'commands', guild: { id: '333333333333333333', name: "Alp's workshop" }, guilds: [{ id: '333333333333333333', name: "Alp's workshop" }], commands: ['next'] },
+    } } })
+    page.UI.setup.discord = DISCORD_OVERVIEW({ settings: { allowed_users: ['111111111111111111'], guild_id: '333333333333333333', channel: 'curia' } })
+    page.payload = payload()
+    const html = page.screenSetup(page.payload)
+    assert.match(html, /<button[^>]*onclick="doSetupDiscordCommands\(\)"[^>]*>Register commands</)
+    assert.match(html, /<input id="setup-discord-token" type="password"/, 'the token form stays behind its fold')
+    assert.match(html, /<summary>Replace the bot token/)
+    page.fetch = async (url, init = {}) => {
+      calls.push({ url, method: init.method ?? 'GET', body: init.body ? JSON.parse(init.body) : null })
+      if (url === '/api/setup/discord/commands') return { ok: true, json: async () => ({ ok: true, commands: ['tickets', 'next'], card: { key: 'discord', state: 'connected' } }) }
+      if (url === '/api/setup/discord') return { ok: true, json: async () => DISCORD_OVERVIEW() }
+      return { ok: true, json: async () => (init.method === 'POST' ? { ok: true } : SETUP()) }
+    }
+    calls = []
+    await page.doSetupDiscordCommands()
+    assert.deepEqual(calls.map((c) => [c.method, c.url]), [['POST', '/api/setup/discord/commands'], ['GET', '/api/setup']])
+    assert.deepEqual(calls[0].body, {})
+  })
+
+  test('a rate-limited panel read (#891) says the wait and keeps the token form behind its fold', () => {
+    page.setup = SETUP({ step: 'discord', cards: { discord: {
+      state: 'failed', badge: 'Action required',
+      error: { failed: 'Discord is rate limiting this bot; it answers again in 12 s', action: "Wait 12 s for Discord's limit to pass, then try again." },
+      detail: { stage: 'rate_limit', rate_limit: { retry_after: 12, until: '2026-09-02T10:00:12.000Z' } },
+    } } })
+    page.UI.setup.discord = DISCORD_OVERVIEW({ bot: null, guilds: [], invite_url: null, error: 'Discord is rate limiting this bot; it answers again in 12 s', retry_after: 12 })
+    page.payload = payload()
+    const html = page.screenSetup(page.payload)
+    assert.match(text(html), /Discord is rate limiting this bot; it answers again in 12 s/)
+    assert.match(html, /<summary>Replace the bot token/, 'a rate limit is not a refused token')
+    assert.doesNotMatch(text(html), /Add the bot again/)
+  })
+
   test('a connected Discord card draws the channel, the delivered confirmation, the operator, and the commands, and says whether the bridge runs', () => {
     page.setup = SETUP({ step: 'discord', cards: { discord: {
       ...ALL.discord,
