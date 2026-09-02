@@ -40,6 +40,7 @@ import { TRANSIENT_RETRY_BOUND } from './credentialpolicy.mjs'
 import { MODELS_URL, ANTHROPIC_VERSION, anthropicCredential } from './usage.mjs'
 import { CONSUMER_NAMES } from './credentialcontracts.mjs'
 import { codexAccessTokenExpiry, codexTokenClock } from './codexcredential.mjs'
+import { redact } from '../../cli/src/secrets.mjs'
 
 export { CONSUMER_NAMES } from './credentialcontracts.mjs'
 export { codexAccessTokenExpiry, codexTokenClock, codexTokenIdentity } from './codexcredential.mjs'
@@ -734,6 +735,8 @@ export class ReauthFlow {
   constructor({
     lanes = {}, image, agentUid, cfgDirFor, docker = 'docker',
     newSession, capturePane, killSession, hasSession, stopContainer,
+    sendText = async () => { throw new Error('this flow was built without a pane writer') },
+    sendKey = async () => { throw new Error('this flow was built without a pane writer') },
     openLogin = () => null,
     now = Date.now, log = () => {}, journal = () => {},
   }) {
@@ -752,6 +755,15 @@ export class ReauthFlow {
     this.killSession = killSession
     this.hasSession = hasSession
     this.stopContainer = stopContainer
+    // The two writes this flow makes into its OWN login pane (#891): the
+    // authorization code the operator pastes on the card, and the Enter that
+    // asks `claude setup-token` for a fresh link after it refused one. Raw for
+    // the same reason as the calls above: the dispatcher's `sendText` refuses
+    // a `curia-auth-` session by name so the stall ladder never types into a
+    // login prompt, and that refusal stays whole because this flow never
+    // goes through it. Nothing here writes into any other session.
+    this.sendText = sendText
+    this.sendKey = sendKey
     // What a restart cannot re-derive, read back off the journal (#671). It is
     // injected the way `now` and `hasSession` are, so this class still holds no
     // reduction and no file — it asks one question and gets one record.
@@ -777,7 +789,7 @@ export class ReauthFlow {
   // why `finish` returns an expiry and not a token.
   state() {
     if (!this.flow) return null
-    const { provider, session, state, url, code, typed, actionId, startedAt, deadline } = this.flow
+    const { provider, session, state, url, code, typed, actionId, startedAt, deadline, delivered, refusal } = this.flow
     return {
       provider,
       session,
@@ -785,12 +797,17 @@ export class ReauthFlow {
       action_id: actionId ?? null,
       url,
       code,
-      // Whether the operator has to type into this pane, which is the one thing
-      // the two lanes differ on that the OPERATOR can feel. `codex login
-      // --device-auth` pastes nothing back; `claude setup-token` waits on a code
-      // the browser shows, and `sendText` refuses this session by name — so the
-      // typing is the operator's to do, on the device they opened the link on.
+      // Whether this login waits on a code the browser shows, which is the one
+      // thing the two lanes differ on that the OPERATOR can feel. `codex login
+      // --device-auth` pastes nothing back; `claude setup-token` waits on a
+      // code, and the card takes it (#891): `deliver` types it into this pane
+      // over the flow's own raw write, so the terminal is the fallback rather
+      // than the only way through.
       typed,
+      // When curia last typed a code into the pane, and the refusal the login
+      // printed for it, if any (#891). Never the code itself.
+      delivered_at: delivered ? new Date(delivered).toISOString() : null,
+      refusal: refusal ? { why: refusal.why, at: new Date(refusal.at).toISOString() } : null,
       // THE PATH THAT ALWAYS WORKS (#661). Everything above this line is
       // scraped off a pane, and a scrape is a guess about somebody else's
       // wording: when the link or the code is missing, the terminal is the only
@@ -907,6 +924,9 @@ export class ReauthFlow {
       code: null,
       codeSeen: false,
       typed: Boolean(lane?.typed),
+      // The last code delivery and the login's answer to it (#891).
+      delivered: null,
+      refusal: null,
       // Stamped by `startReauth` a moment after this, because composing it
       // needs a live tailnet and this method is synchronous.
       terminalUrl: null,
@@ -1014,7 +1034,28 @@ export class ReauthFlow {
     } catch {
       return null
     }
-    const { url, code, codeLifeMs } = this.laneFor(this.flow.provider).scrape(pane)
+    const { url, code, codeLifeMs, refusal } = this.laneFor(this.flow.provider).scrape(pane)
+    // The login refused the code curia typed (#891). Only a code curia
+    // delivered can be refused: the same words on a pane nobody typed into are
+    // the operator's own business in the terminal. Said once per delivery,
+    // and the link goes with it, because the CLI drops the link the code was
+    // bound to and prints a fresh one on Enter — which curia presses, so the
+    // card shows the new link on the next tick instead of a dead one.
+    if (refusal && this.flow.delivered && !this.flow.refusal) {
+      this.flow.refusal = { why: refusal, at: this.now() }
+      this.flow.url = null
+      this.journal('reauth_code_refused', {
+        provider: this.flow.provider, session: this.flow.session, why: refusal,
+        ...(this.flow.actionId ? { action_id: this.flow.actionId } : {}),
+      })
+      this.log(`the ${this.flow.provider} login refused the code (${refusal}); asking it for a fresh link`)
+      try {
+        await this.sendKey(this.flow.session, 'Enter')
+      } catch (e) {
+        this.log(`could not ask ${this.flow.session} for a fresh link (${e.message})`)
+      }
+      return pane
+    }
     if (url) this.flow.url = url
     if (code) this.flow.code = code
     // The pane outranks the lane's declared number, because the pane is the
@@ -1116,12 +1157,63 @@ export class ReauthFlow {
     return { provider: flow.provider, state, why, ...extra }
   }
 
+  // Type the authorization code the browser showed into the waiting login
+  // (#891). The card is where the operator has the code, and the terminal was
+  // the only place to put it: this is the flow putting it there itself.
+  //
+  // Answers `{ delivered, why }` and never throws. Every refusal is a
+  // sentence the card shows, and none of them quotes the code: a code is a
+  // short-lived secret, and a refusal that echoed it would be the log line
+  // this module has always kept it out of.
+  //
+  // What is checked before the write: a login of this provider is waiting; its
+  // lane takes a code at all (the codex device login pastes nothing back); the
+  // code has the shape of one and is not a token; and the session still
+  // exists, so a code is never typed into a pane that a later tick will read
+  // as abandoned. The write is literal keys and one Enter, the same keystrokes
+  // the operator makes in the terminal.
+  async deliver({ provider = ANTHROPIC_PROVIDER, code } = {}) {
+    const refuse = (why) => ({ delivered: false, why })
+    const flow = this.flow
+    if (!flow || flow.provider !== provider || flow.state !== 'waiting') {
+      return refuse(`no ${provider === ANTHROPIC_PROVIDER ? 'Anthropic' : provider} sign-in is waiting for a code. Start the sign-in again, then paste the code the browser shows.`)
+    }
+    if (!flow.typed) return refuse(`the ${provider} login takes no code: there is nothing to paste back, and the credential is adopted on its own`)
+    const text = String(code ?? '').trim()
+    if (!AUTH_CODE_RE.test(text)) return refuse('that is not an authorization code. Paste the code the browser shows after you approve the sign-in, and nothing else.')
+    if (ANTHROPIC_TOKEN_RE.test(text) || text.startsWith('sk-ant-')) return refuse('that is a token, not an authorization code. Paste the code the browser shows; curia reads the token off the login itself.')
+    let present
+    try {
+      present = await this.hasSession(flow.session)
+    } catch (e) {
+      return refuse(`curia could not check the sign-in session (${e.message}); try again in a moment`)
+    }
+    if (!present) return refuse('the sign-in session is gone, so there is nothing to type the code into. Start the sign-in again.')
+    try {
+      await this.sendText(flow.session, text)
+    } catch (e) {
+      return refuse(`the code could not be typed into the sign-in session (${redact(e.message, [text])}). Open the terminal and paste it there.`)
+    }
+    flow.delivered = this.now()
+    flow.refusal = null
+    this.journal('reauth_code_delivered', {
+      provider, session: flow.session, ...(flow.actionId ? { action_id: flow.actionId } : {}),
+    })
+    this.log(`typed the operator's authorization code into ${flow.session}`)
+    return { delivered: true, why: null }
+  }
+
   // Drop a finished flow so the surfaces stop drawing it. The dispatcher calls
   // this once it has said whatever the outcome needed saying.
   clear() {
     if (this.flow && this.flow.state !== 'waiting') this.flow = null
   }
 }
+
+// The shape of the code `claude.com` shows after the approval: the
+// authorization code, a `#`, and the PKCE state, all URL-safe. Bounded, and
+// never whitespace, which is what keeps a pasted paragraph out of the pane.
+export const AUTH_CODE_RE = /^[A-Za-z0-9_#.~-]{8,512}$/
 
 // ---- the anthropic store (#648) --------------------------------------------
 //
@@ -1590,6 +1682,18 @@ export function scrapeSetupToken(pane) {
   return null
 }
 
+// The refusal the login prints for a wrong or stale code (#891), measured on
+// Claude Code 2.1.258 on 2026-09-02: `OAuth error: Request failed with status
+// code 400`, then `Press Enter to retry.`, with the link gone from the frame.
+// The sentence comes back as the CLI wrote it, bounded; it names a status and
+// never a secret.
+export function scrapeOAuthError(pane) {
+  for (const line of paneLines(pane)) {
+    if (line.startsWith('OAuth error')) return line.slice(0, 200)
+  }
+  return null
+}
+
 // ---- asking Anthropic whether the scrape is right ---------------------------
 //
 // THIS IS WHAT MAKES THE SCRAPE SAFE, and it is the answer to ADR-0027's own
@@ -1698,10 +1802,11 @@ export class DeviceLoginLane {
 // `claude setup-token` (#660). The lane whose completion rule ADR-0027 does not
 // cover, and the reason this slice is separate from #648.
 export class SetupTokenLane {
-  // The operator has to type the code back into this pane. `sendText` refuses a
-  // `curia-auth-` session by name — that guard is what stops the stall ladder
-  // typing into a login prompt — so curia cannot do it for them, and the
-  // writable ttyd terminal is where it happens.
+  // This login waits on a code the browser shows. The dispatcher's `sendText`
+  // refuses a `curia-auth-` session by name — that guard is what stops the
+  // stall ladder typing into a login prompt — and it stays whole: the card
+  // hands the code to `ReauthFlow.deliver` (#891), which types it over the
+  // flow's own raw write, and the writable ttyd terminal is the fallback.
   typed = true
 
   // NO CODE WITH A LIFE OF ITS OWN, and `null` is the statement rather than the
@@ -1721,7 +1826,7 @@ export class SetupTokenLane {
   get provider() { return ANTHROPIC_PROVIDER }
 
   get howTo() {
-    return 'Open the session, follow the link, and paste the code the browser shows back into the same terminal. curia takes the token from there; it never appears in this channel.'
+    return 'Follow the link, approve the sign-in, and paste the code the browser shows into the Code field on the dashboard, or into the same terminal. curia takes the token from there; it never appears in this channel.'
   }
 
   // NOTHING TO CLEAR, and that is the measured fact rather than an oversight:
@@ -1737,8 +1842,10 @@ export class SetupTokenLane {
 
   // No code to show. The codex lane reads one OUT of the pane for the operator;
   // here the operator puts one IN, so the card carries the link alone and says
-  // nothing it would have to invent.
-  scrape(pane) { return { url: scrapeAuthorizeUrl(pane), code: null, codeLifeMs: null } }
+  // nothing it would have to invent. What the pane can say about a code that
+  // went in is the refusal (#891), which the flow attributes to its own
+  // delivery or ignores.
+  scrape(pane) { return { url: scrapeAuthorizeUrl(pane), code: null, codeLifeMs: null, refusal: scrapeOAuthError(pane) } }
 
   // THE PANE IS THE CREDENTIAL CHANNEL, which is what the whole slice turns on.
   //

@@ -337,7 +337,9 @@ export class Reduction {
       if (prior && !TERMINAL_ACTION_STATUSES.has(prior.status)) {
         const progress = ev.type === 'reauth_started'
           ? 'Waiting for browser sign-in'
-          : ev.type === 'reauth_code_seen' ? 'Waiting for browser completion' : null
+          : ev.type === 'reauth_code_seen' ? 'Waiting for browser completion'
+            : ev.type === 'reauth_code_delivered' ? 'Code delivered, waiting for the token'
+              : ev.type === 'reauth_code_refused' ? 'The sign-in refused the code, waiting for a fresh link' : null
         const ending = ev.type === 'reauth_completed'
           ? { status: 'confirmed' }
           : ['reauth_failed', 'reauth_timed_out', 'reauth_code_expired', 'reauth_abandoned'].includes(ev.type)

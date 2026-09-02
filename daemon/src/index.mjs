@@ -1470,6 +1470,9 @@ const anthropicSetup = new AnthropicSetup({
     start: ({ provider, by }) => dispatcher.startReauth({ provider, by }),
     poll: () => dispatcher.pollReauth(),
     prepare: () => dispatcher.prepareReauth(),
+    // The code the operator pastes on the card (#891), typed into the login
+    // pane by the flow itself.
+    deliver: ({ provider, code }) => dispatcher.deliverReauthCode({ provider, code }),
   },
   probeModel: curiaConfig.usage.probe_model,
   claudeVersion: curiaConfig.sandbox?.claude_version ?? null,
@@ -3996,6 +3999,14 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
   if (url.pathname === '/setup/anthropic/login' && req.method === 'POST') {
     anthropicSetup.startLogin().catch((e) => log(`model setup: the anthropic sign-in start failed (${e.message})`))
     return json(200, { ok: true, ...anthropicSetup.overview() })
+  }
+  // The code the browser showed (#891), typed into the waiting login by the
+  // flow. The one field crosses once, to the pane, and comes back in no
+  // answer and no log line; a refusal is the flow's sentence, 400.
+  if (url.pathname === '/setup/anthropic/code' && req.method === 'POST') {
+    const body = await readBody(req)
+    const out = await anthropicSetup.deliverCode(body?.code)
+    return json(out.delivered ? 200 : 400, { ok: out.delivered, ...(out.delivered ? {} : { error: out.said.replace(/^❌ /, '') }), ...out })
   }
   if (url.pathname === '/identity' && req.method === 'GET') {
     return json(200, tailscaleSetup.identity())

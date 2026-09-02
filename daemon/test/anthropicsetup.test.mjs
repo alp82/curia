@@ -168,6 +168,35 @@ describe('the Anthropic card (#879)', () => {
     assert.equal(o.secret.state, 'absent')
   })
 
+  // #891: the operator has the code on the device that opened the link, and
+  // the card is where it goes. The row hands it to the dispatcher's flow,
+  // which types it into the login pane; the panel says what came of it and
+  // never holds the code.
+  test('the code press delivers the code through the dispatcher and answers the read; a refusal is the flow\'s own sentence, and the code is in no answer and no log line', async () => {
+    const l = lane()
+    l.delivered = { delivered: true, why: null }
+    l.login.deliver = async (opts) => { l.calls.push({ deliver: opts }); return l.delivered }
+    l.flow = { provider: 'anthropic', session: 'curia-auth-anthropic', state: 'waiting', url: 'https://claude.com/cai/oauth/authorize?code_challenge=x&state=y', code: null, typed: true, terminal_url: null, seconds_left: 1700, delivered_at: null, refusal: null }
+    const { s } = setup({ theLane: l })
+    const code = 'aB3dEf#9oq-pmO4pEY1t4nD2prvbnqYYqlSkptF03z3EABHPaA'
+
+    const out = await s.deliverCode(code)
+
+    assert.deepEqual(l.calls, [{ deliver: { provider: 'anthropic', code } }])
+    assert.equal(out.delivered, true)
+    assert.equal(out.said, 'Code delivered. Curia reads the token off the login and verifies it from here.')
+    assert.equal(out.login.state, 'waiting')
+    assert.equal(JSON.stringify(out).includes(code), false)
+    assert.equal(logged.join('\n').includes(code), false)
+
+    l.delivered = { delivered: false, why: 'the sign-in session is gone, so there is nothing to type the code into. Start the sign-in again.' }
+    const refused = await s.deliverCode(code)
+    assert.equal(refused.delivered, false)
+    assert.match(refused.said, /the sign-in session is gone/)
+    assert.equal(s.overview().said, refused.said)
+    assert.equal(logged.join('\n').includes(code), false)
+  })
+
   test('a running openai login is not this row\'s login', () => {
     const l = lane()
     l.flow = { provider: 'openai', state: 'waiting', url: 'https://auth.openai.com/codex/device', code: '83CC-A4ZTO', typed: false }

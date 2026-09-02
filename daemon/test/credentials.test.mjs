@@ -1584,3 +1584,168 @@ describe('the flow drives either lane (#660)', () => {
     assert.equal(authSessionName('anthropic'), 'curia-auth-anthropic')
   })
 })
+
+// ---- delivering the authorization code (#891) --------------------------------
+//
+// The rehearsal found the operator with a code and nowhere to enter it. The
+// refusal that kept curia from typing it was the dispatcher's guard on the
+// agent write path, not a limit of the pane: the flow holds the raw tmux
+// calls, so it can put the code into its own login and nothing else. What is
+// pinned: the code goes into the waiting session as literal keys and an
+// Enter; the journal and the state never carry it; a login the CLI refuses
+// is read off the pane, said, and asked for a fresh link; a code with no
+// login waiting, a wrong provider, a session that is gone, or a code that is
+// not a code is refused without being echoed.
+
+// The frame `claude setup-token` 2.1.258 leaves after a wrong code, measured
+// on 2026-09-02: the link is gone, and Enter starts the login over.
+const REFUSED_FRAME = [
+  'Welcome to Claude Code v2.1.258',
+  '',
+  ' This will guide you through long-lived (1-year) auth token setup for your Claude account. Claude subscription required.',
+  '',
+  ' OAuth error: Request failed with status code 400',
+  '',
+  ' Press Enter to retry.',
+].join('\n')
+
+const CODE = 'aB3dEfGhIjKlMnOpQrStUvWxYz0123456789-_#9oq-pmO4pEY1t4nD2prvbnqYYqlSkptF03z3EABHPaA'
+
+describe('delivering the authorization code (#891)', () => {
+  function deliveryFlow({ now = () => Date.parse('2026-09-02T12:00:00Z') } = {}) {
+    const calls = { typed: [], keys: [], pane: WAITING_60, killed: [] }
+    const sessions = new Set()
+    const events = []
+    const s = new AnthropicCredentialStore({ workspaceRoot: dir, now })
+    const f = new ReauthFlow({
+      lanes: {
+        openai: new DeviceLoginLane({ broker: new CodexCredentialBroker({ home: dir, now }) }),
+        anthropic: new SetupTokenLane({ store: s, check: async () => ({ ok: true, retry: false }) }),
+      },
+      image: 'curia-agent:test',
+      agentUid: 1000,
+      cfgDirFor: (session) => path.join(dir, 'cfg', session),
+      newSession: async (opts) => { sessions.add(opts.name) },
+      capturePane: async () => calls.pane,
+      killSession: async (name) => { calls.killed.push(name); sessions.delete(name) },
+      hasSession: async (name) => sessions.has(name),
+      stopContainer: async () => {},
+      sendText: async (name, text) => { calls.typed.push([name, text]); return { status: 'unconfirmed' } },
+      sendKey: async (name, key) => { calls.keys.push([name, key]) },
+      now,
+      journal: (e, d) => events.push([e, d]),
+    })
+    return { f, calls, sessions, events, store: s }
+  }
+
+  test('the code goes into the waiting login as literal keys, and nowhere else', async () => {
+    const { f, calls, events } = deliveryFlow()
+    await f.start({ provider: 'anthropic' })
+    await f.poll()
+
+    const out = await f.deliver({ provider: 'anthropic', code: `  ${CODE}\n` })
+
+    assert.deepEqual(out, { delivered: true, why: null })
+    assert.deepEqual(calls.typed, [['curia-auth-anthropic', CODE]], 'trimmed, typed once, into the login session')
+    assert.equal(JSON.stringify(events).includes(CODE), false, 'the journal never holds the code')
+    assert.equal(JSON.stringify(f.state()).includes(CODE), false, 'the card never holds the code')
+    assert.ok(events.some(([e]) => e === 'reauth_code_delivered'), 'the journal says a code was delivered')
+    assert.equal(f.state().delivered_at, '2026-09-02T12:00:00.000Z')
+    assert.equal(f.state().refusal, null)
+  })
+
+  test('a refused code is read off the pane, said on the card, and the login is asked for a fresh link', async () => {
+    const { f, calls, events } = deliveryFlow()
+    await f.start({ provider: 'anthropic' })
+    await f.poll()
+    await f.deliver({ provider: 'anthropic', code: CODE })
+
+    calls.pane = REFUSED_FRAME
+    assert.equal(await f.poll(), null, 'the flow keeps waiting')
+
+    assert.equal(f.state().state, 'waiting')
+    assert.match(f.state().refusal.why, /OAuth error: Request failed with status code 400/)
+    assert.equal(f.state().url, null, 'the old link is gone with the code that was bound to it')
+    assert.deepEqual(calls.keys, [['curia-auth-anthropic', 'Enter']], 'curia presses Enter once, for a fresh link')
+    assert.ok(events.some(([e, d]) => e === 'reauth_code_refused' && /400/.test(d.why)))
+
+    // The next frame shows the fresh link, and the refusal stays said until
+    // another code is delivered.
+    calls.pane = WAITING_60
+    await f.poll()
+    assert.ok(f.state().url.startsWith(ANTHROPIC_AUTHORIZE_HEAD))
+    assert.match(f.state().refusal.why, /400/)
+    assert.equal(calls.keys.length, 1, 'no second Enter')
+
+    await f.deliver({ provider: 'anthropic', code: CODE })
+    assert.equal(f.state().refusal, null)
+  })
+
+  test('an OAuth error before any delivery is not a refusal of a code curia typed', async () => {
+    const { f, calls } = deliveryFlow()
+    await f.start({ provider: 'anthropic' })
+    calls.pane = REFUSED_FRAME
+    await f.poll()
+    assert.equal(f.state().refusal, null)
+    assert.deepEqual(calls.keys, [])
+  })
+
+  test('the token appearing after a delivery completes the flow as before', async () => {
+    const { f, calls, store } = deliveryFlow()
+    await f.start({ provider: 'anthropic' })
+    await f.deliver({ provider: 'anthropic', code: CODE })
+    calls.pane = successFrame(80)
+    assert.equal((await f.poll()).state, 'done')
+    assert.equal(store.read().token, LIVE_OAT)
+  })
+
+  test('a code with no login waiting is refused', async () => {
+    const { f, calls } = deliveryFlow()
+    assert.deepEqual(await f.deliver({ provider: 'anthropic', code: CODE }), {
+      delivered: false, why: 'no Anthropic sign-in is waiting for a code. Start the sign-in again, then paste the code the browser shows.',
+    })
+    assert.deepEqual(calls.typed, [])
+  })
+
+  test('a login whose session is gone refuses the code and reads as abandoned on the next poll', async () => {
+    const { f, calls, sessions } = deliveryFlow()
+    await f.start({ provider: 'anthropic' })
+    sessions.delete('curia-auth-anthropic')
+    const out = await f.deliver({ provider: 'anthropic', code: CODE })
+    assert.equal(out.delivered, false)
+    assert.match(out.why, /the sign-in session is gone/)
+    assert.deepEqual(calls.typed, [])
+    assert.equal((await f.poll()).state, 'abandoned')
+  })
+
+  test('the OpenAI login takes no code, and a code for it is refused by name', async () => {
+    const { f, calls } = deliveryFlow()
+    await f.start({ provider: 'openai' })
+    const out = await f.deliver({ provider: 'openai', code: CODE })
+    assert.equal(out.delivered, false)
+    assert.match(out.why, /openai.*nothing to paste/)
+    assert.deepEqual(calls.typed, [])
+  })
+
+  test('a code that is not a code is refused by shape and never echoed', async () => {
+    const { f, calls } = deliveryFlow()
+    await f.start({ provider: 'anthropic' })
+    for (const bad of ['', '   ', 'has a space#in-it', 'x'.repeat(600), 'sk-ant-oat01-looks-like-a-token']) {
+      const out = await f.deliver({ provider: 'anthropic', code: bad })
+      assert.equal(out.delivered, false)
+      assert.equal(bad.trim() !== '' && out.why.includes(bad.trim()), false, 'never echoed')
+    }
+    assert.deepEqual(calls.typed, [])
+  })
+
+  test('a write tmux refuses is reported, not swallowed, and holds no code', async () => {
+    const { f, calls } = deliveryFlow()
+    f.sendText = async () => { throw new Error(`tmux: send-keys failed for ${CODE}`) }
+    await f.start({ provider: 'anthropic' })
+    const out = await f.deliver({ provider: 'anthropic', code: CODE })
+    assert.equal(out.delivered, false)
+    assert.match(out.why, /could not be typed into the sign-in session/)
+    assert.equal(out.why.includes(CODE), false)
+    assert.deepEqual(calls.typed, [])
+  })
+})

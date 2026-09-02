@@ -1388,6 +1388,20 @@ export class DashboardSurface {
           return out
         })
       }
+      // The code the browser showed (#891), composed out of its one field
+      // and handed to the daemon, which types it into the login pane. It is
+      // refused by shape before it crosses, without being echoed, and it
+      // reaches no log line here.
+      if (url.pathname === '/api/setup/anthropic/code') {
+        return this.#write(res, async () => {
+          const b = await this.#body(req)
+          const code = typeof b.code === 'string' ? b.code.trim() : ''
+          if (!code || /\s/.test(code) || code.length > 512) throw refuse('paste the authorization code the browser shows, and nothing else')
+          const out = await this.#daemon({ method: 'POST', path: '/setup/anthropic/code', body: { code }, accept: [200, 400], timeout: SETUP_TIMEOUT_MS })
+          if (out.ok === false) throw refuse(out.error)
+          return out
+        })
+      }
       // The aistack registration (#706), in three presses: start the device
       // flow, stop waiting for it, and grant the standing permission once the
       // machine exists.

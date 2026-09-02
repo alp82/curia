@@ -23,8 +23,12 @@ import os from 'node:os'
 import path from 'node:path'
 
 import {
-  TailscaleSetup, readTailscaleRecord, writeTailscaleRecord, serveRoutes,
+  TailscaleSetup, readTailscaleRecord, writeTailscaleRecord, serveRoutes, appRoute,
 } from '../src/tailscalesetup.mjs'
+import { appTerminalUrl } from '../src/attach.mjs'
+import { DashboardSurface, DEFAULT_DASHBOARD_INDEX, TERMINAL_PAGE } from '../src/dashboard.mjs'
+import { LOGIN_HEADER } from '../src/identity.mjs'
+import { withdrawServeRoutes } from '../../cli/src/tailscale.mjs'
 
 const LOGIN = 'alp@example.com'
 const DNS = 'curia-sh.tail1234.ts.net'
@@ -481,6 +485,84 @@ describe('the Tailscale card (#877)', () => {
       assert.throws(() => writeTailscaleRecord(stateDir, { token: 'x' }), /unknown key token/)
       assert.throws(() => writeTailscaleRecord(stateDir, { serve: [{ https: 'x' }] }), /serve must be a list/)
       assert.deepEqual(writeTailscaleRecord(stateDir, { operator: null, machine_name: null, serve: [] }), { operator: null, machine_name: null, serve: [] })
+    })
+  })
+
+  // The terminal on a packaged installation (#891). The rehearsal opened the
+  // Setup page's terminal link and found ttyd unreached. There is no second
+  // route to create: since #714 the terminal is the app's own `/terminal/`
+  // path, which the sidecar proxies to ttyd behind the same identity check,
+  // and the only Serve route Curia creates is the app's. What is pinned here
+  // is that the three pieces agree: the link the daemon composes lands under
+  // the app URL the card verified, at the page the sidecar serves on the port
+  // the route targets, and the record uninstall reads holds that one route.
+  describe('the terminal behind the app route (#891)', () => {
+    let surface
+    let ttyd
+    const seen = []
+    afterEach(() => { surface?.stop(); ttyd?.close() })
+
+    test('the composed terminal link is the app route\'s own address at the page the sidecar serves', async () => {
+      confirmed()
+      const { verify } = setupOver(tailscaleCli({ serve: serveConfig() }))
+      const card = await verify({ progress: {} })
+      assert.equal(card.ok, true)
+      const link = appTerminalUrl(card.detail.address, SERVE_PORT, 'curia-auth-anthropic')
+      assert.equal(link, `https://${DNS}:${SERVE_PORT}/terminal/?arg=curia-auth-anthropic`)
+      assert.ok(link.startsWith(card.detail.app_url), 'the link is under the verified app URL, so the same route and identity check serve it')
+      assert.equal(new URL(link).pathname, TERMINAL_PAGE)
+    })
+
+    test('the route\'s target is the sidecar, which serves that page from ttyd for the recorded operator and refuses anyone else', async () => {
+      ttyd = http.createServer((req, res) => { seen.push(req.url); res.end('<title>ttyd</title>') })
+      await new Promise((done) => ttyd.listen(0, '127.0.0.1', done))
+      surface = new DashboardSurface({
+        port: 0, servePort: SERVE_PORT, index: DEFAULT_DASHBOARD_INDEX, allow: [LOGIN], terminalPort: ttyd.address().port,
+        pollIntervalS: 5, log: () => {},
+        deps: { fetchOverview: async () => ({}), assertServe: async () => {}, serveOff: async () => {}, tailnetSelf: async () => ({ dnsName: DNS, ips: [] }) },
+      })
+      await surface.start()
+      await surface.resolveHosts()
+      const route = appRoute({ servePort: SERVE_PORT, appPort: surface.port })
+      const page = new URL(appTerminalUrl(DNS, SERVE_PORT, 'curia-auth-anthropic'))
+      // As a Serve request arrives: the served Host and the stamped login.
+      // `fetch` refuses to set Host, so this is a raw request at the target.
+      const served = (headers) => new Promise((resolve, reject) => {
+        const target = new URL(route.target)
+        http.get({ host: target.hostname, port: target.port, path: `${page.pathname}${page.search}`, headers: { host: `${DNS}:${SERVE_PORT}`, ...headers } }, (res) => {
+          let text = ''
+          res.on('data', (d) => { text += d })
+          res.on('end', () => resolve({ status: res.statusCode, text }))
+        }).on('error', reject)
+      })
+
+      const admitted = await served({ [LOGIN_HEADER]: LOGIN })
+      assert.equal(admitted.status, 200)
+      assert.match(admitted.text, /ttyd/)
+      assert.deepEqual(seen, ['/?arg=curia-auth-anthropic'], 'ttyd receives the session, and the path under the app is the sidecar\'s')
+
+      const stranger = await served({ [LOGIN_HEADER]: 'someone-else@example.com' })
+      assert.equal(stranger.status, 403)
+      assert.equal(seen.length, 1)
+    })
+
+    test('the card records the one route it created, and uninstall withdraws exactly that route', async () => {
+      confirmed()
+      const { verify } = setupOver(tailscaleCli())
+      const card = await verify({ progress: {} })
+      assert.equal(card.detail.serve.created, true)
+      const route = appRoute({ servePort: SERVE_PORT, appPort: APP_PORT })
+      assert.deepEqual(readTailscaleRecord(stateDir).serve, [route], 'one route: the app; the terminal rides it')
+
+      const calls = []
+      const tailscale = async (args) => {
+        calls.push(args)
+        if (args.join(' ') === 'serve status --json') return { ok: true, stdout: JSON.stringify({ ...serveConfig(), TCP: { [SERVE_PORT]: { HTTPS: true }, 8443: { HTTPS: true } } }) }
+        return { ok: true, stdout: '' }
+      }
+      const out = await withdrawServeRoutes({ stateDir }, { tailscale })
+      assert.deepEqual(out.withdrawn, [route])
+      assert.deepEqual(calls, [['serve', 'status', '--json'], ['serve', `--https=${SERVE_PORT}`, 'off']], 'the app route goes, and no other port is touched')
     })
   })
 })

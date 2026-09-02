@@ -615,6 +615,12 @@ export class Dispatcher {
       killSession: realKill,
       hasSession: (name) => this.deps.hasSession(name),
       stopContainer: (name) => this.deps.stopContainer(name),
+      // The flow's own writes into its login pane (#891): the authorization
+      // code and the Enter that asks for a fresh link. Raw tmux again, never
+      // the dispatcher's `sendText`, whose auth-session refusal is what keeps
+      // the stall ladder out of a login prompt.
+      sendText: (name, text) => realSend(name, text),
+      sendKey: (name, key) => realKey(name, key),
       // The login a restart interrupted (#671). The flow writes the journal and
       // this reads it back, so the record the daemon dies holding is the record
       // the next daemon picks up.
@@ -2314,6 +2320,15 @@ export class Dispatcher {
         : 'The code is on the dashboard too, and never in this channel.',
       where,
     ].join('\n')
+  }
+
+  // The authorization code the operator pasted on the card (#891), handed to
+  // the flow, which types it into its own login pane. Answers the flow's
+  // `{ delivered, why }`; a daemon with no flow answers a refusal in the same
+  // shape, so the card has one thing to say.
+  async deliverReauthCode({ provider = ANTHROPIC_PROVIDER, code } = {}) {
+    if (!this.reauth) return { delivered: false, why: 'this daemon brokers no model credential, so no sign-in is waiting for a code' }
+    return this.reauth.deliver({ provider, code })
   }
 
   // One poll of the re-authentication flow, from the dispatch tick.

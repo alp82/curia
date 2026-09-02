@@ -54,7 +54,7 @@ From that moment the recorded login is the only identity the app and every publi
 The **Model provider** card holds one row per provider. One verified provider is enough. Add the second later from the same card.
 
 - **OpenAI.** Select **Sign in to OpenAI**. The row shows a link and a one-time code. Open the link on any device, sign in to your ChatGPT account, and enter the code. The code lives fifteen minutes. See [Connect OpenAI](../integration-setup.md#connect-openai).
-- **Anthropic.** Select **Sign in to Anthropic**. The row shows a link. Open it, sign in to your Claude subscription, approve, and copy the code the browser shows. Select **Open the terminal instead** on the row and paste the code into that terminal, because the sign-in refuses every write the service could make. See [Connect Anthropic](../integration-setup.md#connect-anthropic).
+- **Anthropic.** Select **Sign in to Anthropic**. The row shows a link. Open it, sign in to your Claude subscription, approve, and copy the code the browser shows. Paste the code into the **Code** field on the row and select **Submit**; Curia types it into the sign-in for you and reads the token from there. **Open the terminal instead** stays on the row as the fallback: it opens the same sign-in session in a terminal, under the app's own address. See [Connect Anthropic](../integration-setup.md#connect-anthropic).
 
 The first press on a fresh installation can take a minute, because the service prepares the agent image first. The card connects when the footer shows the provider, then `Routing ready · verification request completed in <n> s`. The verified provider applies a routing preset so every ticket type routes to a model that can run.
 
