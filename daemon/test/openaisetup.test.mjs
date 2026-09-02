@@ -182,6 +182,42 @@ describe('the OpenAI card (#878)', () => {
     assert.equal(o.secret.state, 'absent')
   })
 
+  // The rehearsal (#891) watched the row say the pane had not printed the
+  // link for about a minute, and the connected state arrive a minute after
+  // the browser finished: the flow was polled on the 60 s dispatch tick alone.
+  // The panel's read polls the flow itself while a login is live, so the
+  // link, the code, and the adoption land on the page's own cadence.
+  test('the panel read polls the live login, at most once per gap, and the read after the adoption shows the login gone', async () => {
+    const l = lane()
+    let polls = 0
+    let clock = 1_000_000
+    l.login.poll = async () => { polls += 1; if (polls === 2) l.flow = null; return null }
+    const { s } = setup({ theLane: l, over: { now: () => new Date(clock) } })
+    assert.equal((await s.read()).login, null)
+    assert.equal(polls, 0, 'nothing to poll without a login')
+    l.flow = { provider: 'openai', session: 'curia-auth-openai', state: 'waiting', url: null, code: null, typed: false, terminal_url: null, seconds_left: 840 }
+    const first = await s.read()
+    assert.equal(polls, 1)
+    assert.equal(first.login.state, 'waiting')
+    clock += 500
+    await s.read()
+    assert.equal(polls, 1, 'a read inside the gap does not poll again')
+    clock += 3000
+    const after = await s.read()
+    assert.equal(polls, 2)
+    assert.equal(after.login, null, 'the adoption is on the read that polled it')
+  })
+
+  test('the first read of the row prepares the agent image, once', async () => {
+    const l = lane()
+    let prepared = 0
+    l.login.prepare = async () => { prepared += 1 }
+    const { s } = setup({ theLane: l })
+    await s.read()
+    await s.read()
+    assert.equal(prepared, 1)
+  })
+
   test('a refused start is reported as curia\'s own sentence and starts nothing twice', async () => {
     const l = lane()
     l.said = '❌ this daemon runs no containers, so it has nothing to run the login in'

@@ -4315,12 +4315,23 @@ describe('the Credentials screen (#661)', () => {
 
   // IT DEGRADES, NEVER DEAD-ENDS. The link and the code are scraped off a pane,
   // and a scrape is a guess about somebody else's wording.
-  test('a scrape that missed says so and hands over the terminal', () => {
+  test('a scrape that missed for the whole wait says so and hands over the terminal', () => {
     const t = text(page.screenCredentials(payload({
-      credentials: { consumers: [], reauth: WAITING_REAUTH({ url: null, code: null }) },
+      credentials: { consumers: [], reauth: WAITING_REAUTH({ url: null, code: null, started_at: at(240) }) },
     })))
     assert.match(t, /curia could not read the login off the pane/)
-    assert.match(t, /The terminal always works/)
+    assert.match(t, /Open the terminal instead/)
+  })
+
+  // The rehearsal (#891) read that failure for the first minute of every
+  // login, before the pane had printed anything. A pane that has not printed
+  // the link yet is progress, not a failure, until the wait is spent.
+  test('a pane that has not printed the link yet reads as waiting, not as a failure, until the wait is spent', () => {
+    const t = text(page.screenCredentials(payload({
+      credentials: { consumers: [], reauth: WAITING_REAUTH({ url: null, code: null, started_at: at(20) }) },
+    })))
+    assert.match(t, /Waiting for the sign-in link/)
+    assert.doesNotMatch(t, /could not read the login/)
     assert.match(t, /Open the terminal instead/)
   })
 
@@ -5346,6 +5357,51 @@ describe('integration setup (#874)', () => {
     assert.match(html, /href="https:\/\/box\.tail1234\.ts\.net:8446\/\?arg=curia-auth-openai"/)
     assert.match(text(html), /openai · signing in · 14:00 left/)
     assert.doesNotMatch(html, /onclick="doSetupOpenAILogin\(\)"/, 'no second press while one login runs')
+  })
+
+  // The rehearsal (#891): from the press until the pane prints the link the
+  // row shows what curia is doing, and the failure comes only after a bounded
+  // wait, with one action. Errors never precede valid progress.
+  test('from the press the row says it is starting the session, then that it waits for the link, and fails only after the wait with one action', () => {
+    page.setup = SETUP({ step: 'model', cards: { model: { state: 'unconnected', badge: 'Ready to connect', providers: providers({ state: 'unconnected' }) } } })
+    page.UI.setup.openai = OPENAI_OVERVIEW({ login: { provider: 'openai', state: 'starting' } })
+    let html = page.screenSetup(payload())
+    assert.match(text(html), /openai · starting the sign-in session/)
+    assert.doesNotMatch(html, /onclick="doSetupOpenAILogin\(\)"/, 'no second press while the session starts')
+    assert.doesNotMatch(text(html), /could not read the login|could not publish/)
+
+    page.UI.setup.openai = OPENAI_OVERVIEW({ login: { ...WAITING, url: null, code: null, terminal_url: null, started_at: at(30) } })
+    html = page.screenSetup(payload())
+    assert.match(text(html), /Waiting for the sign-in link/)
+    assert.doesNotMatch(text(html), /could not read the login/)
+    assert.doesNotMatch(html, /class="flow blind"/)
+
+    page.UI.setup.openai = OPENAI_OVERVIEW({ login: { ...WAITING, url: null, code: null, started_at: at(200) } })
+    html = page.screenSetup(payload())
+    assert.match(text(html), /curia could not read the login off the pane/)
+    assert.match(text(html), /3 minutes/)
+    assert.match(html, /class="flow blind"/)
+    assert.equal((html.match(/Open the terminal instead/g) ?? []).length, 1, 'one action')
+  })
+
+  test('the link and the one-time code each carry a copy button', () => {
+    page.setup = SETUP({ step: 'model', cards: { model: { state: 'unconnected', badge: 'Ready to connect', providers: providers({ state: 'unconnected' }) } } })
+    page.UI.setup.openai = OPENAI_OVERVIEW({ login: WAITING })
+    page.UI.setup.anthropic = ANTHROPIC_OVERVIEW({ login: ANTHROPIC_WAITING })
+    const html = page.screenSetup(payload())
+    assert.match(html, /onclick="copyText\(this, 'https:\/\/auth\.openai\.com\/codex\/device'\)">Copy link</)
+    assert.match(html, /onclick="copyText\(this, '83CC-A4ZTO'\)">Copy code</)
+    assert.match(html, /onclick="copyText\(this, 'https:\/\/claude\.com\/cai\/oauth\/authorize\?code_challenge=abc&amp;state=xyz'\)">Copy link</)
+    assert.equal((html.match(/Copy code/g) ?? []).length, 1, 'the typed lane shows no code to copy')
+  })
+
+  test('a copy press writes the clipboard and says Copied on the button', async () => {
+    const written = []
+    page.navigator = { clipboard: { writeText: async (t) => { written.push(t) } } }
+    const button = { textContent: 'Copy code' }
+    await page.copyText(button, '83CC-A4ZTO')
+    assert.deepEqual(written, ['83CC-A4ZTO'])
+    assert.equal(button.textContent, 'Copied')
   })
 
   test('a login that ended without a credential is said beside the plain card, and the press is offered again', () => {

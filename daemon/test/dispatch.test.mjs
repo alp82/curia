@@ -7883,6 +7883,41 @@ describe('a re-authentication session is invisible to every sweep (#642)', () =>
     assert.match(says[0], /curia-574/)
   })
 
+  // The rehearsal (#891) waited a minute for the link and again for the
+  // adoption: the poll ran only on the 60 s tick. The panel read drives it
+  // now, every few seconds, beside the tick, so two callers landing together
+  // share one poll and one announcement.
+  test('two polls landing together share one poll of the flow and announce once', async () => {
+    const says = []
+    let polls = 0
+    const d = makeDispatcher({}, { credentials: brokerSaying({ refreshed: false, why: 'nothing due' }) })
+    d.announce = async (t) => { says.push(t); return true }
+    d.credentials.fanOut = () => ({ healed: [], errors: [] })
+    d.reauth.poll = async () => { polls += 1; await new Promise((r) => setTimeout(r, 5)); return { provider: 'openai', state: 'done', expires_at: null } }
+    d.reauth.clear = () => {}
+
+    const [a, b] = await Promise.all([d.pollReauth(), d.pollReauth()])
+
+    assert.equal(polls, 1)
+    assert.equal(a.state, 'done')
+    assert.equal(b.state, 'done')
+    assert.equal(says.length, 1)
+    // The next call polls again.
+    await d.pollReauth()
+    assert.equal(polls, 2)
+  })
+
+  // The agent image is what the login runs in, and under a root it is pulled
+  // when missing. The card prepares it when the operator opens the row, so
+  // the press has nothing left to pull.
+  test('prepareReauth ensures the agent image ahead of the press, once at a time', async () => {
+    let ensured = 0
+    const d = makeDispatcher({ ensureAgentImage: async () => { ensured += 1; await new Promise((r) => setTimeout(r, 5)); return { ref: 'curia-agent:warm' } } })
+    await Promise.all([d.prepareReauth(), d.prepareReauth()])
+    assert.equal(ensured, 1)
+    assert.equal(d.reauth.image, 'curia-agent:warm')
+  })
+
   test('a login that timed out lifts nothing', async () => {
     const d = makeDispatcher({}, { credentials: brokerSaying({ refreshed: false, why: 'nothing due' }) })
     d.announce = async () => true
