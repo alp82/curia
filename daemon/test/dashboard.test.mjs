@@ -1874,10 +1874,10 @@ describe('the Tailscale card routes and the first-operator window (#877)', () =>
   const sent = (route) => calls.find((c) => c.url.startsWith(route))
 
   let daemonPort
-  const start = async ({ identitySource = 'daemon', allow = [], settingsSource = 'files' } = {}) => {
+  const start = async ({ identitySource = 'daemon', allow = [], settingsSource = 'files', ...over } = {}) => {
     surface = new DashboardSurface({
       port: 0, servePort: SERVE_PORT, index: DEFAULT_DASHBOARD_INDEX, allow, identitySource, settingsSource, pollIntervalS: 5,
-      daemonPort,
+      daemonPort, ...over,
       log: (line) => logged.push(String(line)),
       deps: {
         fetchOverview: async () => ({ daemon: { port: 4271 } }),
@@ -2003,13 +2003,44 @@ describe('the Tailscale card routes and the first-operator window (#877)', () =>
     assert.match(logged.join('\n'), /identity read failed/)
   })
 
+  // The rehearsal (#891) opened the app the moment `curia install` reported
+  // every service healthy and met a refusal for up to a minute: the app had
+  // read `/identity` before the daemon answered, and the next read was the
+  // periodic Serve assert. The failed read now retries on its own until the
+  // daemon answers once.
+  test('an identity read the daemon did not answer is retried until the daemon answers once, so the window opens as soon as the daemon is up', async () => {
+    daemon.close()
+    await start({ identityRetryMs: 20, identityRetryForMs: 5_000 })
+    assert.equal(surface.firstOperator, false)
+    assert.equal((await req(surface.port, '/', { headers: served() })).status, 403)
+    await new Promise((done) => daemon.listen(daemonPort, '127.0.0.1', done))
+    const until = Date.now() + 3_000
+    while (!surface.firstOperator && Date.now() < until) await new Promise((r) => setTimeout(r, 10))
+    assert.equal(surface.firstOperator, true, 'the window opened without waiting for the assert loop')
+    assert.equal((await req(surface.port, '/', { headers: served() })).status, 200)
+    assert.match(logged.join('\n'), /identity read failed.*retrying every 0\.02s/)
+    const reads = calls.filter((c) => c.url === '/identity').length
+    await new Promise((r) => setTimeout(r, 100))
+    assert.equal(calls.filter((c) => c.url === '/identity').length, reads, 'once the daemon has answered, the retry stops')
+  })
+
+  test('the identity retry gives up after its ceiling and says so, leaving the window shut', async () => {
+    daemon.close()
+    await start({ identityRetryMs: 10, identityRetryForMs: 60 })
+    const until = Date.now() + 2_000
+    while (!/stopped retrying/.test(logged.join('\n')) && Date.now() < until) await new Promise((r) => setTimeout(r, 10))
+    assert.match(logged.join('\n'), /stopped retrying the daemon's identity read after 0\.06s/)
+    assert.equal(surface.firstOperator, false)
+    assert.equal(surface.identityRetryTimer, null)
+  })
+
   test('with no operator confirmed, the first Tailscale identity reaches the page and the setup routes, and nothing else', async () => {
     await start()
     assert.equal(surface.firstOperator, true)
     assert.equal((await req(surface.port, '/', { headers: served() })).status, 200)
     assert.equal((await req(surface.port, '/api/setup', { headers: served() })).status, 200)
     assert.equal((await req(surface.port, '/api/setup/tailscale', { headers: served() })).status, 200)
-    for (const p of ['/api/overview', '/terminal/', '/api/settings', '/api/chat/list']) {
+    for (const p of ['/terminal/', '/api/settings', '/api/chat/list']) {
       const res = await req(surface.port, p, { headers: served() })
       assert.equal(res.status, 403, p)
       assert.match(res.text, /no operator is confirmed yet, and only setup is open/)
@@ -2018,6 +2049,61 @@ describe('the Tailscale card routes and the first-operator window (#877)', () =>
     assert.equal((await req(surface.port, '/', { headers: { host: 'box.tail1234.ts.net:8445' } })).status, 403)
     assert.equal((await req(surface.port, '/', { headers: served({ host: 'evil.example.com' }) })).status, 403)
     assert.equal((await req(surface.port, '/', { headers: served({ [FUNNEL_HEADER]: '?1' }) })).status, 403)
+  })
+
+  // The rehearsal of the packaged lifecycle (#891) found the window shut on
+  // the Setup page's own requests: the status banner read `/api/overview`
+  // and said the console was offline, the browser asked for the favicon,
+  // and the GitHub card's manifest flow answered 403. The window admits
+  // exactly what Setup needs before an operator is confirmed, and no verb.
+  describe('the window admits what the Setup page itself asks for (#891)', () => {
+    beforeEach(async () => {
+      reply['POST /github-app/start'] = [200, { url: 'https://github.com/settings/apps/new?state=abc', state: 'abc' }]
+      reply['GET /github-app/complete'] = [200, { ok: true, screen: 'setup' }]
+      await start()
+      assert.equal(surface.firstOperator, true)
+    })
+
+    test('the page', async () => {
+      assert.equal((await req(surface.port, '/', { headers: served() })).status, 200)
+      assert.equal((await req(surface.port, '/index.html', { headers: served() })).status, 200)
+    })
+
+    test('the favicon the browser asks for beside the page', async () => {
+      const res = await req(surface.port, '/favicon.ico', { headers: served() })
+      assert.notEqual(res.status, 403)
+      assert.doesNotMatch(res.text, /no operator is confirmed yet/)
+    })
+
+    test('the overview the status banner reads', async () => {
+      const res = await req(surface.port, '/api/overview', { headers: served() })
+      assert.equal(res.status, 200, res.text)
+      assert.equal(JSON.parse(res.text).operator, 'alp@example.com')
+    })
+
+    test('the setup read and the cards\' own reads', async () => {
+      assert.equal((await req(surface.port, '/api/setup', { headers: served() })).status, 200)
+      assert.equal((await req(surface.port, '/api/setup/tailscale', { headers: served() })).status, 200)
+    })
+
+    test('the GitHub App manifest start', async () => {
+      const res = await press('/api/github-app/start', { name: 'curia-box', action_id: 'action-0001', screen: 'setup' })
+      assert.equal(res.status, 200, res.text)
+      assert.equal(sent('/github-app/start').body.screen, 'setup')
+    })
+
+    test('the GitHub App manifest callback', async () => {
+      const res = await req(surface.port, '/api/github-app/complete?code=c1&state=abc', { headers: served() })
+      assert.equal(res.status, 303, res.text)
+      assert.equal(res.headers.location, '/#setup')
+    })
+
+    test('and no verb: a start is refused with the window\'s sentence', async () => {
+      const res = await press('/api/start', { repo: 'o/r', ticket: 1 })
+      assert.equal(res.status, 403)
+      assert.match(res.text, /no operator is confirmed yet, and only setup is open/)
+      assert.equal(calls.some((c) => c.url === '/command'), false)
+    })
   })
 
   test('the panel read carries the login Serve stamped on this request to the daemon, lowercased, and never one the browser named', async () => {

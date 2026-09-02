@@ -6,7 +6,7 @@
 // Curia publishes for its own app, and the verifier the frame asks on every
 // read. Tailscale is reached through its CLI over the host's tailscaled
 // socket on an injectable `exec`, and the app is probed on loopback with an
-// injectable `fetch`, so the suite needs no tailnet.
+// injectable `probe` over `node:http`, so the suite needs no tailnet.
 //
 // CURIA DETECTS TAILSCALE AND NEVER CHANGES IT. The node's login, its name,
 // its certificates, and the operator permission are the host's (#850). Every
@@ -48,6 +48,7 @@
 // again, and a node that went offline reads as offline.
 
 import { LOGIN_RE, MACHINE_NAME_RE, TAILSCALE_FILE, readTailscaleRecord, serveRoutes, tailscalePath, writeTailscaleRecord } from '../../cli/src/tailscale.mjs'
+import http from 'node:http'
 import { execFileP } from './exec.mjs'
 
 // The machine-name input's default (#853). A node named `curia.sh` reads as
@@ -70,6 +71,26 @@ export function magicDnsLabel(name) {
 // The Serve route Curia publishes for the app, as `tailscale serve` names it.
 export const appRoute = ({ servePort, appPort }) => ({ https: servePort, target: `http://127.0.0.1:${appPort}` })
 
+// The loopback probe of the app, over `node:http` and never `fetch`: the
+// probe must arrive as a Serve request does, with `Host: <address>:<serve
+// port>` and the recorded login, because that Host is the second leg of the
+// identity check. `fetch` (undici) drops a caller-set `Host` as forbidden,
+// so the app saw `Host: 127.0.0.1:4273` and refused every probe (#891).
+// `http.request` sends the header verbatim. Answers `{ status, text }`;
+// throws on no connection or no answer within `timeoutMs`.
+export function loopbackProbe({ port, path = '/', headers, timeoutMs = 10_000 }) {
+  return new Promise((resolve, reject) => {
+    const req = http.request({ host: '127.0.0.1', port, path, method: 'GET', headers, setHost: false }, (res) => {
+      const chunks = []
+      res.on('data', (c) => chunks.push(c))
+      res.on('end', () => resolve({ status: res.statusCode, text: async () => Buffer.concat(chunks).toString('utf8') }))
+    })
+    req.setTimeout(timeoutMs, () => req.destroy(new Error(`no answer within ${timeoutMs / 1000}s`)))
+    req.on('error', reject)
+    req.end()
+  })
+}
+
 // One `tailscale` call. `exec` answers `{ stdout, stderr }` or throws with
 // the child's stderr on it, which is the sentence the failure carries.
 async function tailscale(exec, args) {
@@ -89,7 +110,7 @@ export class TailscaleSetup {
   // surfaces check against; `configAllow` is what `curia.yaml` said.
   constructor({
     root = null, stateDir, servePort, appPort, allow = new Set(), configAllow = [],
-    exec = execFileP, fetchImpl = globalThis.fetch, log = console.log, now = () => new Date(),
+    exec = execFileP, probe = loopbackProbe, log = console.log, now = () => new Date(),
   }) {
     this.root = root
     this.stateDir = stateDir
@@ -98,7 +119,7 @@ export class TailscaleSetup {
     this.allow = allow
     this.configAllow = configAllow.map((l) => String(l).toLowerCase())
     this.exec = exec
-    this.fetchImpl = fetchImpl
+    this.probe = probe
     this.log = log
     this.now = now
     // The last request that reached setup through Serve: who, and when. In
@@ -306,10 +327,10 @@ export class TailscaleSetup {
     const started = Date.now()
     let res
     try {
-      res = await this.fetchImpl(`http://127.0.0.1:${this.appPort}/`, {
+      res = await this.probe({
+        port: this.appPort,
         headers: { host: `${address}:${this.servePort}`, 'tailscale-user-login': record.operator.login, accept: 'text/html' },
-        redirect: 'manual',
-        signal: AbortSignal.timeout(10_000),
+        timeoutMs: 10_000,
       })
     } catch (e) {
       facts.app = { status: null, ms: Date.now() - started, error: e.message }

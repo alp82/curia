@@ -310,10 +310,20 @@ const CHANNEL_NAME_RE = /^[a-z0-9][a-z0-9_-]{0,99}$/
 // keeps; the login is never a field, because the daemon records the identity
 // Serve stamped on the request and nothing a browser typed.
 const MACHINE_NAME_RE = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$/i
-// What the first-operator window admits (#877): the page, and the setup
-// routes. The terminal, the chat, and every verb stay refused until an
-// operator is confirmed.
-const FIRST_OPERATOR_PATHS = /^\/(?:$|api\/setup(?:\/|$))/
+// What the first-operator window admits (#877): exactly what the Setup page
+// asks for before an operator is confirmed. The page and the favicon the
+// browser requests beside it, the overview the status banner reads, the
+// setup routes, and the two GitHub App manifest routes the GitHub card runs
+// through (the start, and the callback GitHub redirects to). The rehearsal
+// of the packaged lifecycle (#891) found the banner saying the console was
+// offline and the GitHub card answering 403 with a narrower window. The
+// terminal, the chat, and every verb stay refused until an operator is
+// confirmed.
+const FIRST_OPERATOR_PATHS = /^\/(?:$|index\.html$|favicon\.ico$|api\/overview$|api\/setup(?:\/|$)|api\/github-app\/(?:start|complete)$)/
+// How the app keeps asking the daemon for its allowlist at boot (#891):
+// every 2 s, for up to a minute, until the daemon has answered once.
+const IDENTITY_RETRY_MS = 2_000
+const IDENTITY_RETRY_FOR_MS = 60_000
 
 export const MAX_WORDS = 4000
 
@@ -401,6 +411,7 @@ export class DashboardSurface {
     pollIntervalS = DEFAULT_DASHBOARD.poll_interval_s,
     curiaFile = null, routingFile = null, timelinePort = null, terminalPort = null,
     identitySource = 'config', settingsSource = 'files',
+    identityRetryMs = IDENTITY_RETRY_MS, identityRetryForMs = IDENTITY_RETRY_FOR_MS,
     log = console.log, deps = {},
   }) {
     this.port = port
@@ -437,6 +448,16 @@ export class DashboardSurface {
     // word that no operator is confirmed yet opens the first-operator window.
     this.identitySource = identitySource
     this.firstOperator = false
+    // The retry of a failed identity read (#891), until the daemon has
+    // answered once. At boot the app reads `/identity` before the daemon is
+    // up, and without this the next read was the periodic Serve assert, a
+    // minute in which the app refused the operator `curia install` had
+    // sent to it.
+    this.identityRetryMs = identityRetryMs
+    this.identityRetryForMs = identityRetryForMs
+    this.identityAnswered = false
+    this.identityRetryTimer = null
+    this.identityRetrySince = null
     this.hosts = new Set()
     this.deps = { assertServe, serveOff, attachBase, tailnetSelf, fetchOverview: null, ...deps }
     this.server = null
@@ -476,15 +497,44 @@ export class DashboardSurface {
     try {
       out = await this.#daemon({ path: '/identity' })
     } catch (e) {
-      this.log(`dashboard: the daemon's identity read failed (${e.message}) — keeping the last allowlist`)
+      const retry = this.#retryIdentity()
+      this.log(`dashboard: the daemon's identity read failed (${e.message}) — keeping the last allowlist${retry ? `, retrying every ${this.identityRetryMs / 1000}s until the daemon answers` : ''}`)
       return
     }
+    this.identityAnswered = true
+    this.#stopIdentityRetry()
     const logins = Array.isArray(out?.allow) ? out.allow.map((l) => String(l).toLowerCase()) : []
     this.allow.clear()
     for (const l of logins) this.allow.add(l)
     const window = Boolean(out?.first_operator) && logins.length === 0
     if (window !== this.firstOperator) this.log(window ? 'dashboard: no operator is confirmed yet — setup is open to the first Tailscale identity that arrives' : `dashboard: ${logins.length} login(s) admitted`)
     this.firstOperator = window
+  }
+
+  // Schedule the next identity read after a failed one, while the daemon has
+  // never answered and the ceiling is not spent. Answers whether a retry is
+  // scheduled. Once the daemon has answered once, a later failure keeps the
+  // last allowlist and waits for the assert loop, as before: a daemon
+  // restart must not open the window, and must not lock the operator out.
+  #retryIdentity() {
+    if (this.identityAnswered || this.identityRetryTimer) return Boolean(this.identityRetryTimer)
+    this.identityRetrySince ??= Date.now()
+    if (Date.now() - this.identityRetrySince >= this.identityRetryForMs) {
+      if (this.identityRetrySince !== Infinity) this.log(`dashboard: stopped retrying the daemon's identity read after ${this.identityRetryForMs / 1000}s — the next read is the serve assert`)
+      this.identityRetrySince = Infinity
+      return false
+    }
+    this.identityRetryTimer = setTimeout(() => {
+      this.identityRetryTimer = null
+      this.refreshIdentity().catch((e) => this.log(`dashboard: the identity retry failed: ${e.message}`))
+    }, this.identityRetryMs)
+    this.identityRetryTimer.unref?.()
+    return true
+  }
+
+  #stopIdentityRetry() {
+    if (this.identityRetryTimer) clearTimeout(this.identityRetryTimer)
+    this.identityRetryTimer = null
   }
 
   // Bind the loopback listener. A port that will not bind is not a surface this
@@ -521,6 +571,7 @@ export class DashboardSurface {
   stop() {
     if (this.timer) clearInterval(this.timer)
     this.timer = null
+    this.#stopIdentityRetry()
     this.server?.close()
     this.server = null
     this.listening = false
