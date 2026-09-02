@@ -1447,6 +1447,8 @@ const openaiSetup = new OpenAISetup({
     state: () => dispatcher.reauth?.state() ?? null,
     ending: () => dispatcher.reauth?.ending ?? null,
     start: ({ provider, by }) => dispatcher.startReauth({ provider, by }),
+    poll: () => dispatcher.pollReauth(),
+    prepare: () => dispatcher.prepareReauth(),
   },
   codexVersion: curiaConfig.sandbox?.codex_version ?? null,
   log,
@@ -1466,6 +1468,8 @@ const anthropicSetup = new AnthropicSetup({
     state: () => dispatcher.reauth?.state() ?? null,
     ending: () => dispatcher.reauth?.ending ?? null,
     start: ({ provider, by }) => dispatcher.startReauth({ provider, by }),
+    poll: () => dispatcher.pollReauth(),
+    prepare: () => dispatcher.prepareReauth(),
   },
   probeModel: curiaConfig.usage.probe_model,
   claudeVersion: curiaConfig.sandbox?.claude_version ?? null,
@@ -3968,13 +3972,14 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
   // card.
   // The OpenAI half of the model card (#878). The read is the panel's own:
   // the credential by presence, its safe identity facts, the live sign-in
-  // with its link and code, and routing readiness. The one write starts the
-  // codex device login through the dispatcher and answers the read at once;
-  // the start may ensure the agent image first, so the page polls the read
-  // until the flow shows, and `said` carries curia's sentence when it has
-  // settled. Never a token in either direction.
+  // with its link and code, and routing readiness. The read polls the live
+  // login itself and prepares the agent image ahead of the press (#891). The
+  // one write starts the codex device login through the dispatcher and
+  // answers the read at once; the start may ensure the agent image first, so
+  // the page polls the read until the flow shows, and `said` carries curia's
+  // sentence when it has settled. Never a token in either direction.
   if (url.pathname === '/setup/openai' && req.method === 'GET') {
-    return json(200, openaiSetup.overview())
+    return json(200, await openaiSetup.read())
   }
   if (url.pathname === '/setup/openai/login' && req.method === 'POST') {
     openaiSetup.startLogin().catch((e) => log(`model setup: the openai sign-in start failed (${e.message})`))
@@ -3986,7 +3991,7 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
   // starts the `claude setup-token` lane and answers the read at once. Never
   // a token in either direction.
   if (url.pathname === '/setup/anthropic' && req.method === 'GET') {
-    return json(200, anthropicSetup.overview())
+    return json(200, await anthropicSetup.read())
   }
   if (url.pathname === '/setup/anthropic/login' && req.method === 'POST') {
     anthropicSetup.startLogin().catch((e) => log(`model setup: the anthropic sign-in start failed (${e.message})`))

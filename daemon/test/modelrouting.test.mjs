@@ -34,6 +34,9 @@ const BASE = [
   '  opus: [gpt, sonnet]',
   '  sonnet: [gpt]',
   '  gpt: [opus]',
+  'review:',
+  '  anthropic: gpt',
+  '  openai: opus',
   'harnesses:',
   '  claude:',
   '    template: claude --model {model} "$(cat {prompt_file})"',
@@ -74,17 +77,20 @@ describe('the routing preset (#878)', () => {
     const routing = live()
     const onlyOpenai = routingReadiness(routing, ['openai'])
     assert.equal(onlyOpenai.ready, false)
-    assert.deepEqual(onlyOpenai.missing, ['grilling', 'map', 'untyped'])
+    assert.deepEqual(onlyOpenai.missing, ['grilling', 'map', 'untyped', 'review.openai'])
     assert.deepEqual(onlyOpenai.rows.find((r) => r.type === 'research'), { type: 'research', model: 'gpt', provider: 'openai', active: true, credentialed: true, ok: true })
     assert.equal(routingReadiness(routing, ['openai', 'anthropic']).ready, true)
     routing.models.gpt.active = false
     const off = routingReadiness(routing, ['openai', 'anthropic'])
     assert.equal(off.ready, false)
-    assert.deepEqual(off.missing, ['research'])
-    // The connecting provider's own models must be on, whatever the rows say.
+    assert.deepEqual(off.missing, ['research', 'review.anthropic'])
+    // The connecting provider's own models must be on, whatever the rows say,
+    // and a review row on the switched-off model is not ready either.
     routing.defaults.research = { model: 'opus', effort: 'high' }
+    assert.deepEqual(routingReadiness(routing, ['openai', 'anthropic']).missing, ['review.anthropic'])
+    assert.deepEqual(routingReadiness(routing, ['openai', 'anthropic'], { provider: 'openai' }).missing, ['models.gpt', 'review.anthropic'])
+    routing.review = {}
     assert.equal(routingReadiness(routing, ['openai', 'anthropic']).ready, true)
-    assert.deepEqual(routingReadiness(routing, ['openai', 'anthropic'], { provider: 'openai' }).missing, ['models.gpt'])
   })
 
   test('the preset moves the rows that are not ready onto the connected provider, keeps the rest, and switches models by credential', () => {
@@ -97,6 +103,7 @@ describe('the routing preset (#878)', () => {
         untyped: { model: 'gpt', effort: 'high' },
       },
       models: { fable: { active: false }, opus: { active: false }, sonnet: { active: false }, gpt: { active: true } },
+      review: { anthropic: 'gpt', openai: null },
     })
   })
 
@@ -139,6 +146,55 @@ describe('the routing preset (#878)', () => {
     assert.equal(after.models.opus.active, true)
     assert.equal(after.models.gpt.active, true)
     assert.doesNotMatch(fs.readFileSync(localFile, 'utf8'), /active/, 'every model is back to the tracked answer, so no switch is repeated')
+  })
+
+  // The rehearsal (#891) found the preset with one provider leaving
+  // `review.openai: opus` in place after it switched opus off, and the
+  // override then refused to load: a cross-check cannot run on a model that
+  // is switched off. A review row names the OTHER provider's model by
+  // design, so with one provider the row that cannot run has no model to
+  // move to and is dropped; the row the verified provider can review stays.
+  describe('the review rows (#891)', () => {
+    test('a review row on a model that is switched off is not ready', () => {
+      const routing = live()
+      const onlyOpenai = routingReadiness(routing, ['openai'], { provider: 'openai' })
+      assert.ok(onlyOpenai.missing.includes('review.openai'), onlyOpenai.missing.join(', '))
+      assert.ok(!onlyOpenai.missing.includes('review.anthropic'))
+      assert.equal(routingReadiness(routing, ['openai', 'anthropic']).ready, true)
+    })
+
+    test('with OpenAI alone the preset drops the row that would review OpenAI, keeps the other, and the result loads', () => {
+      const patch = routingPreset(live(), { provider: 'openai', credentialed: ['openai'] })
+      assert.deepEqual(patch.review, { anthropic: 'gpt', openai: null })
+      const out = ensureRoutingPreset({ routingFile, localFile, provider: 'openai', credentialed: ['openai'], live: live(), apply: () => {}, log: () => {} })
+      assert.equal(out.ready, true)
+      assert.deepEqual(out.missing, [])
+      const after = live()
+      assert.deepEqual(after.review, { anthropic: 'gpt' })
+      assert.equal(after.models.opus.active, false)
+      assert.equal(fs.readFileSync(routingFile, 'utf8'), BASE, 'the tracked file is never edited')
+    })
+
+    test('with Anthropic alone the preset drops the row that would review Anthropic and keeps the other', () => {
+      const patch = routingPreset(live(), { provider: 'anthropic', credentialed: ['anthropic'] })
+      assert.deepEqual(patch.review, { anthropic: null, openai: 'opus' })
+      const out = ensureRoutingPreset({ routingFile, localFile, provider: 'anthropic', credentialed: ['anthropic'], live: live(), apply: () => {}, log: () => {} })
+      assert.equal(out.ready, true)
+      const after = live()
+      assert.deepEqual(after.review, { openai: 'opus' })
+      assert.equal(after.defaults.research.model, 'fable')
+      assert.equal(after.models.gpt.active, false)
+    })
+
+    test('with both providers every review row stays, and the second provider restores the row the first preset dropped', () => {
+      ensureRoutingPreset({ routingFile, localFile, provider: 'openai', credentialed: ['openai'], live: live(), apply: () => {}, log: () => {} })
+      assert.deepEqual(live().review, { anthropic: 'gpt' })
+      const out = ensureRoutingPreset({ routingFile, localFile, provider: 'anthropic', credentialed: ['openai', 'anthropic'], live: live(), apply: () => {}, log: () => {} })
+      assert.equal(out.ready, true)
+      assert.deepEqual(live().review, { anthropic: 'gpt', openai: 'opus' })
+      assert.doesNotMatch(fs.readFileSync(localFile, 'utf8'), /review/, 'both rows are back to the tracked answer, so neither is repeated')
+      assert.deepEqual(routingPreset(live(), { provider: 'anthropic', credentialed: ['openai', 'anthropic'] }).review, { anthropic: 'gpt', openai: 'opus' })
+    })
   })
 
   test('a preset that cannot be written is the failure the card reports, and the tracked file stands', () => {

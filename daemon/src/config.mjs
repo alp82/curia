@@ -708,6 +708,12 @@ export function loadRoutingConfig(file, { localFile } = {}) {
   if (typeof cfg.review !== 'object' || Array.isArray(cfg.review)) {
     fail(src, '`review` must be a mapping of provider → model')
   }
+  // A `null` row is NO PAIRING for that builder, which is how the override
+  // file drops a tracked row it cannot delete (a layer merges key by key):
+  // the routing preset writes `review.openai: null` when only OpenAI holds a
+  // credential, because the row's model is switched off and a cross-check
+  // cannot read the diff on the builder's own provider (#891).
+  cfg.review = Object.fromEntries(Object.entries(cfg.review).filter(([, model]) => model !== null))
   const providers = new Set(Object.values(cfg.models).map((m) => m.provider))
   for (const [provider, model] of Object.entries(cfg.review)) {
     if (!providers.has(provider)) {

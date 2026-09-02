@@ -63,6 +63,11 @@ export const VERIFY_PROMPT = 'Reply with the single word OK.'
 const CLAUDE_CODE_SYSTEM = "You are Claude Code, Anthropic's official CLI for Claude."
 const MAX_TOKENS = 8
 const REQUEST_TIMEOUT_MS = 60_000
+// The panel read polls the live login itself (#891). The page reads every
+// 3 s while a login runs; the dispatch tick alone runs every 60 s, and the
+// rehearsal watched the row wait a minute for the link and a minute more for
+// the adoption. One poll per gap, however many reads land inside it.
+export const POLL_GAP_MS = 2_000
 
 const SIGN_IN = 'Sign in to Anthropic from this panel, then try again.'
 const seconds = (ms) => `${(ms / 1000).toFixed(1)} s`
@@ -125,6 +130,10 @@ export class AnthropicSetup {
     // a restart forgets both, and the flow itself is re-adopted by the tick.
     this.pending = null
     this.said = null
+    // The last poll the read drove, and the image preparation the first read
+    // started: both process memory, like the flow they serve.
+    this.polledAt = 0
+    this.prepared = null
   }
 
   // The credential by presence, with the text for the verifier's own use.
@@ -183,6 +192,33 @@ export class AnthropicSetup {
     const credentialed = this.#credentialed().filter((p) => p !== PROVIDER || present)
     const { ready, rows, missing } = routingReadiness(live, credentialed, { provider: PROVIDER })
     return { ready, model: presetModel(live, PROVIDER), rows, missing, credentialed }
+  }
+
+  // The panel's read from the route: the overview, after this row has done
+  // what the read can do for the operator. While this provider's login is
+  // live the flow is polled (the pane scraped, the credential adopted the
+  // moment it lands), at most once per gap; with no login running, the agent
+  // image the login runs in is prepared once, so the press has nothing left
+  // to pull. Neither is awaited past what it costs: a poll that fails is the
+  // tick's to retry, and a preparation that fails is retried by the press.
+  async read() {
+    const flow = this.login?.state?.() ?? null
+    if (flow?.provider === PROVIDER && flow.state === 'waiting' && typeof this.login.poll === 'function') {
+      const at = this.now().getTime()
+      if (at - this.polledAt >= POLL_GAP_MS) {
+        this.polledAt = at
+        try {
+          await this.login.poll()
+        } catch (e) {
+          this.log(`model setup: the ${PROVIDER} login poll failed (${e.message})`)
+        }
+      }
+    } else if (!flow && !this.pending && !this.prepared && typeof this.login?.prepare === 'function') {
+      this.prepared = Promise.resolve()
+        .then(() => this.login.prepare())
+        .catch((e) => { this.log(`model setup: the agent image could not be prepared ahead of the ${PROVIDER} sign-in (${e.message})`); this.prepared = null })
+    }
+    return this.overview()
   }
 
   // The one press: start the subscription sign-in, or hand back the one

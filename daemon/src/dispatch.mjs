@@ -2324,6 +2324,38 @@ export class Dispatcher {
   // of the second one.
   async pollReauth() {
     if (!this.reauth) return null
+    // ONE POLL AT A TIME (#891). The tick and the model card's read both
+    // drive this now, and two polls of one flow would adopt one credential
+    // twice and announce it twice. A caller landing on a poll in flight
+    // shares its outcome and does none of the work.
+    if (this.#reauthPoll) return this.#reauthPoll
+    this.#reauthPoll = this.#pollReauthOnce().finally(() => { this.#reauthPoll = null })
+    return this.#reauthPoll
+  }
+
+  #reauthPoll = null
+
+  // The agent image the login runs in, ensured ahead of the press (#891). The
+  // model card calls this when the operator opens the row, so a release image
+  // that `curia install` did not pull, or that a cleanup removed, is pulled
+  // while the operator reads the row and not while the press waits.
+  async prepareReauth() {
+    if (!this.reauth || !this.config.sandbox) return null
+    if (this.#reauthPrepare) return this.#reauthPrepare
+    this.#reauthPrepare = (async () => {
+      const image = await this.deps.ensureAgentImage(this.config.sandbox, {
+        onLine: (line) => this.log(`[image reauth] ${line}`),
+        root: pathsOf(this.config).root,
+      })
+      this.reauth.image = image.ref
+      return image.ref
+    })().finally(() => { this.#reauthPrepare = null })
+    return this.#reauthPrepare
+  }
+
+  #reauthPrepare = null
+
+  async #pollReauthOnce() {
     let outcome
     try {
       outcome = await this.reauth.poll()

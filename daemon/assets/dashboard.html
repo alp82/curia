@@ -336,6 +336,10 @@
   /* The scrape missed. Warn and not bad: nothing is broken, curia just could
      not read somebody else's wording, and the terminal below still works. */
   .flow.blind { border-color: var(--warn); background: var(--chip-warn-bg); }
+  /* The session is starting, or the pane has not printed the link yet (#891):
+     progress, in the plain border, until the wait is spent. */
+  .flow.starting { border-color: var(--line); background: transparent; }
+  .flow .copy { margin-left: 8px; vertical-align: middle; }
   .flow h3 { font-size: 15px; margin: 8px 0; }
   .flow-step { display: flex; gap: 11px; align-items: flex-start; margin-bottom: 11px; }
   .flow-step .n {
@@ -1102,6 +1106,38 @@ const ALL_AS_RECOMMENDED = "all-as-recommended";
    that string and open code instead. So the JS escaping runs first and the HTML
    escaping over it. */
 const js = (s) => esc(String(s ?? "").replace(/\\/g, "\\\\").replace(/'/g, "\\'"));
+/* Copy a value to the clipboard from a button, and say so on the button
+   (#891): the one-time code and the sign-in link are what an operator on
+   another device needs to carry across. The clipboard API needs a secure
+   context and a user gesture, both of which a press on the tailnet page has;
+   a browser without it falls back to a selection copy. */
+async function copyText(button, value) {
+  let ok = false;
+  try {
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+      ok = true;
+    }
+  } catch { ok = false; }
+  if (!ok && typeof document !== "undefined" && document.body && document.execCommand) {
+    try {
+      const area = document.createElement("textarea");
+      area.value = value;
+      area.setAttribute("readonly", "");
+      area.style.position = "fixed";
+      area.style.opacity = "0";
+      document.body.appendChild(area);
+      area.select();
+      ok = document.execCommand("copy");
+      area.remove();
+    } catch { ok = false; }
+  }
+  if (!button) return ok;
+  const label = button.textContent;
+  button.textContent = ok ? "Copied" : "Copy failed";
+  setTimeout(() => { button.textContent = label; }, 1500);
+  return ok;
+}
 
 const busy = (key) => actionFor({ conflict_key: key }) !== null;
 function said(key) {
@@ -4726,9 +4762,34 @@ const mmss = (s) => `${Math.floor(Math.max(0, s) / 60)}:${String(Math.max(0, s) 
    puts a code IN rather than reads one OUT: openai shows a code to enter in the
    browser, anthropic asks for one to be pasted back into the terminal. The
    token that lane produces reaches this page from nowhere. */
+/* HOW LONG THE PANE GETS TO PRINT THE LINK (#891). The rehearsal read "could
+   not read the login off the pane" for the first minute of every login,
+   before the pane had printed anything: a scrape that has found nothing yet
+   is progress, not a failure, until this wait is spent. Measured, the
+   container starts and codex prints the link in under a second; the wait is
+   generous so a slow pull or a slow box never reads as a broken login. */
+const LINK_WAIT_MS = 3 * 60 * 1000;
+const LINK_WAIT_WORDS = "3 minutes";
+const copyButton = (value, label) => `<button class="btn sm copy" type="button" onclick="copyText(this, '${js(value)}')">${esc(label)}</button>`;
+
+/* The session is being started: the image is ensured, the container spawned.
+   Nothing to open yet, and nothing wrong. */
+function credStarting(r) {
+  return `<div class="flow starting">
+    <div class="eyebrow">${esc(r.provider)} · starting the sign-in session</div>
+    <h3>Starting the sign-in session</h3>
+    <p class="dim-note" style="margin:0">Curia is starting the login session on this host. The link${r.typed ? "" : " and the one-time code"} show here the moment the session prints them.</p>
+  </div>`;
+}
+
 function credFlow(r) {
-  if (!r || r.state !== "waiting") return "";
-  const blind = !r.url || (!r.typed && !r.code);
+  if (!r) return "";
+  if (r.state === "starting") return credStarting(r);
+  if (r.state !== "waiting") return "";
+  const missing = !r.url || (!r.typed && !r.code);
+  const waited = r.started_at ? Date.now() - new Date(r.started_at).getTime() : Infinity;
+  const blind = missing && waited >= LINK_WAIT_MS;
+  const pending = missing && !blind;
   const second = r.typed
     ? `<div class="flow-step"><span class="n">2</span><div>
          <div>Paste the code the browser shows back into the terminal</div>
@@ -4736,7 +4797,7 @@ function credFlow(r) {
        </div></div>`
     : `<div class="flow-step"><span class="n">2</span><div>
          <div>Enter this code</div>
-         <code class="reauth-code">${esc(r.code)}</code>
+         <code class="reauth-code">${esc(r.code)}</code>${copyButton(r.code, "Copy code")}
        </div></div>`;
   const third = r.typed
     ? `<div class="flow-step"><span class="n">3</span><div>
@@ -4747,14 +4808,17 @@ function credFlow(r) {
          <div>Nothing is pasted back</div>
          <div class="dim-note">curia watches the scratch config dir and adopts the credential the moment it lands.</div>
        </div></div>`;
-  return `<div class="flow${blind ? " blind" : ""}">
+  return `<div class="flow${blind ? " blind" : pending ? " starting" : ""}">
     <div class="eyebrow">${esc(r.provider)} · signing in · ${esc(mmss(r.seconds_left ?? 0))} left</div>
     ${blind
       ? `<h3>curia could not read the login off the pane</h3>
-         <p class="dim-note" style="margin:0 0 10px">The wording changed, or the pane has not printed it yet. The terminal always works.</p>`
-      : `<div class="flow-step"><span class="n">1</span><div>
+         <p class="dim-note" style="margin:0 0 10px">The pane has not printed the link in ${LINK_WAIT_WORDS}, or its wording changed. Open the terminal and finish the sign-in there.</p>`
+      : pending
+        ? `<h3>Waiting for the sign-in link</h3>
+           <p class="dim-note" style="margin:0 0 10px">The session is running and Curia is reading its pane. The link${r.typed ? "" : " and the one-time code"} show here the moment the pane prints them, usually within a few seconds.</p>`
+        : `<div class="flow-step"><span class="n">1</span><div>
            <div>Open the link</div>
-           <a class="flow-link" href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.url)}</a>
+           <a class="flow-link" href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.url)}</a>${copyButton(r.url, "Copy link")}
          </div></div>
          ${second}
          ${third}`}
@@ -5358,8 +5422,8 @@ function setupOpenAI(p, card, progress) {
 }
 
 function setupOpenAIForm(o, flow, label) {
-  if (flow?.state === "waiting") return credFlow(flow);
-  const busy = UI.setup.openaiBusy === "openai-setup:login" || flow?.state === "starting";
+  if (flow?.state === "waiting" || flow?.state === "starting") return credFlow(flow);
+  const busy = UI.setup.openaiBusy === "openai-setup:login";
   const ended = o?.ending && !flow
     ? `<div class="setup-note">The last OpenAI sign-in ended: ${esc(o.ending.why ?? o.ending.state)}. Start it again whenever you're ready.</div>` : "";
   const sentence = o?.said && !flow ? `<p class="qhint">${esc(o.said.split("\n")[0])}</p>` : "";
@@ -5455,8 +5519,8 @@ function setupAnthropic(p, card, progress) {
 }
 
 function setupAnthropicForm(o, flow, label) {
-  if (flow?.state === "waiting") return credFlow(flow);
-  const busy = UI.setup.anthropicBusy === "anthropic-setup:login" || flow?.state === "starting";
+  if (flow?.state === "waiting" || flow?.state === "starting") return credFlow(flow);
+  const busy = UI.setup.anthropicBusy === "anthropic-setup:login";
   const ended = o?.ending && !flow
     ? `<div class="setup-note">The last Anthropic sign-in ended: ${esc(o.ending.why ?? o.ending.state)}. Start it again whenever you're ready.</div>` : "";
   const sentence = o?.said && !flow ? `<p class="qhint">${esc(o.said.split("\n")[0])}</p>` : "";

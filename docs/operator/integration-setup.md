@@ -173,9 +173,23 @@ The **Model provider** card holds one row per provider, OpenAI and Anthropic. On
 
 ### Sign in
 
-1. On the **Model provider** card, select **Sign in to OpenAI**. Curia opens a sign-in session on this host (`codex login --device-auth` in a session the service drives) and the row shows a link and a one-time code within a few seconds. The session runs in the agent image the release ships, which `curia install` pulled; nothing is built.
-2. Open the link on any device, sign in to your ChatGPT account, and enter the code. Nothing is pasted back. The code lives fifteen minutes.
+1. On the **Model provider** card, select **Sign in to OpenAI**. Curia opens a sign-in session on this host (`codex login --device-auth` in a session the service drives) and the row shows a link and a one-time code within a few seconds. The session runs in the agent image the release ships, which `curia install` pulled; nothing is built. Opening the row prepares that image, so the press has nothing left to pull.
+2. Open the link on any device, sign in to your ChatGPT account, and enter the code. Each of the link and the code has a **Copy** button. Nothing is pasted back. The code lives fifteen minutes.
 3. Wait for the row to verify. Curia watches for the credential, adopts it the moment it lands, and runs the verification.
+
+The row shows what the sign-in is doing, in this order:
+
+| State | What the row shows |
+|---|---|
+| Starting | `openai · starting the sign-in session`. Curia is ensuring the agent image and starting the session. No press is offered. |
+| Waiting for the link | `Waiting for the sign-in link`. The session runs and Curia reads its pane every few seconds. **Open the terminal instead** links the session itself. |
+| Signing in | The link, the one-time code, their **Copy** buttons, the time left on the code, and the terminal link. |
+| The pane printed nothing | After 3 minutes without a link, the row says "curia could not read the login off the pane", with one action: open the terminal and finish the sign-in there. |
+| Connected | The row verifies on the next read after the credential lands, within one refresh of the card. |
+
+A failure never precedes progress: the row reports the wait as a wait, and the one failure it can report on its own comes only after the 3 minutes. While the panel is open, Curia polls the sign-in session on the panel's own cadence, so the link, the code, and the adoption don't wait for the service's 60 second tick.
+
+One sign-in runs at a time. Selecting **Sign in to Anthropic** while the OpenAI sign-in runs answers that the OpenAI sign-in is still running, and the Anthropic sign-in starts once that one has ended.
 
 The credential lands in `secrets/codex-auth.json` in the installation root, owner-only, mode `0600`, written by the same adoption that `reauth openai` uses. Curia refreshes it from then on. The one-time code and the link exist only in the service's memory while the login runs and in this panel. They reach no file and no log. If the link or the code doesn't show, the row offers **Open the terminal instead**, which is the sign-in session itself.
 
@@ -207,6 +221,8 @@ A failed step names the failure and one action, for example `OpenAI refused the 
 
 Routing in `routing.yaml` names a model per ticket type, and the shipped file routes most types to an Anthropic model. On a fresh installation with only OpenAI signed in, that routing can't run. So the first verified read applies a preset: every ticket type whose model can't run moves to the OpenAI model (`gpt`, which is `gpt-5.6-sol`) with the type's own reasoning effort, OpenAI's models switch on, and the models of a provider with no credential switch off. Types that already route to a model that can run stay as they are, and the tracked `routing.yaml` is never edited.
 
+The preset covers the cross-check rows under `review` too. A review row names the model that reads a builder's diff on the other provider, so with one provider signed in the row that would review that provider has no model to move to: the preset drops it (`review.openai: null` in the override, which the service reads as no pairing), and a cross-check request for that provider is refused by name until the second provider signs in. The row the signed-in provider can review stays. Connecting the second provider restores every review row of the tracked file.
+
 The preset lands in the routing override file, the same file the Settings screen writes: `state/routing.local.yaml` in the installation root, or `config/routing.local.yaml` beside `routing.yaml` in the source deployment. The service applies it at once, with no restart. A routing that is ready is left alone, so a routing choice you make in Settings later isn't rewritten by a read, unless it routes a type to a model that can't run. When you add the second provider, its own verification switches its models back on.
 
 The card remembers only the provider you last signed in (`progress.model.provider`) for a reopen. The credential lives in `secrets/codex-auth.json` and nowhere else.
@@ -217,14 +233,16 @@ This section is the Anthropic row of the **Model provider** card. It connects th
 
 ### Sign in
 
-1. On the **Model provider** card, select **Sign in to Anthropic**. Curia opens a sign-in session on this host (`claude setup-token` in a session the service drives) and the row shows a link within a few seconds. The session runs in the agent image the release ships, which `curia install` pulled; nothing is built.
-2. Open the link, sign in to your Claude subscription, and approve the request. The browser shows a code.
+1. On the **Model provider** card, select **Sign in to Anthropic**. Curia opens a sign-in session on this host (`claude setup-token` in a session the service drives) and the row shows a link within a few seconds. The session runs in the agent image the release ships, which `curia install` pulled; nothing is built. Opening the row prepares that image.
+2. Open the link, sign in to your Claude subscription, and approve the request. The browser shows a code. The link has a **Copy** button.
 3. Select **Open the terminal instead** on the row and paste the code into that terminal. Curia can't type it for you: the sign-in session refuses every write the service can make, which is what keeps automation out of a login prompt.
 4. Wait for the row to verify. The session prints the token once, Curia reads it off the terminal, asks Anthropic whether it authenticates, adopts it on a yes, and runs the verification.
 
 The credential lands in `secrets/anthropic.json` in the installation root, owner-only, mode `0600`, written by the same adoption that `reauth anthropic` uses. The record holds the token and the instant Curia adopted it. The link exists only in the service's memory while the login runs and in this panel. The token reaches the secret file and nothing else: not this page, not a log, not the service's own login state. The session closes after thirty minutes when nobody finishes it.
 
 A login that ends without a credential (the session closed, or Anthropic rejected the token Curia read) is said on the row, and **Sign in to Anthropic** starts it again.
+
+The row moves through the same states as the OpenAI row: starting the session, waiting for the link, signing in (the link, its **Copy** button, the paste-back step, and the terminal link), the failure after 3 minutes without a link, and connected within one refresh of the card after the token is adopted. One sign-in runs at a time: while the OpenAI sign-in runs, the press answers that it is still running, and the Anthropic sign-in starts once that one has ended.
 
 ### What verification proves
 
@@ -250,7 +268,7 @@ A failed step names the failure and one action, for example `Anthropic refused t
 
 ### The routing preset with Anthropic
 
-The preset is the one described under [Connect OpenAI](#the-routing-preset), applied for Anthropic. The shipped `routing.yaml` routes most ticket types to Anthropic models already, so with only Anthropic signed in, the rows that can't run (the `research` type, on `gpt`) move to the first Anthropic model routing names (`fable`) with their own reasoning effort, Anthropic's models switch on, and OpenAI's switch off. A type that routes to `fable` on an account without Fable usage credits falls down the chain `routing.yaml` names under `fallbacks`, the way any dispatch does.
+The preset is the one described under [Connect OpenAI](#the-routing-preset), applied for Anthropic. The shipped `routing.yaml` routes most ticket types to Anthropic models already, so with only Anthropic signed in, the rows that can't run (the `research` type, on `gpt`) move to the first Anthropic model routing names (`fable`) with their own reasoning effort, Anthropic's models switch on, and OpenAI's switch off. The review row that would read an Anthropic builder's diff on `gpt` is dropped until OpenAI signs in; the row that reviews an OpenAI builder on `opus` stays. A type that routes to `fable` on an account without Fable usage credits falls down the chain `routing.yaml` names under `fallbacks`, the way any dispatch does.
 
 With both providers signed in, the preset covers both: every ticket type stays on the model it has when that model can run, and every model of both providers is on. Connecting the second provider switches its models back on and moves nothing that already runs. The override lands in the same `state/routing.local.yaml`, and the tracked `routing.yaml` is never edited.
 

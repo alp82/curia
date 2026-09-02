@@ -850,7 +850,21 @@ export class ReauthFlow {
     const lane = this.laneFor(provider)
     if (!lane) throw new Error(`there is no re-authentication lane for provider "${provider}" — this daemon can sign in: ${this.providers.join(', ') || 'nothing'}`)
     const session = authSessionName(provider)
-    if (this.flow && this.flow.state === 'waiting') return { started: false, session, why: 'a re-authentication is already running for this provider' }
+    // ONE LOGIN AT A TIME, and the refusal says which one (#891). The flow is
+    // single by design: one scratch dir, one pane scraped, one journal record
+    // resumed. The rehearsal pressed the second provider's sign-in while the
+    // first ran and read "already running for this provider" with the second
+    // provider's session name, which was false twice over.
+    if (this.flow && this.flow.state === 'waiting') {
+      const running = this.flow.provider
+      return running === provider
+        ? { started: false, session: this.flow.session, why: `a re-authentication is already running for ${provider}` }
+        : {
+            started: false,
+            session: this.flow.session,
+            why: `the ${running} sign-in is still running, and curia runs one sign-in at a time. Finish it or wait for it to end, then sign in to ${provider}`,
+          }
+    }
     if (await this.hasSession(session)) {
       // A session with no flow is one a previous daemon process started. Adopt
       // it rather than killing the operator's half-finished login, and take its

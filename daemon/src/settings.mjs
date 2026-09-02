@@ -324,7 +324,12 @@ function checkPatch(patch) {
   if (r !== undefined) {
     if (!r || typeof r !== 'object' || Array.isArray(r)) refuse('`routing` must be a mapping')
     for (const key of Object.keys(r)) {
-      if (!['defaults', 'models'].includes(key)) refuse(`the settings screen does not write \`routing.${key}\``)
+      if (!['defaults', 'models', 'review'].includes(key)) refuse(`the settings screen does not write \`routing.${key}\``)
+    }
+    // The review rows are the routing preset's to write (#891): the model
+    // that reads a builder's diff, or `null` for no pairing.
+    for (const [builder, model] of Object.entries(r.review ?? {})) {
+      if (model !== null && typeof model !== 'string') refuse(`\`routing.review.${builder}\` must be a model name or null`)
     }
     for (const [type, route] of Object.entries(r.defaults ?? {})) {
       if (typeof route === 'string') {
@@ -428,6 +433,10 @@ function editRouting(doc, patch, base) {
     // itself say `active: false`, and an override that expressed ON by deleting
     // a key would then say nothing at all.
     settle(doc, ['models', name, 'active'], m.active, base.models[name].active !== false)
+  }
+  for (const [builder, model] of Object.entries(patch.routing.review ?? {})) {
+    if (base.review?.[builder] === undefined) refuse(`routing.yaml has no \`review.${builder}\` row — the preset moves or drops the rows that are there and adds none`)
+    settle(doc, ['review', builder], model, base.review[builder])
   }
 }
 

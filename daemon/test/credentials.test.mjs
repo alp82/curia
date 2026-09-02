@@ -530,10 +530,10 @@ describe('the command the login pane runs (#642)', () => {
 })
 
 describe('the re-authentication flow (#642)', () => {
-  function flow({ now = () => 0, sessions = new Set(), journal = () => {} } = {}) {
+  function flow({ now = () => 0, sessions = new Set(), journal = () => {}, lanes = null } = {}) {
     const calls = { spawned: [], killed: [], stopped: [] }
     const f = new ReauthFlow({
-      lanes: { openai: new DeviceLoginLane({ broker: new CodexCredentialBroker({ home: dir, now }) }) },
+      lanes: lanes ?? { openai: new DeviceLoginLane({ broker: new CodexCredentialBroker({ home: dir, now }) }) },
       image: 'curia-agent:test',
       agentUid: 1000,
       cfgDirFor: (session) => path.join(dir, 'cfg', session),
@@ -566,6 +566,40 @@ describe('the re-authentication flow (#642)', () => {
     const again = await f.start({ provider: 'openai' })
     assert.equal(again.started, false)
     assert.equal(calls.spawned.length, 1)
+  })
+
+  // The rehearsal (#891) pressed Sign in to Anthropic while the OpenAI login
+  // ran and was told "already running for this provider: curia-auth-anthropic",
+  // which was false on both counts. One login runs at a time by design, so the
+  // refusal names the provider that is running, and the second provider signs
+  // in once the first login has ended.
+  test('a refusal names the provider whose login is running, and the other provider signs in after it', async () => {
+    const lanes = {
+      openai: new DeviceLoginLane({ broker: new CodexCredentialBroker({ home: dir, now: () => 0 }) }),
+      anthropic: new SetupTokenLane({ store: null }),
+    }
+    const { f, calls, sessions } = flow({ lanes })
+    await f.start({ provider: 'openai' })
+    const same = await f.start({ provider: 'openai' })
+    assert.equal(same.started, false)
+    assert.match(same.why, /already running for openai/)
+    assert.equal(same.session, 'curia-auth-openai')
+    const other = await f.start({ provider: 'anthropic' })
+    assert.equal(other.started, false)
+    assert.match(other.why, /the openai sign-in is still running/)
+    assert.match(other.why, /one sign-in at a time/)
+    assert.doesNotMatch(other.why, /already running for anthropic/)
+    assert.equal(other.session, 'curia-auth-openai', 'the session named is the one that is running')
+    assert.equal(calls.spawned.length, 1)
+    // The OpenAI login ends (the session closed), the dispatcher clears it,
+    // and Anthropic starts.
+    sessions.delete('curia-auth-openai')
+    await f.poll()
+    f.clear()
+    const next = await f.start({ provider: 'anthropic' })
+    assert.equal(next.started, true)
+    assert.equal(next.session, 'curia-auth-anthropic')
+    assert.equal(calls.spawned.length, 2)
   })
 
   // A leftover credential read as a fresh login is the silent return to the
