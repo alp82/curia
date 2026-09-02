@@ -19,15 +19,17 @@ On a fresh host there is nothing to preserve. The command logs the host in to yo
 
 ## Do this
 
-Download the bootstrap to a file, then run it:
+1. Choose the node's name on your tailnet. The default is `curia`. The name must be a MagicDNS label: lowercase letters, digits, and hyphens, up to 63 characters. It becomes the address of the Curia app, `https://<name>.<tailnet>.ts.net:8445/`, so choose it now: the app is served under this name from the moment it starts, and the Tailscale card in the app shows the name and doesn't change it. To change it later, reinstall with another `--name`, or run `sudo tailscale set --hostname <name>` on the host and restart Curia.
 
-```sh
-curl -fsSLO https://github.com/alp82/curia/releases/latest/download/curia-install.sh && bash curia-install.sh
-```
+2. Download the bootstrap to a file, then run it. Add `--name <machine-name>` when the name isn't `curia`:
 
-Don't pipe `curl` into `bash`. The script refuses to run from a pipe, because it can't check that a piped copy downloaded completely.
+   ```sh
+   curl -fsSLO https://github.com/alp82/curia/releases/latest/download/curia-install.sh && bash curia-install.sh --name curia
+   ```
 
-To name the node something other than `curia` on your tailnet, add `--name <machine-name>`: lowercase letters, digits, and hyphens. To install into another directory, add `--root <absolute path>` once. The root is written into the launcher, and you never pass it again. To install an exact version instead of the stable release, add `--version <version>`. The options are in [The bootstrap](../bootstrap.md#the-command).
+   Don't pipe `curl` into `bash`. The script refuses to run from a pipe, because it can't check that a piped copy downloaded completely.
+
+To install into another directory, add `--root <absolute path>` once. The root is written into the launcher, and you never pass it again. To install an exact version instead of the stable release, add `--version <version>`. The options are in [The bootstrap](../bootstrap.md#the-command).
 
 The script prints its own version, downloads every artifact into one temporary stage, proves each one against the registry, nodejs.org, the release manifest, and the signed stable-release index, and then hands off to `curia install`, which prints seven named steps:
 
@@ -45,9 +47,10 @@ What each step does is in [What `curia install` does](../install.md#what-curia-i
 
 ## Approve the machine in Tailscale
 
-At `[3/7] tailnet`, when the host isn't logged in to your tailnet yet, the command joins it and prints one link:
+At `[3/7] tailnet`, the command first prints the name you chose, `the node name is curia, chosen with --name`. When the host isn't logged in to your tailnet yet, the command joins it under that name and prints one link:
 
 ```text
+the node name is curia, chosen with --name
 this node is not logged in to a tailnet; joining it as curia
 Open this link on a device where you are signed in to Tailscale and approve this machine:
   https://login.tailscale.com/a/...
@@ -56,11 +59,11 @@ waiting for the login (up to 10 minutes)
 
 Open the link on any device where you're signed in to Tailscale, such as your laptop or phone, and approve the machine. The command continues on its own once the node is running. This is the one moment in the installation that needs you: the Curia app is reachable only through Tailscale, so the login can't wait for the browser.
 
-When the host is already logged in, the step reports the node's name and address instead and asks nothing. The tailnet step doesn't rename a node. If the name isn't the one you passed, the step says so and continues with the actual name; rename it later from the **Node name** field of the Tailscale card, run `sudo tailscale set --hostname <name>` on the host, or pass `--name <actual name>` next time. The step is described in [The tailnet step](../install.md#the-tailnet-step).
+When the host is already logged in, the step reports the node's name and address instead and asks nothing. Curia never renames a node. If the name isn't the one you passed, the step says so and that the existing name wins, and it continues with the actual name; run `sudo tailscale set --hostname <name>` on the host and run the command again to use your name, or pass `--name <actual name>` next time. The step is described in [The tailnet step](../install.md#the-tailnet-step).
 
 ## What you should see
 
-The command ends with the installation root, the launcher, and one line that starts with `Next: open the Curia app at https://<your node's MagicDNS name>:8445/`. Keep that address. Then confirm from the launcher:
+The command ends with the installation root, the launcher, the node name, the address of the Curia app, and one line that starts with `Next: open the Curia app at https://<your node's MagicDNS name>:8445/`. Keep that address. Then confirm from the launcher:
 
 ```sh
 curia version

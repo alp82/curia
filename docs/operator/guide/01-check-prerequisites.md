@@ -52,7 +52,7 @@ Curia detects and verifies these three and never installs or reconfigures them. 
    sudo tailscale set --operator=$USER
    ```
 
-   A node that is already logged in is fine too. `curia install` reports its name and doesn't rename it; the Tailscale card of the Curia app can rename it later.
+   A node that is already logged in is fine too. `curia install` reports its name and never renames it; the existing name wins over `--name`.
 
 Keep the host clock synchronized. Certificate and signature checks fail when the clock is more than five minutes off, so leave `systemd-timesyncd` or another Network Time Protocol client enabled. Both supported systems enable one by default.
 
