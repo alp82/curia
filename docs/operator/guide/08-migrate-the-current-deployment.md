@@ -13,7 +13,7 @@ This topic applies to one installation only: the source deployment that ran Curi
 
 **Starting state:** The source deployment at the exact commit the runbook names, with a clean checkout, no running agent, review, or operator turn, and new dispatches disabled. A separate Ubuntu 24.04 host prepared as in [1. Check prerequisites](01-check-prerequisites.md) and installed as in [2. Install Curia](02-install-curia.md) with the target release the runbook names. SSH between the two hosts.
 
-**Active operator time:** The runbook states it. Plan a maintenance window: the source is stopped before the copy, and it stays stopped until the target's Full loop passes or you roll back.
+**Active operator time:** about 60 minutes, as the runbook states, plus the copy and the Full loop as waits. Plan a maintenance window: the source is stopped before the copy, and it stays stopped until the target's Full loop passes or you roll back.
 
 ## What the migration keeps
 
@@ -25,7 +25,7 @@ This topic applies to one installation only: the source deployment that ran Curi
 
 ## Do this
 
-Follow the runbook at [The source cutover runbook](../source-cutover-runbook.md). The runbook is written and dry-run by [Write and dry-run the one-time source cutover runbook](https://github.com/alp82/curia/issues/889). **It doesn't exist yet.** Until that ticket merges, don't migrate; the contract it implements is [Define the isolated legacy migration contract](https://github.com/alp82/curia/issues/856).
+Follow [The source cutover runbook](../source-cutover-runbook.md). It names the accepted source commit, the expected source layout, the target release, and every command, and `deploy/cutover/cutover.mjs` runs its mechanical steps, dry-run by the daemon suite against a copy of the layout. The contract it implements is [Define the isolated legacy migration contract](https://github.com/alp82/curia/issues/856).
 
 The runbook runs in this order, and every step names its refusal:
 

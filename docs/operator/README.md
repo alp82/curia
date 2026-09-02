@@ -59,6 +59,7 @@ The lifecycle topics link to these pages at the point of use. Read them for what
 - [Releases, the stable-release index, and version selection](releases.md): publication order, promotion, and withdrawal.
 - [The release manifest and release verification](release-manifest.md): what a release is made of and what Curia proves before activation.
 - [Release images and the Compose bundle](bundle.md): the five services, their health checks, and the bundle.
+- [The source cutover runbook](source-cutover-runbook.md): the one-time move of the source deployment on the box into a packaged Curia, with its script, its evidence, and its rollback. Read it from [8. Migrate the current deployment](guide/08-migrate-the-current-deployment.md).
 
 ## What this guide doesn't cover
 
