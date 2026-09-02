@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.2](https://github.com/alp82/curia/compare/v0.6.1...v0.6.2) (2026-09-02)
+
+
+### Bug Fixes
+
+* wait for the registry to serve a published tarball before verification ([#926](https://github.com/alp82/curia/issues/926)) ([8bc9d1c](https://github.com/alp82/curia/commit/8bc9d1cf9b072a6d29fa8815d373b24728933465))
+
 ## [0.6.1](https://github.com/alp82/curia/compare/v0.6.0...v0.6.1) (2026-09-02)
 
 
