@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.9.0](https://github.com/alp82/curia/compare/v0.8.0...v0.9.0) (2026-09-02)
+
+
+### Features
+
+* name the Tailscale node from the setup card ([#940](https://github.com/alp82/curia/issues/940)) ([21b9264](https://github.com/alp82/curia/commit/21b9264288b3f5d13208302184326c569c502ffa))
+
+
+### Bug Fixes
+
+* let the operator choose the watched repositories and keep the image's watch list out of installations ([#941](https://github.com/alp82/curia/issues/941)) ([77d37f2](https://github.com/alp82/curia/commit/77d37f21940753640f30ec9947ff6da3d5e5b78c))
+* serve the terminal on packaged installations and take the Anthropic code from the card ([#943](https://github.com/alp82/curia/issues/943)) ([d976417](https://github.com/alp82/curia/commit/d976417267247d87e5645a9354b5d99c369b6476))
+* show sign-in progress before errors, copy the code, and keep the routing preset valid with one provider ([#942](https://github.com/alp82/curia/issues/942)) ([08cd7f0](https://github.com/alp82/curia/commit/08cd7f0b246c7aaaed1ef8bda3d4a7030618419d))
+* wait for the Discord bot to join a server before asking for the channel ([#939](https://github.com/alp82/curia/issues/939)) ([8d05665](https://github.com/alp82/curia/commit/8d05665987cacda56df2e8b241721e59f157dccc))
+
 ## [0.8.0](https://github.com/alp82/curia/compare/v0.7.0...v0.8.0) (2026-09-02)
 
 
