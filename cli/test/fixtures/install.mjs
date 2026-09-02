@@ -23,6 +23,7 @@ export const DIGESTS = Object.freeze({
   tmux: `sha256:${'2'.repeat(64)}`,
   dashboard: `sha256:${'3'.repeat(64)}`,
   overseer: `sha256:${'4'.repeat(64)}`,
+  agent: `sha256:${'5'.repeat(64)}`,
 })
 export const TEMPLATE = [
   'name: curia',
@@ -192,18 +193,22 @@ export function healthy(services = SERVICES, overrides = {}) {
   return services.map((s) => JSON.stringify({ Service: s, State: 'running', Health: 'healthy', ExitCode: 0, ...overrides[s] })).join('\n') + '\n'
 }
 
-// A fake `docker`: records every call and answers by Compose verb. An answer
-// may be a function of the arguments, to model a start that settles.
+// A fake `docker`: records every call and answers by verb. A Compose call
+// answers by its Compose verb (`pull`, `up`, `ps`); a plain `docker` call,
+// which is how the agent image is pulled beside the bundle, answers by its
+// first two words (`image pull`). An answer may be a function of the
+// arguments, to model a start that settles.
+const verbOf = (args) => (args[0] === 'compose' ? args[args.indexOf('-f') + 2] : args.slice(0, 2).join(' '))
 export function fakeDocker(answers = {}) {
   const calls = []
   const run = async (args) => {
     calls.push(args)
-    const verb = args[args.indexOf('-f') + 2]
+    const verb = verbOf(args)
     const answer = answers[verb] ?? (verb === 'ps' ? { ok: true, stdout: healthy() } : { ok: true, stdout: '', stderr: '' })
     return typeof answer === 'function' ? answer(args, calls) : answer
   }
   run.calls = calls
-  run.verbs = () => calls.map((c) => c[c.indexOf('-f') + 2])
+  run.verbs = () => calls.map(verbOf)
   return run
 }
 

@@ -1,13 +1,17 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, statSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import {
-  HEALTH_TIMEOUT_MS, composeProject, writeComposeEnvironment, parseServiceStates, serviceStates, startProject, waitForHealth, ComposeError,
+  HEALTH_TIMEOUT_MS, composeProject, writeComposeEnvironment, parseServiceStates, serviceStates, startProject, pullAgentImage, waitForHealth, ComposeError,
 } from '../src/compose.mjs'
 import { SERVICES } from '../src/layout.mjs'
+import { imageReference } from '../src/bundle.mjs'
+import { createManifest, renderManifest } from '../src/manifest.mjs'
+import { versionPaths } from '../src/root.mjs'
+import { COMMIT, DIGESTS } from './fixtures/install.mjs'
 
 const ID = 'a'.repeat(32)
 
@@ -15,7 +19,8 @@ function fakeDocker(answers = {}) {
   const calls = []
   const run = async (args) => {
     calls.push(args)
-    const verb = args[args.indexOf('compose') + 1 + 4] // after `compose --env-file <f> -f <file>`
+    // After `compose --env-file <f> -f <file>`, or the plain `image pull`.
+    const verb = args[0] === 'compose' ? args[args.indexOf('compose') + 1 + 4] : args.slice(0, 2).join(' ')
     const answer = answers[verb] ?? { ok: true, stdout: '', stderr: '' }
     return typeof answer === 'function' ? answer(args, calls) : answer
   }
@@ -70,18 +75,46 @@ describe('parseServiceStates', () => {
   })
 })
 
+// A root whose installed version holds the release manifest, which is where
+// the agent image's digest reference comes from.
+function rootWithManifest(version = '1.2.3', digests = DIGESTS) {
+  const root = mkdtempSync(join(tmpdir(), 'curia-compose-'))
+  const manifest = versionPaths(root, version).manifest
+  mkdirSync(join(manifest, '..'), { recursive: true })
+  writeFileSync(manifest, renderManifest(createManifest({ version, commit: COMMIT, bundleSha256: 'a'.repeat(64), digests })))
+  return root
+}
+const AGENT = imageReference('agent', DIGESTS.agent)
+
 describe('startProject', () => {
-  test('pulls by digest and brings the project up detached, in that order', async () => {
+  test('pulls the service images through Compose and the agent image by its manifest digest, then brings the project up detached', async () => {
     const docker = fakeDocker()
-    const project = composeProject({ root: '/srv/curia', version: '1.2.3' })
+    const root = rootWithManifest()
+    const project = composeProject({ root, version: '1.2.3' })
     await startProject(project, { docker, stdout: { write() {} } })
-    assert.deepEqual(docker.calls.map((c) => c.slice(5)), [['pull'], ['up', '--detach', '--remove-orphans', '--quiet-pull']])
+    assert.deepEqual(docker.calls.map((c) => (c[0] === 'compose' ? c.slice(5) : c)), [['pull'], ['image', 'pull', '--quiet', AGENT], ['up', '--detach', '--remove-orphans', '--quiet-pull']])
+    rmSync(root, { recursive: true, force: true })
   })
 
   test('a failed pull is a ComposeError that carries the docker message', async () => {
     const docker = fakeDocker({ pull: { ok: false, stdout: '', stderr: 'Error response from daemon: manifest unknown', code: 1 } })
     const project = composeProject({ root: '/srv/curia', version: '1.2.3' })
     await assert.rejects(startProject(project, { docker, stdout: { write() {} } }), (e) => e instanceof ComposeError && /manifest unknown/.test(e.message) && /docker compose .*pull/.test(e.message))
+  })
+
+  test('the agent image comes from the installed release manifest, and a root without one refuses before anything is pulled', async () => {
+    const root = rootWithManifest('2.0.0', { ...DIGESTS, agent: `sha256:${'7'.repeat(64)}` })
+    const docker = fakeDocker()
+    await pullAgentImage(composeProject({ root, version: '2.0.0' }), { docker })
+    assert.deepEqual(docker.calls, [['image', 'pull', '--quiet', imageReference('agent', `sha256:${'7'.repeat(64)}`)]])
+
+    const bare = fakeDocker()
+    await assert.rejects(pullAgentImage(composeProject({ root: '/srv/curia', version: '1.2.3' }), { docker: bare }), (e) => e instanceof ComposeError && /\/srv\/curia\/versions\/1\.2\.3\/cli\/manifest\.json/.test(e.message))
+    assert.deepEqual(bare.calls, [])
+
+    const refused = fakeDocker({ 'image pull': { ok: false, stdout: '', stderr: 'Error response from daemon: denied', code: 1 } })
+    await assert.rejects(pullAgentImage(composeProject({ root, version: '2.0.0' }), { docker: refused }), (e) => e instanceof ComposeError && /denied/.test(e.message) && /docker image pull/.test(e.message))
+    rmSync(root, { recursive: true, force: true })
   })
 })
 

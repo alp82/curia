@@ -61,12 +61,12 @@ The two forms say the same thing: you named the exact directory that goes. A scr
 
 ## Which images go
 
-Curia's release images are the four images under `ghcr.io/alp82/curia-daemon`, `curia-tmux`, `curia-dashboard`, and `curia-overseer`, pulled by digest. They carry no installation label, because two installations on one host share a pulled image. The `images` step lists every image under those four exact repositories, of this version and of earlier ones, and for each image:
+Curia's release images are the five images under `ghcr.io/alp82/curia-daemon`, `curia-tmux`, `curia-dashboard`, `curia-overseer`, and `curia-agent`, pulled by digest. They carry no installation label, because two installations on one host share a pulled image. The `images` step lists every image under those five exact repositories, of this version and of earlier ones, and for each image:
 
 1. Asks Docker for every container, of any installation, that runs it (`docker ps --all --filter ancestor=<image>`). An image with a container over it is kept, and the report names the container.
 2. Removes the image without `--force`. An image Docker refuses, for example because another image depends on it, is kept, and the report gives Docker's reason.
 
-A kept image is reported, not a failure. Purge never removes an image because its name starts with `curia`: the agent image the service builds on the host (`curia-agent:<pins>` by default) isn't a release image and stays. Remove it by hand with `docker image rm` when nothing uses it.
+A kept image is reported, not a failure. Purge never removes an image because its name starts with `curia`: an image under another repository stays, whatever it's called. The agent image of an installation is `ghcr.io/alp82/curia-agent`, pulled by digest, and goes with the other four once the agent containers are removed.
 
 ## What the command prints
 

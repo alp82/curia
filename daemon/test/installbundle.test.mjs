@@ -30,11 +30,13 @@ let scratch
 before(() => { scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-installbundle-')) })
 after(() => fs.rmSync(scratch, { recursive: true, force: true }))
 
-// A `docker` whose `pull` and `up` are Compose reading the project, and whose
-// `ps` answers healthy.
+// A `docker` whose Compose `pull` and `up` are Compose reading the project,
+// whose `ps` answers healthy, and whose plain `image pull` of the agent
+// image answers without a registry.
 function composeConfigRunner() {
   const configs = []
   return async (args) => {
+    if (args[0] !== 'compose') return { ok: true, stdout: '', stderr: '', code: 0 }
     const verb = args[args.indexOf('-f') + 2]
     if (verb === 'ps') return { ok: true, stdout: healthy() }
     const r = spawnSync('docker', [...args.slice(0, args.indexOf('-f') + 2), 'config', '--format', 'json'], { encoding: 'utf8' })

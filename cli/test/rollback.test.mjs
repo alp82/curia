@@ -17,7 +17,8 @@ import { createStableIndex, generateStableIndexKeys, signStableIndex } from '../
 import { isCompleteStage } from '../src/stage.mjs'
 import { CORE_SERVICES } from '../src/switch.mjs'
 import { SERVICES } from '../src/layout.mjs'
-import { acquireProbesFor, artifactsOf, fakeDocker, fakeLoopback, fakeTailscale, healthy, hostProbes, loggedOutStatus, release as releaseIn, releaseProbesFor, stageOf as stageIn } from './fixtures/install.mjs'
+import { imageReference } from '../src/bundle.mjs'
+import { acquireProbesFor, artifactsOf, DIGESTS, fakeDocker, fakeLoopback, fakeTailscale, healthy, hostProbes, loggedOutStatus, release as releaseIn, releaseProbesFor, stageOf as stageIn } from './fixtures/install.mjs'
 
 const ACTIVE = packageVersion
 const NOW = '2026-09-02T10:00:00Z'
@@ -213,6 +214,7 @@ describe('a rollback', () => {
     const pull = verbs.find((v) => v[0] === 'pull')
     const ups = a.docker.calls.filter((c) => c.includes('up'))
     assert.deepEqual(pull, ['pull', ...CORE_SERVICES])
+    assert.ok(a.docker.calls.some((c) => c[0] === 'image' && c[1] === 'pull' && c.at(-1) === imageReference('agent', DIGESTS.agent)), 'the rollback release\'s agent image is pulled by digest')
     assert.equal(ups.length, 1)
     assert.deepEqual(ups[0].slice(ups[0].indexOf('up')), ['up', '--detach', '--no-deps', ...CORE_SERVICES])
     assert.equal(bundleOf(ups[0]), ACTIVE)

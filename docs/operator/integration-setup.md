@@ -150,7 +150,7 @@ The **Model provider** card holds one row per provider, OpenAI and Anthropic. On
 
 ### Sign in
 
-1. On the **Model provider** card, select **Sign in to OpenAI**. Curia opens a sign-in session on this host (`codex login --device-auth` in a session the service drives) and the row shows a link and a one-time code within a few seconds. The first press on a fresh installation can take longer, because the service prepares the agent image first.
+1. On the **Model provider** card, select **Sign in to OpenAI**. Curia opens a sign-in session on this host (`codex login --device-auth` in a session the service drives) and the row shows a link and a one-time code within a few seconds. The session runs in the agent image the release ships, which `curia install` pulled; nothing is built.
 2. Open the link on any device, sign in to your ChatGPT account, and enter the code. Nothing is pasted back. The code lives fifteen minutes.
 3. Wait for the row to verify. Curia watches for the credential, adopts it the moment it lands, and runs the verification.
 
@@ -194,7 +194,7 @@ This section is the Anthropic row of the **Model provider** card. It connects th
 
 ### Sign in
 
-1. On the **Model provider** card, select **Sign in to Anthropic**. Curia opens a sign-in session on this host (`claude setup-token` in a session the service drives) and the row shows a link within a few seconds. The first press on a fresh installation can take longer, because the service prepares the agent image first.
+1. On the **Model provider** card, select **Sign in to Anthropic**. Curia opens a sign-in session on this host (`claude setup-token` in a session the service drives) and the row shows a link within a few seconds. The session runs in the agent image the release ships, which `curia install` pulled; nothing is built.
 2. Open the link, sign in to your Claude subscription, and approve the request. The browser shows a code.
 3. Select **Open the terminal instead** on the row and paste the code into that terminal. Curia can't type it for you: the sign-in session refuses every write the service can make, which is what keeps automation out of a login prompt.
 4. Wait for the row to verify. The session prints the token once, Curia reads it off the terminal, asks Anthropic whether it authenticates, adopts it on a yes, and runs the verification.

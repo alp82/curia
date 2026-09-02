@@ -1,16 +1,20 @@
-# The release workflow (#869, #870, #871, implementing #849 and #854).
+# The release workflow (#869, #870, #871, implementing #849 and #854; the
+# agent image joined the release images at #891).
 #
 # On every push to main, Release Please opens or updates the release pull
 # request. When that pull request merges, Release Please creates a *draft*
 # release for the new version (release-please-config.json sets `draft`), and
 # the rest of this workflow publishes the version in dependency order:
 #
-#   1. images    build the four service images from the `release` stage of
-#                their Dockerfiles, push each to GHCR under its version tag,
-#                and attest the digest the registry returned;
-#   2. bundle    render deploy/bundle/compose.yaml against those digests, write
-#                the release manifest that binds the package version, the
-#                bundle checksum, the four digests, and this commit, render the
+#   1. images    build the five release images from the `release` stage of
+#                their Dockerfiles (the four services and the agent image the
+#                service starts every agent from), push each to GHCR under
+#                its version tag, and attest the digest the registry
+#                returned;
+#   2. bundle    render deploy/bundle/compose.yaml against the four service
+#                digests, write the release manifest that binds the package
+#                version, the bundle checksum, all five digests, and this
+#                commit, render the
 #                bootstrap script with this version stamped in, prove the
 #                result with the same tests the suite runs, and attach the
 #                bundle, its checksum, the digest set, the manifest, and the
@@ -105,6 +109,10 @@ jobs:
     outputs:
       node: ${{ steps.pins.outputs.NODE_VERSION }}
       claude: ${{ steps.pins.outputs.CLAUDE_VERSION }}
+      codex: ${{ steps.pins.outputs.CODEX_VERSION }}
+      gh: ${{ steps.pins.outputs.GH_VERSION }}
+      playwright: ${{ steps.pins.outputs.PLAYWRIGHT_VERSION }}
+      ttyd: ${{ steps.pins.outputs.TTYD_VERSION }}
       version: ${{ steps.version.outputs.version }}
       release: ${{ steps.version.outputs.release }}
       sha: ${{ steps.version.outputs.sha }}
@@ -128,7 +136,9 @@ jobs:
         with:
           ref: ${{ steps.commit.outputs.sha }}
 
-      - name: Read the Node and Claude Code pins from config/curia.yaml
+      # The Node and Claude Code pins every image builds with, and the agent
+      # image's other pins: the same inputs the service builds it with.
+      - name: Read the release pins from config/curia.yaml
         id: pins
         run: node deploy/bundle/pins.mjs | tee -a "$GITHUB_OUTPUT"
 
@@ -169,7 +179,7 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        service: [daemon, tmux, dashboard, overseer]
+        service: [daemon, tmux, dashboard, overseer, agent]
     steps:
       - name: Check out the release commit
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.0.2
@@ -202,6 +212,9 @@ jobs:
       # The image manifest itself is the subject: no provenance or SBOM
       # manifest list from the builder, so the digest the bundle names is the
       # digest of the image and `docker pull <name>@<digest>` gets exactly it.
+      # Every image gets every pin; a Dockerfile that declares no ARG for one
+      # leaves it unused. AGENT_UID is not passed: the agent image takes its
+      # default, and `--user` sets the operator's uid at run time.
       - name: Build the release stage and push it
         id: build
         if: steps.plan.outputs.build == 'true'
@@ -218,6 +231,10 @@ jobs:
           build-args: |
             NODE_VERSION=${{ needs.pins.outputs.node }}
             CLAUDE_VERSION=${{ needs.pins.outputs.claude }}
+            CODEX_VERSION=${{ needs.pins.outputs.codex }}
+            GH_VERSION=${{ needs.pins.outputs.gh }}
+            PLAYWRIGHT_VERSION=${{ needs.pins.outputs.playwright }}
+            TTYD_VERSION=${{ needs.pins.outputs.ttyd }}
           labels: |
             org.opencontainers.image.version=${{ needs.pins.outputs.version }}
             org.opencontainers.image.revision=${{ needs.pins.outputs.sha }}
@@ -275,7 +292,7 @@ jobs:
           node -e '
             const fs = require("node:fs")
             const out = {}
-            for (const s of ["daemon", "tmux", "dashboard", "overseer"]) out[s] = fs.readFileSync(`digests/${s}`, "utf8").trim()
+            for (const s of ["daemon", "tmux", "dashboard", "overseer", "agent"]) out[s] = fs.readFileSync(`digests/${s}`, "utf8").trim()
             fs.writeFileSync("digests.json", JSON.stringify(out, null, 2))
             console.log(JSON.stringify(out, null, 2))
           '

@@ -24,6 +24,7 @@ const DIGESTS = {
   tmux: `sha256:${'2'.repeat(64)}`,
   dashboard: `sha256:${'3'.repeat(64)}`,
   overseer: `sha256:${'4'.repeat(64)}`,
+  agent: `sha256:${'5'.repeat(64)}`,
 }
 
 const TEMPLATE = [
@@ -118,7 +119,10 @@ function failedOnly(report, ...names) {
 
 describe('the contract', () => {
   test('one format, one package, one repository, one signer workflow', () => {
-    assert.equal(MANIFEST_FORMAT, 1)
+    // Format 2 binds the agent image as the fifth release image (#891). A
+    // format-1 manifest binds four and is refused: a release is whole or it
+    // is not a release.
+    assert.equal(MANIFEST_FORMAT, 2)
     assert.equal(PACKAGE_NAME, '@curia-sh/cli')
     assert.equal(RELEASE_REPOSITORY, 'alp82/curia')
     assert.equal(RELEASE_WORKFLOW, '.github/workflows/release.yml')
@@ -155,7 +159,7 @@ describe('the manifest', () => {
   test('binds the version, the package, the bundle checksum, every image digest, and the source', () => {
     const m = createManifest({ version: VERSION, commit: COMMIT, bundleSha256: 'a'.repeat(64), digests: DIGESTS })
     assert.deepEqual(m, {
-      format: 1,
+      format: 2,
       version: '1.2.3',
       package: { name: '@curia-sh/cli', version: '1.2.3' },
       bundle: { name: 'curia-bundle-1.2.3.tar.gz', sha256: 'a'.repeat(64) },
@@ -164,6 +168,7 @@ describe('the manifest', () => {
         tmux: { name: 'ghcr.io/alp82/curia-tmux', digest: DIGESTS.tmux },
         dashboard: { name: 'ghcr.io/alp82/curia-dashboard', digest: DIGESTS.dashboard },
         overseer: { name: 'ghcr.io/alp82/curia-overseer', digest: DIGESTS.overseer },
+        agent: { name: 'ghcr.io/alp82/curia-agent', digest: DIGESTS.agent },
       },
       source: { repository: 'alp82/curia', commit: COMMIT, workflow: '.github/workflows/release.yml' },
     })
@@ -175,7 +180,7 @@ describe('the manifest', () => {
     assert.ok(text.endsWith('\n'))
     assert.equal(text, renderManifest(parseManifest(text)))
     assert.deepEqual(parseManifest(text), m)
-    assert.equal(renderManifest(m), renderManifest({ ...m, images: { overseer: m.images.overseer, daemon: m.images.daemon, tmux: m.images.tmux, dashboard: m.images.dashboard } }), 'key order does not change the bytes')
+    assert.equal(renderManifest(m), renderManifest({ ...m, images: { agent: m.images.agent, overseer: m.images.overseer, daemon: m.images.daemon, tmux: m.images.tmux, dashboard: m.images.dashboard } }), 'key order does not change the bytes')
   })
 
   test('accepts a prerelease version', () => {
@@ -199,7 +204,7 @@ describe('the manifest', () => {
 
     refuses('not json', /not JSON/)
     refuses('[]', /object/)
-    refuses(mutate((c) => { c.format = 2 }), /format/)
+    refuses(mutate((c) => { c.format = 1 }), /format/)
     refuses(mutate((c) => { delete c.version }), /version/)
     refuses(mutate((c) => { c.version = 'latest' }), /version/)
     refuses(mutate((c) => { c.extra = 1 }), /extra/)
@@ -208,7 +213,8 @@ describe('the manifest', () => {
     refuses(mutate((c) => { c.bundle.name = 'curia-bundle-1.2.4.tar.gz' }), /bundle\.name/)
     refuses(mutate((c) => { c.bundle.sha256 = 'a'.repeat(63) }), /bundle\.sha256/)
     refuses(mutate((c) => { delete c.images.overseer }), /images\.overseer/)
-    refuses(mutate((c) => { c.images.agent = c.images.daemon }), /images\.agent/)
+    refuses(mutate((c) => { delete c.images.agent }), /images\.agent/)
+    refuses(mutate((c) => { c.images.worker = c.images.daemon }), /images\.worker/)
     refuses(mutate((c) => { c.images.daemon.digest = '1.2.3' }), /images\.daemon\.digest/)
     refuses(mutate((c) => { c.images.daemon.name = 'docker.io/alp82/curia-daemon' }), /images\.daemon\.name/)
     refuses(mutate((c) => { c.images.daemon.tag = '1.2.3' }), /images\.daemon\.tag/)
@@ -345,6 +351,24 @@ describe('verifying a staged release', () => {
     assert.match(check(report, 'image digests').observed, /eeeeeeeeeeee/)
   })
 
+  test('the agent image is bound by the manifest and pulled by the lifecycle interface, so the bundle runs no service from it', async () => {
+    const r = release()
+    const report = evaluateRelease({ version: VERSION, tarball: r.tarball, releaseManifest: r.text, package: { integrity: r.integrity, attested: true, error: null }, bundle: { archive: r.archive, checksum: r.checksum } })
+    assert.equal(report.ok, true)
+    assert.match(check(report, 'image digests').observed, /4 images by digest in the bundle, and the agent image bound for the service/)
+
+    // A bundle that starts a service from the agent image is not one Curia
+    // publishes, even though the manifest binds that digest.
+    const agentService = `${renderBundle(TEMPLATE, DIGESTS)}  agent:\n    image: ${imageReference('agent', DIGESTS.agent)}\n`
+    const archive = archiveOf({ [`curia-bundle-${VERSION}/compose.yaml`]: agentService })
+    const manifest = createManifest({ version: VERSION, commit: COMMIT, bundleSha256: sha256(archive), digests: DIGESTS })
+    const text = renderManifest(manifest)
+    const tarball = archiveOf({ 'package/package.json': r.packageJson, [`package/${MANIFEST_FILE}`]: text })
+    const bad = evaluateRelease({ version: VERSION, tarball, releaseManifest: text, package: { integrity: sri(tarball), attested: true, error: null }, bundle: { archive, checksum: `${sha256(archive)}  curia-bundle-${VERSION}.tar.gz\n` } })
+    failedOnly(bad, 'image digests')
+    assert.match(check(bad, 'image digests').observed, /the bundle names ghcr\.io\/alp82\/curia-agent@sha256:5{64}, which no service runs/)
+  })
+
   test('a bundle with a tagged image, an extra file, or the wrong directory fails the image digests check', async () => {
     const r = release()
     const facts = (archive) => ({ version: VERSION, tarball: r.tarball, releaseManifest: r.text, package: { integrity: r.integrity, attested: true, error: null }, bundle: { archive, checksum: `${sha256(archive)}  curia-bundle-${VERSION}.tar.gz\n` } })
@@ -426,7 +450,7 @@ describe('verifying an installed release', () => {
     assert.deepEqual(calls.map((c) => c.reference).sort(), Object.entries(DIGESTS).map(([s, d]) => imageReference(s, d)).sort())
     assert.equal(calls[0].commit, COMMIT)
     assert.equal(calls[0].version, VERSION)
-    assert.match(stdout.text(), /^ok\s+image provenance\s+4 images attested by alp82\/curia/m)
+    assert.match(stdout.text(), /^ok\s+image provenance\s+5 images attested by alp82\/curia/m)
     assert.match(stdout.text(), /9 checks passed\.$/m)
   })
 
@@ -460,10 +484,11 @@ describe('verifying an installed release', () => {
     const r = release()
     const root = install(r)
     const report = await verifyInstalledRelease({ root, version: VERSION, stdout: sink() }, probesFor(r, {
-      attestation: async ({ reference }) => (reference.includes('curia-overseer') ? { ok: false, error: 'no attestations found for subject' } : { ok: true }),
+      attestation: async ({ reference }) => (reference.includes('curia-overseer') || reference.includes('curia-agent') ? { ok: false, error: 'no attestations found for subject' } : { ok: true }),
     }))
     failedOnly(report, 'image provenance')
     assert.match(check(report, 'image provenance').observed, /overseer/)
+    assert.match(check(report, 'image provenance').observed, /agent: no attestations found/)
     assert.match(check(report, 'image provenance').observed, /no attestations found/)
     assert.match(check(report, 'image provenance').action, /gh attestation verify oci:\/\/ghcr\.io\/alp82\/curia-overseer@sha256:4{64}/)
     assert.match(check(report, 'image provenance').action, /--signer-workflow alp82\/curia\/\.github\/workflows\/release\.yml/)

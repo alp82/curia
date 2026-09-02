@@ -8,18 +8,18 @@ The release workflow writes one manifest per release, `curia-manifest-<version>.
 
 | Field | What it names |
 |---|---|
-| `format` | The manifest format, `1`. |
+| `format` | The manifest format, `2`. Format `1` bound four images and no agent image; Curia refuses it. |
 | `version` | The Curia version, such as `1.2.3`. It is also the npm package version and the release tag without its `v`. |
 | `package` | `@curia-sh/cli` and its version, which equals `version`. |
 | `bundle` | The file name of the Compose bundle archive, `curia-bundle-<version>.tar.gz`, and its SHA-256 checksum. |
-| `images` | For each of the four services, `daemon`, `tmux`, `dashboard`, and `overseer`, the image name under `ghcr.io/alp82` and its exact `sha256:` digest. |
+| `images` | For each of the five release images, `daemon`, `tmux`, `dashboard`, `overseer`, and `agent`, the image name under `ghcr.io/alp82` and its exact `sha256:` digest. The first four are the services the bundle runs; `agent` is the image the service starts every agent from, as [The agent image](bundle.md#the-agent-image) describes. |
 | `source` | The repository, `alp82/curia`, the full commit the release was built from, and the workflow that built and attested it, `.github/workflows/release.yml`. |
 
 The following example shows the shape.
 
 ```json
 {
-  "format": 1,
+  "format": 2,
   "version": "1.2.3",
   "package": { "name": "@curia-sh/cli", "version": "1.2.3" },
   "bundle": { "name": "curia-bundle-1.2.3.tar.gz", "sha256": "…64 hex characters…" },
@@ -27,7 +27,8 @@ The following example shows the shape.
     "daemon": { "name": "ghcr.io/alp82/curia-daemon", "digest": "sha256:…" },
     "tmux": { "name": "ghcr.io/alp82/curia-tmux", "digest": "sha256:…" },
     "dashboard": { "name": "ghcr.io/alp82/curia-dashboard", "digest": "sha256:…" },
-    "overseer": { "name": "ghcr.io/alp82/curia-overseer", "digest": "sha256:…" }
+    "overseer": { "name": "ghcr.io/alp82/curia-overseer", "digest": "sha256:…" },
+    "agent": { "name": "ghcr.io/alp82/curia-agent", "digest": "sha256:…" }
   },
   "source": { "repository": "alp82/curia", "commit": "…40 hex characters…", "workflow": ".github/workflows/release.yml" }
 }
@@ -57,7 +58,7 @@ The result is two copies that must be the same bytes: the one inside the package
 | version | The manifest's version is the version you asked for, and the tarball's `package.json` names `@curia-sh/cli` at that version. |
 | package integrity | The SHA-512 of the downloaded tarball equals the `sha512` integrity value the npm registry records for `@curia-sh/cli@<version>`. |
 | bundle checksum | The SHA-256 of the downloaded bundle archive equals the checksum the manifest binds, and the `.sha256` file names the same checksum for the same file. |
-| image digests | The archive holds exactly `curia-bundle-<version>/compose.yaml`, that file passes the bundle inspection, and its `image:` lines are exactly the four digest references the manifest binds. No tag, no other registry, no fifth image. |
+| image digests | The archive holds exactly `curia-bundle-<version>/compose.yaml`, that file passes the bundle inspection, and its `image:` lines are exactly the four service image references the manifest binds. No tag, no other registry, no image the manifest doesn't bind, and no service that runs the agent image. The agent image is bound by the manifest alone, and the lifecycle interface pulls it by that digest. |
 | release manifest | The `curia-manifest-<version>.json` on the GitHub release parses and says the same thing as the copy inside the package. |
 
 Nothing passes by absence. A missing tarball, archive, checksum file, or release asset fails its check. A registry that doesn't answer fails the package integrity check. Curia doesn't retry on its own and doesn't fall back to a weaker check.
@@ -78,7 +79,7 @@ After the checks pass, Curia keeps the verified artifacts as it downloaded them,
 | Check | What it proves |
 |---|---|
 | installed files | `cli/manifest.json` and `cli/package.json` are the files inside the retained tarball, and `bundle/compose.yaml` is the file inside the retained archive. An edited or replaced file fails. |
-| image provenance | Each image digest in the manifest carries a build attestation signed by the release workflow of `alp82/curia` at the manifest's commit. Curia asks `gh attestation verify` for each digest. |
+| image provenance | Each of the five image digests in the manifest, the agent image's included, carries a build attestation signed by the release workflow of `alp82/curia` at the manifest's commit. Curia asks `gh attestation verify` for each digest. |
 | package provenance | The npm registry records publication provenance for `@curia-sh/cli@<version>`. |
 
 The image provenance check needs the GitHub CLI, `gh`, logged in to GitHub. When it isn't, the check fails and the message says so. Nothing else in Curia depends on that login.

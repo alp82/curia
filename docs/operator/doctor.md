@@ -101,7 +101,7 @@ When a credential key such as `GH_TOKEN` is set in your shell, the `environment`
 
 ## Provenance and the GitHub CLI
 
-The `image provenance` check asks `gh attestation verify` for each of the four image digests, and needs the GitHub CLI logged in to GitHub. When it isn't, the check fails and its action prints the exact command to run once `gh auth login` is done. Nothing else in Curia depends on that login, and `curia install` and `curia update` don't run this check: the doctor is where publication provenance is verified without weakening the verification that runs before activation. The manual commands are in [The release manifest and release verification](release-manifest.md#what-curia-doctor-verifies).
+The `image provenance` check asks `gh attestation verify` for each of the five image digests, the agent image's included, and needs the GitHub CLI logged in to GitHub. When it isn't, the check fails and its action prints the exact command to run once `gh auth login` is done. Nothing else in Curia depends on that login, and `curia install` and `curia update` don't run this check: the doctor is where publication provenance is verified without weakening the verification that runs before activation. The manual commands are in [The release manifest and release verification](release-manifest.md#what-curia-doctor-verifies).
 
 ## When to run it
 

@@ -36,16 +36,24 @@ export const COMPOSE_PROJECT = 'curia'
 export const INSTALLATION_LABEL = 'sh.curia.installation'
 export const IMAGE_REGISTRY = 'ghcr.io/alp82'
 
-// The four images a release builds, keyed by the service that runs them. The
+// The five images a release builds, keyed by the service that runs them. The
 // attach surface (`ttyd`) runs the tmux image, so it has no image of its own.
-// The agent image is not here: the service builds it on the host from the
-// recipe the service image carries, content-addressed by its pins.
+// The agent image is the fifth (#891): no Compose service runs it, the
+// service starts one container from it per agent. It is built, attested,
+// bound in the manifest, and pulled by digest like the other four, so an
+// installation never builds an image on the operator's host.
 export const RELEASE_IMAGES = Object.freeze({
   daemon: 'curia-daemon',
   tmux: 'curia-tmux',
   dashboard: 'curia-dashboard',
   overseer: 'curia-overseer',
+  agent: 'curia-agent',
 })
+
+// The one release image the bundle names no service from. The lifecycle
+// interface pulls it beside the bundle's images, and the service reads its
+// digest reference from the installed release manifest.
+export const AGENT_IMAGE = 'agent'
 
 // What a started bundle interpolates, in the order the env file lists them.
 export const BUNDLE_VARIABLES = Object.freeze(['CURIA_ROOT', 'CURIA_UID', 'CURIA_GID', 'DOCKER_GID', 'CURIA_INSTALLATION_ID'])
@@ -67,11 +75,15 @@ export function imageReference(service, digest) {
 }
 
 // The template with each `${CURIA_<SERVICE>_IMAGE...}` replaced by that
-// service's digest reference. Every other variable is left as it is.
+// service's digest reference. Every other variable is left as it is. The
+// agent image has no variable: a bundle that started a service from it
+// would run an agent nobody dispatched.
 export function renderBundle(template, digests) {
   return template.replace(IMAGE_VARIABLE, (whole, upper) => {
     const service = upper.toLowerCase()
-    if (!RELEASE_IMAGES[service]) throw new BundleError(`the template names ${whole.slice(2, whole.indexOf('_IMAGE') + 6)}, which no release builds`)
+    const variable = whole.slice(2, whole.indexOf('_IMAGE') + 6)
+    if (service === AGENT_IMAGE) throw new BundleError(`the template names ${variable}, and no service runs the agent image`)
+    if (!RELEASE_IMAGES[service]) throw new BundleError(`the template names ${variable}, which no release builds`)
     return imageReference(service, digests?.[service])
   })
 }
