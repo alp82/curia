@@ -51,7 +51,7 @@ curia version
 docker compose -p curia ps
 ```
 
-`curia version` prints the lifecycle interface version, the same version as active, and the root. `docker compose -p curia ps` lists `daemon`, `tmux`, `ttyd`, `dashboard`, and `overseer` as `healthy`.
+`curia version` prints the lifecycle interface version, the same version as active, and the root. `docker compose -p curia ps` lists `daemon`, `tmux`, `ttyd`, `dashboard`, and `overseer` as `healthy`. If the app answers a refusal in the first seconds after the install, wait a moment and reload: the app reads who it admits from the service, and it keeps asking until the service answers.
 
 ## If it fails
 

@@ -9,11 +9,12 @@
 // the current fact, in the order the operator meets it: the node, its login
 // and connection, its certificate, its name, the Serve route, and the app's
 // own admission of the confirmed login, timed. Nothing here touches a
-// tailnet: `tailscale` is a fake `exec` and the app is a fake `fetch`.
+// tailnet: `tailscale` is a fake `exec` and the app is a fake `probe`.
 
 import { test, describe, beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
+import http from 'node:http'
 import os from 'node:os'
 import path from 'node:path'
 
@@ -71,13 +72,13 @@ const cliError = (message, code = null) => Object.assign(new Error(message), { s
 // The app on loopback: records the probe and answers by the login it sees.
 function app(admit = [LOGIN], { status: code = 200 } = {}) {
   const probes = []
-  const fetchImpl = async (url, init = {}) => {
-    probes.push({ url, headers: init.headers })
-    const login = init.headers?.['tailscale-user-login']
+  const probe = async ({ port, headers }) => {
+    probes.push({ port, headers })
+    const login = headers?.['tailscale-user-login']
     if (!admit.includes(login)) return { status: 403, text: async () => 'curia refused this request: "x" is not on the identity allowlist\n' }
     return { status: code, text: async () => '<html>' }
   }
-  return { fetchImpl, probes }
+  return { probe, probes }
 }
 
 describe('the Tailscale card (#877)', () => {
@@ -94,7 +95,7 @@ describe('the Tailscale card (#877)', () => {
     const log = []
     const allow = new Set()
     const setup = new TailscaleSetup({
-      root, stateDir, servePort: SERVE_PORT, appPort: APP_PORT, allow, exec: cli.exec, fetchImpl: probe.fetchImpl,
+      root, stateDir, servePort: SERVE_PORT, appPort: APP_PORT, allow, exec: cli.exec, ...(probe ? { probe: probe.probe } : {}),
       log: (line) => log.push(line), now: () => new Date('2026-09-02T10:00:00.000Z'), ...over,
     })
     return { setup, cli, probe, log, allow, verify: setup.verifier() }
@@ -175,7 +176,7 @@ describe('the Tailscale card (#877)', () => {
 
     test('without an installation root the allowlist is curia.yaml\'s, the window never opens, and the confirmation names the key', async () => {
       const allow = new Set()
-      const setup = new TailscaleSetup({ root: null, stateDir, servePort: SERVE_PORT, appPort: APP_PORT, allow, configAllow: ['Box@Example.com'], exec: tailscaleCli().exec, fetchImpl: app().fetchImpl, log: () => {} })
+      const setup = new TailscaleSetup({ root: null, stateDir, servePort: SERVE_PORT, appPort: APP_PORT, allow, configAllow: ['Box@Example.com'], exec: tailscaleCli().exec, probe: app().probe, log: () => {} })
       assert.deepEqual([...allow], ['box@example.com'])
       assert.deepEqual(setup.identity(), { allow: ['box@example.com'], first_operator: false })
       await assert.rejects(() => setup.confirmOperator({ login: LOGIN }), (e) => e.refusal && /identity\.allow in curia\.yaml/.test(e.message))
@@ -218,7 +219,7 @@ describe('the Tailscale card (#877)', () => {
       assert.equal(answer.detail.verified_at, '2026-09-02T10:00:00.000Z')
       assert.equal(answer.detail.node.online, true)
       // The probe carries the served name and the confirmed login, on loopback.
-      assert.deepEqual(probe.probes.map((p) => p.url), [`http://127.0.0.1:${APP_PORT}/`])
+      assert.deepEqual(probe.probes.map((p) => p.port), [APP_PORT])
       assert.equal(probe.probes[0].headers.host, `${DNS}:${SERVE_PORT}`)
       assert.equal(probe.probes[0].headers['tailscale-user-login'], LOGIN)
       // Nothing was published: the route stood.
@@ -317,9 +318,34 @@ describe('the Tailscale card (#877)', () => {
       assert.equal(answer.detail.app.status, 403)
     })
 
+    // The rehearsal of the packaged lifecycle (#891) found the probe never
+    // passing on a real box: `fetch` drops a caller-set `Host` as forbidden,
+    // so the app saw `Host: 127.0.0.1:4273` and refused it as a name this
+    // box does not serve. The fake app hid it. This one is real: a loopback
+    // server, the default transport, and the header as the app receives it.
+    test('over loopback with the real transport, the app receives the Serve address as its Host header and the recorded login', async () => {
+      confirmed()
+      const seen = []
+      const server = http.createServer((r, res) => {
+        seen.push({ host: r.headers.host, login: r.headers['tailscale-user-login'], url: r.url })
+        res.writeHead(200, { 'content-type': 'text/html' })
+        res.end('<html>')
+      })
+      await new Promise((done) => server.listen(0, '127.0.0.1', done))
+      try {
+        const { verify } = setupOver(tailscaleCli({ serve: serveConfig() }), null, { appPort: server.address().port })
+        const answer = await verify({ progress: {} })
+        assert.equal(answer.ok, true, JSON.stringify(answer))
+        assert.deepEqual(seen, [{ host: `${DNS}:${SERVE_PORT}`, login: LOGIN, url: '/' }])
+        assert.equal(answer.detail.app.status, 200)
+      } finally {
+        server.close()
+      }
+    })
+
     test('an app that is not answering names the port and the compose check', async () => {
       confirmed()
-      const probe = { fetchImpl: async () => { throw new Error('ECONNREFUSED') } }
+      const probe = { probe: async () => { throw new Error('ECONNREFUSED') } }
       const answer = await setupOver(tailscaleCli({ serve: serveConfig() }), probe).verify({ progress: {} })
       assert.match(answer.failed, /isn't answering on 127\.0\.0\.1:4273 \(ECONNREFUSED\)/)
       assert.match(answer.action, /docker compose ps/)
