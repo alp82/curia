@@ -1,6 +1,6 @@
 {
   "name": "@curia-sh/cli",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Curia's lifecycle interface: install, update, roll back, diagnose, and remove one Curia installation.",
   "type": "module",
   "bin": {
