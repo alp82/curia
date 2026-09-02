@@ -149,6 +149,10 @@ describe('the daemon under an installation root (#867)', () => {
       assert.ok(fs.existsSync(path.join(root, 'state', 'tokens')), 'the agent token store lands in state/')
       assert.ok(!fs.existsSync(path.join(tmp, 'not-the-workspace')), 'the file\'s workspace root is not used')
 
+      // The switch (#884) proves the service came back on the target
+      // release by reading its version off the reachability probe.
+      assert.deepEqual(await (await fetch(`http://127.0.0.1:${ports[0]}/ping`)).json(), { curia: 'curia-side-channel', port: ports[0], version: APP_VERSION })
+
       const res = await fetch(`http://127.0.0.1:${ports[0]}/overview`)
       assert.equal(res.status, 200)
       const text = await res.text()

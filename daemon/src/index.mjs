@@ -3291,9 +3291,12 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
   // only "did this request cross the bridge and land on curia" — a probe runs
   // before any agent exists, so it can carry no agent token. It reads nothing,
   // writes nothing, and journals nothing: a route that said more would be a
-  // wider container surface than #159 left, for no gain.
+  // wider container surface than #159 left, for no gain. The one fact it
+  // carries beside the mark is this process's release version (#884): the
+  // lifecycle interface reads it after a switch to prove the service that
+  // answers is the target release, and a version is not a secret.
   if (url.pathname === PROBE_PATH) {
-    return json(200, { curia: PROBE_MARK, port: PORT })
+    return json(200, { curia: PROBE_MARK, port: PORT, version: APP_VERSION })
   }
 
   // The container-facing listener is the agent surface plus the overseer's own

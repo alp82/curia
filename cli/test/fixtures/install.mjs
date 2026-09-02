@@ -202,3 +202,59 @@ export function fakeDocker(answers = {}) {
   run.verbs = () => calls.map((c) => c[c.indexOf('-f') + 2])
   return run
 }
+
+// The service and the app on loopback, as the switch (#884) reads them:
+// `/ping` on both answers the version of the bundle the last `up` recreated
+// the core services from, and `/overview` answers the live sessions as the
+// daemon's reconcile adopted them. `live` names the tmux sessions that hold
+// an agent before the switch; `readopt(session)` says what the recreated
+// service reports for each one: `adopted` (in `agents`, pane live),
+// `untracked` (a live pane the reconcile did not adopt), or `ended` (gone
+// from tmux). `settle` is how many reads after a recreate answer an
+// indeterminate fleet (`agents: null`) before the adoption shows, which is
+// what a listener that answers before the boot reconcile finishes looks
+// like; only `/overview` reads count. `versionOf(bundleVersion)` is what the recreated containers report,
+// for a bundle whose images do not match its version.
+export function fakeLoopback(docker, { initial, live = [], readopt = () => 'adopted', settle = 0, versionOf = (v) => v } = {}) {
+  const reads = []
+  let recreates = 0
+  let readsSinceRecreate = 0
+  const recreated = () => {
+    const ups = docker.calls.filter((c) => c.includes('up'))
+    return ups.length
+  }
+  const running = () => {
+    const ups = docker.calls.filter((c) => c.includes('up'))
+    if (ups.length === 0) return { version: initial, fresh: false }
+    const file = ups.at(-1)[ups.at(-1).indexOf('-f') + 1]
+    const version = file.split('/versions/')[1].split('/')[0]
+    return { version: versionOf(version), fresh: true }
+  }
+  const answer = (status, body) => ({ ok: status >= 200 && status < 300, status, json: async () => body, text: async () => JSON.stringify(body) })
+  const fetch = async (url) => {
+    const u = new URL(url)
+    reads.push(`${u.port}${u.pathname}`)
+    if (recreated() !== recreates) { recreates = recreated(); readsSinceRecreate = 0 }
+    if (u.pathname === '/overview') readsSinceRecreate += 1
+    const { version, fresh } = running()
+    if (u.port === '4273') {
+      if (u.pathname === '/ping') return answer(200, { curia: 'curia-dashboard', version })
+      return answer(403, {})
+    }
+    if (u.pathname === '/ping') return answer(200, { curia: 'curia-side-channel', port: 4271, version })
+    if (u.pathname === '/overview') {
+      if (fresh && readsSinceRecreate <= settle) return answer(200, { daemon: { uptime_s: 1 }, agents: null, untracked: null })
+      const agents = []
+      const untracked = []
+      for (const session of live) {
+        const fate = fresh ? readopt(session) : 'adopted'
+        if (fate === 'adopted') agents.push({ session, tmux_live: true, uptime_s: fresh ? null : 120 })
+        else if (fate === 'untracked') untracked.push(session)
+      }
+      return answer(200, { daemon: { uptime_s: fresh ? 1 : 3600 }, agents, untracked })
+    }
+    return answer(404, { error: 'not found' })
+  }
+  fetch.reads = reads
+  return fetch
+}

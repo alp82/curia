@@ -19,6 +19,7 @@ import {
   DashboardSurface, DEFAULT_DASHBOARD, DEFAULT_DASHBOARD_INDEX, DASHBOARD_PROTO,
   loadDashboardConfig, pageRefusal, readDashboard, daemonPort, ANSWER_REFUSAL, CHAT_PAGE, TERMINAL_PAGE,
 } from '../src/dashboard.mjs'
+import { APP_VERSION } from '../src/appversion.mjs'
 import { loadCuriaConfig } from '../src/config.mjs'
 import { serveHosts, LOGIN_HEADER, FUNNEL_HEADER } from '../src/identity.mjs'
 import { readSettings } from '../src/settings.mjs'
@@ -242,6 +243,14 @@ describe('the sidecar surface (#263)', () => {
   test('a request Serve stamped, on a name this box serves, is admitted', async () => {
     const res = await req(surface.port, '/api/overview', { headers: served() })
     assert.equal(res.status, 200)
+  })
+
+  test('GET /ping answers the running version before the identity gate, and nothing else', async () => {
+    // The switch (#884) proves the app came back on the target release by
+    // reading this on loopback, where no Serve identity exists.
+    const res = await req(surface.port, '/ping', { headers: { host: 'box.tail1234.ts.net:8445' } })
+    assert.equal(res.status, 200)
+    assert.deepEqual(JSON.parse(res.text), { curia: 'curia-dashboard', version: APP_VERSION })
   })
 
   test('no Serve identity header ⇒ 403: the console is not reachable by anything on loopback', async () => {

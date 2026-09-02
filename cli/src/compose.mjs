@@ -70,7 +70,7 @@ export const dockerRunner = (args, { timeoutMs = 600_000 } = {}) => new Promise(
   })
 })
 
-async function compose(project, verb, { docker }) {
+export async function compose(project, verb, { docker }) {
   const args = project.args(...verb)
   const result = await docker(args)
   if (result.ok) return result

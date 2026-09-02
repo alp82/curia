@@ -12,6 +12,7 @@
 // and CURIA_CONFIG_DIR/CURIA_DATA_DIR in a temp dir so no real state is read
 // or written.
 
+import { APP_VERSION } from '../src/appversion.mjs'
 import { test, describe, before, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
@@ -743,9 +744,12 @@ describe('the per-agent token on the agent routes (#159, real boot, both listene
     const res = await requestOn(GATEWAY, port, 'GET', PROBE_PATH)
     assert.equal(res.status, 200)
     assert.equal(JSON.parse(res.body).curia, PROBE_MARK, 'the marker is what says this is curia and not something else on the port')
-    // It says nothing else, and it leaves no trace: a wider route here would be
-    // a wider container surface than #159 left.
-    assert.deepEqual(Object.keys(JSON.parse(res.body)).sort(), ['curia', 'port'])
+    // It says nothing else but the release version (#884: the lifecycle
+    // interface proves a switch off it, and a version is public), and it
+    // leaves no trace: a wider route here would be a wider container surface
+    // than #159 left.
+    assert.deepEqual(Object.keys(JSON.parse(res.body)).sort(), ['curia', 'port', 'version'])
+    assert.equal(JSON.parse(res.body).version, APP_VERSION)
     const journal = journalText(path.join(tmp, 'data'))
     assert.ok(!journal.includes(PROBE_PATH), 'the probe journals nothing')
   })
