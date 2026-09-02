@@ -303,7 +303,10 @@ jobs:
           npm ci --prefix daemon --no-fund --no-audit
           npm test --prefix cli
           node --test daemon/test/bundlecompose.test.mjs daemon/test/bundlerelease.test.mjs daemon/test/releaseimages.test.mjs daemon/test/releasepublish.test.mjs daemon/test/releaseworkflow.test.mjs daemon/test/bootstrap.test.mjs
-          docker compose --env-file <(printf 'CURIA_ROOT=/tmp/curia\nCURIA_UID=1001\nCURIA_GID=1001\nDOCKER_GID=998\nCURIA_INSTALLATION_ID=00000000000000000000000000000000\n') \
+          # Compose reads the env file by path and cannot read a process
+          # substitution, so the sample values go into a real file.
+          printf 'CURIA_ROOT=/tmp/curia\nCURIA_UID=1001\nCURIA_GID=1001\nDOCKER_GID=998\nCURIA_INSTALLATION_ID=00000000000000000000000000000000\n' > "$RUNNER_TEMP/bundle.env"
+          docker compose --env-file "$RUNNER_TEMP/bundle.env" \
             -f "dist/curia-bundle-${{ needs.pins.outputs.version }}/compose.yaml" config --quiet
 
       # A version whose package pins no stable-index key, or pins one the
