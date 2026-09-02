@@ -22,6 +22,7 @@ import {
   GitHubAppSetup,
   MANIFEST_PERMISSIONS,
   ROLES,
+  assertManifest,
   minterFrom,
 } from '../src/githubapp.mjs'
 import { ensureLayout } from '../../cli/src/root.mjs'
@@ -94,10 +95,24 @@ describe('the manifest (#694)', () => {
     assert.match(started.state, APP_SETUP_STATE_RE)
     assert.deepEqual(started.manifest.default_permissions, permissions)
     assert.deepEqual(started.manifest.default_events, [])
-    assert.deepEqual(started.manifest.hook_attributes, { active: false })
+    // GitHub requires `hook_attributes.url` whenever the object is present,
+    // even with `active: false` (#891). Curia listens for no webhook, so the
+    // manifest carries no `hook_attributes` at all.
+    assert.equal('hook_attributes' in started.manifest, false, 'no webhook block, because GitHub would demand a URL inside it')
+    assert.equal(started.manifest.url, 'https://box.example')
+    assert.equal(started.manifest.redirect_url, 'https://box.example/github-app/complete')
     assert.equal(started.manifest.public, true, 'one owner is an organization')
     assert.equal(started.expires_at, '2026-08-25T11:00:00.000Z')
     assert.deepEqual(setup.status(), { status: 'pending', expires_at: started.expires_at })
+  })
+
+  test('a manifest missing a URL GitHub requires is refused by name before any handoff (#891)', () => {
+    const good = { name: 'curia-alp', url: 'https://box.example', redirect_url: 'https://box.example/complete' }
+    assert.doesNotThrow(() => assertManifest(good))
+    assert.throws(() => assertManifest({ ...good, url: '' }), /manifest carries no "url"/)
+    assert.throws(() => assertManifest({ ...good, url: undefined }), /manifest carries no "url"/)
+    assert.throws(() => assertManifest({ ...good, hook_attributes: { active: false } }), /"hook_attributes\.url"/)
+    assert.doesNotThrow(() => assertManifest({ ...good, hook_attributes: { url: 'https://box.example/events', active: false } }))
   })
 
   test('the setup action identity survives the GitHub redirect and daemon restart', () => {

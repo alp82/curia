@@ -92,9 +92,9 @@ curia's [current app setup](../github-app.md#2-grant-the-permissions) requires t
 
 GitHub grants Metadata read access automatically. The manifest must not request Workflows, organization, or account permissions.
 
-Set `default_events` to an empty list. Set the webhook as inactive because curia polls GitHub.
+Set `default_events` to an empty list. Leave `hook_attributes` out of the manifest because curia polls GitHub and listens for no webhook.
 
-If the manifest supplies `hook_attributes`, set `active` to `false`. GitHub defaults this value to `true` inside that object.
+Don't send `hook_attributes` with only `active: false`. GitHub requires `hook_attributes.url` whenever the object is present, active or not, and refuses the manifest on its consent page with `"url" wasn't supplied`. The packaged rehearsal ([#891](https://github.com/alp82/curia/issues/891)) hit that with a manifest that carried the object without a URL. When the object is absent, GitHub creates the App with no webhook.
 
 GitHub defines these fields in the [manifest parameters](https://docs.github.com/en/apps/sharing-github-apps/registering-a-github-app-from-a-manifest#github-app-manifest-parameters). GitHub also recommends the [minimum required permissions](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/choosing-permissions-for-a-github-app#about-github-app-permissions).
 
