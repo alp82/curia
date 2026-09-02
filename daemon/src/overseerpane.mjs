@@ -14,9 +14,8 @@ import {
   MCP_SERVER_NAME, OVERSEER_CONTAINER_MODEL, OVERSEER_MCP_PATH,
   checkoutNote, overseerConfigDirFor, overseerHomeFor, overseerProcessEnv,
 } from './overseerturn.mjs'
-import {
-  AnthropicCredentialStore, anthropicStoreFile, writeClaudeCredentials,
-} from './credentials.mjs'
+import { AnthropicCredentialStore, writeClaudeCredentials } from './credentials.mjs'
+import { pathsOf } from './paths.mjs'
 import { isConsoleKey, sessionForConsoleKey } from './attach.mjs'
 import {
   carryOverseerTranscript, conversationHomeFor, conversationMcpUrl,
@@ -99,10 +98,13 @@ export async function runningOverseerContainer({ repoRoot, exec = execFileP }) {
   return container
 }
 
-export function installOverseerPaneCredential(workspaceRoot, configDir) {
-  const record = new AnthropicCredentialStore({ workspaceRoot }).read()
+// The overseer's copy of the anthropic credential (#867): the store is
+// `cfg.paths.anthropicStore`, which only the daemon reads, and the copy lands in
+// the config directory the container mounts.
+export function installOverseerPaneCredential(storeFile, configDir) {
+  const record = new AnthropicCredentialStore({ file: storeFile }).read()
   if (!record) {
-    return `${SIGNALS.warn} there is no anthropic credential for this pane: ${anthropicStoreFile(workspaceRoot)} holds none. Run reauth anthropic`
+    return `${SIGNALS.warn} there is no anthropic credential for this pane: ${storeFile} holds none. Run reauth anthropic`
   }
   writeClaudeCredentials(configDir, record)
   return null
@@ -111,6 +113,7 @@ export function installOverseerPaneCredential(workspaceRoot, configDir) {
 export function prepareOverseerPane({ cfg, sessionId, resume = false, deps = {} }) {
   if (!sessionId || typeof sessionId !== 'string') throw new Error('the overseer pane needs a durable session id')
   const root = cfg.dispatch.workspace_root
+  const paths = pathsOf(cfg)
   const configDir = overseerConfigDirFor(root)
   // The conversation's own project directory (#701). The daemon has already
   // written this pane's `.mcp.json` file here, under the session id both sides
@@ -123,10 +126,10 @@ export function prepareOverseerPane({ cfg, sessionId, resume = false, deps = {} 
   const processEnv = deps.processEnv ?? overseerProcessEnv
   fs.mkdirSync(home, { recursive: true })
   seed(configDir, home, null, 'claude', { sandboxed: true })
-  const note = installCredential(root, configDir)
+  const note = installCredential(paths.anthropicStore, configDir)
   const prompt = systemPrompt({
     shell: true,
-    checkoutsRoot: path.join(root, 'overseer', 'repos'),
+    checkoutsRoot: paths.overseerRepos,
     repos: cfg.watch.map((entry) => entry.repo),
   })
   const identityFlag = resume ? '--resume' : '--session-id'

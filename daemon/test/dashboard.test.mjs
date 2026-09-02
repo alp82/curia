@@ -19,6 +19,7 @@ import {
   DashboardSurface, DEFAULT_DASHBOARD, DEFAULT_DASHBOARD_INDEX, DASHBOARD_PROTO,
   loadDashboardConfig, pageRefusal, readDashboard, daemonPort, ANSWER_REFUSAL, CHAT_PAGE, TERMINAL_PAGE,
 } from '../src/dashboard.mjs'
+import { APP_VERSION } from '../src/appversion.mjs'
 import { loadCuriaConfig } from '../src/config.mjs'
 import { serveHosts, LOGIN_HEADER, FUNNEL_HEADER } from '../src/identity.mjs'
 import { readSettings } from '../src/settings.mjs'
@@ -244,6 +245,14 @@ describe('the sidecar surface (#263)', () => {
     assert.equal(res.status, 200)
   })
 
+  test('GET /ping answers the running version before the identity gate, and nothing else', async () => {
+    // The switch (#884) proves the app came back on the target release by
+    // reading this on loopback, where no Serve identity exists.
+    const res = await req(surface.port, '/ping', { headers: { host: 'box.tail1234.ts.net:8445' } })
+    assert.equal(res.status, 200)
+    assert.deepEqual(JSON.parse(res.text), { curia: 'curia-dashboard', version: APP_VERSION })
+  })
+
   test('no Serve identity header ⇒ 403: the console is not reachable by anything on loopback', async () => {
     const res = await req(surface.port, '/api/overview', { headers: { host: 'box.tail1234.ts.net:8445' } })
     assert.equal(res.status, 403)
@@ -422,7 +431,11 @@ describe('the settings write and the restart (#265)', () => {
   let cfgDir
   let reloadAnswer
   let aistackAnswer
+  let updateAnswer
   let aistackRequestBody
+  let setupAnswer
+  let setupRequestBody
+  let setupPostStatus
   let restartRequestBody
   let overviewAnswer
   const ALLOW = ['alp@example.com']
@@ -462,23 +475,43 @@ describe('the settings write and the restart (#265)', () => {
     // What it answers on the aistack routes (#706). The daemon is the process
     // that holds the credential, so this side never composes one of these.
     aistackAnswer = { ok: true, registered: false, flow: { phase: 'unregistered' }, sync: { last: null, alarm: null } }
+    updateAnswer = { managed: true, installed: '1.3.0', recommended: '1.4.0', update_available: true, installed_withdrawn: false, withdrawn: [], ok: true, error: null }
     aistackRequestBody = null
+    // What it answers on the setup routes (#874). The daemon verifies and
+    // keeps the record; this side composes the write and relays the read.
+    setupAnswer = { step: 'github', progress: {}, cards: [], full_loop: { ready: false, missing: [], reason: null, facts: null } }
+    setupRequestBody = null
+    setupPostStatus = 200
     restartRequestBody = null
     overviewAnswer = async () => ({ daemon: { port: 4271, uptime_s: 90 }, agents: [] })
     daemon = http.createServer((r, res) => {
       daemonCalls.push({ method: r.method, url: r.url, origin: r.headers.origin ?? null })
+      // The setup write (#874) answers its own status, so it sits before the
+      // shared 200 below.
+      if (r.url === '/setup' && r.method === 'POST') {
+        let raw = ''
+        r.setEncoding('utf8')
+        r.on('data', (chunk) => { raw += chunk })
+        return r.on('end', () => {
+          setupRequestBody = JSON.parse(raw)
+          res.writeHead(setupPostStatus, { 'content-type': 'application/json' })
+          res.end(JSON.stringify(setupPostStatus === 200
+            ? { ok: true, step: setupRequestBody.step ?? 'github', progress: setupRequestBody.progress ?? {} }
+            : { ok: false, error: 'the discord channel is not the shape a channel takes' }))
+        })
+      }
       res.writeHead(200, { 'content-type': 'application/json' })
       if (r.url === '/repos') return res.end(JSON.stringify({ login: 'alp82', repos: ['o/r', 'o/other'], error: null }))
       if (r.url === '/settings/action') return res.end(JSON.stringify({
         action: {
-          action_id: 'app-settings-sidecar-1', kind: 'settings-save', target: 'curia.local.yaml',
-          conflict_key: 'settings:curia.local.yaml', status: 'progress', progress: 'Writing curia.local.yaml', revision: 1,
+          action_id: 'app-settings-sidecar-1', kind: 'settings-save', target: 'config.yaml',
+          conflict_key: 'settings:config.yaml', status: 'progress', progress: 'Writing config.yaml', revision: 1,
         },
       }))
       if (r.url === '/settings/action/finish') return res.end(JSON.stringify({
         action: {
-          action_id: 'app-settings-no-change-1', kind: 'settings-save', target: 'curia.local.yaml',
-          conflict_key: 'settings:curia.local.yaml', status: 'confirmed', revision: 2,
+          action_id: 'app-settings-no-change-1', kind: 'settings-save', target: 'config.yaml',
+          conflict_key: 'settings:config.yaml', status: 'confirmed', revision: 2,
           receipt: { written: [], applied: [] },
         },
       }))
@@ -493,6 +526,8 @@ describe('the settings write and the restart (#265)', () => {
         })
       }
       if (r.url.startsWith('/aistack')) return res.end(JSON.stringify(aistackAnswer))
+      if (r.url === '/update') return res.end(JSON.stringify(updateAnswer))
+      if (r.url === '/setup') return res.end(JSON.stringify(setupAnswer))
       if (r.url === '/restart') {
         let raw = ''
         r.setEncoding('utf8')
@@ -608,9 +643,9 @@ describe('the settings write and the restart (#265)', () => {
     const body = JSON.parse(res.text)
     // #292: git tracks curia.yaml, so a save that touched it would leave the
     // box's checkout dirty and the next deploy would refuse to fast-forward.
-    assert.deepEqual(body.written, ['curia.local.yaml'])
+    assert.deepEqual(body.written, ['config.yaml'])
     assert.equal(fs.readFileSync(tracked, 'utf8'), before, 'the tracked file is byte for byte what it was')
-    assert.match(fs.readFileSync(path.join(cfgDir, 'curia.local.yaml'), 'utf8'), /max_concurrent: 4/)
+    assert.match(fs.readFileSync(path.join(cfgDir, 'config.yaml'), 'utf8'), /max_concurrent: 4/)
     assert.equal(body.settings.dispatch.max_concurrent, 4, 'the answer carries what landed, not what was sent')
   })
 
@@ -657,9 +692,9 @@ describe('the settings write and the restart (#265)', () => {
       ok: true,
       applied: ['dispatch.max_concurrent'],
       action: {
-        action_id: 'app-settings-sidecar-1', kind: 'settings-save', target: 'curia.local.yaml',
-        conflict_key: 'settings:curia.local.yaml', status: 'confirmed', revision: 2,
-        receipt: { written: ['curia.local.yaml'], applied: ['dispatch.max_concurrent'] },
+        action_id: 'app-settings-sidecar-1', kind: 'settings-save', target: 'config.yaml',
+        conflict_key: 'settings:config.yaml', status: 'confirmed', revision: 2,
+        receipt: { written: ['config.yaml'], applied: ['dispatch.max_concurrent'] },
       },
     }
     const res = await save({ action_id: 'app-settings-sidecar-1', dispatch: { max_concurrent: 4 } })
@@ -669,10 +704,11 @@ describe('the settings write and the restart (#265)', () => {
       '/settings/action', '/reload',
     ])
     assert.equal(body.action.status, 'confirmed')
-    assert.deepEqual(body.action.receipt.written, ['curia.local.yaml'])
+    assert.deepEqual(body.action.receipt.written, ['config.yaml'])
   })
 
   test('a save that wrote nothing asks for nothing — the file did not move', async () => {
+    fs.writeFileSync(path.join(cfgDir, 'config.yaml'), 'max_concurrent: 2\n')
     const res = await save({ dispatch: { max_concurrent: 2 } })
     assert.equal(JSON.parse(res.text).written.length, 0)
     assert.equal(JSON.parse(res.text).reload, null)
@@ -680,6 +716,7 @@ describe('the settings write and the restart (#265)', () => {
   })
 
   test('an Action that finds no change settles without asking for a reload', async () => {
+    fs.writeFileSync(path.join(cfgDir, 'config.yaml'), 'max_concurrent: 2\n')
     const res = await save({ action_id: 'app-settings-no-change-1', dispatch: { max_concurrent: 2 } })
     assert.equal(res.status, 200)
     const body = JSON.parse(res.text)
@@ -702,7 +739,7 @@ describe('the settings write and the restart (#265)', () => {
     const res = await save({ dispatch: { max_concurrent: 4 } })
     assert.equal(res.status, 200, 'the save is not the thing that failed')
     const body = JSON.parse(res.text)
-    assert.deepEqual(body.written, ['curia.local.yaml'])
+    assert.deepEqual(body.written, ['config.yaml'])
     assert.equal(body.reload.reason, 'restart-needed')
     assert.match(body.reload.error, /sandbox\.image/)
   })
@@ -712,9 +749,9 @@ describe('the settings write and the restart (#265)', () => {
     const res = await save({ dispatch: { max_concurrent: 4 } })
     assert.equal(res.status, 200)
     const body = JSON.parse(res.text)
-    assert.deepEqual(body.written, ['curia.local.yaml'])
+    assert.deepEqual(body.written, ['config.yaml'])
     assert.equal(body.reload.reason, 'daemon-down')
-    assert.match(fs.readFileSync(path.join(cfgDir, 'curia.local.yaml'), 'utf8'), /max_concurrent: 4/)
+    assert.match(fs.readFileSync(path.join(cfgDir, 'config.yaml'), 'utf8'), /max_concurrent: 4/)
   })
 
   // ---- the one guard the save owes (#362) ----------------------------------
@@ -734,7 +771,7 @@ describe('the settings write and the restart (#265)', () => {
     const res = await save({ watch: [{ repo: 'o/r', mode: 'auto' }] })
     assert.equal(res.status, 409)
     assert.match(res.text, /o\/other cannot leave the watch list while curia-362 runs on it/)
-    assert.ok(!fs.existsSync(path.join(cfgDir, 'curia.local.yaml')), 'nothing was written')
+    assert.ok(!fs.existsSync(path.join(cfgDir, 'config.yaml')), 'nothing was written')
   })
 
   test('the same removal lands when no agent is on that repo', async () => {
@@ -821,6 +858,66 @@ describe('the settings write and the restart (#265)', () => {
     assert.ok(body.error)
   })
 
+  // ---- integration setup (#874) ---------------------------------------------
+  //
+  // The daemon verifies every card and keeps the record; this process relays
+  // the read and composes the write out of the closed field list, so nothing
+  // a browser sends beyond a card name and its safe fields crosses the wire.
+
+  test('the setup status comes from the daemon, unedited, on every read', async () => {
+    setupAnswer = {
+      step: 'discord', progress: { discord: { channel: 'ops' } },
+      cards: [{ key: 'github', state: 'unavailable' }], full_loop: { ready: false, missing: ['github'], reason: 'Waiting for GitHub.', facts: null },
+    }
+    const res = await req(surface.port, '/api/setup', { headers: served() })
+    assert.equal(res.status, 200)
+    assert.deepEqual(JSON.parse(res.text), setupAnswer)
+    assert.deepEqual(daemonCalls, [{ method: 'GET', url: '/setup', origin: null }])
+  })
+
+  test('a daemon that cannot be asked about setup answers null cards with the reason, never four unconnected ones', async () => {
+    await new Promise((done) => daemon.close(done))
+    daemon = null
+    const body = JSON.parse((await req(surface.port, '/api/setup', { headers: served() })).text)
+    assert.equal(body.cards, null)
+    assert.ok(body.error)
+  })
+
+  test('a write carries the selected card and the safe fields, and nothing else the browser sent', async () => {
+    const res = await req(surface.port, '/api/setup', {
+      method: 'POST', headers: writes(),
+      body: {
+        step: 'discord',
+        progress: { discord: { channel: 'ops', guild_id: '123456789', token: 'MTIz.never', bot_token: 'MTIz.never' }, full: { done: true } },
+        complete: ['github'], connected: { github: true },
+      },
+    })
+    assert.equal(res.status, 200, res.text)
+    assert.deepEqual(daemonCalls, [{ method: 'POST', url: '/setup', origin: null }])
+    assert.deepEqual(setupRequestBody, { step: 'discord', progress: { discord: { channel: 'ops', guild_id: '123456789' } } })
+    assert.ok(!JSON.stringify(setupRequestBody).includes('never'))
+  })
+
+  test('a card that is not one of the four is refused on this side, and nothing reaches the daemon', async () => {
+    const res = await req(surface.port, '/api/setup', { method: 'POST', headers: writes(), body: { step: 'full' } })
+    assert.equal(res.status, 409)
+    assert.match(JSON.parse(res.text).error, /"full" is not a setup card/)
+    assert.deepEqual(daemonCalls, [])
+  })
+
+  test("the daemon's refusal of a field reads as a refusal, not as this box failing", async () => {
+    setupPostStatus = 400
+    const res = await req(surface.port, '/api/setup', { method: 'POST', headers: writes(), body: { progress: { discord: { channel: 'Bad Channel' } } } })
+    assert.equal(res.status, 409)
+    assert.match(JSON.parse(res.text).error, /not the shape a channel takes/)
+  })
+
+  test('a setup write needs the same Origin gate every write does', async () => {
+    const res = await req(surface.port, '/api/setup', { method: 'POST', headers: served({ 'content-type': 'application/json' }), body: { step: 'github' } })
+    assert.equal(res.status, 403)
+    assert.deepEqual(daemonCalls, [])
+  })
+
   // ---- the aistack registration (#706) -------------------------------------
   //
   // The same seam the repo list rides: the daemon holds the credential and
@@ -833,6 +930,28 @@ describe('the settings write and the restart (#265)', () => {
     assert.equal(res.status, 200)
     assert.deepEqual(JSON.parse(res.text), aistackAnswer)
     assert.deepEqual(daemonCalls, [{ method: 'GET', url: '/aistack', origin: null }])
+  })
+
+  // ---- the update panel (#883) ---------------------------------------------
+  //
+  // The daemon keeps the daily check and its record; the sidecar relays the
+  // read and adds nothing. A daemon that cannot be asked is unknown, never
+  // "up to date".
+
+  test('the update read comes from the daemon, unedited', async () => {
+    const res = await req(surface.port, '/api/update', { headers: served() })
+    assert.equal(res.status, 200)
+    assert.deepEqual(JSON.parse(res.text), updateAnswer)
+    assert.deepEqual(daemonCalls, [{ method: 'GET', url: '/update', origin: null }])
+  })
+
+  test('a daemon that cannot be asked about updates is unknown, never "up to date"', async () => {
+    await new Promise((done) => daemon.close(done))
+    daemon = null
+    const body = JSON.parse((await req(surface.port, '/api/update', { headers: served() })).text)
+    assert.equal(body.managed, null)
+    assert.equal(body.installed, null)
+    assert.ok(body.error)
   })
 
   test('a daemon that cannot be asked is unknown, never "not registered"', async () => {
@@ -903,7 +1022,8 @@ describe('the operator verbs (#266)', () => {
       '/note': [200, { ok: true, agent: 'curia-266', id: 'note-3', after: null, mode: 'queue' }],
       '/feed/read': [200, { ok: true, by: 'alp@example.com', at: '2026-08-26T09:00:00.000Z', previous: null }],
       '/github-app/start': [200, { action: 'https://github.com/settings/apps/new', manifest: { name: 'curia-box' } }],
-      '/github-app/complete?code=one-use&state=expected': [200, { ok: true, app: { id: '42', slug: 'curia-box' } }],
+      '/github-app/complete?code=one-use&state=expected': [200, { ok: true, app: { id: '42', slug: 'curia-box' }, screen: 'settings' }],
+      '/github-app/complete?code=from-setup&state=expected': [200, { ok: true, app: { id: '42', slug: 'curia-box' }, screen: 'setup' }],
       '/github-app/installations': [200, { ok: true, reply: 'Read 1 installation: alp82', installations: { state: 'read' } }],
     }
     daemon = http.createServer((r, res) => {
@@ -994,11 +1114,29 @@ describe('the operator verbs (#266)', () => {
       name: 'curia-box',
       redirect_url: 'https://box.tail1234.ts.net:8445/api/github-app/complete',
       action_id: actionId,
+      screen: 'settings',
     })
 
     const completed = await req(surface.port, '/api/github-app/complete?code=one-use&state=expected', { headers: served() })
     assert.equal(completed.status, 303)
+    assert.equal(completed.headers.location, '/#settings')
     assert.equal(completed.text.includes('PRIVATE KEY'), false)
+  })
+
+  // The Setup screen (#875) starts the same flow, and GitHub's redirect lands
+  // back on the screen that started it. The screen is a named field of this
+  // surface, never a caller-composed location.
+  test('a setup started from the Setup screen lands back on it', async () => {
+    const started = await press('/api/github-app/start', { name: 'curia-box', action_id: 'app-github-app-setup2', screen: 'setup' })
+    assert.equal(started.status, 200)
+    assert.equal(sent('/github-app/start').body.screen, 'setup')
+    const completed = await req(surface.port, '/api/github-app/complete?code=from-setup&state=expected', { headers: served() })
+    assert.equal(completed.status, 303)
+    assert.equal(completed.headers.location, '/#setup')
+    calls = []
+    const bad = await press('/api/github-app/start', { name: 'curia-box', action_id: 'app-github-app-setup3', screen: 'https://evil.example/' })
+    assert.equal(bad.status, 409)
+    assert.equal(sent('/github-app/start'), undefined)
   })
 
   // A browser-named redirect is not a field this surface forwards, and a name
@@ -1564,5 +1702,531 @@ describe('the embedded terminal (#714)', () => {
   test('an unknown operator cannot reach the terminal or its WebSocket', async () => {
     assert.equal((await req(surface.port, TERMINAL_PAGE, { headers: { host: 'box.tail1234.ts.net:8445' } })).status, 403)
     assert.equal(seen.length, 0)
+  })
+})
+
+// ---- the Discord card (#876) --------------------------------------------------
+//
+// Three routes, one rule: the token crosses this surface once, to the daemon,
+// and comes back in no answer and no log line. The two writes are composed
+// out of the fields they name, and a paste that is not a token is refused by
+// shape without echoing it.
+describe('the Discord card routes (#876)', () => {
+  const ALLOW = ['alp@example.com']
+  const SERVE_PORT = 8445
+  const ORIGIN = 'https://box.tail1234.ts.net:8445'
+  const TOKEN = 'MTIzNDU2Nzg5MDEyMzQ1Njc4.GaBcDe.this-token-must-never-be-shown-anywhere-1234'
+  let surface
+  let daemon
+  let calls
+  let reply
+  let logged
+  const served = (extra = {}) => ({ host: 'box.tail1234.ts.net:8445', [LOGIN_HEADER]: 'alp@example.com', ...extra })
+  const press = (p, body) => req(surface.port, p, { method: 'POST', headers: served({ origin: ORIGIN, 'content-type': 'application/json' }), body })
+  const sent = (route) => calls.find((c) => c.url === route)
+
+  beforeEach(async () => {
+    calls = []
+    logged = []
+    reply = {
+      '/setup/discord': [200, { secret: 'present', source: 'file', bot: { id: '2', username: 'curia-box' }, guilds: [{ id: '333333333333333333', name: 'Alp' }], settings: { allowed_users: ['111111111111111111'], guild_id: null, channel: 'curia' }, invite_url: 'https://discord.com/oauth2/authorize?client_id=2', error: null }],
+      '/setup/discord/token': [200, { ok: true, secret: 'present', bot: { id: '2', username: 'curia-box' }, guilds: [], settings: { allowed_users: ['111111111111111111'], guild_id: null, channel: 'curia' } }],
+      '/setup/discord/channel': [200, { ok: true, settings: { allowed_users: ['111111111111111111'], guild_id: '333333333333333333', channel: 'ops' }, card: { key: 'discord', state: 'connected' } }],
+    }
+    daemon = http.createServer((r, res) => {
+      let buf = ''
+      r.on('data', (d) => { buf += d })
+      r.on('end', () => {
+        calls.push({ method: r.method, url: r.url, body: buf ? JSON.parse(buf) : null })
+        const [code, body] = reply[r.url] ?? [404, { error: 'no such route' }]
+        res.writeHead(code, { 'content-type': 'application/json' })
+        res.end(JSON.stringify(body))
+      })
+    })
+    await new Promise((done) => daemon.listen(0, '127.0.0.1', done))
+    surface = new DashboardSurface({
+      port: 0, servePort: SERVE_PORT, index: DEFAULT_DASHBOARD_INDEX, allow: ALLOW, pollIntervalS: 5,
+      daemonPort: daemon.address().port,
+      log: (line) => logged.push(String(line)),
+      deps: {
+        fetchOverview: async () => ({ daemon: { port: 4271 } }),
+        assertServe: async () => {},
+        serveOff: async () => {},
+        attachBase: async () => 'box.tail1234.ts.net',
+        tailnetSelf: async () => ({ dnsName: 'box.tail1234.ts.net', ips: ['100.98.118.33'] }),
+      },
+    })
+    await surface.start()
+    await surface.resolveHosts()
+  })
+  afterEach(() => {
+    surface?.stop()
+    daemon?.close()
+  })
+
+  // #882: the Full loop's run rides the sidecar the way the cards do. The
+  // press names at most a repository and a ticket number, shaped here; the
+  // daemon's refusal is the sentence the page shows; the read is unedited.
+  test('the Full loop press crosses as the repository and the ticket number only, and the daemon\'s refusal is the page\'s sentence', async () => {
+    const run = { state: 'running', repo: 'o/r', ticket: { number: 42, title: 'T', url: 'https://github.com/o/r/issues/42', map: 40 }, legs: [], links: {}, failed: null, elapsed_ms: 1 }
+    reply['/setup/full-loop'] = [200, { ok: true, run }]
+    reply['/setup/full-loop/retry'] = [200, { ok: true, run }]
+    const res = await press('/api/setup/full-loop', { repo: 'o/r', ticket: '42', token: TOKEN, extra: 'dropped' })
+    assert.equal(res.status, 200)
+    assert.deepEqual(sent('/setup/full-loop').body, { repo: 'o/r', ticket: 42 })
+    assert.deepEqual(JSON.parse(res.text).run, run)
+    assert.ok(!res.text.includes(TOKEN))
+    calls = []
+    const bare = await press('/api/setup/full-loop', {})
+    assert.equal(bare.status, 200)
+    assert.deepEqual(sent('/setup/full-loop').body, {})
+    for (const bad of [{ repo: 'not a repo' }, { ticket: 'x' }, { ticket: 0 }]) {
+      const r = await press('/api/setup/full-loop', bad)
+      assert.equal(r.status, 409, JSON.stringify(bad))
+    }
+    calls = []
+    const retry = await press('/api/setup/full-loop/retry', { repo: 'x/y', ticket: 7 })
+    assert.equal(retry.status, 200)
+    assert.deepEqual(sent('/setup/full-loop/retry').body, {}, 'the retry names nothing')
+    reply['/setup/full-loop'] = [400, { ok: false, error: "The Full loop isn't ready: Waiting for Discord." }]
+    const refused = await press('/api/setup/full-loop', {})
+    assert.equal(refused.status, 409)
+    assert.equal(JSON.parse(refused.text).error, "The Full loop isn't ready: Waiting for Discord.")
+  })
+
+  test('the Full loop read comes from the daemon unedited, and a daemon that cannot be asked answers a null state with the reason', async () => {
+    reply['/setup/full-loop'] = [200, { state: 'idle', repo: null, legs: [] }]
+    const res = await req(surface.port, '/api/setup/full-loop', { headers: served() })
+    assert.equal(res.status, 200)
+    assert.deepEqual(JSON.parse(res.text), { state: 'idle', repo: null, legs: [] })
+    daemon.close()
+    const down = JSON.parse((await req(surface.port, '/api/setup/full-loop', { headers: served() })).text)
+    assert.equal(down.state, null)
+    assert.match(down.error, /daemon|ECONNREFUSED|socket hang up/i)
+  })
+
+  test('the panel read comes from the daemon unedited, and a daemon that cannot be asked answers the reason', async () => {
+    const res = await req(surface.port, '/api/setup/discord', { headers: served() })
+    assert.equal(res.status, 200)
+    assert.deepEqual(JSON.parse(res.text), reply['/setup/discord'][1])
+    daemon.close()
+    const down = JSON.parse((await req(surface.port, '/api/setup/discord', { headers: served() })).text)
+    assert.equal(down.secret, null)
+    assert.match(down.error, /daemon|ECONNREFUSED|socket hang up/i)
+  })
+
+  test('the token submission crosses once, as exactly the two fields, and the token is in no answer and no log line', async () => {
+    const res = await press('/api/setup/discord/token', { token: TOKEN, user_id: '111111111111111111', extra: 'dropped' })
+    assert.equal(res.status, 200)
+    assert.deepEqual(sent('/setup/discord/token').body, { token: TOKEN, user_id: '111111111111111111' })
+    assert.ok(!res.text.includes(TOKEN), 'the answer never carries the token')
+    assert.ok(!logged.join('\n').includes(TOKEN), 'the log never carries the token')
+  })
+
+  test('a paste that is not a token is refused by shape without crossing and without being echoed', async () => {
+    for (const token of ['not a token', `${TOKEN} `, '']) {
+      const res = await press('/api/setup/discord/token', { token, user_id: '111111111111111111' })
+      assert.equal(res.status, 409)
+      assert.match(JSON.parse(res.text).error, /shape a Discord bot token takes/)
+      assert.ok(!res.text.includes('not a token'))
+    }
+    assert.equal(sent('/setup/discord/token'), undefined)
+    assert.ok(!logged.join('\n').includes(TOKEN))
+    const bad = await press('/api/setup/discord/token', { token: TOKEN, user_id: 'alp' })
+    assert.equal(bad.status, 409)
+    assert.match(JSON.parse(bad.text).error, /"alp" is not a Discord user ID/)
+    assert.ok(!bad.text.includes(TOKEN))
+    assert.ok(!logged.join('\n').includes(TOKEN))
+  })
+
+  test('the daemon\'s refusal of a token is the sentence the page shows, and it never carries the token either', async () => {
+    reply['/setup/discord/token'] = [400, { ok: false, error: 'Discord refused the bot token' }]
+    const res = await press('/api/setup/discord/token', { token: TOKEN, user_id: '111111111111111111' })
+    assert.equal(res.status, 409)
+    assert.equal(JSON.parse(res.text).error, 'Discord refused the bot token')
+    assert.ok(!res.text.includes(TOKEN))
+  })
+
+  test('the channel choice crosses as the server id and the channel name, shaped, and answers the verified card', async () => {
+    const res = await press('/api/setup/discord/channel', { guild_id: '333333333333333333', channel: 'ops', token: TOKEN })
+    assert.equal(res.status, 200)
+    assert.deepEqual(sent('/setup/discord/channel').body, { guild_id: '333333333333333333', channel: 'ops' })
+    assert.equal(JSON.parse(res.text).card.state, 'connected')
+    calls = []
+    const bad = await press('/api/setup/discord/channel', { guild_id: '333333333333333333', channel: 'Bad Channel' })
+    assert.equal(bad.status, 409)
+    assert.match(JSON.parse(bad.text).error, /is not a Discord channel name/)
+    assert.equal(sent('/setup/discord/channel'), undefined)
+  })
+})
+
+describe('the Tailscale card routes and the first-operator window (#877)', () => {
+  const SERVE_PORT = 8445
+  const ORIGIN = 'https://box.tail1234.ts.net:8445'
+  let surface
+  let daemon
+  let calls
+  let reply
+  let identity
+  let logged
+  const served = (extra = {}) => ({ host: 'box.tail1234.ts.net:8445', [LOGIN_HEADER]: 'Alp@Example.com', ...extra })
+  const press = (p, body, extra = {}) => req(surface.port, p, { method: 'POST', headers: served({ origin: ORIGIN, 'content-type': 'application/json', ...extra }), body })
+  const sent = (route) => calls.find((c) => c.url.startsWith(route))
+
+  let daemonPort
+  const start = async ({ identitySource = 'daemon', allow = [], settingsSource = 'files' } = {}) => {
+    surface = new DashboardSurface({
+      port: 0, servePort: SERVE_PORT, index: DEFAULT_DASHBOARD_INDEX, allow, identitySource, settingsSource, pollIntervalS: 5,
+      daemonPort,
+      log: (line) => logged.push(String(line)),
+      deps: {
+        fetchOverview: async () => ({ daemon: { port: 4271 } }),
+        assertServe: async () => {},
+        serveOff: async () => {},
+        attachBase: async () => 'box.tail1234.ts.net',
+        tailnetSelf: async () => ({ dnsName: 'box.tail1234.ts.net', ips: ['100.98.118.33'] }),
+      },
+    })
+    await surface.start()
+    await surface.assert()
+  }
+
+  beforeEach(async () => {
+    calls = []
+    logged = []
+    identity = { allow: [], first_operator: true }
+    reply = {
+      '/setup/tailscale': [200, { requester: 'alp@example.com', operator: null, first_operator: true, node: { online: true, dns_name: 'box.tail1234.ts.net' }, app_url: 'https://box.tail1234.ts.net:8445/' }],
+      '/setup/tailscale/operator': [200, { ok: true, requester: 'alp@example.com', operator: { login: 'alp@example.com', confirmed_at: '2026-09-02T10:00:00.000Z' }, card: { key: 'tailscale', state: 'connected' } }],
+    }
+    daemon = http.createServer((r, res) => {
+      let buf = ''
+      r.on('data', (d) => { buf += d })
+      r.on('end', () => {
+        calls.push({ method: r.method, url: r.url, body: buf ? JSON.parse(buf) : null })
+        if (r.url === '/identity') {
+          res.writeHead(200, { 'content-type': 'application/json' })
+          return res.end(JSON.stringify(identity))
+        }
+        const route = r.url.split('?')[0]
+        const [code, body] = reply[`${r.method} ${route}`] ?? reply[route] ?? [404, { error: 'no such route' }]
+        res.writeHead(code, { 'content-type': 'application/json' })
+        res.end(JSON.stringify(body))
+      })
+    })
+    await new Promise((done) => daemon.listen(0, '127.0.0.1', done))
+    daemonPort = daemon.address().port
+  })
+
+  // ---- the settings screen through the service (#880) ------------------------
+
+  const ROOT_SETTINGS = {
+    files: { curia: '/opt/curia/config/curia.yaml', routing: '/opt/curia/config/routing.yaml' },
+    writes: { curia: '/root/config/config.yaml', routing: '/root/state/routing.local.yaml' },
+    dispatch: { max_concurrent: 4, auto_dispatch: true, poll_interval_s: 60, prototype_variations: 3, messages_per_send: 4 },
+    overseer: { live_pane_cap: 3 }, watch: [{ repo: 'alp82/curia', mode: 'auto' }], watch_modes: ['auto', 'manual'],
+    routing: { defaults: [], models: [], review: {}, fallbacks: {} },
+  }
+  const asOperator = () => { identity = { allow: ['alp@example.com'], first_operator: false } }
+
+  test('under a root the settings screen reads through the service, which holds the root\'s files', async () => {
+    asOperator()
+    reply['GET /settings'] = [200, ROOT_SETTINGS]
+    await start({ settingsSource: 'daemon' })
+    const res = await req(surface.port, '/api/settings', { headers: served() })
+    assert.equal(res.status, 200)
+    assert.deepEqual(JSON.parse(res.text).writes, ROOT_SETTINGS.writes)
+    assert.ok(sent('/settings'), 'the read crossed to the daemon')
+  })
+
+  test('under a root a save lands through the service, the reload follows it, and the answer is the same shape as a local save', async () => {
+    asOperator()
+    reply['GET /settings'] = [200, ROOT_SETTINGS]
+    reply['POST /settings'] = [200, { ok: true, written: ['config.yaml'], at: '2026-09-02T10:00:00.000Z' }]
+    reply['POST /reload'] = [200, { ok: true, by: 'alp@example.com', applied: ['dispatch.max_concurrent'], loaded_at: '2026-09-02T10:00:01.000Z' }]
+    await start({ settingsSource: 'daemon' })
+    const res = await press('/api/settings', { dispatch: { max_concurrent: 5 } })
+    assert.equal(res.status, 200, res.text)
+    const out = JSON.parse(res.text)
+    assert.deepEqual(out.written, ['config.yaml'])
+    assert.deepEqual(out.reload.applied, ['dispatch.max_concurrent'])
+    assert.deepEqual(out.settings.writes, ROOT_SETTINGS.writes)
+    const save = calls.find((c) => c.method === 'POST' && c.url === '/settings')
+    assert.deepEqual(save.body, { dispatch: { max_concurrent: 5 } }, 'the patch crosses as it was, nothing more')
+    const order = calls.filter((c) => c.method === 'POST').map((c) => c.url)
+    assert.deepEqual(order, ['/settings', '/reload'], 'the write lands before the apply is ordered')
+    assert.match(logged.join('\n'), /saved config\.yaml/)
+  })
+
+  test('under a root a save the service refuses reads as a refusal, names the contract\'s sentence, and orders no reload', async () => {
+    asOperator()
+    reply['GET /settings'] = [200, ROOT_SETTINGS]
+    reply['POST /settings'] = [400, { ok: false, error: '/root/config/config.yaml line 1: `max_concurrent` must be a positive whole number (got 0)' }]
+    await start({ settingsSource: 'daemon' })
+    const res = await press('/api/settings', { dispatch: { max_concurrent: 0 } })
+    assert.equal(res.status, 409)
+    const out = JSON.parse(res.text)
+    assert.equal(out.refused, true)
+    assert.match(out.error, /max_concurrent.*positive whole number/)
+    assert.equal(calls.some((c) => c.url === '/reload'), false)
+  })
+
+  test('under a root a service that cannot be asked fails the read and the save, and neither touches a file here', async () => {
+    asOperator()
+    await start({ settingsSource: 'daemon' })
+    daemon.close()
+    assert.equal((await req(surface.port, '/api/settings', { headers: served() })).status, 500)
+    const res = await press('/api/settings', { dispatch: { max_concurrent: 5 } })
+    assert.equal(res.status, 500)
+    assert.match(JSON.parse(res.text).error, /daemon|ECONNREFUSED|answer/i)
+  })
+  afterEach(() => {
+    surface?.stop()
+    daemon?.close()
+  })
+
+  test('under a root the allowlist is the daemon\'s word, read at boot: nobody from curia.yaml is admitted', async () => {
+    identity = { allow: ['box@example.com'], first_operator: false }
+    await start({ allow: ['alp@example.com'] })
+    assert.deepEqual([...surface.allow], ['box@example.com'])
+    assert.equal(surface.firstOperator, false)
+    assert.equal((await req(surface.port, '/', { headers: served() })).status, 403)
+    assert.equal((await req(surface.port, '/', { headers: served({ [LOGIN_HEADER]: 'box@example.com' }) })).status, 200)
+  })
+
+  test('before the daemon answers, nobody is admitted and the window is shut', async () => {
+    daemon.close()
+    await start()
+    assert.deepEqual([...surface.allow], [])
+    assert.equal(surface.firstOperator, false)
+    assert.equal((await req(surface.port, '/', { headers: served() })).status, 403)
+    assert.match(logged.join('\n'), /identity read failed/)
+  })
+
+  test('with no operator confirmed, the first Tailscale identity reaches the page and the setup routes, and nothing else', async () => {
+    await start()
+    assert.equal(surface.firstOperator, true)
+    assert.equal((await req(surface.port, '/', { headers: served() })).status, 200)
+    assert.equal((await req(surface.port, '/api/setup', { headers: served() })).status, 200)
+    assert.equal((await req(surface.port, '/api/setup/tailscale', { headers: served() })).status, 200)
+    for (const p of ['/api/overview', '/terminal/', '/api/settings', '/api/chat/list']) {
+      const res = await req(surface.port, p, { headers: served() })
+      assert.equal(res.status, 403, p)
+      assert.match(res.text, /no operator is confirmed yet, and only setup is open/)
+    }
+    // The other two legs still hold in the window.
+    assert.equal((await req(surface.port, '/', { headers: { host: 'box.tail1234.ts.net:8445' } })).status, 403)
+    assert.equal((await req(surface.port, '/', { headers: served({ host: 'evil.example.com' }) })).status, 403)
+    assert.equal((await req(surface.port, '/', { headers: served({ [FUNNEL_HEADER]: '?1' }) })).status, 403)
+  })
+
+  test('the panel read carries the login Serve stamped on this request to the daemon, lowercased, and never one the browser named', async () => {
+    await start()
+    const res = await req(surface.port, '/api/setup/tailscale?login=stranger@example.com', { headers: served() })
+    assert.equal(res.status, 200)
+    assert.equal(sent('/setup/tailscale?').url, '/setup/tailscale?login=alp%40example.com')
+    assert.equal(JSON.parse(res.text).requester, 'alp@example.com')
+    daemon.close()
+    const down = JSON.parse((await req(surface.port, '/api/setup/tailscale', { headers: served() })).text)
+    assert.equal(down.requester, 'alp@example.com')
+    assert.equal(down.node, null)
+    assert.match(down.error, /daemon|ECONNREFUSED|socket hang up/i)
+  })
+
+  test('the confirmation sends the request\'s own login and the machine name, then reads the allowlist back so the window closes at once', async () => {
+    await start()
+    identity = { allow: ['alp@example.com'], first_operator: false }
+    const res = await press('/api/setup/tailscale/operator', { machine_name: 'curia.sh', login: 'stranger@example.com' })
+    assert.equal(res.status, 200)
+    assert.deepEqual(sent('/setup/tailscale/operator').body, { login: 'alp@example.com', machine_name: 'curia.sh' })
+    assert.equal(JSON.parse(res.text).card.state, 'connected')
+    assert.equal(surface.firstOperator, false)
+    assert.deepEqual([...surface.allow], ['alp@example.com'])
+    assert.equal((await req(surface.port, '/api/overview', { headers: served() })).status, 200)
+    assert.equal((await req(surface.port, '/', { headers: served({ [LOGIN_HEADER]: 'stranger@example.com' }) })).status, 403)
+  })
+
+  test('a machine name that is not one is refused without crossing, and a daemon refusal is the sentence the page shows', async () => {
+    await start()
+    const bad = await press('/api/setup/tailscale/operator', { machine_name: 'not a name!' })
+    assert.equal(bad.status, 409)
+    assert.match(JSON.parse(bad.text).error, /is not a machine name/)
+    assert.equal(sent('/setup/tailscale/operator'), undefined)
+    reply['/setup/tailscale/operator'] = [400, { ok: false, error: 'This deployment reads the allowed operators from identity.allow in curia.yaml' }]
+    const refused = await press('/api/setup/tailscale/operator', { machine_name: 'curia.sh' })
+    assert.equal(refused.status, 409)
+    assert.match(JSON.parse(refused.text).error, /identity\.allow in curia\.yaml/)
+  })
+
+  test('the source deployment keeps curia.yaml\'s list and never asks the daemon for one', async () => {
+    await start({ identitySource: 'config', allow: ['alp@example.com'] })
+    assert.deepEqual([...surface.allow], ['alp@example.com'])
+    assert.equal(surface.firstOperator, false)
+    assert.equal(calls.some((c) => c.url === '/identity'), false)
+    assert.equal((await req(surface.port, '/api/overview', { headers: served() })).status, 200)
+  })
+})
+
+describe('the OpenAI card routes (#878)', () => {
+  const SERVE_PORT = 8445
+  const ORIGIN = 'https://box.tail1234.ts.net:8445'
+  const ALLOW = ['alp@example.com']
+  let surface
+  let daemon
+  let calls
+  let reply
+  let logged
+  const served = (extra = {}) => ({ host: 'box.tail1234.ts.net:8445', [LOGIN_HEADER]: 'alp@example.com', ...extra })
+  const press = (p, body) => req(surface.port, p, { method: 'POST', headers: served({ origin: ORIGIN, 'content-type': 'application/json' }), body })
+  const sent = (route) => calls.find((c) => c.url === route)
+  const OVERVIEW = {
+    provider: 'openai', root: true, secret: { state: 'absent' }, identity: null, ending: null, said: null,
+    login: { provider: 'openai', session: 'curia-auth-openai', state: 'waiting', url: 'https://auth.openai.com/codex/device', code: '83CC-A4ZTO', typed: false, terminal_url: null, seconds_left: 840 },
+    routing: { ready: false, model: 'gpt', rows: [], missing: ['untyped'], credentialed: [] },
+  }
+
+  beforeEach(async () => {
+    calls = []
+    logged = []
+    reply = {
+      '/setup/openai': [200, OVERVIEW],
+      '/setup/openai/login': [200, { ok: true, ...OVERVIEW, login: { provider: 'openai', state: 'starting' } }],
+    }
+    daemon = http.createServer((r, res) => {
+      let buf = ''
+      r.on('data', (d) => { buf += d })
+      r.on('end', () => {
+        calls.push({ method: r.method, url: r.url, body: buf ? JSON.parse(buf) : null })
+        const [code, body] = reply[r.url] ?? [404, { error: 'no such route' }]
+        res.writeHead(code, { 'content-type': 'application/json' })
+        res.end(JSON.stringify(body))
+      })
+    })
+    await new Promise((done) => daemon.listen(0, '127.0.0.1', done))
+    surface = new DashboardSurface({
+      port: 0, servePort: SERVE_PORT, index: DEFAULT_DASHBOARD_INDEX, allow: ALLOW, pollIntervalS: 5,
+      daemonPort: daemon.address().port,
+      log: (line) => logged.push(String(line)),
+      deps: {
+        fetchOverview: async () => ({ daemon: { port: 4271 } }),
+        assertServe: async () => {},
+        serveOff: async () => {},
+        attachBase: async () => 'box.tail1234.ts.net',
+        tailnetSelf: async () => ({ dnsName: 'box.tail1234.ts.net', ips: ['100.98.118.33'] }),
+      },
+    })
+    await surface.start()
+    await surface.resolveHosts()
+  })
+  afterEach(() => {
+    surface?.stop()
+    daemon?.close()
+  })
+
+  test('the panel read comes from the daemon unedited, with the one-time code and never a token, and a daemon that cannot be asked answers the reason', async () => {
+    const res = await req(surface.port, '/api/setup/openai', { headers: served() })
+    assert.equal(res.status, 200)
+    assert.deepEqual(JSON.parse(res.text), OVERVIEW)
+    daemon.close()
+    const down = JSON.parse((await req(surface.port, '/api/setup/openai', { headers: served() })).text)
+    assert.equal(down.secret, null)
+    assert.equal(down.login, null)
+    assert.match(down.error, /daemon|ECONNREFUSED|socket hang up/i)
+  })
+
+  test('the sign-in press crosses with no field at all, whatever the browser sent, and answers the daemon\'s read; a refusal is the sentence the page shows', async () => {
+    const res = await press('/api/setup/openai/login', { api_key: 'sk-should-never-cross', provider: 'anthropic' })
+    assert.equal(res.status, 200)
+    assert.deepEqual(sent('/setup/openai/login').body, {})
+    assert.equal(JSON.parse(res.text).login.state, 'starting')
+    assert.ok(!res.text.includes('sk-should-never-cross'))
+    assert.ok(!logged.join('\n').includes('sk-should-never-cross'))
+    reply['/setup/openai/login'] = [400, { ok: false, error: 'this daemon runs no containers, so it has nothing to run the login in' }]
+    const refused = await press('/api/setup/openai/login', {})
+    assert.equal(refused.status, 409)
+    assert.match(JSON.parse(refused.text).error, /runs no containers/)
+  })
+})
+
+// The Anthropic half of the model card (#879): the same two routes on the
+// sidecar, the read relayed unedited and the press composed with no field.
+describe('the Anthropic card routes (#879)', () => {
+  const SERVE_PORT = 8445
+  const ORIGIN = 'https://box.tail1234.ts.net:8445'
+  const ALLOW = ['alp@example.com']
+  let surface
+  let daemon
+  let calls
+  let reply
+  let logged
+  const served = (extra = {}) => ({ host: 'box.tail1234.ts.net:8445', [LOGIN_HEADER]: 'alp@example.com', ...extra })
+  const press = (p, body) => req(surface.port, p, { method: 'POST', headers: served({ origin: ORIGIN, 'content-type': 'application/json' }), body })
+  const sent = (route) => calls.find((c) => c.url === route)
+  const OVERVIEW = {
+    provider: 'anthropic', root: true, secret: { state: 'absent' }, credential: null, ending: null, said: null,
+    login: { provider: 'anthropic', session: 'curia-auth-anthropic', state: 'waiting', url: 'https://claude.com/cai/oauth/authorize?code_challenge=x&state=y', code: null, typed: true, terminal_url: null, seconds_left: 1700 },
+    routing: { ready: false, model: 'fable', rows: [], missing: ['research'], credentialed: [] },
+  }
+
+  beforeEach(async () => {
+    calls = []
+    logged = []
+    reply = {
+      '/setup/anthropic': [200, OVERVIEW],
+      '/setup/anthropic/login': [200, { ok: true, ...OVERVIEW, login: { provider: 'anthropic', state: 'starting' } }],
+    }
+    daemon = http.createServer((r, res) => {
+      let buf = ''
+      r.on('data', (d) => { buf += d })
+      r.on('end', () => {
+        calls.push({ method: r.method, url: r.url, body: buf ? JSON.parse(buf) : null })
+        const [code, body] = reply[r.url] ?? [404, { error: 'no such route' }]
+        res.writeHead(code, { 'content-type': 'application/json' })
+        res.end(JSON.stringify(body))
+      })
+    })
+    await new Promise((done) => daemon.listen(0, '127.0.0.1', done))
+    surface = new DashboardSurface({
+      port: 0, servePort: SERVE_PORT, index: DEFAULT_DASHBOARD_INDEX, allow: ALLOW, pollIntervalS: 5,
+      daemonPort: daemon.address().port,
+      log: (line) => logged.push(String(line)),
+      deps: {
+        fetchOverview: async () => ({ daemon: { port: 4271 } }),
+        assertServe: async () => {},
+        serveOff: async () => {},
+        attachBase: async () => 'box.tail1234.ts.net',
+        tailnetSelf: async () => ({ dnsName: 'box.tail1234.ts.net', ips: ['100.98.118.33'] }),
+      },
+    })
+    await surface.start()
+    await surface.resolveHosts()
+  })
+  afterEach(() => {
+    surface?.stop()
+    daemon?.close()
+  })
+
+  test('the panel read comes from the daemon unedited, with the typed login and never a token, and a daemon that cannot be asked answers the reason', async () => {
+    const res = await req(surface.port, '/api/setup/anthropic', { headers: served() })
+    assert.equal(res.status, 200)
+    assert.deepEqual(JSON.parse(res.text), OVERVIEW)
+    daemon.close()
+    const down = JSON.parse((await req(surface.port, '/api/setup/anthropic', { headers: served() })).text)
+    assert.equal(down.secret, null)
+    assert.equal(down.login, null)
+    assert.match(down.error, /daemon|ECONNREFUSED|socket hang up/i)
+  })
+
+  test('the sign-in press crosses with no field at all, whatever the browser sent, and answers the daemon\'s read; a refusal is the sentence the page shows', async () => {
+    const res = await press('/api/setup/anthropic/login', { api_key: 'sk-ant-api03-should-never-cross', token: 'sk-ant-oat01-should-never-cross' })
+    assert.equal(res.status, 200)
+    assert.deepEqual(sent('/setup/anthropic/login').body, {})
+    assert.equal(JSON.parse(res.text).login.state, 'starting')
+    assert.ok(!res.text.includes('should-never-cross'))
+    assert.ok(!logged.join('\n').includes('should-never-cross'))
+    reply['/setup/anthropic/login'] = [400, { ok: false, error: 'this daemon runs no containers, so it has nothing to run the login in' }]
+    const refused = await press('/api/setup/anthropic/login', {})
+    assert.equal(refused.status, 409)
+    assert.match(JSON.parse(refused.text).error, /runs no containers/)
   })
 })

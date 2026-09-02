@@ -30,9 +30,11 @@ import fs from 'node:fs'
 import http from 'node:http'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { APP_VERSION } from './appversion.mjs'
 import { assertServe, serveOff, attachBase } from './attach.mjs'
 import { identityRefusal, readAllow, serveHosts, tailnetSelf, LOGIN_HEADER } from './identity.mjs'
 import { readSettings, saveSettings } from './settings.mjs'
+import { CARDS as SETUP_CARDS, PROGRESS_FIELDS as SETUP_FIELDS } from './setup.mjs'
 // The two config layers (#292). config.mjs imports readDashboard from this file
 // in turn; both edges are runtime calls, never module-level ones.
 import { readLayered } from './config.mjs'
@@ -89,7 +91,17 @@ export const daemonPort = () => Number(process.env.PORT ?? DEFAULT_DAEMON_PORT)
 // Bumped to 15 by #809: credential sign-in now carries an Action identity
 // through `/api/reauth`. A proto-14 sidecar drops that identity and leaves the
 // optimistic projection pending with no daemon evidence that can settle it.
-export const DASHBOARD_PROTO = 15
+// Bumped to 16 by #874: the page carries the integration setup frame, which
+// reads `/api/setup` and POSTs it. A proto-15 sidecar answers 404 on both, and
+// a setup screen whose every card is unreadable is not a screen.
+// Bumped to 17 by #882: the setup frame runs the Full loop through
+// `/api/setup/full-loop` and its retry, and draws the run the read carries.
+// A proto-16 sidecar answers 404 on the press, and a Run Full loop that runs
+// nothing is the stub this release retired.
+// Bumped to 18 by #883: the Settings screen carries an Update section that
+// reads `/api/update`. A proto-17 sidecar answers 404, and a panel that can
+// never say which version is installed is not a panel.
+export const DASHBOARD_PROTO = 18
 
 // The Credentials screen's own hash (#661). It is here rather than in the
 // daemon that links to it, because the page's screen names are this file's half
@@ -242,6 +254,10 @@ export const AISTACK_ACT_TIMEOUT_MS = 150_000
 // and is watching.
 export const DIFF_TIMEOUT_MS = 30_000
 
+// The setup read (#874) verifies every integration fresh, and a verification
+// may cross the network to GitHub, Discord, Tailscale, or a model provider.
+export const SETUP_TIMEOUT_MS = 60_000
+
 // The biggest settings patch this surface will read. The screen writes a watch
 // list and a handful of numbers, so anything near this is not a settings save.
 export const MAX_BODY = 256 * 1024
@@ -280,6 +296,24 @@ const VERB_PROVIDER_RE = /^[a-z0-9][a-z0-9-]*$/
 // it names the shape it will send. The two fields GitHub redirects back with
 // are checked on the daemon, which is the side that composes them into a URL.
 const APP_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,33}$/
+// The screen GitHub's redirect lands on (#875): the Settings section or the
+// Setup screen, whichever started the trip. A name, never a location.
+const APP_SCREEN_RE = /^(settings|setup)$/
+// The Discord card (#876). The token is checked for shape HERE, so a paste
+// that is not a token is refused without crossing, and refused BY NAME: no
+// sentence this surface writes carries the value. The user ID, the server
+// id, and the channel name are the shapes `state/discord.json` takes.
+const DISCORD_TOKEN_RE = /^[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]{20,}$/
+const SNOWFLAKE_RE = /^[0-9]{5,25}$/
+const CHANNEL_NAME_RE = /^[a-z0-9][a-z0-9_-]{0,99}$/
+// The Tailscale card (#877). The machine name is the shape `state/setup.json`
+// keeps; the login is never a field, because the daemon records the identity
+// Serve stamped on the request and nothing a browser typed.
+const MACHINE_NAME_RE = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$/i
+// What the first-operator window admits (#877): the page, and the setup
+// routes. The terminal, the chat, and every verb stay refused until an
+// operator is confirmed.
+const FIRST_OPERATOR_PATHS = /^\/(?:$|api\/setup(?:\/|$))/
 
 export const MAX_WORDS = 4000
 
@@ -315,7 +349,7 @@ function reloadLine(reload) {
 
 function settingsPaths(patch) {
   const paths = []
-  if (patch && ['dispatch', 'overseer', 'watch'].some((key) => Object.hasOwn(patch, key))) paths.push('curia.local.yaml')
+  if (patch && ['dispatch', 'overseer', 'watch'].some((key) => Object.hasOwn(patch, key))) paths.push('config.yaml')
   if (patch && Object.hasOwn(patch, 'routing')) paths.push('routing.local.yaml')
   return paths
 }
@@ -366,6 +400,7 @@ export class DashboardSurface {
     port, servePort, index, allow, daemonPort: dPort = daemonPort(),
     pollIntervalS = DEFAULT_DASHBOARD.poll_interval_s,
     curiaFile = null, routingFile = null, timelinePort = null, terminalPort = null,
+    identitySource = 'config', settingsSource = 'files',
     log = console.log, deps = {},
   }) {
     this.port = port
@@ -375,11 +410,15 @@ export class DashboardSurface {
     this.terminalPort = terminalPort
     this.servePort = servePort
     this.index = index
-    // The two files the settings screen writes (#265). They are the only
-    // writable thing in this container: #263's mount list gives it `config/`
-    // read-write and everything else read-only.
+    // The two files the settings screen writes (#265). In the source
+    // deployment they are the only writable thing in this container: #263's
+    // mount list gives it `config/` read-write and everything else
+    // read-only. Under an installation root the app mounts nothing (#867),
+    // so `settingsSource: 'daemon'` reads them and lands a save through the
+    // service's `GET` and `POST /settings` instead (#880).
     this.curiaFile = curiaFile
     this.routingFile = routingFile
+    this.settingsSource = settingsSource
     this.daemonPort = dPort
     this.pollIntervalMs = pollIntervalS * 1000
     this.pollIntervalS = pollIntervalS
@@ -389,6 +428,15 @@ export class DashboardSurface {
     // arrives after the listener is up is picked up without rewiring. Empty
     // means refuse — a surface that does not know its own name admits nobody.
     this.allow = new Set(allow ?? [])
+    // Where the allowlist comes from (#877). `config` is the source
+    // deployment: `identity.allow` in curia.yaml, read once at boot. `daemon`
+    // is an installation root: the confirmed operator the daemon keeps in
+    // `state/tailscale.json`, which this container cannot read, asked over
+    // loopback at boot, on every poll, and after the confirmation. Until the
+    // daemon has answered, nobody is admitted; and only the daemon's own
+    // word that no operator is confirmed yet opens the first-operator window.
+    this.identitySource = identitySource
+    this.firstOperator = false
     this.hosts = new Set()
     this.deps = { assertServe, serveOff, attachBase, tailnetSelf, fetchOverview: null, ...deps }
     this.server = null
@@ -404,7 +452,39 @@ export class DashboardSurface {
   }
 
   #refusal(req) {
-    return identityRefusal(req.headers, { allow: this.allow, hosts: this.hosts })
+    const reason = identityRefusal(req.headers, { allow: this.allow, hosts: this.hosts })
+    if (!reason || !this.firstOperator) return reason
+    // The first-operator window (#877): the daemon said no operator is
+    // confirmed yet, so the identity that opens the app is the one setup
+    // shows and asks to confirm. The Funnel and Host legs still hold; only
+    // the allowlist leg is answered by the request's own stamped login, and
+    // only for the page and the setup routes.
+    const login = String(req.headers[LOGIN_HEADER] ?? '').toLowerCase()
+    if (!login) return reason
+    const pathname = String(req.url ?? '').split('?')[0]
+    if (!FIRST_OPERATOR_PATHS.test(pathname)) return `${reason} — no operator is confirmed yet, and only setup is open before one is`
+    return identityRefusal(req.headers, { allow: new Set([login]), hosts: this.hosts })
+  }
+
+  // The allowlist from the daemon (#877), written into the live set in place.
+  // A daemon that cannot be asked leaves the last answer standing: a restart
+  // of the daemon must not open the window, and must not lock the operator
+  // out either.
+  async refreshIdentity() {
+    if (this.identitySource !== 'daemon') return
+    let out
+    try {
+      out = await this.#daemon({ path: '/identity' })
+    } catch (e) {
+      this.log(`dashboard: the daemon's identity read failed (${e.message}) — keeping the last allowlist`)
+      return
+    }
+    const logins = Array.isArray(out?.allow) ? out.allow.map((l) => String(l).toLowerCase()) : []
+    this.allow.clear()
+    for (const l of logins) this.allow.add(l)
+    const window = Boolean(out?.first_operator) && logins.length === 0
+    if (window !== this.firstOperator) this.log(window ? 'dashboard: no operator is confirmed yet — setup is open to the first Tailscale identity that arrives' : `dashboard: ${logins.length} login(s) admitted`)
+    this.firstOperator = window
   }
 
   // Bind the loopback listener. A port that will not bind is not a surface this
@@ -463,6 +543,7 @@ export class DashboardSurface {
   // `tailscale serve --bg` persists in tailscaled and skipping the assert alone
   // un-publishes nothing.
   async assert() {
+    await this.refreshIdentity()
     let refusal = null
     if (!this.listening) refusal = `the dashboard listener on 127.0.0.1:${this.port} is not up`
     else refusal = pageRefusal(this.index)
@@ -560,6 +641,7 @@ export class DashboardSurface {
     this.inFlight = (async () => {
       try {
         const overview = await this.#fetchOverview()
+        await this.refreshIdentity()
         this.snapshot = overview
         this.snapshotAt = Date.now()
         if (this.error) this.log(`dashboard: the daemon is answering again on :${this.daemonPort}`)
@@ -754,7 +836,7 @@ export class DashboardSurface {
   // config from the page while the daemon is down.
   async #guardWatchRemoval(patch) {
     if (!Array.isArray(patch?.watch)) return
-    const before = readSettings({ curiaFile: this.curiaFile, routingFile: this.routingFile }).watch
+    const before = (await this.#readSettings()).watch
     const kept = new Set(patch.watch.map((w) => String(w?.repo ?? '')))
     const removed = before.map((w) => w.repo).filter((repo) => !kept.has(repo))
     if (!removed.length) return
@@ -769,6 +851,27 @@ export class DashboardSurface {
     if (!held.length) return
     const names = held.map((a) => a.session).join(', ')
     throw refuse(`${held[0].repo} cannot leave the watch list while ${names} runs on it — curia would stop covering that agent's claim. Cancel it, or wait for it to finish.`)
+  }
+
+  // The settings read and the settings write, from the files this container
+  // mounts or through the service (#880). One flow either way: the handler
+  // above these two is the same, and only where the bytes come from and land
+  // differs. A daemon refusal (400) is the operator's to fix and reads as a
+  // refusal here; a daemon that cannot be asked is this process failing.
+  async #readSettings() {
+    if (this.settingsSource === 'daemon') return this.#daemon({ path: '/settings' })
+    if (!this.curiaFile || !this.routingFile) throw new Error('this sidecar was started without config file paths, so it cannot read them')
+    return readSettings({ curiaFile: this.curiaFile, routingFile: this.routingFile })
+  }
+
+  async #saveSettings(patch) {
+    if (this.settingsSource === 'daemon') {
+      const out = await this.#daemon({ method: 'POST', path: '/settings', body: patch, accept: [200, 400] })
+      if (out?.ok === false) throw refuse(out.error ?? 'the daemon refused the save')
+      return out
+    }
+    if (!this.curiaFile || !this.routingFile) throw new Error('this sidecar was started without config file paths, so it cannot save')
+    return saveSettings({ curiaFile: this.curiaFile, routingFile: this.routingFile, patch })
   }
 
   // The command seam (#33 step 9), reached with text this file composed. Every
@@ -881,6 +984,14 @@ export class DashboardSurface {
   }
 
   #handle(req, res) {
+    // The reachability probe (#884), before the identity gate: the version
+    // this process runs and nothing else, so the lifecycle interface can
+    // prove on loopback, where no Serve identity exists, that the app came
+    // back on the target release after a switch. It reads nothing and asks
+    // the daemon nothing; a version is not a secret.
+    if (req.method === 'GET' && String(req.url ?? '').split('?')[0] === '/ping') {
+      return this.#json(res, 200, { curia: 'curia-dashboard', version: APP_VERSION })
+    }
     const reason = this.#refusal(req)
     if (reason) {
       this.log(`dashboard: REFUSED ${req.url} — ${reason}`)
@@ -906,13 +1017,13 @@ export class DashboardSurface {
       // message take back. They pass the cross-site check here. The timeline
       // applies its own check too.
       if (CHAT_ROUTES.has(url.pathname)) return this.#chat(req, res, url.pathname + url.search)
-      // The save (#265). The sidecar writes the file itself: it holds the only
-      // read-write mount in this container, and #249 put the edit here so that
-      // a config the daemon refuses to boot on can still be fixed from the page
-      // while the daemon is down.
+      // The save (#265). In the source deployment the sidecar writes the file
+      // itself: it holds the only read-write mount in this container, and
+      // #249 put the edit here so that a config the daemon refuses to boot on
+      // can still be fixed from the page while the daemon is down. Under an
+      // installation root the write lands through the service (#880).
       if (url.pathname === '/api/settings') {
         return this.#write(res, async () => {
-          if (!this.curiaFile || !this.routingFile) throw new Error('this sidecar was started without config file paths, so it cannot save')
           const body = await this.#body(req)
           const actionId = body.action_id == null ? null : field(body.action_id, ACTION_ID_RE, 'an Action id')
           const { action_id: _actionId, ...patch } = body
@@ -922,13 +1033,13 @@ export class DashboardSurface {
           if (begun?.action && ['refused', 'failed'].includes(begun.action.status)) {
             return {
               written: [], reload: null, action: begun.action,
-              settings: readSettings({ curiaFile: this.curiaFile, routingFile: this.routingFile }),
+              settings: await this.#readSettings(),
             }
           }
           let out
           try {
             await this.#guardWatchRemoval(patch)
-            out = saveSettings({ curiaFile: this.curiaFile, routingFile: this.routingFile, patch })
+            out = await this.#saveSettings(patch)
           } catch (error) {
             const settled = await this.#finishSettingsAction(actionId, 'refused', { reason: error.message })
             if (settled) error.receipt = { action: settled }
@@ -950,7 +1061,7 @@ export class DashboardSurface {
           return {
             ...out, reload,
             ...(reload?.action || noChange || begun?.action ? { action: reload?.action ?? noChange ?? begun.action } : {}),
-            settings: readSettings({ curiaFile: this.curiaFile, routingFile: this.routingFile }),
+            settings: await this.#readSettings(),
           }
         })
       }
@@ -991,6 +1102,7 @@ export class DashboardSurface {
           const b = await this.#body(req)
           const name = field(b.name, APP_NAME_RE, 'a GitHub App name')
           const actionId = field(b.action_id, ACTION_ID_RE, 'an Action id')
+          const screen = b.screen === undefined ? 'settings' : field(b.screen, APP_SCREEN_RE, 'a screen that starts a GitHub App setup')
           // The redirect is THIS surface's own address, composed from curia's
           // own records (#68) rather than from the request headers. GitHub
           // sends the conversion code back to this URL, so a caller-named
@@ -999,7 +1111,7 @@ export class DashboardSurface {
           // tailscale says this box is.
           const redirectUrl = new URL('api/github-app/complete', await this.link()).toString()
           return this.#daemon({
-            method: 'POST', path: '/github-app/start', body: { name, redirect_url: redirectUrl, action_id: actionId }, accept: [200, 400],
+            method: 'POST', path: '/github-app/start', body: { name, redirect_url: redirectUrl, action_id: actionId, screen }, accept: [200, 400],
           })
         })
       }
@@ -1103,6 +1215,127 @@ export class DashboardSurface {
       // deletes one, and both are composed here out of a shape this file names:
       // `new` sends no field at all, and `delete` sends one key this side
       // validates before the daemon validates it again.
+      // Integration setup (#874). The record the daemon keeps is the selected
+      // card and a closed list of safe fields per card, and this side composes
+      // the write out of exactly that list: a key the list does not name goes
+      // nowhere, so a token typed into a field a later ticket adds cannot ride
+      // into `state/setup.json` by way of this route. The daemon checks the
+      // shapes again.
+      if (url.pathname === '/api/setup') {
+        return this.#write(res, async () => {
+          const b = await this.#body(req)
+          const body = {}
+          if (b.step !== undefined) {
+            const step = String(b.step ?? '')
+            if (!SETUP_CARDS.includes(step)) throw refuse(`"${step.slice(0, 40)}" is not a setup card`)
+            body.step = step
+          }
+          if (b.progress !== undefined) {
+            if (!b.progress || typeof b.progress !== 'object') throw refuse('progress must be a mapping of card to fields')
+            body.progress = {}
+            for (const card of SETUP_CARDS) {
+              const fields = b.progress[card]
+              if (!fields || typeof fields !== 'object') continue
+              body.progress[card] = Object.fromEntries(SETUP_FIELDS[card]
+                .filter((key) => typeof fields[key] === 'string')
+                .map((key) => [key, fields[key]]))
+            }
+          }
+          const out = await this.#daemon({ method: 'POST', path: '/setup', body, accept: [200, 400] })
+          if (out.ok === false) throw refuse(out.error)
+          return out
+        })
+      }
+      // The Full loop's press and retry (#882). The press names at most a
+      // covered repository and a ticket number, both shaped here; the daemon
+      // reads its own gate and refuses a closed one. The answer is the run.
+      if (url.pathname === '/api/setup/full-loop' || url.pathname === '/api/setup/full-loop/retry') {
+        return this.#write(res, async () => {
+          const b = await this.#body(req)
+          const body = {}
+          if (!url.pathname.endsWith('/retry')) {
+            if (typeof b.repo === 'string' && b.repo) {
+              if (!/^[\w.-]+\/[\w.-]+$/.test(b.repo)) throw refuse(`"${b.repo.slice(0, 60)}" is not a repository`)
+              body.repo = b.repo
+            }
+            if (b.ticket !== undefined && b.ticket !== null && b.ticket !== '') {
+              const n = Number(b.ticket)
+              if (!Number.isInteger(n) || n <= 0) throw refuse(`"${String(b.ticket).slice(0, 40)}" is not a ticket number`)
+              body.ticket = n
+            }
+          }
+          const out = await this.#daemon({ method: 'POST', path: url.pathname.replace('/api', ''), body, accept: [200, 400], timeout: SETUP_TIMEOUT_MS })
+          if (out.ok === false) throw refuse(out.error)
+          return out
+        })
+      }
+      // The Discord card (#876). Two writes, each composed here out of the
+      // fields it names and nothing else. The token crosses once, to the
+      // daemon, which lands it in its secret file; this surface holds no copy
+      // and its answers and logs never carry it. The daemon's refusal is the
+      // sentence the page shows.
+      if (url.pathname === '/api/setup/discord/token') {
+        return this.#write(res, async () => {
+          const b = await this.#body(req)
+          if (typeof b.token !== 'string' || !DISCORD_TOKEN_RE.test(b.token)) throw refuse('That is not the shape a Discord bot token takes. Copy the token from the Bot page of your application, with no spaces around it.')
+          const userId = field(b.user_id, SNOWFLAKE_RE, 'a Discord user ID')
+          const out = await this.#daemon({ method: 'POST', path: '/setup/discord/token', body: { token: b.token, user_id: userId }, accept: [200, 400], timeout: SETUP_TIMEOUT_MS })
+          if (out.ok === false) throw refuse(out.error)
+          return out
+        })
+      }
+      if (url.pathname === '/api/setup/discord/channel') {
+        return this.#write(res, async () => {
+          const b = await this.#body(req)
+          const guildId = field(b.guild_id, SNOWFLAKE_RE, 'a Discord server id')
+          const channel = field(b.channel, CHANNEL_NAME_RE, 'a Discord channel name')
+          const out = await this.#daemon({ method: 'POST', path: '/setup/discord/channel', body: { guild_id: guildId, channel }, accept: [200, 400], timeout: SETUP_TIMEOUT_MS })
+          if (out.ok === false) throw refuse(out.error)
+          return out
+        })
+      }
+      // The Tailscale card (#877). The one write is the confirmation, composed
+      // here as the login Serve stamped on THIS request and the machine name
+      // the page sent: the browser cannot name who becomes the operator, only
+      // agree that it is the identity it arrived with. The allowlist is read
+      // back from the daemon at once, so the next request is admitted by the
+      // record and not by the window.
+      if (url.pathname === '/api/setup/tailscale/operator') {
+        return this.#write(res, async () => {
+          const b = await this.#body(req)
+          const login = String(req.headers[LOGIN_HEADER] ?? '').toLowerCase()
+          if (!login) throw refuse('This request carried no Tailscale identity. Open the Curia app through its Tailscale address, then confirm again.')
+          const machineName = field(b.machine_name ?? 'curia.sh', MACHINE_NAME_RE, 'a machine name')
+          const out = await this.#daemon({ method: 'POST', path: '/setup/tailscale/operator', body: { login, machine_name: machineName }, accept: [200, 400], timeout: SETUP_TIMEOUT_MS })
+          if (out.ok === false) throw refuse(out.error)
+          await this.refreshIdentity()
+          return out
+        })
+      }
+      // The OpenAI half of the model card (#878). The one write starts the
+      // subscription sign-in the daemon already runs (`codex login
+      // --device-auth` in a tmux session), and it carries no field at all:
+      // there is nothing a browser can name about that login, and no key
+      // it could paste. The daemon answers the panel read, and the page
+      // polls it for the link and the code.
+      if (url.pathname === '/api/setup/openai/login') {
+        return this.#write(res, async () => {
+          await this.#body(req)
+          const out = await this.#daemon({ method: 'POST', path: '/setup/openai/login', body: {}, accept: [200, 400], timeout: SETUP_TIMEOUT_MS })
+          if (out.ok === false) throw refuse(out.error)
+          return out
+        })
+      }
+      // The Anthropic half (#879), the same press: it starts the `claude
+      // setup-token` session the daemon already runs and carries no field.
+      if (url.pathname === '/api/setup/anthropic/login') {
+        return this.#write(res, async () => {
+          await this.#body(req)
+          const out = await this.#daemon({ method: 'POST', path: '/setup/anthropic/login', body: {}, accept: [200, 400], timeout: SETUP_TIMEOUT_MS })
+          if (out.ok === false) throw refuse(out.error)
+          return out
+        })
+      }
       // The aistack registration (#706), in three presses: start the device
       // flow, stop waiting for it, and grant the standing permission once the
       // machine exists.
@@ -1175,7 +1408,7 @@ export class DashboardSurface {
       return this.#daemon({ path: `/github-app/complete?${q}`, accept: [200, 400] }).then(
         (out) => {
           if (out.error) return this.#json(res, 400, out)
-          res.writeHead(303, { location: '/#settings' })
+          res.writeHead(303, { location: out.screen === 'setup' ? '/#setup' : '/#settings' })
           res.end()
         },
         (e) => this.#json(res, 500, { error: e.message }),
@@ -1235,12 +1468,64 @@ export class DashboardSurface {
     // screen that showed a cached copy would offer to save over an edit it
     // never saw.
     if (url.pathname === '/api/settings') {
-      if (!this.curiaFile || !this.routingFile) return this.#json(res, 500, { error: 'this sidecar was started without config file paths' })
-      try {
-        return this.#json(res, 200, readSettings({ curiaFile: this.curiaFile, routingFile: this.routingFile }))
-      } catch (e) {
-        return this.#json(res, 500, { error: e.message })
-      }
+      return this.#readSettings().then(
+        (settings) => this.#json(res, 200, settings),
+        (e) => this.#json(res, 500, { error: e.message }),
+      )
+    }
+    // Integration setup (#874): the record and the four cards, each verified
+    // on this read. Straight from the daemon, which holds the verifiers and
+    // the secret files they check. A daemon that cannot be asked answers null
+    // cards with the reason: "curia could not verify" and "nothing is
+    // connected" are opposite facts, and the frame says which.
+    if (url.pathname === '/api/setup') {
+      return this.#daemon({ path: '/setup', timeout: SETUP_TIMEOUT_MS }).then(
+        (r) => this.#json(res, 200, r),
+        (e) => this.#json(res, 200, { step: null, progress: null, cards: null, full_loop: null, error: e.message }),
+      )
+    }
+    // The Full loop's run (#882), as the daemon reads it off the journal. A
+    // daemon that cannot be asked answers a null state with the reason.
+    if (url.pathname === '/api/setup/full-loop') {
+      return this.#daemon({ path: '/setup/full-loop', timeout: SETUP_TIMEOUT_MS }).then(
+        (r) => this.#json(res, 200, r),
+        (e) => this.#json(res, 200, { state: null, legs: null, error: e.message }),
+      )
+    }
+    // The Discord card's own read (#876): the token by presence, the bot, its
+    // servers, and the safe facts, straight from the daemon. Never the token.
+    if (url.pathname === '/api/setup/discord') {
+      return this.#daemon({ path: '/setup/discord', timeout: SETUP_TIMEOUT_MS }).then(
+        (r) => this.#json(res, 200, r),
+        (e) => this.#json(res, 200, { secret: null, settings: null, bot: null, guilds: [], invite_url: null, error: e.message }),
+      )
+    }
+    // The OpenAI half of the model card's own read (#878): the credential by
+    // presence, the live sign-in's link and code, and routing readiness,
+    // straight from the daemon. Never a token.
+    if (url.pathname === '/api/setup/openai') {
+      return this.#daemon({ path: '/setup/openai', timeout: SETUP_TIMEOUT_MS }).then(
+        (r) => this.#json(res, 200, r),
+        (e) => this.#json(res, 200, { provider: 'openai', secret: null, identity: null, login: null, ending: null, said: null, routing: null, error: e.message }),
+      )
+    }
+    // The Anthropic half's own read (#879): the credential by presence, the
+    // live sign-in's link, and routing readiness. Never a token.
+    if (url.pathname === '/api/setup/anthropic') {
+      return this.#daemon({ path: '/setup/anthropic', timeout: SETUP_TIMEOUT_MS }).then(
+        (r) => this.#json(res, 200, r),
+        (e) => this.#json(res, 200, { provider: 'anthropic', secret: null, credential: null, login: null, ending: null, said: null, routing: null, error: e.message }),
+      )
+    }
+    // The Tailscale card's own read (#877): the identity Serve stamped on this
+    // request, passed to the daemon by name so the panel can show who opened
+    // the app, beside the node, the record, and the private address.
+    if (url.pathname === '/api/setup/tailscale') {
+      const login = String(req.headers[LOGIN_HEADER] ?? '').toLowerCase()
+      return this.#daemon({ path: `/setup/tailscale?login=${encodeURIComponent(login)}`, timeout: SETUP_TIMEOUT_MS }).then(
+        (r) => this.#json(res, 200, r),
+        (e) => this.#json(res, 200, { requester: login || null, operator: null, node: null, serve: null, app_url: null, first_operator: null, error: e.message }),
+      )
     }
     // The aistack registration and the sync verdict (#706). Straight from the
     // daemon, which is the process that holds the credential and spawns the
@@ -1250,6 +1535,17 @@ export class DashboardSurface {
       return this.#daemon({ path: '/aistack' }).then(
         (r) => this.#json(res, 200, r),
         (e) => this.#json(res, 200, { ok: false, error: e.message }),
+      )
+    }
+    // The update panel's read (#883): the installed and recommended
+    // versions, update availability, release notes, a withdrawal warning,
+    // and the daily check's last result. The daemon keeps the check and its
+    // record; the sidecar relays and adds nothing. A daemon that cannot be
+    // asked is unknown, never "up to date".
+    if (url.pathname === '/api/update') {
+      return this.#daemon({ path: '/update' }).then(
+        (r) => this.#json(res, 200, r),
+        (e) => this.#json(res, 200, { managed: null, installed: null, error: e.message }),
       )
     }
     // The repos the operator could watch. The sidecar holds no GitHub

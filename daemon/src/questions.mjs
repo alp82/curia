@@ -241,6 +241,23 @@ select e.body as body, e.type as type,
  order by e.ticket`.trim(),
 }
 
+// The Full loop's run (#882), two questions. The last start row, and the
+// rows after an id that can belong to that run: the ticket's, the session's,
+// the escalation answers (which carry neither key, and are matched to their
+// question by the loop), and the loop's own rows. The loop judges which of
+// them count; this only bounds what it reads.
+const FULL_LOOP_SQL = {
+  fullLoopRun: `
+select id, ts, type, ticket, agent, body from events
+ where type = 'full_loop_started'
+ order by id desc limit 1`.trim(),
+  eventsSince: `
+select id, ts, type, ticket, agent, body from events
+ where id > :since
+   and (ticket = :t or agent = :a or type in ('esc_answer', 'esc_cancel') or type like 'full\\_loop\\_%' escape '\\')
+ order by id`.trim(),
+}
+
 export class Questions {
   constructor(db) {
     this.db = db
@@ -248,6 +265,19 @@ export class Questions {
     this.mapSnapshotStmts = new Map()
     this.searchStmts = new Map()
     for (const [name, sql] of Object.entries(SQL)) this.stmts[name] = db.prepare(sql)
+    for (const [name, sql] of Object.entries(FULL_LOOP_SQL)) this.stmts[name] = db.prepare(sql)
+  }
+
+  // The last `full_loop_started` row, whole, or null when no Full loop was
+  // ever pressed. The loop (#882) rebuilds its run from it on every read.
+  fullLoopRun() {
+    return this.#one('fullLoopRun')
+  }
+
+  // The rows after `since` that can belong to a Full loop run on `ticket`
+  // and `agent`: theirs, the escalation answers, and the loop's own rows.
+  eventsSince(since, { ticket = null, agent = null } = {}) {
+    return this.#ask('eventsSince', { since: Number(since) || 0, t: ticket == null ? null : String(ticket), a: agent ?? null })
   }
 
   // Every question runs through here, so an UNREADABLE journal is never an

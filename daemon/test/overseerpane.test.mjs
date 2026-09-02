@@ -248,9 +248,9 @@ describe('overseer conversations use the pane host (#688, #701)', () => {
         deps: {
           seed: (...args) => seeded.push(args),
           systemPrompt: () => 'overseer orders',
-          installCredential: (workspaceRoot, configDir) => {
+          installCredential: (storeFile, configDir) => {
             credentialInstalled = true
-            assert.equal(workspaceRoot, root)
+            assert.equal(storeFile, path.join(root, 'credentials', 'anthropic.json'), 'the store, which only the daemon reads (#867)')
             assert.equal(configDir, path.join(root, 'cfg', 'curia-overseer'))
             return null
           },

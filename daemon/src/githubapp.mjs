@@ -39,6 +39,8 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 
+import { readSecret, secretPath, writeSecret } from '../../cli/src/secrets.mjs'
+
 // ---- what the operator sets ------------------------------------------------
 //
 // Two keys in `daemon/.env.daemon`, beside the Discord token. The key ITSELF is
@@ -196,6 +198,9 @@ export const APP_SETUP_TTL_MS = 60 * 60 * 1000
 // `start()` mints, and nothing else is a state.
 export const APP_SETUP_CODE_RE = /^[A-Za-z0-9_-]{1,255}$/
 export const APP_SETUP_STATE_RE = /^[0-9a-f]{64}$/
+// The two screens of the Curia app that start the flow (#694 Settings, #875
+// Setup), and so the two places the redirect may land.
+export const APP_SETUP_SCREENS = Object.freeze(['settings', 'setup'])
 
 function atomicWrite(file, text, mode = 0o600) {
   fs.mkdirSync(path.dirname(file), { recursive: true })
@@ -230,20 +235,27 @@ function samePermissions(actual) {
 }
 
 export class GitHubAppSetup {
+  // `root` is the installation root (#867). With one, the converted app lands
+  // in `secrets/github-app.json` and no env file is written; `stateFile` and
+  // `secretFile` are the caller's, under `state/` and `run/`. Without one, the
+  // source deployment's files beside the daemon are used, as before.
   constructor({
+    root = null,
     daemonRoot = '.',
     stateFile = path.join(daemonRoot, '.github-app-setup.json'),
+    secretFile = `${stateFile}.conversion`,
     envFile = path.join(daemonRoot, '.env.daemon'),
-    keyFile = path.join(daemonRoot, DEFAULT_KEY_FILE),
+    keyFile = root ? secretPath(root, APP_SECRET) : path.join(daemonRoot, DEFAULT_KEY_FILE),
     fetchImpl = globalThis.fetch,
     now = Date.now,
     randomBytes = crypto.randomBytes,
     adopt = () => {},
     store = null,
   } = {}) {
+    this.root = root
     this.daemonRoot = daemonRoot
     this.stateFile = stateFile
-    this.secretFile = `${stateFile}.conversion`
+    this.secretFile = secretFile
     this.envFile = envFile
     this.keyFile = keyFile
     this.fetchImpl = fetchImpl
@@ -285,9 +297,12 @@ export class GitHubAppSetup {
     }
   }
 
-  start({ name, redirectUrl, organization = null, actionId = null } = {}) {
+  // `screen` is where the browser lands when GitHub sends it back (#875):
+  // the Settings section or the Setup screen, whichever started the trip.
+  start({ name, redirectUrl, organization = null, actionId = null, screen = 'settings' } = {}) {
     const appName = String(name ?? '').trim()
     if (!appName || appName.length > 34) throw new Error('the GitHub App name must contain 1 to 34 characters')
+    if (!APP_SETUP_SCREENS.includes(screen)) throw new Error(`the GitHub App setup screen must be one of ${APP_SETUP_SCREENS.join(', ')}`)
     let redirect
     try {
       redirect = new URL(String(redirectUrl))
@@ -306,7 +321,7 @@ export class GitHubAppSetup {
     if (redirect.search || redirect.hash) throw new Error('the GitHub App redirect URL must carry no query or fragment')
     const state = Buffer.from(this.randomBytes(32)).toString('hex')
     const expires = this.now() + APP_SETUP_TTL_MS
-    this.#writeState({ state, expires_at: expires, status: 'pending', ...(actionId ? { action_id: String(actionId) } : {}) })
+    this.#writeState({ state, expires_at: expires, status: 'pending', screen, ...(actionId ? { action_id: String(actionId) } : {}) })
     const ownerPath = organization
       ? `/organizations/${encodeURIComponent(String(organization))}/settings/apps/new`
       : '/settings/apps/new'
@@ -351,6 +366,17 @@ export class GitHubAppSetup {
   }
 
   storeApp(payload) {
+    if (this.root) {
+      // The same check boot makes, BEFORE the secret exists: a key that will
+      // not parse leaves no half-configured app behind.
+      try {
+        crypto.createPrivateKey(String(payload.pem))
+      } catch (error) {
+        throw new Error(`GitHub's converted App carries a private key curia cannot read (${error.message})`)
+      }
+      writeSecret(this.root, APP_SECRET, appSecretJson(payload))
+      return
+    }
     const temporaryKey = `${this.keyFile}.candidate`
     fs.mkdirSync(path.dirname(this.keyFile), { recursive: true })
     fs.writeFileSync(temporaryKey, payload.pem, { mode: 0o600 })
@@ -382,8 +408,9 @@ export class GitHubAppSetup {
     if (!APP_SETUP_STATE_RE.test(stateValue)) throw new Error('that GitHub App setup carries no state curia minted, so curia did not start it')
     const record = this.#readState()
     if (stateValue !== record.state) throw new Error('the GitHub App setup state does not match')
+    const screen = APP_SETUP_SCREENS.includes(record.screen) ? record.screen : 'settings'
     if (record.status === 'complete') {
-      return { ok: false, reason: 'already completed', app: record.app }
+      return { ok: false, reason: 'already completed', app: record.app, screen }
     }
     if (this.now() > record.expires_at) throw new Error('the GitHub App setup state expired after one hour')
 
@@ -414,7 +441,7 @@ export class GitHubAppSetup {
     const app = { id: converted.id, slug: converted.slug }
     this.#writeState({ ...record, status: 'complete', app, completed_at: this.now() })
     try { fs.unlinkSync(this.secretFile) } catch (error) { if (error?.code !== 'ENOENT') throw error }
-    return { ok: true, app }
+    return { ok: true, app, screen }
   }
 }
 
@@ -427,7 +454,7 @@ const FETCH_TIMEOUT_MS = 20_000
 // One place that builds a request and reads a failure, so every error the
 // operator sees names the same three things: what curia asked for, what GitHub
 // answered, and what to do about it.
-async function api(route, { jwt, method = 'GET', body = null, fetchImpl = globalThis.fetch } = {}) {
+export async function api(route, { jwt, method = 'GET', body = null, fetchImpl = globalThis.fetch } = {}) {
   const res = await fetchImpl(`${API}${route}`, {
     method,
     headers: {
@@ -734,9 +761,54 @@ export class TokenMinter {
   }
 }
 
+// The app under an installation root (#867): one owner-only secret file,
+// `secrets/github-app.json`, holding `{ "id": "<app id>", "pem": "<key>" }`.
+// The reader refuses a link, a foreign owner, or a broad mode before the
+// value is read, so a key that reaches past its owner never boots. Absent is
+// legal, as with the env keys: no app is a box that can watch and not dispatch.
+export const APP_SECRET = 'github-app.json'
+
+export function appConfigFromRoot(root) {
+  const text = readSecret(root, APP_SECRET)
+  if (text === null) return null
+  const file = secretPath(root, APP_SECRET)
+  let data
+  try {
+    data = JSON.parse(text)
+  } catch {
+    throw new Error(`${file} is not JSON — the GitHub App secret holds {"id": "<app id>", "pem": "<private key>"}`)
+  }
+  const appId = String(data?.id ?? '').trim()
+  const pem = String(data?.pem ?? '')
+  if (!/^[0-9]+$/.test(appId)) {
+    throw new Error(`${file} holds no app id — "id" is digits only, and GitHub states it on the app's own settings page`)
+  }
+  if (!pem.trim()) throw new Error(`${file} holds no private key under "pem"`)
+  if (/BEGIN[A-Z ]*PUBLIC KEY/.test(pem)) {
+    throw new Error(`${file} holds a PUBLIC key — GitHub downloads the PRIVATE half once, when the app's key is generated, and never again`)
+  }
+  let key
+  try {
+    key = crypto.createPrivateKey(pem)
+  } catch (e) {
+    throw new Error(`${file} does not hold a readable private key: ${e.message}`)
+  }
+  return { appId, key, keyFile: file }
+}
+
+export function appSecretJson({ id, pem }) {
+  return `${JSON.stringify({ id: String(id), pem: String(pem) }, null, 2)}\n`
+}
+
 // The minter for this box, or null when no app is set up yet. One function so
-// that every caller reads the same two env keys and gets the same refusal text.
-export function minterFrom({ env = process.env, daemonRoot = '.', fetchImpl = globalThis.fetch, now = Date.now, log = () => {} } = {}) {
+// that every caller reads the same source and gets the same refusal text: the
+// secret file under an installation root, the two env keys without one.
+export function minterFrom({ root = null, env = process.env, daemonRoot = '.', fetchImpl = globalThis.fetch, now = Date.now, log = () => {} } = {}) {
+  if (root) {
+    const cfg = appConfigFromRoot(root)
+    if (!cfg) return null
+    return new TokenMinter({ appId: cfg.appId, key: cfg.key, keyFile: cfg.keyFile, fetchImpl, now, log })
+  }
   const cfg = appConfigFrom(env, daemonRoot)
   if (!cfg) return null
   const key = readPrivateKey(cfg.keyFile)

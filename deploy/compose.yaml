@@ -37,7 +37,14 @@ name: curia
 # THE NODE PIN (ruled by #357, first value applied by #409). One patch version
 # runs every curia image, and this anchor is that version for the three images
 # built here. The fourth is the agent image, pinned by `sandbox.node_version` in
-# config/curia.yaml. Move both in one commit.
+# config/curia.yaml. Move both in one commit. A release reads the same value
+# from config/curia.yaml through deploy/bundle/pins.mjs, and
+# daemon/test/releaseimages.test.mjs keeps the anchor and the pin equal.
+#
+# EVERY BUILD NAMES `target: box` (#869). The Dockerfiles end in a `release`
+# stage that bakes the checkout at /opt/curia for the published images, and a
+# build that named no target would build that one. This box runs its code
+# from the repo mount, so it builds the stage before it.
 #
 # It is an anchor and not an interpolated variable on purpose: the pin is
 # committed, and `.env` beside this file is not. No Dockerfile carries a default
@@ -60,6 +67,7 @@ services:
     build:
       context: ..
       dockerfile: deploy/daemon/Dockerfile
+      target: box
       args:
         NODE_VERSION: *node-version
         CURIA_HOME: ${CURIA_WORKSPACE_ROOT:-/home/alp/curia-work}/home
@@ -119,6 +127,7 @@ services:
     build:
       context: ..
       dockerfile: deploy/tmux/Dockerfile
+      target: box
       args:
         CURIA_HOME: ${CURIA_WORKSPACE_ROOT:-/home/alp/curia-work}/home
     image: curia-tmux
@@ -176,8 +185,10 @@ services:
     environment:
       HOME: ${CURIA_WORKSPACE_ROOT:-/home/alp/curia-work}/home
       CURIA_TMUX_SOCKET: /run/curia-tmux/default
+    # NO DOCKER SOCKET (#867): the attach surface runs `tmux attach` over the
+    # socket volume and nothing else. Only the daemon and the tmux service,
+    # whose panes run `docker run`, reach the host dockerd.
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
       - ${CURIA_REPO_ROOT:-/home/alp/curia}:${CURIA_REPO_ROOT:-/home/alp/curia}
       - ${CURIA_WORKSPACE_ROOT:-/home/alp/curia-work}:${CURIA_WORKSPACE_ROOT:-/home/alp/curia-work}
       - tmux-sock:/run/curia-tmux
@@ -195,6 +206,7 @@ services:
     build:
       context: ..
       dockerfile: deploy/dashboard/Dockerfile
+      target: box
       args:
         NODE_VERSION: *node-version
         CURIA_HOME: ${CURIA_WORKSPACE_ROOT:-/home/alp/curia-work}/home
@@ -222,8 +234,12 @@ services:
       - ${CURIA_REPO_ROOT:-/home/alp/curia}/daemon/src:${CURIA_REPO_ROOT:-/home/alp/curia}/daemon/src:ro
       - ${CURIA_REPO_ROOT:-/home/alp/curia}/daemon/bin:${CURIA_REPO_ROOT:-/home/alp/curia}/daemon/bin:ro
       - ${CURIA_REPO_ROOT:-/home/alp/curia}/daemon/assets:${CURIA_REPO_ROOT:-/home/alp/curia}/daemon/assets:ro
-      # Read-write, and the only writable path it has: the dashboard rewrites
-      # curia.yaml and routing.yaml from the settings screens (#265).
+      # The operator configuration contract (#866): the settings screen writes
+      # config.yaml through the lifecycle interface's own module, which
+      # daemon/src imports at this relative path.
+      - ${CURIA_REPO_ROOT:-/home/alp/curia}/cli/src:${CURIA_REPO_ROOT:-/home/alp/curia}/cli/src:ro
+      # Read-write, and the only writable path it has: the dashboard writes
+      # config.yaml and routing.local.yaml from the settings screens (#265, #866).
       - ${CURIA_REPO_ROOT:-/home/alp/curia}/config:${CURIA_REPO_ROOT:-/home/alp/curia}/config
 
   # The overseer (#327 and #688). One long-lived container sits beside the
@@ -246,6 +262,7 @@ services:
     build:
       context: ..
       dockerfile: deploy/overseer/Dockerfile
+      target: box
       args:
         NODE_VERSION: *node-version
         CLAUDE_VERSION: *claude-version
@@ -278,8 +295,9 @@ services:
       # states it. It is a path and not a secret.
       CURIA_OVERSEER_TOKEN_DIR: ${CURIA_WORKSPACE_ROOT:-/home/alp/curia-work}/overseer/tokens
     # NO ENV FILE ENTERS THIS CONTAINER (#726). The daemon writes GitHub tokens
-    # and the model credential into the read-only trees that follow. This keeps
-    # a legacy environment token from becoming an untracked fallback.
+    # into the read-only tree that follows and the model credential into the
+    # config dir (#867). This keeps a legacy environment token from becoming an
+    # untracked fallback.
     volumes:
       # The same mount list the dashboard runs on, and the same reason it names
       # files rather than trees: `daemon/` as a whole would carry `.env.daemon`
@@ -290,6 +308,10 @@ services:
       # (#314). It is the same agent seed the in-daemon host runs, so the
       # operator's communication rules cross the boundary with the model.
       - ${CURIA_REPO_ROOT:-/home/alp/curia}/daemon/assets:${CURIA_REPO_ROOT:-/home/alp/curia}/daemon/assets:ro
+      # The operator configuration contract (#866): daemon/src/config.mjs
+      # imports it from the lifecycle interface's package, so the source has to
+      # sit beside the daemon's at the same relative path.
+      - ${CURIA_REPO_ROOT:-/home/alp/curia}/cli/src:${CURIA_REPO_ROOT:-/home/alp/curia}/cli/src:ro
       # The watch list, read-only: the overseer reads which repos to check out
       # and never rewrites the config the settings screens own. It is re-read
       # per turn, because the settings screen rewrites it. BOTH things it feeds
@@ -309,18 +331,13 @@ services:
       # removed. Read-only because nothing in here has a reason to write a
       # credential, and the shell in here is the reason to say so.
       - ${CURIA_WORKSPACE_ROOT:-/home/alp/curia-work}/overseer/tokens:${CURIA_WORKSPACE_ROOT:-/home/alp/curia-work}/overseer/tokens:ro
-      # THE MODEL CREDENTIAL, READ-ONLY, and the same shape for the same reason
-      # (#648). One file per provider, written by the daemon, re-read by every
-      # turn — so a replaced credential reaches the next turn with nothing
-      # restarted, which is what the env file above could never do.
+      # THE MODEL CREDENTIAL IS NOT MOUNTED (#867). It used to be the daemon's
+      # `credentials/` store, read-only. The daemon now writes this container a
+      # copy into the config dir below — the same `.credentials.json` every
+      # claude agent gets — and heals it on every tick, so a replaced credential
+      # still reaches the next turn with nothing restarted. A container that
+      # holds a shell never sees the store itself.
       #
-      # The tree is keyed by PROVIDER, not by consumer: this container and the
-      # claude agent containers run on one value from one account, and two copies
-      # would be two expiry answers free to disagree.
-      #
-      # Read-only because nothing in here has a reason to write a credential, and
-      # the shell in here is the reason to say so.
-      - ${CURIA_WORKSPACE_ROOT:-/home/alp/curia-work}/credentials:${CURIA_WORKSPACE_ROOT:-/home/alp/curia-work}/credentials:ro
       # The config dir, at the SAME PATH on both sides, because the Chat screen
       # reads the overseer's transcript off it (ADR-0015).
       - ${CURIA_WORKSPACE_ROOT:-/home/alp/curia-work}/cfg/curia-overseer:${CURIA_WORKSPACE_ROOT:-/home/alp/curia-work}/cfg/curia-overseer

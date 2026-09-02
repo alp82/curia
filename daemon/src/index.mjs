@@ -36,7 +36,11 @@ import { sayGoodbye, questionGoodbye, deathWasSilent, DAEMON_BOOT } from './good
 import { readable } from './logline.mjs'
 import { resolveOutboundFiles, inboundContent, ALLOWED_EXTENSIONS, safeLeaf } from './attachments.mjs'
 import { PreviewRegistry } from './preview.mjs'
-import { loadCuriaConfig, loadRoutingConfig, overrideSummary } from './config.mjs'
+import { loadCuriaConfig, loadRoutingConfig, localConfigFile, operatorConfigFile, overrideSummary } from './config.mjs'
+import { operatorConfigPath, readOperatorConfig } from '../../cli/src/config.mjs'
+import { readInstallationRecord, versionPaths } from '../../cli/src/root.mjs'
+import { STABLE_INDEX_KEY_FILE, pinnedPublicKey } from '../../cli/src/stable.mjs'
+import { UpdateCheck, indexProbes, unmanagedStatus } from './updatecheck.mjs'
 import { PROBE_MARK, PROBE_PATH, GUEST_DAEMON_HOST, GUEST_WT, dockerGateway, probeSideChannel } from './sandbox.mjs'
 import { Cooling, providerOf } from './routing.mjs'
 import { Dispatcher } from './dispatch.mjs'
@@ -53,8 +57,10 @@ import { OVERSEER_MCP_PATH } from './overseerturn.mjs'
 import { ConversationRuntime } from './conversationruntime.mjs'
 import { hasSession } from './tmux.mjs'
 import { retiredAgentTokenKeys } from './workspace.mjs'
-import { APP_ID_KEY, APP_KEY_FILE_KEY, GitHubAppSetup, installUrlFor, minterFrom } from './githubapp.mjs'
-import { CodexCredentialBroker, AnthropicCredentialStore, anthropicStoreFile } from './credentials.mjs'
+import { APP_ID_KEY, APP_KEY_FILE_KEY, APP_SECRET, GitHubAppSetup, installUrlFor, minterFrom } from './githubapp.mjs'
+import { CodexCredentialBroker, AnthropicCredentialStore } from './credentials.mjs'
+import { credentialsInEnvironment, readSecret, secretPath, secretsStatus } from '../../cli/src/secrets.mjs'
+import { readDiscordSettings, discordSettingsFromEnv, discordSettingsPath } from './discordsettings.mjs'
 import {
   OVERSEER_ENV_FILE, overseerEnvPath, loadOverseerEnv, daemonOnlyKeys, retiredTokenKeys,
 } from './overseertoken.mjs'
@@ -66,13 +72,21 @@ import { TokenWatch } from './tokenwatch.mjs'
 import { JournalBackup } from './backup.mjs'
 import { AistackSync } from './aistack.mjs'
 import { AistackRegistration } from './aistackreg.mjs'
+import { githubVerifier } from './githubsetup.mjs'
+import { DiscordSetup } from './discordsetup.mjs'
+import { TailscaleSetup } from './tailscalesetup.mjs'
+import { OpenAISetup } from './openaisetup.mjs'
+import { AnthropicSetup } from './anthropicsetup.mjs'
+import { IntegrationSetup } from './setup.mjs'
+import { fullLoopGate } from './fullloopgate.mjs'
+import { FullLoop } from './fullloop.mjs'
 import {
   probeTtyd, serveOff, attachBase, appTerminalUrl, validSessionName,
   isConsoleKey, consoleKeyForSession, sessionForConsoleKey,
 } from './attach.mjs'
 import { probeOverseer } from './overseerservice.mjs'
 import { replayKilledTurns, replayLine } from './overseerreplay.mjs'
-import { LIVE_PATHS, DISPATCH_KEYS, liveSettings, liveDiff, frozenDifference } from './settings.mjs'
+import { LIVE_PATHS, DISPATCH_KEYS, liveSettings, liveDiff, frozenDifference, readSettings, saveSettings } from './settings.mjs'
 import { TimelineSurface, cardFields } from './timeline.mjs'
 import { identityRefusal, hostsForPorts, tailnetSelf } from './identity.mjs'
 import { detectHarness, findTranscript } from './transcript.mjs'
@@ -117,21 +131,31 @@ const ROOT = path.join(DIR, '..')
 // container the rename is not optional — compose refuses a missing `env_file` —
 // so this branch is for a dev box and for the moment between the rename and the
 // deploy.
-const envFile = path.join(ROOT, '.env.daemon')
-const legacyEnvFile = path.join(ROOT, '.env')
-const loadFrom = fs.existsSync(envFile) ? envFile : (fs.existsSync(legacyEnvFile) ? legacyEnvFile : null)
-if (loadFrom) {
-  for (const line of fs.readFileSync(loadFrom, 'utf8').split('\n')) {
-    const m = line.match(/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*)\s*$/)
-    if (m && !(m[1] in process.env)) process.env[m[1]] = m[2]
+//
+// UNDER AN INSTALLATION ROOT THERE IS NO ENV FILE (#867). Every long-lived
+// credential is a file in `secrets/`, and a credential that arrives in the
+// process environment anyway refuses the boot by key name, so the habit cannot
+// come back through a Compose edit. The value is never printed.
+const INSTALL_ROOT = process.env.CURIA_ROOT || null
+if (INSTALL_ROOT) {
+  const carried = credentialsInEnvironment(process.env)
+  if (carried.length) {
+    throw new Error(`refusing to start: ${carried.join(', ')} ${carried.length === 1 ? 'is' : 'are'} in the environment. Under an installation root a long-lived credential is a file in ${path.join(INSTALL_ROOT, 'secrets')} and never an environment variable. Remove the variable and write the secret file (docs/operator/secrets.md)`)
   }
+} else {
+  const envFile = path.join(ROOT, '.env.daemon')
+  const legacyEnvFile = path.join(ROOT, '.env')
+  const loadFrom = fs.existsSync(envFile) ? envFile : (fs.existsSync(legacyEnvFile) ? legacyEnvFile : null)
+  if (loadFrom) {
+    for (const line of fs.readFileSync(loadFrom, 'utf8').split('\n')) {
+      const m = line.match(/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*)\s*$/)
+      if (m && !(m[1] in process.env)) process.env[m[1]] = m[2]
+    }
+  }
+  if (loadFrom === legacyEnvFile) log('WARNING: daemon/.env is the old name. Rename it to daemon/.env.daemon (#313)')
 }
-if (loadFrom === legacyEnvFile) log('WARNING: daemon/.env is the old name. Rename it to daemon/.env.daemon (#313)')
 
 const PORT = Number(process.env.PORT ?? 4271)
-// CURIA_DATA_DIR mirrors CURIA_CONFIG_DIR: the boot test points both at a
-// fixture dir so a test run never writes into the real journal.
-const DATA = process.env.CURIA_DATA_DIR ?? path.join(ROOT, 'data')
 
 // Where a reply file lands, per question (#712, ADR-0025). The Discord bridge
 // has written downloaded thread attachments here since #34; a browser answer
@@ -178,21 +202,51 @@ function writeReplyFiles(id, files) {
   }
   return { paths, refusals }
 }
-// The command channel. The bridge opens it; the dispatcher names it, because a
-// confirm typed outside any thread renders there (#218).
-const CHANNEL = process.env.CURIA_CHANNEL ?? 'curia'
-fs.mkdirSync(path.join(DATA, 'results'), { recursive: true })
-// Daemon-owned, never mounted into a container: one agent's token is unreadable
-// by every other agent (#159).
-fs.mkdirSync(tokensDir(DATA), { recursive: true, mode: 0o700 })
-
 // dispatch-loop config (#33) — hand-edited YAML, validated on load; a bad
 // shape refuses the boot rather than limping
 const CONFIG_DIR = process.env.CURIA_CONFIG_DIR ?? path.join(ROOT, '..', 'config')
 const CURIA_FILE = path.join(CONFIG_DIR, 'curia.yaml')
 const ROUTING_FILE = path.join(CONFIG_DIR, 'routing.yaml')
 const curiaConfig = loadCuriaConfig(CURIA_FILE)
-const routingConfig = loadRoutingConfig(ROUTING_FILE)
+
+// Where the service data lives (#867): `cfg.paths`, one answer for every
+// process. Under an installation root the journal and its neighbours are in
+// `state/`; without one, CURIA_DATA_DIR mirrors CURIA_CONFIG_DIR (the boot
+// test points both at a fixture dir so a test run never writes into the real
+// journal), else `daemon/data`.
+const DATA = process.env.CURIA_DATA_DIR ?? curiaConfig.paths.state ?? path.join(ROOT, 'data')
+
+// The Discord facts beside the token (#867): `state/discord.json` under an
+// installation root, the three env keys without one. The command channel is
+// one of them. The bridge opens it; the dispatcher names it, because a confirm
+// typed outside any thread renders there (#218).
+const discordSettings = INSTALL_ROOT ? readDiscordSettings(DATA) : discordSettingsFromEnv(process.env)
+const CHANNEL = discordSettings.channel
+fs.mkdirSync(path.join(DATA, 'results'), { recursive: true })
+// Daemon-owned, never mounted into a container: one agent's token is unreadable
+// by every other agent (#159).
+fs.mkdirSync(tokensDir(DATA), { recursive: true, mode: 0o700 })
+// Where the routing override lives (#292, #878). Beside the tracked file in
+// the source deployment, where the settings screen writes it. Under an
+// installation root the override the model-provider card writes as its
+// routing preset, and the one the settings route below writes, is
+// `state/routing.local.yaml`, in the service's own mutable boundary (#867),
+// and this process loads that pair.
+const ROUTING_LOCAL = INSTALL_ROOT ? path.join(DATA, 'routing.local.yaml') : localConfigFile(ROUTING_FILE)
+// Where the operator configuration lives (#866): the root's own
+// `config/config.yaml`, or beside `curia.yaml` in the source deployment. The
+// loader reads it the same way; the settings route below writes it (#880).
+const OPERATOR_FILE = INSTALL_ROOT ? operatorConfigPath(INSTALL_ROOT) : operatorConfigFile(CURIA_FILE)
+const routingConfig = loadRoutingConfig(ROUTING_FILE, { localFile: ROUTING_LOCAL })
+// The apply, into the object every closure below holds (#265's reload rule):
+// nothing builds a new routing object, because the dispatcher and the
+// command router hold references to this one. The reload route and the
+// routing preset of integration setup both come through here.
+function applyRouting(next) {
+  for (const [type, model] of Object.entries(next.defaults)) routingConfig.defaults[type] = model
+  for (const [name, m] of Object.entries(next.models)) routingConfig.models[name].active = m.active
+  configLoadedAt = new Date().toISOString()
+}
 // When the values this process RUNS were read off disk (#362). Boot sets it,
 // and a reload that applies moves it. `GET /overview` stamps the six live
 // settings with it, which is what lets the console say "applied" as a fact it
@@ -203,8 +257,16 @@ let configLoadedAt = new Date().toISOString()
 // reads in the repo is no longer the config this daemon runs, and nothing else
 // on the box would tell them.
 for (const name of ['curia.yaml', 'routing.yaml']) {
-  const over = overrideSummary(path.join(CONFIG_DIR, name))
-  if (over) log(`config: ${name} + ${path.basename(over.file)} (overrides: ${over.keys.join(', ') || 'none'})`)
+  const over = overrideSummary(path.join(CONFIG_DIR, name), name === 'routing.yaml' ? ROUTING_LOCAL : undefined)
+  if (over) log(`config: ${name} + ${INSTALL_ROOT && name === 'routing.yaml' ? over.file : path.basename(over.file)} (overrides: ${over.keys.join(', ') || 'none'})`)
+}
+// #866: the operator configuration, said out loud for the same reason. The
+// loader above already refused an invalid file, so this read cannot throw.
+{
+  const operator = readOperatorConfig(OPERATOR_FILE)
+  log(operator
+    ? `config: config.yaml sets ${Object.keys(operator).join(', ') || 'nothing'}`
+    : 'config: no config.yaml — the shipped answers run')
 }
 // Every harness runs in a container since #195, so this is simply the harness
 // list — it names the containers the side channel below serves. The cross-file
@@ -322,9 +384,11 @@ function checkWatchedCredentials() {
 // at the first dispatch names the step that was missed.
 // `let`, because #694 adopts a converted app in process: the setup flow puts a
 // new minter here and hands it to the dispatcher without a restart.
-let appMinter = minterFrom({ daemonRoot: ROOT, log })
+let appMinter = minterFrom({ root: INSTALL_ROOT, daemonRoot: ROOT, log })
 if (!appMinter) {
-  log(`no GitHub App configured — set ${APP_ID_KEY} and ${APP_KEY_FILE_KEY} in daemon/.env.daemon (docs/github-app.md). No agent can be dispatched until it is`)
+  log(INSTALL_ROOT
+    ? `no GitHub App configured — the GitHub integration step of setup writes ${secretPath(INSTALL_ROOT, APP_SECRET)} (docs/operator/secrets.md). No agent can be dispatched until it does`
+    : `no GitHub App configured — set ${APP_ID_KEY} and ${APP_KEY_FILE_KEY} in daemon/.env.daemon (docs/github-app.md). No agent can be dispatched until it is`)
 } else {
   log(`GitHub App ${appMinter.appId}, key at ${appMinter.keyFile}`)
 }
@@ -353,11 +417,20 @@ function checkAppInstallations() {
 
 const githubAppSetup = new GitHubAppSetup({
   daemonRoot: ROOT,
+  // Under an installation root (#867) the converted app lands in
+  // `secrets/github-app.json`, the setup record in `state/`, and the one-hour
+  // conversion payload in `run/`, where a restart may discard it.
+  root: INSTALL_ROOT,
+  ...(INSTALL_ROOT ? {
+    stateFile: path.join(DATA, 'github-app-setup.json'),
+    secretFile: path.join(curiaConfig.paths.run, 'github-app-setup.conversion'),
+  } : {}),
   // In process (#694, one stack since #764): the minter this file holds is
   // replaced, the dispatcher is handed the new one, and the installation read
   // runs again, so the operator's next act is the install and not a restart.
   adopt: ({ appId, keyFile }) => {
     appMinter = minterFrom({
+      root: INSTALL_ROOT,
       daemonRoot: ROOT,
       env: { [APP_ID_KEY]: appId, [APP_KEY_FILE_KEY]: keyFile },
       log,
@@ -468,7 +541,7 @@ reduction.journal(DAEMON_BOOT, { pid: process.pid })
 // reason the codex broker is — it writes curia's real credential store, so the
 // process that actually runs the box is the one that hands it over.
 const anthropic = new AnthropicCredentialStore({
-  workspaceRoot: curiaConfig.dispatch.workspace_root,
+  file: curiaConfig.paths.anthropicStore,
   journal: (event, detail) => reduction.journal(event, detail),
 })
 
@@ -476,7 +549,7 @@ const anthropic = new AnthropicCredentialStore({
 // An environment token cannot act as disaster recovery because its age,
 // validity, and revocation state are not tracked on any curia surface (#726).
 if (!anthropic.read()) {
-  log(`WARNING: curia owns no anthropic credential at ${anthropicStoreFile(curiaConfig.dispatch.workspace_root)}. Run reauth anthropic before starting a claude agent or an overseer turn`)
+  log(`WARNING: curia owns no anthropic credential at ${anthropic.file}. Run reauth anthropic before starting a claude agent or an overseer turn`)
 }
 
 // EVERY BOOT NAMES A LEGACY KEY. A live subscription token in an env file is a
@@ -1329,6 +1402,122 @@ const aistackReg = new AistackRegistration({
   log: (line) => log(line),
 })
 
+// The integration setup frame (#874). Its record is `state/setup.json` beside
+// the journal, and its verifiers are the seams #875 to #879 fill, one per
+// integration; the Full loop gate is #880's. A card without its verifier
+// reports "not available" and the frame is still whole: selectable,
+// resumable, and honest that nothing is connected.
+//
+// The GitHub card (#875) reads the minter and the watch list on every
+// verification rather than holding them: `appMinter` is replaced when the
+// manifest flow adopts a converted App, and the watch list changes on a
+// settings save, and the card sees both without a restart.
+//
+// The Discord card (#876) reads the token off its secret file and the facts
+// off `state/discord.json` on every call, so a token submitted through the
+// panel is seen by the next read. The bridge itself reads both at boot, and
+// the connected card says whether it is up.
+const discordSetup = new DiscordSetup({
+  root: INSTALL_ROOT, stateDir: DATA, env: process.env, log, bridgeState: () => bridge?.health?.state ?? null,
+})
+// The identity allowlist every published surface admits by (#151, #168,
+// #263). ONE set object, created empty and filled in place, so the attach
+// proxy, the timeline, and the preview registry hold live references. The
+// Tailscale card (#877) is its one writer: under an installation root the
+// confirmed operator in `state/tailscale.json` is the whole list, and
+// `curia.yaml`'s `identity.allow` stays the source deployment's answer, so a
+// login written for one box never admits anyone on another. Empty means
+// refuse, which is the right posture before an operator is confirmed.
+const identityAllow = new Set()
+const tailscaleSetup = new TailscaleSetup({
+  root: INSTALL_ROOT, stateDir: DATA, allow: identityAllow, configAllow: curiaConfig.identity.allow,
+  servePort: curiaConfig.dashboard.serve_port, appPort: curiaConfig.dashboard.port, log,
+})
+// The OpenAI half of the model card (#878). The sign-in is the dispatcher's
+// own codex device login, reached through the closures below because the
+// dispatcher is built further down; the credential is the broker's file
+// (`cfg.paths.codexAuth`), read by presence on every call; the routing
+// preset lands in the override this process loads and is applied in place.
+const openaiSetup = new OpenAISetup({
+  root: INSTALL_ROOT,
+  authFile: curiaConfig.paths.codexAuth,
+  credentialFiles: { anthropic: curiaConfig.paths.anthropicStore },
+  routing: { file: ROUTING_FILE, localFile: ROUTING_LOCAL, live: () => routingConfig, apply: applyRouting },
+  login: {
+    state: () => dispatcher.reauth?.state() ?? null,
+    ending: () => dispatcher.reauth?.ending ?? null,
+    start: ({ provider, by }) => dispatcher.startReauth({ provider, by }),
+  },
+  codexVersion: curiaConfig.sandbox?.codex_version ?? null,
+  log,
+})
+// The Anthropic half of the model card (#879). The sign-in is the
+// dispatcher's own `claude setup-token` lane, reached through the same
+// closures; the credential is the store's file (`cfg.paths.anthropicStore`),
+// read by presence on every call; the minimal request is the usage probe's
+// own shape on `usage.probe_model`; the routing preset is the one OpenAI's
+// row applies, so both providers land in the same override.
+const anthropicSetup = new AnthropicSetup({
+  root: INSTALL_ROOT,
+  authFile: curiaConfig.paths.anthropicStore,
+  credentialFiles: { openai: curiaConfig.paths.codexAuth },
+  routing: { file: ROUTING_FILE, localFile: ROUTING_LOCAL, live: () => routingConfig, apply: applyRouting },
+  login: {
+    state: () => dispatcher.reauth?.state() ?? null,
+    ending: () => dispatcher.reauth?.ending ?? null,
+    start: ({ provider, by }) => dispatcher.startReauth({ provider, by }),
+  },
+  probeModel: curiaConfig.usage.probe_model,
+  claudeVersion: curiaConfig.sandbox?.claude_version ?? null,
+  log,
+})
+// The Full-loop gate (#880) is a function of the cards: it reads no file
+// and keeps no marker, so every read, restart, and reconnection recomputes
+// readiness from what the five verifiers found now.
+// The loop's run (#882) is built after the dispatcher it drives; the read
+// answers null until then, which no request sees.
+let fullLoop = null
+const integrationSetup = new IntegrationSetup({
+  stateDir: DATA,
+  log,
+  fullLoop: fullLoopGate,
+  run: () => fullLoop?.status() ?? null,
+  verifiers: {
+    github: githubVerifier({ minter: () => appMinter, watch: () => curiaConfig.watch }),
+    discord: discordSetup.verifier(),
+    tailscale: tailscaleSetup.verifier(),
+    openai: openaiSetup.verifier(),
+    anthropic: anthropicSetup.verifier(),
+  },
+})
+
+// The daily update check (#883, implementing #854's update discovery). Under
+// an installation root the service reads the signed stable-release index at
+// startup when the last successful check is older than 24 hours, then once
+// a day, verifies it with the pinned key of the active version's package
+// (`versions/<active>/cli/stable-index.pub`, mounted read-only), and records
+// only the check result in `state/update-check.json`. It downloads no
+// release, switches nothing, and posts nothing; the app's update panel reads
+// `GET /update`. Without a root there is no index to read and the deploy
+// updates this process, which the read says. `CURIA_STABLE_INDEX_URL`
+// points the read at a mirror or a test server.
+function installedVersion() {
+  try {
+    return readInstallationRecord(INSTALL_ROOT)?.activeVersion ?? APP_VERSION
+  } catch {
+    return APP_VERSION
+  }
+}
+const updateCheck = INSTALL_ROOT
+  ? new UpdateCheck({
+    stateDir: DATA,
+    installed: installedVersion,
+    publicKey: () => pinnedPublicKey(path.join(versionPaths(INSTALL_ROOT, installedVersion()).dir, 'cli', STABLE_INDEX_KEY_FILE)),
+    probes: indexProbes(process.env.CURIA_STABLE_INDEX_URL || undefined),
+    log,
+  })
+  : null
+
 // The one shape the Settings section reads (#706): the registration, plus what
 // the recurring sync did last. Composed here rather than in either module,
 // because the verdict belongs to the reduction and the flow belongs to the
@@ -1490,6 +1679,7 @@ const dispatcher = new Dispatcher({
   // it writes curia's real credential store and rotates a real refresh token, so
   // the process that actually runs the box is the one that hands it over.
   credentials: new CodexCredentialBroker({
+    authFile: curiaConfig.paths.codexAuth,
     log,
     journal: (event, detail) => reduction.journal(event, detail),
   }),
@@ -1510,16 +1700,29 @@ const dispatcher = new Dispatcher({
 // whole cross-check verdict.
 reduction.onNotesExpired = (ev) => dispatcher.announceExpiredNotes(ev)
 
+// The Full loop as the installation acceptance (#882). The press runs the
+// dispatcher's own frontier read and `start` on the ticket marked for the
+// rehearsal, and the run is judged from the journal rows the daemon writes
+// while the agent works. Nothing is stored but those rows.
+fullLoop = new FullLoop({
+  discover: async (repo) => (await dispatcher.frontier(repo))[0] ?? { repo, error: `${repo} is not a watched repository` },
+  dispatch: (repo, n) => dispatcher.start(n, { repo, by: 'setup' }),
+  journal: (type, data) => reduction.journal(type, data),
+  lastRun: () => reduction.questions.fullLoopRun(),
+  eventsSince: (id, keys) => reduction.questions.eventsSince(id, keys),
+  log,
+})
+
 // ---- the identity check (#151) ----------------------------------------------
 //
-// One policy, both attach surfaces: the allowlist from config, and the set of
-// host names this box legitimately answers to on each serve port. The two host
-// sets are created EMPTY and filled in place, so the proxy and the timeline
-// hold live references and pick up a resolution that arrives after they start.
-// Empty means refuse (identityRefusal treats an empty set as "cannot verify my
-// own name"), which is the right posture during the window before tailscale has
+// One policy, both attach surfaces: the allowlist (`identityAllow`, filled by
+// the Tailscale card beside the setup frame), and the set of host names this
+// box legitimately answers to on each serve port. The host set is created
+// EMPTY and filled in place, so the proxy and the timeline hold live
+// references and pick up a resolution that arrives after they start. Empty
+// means refuse (identityRefusal treats an empty set as "cannot verify my own
+// name"), which is the right posture during the window before tailscale has
 // answered: a surface that does not yet know its own name cannot admit anyone.
-const identityAllow = new Set(curiaConfig.identity.allow)
 const timelineHosts = new Set()
 
 async function resolveServeHosts() {
@@ -2887,6 +3090,10 @@ async function overview() {
     // code, because a one-time auth code in a chat log is a credential in a
     // chat log.
     credentials: dispatcher.credentialsStatus(),
+    // The secret files by name and presence (#867), never by value. Null in the
+    // source deployment, which keeps its env file. `curia doctor` (#881) reads
+    // the same function directly.
+    secrets: INSTALL_ROOT ? secretsStatus(INSTALL_ROOT) : null,
     github_app: {
       ...githubAppSetup.status(),
       configured: Boolean(appMinter),
@@ -3084,9 +3291,12 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
   // only "did this request cross the bridge and land on curia" — a probe runs
   // before any agent exists, so it can carry no agent token. It reads nothing,
   // writes nothing, and journals nothing: a route that said more would be a
-  // wider container surface than #159 left, for no gain.
+  // wider container surface than #159 left, for no gain. The one fact it
+  // carries beside the mark is this process's release version (#884): the
+  // lifecycle interface reads it after a switch to prove the service that
+  // answers is the target release, and a version is not a secret.
   if (url.pathname === PROBE_PATH) {
-    return json(200, { curia: PROBE_MARK, port: PORT })
+    return json(200, { curia: PROBE_MARK, port: PORT, version: APP_VERSION })
   }
 
   // The container-facing listener is the agent surface plus the overseer's own
@@ -3222,7 +3432,7 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
   }
 
   if (url.pathname === '/github-app/start' && req.method === 'POST') {
-    const { name, redirect_url: redirectUrl, action_id: actionId } = await readBody(req)
+    const { name, redirect_url: redirectUrl, action_id: actionId, screen } = await readBody(req)
     if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(String(actionId ?? ''))) {
       return json(400, { error: 'action_id is not a valid Action id' })
     }
@@ -3241,7 +3451,7 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
       return json(200, { action: refused })
     }
     try {
-      const started = githubAppSetup.start({ name, redirectUrl, actionId: action.action_id })
+      const started = githubAppSetup.start({ name, redirectUrl, actionId: action.action_id, ...(screen !== undefined ? { screen } : {}) })
       const accepted = reduction.recordAction({ ...action, status: 'accepted' })
       reduction.recordAction({ ...action, status: 'progress', progress: 'Waiting for GitHub to complete setup' })
       reduction.journal('github_app_setup_started', { expires_at: started.expires_at, action_id: action.action_id })
@@ -3686,8 +3896,125 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
   // status out of a device code, a link, a hostname and the reduced sync
   // verdict, and the two acts spawn the CLI and answer what it said. The token
   // stays in the file the CLI writes under curia's HOME.
+  // Integration setup (#874). The read verifies every card fresh — a stored
+  // completion is not a fact — and the write keeps only the selected card
+  // and the closed list of safe fields; the module refuses the rest by name.
+  if (url.pathname === '/setup' && req.method === 'GET') {
+    return json(200, await integrationSetup.status())
+  }
+  if (url.pathname === '/setup' && req.method === 'POST') {
+    const body = await readBody(req)
+    try {
+      return json(200, { ok: true, ...integrationSetup.remember({ step: body.step, progress: body.progress }) })
+    } catch (e) {
+      if (!e.refusal) throw e
+      return json(400, { ok: false, error: e.message })
+    }
+  }
+  // The Full loop's run (#882). The read is the run as the journal tells it.
+  // The press takes this read's gate, so a closed gate runs nothing, and
+  // selects the covered repository and the ticket marked for the rehearsal;
+  // the retry reruns the failed leg. Both answer the run.
+  if (url.pathname === '/setup/full-loop' && req.method === 'GET') {
+    return json(200, fullLoop.status())
+  }
+  if ((url.pathname === '/setup/full-loop' || url.pathname === '/setup/full-loop/retry') && req.method === 'POST') {
+    const body = await readBody(req)
+    try {
+      const run = url.pathname.endsWith('/retry')
+        ? await fullLoop.retry()
+        : await fullLoop.start((await integrationSetup.status()).full_loop, { repo: body.repo ?? null, ticket: body.ticket ?? null })
+      return json(200, { ok: true, run })
+    } catch (e) {
+      if (!e.refusal) throw e
+      return json(400, { ok: false, error: e.message })
+    }
+  }
+  // The Discord card (#876). The read is the panel's own: the token by
+  // presence, the bot, its servers, the invite link, and the safe facts. The
+  // token submission lands the token in `secrets/discord-bot-token` and the
+  // operator ID in `state/discord.json` and answers the same read; the
+  // channel choice lands the server and the channel name and answers the
+  // freshly verified card. No answer carries the token.
+  if (url.pathname === '/setup/discord' && req.method === 'GET') {
+    return json(200, await discordSetup.overview())
+  }
+  if (url.pathname === '/setup/discord/token' && req.method === 'POST') {
+    const body = await readBody(req)
+    try {
+      return json(200, { ok: true, ...(await discordSetup.submitToken({ token: body.token, user_id: body.user_id })) })
+    } catch (e) {
+      if (!e.refusal) throw e
+      return json(400, { ok: false, error: e.message })
+    }
+  }
+  if (url.pathname === '/setup/discord/channel' && req.method === 'POST') {
+    const body = await readBody(req)
+    try {
+      const settings = await discordSetup.chooseChannel({ guild_id: body.guild_id, channel: body.channel })
+      return json(200, { ok: true, settings, card: await integrationSetup.verify('discord') })
+    } catch (e) {
+      if (!e.refusal) throw e
+      return json(400, { ok: false, error: e.message })
+    }
+  }
+  // The Tailscale card (#877). The identity read is what the sidecar asks at
+  // boot and on every poll: the logins admitted now, and whether the
+  // first-operator window is open. The panel read takes the login Serve
+  // stamped on the request that asked, which the sidecar passes and the
+  // browser never chooses; the confirmation records that login as the
+  // allowed operator and answers the panel read beside the freshly verified
+  // card.
+  // The OpenAI half of the model card (#878). The read is the panel's own:
+  // the credential by presence, its safe identity facts, the live sign-in
+  // with its link and code, and routing readiness. The one write starts the
+  // codex device login through the dispatcher and answers the read at once;
+  // the start may ensure the agent image first, so the page polls the read
+  // until the flow shows, and `said` carries curia's sentence when it has
+  // settled. Never a token in either direction.
+  if (url.pathname === '/setup/openai' && req.method === 'GET') {
+    return json(200, openaiSetup.overview())
+  }
+  if (url.pathname === '/setup/openai/login' && req.method === 'POST') {
+    openaiSetup.startLogin().catch((e) => log(`model setup: the openai sign-in start failed (${e.message})`))
+    return json(200, { ok: true, ...openaiSetup.overview() })
+  }
+  // The Anthropic half (#879), the same two routes: the read is the panel's
+  // own (the credential by presence, its adoption and estimated expiry, the
+  // live sign-in with its link, the ending, routing readiness) and the write
+  // starts the `claude setup-token` lane and answers the read at once. Never
+  // a token in either direction.
+  if (url.pathname === '/setup/anthropic' && req.method === 'GET') {
+    return json(200, anthropicSetup.overview())
+  }
+  if (url.pathname === '/setup/anthropic/login' && req.method === 'POST') {
+    anthropicSetup.startLogin().catch((e) => log(`model setup: the anthropic sign-in start failed (${e.message})`))
+    return json(200, { ok: true, ...anthropicSetup.overview() })
+  }
+  if (url.pathname === '/identity' && req.method === 'GET') {
+    return json(200, tailscaleSetup.identity())
+  }
+  if (url.pathname === '/setup/tailscale' && req.method === 'GET') {
+    return json(200, await tailscaleSetup.overview({ login: url.searchParams.get('login') }))
+  }
+  if (url.pathname === '/setup/tailscale/operator' && req.method === 'POST') {
+    const body = await readBody(req)
+    try {
+      const overview = await tailscaleSetup.confirmOperator({ login: body.login, machine_name: body.machine_name })
+      return json(200, { ok: true, ...overview, card: await integrationSetup.verify('tailscale') })
+    } catch (e) {
+      if (!e.refusal) throw e
+      return json(400, { ok: false, error: e.message })
+    }
+  }
   if (url.pathname === '/aistack' && req.method === 'GET') {
     return json(200, aistackStatus())
+  }
+  // The update panel's read (#883): the installed and recommended versions,
+  // whether an update is available, the release-notes links, a withdrawal
+  // warning, and what the last daily check found. Nothing here starts one.
+  if (url.pathname === '/update' && req.method === 'GET') {
+    return json(200, updateCheck ? updateCheck.status() : unmanagedStatus(APP_VERSION))
   }
   if (url.pathname === '/aistack/register' && req.method === 'POST') {
     const { action_id: actionId } = await readBody(req).catch(() => ({}))
@@ -3781,16 +4108,41 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
     return json(200, { action: evidence })
   }
 
+  // The settings screen through the service (#880, closing the open fact
+  // #867 left). Under an installation root the app mounts nothing, so its
+  // sidecar reads the two files and lands a save here instead of on its own
+  // filesystem: the same `readSettings` and `saveSettings` the sidecar runs
+  // in the source deployment, on the root's `config/config.yaml` and
+  // `state/routing.local.yaml`. A save validates through the operator
+  // configuration contract and the loaders before `writeOperatorConfig`
+  // lands it; a refusal answers 400 with the contract's own sentence. The
+  // apply stays `POST /reload`, which the sidecar orders next.
+  if (url.pathname === '/settings' && req.method === 'GET') {
+    return json(200, readSettings({ curiaFile: CURIA_FILE, routingFile: ROUTING_FILE, operatorFile: OPERATOR_FILE, routingLocalFile: ROUTING_LOCAL }))
+  }
+  if (url.pathname === '/settings' && req.method === 'POST') {
+    const patch = await readBody(req)
+    try {
+      const out = saveSettings({ curiaFile: CURIA_FILE, routingFile: ROUTING_FILE, operatorFile: OPERATOR_FILE, routingLocalFile: ROUTING_LOCAL, patch })
+      log(`settings: ${out.written.length ? `saved ${out.written.join(' and ')}` : 'the save changed nothing'} for the app`)
+      return json(200, { ok: true, ...out })
+    } catch (e) {
+      if (!e.refusal) throw e
+      log(`settings: the app's save was refused — ${e.message}`)
+      return json(400, { ok: false, error: e.message })
+    }
+  }
+
   if (url.pathname === '/settings/action' && req.method === 'POST') {
     const body = await readBody(req).catch(() => ({}))
     const actionId = String(body?.action_id ?? '')
     const paths = [...new Set(Array.isArray(body?.paths) ? body.paths.map(String) : [])].sort()
-    const allowed = new Set(['curia.local.yaml', 'routing.local.yaml'])
+    const allowed = new Set(['config.yaml', 'routing.local.yaml'])
     if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(actionId)) {
       return json(400, { error: 'action_id is not a valid Action id' })
     }
     if (!paths.length || paths.some((candidate) => !allowed.has(candidate))) {
-      return json(400, { error: 'paths must name curia.local.yaml, routing.local.yaml, or both' })
+      return json(400, { error: 'paths must name config.yaml, routing.local.yaml, or both' })
     }
 
     const recorded = actions.get(actionId)
@@ -3862,7 +4214,7 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
     let nextRouting
     try {
       nextCuria = loadCuriaConfig(CURIA_FILE)
-      nextRouting = loadRoutingConfig(ROUTING_FILE)
+      nextRouting = loadRoutingConfig(ROUTING_FILE, { localFile: ROUTING_LOCAL })
     } catch (e) {
       // The loader's own message, unedited. It names the file and the key, and
       // it is the same sentence a refused boot would print.
@@ -3893,9 +4245,7 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
     for (const key of DISPATCH_KEYS) curiaConfig.dispatch[key] = nextCuria.dispatch[key]
     curiaConfig.watch = nextCuria.watch
     curiaConfig.overseer.live_pane_cap = nextCuria.overseer.live_pane_cap
-    for (const [type, model] of Object.entries(nextRouting.defaults)) routingConfig.defaults[type] = model
-    for (const [name, m] of Object.entries(nextRouting.models)) routingConfig.models[name].active = m.active
-    configLoadedAt = new Date().toISOString()
+    applyRouting(nextRouting)
 
     if (applied.includes('watch')) {
       checkWatchedCredentials()
@@ -3987,6 +4337,9 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
 
 httpServer.listen(PORT, '127.0.0.1', () => {
   log(`curia daemon listening on http://127.0.0.1:${PORT}`)
+  // The daily update check (#883): armed off the boot, independent of the
+  // reconcile below, and never something the boot waits for.
+  updateCheck?.start()
   // The timeline listener and the #151 identity proxy bind before boot
   // reconcile so the reconcile's assert sees them up and publishes them — a
   // bind failure leaves that surface down and the assert withdraws instead
@@ -4140,10 +4493,16 @@ function onBridgeHealth(ev) {
   bridge?.announce(text).catch((e) => log(`bridge recovery notice failed: ${e.message}`))
 }
 
-if (process.env.DISCORD_BOT_TOKEN) {
-  const allowed = (process.env.DISCORD_ALLOWED_USERS ?? '').split(',').map((s) => s.trim()).filter(Boolean)
+// The bot token (#867): `secrets/discord-bot-token` under an installation root,
+// read once here and handed to the bridge and nothing else; the env key in the
+// source deployment. The allow list beside it is the whole auth gate.
+const discordToken = INSTALL_ROOT ? (readSecret(INSTALL_ROOT, 'discord-bot-token')?.trim() || null) : (process.env.DISCORD_BOT_TOKEN || null)
+if (discordToken) {
+  const allowed = discordSettings.allowed_users
   if (!allowed.length) {
-    log('DISCORD_ALLOWED_USERS is empty — refusing to start the bridge without an auth gate')
+    log(INSTALL_ROOT
+      ? `${discordSettingsPath(DATA)} names no allowed user — refusing to start the bridge without an auth gate`
+      : 'DISCORD_ALLOWED_USERS is empty — refusing to start the bridge without an auth gate')
   } else {
     // Set while a launch ladder is in flight, cleared only on success. The wedge
     // watchdog reads it so a bridge that is already retrying does not collect a
@@ -4154,9 +4513,9 @@ if (process.env.DISCORD_BOT_TOKEN) {
     const launchBridge = (attempt = 1) => {
       bridgeLaunching = true
       const b = new DiscordBridge({
-        token: process.env.DISCORD_BOT_TOKEN,
+        token: discordToken,
         allowedUsers: allowed,
-        guildId: process.env.CURIA_GUILD_ID,
+        guildId: discordSettings.guild_id ?? undefined,
         channelName: CHANNEL,
         dataDir: DATA,
         handlers: gate,
@@ -4228,5 +4587,7 @@ if (process.env.DISCORD_BOT_TOKEN) {
     wedgeTimer.unref()
   }
 } else {
-  log('no DISCORD_BOT_TOKEN — running without the bridge (REST-only)')
+  log(INSTALL_ROOT
+    ? `no ${secretPath(INSTALL_ROOT, 'discord-bot-token')} — running without the bridge (REST-only)`
+    : 'no DISCORD_BOT_TOKEN — running without the bridge (REST-only)')
 }

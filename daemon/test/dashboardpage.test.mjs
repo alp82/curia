@@ -302,8 +302,9 @@ describe('the Curia app frame (#686)', () => {
       [...drawer.matchAll(/<span class="nav-label">([^<]+)<\/span>/g)].map((match) => match[1]),
       // Credentials sits between Chat and Settings (#661). It landed while the
       // Curia app frame was in review, so the two agreed on every screen but this
-      // one until they met on `main`.
-      ['Home', 'Maps', 'Agents', 'Feed', 'Chat', 'Credentials', 'Settings'],
+      // one until they met on `main`. Setup (#874) sits before Settings: it is
+      // the first-run frame, read most of the time and acted on once.
+      ['Home', 'Maps', 'Agents', 'Feed', 'Chat', 'Credentials', 'Setup', 'Settings'],
     )
   })
 
@@ -1233,7 +1234,7 @@ describe('the read screens (#264)', () => {
       assert.match(el.innerHTML, /class="notchbar"/)
       assert.match(el.innerHTML, /class="agents-key[^\"]*"/)
       const desktop = el.innerHTML.slice(el.innerHTML.indexOf('drawer'), el.innerHTML.indexOf('</nav>'))
-      assert.match(text(desktop), /curia · app Home 2 Maps Agents Feed Chat Credentials Settings/)
+      assert.match(text(desktop), /curia · app Home 2 Maps Agents Feed Chat Credentials Setup Settings/)
       page.document.getElementById = () => null
     })
   })
@@ -1658,14 +1659,85 @@ describe('the settings screen (#265)', () => {
 
   test('the main list names every section, each with a gist of its own', () => {
     const html = screen()
-    assert.deepEqual(rows(html), ['routing', 'projects', 'dispatch', 'connections', 'aistack', 'maintenance'])
+    assert.deepEqual(rows(html), ['routing', 'projects', 'dispatch', 'connections', 'aistack', 'update', 'maintenance'])
     const t = text(html)
     assert.match(t, /Routing opus untyped · 2 of 3 models on/)
     assert.match(t, /Projects 2 repos watched/)
     assert.match(t, /Dispatch auto · 3 agents · 60s/)
     assert.match(t, /Connections state unavailable/)
     assert.match(t, /aistack not read yet/, 'the section takes its own read, so the list says so until it has one')
+    assert.match(t, /Update not read yet/, 'so does the update section')
     assert.match(t, /Maintenance in step/, 'a color state says a word too')
+  })
+
+  // ---- Update (#883) --------------------------------------------------------
+  //
+  // The section reads the daily check's record and says what it found. What is
+  // pinned: the installed and recommended versions, availability, the two
+  // release-notes links, the withdrawal warning, a failed check said as one,
+  // and that there is no button, because there is no automatic update.
+
+  const UPDATE = (over = {}) => ({
+    managed: true, installed: '1.3.0', recommended: '1.4.0', update_available: true,
+    installed_withdrawn: false, withdrawn: [],
+    release_notes: { installed: 'https://github.com/alp82/curia/releases/tag/v1.3.0', recommended: 'https://github.com/alp82/curia/releases/tag/v1.4.0' },
+    checked_at: at(3600), succeeded_at: at(3600), ok: true, error: null, next_check_at: ahead(1380),
+    command: 'curia update', reason: null, ...over,
+  })
+
+  test('an available update names both versions, links both release notes, and states the command', () => {
+    page.curiaUpdate = UPDATE()
+    const html = screen('update')
+    const t = text(html)
+    assert.match(t, /Update 1\.4\.0 available/, 'the list row says it')
+    assert.match(t, /Curia 1\.4\.0 is available\. On the box, run curia update/)
+    assert.match(t, /installed 1\.3\.0 release notes for 1\.3\.0/)
+    assert.match(t, /recommended 1\.4\.0 release notes for 1\.4\.0/)
+    assert.match(html, /href="https:\/\/github\.com\/alp82\/curia\/releases\/tag\/v1\.4\.0"/)
+    assert.match(t, /Checked 1h ago; the next check is in 23h\. Curia checks once a day and never updates on its own\./)
+    assert.ok(!/<button|onclick=/.test(page.setUpdate()), 'nothing in the section starts an update')
+  })
+
+  test('no update: the installed version is the recommended one', () => {
+    page.curiaUpdate = UPDATE({ installed: '1.4.0', update_available: false })
+    const t = text(screen('update'))
+    assert.match(t, /Update 1\.4\.0 · up to date/)
+    assert.match(t, /1\.4\.0 is the recommended stable release\. Nothing to update\./)
+  })
+
+  test('a withdrawn installed version is the first thing said', () => {
+    page.curiaUpdate = UPDATE({ installed_withdrawn: true, withdrawn: ['1.3.0'] })
+    const t = text(screen('update'))
+    assert.match(t, /Update 1\.3\.0 withdrawn/)
+    assert.match(t, /The installed version 1\.3\.0 was withdrawn\. The release notes for 1\.3\.0 say why\. Update to 1\.4\.0\./)
+    assert.match(t, /withdrawn 1\.3\.0/)
+  })
+
+  test('a failed check is said as one, beside the last good read, and never as up to date', () => {
+    page.curiaUpdate = UPDATE({ ok: false, error: 'the stable-release index could not be downloaded from https://raw.githubusercontent.com/alp82/curia/main/release/stable.json.', checked_at: at(60), succeeded_at: at(90000), installed: '1.4.0', update_available: false })
+    const t = text(screen('update'))
+    assert.match(t, /The last check failed 1m ago: the stable-release index could not be downloaded/)
+    assert.match(t, /The recommendation shown is from the last successful check, 25h ago\. The running installation is not affected\./)
+    assert.ok(!t.includes('up to date') || /1\.4\.0 · up to date/.test(t), 'the gist may say up to date only from a verified read')
+  })
+
+  test('a failed check with no success behind it says curia does not know', () => {
+    page.curiaUpdate = UPDATE({ ok: false, error: 'no key', recommended: null, update_available: false, succeeded_at: null, release_notes: { installed: 'https://github.com/alp82/curia/releases/tag/v1.3.0', recommended: null } })
+    const t = text(screen('update'))
+    assert.match(t, /Update 1\.3\.0 · check failed/)
+    assert.match(t, /No successful check yet, so curia does not know whether an update exists/)
+    assert.match(t, /recommended none/)
+  })
+
+  test('a source checkout says the deploy updates it, and a service that cannot be asked is unknown', () => {
+    page.curiaUpdate = { managed: false, installed: '0.4.1', recommended: null, update_available: false, installed_withdrawn: false, withdrawn: [], release_notes: { installed: 'https://github.com/alp82/curia/releases/tag/v0.4.1', recommended: null }, reason: 'This Curia runs from a source checkout, so its deploy updates it.' }
+    let t = text(screen('update'))
+    assert.match(t, /Update 0\.4\.1 · source checkout/)
+    assert.match(t, /This Curia runs from a source checkout/)
+    page.curiaUpdate = { managed: null, installed: null, error: 'the sidecar answered 502' }
+    t = text(screen('update'))
+    assert.match(t, /Update curia cannot tell/)
+    assert.match(t, /curia cannot say which version is installed: the sidecar answered 502/)
   })
 
   test('one section is open at a time, and a pick opens another', () => {
@@ -1887,7 +1959,7 @@ describe('the settings screen (#265)', () => {
     page.setDispatchField('max_concurrent', '4')
 
     const saving = page.doSave()
-    const action = page.actionFor({ conflict_key: 'settings:curia.local.yaml' })
+    const action = page.actionFor({ conflict_key: 'settings:config.yaml' })
     assert.equal(action.status, 'pending')
     assert.match(text(screen('dispatch')), /Saving settings/)
     assert.ok(page.beginAction({
@@ -1897,12 +1969,12 @@ describe('the settings screen (#265)', () => {
     answer({
       ok: true,
       json: async () => ({
-        written: ['curia.local.yaml'],
+        written: ['config.yaml'],
         settings: { ...SETTINGS(), dispatch: { ...SETTINGS().dispatch, max_concurrent: 4 } },
         reload: { ok: true, applied: ['dispatch.max_concurrent'] },
         action: {
           ...action, status: 'confirmed', revision: 2,
-          receipt: { written: ['curia.local.yaml'], applied: ['dispatch.max_concurrent'] },
+          receipt: { written: ['config.yaml'], applied: ['dispatch.max_concurrent'] },
         },
       }),
     })
@@ -1913,8 +1985,8 @@ describe('the settings screen (#265)', () => {
 
   test('a refresh recovers settings write progress and reconciles the service apply receipt', () => {
     const shared = {
-      action_id: 'app-settings-recovered-1', kind: 'settings-save', target: 'curia.local.yaml',
-      conflict_key: 'settings:curia.local.yaml', status: 'progress', revision: 10,
+      action_id: 'app-settings-recovered-1', kind: 'settings-save', target: 'config.yaml',
+      conflict_key: 'settings:config.yaml', status: 'progress', revision: 10,
       progress: 'Applying settings',
     }
     page.observeActions([shared])
@@ -1923,7 +1995,7 @@ describe('the settings screen (#265)', () => {
     page.observeActions([{
       ...shared, status: 'confirmed', revision: 11,
       receipt: {
-        written: ['curia.local.yaml'], applied: [],
+        written: ['config.yaml'], applied: [],
         reload: { ok: false, reason: 'restart-needed', error: 'curia.yaml `sandbox.image` needs a restart' },
       },
     }])
@@ -1934,7 +2006,7 @@ describe('the settings screen (#265)', () => {
 
   test('applied: one sentence, and no button — the service took it', () => {
     page.UI.set.phase = 'applied'
-    page.UI.set.note = 'Wrote curia.local.yaml, atomically, with the comments kept.'
+    page.UI.set.note = 'Wrote config.yaml, atomically, with the comments kept.'
     const html = screen()
     assert.match(text(html), /saved ✓/)
     assert.match(text(html), /The service is running it\./)
@@ -1943,7 +2015,7 @@ describe('the settings screen (#265)', () => {
 
   test('declined: the key that differs is named, and the restart is the mitigation', () => {
     page.UI.set.phase = 'declined'
-    page.UI.set.note = 'Wrote curia.local.yaml, atomically, with the comments kept.'
+    page.UI.set.note = 'Wrote config.yaml, atomically, with the comments kept.'
     page.UI.set.error = 'curia.yaml `dispatch.workspace_root` changed, and that key is not one a reload applies — restart the service to take it'
     const html = screen()
     assert.match(html, /restart-hot/, 'the restart is the loud one here, because it is what applies the file')
@@ -2328,7 +2400,7 @@ describe('the settings screen (#265)', () => {
     assert.match(text(html), /The service is running these files\./)
     assert.ok(!html.includes('restart-hot'), 'an ordinary restart button, because nothing disagrees')
     assert.match(html, /doRestart\(\)/, 'the one restart button lives here now')
-    assert.deepEqual(rows(html), ['routing', 'projects', 'dispatch', 'connections', 'aistack', 'maintenance'], 'the sixth section, and it reads last')
+    assert.deepEqual(rows(html), ['routing', 'projects', 'dispatch', 'connections', 'aistack', 'update', 'maintenance'], 'the seventh section, and it reads last')
   })
 
   test('a service running something else names the keys, and the button goes red', () => {
@@ -4322,5 +4394,855 @@ describe('the Credentials screen (#661)', () => {
     assert.match(src, new RegExp(`<meta name="curia-dashboard" content="proto=${DASHBOARD_PROTO}">`))
     assert.match(src, /"\/api\/reauth"/)
     assert.match(src, /credentials:\s*\["Credentials",\s*screenCredentials\]/)
+  })
+})
+
+// ---- integration setup (#874, the frame the #853 prototype settled) ----------
+//
+// The screen draws its own read, `GET /api/setup`, and the test drives it
+// with the wire shape the service answers. What is pinned is the frame and
+// not any integration: four fixed-height cards in the accepted order, a
+// selection in any order that the service keeps for a reopen, a connected
+// state that comes from this read and never from stored progress, the error
+// treatment with one action and Try again, and a Full loop action that stays
+// unavailable until the gate says otherwise.
+describe('integration setup (#874)', () => {
+  const card = (key, title, over = {}) => ({
+    key, title, state: 'unavailable', badge: 'Not available', footer: null, error: null,
+    pending: `${title} data will appear after ${title} verifies.`, ...over,
+  })
+  const CARDS = (over = {}) => [
+    card('github', 'GitHub', over.github), card('discord', 'Discord', over.discord),
+    card('tailscale', 'Tailscale', over.tailscale), card('model', 'Model provider', over.model),
+  ]
+  const SETUP = (over = {}) => ({
+    step: 'github', progress: {}, cards: CARDS(over.cards ?? {}),
+    full_loop: { ready: false, missing: ['github', 'discord', 'tailscale', 'model'], reason: 'Waiting for GitHub, Discord, Tailscale, Model provider.', facts: null },
+    ...Object.fromEntries(Object.entries(over).filter(([k]) => k !== 'cards')),
+  })
+  const connected = (primary, secondary, emoji = '✅') => ({ state: 'connected', badge: 'Connected and verified', footer: { primary, secondary, emoji } })
+  const ALL = {
+    github: connected('alp82/curia', 'No open tickets · Issues, pull requests, and Actions ready', '📦'),
+    discord: connected('#curia', 'Confirmation delivered · 6 commands registered', '💬'),
+    tailscale: connected('curia.tail1234.ts.net', 'alp@example.com · Serve reachable in 38 ms', '🔒'),
+    model: { ...connected('OpenAI', 'Routing ready · verification request completed in 0.9 s', '⚡'), badge: 'Provider verified' },
+  }
+
+  let page
+  let calls
+  beforeEach(() => {
+    calls = []
+    page = loadPage({
+      fetchImpl: async (url, init = {}) => {
+        calls.push({ url, method: init.method ?? 'GET', body: init.body ? JSON.parse(init.body) : null })
+        return { ok: true, json: async () => (init.method === 'POST' ? { ok: true } : SETUP()) }
+      },
+    })
+    page.UI.screen = 'setup'
+  })
+
+  test('Setup is a screen of the app, and it draws the held overview reading like every other', () => {
+    assert.match(text(page.desktopNav(0, '')), /Credentials Setup Settings/)
+    page.setup = SETUP()
+    assert.match(text(page.screenSetup(payload())), /read \d+s ago/)
+  })
+
+  test('the four cards draw in the accepted order, each a fixed-height surface with its logo, word, and badge', () => {
+    page.setup = SETUP()
+    const html = page.screenSetup(payload())
+    const keys = [...html.matchAll(/class="setup-card (\w+) /g)].map((m) => m[1])
+    assert.deepEqual(keys, ['github', 'discord', 'tailscale', 'model'])
+    for (const title of ['GitHub', 'Discord', 'Tailscale', 'Model provider']) {
+      assert.match(html, new RegExp(`<span class="setup-title">${title}</span><span class="setup-badge">Not available</span>`))
+    }
+    assert.match(text(html), /0\/4 verified/)
+    // The stub says the step is not available rather than drawing an empty form.
+    assert.match(text(html), /Connecting GitHub isn't available yet/)
+  })
+
+  test('the rail geometry is one height in every state, and narrow screens stack the cards full width', () => {
+    const src = fs.readFileSync(DEFAULT_DASHBOARD_INDEX, 'utf8')
+    assert.match(src, /\.setup-card \{[^}]*height: 190px;/s)
+    assert.match(src, /\.setup-head \{[^}]*flex: 0 0 68px;/s)
+    const narrow = /@media \(max-width: 760px\) \{\s*\.setup \{ grid-template-columns: 1fr; \}\s*\.setup-card \{ width: 100%; \}/
+    assert.match(src, narrow)
+  })
+
+  test('before a card verifies its footer names the data that will appear, and nothing else', () => {
+    page.setup = SETUP()
+    const html = page.screenSetup(payload())
+    assert.match(html, /setup-pending[^<]*<span aria-hidden="true">○<\/span><span>GitHub data will appear after GitHub verifies\.<\/span>/)
+    assert.doesNotMatch(html, /setup-primary/)
+  })
+
+  test('a connected card takes the connected treatment and its footer is the one real fact the read carried', () => {
+    page.setup = SETUP({ cards: { github: connected('#861 · Chart backup and recovery lifecycle', 'ready-for-agent · alp82/curia · 9 open tickets', '🎫') } })
+    const html = page.screenSetup(payload())
+    assert.match(html, /class="setup-card github connected on"/)
+    assert.match(html, /<span class="fact">#861 · Chart backup and recovery lifecycle<\/span>/)
+    assert.match(html, /<div class="setup-secondary">ready-for-agent · alp82\/curia · 9 open tickets<\/div>/)
+    assert.match(text(html), /1\/4 verified/)
+  })
+
+  test('selection in any order posts the step so a reopen lands on it, and the rail moves at once', async () => {
+    page.setup = SETUP()
+    await page.selectSetupCard('tailscale')
+    assert.equal(page.setup.step, 'tailscale')
+    assert.match(page.screenSetup(payload()), /class="setup-card tailscale unavailable on" aria-pressed="true"/)
+    await page.selectSetupCard('github')
+    await page.selectSetupCard('model')
+    assert.deepEqual(calls.filter((c) => c.method === 'POST').map((c) => c.body), [{ step: 'tailscale' }, { step: 'github' }, { step: 'model' }])
+    assert.ok(calls.every((c) => c.url === '/api/setup'))
+  })
+
+  test('a card that is not one of the four is not a selection', async () => {
+    page.setup = SETUP()
+    await page.selectSetupCard('full')
+    assert.equal(page.setup.step, 'github')
+    assert.equal(calls.length, 0)
+  })
+
+  test('a reopen restores the selected card and hands the card its own remembered progress, through the content slot', () => {
+    page.setup = SETUP({ step: 'discord', progress: { discord: { channel: 'ops', guild_id: '123456789' } } })
+    const seen = []
+    page.SETUP_CONTENT.discord.content = (c, progress) => { seen.push({ key: c.key, progress }); return '<p>slot</p>' }
+    const html = page.screenSetup(payload())
+    assert.match(html, /class="setup-card discord unavailable on"/)
+    assert.match(html, /<h2>Discord<\/h2>/)
+    assert.deepEqual(seen, [{ key: 'discord', progress: { channel: 'ops', guild_id: '123456789' } }])
+  })
+
+  test('remembered progress is a checkpoint and never a connection: a card with progress and no fresh yes stays unconnected', () => {
+    page.setup = SETUP({ progress: { discord: { channel: 'ops' }, tailscale: { machine_name: 'curia.sh' } } })
+    const html = page.screenSetup(payload())
+    assert.doesNotMatch(html, /setup-card \w+ connected/)
+    assert.match(text(html), /0\/4 verified/)
+    assert.match(html, /this read's verification, not a saved result/)
+  })
+
+  test('safe progress goes to the service through one call, never into browser storage', async () => {
+    page.setup = SETUP()
+    await page.rememberSetupProgress('tailscale', { machine_name: 'curia.sh' })
+    assert.deepEqual(calls.filter((c) => c.method === 'POST').map((c) => c.body), [{ progress: { tailscale: { machine_name: 'curia.sh' } } }])
+    assert.equal(JSON.stringify(page.setup.progress.tailscale), JSON.stringify({ machine_name: 'curia.sh' }))
+    assert.equal(page.localStorage.getItem('setup'), null)
+  })
+
+  test('a failed verification is red on the card and names the failure and one action, with Try again on the current step', async () => {
+    page.setup = SETUP({
+      step: 'tailscale',
+      cards: { tailscale: { state: 'failed', badge: 'Action required', error: { failed: 'Tailscale Serve is not reachable', action: 'Run tailscale serve --bg 8445 on this host, then try again.' } } },
+    })
+    const html = page.screenSetup(payload())
+    assert.match(html, /class="setup-card tailscale failed on"/)
+    assert.match(html, /<span class="setup-badge">Action required<\/span>/)
+    assert.match(html, /setup-problem"><b>Tailscale Serve is not reachable<\/b>Run tailscale serve --bg 8445 on this host, then try again\./)
+    assert.match(html, /onclick="retrySetup\(\)">Try again</)
+    // Try again is a fresh read of every card, never a local flip.
+    await page.retrySetup()
+    assert.deepEqual(calls.map((c) => [c.method, c.url]), [['GET', '/api/setup']])
+    assert.equal(page.setup.cards.find((c) => c.key === 'tailscale').state, 'unavailable', 'the card is what the read said')
+  })
+
+  test('a connected card offers Continue setup to the next unconnected card, in rail order', async () => {
+    page.setup = SETUP({ step: 'tailscale', cards: { tailscale: ALL.tailscale, github: ALL.github } })
+    assert.match(page.screenSetup(payload()), /onclick="continueSetup\(\)">Continue setup</)
+    await page.continueSetup()
+    assert.equal(page.setup.step, 'discord')
+  })
+
+  test('the Full loop action stays unavailable with four connected cards until the gate supplies its facts', () => {
+    page.setup = SETUP({
+      step: 'model', cards: ALL,
+      full_loop: { ready: false, missing: [], reason: 'The Full loop is not available yet in this release.', facts: null },
+    })
+    const html = page.screenSetup(payload())
+    assert.match(text(html), /4\/4 verified/)
+    const loop = /setup-loop[\s\S]*?<\/div><\/div>/.exec(html)[0]
+    assert.match(loop, /The Full loop is not available yet in this release\./)
+    assert.match(html, /<button class="btn primary" disabled>Run Full loop<\/button>/)
+    assert.doesNotMatch(html, /onclick="runFullLoop\(\)"/)
+    assert.doesNotMatch(html, /Continue setup/)
+  })
+
+  test('a missing card is named as what the Full loop waits for', () => {
+    page.setup = SETUP({ cards: { github: ALL.github, discord: ALL.discord, model: ALL.model }, full_loop: { ready: false, missing: ['tailscale'], reason: 'Waiting for Tailscale.', facts: null } })
+    assert.match(page.screenSetup(payload()), /Waiting for Tailscale\./)
+  })
+
+  test('the gate opens the action, and nothing on the page opens it otherwise', () => {
+    page.setup = SETUP({ step: 'model', cards: ALL, full_loop: { ready: true, missing: [], reason: null, facts: { channel: '#curia' } } })
+    const html = page.screenSetup(payload())
+    assert.match(html, /<button class="btn primary" onclick="runFullLoop\(\)">Run Full loop<\/button>/)
+  })
+
+  // #880: at convergence the panel names what the loop would run on, from
+  // this read's gate. #882: the press runs it through the sidecar and draws
+  // the run the service answers.
+  test('at convergence the Full loop panel names the gate\'s facts, and the press runs the loop through the sidecar', async () => {
+    const facts = {
+      verified_at: '2026-09-02T10:00:00.000Z',
+      github: { repo: 'alp82/curia', covered: ['alp82/curia'], owners: [], open_tickets: 3, ticket: { repo: 'alp82/curia', number: 861, title: 'Chart backup', url: 'https://github.com/alp82/curia/issues/861' } },
+      discord: { guild: { id: '2', name: 'AI Stack' }, channel: { id: '4', name: 'curia', url: 'https://discord.com/channels/2/4' }, operator: null, commands: [], confirmation: null, bridge: 'up' },
+      tailscale: { address: 'curia.tail1234.ts.net', app_url: 'https://curia.tail1234.ts.net:8445/', operator: 'alp@example.com', admitted_ms: 12 },
+      model: { provider: 'anthropic', model: 'fable', request: null, rows: [], providers: { openai: 'unconnected', anthropic: 'connected' } },
+    }
+    page.setup = SETUP({ step: 'model', cards: ALL, full_loop: { ready: true, missing: [], reason: null, facts } })
+    let html = page.screenSetup(payload())
+    const line = /setup-loop-facts">([^<]*)</.exec(html)[1]
+    assert.match(line, /🎫 #861 · alp82\/curia/)
+    assert.match(line, /💬 #curia/)
+    assert.match(line, /🔒 curia\.tail1234\.ts\.net/)
+    assert.match(line, /🧠 Anthropic · fable/)
+    assert.match(html, /Every integration is connected and verified\./)
+    assert.match(html, /<button class="btn primary" onclick="runFullLoop\(\)">Run Full loop<\/button>/)
+    await page.runFullLoop()
+    const press = calls.find((c) => c.method === 'POST')
+    assert.equal(press.url, '/api/setup/full-loop')
+    assert.deepEqual(press.body, {}, 'the press names nothing: the service selects the repository and the marked ticket')
+
+    // No ticket discovered: the repository is named, and nothing is invented.
+    page.setup = SETUP({ step: 'model', cards: ALL, full_loop: { ready: true, missing: [], reason: null, facts: { ...facts, github: { ...facts.github, ticket: null }, model: { ...facts.model, provider: 'openai', model: 'gpt' } } } })
+    const plain = /setup-loop-facts">([^<]*)</.exec(page.screenSetup(payload()))[1]
+    assert.match(plain, /📦 alp82\/curia/)
+    assert.doesNotMatch(plain, /🎫/)
+    assert.match(plain, /⚡ OpenAI · gpt/)
+  })
+
+  // #882: the run, as the service reads it off its journal. The panel draws
+  // exactly that: one row per leg, the artifacts linked, the elapsed time,
+  // and on a failure the leg, the cause, the action, and Try again.
+  const LEG_KEYS = ['discovery', 'dispatch', 'escalation', 'pull_request', 'review', 'merge', 'resolution', 'map_update']
+  const LEG_TITLES = ['Frontier discovery', 'Dispatch', 'Escalation and answer', 'Pull request', 'Review', 'Merge', 'Ticket resolution', 'Map update']
+  const RUN = (state, { legs = [], failed = null, elapsed = 61_000 } = {}) => ({
+    state,
+    repo: 'alp82/curia',
+    ticket: { number: 42, title: 'The rehearsal ticket', url: 'https://github.com/alp82/curia/issues/42', map: 40 },
+    started_at: '2026-09-02T10:00:00.000Z',
+    finished_at: state === 'running' ? null : '2026-09-02T10:01:01.000Z',
+    elapsed_ms: elapsed,
+    legs: LEG_KEYS.map((key, i) => ({ key, title: LEG_TITLES[i], state: legs[i] ?? 'pending', at: legs[i] === 'complete' ? '2026-09-02T10:00:30.000Z' : null, ms: legs[i] === 'complete' ? 3000 : null, link: null })),
+    failed,
+    links: { ticket: 'https://github.com/alp82/curia/issues/42', thread: 'https://discord.com/channels/2/777', channel: 'https://discord.com/channels/2/4', pull_request: legs[3] === 'complete' ? 'https://github.com/alp82/curia/pull/50' : null, map: 'https://github.com/alp82/curia/issues/40' },
+  })
+  const RUN_FACTS = { github: { repo: 'alp82/curia', covered: ['alp82/curia'], ticket: null }, discord: { channel: { name: 'curia' } }, tailscale: { address: 'a.ts.net' }, model: { provider: 'anthropic', model: 'fable' } }
+
+  test('a running Full loop draws one row per leg with its state as a word, the elapsed time, and no press', () => {
+    const run = RUN('running', { legs: ['complete', 'complete', 'running'] })
+    page.setup = SETUP({ step: 'model', cards: ALL, full_loop: { ready: true, missing: [], reason: null, facts: RUN_FACTS, run } })
+    const html = page.screenSetup(payload())
+    const body = text(html)
+    assert.match(body, /Running the Full loop\./)
+    assert.match(body, /alp82\/curia#42 · 1 min 1 s so far/)
+    assert.match(body, /Frontier discovery · complete/)
+    assert.match(body, /Dispatch · complete/)
+    assert.match(body, /Escalation and answer · running/)
+    assert.match(body, /Map update · pending/)
+    assert.doesNotMatch(html, /onclick="runFullLoop\(\)"/, 'no second press while a run is live')
+    assert.match(html, /<button class="btn primary" disabled>Running the Full loop…<\/button>/)
+    assert.match(html, /href="https:\/\/github\.com\/alp82\/curia\/issues\/42"[^>]*>Ticket/)
+    assert.match(html, /href="https:\/\/discord\.com\/channels\/2\/777"[^>]*>Discord thread/)
+    assert.doesNotMatch(html, /Pull request ↗/, 'a link the run has not produced is not drawn')
+    assert.doesNotMatch(html, /setup-loop-facts/, 'the gate\'s facts line gives way to the run')
+  })
+
+  test('a complete Full loop is the verified state: every leg, every artifact linked, the total elapsed time, and Open Curia', () => {
+    const run = RUN('complete', { legs: LEG_KEYS.map(() => 'complete'), elapsed: 754_000 })
+    run.legs[3].link = 'https://github.com/alp82/curia/pull/50'
+    page.setup = SETUP({ step: 'model', cards: ALL, full_loop: { ready: true, missing: [], reason: null, facts: RUN_FACTS, run } })
+    const html = page.screenSetup(payload())
+    const body = text(html)
+    assert.match(body, /Full loop verified\./)
+    assert.match(body, /alp82\/curia#42 · every leg completed in 12 min 34 s\./)
+    for (const title of LEG_TITLES) assert.match(body, new RegExp(`${title} · complete`))
+    assert.match(html, /href="https:\/\/github\.com\/alp82\/curia\/pull\/50"[^>]*>Pull request ↗/)
+    assert.match(html, /href="https:\/\/github\.com\/alp82\/curia\/issues\/40"[^>]*>Map ↗/)
+    assert.match(html, /href="https:\/\/discord\.com\/channels\/2\/4"[^>]*>Command channel ↗/)
+    assert.match(html, /href="https:\/\/github\.com\/alp82\/curia\/pull\/50"[^>]*>open</, 'the leg row links its own artifact')
+    assert.match(html, /onclick="goto\('home'\);return false">Open Curia/)
+    assert.doesNotMatch(html, /onclick="runFullLoop\(\)"/)
+    assert.doesNotMatch(html, /Try again/)
+  })
+
+  test('a failed Full loop names the leg, the cause, and the action, keeps the completed legs, and Try again retries the same step', async () => {
+    const failed = { leg: 'review', title: 'Review', cause: 'The agent ended before Review: the agent exited.', action: 'Read the thread of alp82/curia#42 in #curia and fix what stopped the agent, then select Try again to dispatch alp82/curia#42 again.' }
+    const run = RUN('failed', { legs: ['complete', 'complete', 'complete', 'complete', 'failed'], failed })
+    page.setup = SETUP({ step: 'model', cards: ALL, full_loop: { ready: true, missing: [], reason: null, facts: RUN_FACTS, run } })
+    const html = page.screenSetup(payload())
+    const body = text(html)
+    assert.match(body, /The Full loop did not complete\./)
+    assert.match(body, /Review failed: The agent ended before Review: the agent exited\./)
+    assert.match(body, /Read the thread of alp82\/curia#42 in #curia and fix what stopped the agent, then select Try again/)
+    assert.match(body, /Pull request · complete/)
+    assert.match(body, /Review · failed/)
+    assert.match(html, /onclick="retryFullLoop\(\)">Try again</)
+    assert.doesNotMatch(html, /onclick="runFullLoop\(\)"/)
+    await page.retryFullLoop()
+    const press = calls.find((c) => c.method === 'POST')
+    assert.equal(press.url, '/api/setup/full-loop/retry')
+    assert.deepEqual(press.body, {})
+  })
+
+  test('the press draws the run the sidecar answers, and a refused press says the sentence and presses nothing else', async () => {
+    const running = RUN('running', { legs: ['complete', 'running'] })
+    let answer = { ok: true, run: running }
+    let status = 200
+    const p2 = loadPage({
+      fetchImpl: async (url, init = {}) => ({ ok: status === 200, status, json: async () => (init.method === 'POST' ? answer : SETUP()) }),
+    })
+    p2.UI.screen = 'setup'
+    p2.setup = SETUP({ step: 'model', cards: ALL, full_loop: { ready: true, missing: [], reason: null, facts: RUN_FACTS, run: { state: 'idle', legs: [] } } })
+    assert.match(p2.screenSetup(payload()), /onclick="runFullLoop\(\)">Run Full loop</, 'an idle run leaves the press')
+    await p2.runFullLoop()
+    assert.equal(p2.setup.full_loop.run, running)
+    assert.match(text(p2.screenSetup(payload())), /Running the Full loop\./)
+    assert.ok(p2.UI.setup.loopTimer, 'a live run is followed')
+    clearTimeout(p2.UI.setup.loopTimer)
+    p2.UI.setup.loopTimer = null
+
+    p2.setup.full_loop.run = { state: 'idle', legs: [] }
+    answer = { error: "The Full loop isn't ready: Waiting for Discord." }
+    status = 409
+    await p2.runFullLoop()
+    assert.equal(p2.setup.full_loop.run.state, 'idle', 'a refused press changes no run')
+    assert.match(text(p2.screenSetup(payload())), /The Full loop isn't ready: Waiting for Discord\./)
+    assert.equal(p2.UI.setup.loopTimer, null)
+  })
+
+  test('the facts line is drawn from the gate\'s answer only: a closed gate draws none', () => {
+    page.setup = SETUP({ step: 'model', cards: ALL, full_loop: { ready: false, missing: [], reason: 'GitHub verified without a covered repository. Select Try again.', facts: null } })
+    const html = page.screenSetup(payload())
+    assert.doesNotMatch(html, /setup-loop-facts/)
+    assert.match(html, /GitHub verified without a covered repository\. Select Try again\./)
+    assert.match(html, /<button class="btn primary" disabled>Run Full loop<\/button>/)
+  })
+
+  test('a service that could not be asked is not four unconnected cards', () => {
+    page.setup = { step: null, progress: null, cards: null, full_loop: null, error: 'the daemon did not answer /setup within 60s' }
+    const html = page.screenSetup(payload())
+    assert.match(text(html), /curia could not verify the integrations: the daemon did not answer/)
+    assert.doesNotMatch(html, /setup-card/)
+    assert.match(html, /onclick="retrySetup\(\)"/)
+  })
+
+  test('Home points at setup while an integration is not connected, and stops when all four are', () => {
+    page.UI.screen = 'home'
+    page.setup = SETUP({ cards: { github: ALL.github } })
+    assert.match(text(page.screenHome(payload())), /Integration setup isn't finished\. Not connected yet: Discord, Tailscale, Model provider\./)
+    page.setup = SETUP({ cards: ALL })
+    assert.doesNotMatch(page.screenHome(payload()), /setup-pointer/)
+    page.setup = null
+    assert.doesNotMatch(page.screenHome(payload()), /setup-pointer/)
+  })
+
+  // The GitHub card (#875). Before the App exists the panel offers the one
+  // press that opens GitHub's manifest handoff; it collects a name and never a
+  // credential. After, it draws the install link per watched owner from the
+  // held overview, and the connected panel draws the real ticket or the
+  // honest zero the service reported.
+  const APP = (over = {}) => ({
+    configured: true, status: 'complete',
+    app: { id: '42', slug: 'curia-box', bot_login: 'curia-box[bot]', key_file: '/root/secrets/github-app.json', settings_url: 'https://github.com/settings/apps/curia-box' },
+    installations: { state: 'read', at: new Date().toISOString(), error: null },
+    owners: [{ owner: 'alp82', installed: false, installation_id: null, install_url: 'https://github.com/apps/curia-box/installations/new' }],
+    manual_url: 'https://github.com/settings/apps/new',
+    ...over,
+  })
+
+  test('the unconnected GitHub card offers Create GitHub App with the remembered name, and no field for a credential', () => {
+    page.setup = SETUP({ progress: { github: { app_name: 'curia-alp' } }, cards: { github: { state: 'unconnected', badge: 'Ready to connect' } } })
+    const p = payload()
+    p.overview.github_app = APP({ configured: false, status: 'unconfigured', app: null, owners: [] })
+    const html = page.screenSetup(p)
+    assert.match(html, /id="setup-github-app-name" value="curia-alp"/)
+    assert.match(html, /onclick="doSetupGitHubApp\(\)">Create GitHub App</)
+    assert.doesNotMatch(html, /type="password"|private key|client secret/i)
+    assert.match(text(html), /Curia never sees your password or browser session/)
+    assert.doesNotMatch(html, /Try again/)
+  })
+
+  test('Create GitHub App remembers the name as safe progress, then starts the manifest handoff from the Setup screen', async () => {
+    page.setup = SETUP({ cards: { github: { state: 'unconnected', badge: 'Ready to connect' } } })
+    page.payload = payload()
+    page.document.getElementById = (id) => (id === 'setup-github-app-name' ? { value: 'curia-alp' } : null)
+    vm.runInContext('doSetupGitHubApp()', page)
+    await new Promise((resolve) => setImmediate(resolve))
+    const remembered = calls.find((c) => c.url === '/api/setup' && c.method === 'POST')
+    assert.deepEqual(remembered.body, { progress: { github: { app_name: 'curia-alp' } } })
+    const started = calls.find((c) => c.url === '/api/github-app/start')
+    assert.equal(started.body.name, 'curia-alp')
+    assert.equal(started.body.screen, 'setup')
+    assert.equal(page.setup.progress.github.app_name, 'curia-alp')
+  })
+
+  test('a failed GitHub card names the failed verification and draws the install link per watched owner', () => {
+    page.setup = SETUP({ cards: { github: {
+      state: 'failed', badge: 'Action required',
+      error: { failed: "curia's GitHub App is not installed on alp82", action: 'Install the App on alp82 from the link in this panel and grant it alp82/curia, then try again.' },
+      detail: { owners: [{ owner: 'alp82', installed: false }], covered: [] },
+    } } })
+    const p = payload()
+    p.overview.github_app = APP()
+    const html = page.screenSetup(p)
+    assert.match(html, /href="https:\/\/github.com\/apps\/curia-box\/installations\/new"[^>]*>Install on alp82</)
+    assert.match(text(html), /curia's GitHub App is not installed on alp82/)
+    assert.match(html, /onclick="retrySetup\(\)"/)
+    assert.doesNotMatch(html, /doSetupGitHubApp/)
+    assert.match(html, /href="https:\/\/github.com\/settings\/apps\/curia-box"/)
+  })
+
+  test('a connected GitHub card draws the real discovered ticket as a link, and the zero-ticket state names the repository', () => {
+    const p = payload()
+    p.overview.github_app = APP({ owners: [{ owner: 'alp82', installed: true, installation_id: 7, install_url: 'https://github.com/apps/curia-box/installations/new/permissions?target_id=1001' }] })
+    page.setup = SETUP({ cards: { github: {
+      ...connected('#861 · Chart backup', 'ready-for-agent · alp82/curia · 9 open tickets', '🎫'),
+      detail: { owners: [{ owner: 'alp82', installed: true }], covered: ['alp82/curia'], open_tickets: 9, ticket: { repo: 'alp82/curia', number: 861, title: 'Chart backup', url: 'https://github.com/alp82/curia/issues/861' } },
+    } } })
+    let html = page.screenSetup(p)
+    assert.match(html, /href="https:\/\/github.com\/alp82\/curia\/issues\/861"[^>]*>#861 · Chart backup</)
+    assert.match(html, />Manage installation</)
+    assert.match(html, /Continue setup/)
+    page.setup = SETUP({ cards: { github: {
+      ...ALL.github,
+      detail: { owners: [{ owner: 'alp82', installed: true }], covered: ['alp82/curia'], open_tickets: 0, ticket: null },
+    } } })
+    html = page.screenSetup(p)
+    assert.match(text(html), /No open ticket is ready for an agent in alp82\/curia/)
+    assert.doesNotMatch(html, /issues\/861/)
+  })
+
+  // The Discord card (#876). Before the token exists the panel guides the
+  // operator to the application and the bot and offers the one form, the
+  // token and the user ID. The token is read off its field, sent once, and
+  // the field is cleared before the answer arrives; nothing on the page
+  // holds it. After, the panel draws the bot, the invite link, the servers
+  // the service read, and the channel name; connected, it draws the channel,
+  // the delivered confirmation, and the registered commands from this read.
+  const DISCORD_OVERVIEW = (over = {}) => ({
+    secret: 'present', source: 'file', file: '/root/secrets/discord-bot-token',
+    bot: { id: '222222222222222222', username: 'curia-box' },
+    guilds: [{ id: '333333333333333333', name: "Alp's workshop" }, { id: '999999999999999999', name: 'Testing' }],
+    invite_url: 'https://discord.com/oauth2/authorize?client_id=555555555555555555&scope=bot%20applications.commands&permissions=1',
+    settings: { allowed_users: ['111111111111111111'], guild_id: null, channel: 'curia' }, error: null, ...over,
+  })
+  const DISCORD_TOKEN = 'MTIzNDU2Nzg5MDEyMzQ1Njc4.GaBcDe.this-token-must-never-be-shown-anywhere-1234'
+
+  test('the unconnected Discord card guides the operator to the bot and offers the token and the user ID, once, as a password field', () => {
+    page.setup = SETUP({ step: 'discord', cards: { discord: { state: 'unconnected', badge: 'Ready to connect' } } })
+    const html = page.screenSetup(payload())
+    assert.match(html, /href="https:\/\/discord\.com\/developers\/applications"/)
+    assert.match(text(html), /Message Content Intent/)
+    assert.match(html, /<input id="setup-discord-token" type="password"/)
+    assert.match(html, /id="setup-discord-user"/)
+    assert.match(html, /onclick="doSetupDiscordToken\(\)">Connect bot</)
+    assert.match(text(html), /Curia never shows it again/)
+    assert.doesNotMatch(html, /setup-discord-guild/, 'no server to pick before the token exists')
+  })
+
+  test('Connect bot sends the token and the ID once, clears the field before the answer, and keeps no copy on the page', async () => {
+    page.setup = SETUP({ step: 'discord', cards: { discord: { state: 'unconnected', badge: 'Ready to connect' } } })
+    page.payload = payload()
+    const fields = { 'setup-discord-token': { value: DISCORD_TOKEN }, 'setup-discord-user': { value: '111111111111111111' } }
+    page.document.getElementById = (id) => fields[id] ?? null
+    let cleared = null
+    page.fetch = async (url, init = {}) => {
+      calls.push({ url, method: init.method ?? 'GET', body: init.body ? JSON.parse(init.body) : null })
+      if (url === '/api/setup/discord/token') cleared = fields['setup-discord-token'].value
+      return { ok: true, json: async () => ({ ok: true, ...DISCORD_OVERVIEW() }) }
+    }
+    vm.runInContext('doSetupDiscordToken()', page)
+    await new Promise((resolve) => setImmediate(resolve))
+    const sent = calls.find((c) => c.url === '/api/setup/discord/token')
+    assert.deepEqual(sent.body, { token: DISCORD_TOKEN, user_id: '111111111111111111' })
+    assert.equal(cleared, '', 'the field is empty before the answer comes back')
+    assert.equal(page.UI.setup.discord.secret, 'present')
+    assert.ok(!JSON.stringify(page.UI.setup).includes(DISCORD_TOKEN))
+    assert.ok(!JSON.stringify(page.setup).includes(DISCORD_TOKEN))
+    assert.equal(page.localStorage.getItem('setup'), null)
+    const html = page.screenSetup(payload())
+    assert.ok(!html.includes(DISCORD_TOKEN), 'the token is not drawn back')
+    assert.match(html, /id="setup-discord-guild"/, 'the server list is the next form')
+  })
+
+  test('with the token on disk the panel draws the bot, the invite link, the servers, and the remembered channel, and the token form is behind a fold', () => {
+    page.setup = SETUP({ step: 'discord', progress: { discord: { guild_id: '999999999999999999', channel: 'ops' } }, cards: { discord: {
+      state: 'failed', badge: 'Action required',
+      error: { failed: "curia-box isn't in the selected server", action: 'Select a server the bot is in, then try again.' },
+      detail: { stage: 'server', guilds: [{ id: '999999999999999999', name: 'Testing' }] },
+    } } })
+    page.UI.setup.discord = DISCORD_OVERVIEW()
+    const html = page.screenSetup(payload())
+    assert.match(text(html), /curia-box/)
+    assert.match(html, /href="https:\/\/discord\.com\/oauth2\/authorize\?client_id=555555555555555555[^"]*"[^>]*>Add the bot to a server</)
+    assert.match(html, /<option value="999999999999999999" selected>Testing<\/option>/)
+    assert.match(html, /id="setup-discord-channel" type="text" value="ops"/)
+    assert.match(html, /onclick="doSetupDiscordChannel\(\)">Connect channel</)
+    assert.match(html, /<details><summary>Replace the bot token<\/summary>/)
+    assert.match(html, /onclick="retrySetup\(\)">Try again</)
+  })
+
+  test('a token Discord refused puts the token form first, with the user ID it kept', () => {
+    page.setup = SETUP({ step: 'discord', cards: { discord: {
+      state: 'failed', badge: 'Action required',
+      error: { failed: 'Discord refused the bot token', action: 'Reset the token on the Bot page of your Discord application and submit the new one in this panel.' },
+      detail: { stage: 'token' },
+    } } })
+    page.UI.setup.discord = DISCORD_OVERVIEW({ bot: null, guilds: [], invite_url: null, error: 'Discord refused the bot token' })
+    const html = page.screenSetup(payload())
+    assert.match(html, /<input id="setup-discord-token" type="password"/)
+    assert.match(html, /id="setup-discord-user" type="text" value="111111111111111111"/)
+    assert.doesNotMatch(html, /<summary>Replace the bot token/)
+  })
+
+  test('selecting the Discord card takes the panel\'s own read once, and Connect channel remembers the choice, writes it, then verifies fresh', async () => {
+    page.setup = SETUP({ cards: { discord: { state: 'failed', badge: 'Action required', error: { failed: 'No server is selected', action: 'Select one.' }, detail: { stage: 'server', guilds: [] } } } })
+    page.fetch = async (url, init = {}) => {
+      calls.push({ url, method: init.method ?? 'GET', body: init.body ? JSON.parse(init.body) : null })
+      if (url === '/api/setup/discord') return { ok: true, json: async () => DISCORD_OVERVIEW() }
+      if (url === '/api/setup/discord/channel') return { ok: true, json: async () => ({ ok: true, card: { key: 'discord', state: 'connected' } }) }
+      return { ok: true, json: async () => (init.method === 'POST' ? { ok: true } : SETUP()) }
+    }
+    await page.selectSetupCard('discord')
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.equal(calls.filter((c) => c.url === '/api/setup/discord').length, 1)
+    assert.equal(page.UI.setup.discord.bot.username, 'curia-box')
+    page.document.getElementById = (id) => ({ 'setup-discord-guild': { value: '333333333333333333' }, 'setup-discord-channel': { value: 'ops' } })[id] ?? null
+    calls = []
+    await page.doSetupDiscordChannel()
+    assert.deepEqual(calls.map((c) => [c.method, c.url]), [['POST', '/api/setup'], ['POST', '/api/setup/discord/channel'], ['GET', '/api/setup']])
+    assert.deepEqual(calls[0].body, { progress: { discord: { guild_id: '333333333333333333', channel: 'ops' } } })
+    assert.deepEqual(calls[1].body, { guild_id: '333333333333333333', channel: 'ops' })
+  })
+
+  test('a connected Discord card draws the channel, the delivered confirmation, the operator, and the commands, and says whether the bridge runs', () => {
+    page.setup = SETUP({ step: 'discord', cards: { discord: {
+      ...ALL.discord,
+      detail: {
+        guild: { id: '333333333333333333', name: "Alp's workshop" },
+        channel: { id: '444444444444444444', name: 'curia', created: true, url: 'https://discord.com/channels/333333333333333333/444444444444444444' },
+        operator: { id: '111111111111111111', username: 'alp', name: 'Alp' },
+        commands: ['tickets', 'next', 'status'],
+        confirmation: { id: '777', at: new Date().toISOString(), posted: true, url: 'https://discord.com/channels/333333333333333333/444444444444444444/777' },
+        bridge: null,
+      },
+    } } })
+    const html = page.screenSetup(payload())
+    assert.match(html, /href="https:\/\/discord\.com\/channels\/333333333333333333\/444444444444444444"[^>]*>#curia</)
+    assert.match(text(html), /created by Curia/)
+    assert.match(html, /href="https:\/\/discord\.com\/channels\/333333333333333333\/444444444444444444\/777"[^>]*>Posted /)
+    assert.match(html, /<code>\/tickets<\/code> <code>\/next<\/code> <code>\/status<\/code>/)
+    assert.match(text(html), /Alp 111111111111111111/)
+    assert.match(html, /onclick="doRestart\(\);return false">Restart Curia</)
+    assert.match(html, /<div class="setup-secondary">Confirmation delivered · 6 commands registered<\/div>/)
+    assert.doesNotMatch(html, /type="password"/, 'no token form on a connected card')
+    assert.match(html, /Continue setup/)
+  })
+
+  test('arriving at Setup takes its own read, and the read is a fresh verification every time', async () => {
+    page.enter('setup')
+    page.enter('setup')
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.deepEqual(calls.map((c) => [c.method, c.url]), [['GET', '/api/setup'], ['GET', '/api/setup']])
+  })
+
+  // The Tailscale card (#877). Before an operator is recorded the panel names
+  // the identity Serve stamped on the request that opened the app, the
+  // node, and the machine-name field, and the one press is the confirmation,
+  // which sends the machine name and never a login. Connected, it draws the
+  // private address, the operator, the node, the Serve route, and the timed
+  // admission from this read.
+  const TAILSCALE_OVERVIEW = (over = {}) => ({
+    root: true, requester: 'alp@example.com', operator: null, machine_name: 'curia.sh', default_machine_name: 'curia.sh', first_operator: true,
+    node: { installed: true, error: null, backend_state: 'Running', online: true, dns_name: 'alp-workstation.tail1234.ts.net', cert_domains: ['alp-workstation.tail1234.ts.net'], ips: ['100.98.118.33'], version: '1.98.10' },
+    serve: { routes: [], error: null, route: { https: 8445, target: 'http://127.0.0.1:4273' }, recorded: [] },
+    app_url: 'https://alp-workstation.tail1234.ts.net:8445/', last_seen: null, error: null, ...over,
+  })
+
+  test('the unconnected Tailscale card names the identity that opened the app, the node, and the machine name defaulting to curia.sh, and the one press confirms', () => {
+    page.setup = SETUP({ step: 'tailscale', cards: { tailscale: { state: 'unconnected', badge: 'Ready to connect' } } })
+    page.UI.setup.tailscale = TAILSCALE_OVERVIEW()
+    const html = page.screenSetup(payload())
+    assert.match(text(html), /You opened Curia as alp@example\.com through Tailscale\. Confirm to make this identity the allowed operator\. Until then, nobody is\./)
+    assert.match(text(html), /alp-workstation\.tail1234\.ts\.net · online · 100\.98\.118\.33/)
+    assert.match(html, /id="setup-tailscale-machine" type="text" value="curia\.sh"/)
+    assert.match(html, /onclick="doSetupTailscaleOperator\(\)">Confirm operator and verify</)
+    assert.match(text(html), /current node alp-workstation/)
+    assert.match(text(html), /Curia never installs or reconfigures Tailscale/)
+    assert.doesNotMatch(html, /type="password"/)
+    assert.doesNotMatch(html, /Try again/)
+  })
+
+  test('a request without a Tailscale identity cannot confirm: the panel says so and the press is disabled', () => {
+    page.setup = SETUP({ step: 'tailscale', cards: { tailscale: { state: 'unconnected', badge: 'Ready to connect' } } })
+    page.UI.setup.tailscale = TAILSCALE_OVERVIEW({ requester: null })
+    const html = page.screenSetup(payload())
+    assert.match(text(html), /This request carried no Tailscale identity/)
+    assert.match(html, /<button class="btn primary" disabled onclick="doSetupTailscaleOperator\(\)"/)
+  })
+
+  test('selecting the Tailscale card takes the panel\'s own read once, and the confirmation remembers the machine name, sends only that, then verifies fresh', async () => {
+    page.setup = SETUP({ cards: { tailscale: { state: 'unconnected', badge: 'Ready to connect' } } })
+    page.fetch = async (url, init = {}) => {
+      calls.push({ url, method: init.method ?? 'GET', body: init.body ? JSON.parse(init.body) : null })
+      if (url === '/api/setup/tailscale') return { ok: true, json: async () => TAILSCALE_OVERVIEW() }
+      if (url === '/api/setup/tailscale/operator') return { ok: true, json: async () => ({ ok: true, card: { key: 'tailscale', state: 'connected' } }) }
+      return { ok: true, json: async () => (init.method === 'POST' ? { ok: true } : SETUP()) }
+    }
+    await page.selectSetupCard('tailscale')
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.equal(calls.filter((c) => c.url === '/api/setup/tailscale').length, 1)
+    assert.equal(page.UI.setup.tailscale.requester, 'alp@example.com')
+    page.document.getElementById = (id) => (id === 'setup-tailscale-machine' ? { value: 'alp-workstation' } : null)
+    calls = []
+    await page.doSetupTailscaleOperator()
+    assert.deepEqual(calls.map((c) => [c.method, c.url]), [['POST', '/api/setup'], ['POST', '/api/setup/tailscale/operator'], ['GET', '/api/setup']])
+    assert.deepEqual(calls[0].body, { progress: { tailscale: { machine_name: 'alp-workstation' } } })
+    assert.deepEqual(calls[1].body, { machine_name: 'alp-workstation' }, 'the login is never a field the page sends')
+  })
+
+  test('a failed Tailscale card names the failure and the action, and keeps the machine-name form so a name can be corrected', () => {
+    page.setup = SETUP({ step: 'tailscale', progress: { tailscale: { machine_name: 'curia.sh' } }, cards: { tailscale: {
+      state: 'failed', badge: 'Action required',
+      error: { failed: 'This node is named alp-workstation, not curia-sh', action: 'Run `sudo tailscale set --hostname curia.sh` on this host, or enter alp-workstation as the machine name in this panel, then try again.' },
+      detail: { stage: 'name', operator: { login: 'alp@example.com', confirmed_at: '2026-09-02T10:00:00.000Z' }, address: 'alp-workstation.tail1234.ts.net', node: { installed: true, online: true, backend_state: 'Running', dns_name: 'alp-workstation.tail1234.ts.net', ips: ['100.98.118.33'] } },
+    } } })
+    page.UI.setup.tailscale = TAILSCALE_OVERVIEW({ operator: { login: 'alp@example.com', confirmed_at: '2026-09-02T10:00:00.000Z' }, first_operator: false })
+    const html = page.screenSetup(payload())
+    assert.match(html, /class="setup-card tailscale failed on"/)
+    assert.match(text(html), /This node is named alp-workstation, not curia-sh/)
+    assert.match(html, /id="setup-tailscale-machine" type="text" value="curia\.sh"/)
+    assert.match(html, /onclick="doSetupTailscaleOperator\(\)">Confirm again and verify</)
+    assert.match(html, /onclick="retrySetup\(\)">Try again</)
+  })
+
+  test('a connected Tailscale card draws the private address, the operator, the node, the Serve route, and the timed admission', () => {
+    page.setup = SETUP({ step: 'tailscale', cards: { tailscale: {
+      ...ALL.tailscale,
+      detail: {
+        operator: { login: 'alp@example.com', confirmed_at: new Date(Date.now() - 60_000).toISOString(), last_seen_at: new Date().toISOString() },
+        node: { installed: true, online: true, backend_state: 'Running', dns_name: 'curia-sh.tail1234.ts.net', ips: ['100.98.118.33'], version: '1.98.10' },
+        address: 'curia-sh.tail1234.ts.net', app_url: 'https://curia-sh.tail1234.ts.net:8445/',
+        machine_name: { wanted: 'curia.sh', expected: 'curia-sh', actual: 'curia-sh' },
+        serve: { url: 'https://curia-sh.tail1234.ts.net:8445/', route: { https: 8445, target: 'http://127.0.0.1:4273' }, created: true, error: null },
+        app: { status: 200, ms: 38, error: null }, verified_at: new Date().toISOString(),
+      },
+    } } })
+    const html = page.screenSetup(payload())
+    assert.match(html, /href="https:\/\/curia-sh\.tail1234\.ts\.net:8445\/"[^>]*>https:\/\/curia-sh\.tail1234\.ts\.net:8445\/</)
+    assert.match(text(html), /Operator alp@example\.com confirmed/)
+    assert.match(text(html), /curia-sh\.tail1234\.ts\.net · online · 100\.98\.118\.33 · Tailscale 1\.98\.10/)
+    assert.match(text(html), /:8445 → http:\/\/127\.0\.0\.1:4273 · created by Curia/)
+    assert.match(text(html), /Admitted alp@example\.com in 38 ms · Arrived through Tailscale/)
+    assert.match(html, /<details><summary>Change the machine name<\/summary>/)
+    assert.match(html, /Continue setup/)
+    assert.doesNotMatch(html, /Try again/)
+  })
+
+  // The model-provider card, OpenAI half (#878). One card, two provider rows,
+  // so #879 adds Anthropic beside OpenAI without restructuring. The OpenAI
+  // row offers the one press, the subscription sign-in curia already runs,
+  // and never a key field; while the login waits the panel draws the link
+  // and the code the service scraped; connected, it draws the safe facts.
+  const OPENAI_OVERVIEW = (over = {}) => ({
+    provider: 'openai', root: true, secret: { state: 'absent' }, identity: null, login: null, ending: null, said: null,
+    routing: { ready: false, model: 'gpt', rows: [{ type: 'untyped', model: 'opus', provider: 'anthropic', active: true, credentialed: false, ok: false }], missing: ['untyped'], credentialed: [] },
+    error: null, ...over,
+  })
+  const providers = (openai, anthropic = { title: 'Anthropic', state: 'unconnected' }) => ({ openai: { title: 'OpenAI', ...openai }, anthropic: { title: 'Anthropic', ...anthropic } })
+  const WAITING = { provider: 'openai', session: 'curia-auth-openai', state: 'waiting', url: 'https://auth.openai.com/codex/device', code: '83CC-A4ZTO', typed: false, terminal_url: 'https://box.tail1234.ts.net:8446/?arg=curia-auth-openai', seconds_left: 840, expires_at: '2026-09-02T10:30:00.000Z' }
+  // The Anthropic row (#879): the same shape, the typed lane.
+  const ANTHROPIC_OVERVIEW = (over = {}) => ({
+    provider: 'anthropic', root: true, secret: { state: 'absent' }, credential: null, login: null, ending: null, said: null,
+    routing: { ready: false, model: 'fable', rows: [{ type: 'research', model: 'gpt', provider: 'openai', active: true, credentialed: false, ok: false }], missing: ['research'], credentialed: [] },
+    error: null, ...over,
+  })
+  const ANTHROPIC_WAITING = { provider: 'anthropic', session: 'curia-auth-anthropic', state: 'waiting', url: 'https://claude.com/cai/oauth/authorize?code_challenge=abc&state=xyz', code: null, typed: true, terminal_url: 'https://box.tail1234.ts.net:8446/?arg=curia-auth-anthropic', seconds_left: 1700, expires_at: '2026-09-02T10:30:00.000Z' }
+
+  test('the unconnected model card offers one subscription sign-in per provider row, OpenAI and Anthropic, and has no key field', () => {
+    page.setup = SETUP({ step: 'model', cards: { model: { state: 'unconnected', badge: 'Ready to connect', providers: providers({ state: 'unconnected' }) } } })
+    page.UI.setup.openai = OPENAI_OVERVIEW()
+    page.UI.setup.anthropic = ANTHROPIC_OVERVIEW()
+    const html = page.screenSetup(payload())
+    assert.match(text(html), /OpenAI Ready to connect/)
+    assert.match(html, /onclick="doSetupOpenAILogin\(\)">Sign in to OpenAI</)
+    assert.match(text(html), /Anthropic Ready to connect/)
+    assert.match(html, /onclick="doSetupAnthropicLogin\(\)">Sign in to Anthropic</)
+    assert.match(text(html), /Subscription sign-in only\. Curia holds no API key, and this panel offers no field for one\./)
+    assert.doesNotMatch(html, /type="password"|api[_ -]?key" /i)
+    assert.doesNotMatch(html, /Try again/)
+  })
+
+  test('selecting the model card takes the OpenAI read once, and Sign in remembers the provider, posts no field, then polls the read for the login', async () => {
+    page.setup = SETUP({ cards: { model: { state: 'unconnected', badge: 'Ready to connect', providers: providers({ state: 'unconnected' }) } } })
+    let reads = 0
+    page.fetch = async (url, init = {}) => {
+      calls.push({ url, method: init.method ?? 'GET', body: init.body ? JSON.parse(init.body) : null })
+      if (url === '/api/setup/openai') return { ok: true, json: async () => OPENAI_OVERVIEW(++reads > 1 ? { login: WAITING, said: '🔑 signing `openai` back in.' } : {}) }
+      if (url === '/api/setup/openai/login') return { ok: true, json: async () => ({ ok: true, ...OPENAI_OVERVIEW({ login: { provider: 'openai', state: 'starting' } }) }) }
+      if (url === '/api/setup/anthropic') return { ok: true, json: async () => ANTHROPIC_OVERVIEW() }
+      return { ok: true, json: async () => (init.method === 'POST' ? { ok: true } : SETUP()) }
+    }
+    await page.selectSetupCard('model')
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.equal(calls.filter((c) => c.url === '/api/setup/openai').length, 1)
+    assert.equal(calls.filter((c) => c.url === '/api/setup/anthropic').length, 1, 'the Anthropic row reads once too')
+    calls = []
+    await page.doSetupOpenAILogin()
+    assert.deepEqual(calls.map((c) => [c.method, c.url]), [['POST', '/api/setup'], ['POST', '/api/setup/openai/login'], ['GET', '/api/setup/openai']])
+    assert.deepEqual(calls[0].body, { progress: { model: { provider: 'openai' } } })
+    assert.deepEqual(calls[1].body, {}, 'the press carries no field: nothing about the login is the browser\'s to name')
+    assert.equal(page.UI.setup.openai.login.code, '83CC-A4ZTO')
+    page.clearTimeout(page.UI.setup.openaiTimer)
+  })
+
+  test('while the login waits the panel draws the link, the one-time code, and the terminal fallback the service composed', () => {
+    page.setup = SETUP({ step: 'model', cards: { model: { state: 'unconnected', badge: 'Ready to connect', providers: providers({ state: 'unconnected' }) } } })
+    page.UI.setup.openai = OPENAI_OVERVIEW({ login: WAITING })
+    const html = page.screenSetup(payload())
+    assert.match(html, /href="https:\/\/auth\.openai\.com\/codex\/device"/)
+    assert.match(html, /class="reauth-code">83CC-A4ZTO</)
+    assert.match(html, /href="https:\/\/box\.tail1234\.ts\.net:8446\/\?arg=curia-auth-openai"/)
+    assert.match(text(html), /openai · signing in · 14:00 left/)
+    assert.doesNotMatch(html, /onclick="doSetupOpenAILogin\(\)"/, 'no second press while one login runs')
+  })
+
+  test('a login that ended without a credential is said beside the plain card, and the press is offered again', () => {
+    page.setup = SETUP({ step: 'model', cards: { model: { state: 'unconnected', badge: 'Ready to connect', providers: providers({ state: 'unconnected' }) } } })
+    page.UI.setup.openai = OPENAI_OVERVIEW({ ending: { provider: 'openai', state: 'expired', why: 'the one-time code ran out before anybody finished the login', ended_at: '2026-09-02T10:15:00.000Z', after_s: 900 } })
+    const html = page.screenSetup(payload())
+    assert.match(text(html), /The last OpenAI sign-in ended: the one-time code ran out before anybody finished the login/)
+    assert.match(html, /onclick="doSetupOpenAILogin\(\)">Sign in to OpenAI</)
+  })
+
+  test('a failed model card names the failure and the action, and offers the sign-in again beside Try again', () => {
+    page.setup = SETUP({ step: 'model', cards: { model: {
+      state: 'failed', badge: 'Action required',
+      error: { failed: 'OpenAI refused the credential (HTTP 401: invalid token)', action: 'Sign in to OpenAI from this panel, then try again.' },
+      providers: providers({ state: 'failed', error: { failed: 'OpenAI refused the credential (HTTP 401: invalid token)', action: 'Sign in to OpenAI from this panel, then try again.' }, detail: { stage: 'request', provider: 'openai', identity: { account_id: 'acct-42', plan_type: 'pro' } } }),
+    } } })
+    page.UI.setup.openai = OPENAI_OVERVIEW({ secret: { state: 'present' }, identity: { account_id: 'acct-42', plan_type: 'pro', expires_at: '2026-09-11T10:00:00.000Z' } })
+    const html = page.screenSetup(payload())
+    assert.match(html, /class="setup-card model failed on"/)
+    assert.match(text(html), /OpenAI refused the credential \(HTTP 401: invalid token\)/)
+    assert.match(html, /onclick="doSetupOpenAILogin\(\)">Sign in to OpenAI again</)
+    assert.match(html, /onclick="retrySetup\(\)">Try again</)
+    assert.doesNotMatch(html, /acct-42/, 'the account id is a fact for the gate, not a line for a person')
+  })
+
+  test('a connected model card draws the plan, the credential expiry, the timed request, and the routing preset, and keeps the second provider open', () => {
+    page.setup = SETUP({ step: 'model', cards: { model: {
+      ...ALL.model,
+      providers: providers({
+        state: 'connected', footer: { primary: 'OpenAI', secondary: 'verification request completed in 0.9 s', emoji: '⚡' },
+        detail: {
+          provider: 'openai', identity: { account_id: 'acct-42', plan_type: 'pro' }, credential: { expires_at: new Date(Date.now() + 9 * 86_400_000).toISOString() },
+          request: { model: 'gpt-5.6-sol', id: 'resp_1', at: new Date().toISOString(), ms: 912, usage: { input_tokens: 12, output_tokens: 1 } },
+          routing: { ready: true, applied: true, model: 'gpt', file: '/root/state/routing.local.yaml', rows: [{ type: 'untyped', model: 'gpt', provider: 'openai', active: true, credentialed: true, ok: true }], missing: [] },
+          verified_at: new Date().toISOString(),
+        },
+      }),
+    } } })
+    page.UI.setup.anthropic = ANTHROPIC_OVERVIEW()
+    const html = page.screenSetup(payload())
+    assert.match(text(html), /Plan pro/)
+    assert.match(text(html), /Credential expires in 9\.0d/)
+    assert.match(text(html), /Verification gpt-5\.6-sol answered in 912 ms/)
+    assert.match(text(html), /Routing gpt for every ticket type · preset applied by Curia/)
+    assert.match(text(html), /Anthropic Ready to connect/)
+    assert.match(html, /onclick="doSetupAnthropicLogin\(\)">Sign in to Anthropic</)
+    assert.match(html, /<details><summary>Sign in to OpenAI again<\/summary>/)
+    assert.match(html, /Continue setup/)
+    assert.doesNotMatch(html, /Try again/)
+  })
+
+  test('Sign in to Anthropic remembers the provider, posts no field, then polls the read for the typed login', async () => {
+    page.setup = SETUP({ step: 'model', cards: { model: { state: 'unconnected', badge: 'Ready to connect', providers: providers({ state: 'unconnected' }) } } })
+    let reads = 0
+    page.fetch = async (url, init = {}) => {
+      calls.push({ url, method: init.method ?? 'GET', body: init.body ? JSON.parse(init.body) : null })
+      if (url === '/api/setup/anthropic') return { ok: true, json: async () => ANTHROPIC_OVERVIEW(++reads > 0 ? { login: ANTHROPIC_WAITING, said: '🔑 signing `anthropic` back in.' } : {}) }
+      if (url === '/api/setup/anthropic/login') return { ok: true, json: async () => ({ ok: true, ...ANTHROPIC_OVERVIEW({ login: { provider: 'anthropic', state: 'starting' } }) }) }
+      if (url === '/api/setup/openai') return { ok: true, json: async () => OPENAI_OVERVIEW() }
+      return { ok: true, json: async () => (init.method === 'POST' ? { ok: true } : SETUP()) }
+    }
+    page.UI.setup.anthropic = ANTHROPIC_OVERVIEW()
+    calls = []
+    await page.doSetupAnthropicLogin()
+    assert.deepEqual(calls.map((c) => [c.method, c.url]), [['POST', '/api/setup'], ['POST', '/api/setup/anthropic/login'], ['GET', '/api/setup/anthropic']])
+    assert.deepEqual(calls[0].body, { progress: { model: { provider: 'anthropic' } } })
+    assert.deepEqual(calls[1].body, {}, 'the press carries no field: nothing about the login is the browser\'s to name')
+    assert.equal(page.UI.setup.anthropic.login.typed, true)
+    page.clearTimeout(page.UI.setup.anthropicTimer)
+  })
+
+  test('while the Anthropic login waits the panel draws the authorize link, the paste-back step, and the terminal fallback, and never a code to read', () => {
+    page.setup = SETUP({ step: 'model', cards: { model: { state: 'unconnected', badge: 'Ready to connect', providers: providers({ state: 'unconnected' }) } } })
+    page.UI.setup.openai = OPENAI_OVERVIEW()
+    page.UI.setup.anthropic = ANTHROPIC_OVERVIEW({ login: ANTHROPIC_WAITING })
+    const html = page.screenSetup(payload())
+    assert.match(html, /href="https:\/\/claude\.com\/cai\/oauth\/authorize\?code_challenge=abc&amp;state=xyz"/)
+    assert.match(text(html), /Paste the code the browser shows back into the terminal/)
+    assert.match(html, /href="https:\/\/box\.tail1234\.ts\.net:8446\/\?arg=curia-auth-anthropic"/)
+    assert.match(text(html), /anthropic · signing in · 28:20 left/)
+    assert.doesNotMatch(html, /class="reauth-code"/, 'the typed lane shows no code: the operator puts one in')
+    assert.doesNotMatch(html, /onclick="doSetupAnthropicLogin\(\)"/, 'no second press while one login runs')
+    assert.match(html, /onclick="doSetupOpenAILogin\(\)"/, 'the other row keeps its press')
+  })
+
+  test('an Anthropic login that ended without a credential is said beside the plain row, and the press is offered again', () => {
+    page.setup = SETUP({ step: 'model', cards: { model: { state: 'unconnected', badge: 'Ready to connect', providers: providers({ state: 'unconnected' }) } } })
+    page.UI.setup.openai = OPENAI_OVERVIEW()
+    page.UI.setup.anthropic = ANTHROPIC_OVERVIEW({ ending: { provider: 'anthropic', state: 'failed', why: 'Anthropic answered HTTP 401 for the token read off the login pane', ended_at: '2026-09-02T10:15:00.000Z', after_s: 300 } })
+    const html = page.screenSetup(payload())
+    assert.match(text(html), /The last Anthropic sign-in ended: Anthropic answered HTTP 401 for the token read off the login pane/)
+    assert.match(html, /onclick="doSetupAnthropicLogin\(\)">Sign in to Anthropic</)
+  })
+
+  test('a failed Anthropic row names the failure and the action, offers the sign-in again beside Try again, and shows no credential material', () => {
+    const error = { failed: 'Anthropic refused the credential (HTTP 401: invalid x-api-key)', action: 'Sign in to Anthropic from this panel, then try again.' }
+    page.setup = SETUP({ step: 'model', cards: { model: {
+      state: 'failed', badge: 'Action required', error,
+      providers: providers({ state: 'unconnected' }, { state: 'failed', error, detail: { stage: 'request', provider: 'anthropic', credential: { kind: 'setup-token', obtained_at: '2026-08-24T12:00:00.000Z', expires_at: '2027-08-24T12:00:00.000Z', estimated: true } } }),
+    } } })
+    page.UI.setup.openai = OPENAI_OVERVIEW()
+    page.UI.setup.anthropic = ANTHROPIC_OVERVIEW({ secret: { state: 'present' }, credential: { kind: 'setup-token', obtained_at: '2026-08-24T12:00:00.000Z', expires_at: '2027-08-24T12:00:00.000Z', estimated: true } })
+    const html = page.screenSetup(payload())
+    assert.match(html, /class="setup-card model failed on"/)
+    assert.match(text(html), /Anthropic refused the credential \(HTTP 401: invalid x-api-key\)/)
+    assert.match(html, /onclick="doSetupAnthropicLogin\(\)">Sign in to Anthropic again</)
+    assert.match(html, /onclick="retrySetup\(\)">Try again</)
+    assert.doesNotMatch(html, /sk-ant-/)
+  })
+
+  test('a connected Anthropic row draws the adoption, the estimated expiry, the timed request, and the routing preset; with both rows connected the card says two providers', () => {
+    const now = Date.now()
+    page.setup = SETUP({ step: 'model', cards: { model: {
+      ...ALL.model, badge: 'Two providers verified',
+      providers: providers({
+        state: 'connected', footer: { primary: 'OpenAI', secondary: 'verification request completed in 0.9 s', emoji: '⚡' },
+        detail: {
+          provider: 'openai', identity: { account_id: 'acct-42', plan_type: 'pro' }, credential: { expires_at: new Date(now + 9 * 86_400_000).toISOString() },
+          request: { model: 'gpt-5.6-sol', id: 'resp_1', at: new Date(now).toISOString(), ms: 912, usage: { input_tokens: 12, output_tokens: 1 } },
+          routing: { ready: true, applied: false, model: 'gpt', file: '/root/state/routing.local.yaml', rows: [], missing: [] }, verified_at: new Date(now).toISOString(),
+        },
+      }, {
+        state: 'connected', footer: { primary: 'Anthropic', secondary: 'verification request completed in 1.4 s', emoji: '🧠' },
+        detail: {
+          provider: 'anthropic',
+          credential: { kind: 'setup-token', obtained_at: new Date(now - 10 * 86_400_000).toISOString(), expires_at: new Date(now + 355 * 86_400_000).toISOString(), estimated: true },
+          request: { model: 'claude-haiku-4-5-20251001', id: 'msg_01', request_id: 'req_abc', at: new Date(now).toISOString(), ms: 1402, stop_reason: 'end_turn', usage: { input_tokens: 31, output_tokens: 1 } },
+          routing: { ready: true, applied: true, model: 'fable', file: '/root/state/routing.local.yaml', rows: [], missing: [] }, verified_at: new Date(now).toISOString(),
+        },
+      }),
+    } } })
+    const html = page.screenSetup(payload())
+    assert.match(text(html), /Two providers verified/)
+    assert.match(text(html), /Credential subscription token adopted 240h ago · about 355\.0d left, an estimate from Anthropic's documented lifetime/)
+    assert.match(text(html), /Verification claude-haiku-4-5-20251001 answered in 1402 ms/)
+    assert.match(text(html), /Routing fable for every ticket type that could not run · preset applied by Curia/)
+    assert.match(html, /<details><summary>Sign in to Anthropic again<\/summary>/)
+    assert.match(html, /<details><summary>Sign in to OpenAI again<\/summary>/)
+    assert.doesNotMatch(html, /sk-ant-|acct-42/)
+    assert.doesNotMatch(html, /Try again/)
   })
 })

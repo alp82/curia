@@ -7,7 +7,7 @@ Curia runs under docker compose on `coinmatica.net`, a Hetzner Cloud box (Ubuntu
 
 ## The compose stack
 
-`deploy/compose.yaml` defines five services, all built locally. Four run on the host network:
+`deploy/compose.yaml` defines five services, all built locally from the `box` stage of their Dockerfiles (the `release` stage after it is the published image, see [Release images and the Compose bundle](operator/bundle.md)). Four run on the host network:
 
 | Service | Restart | Role |
 | --- | --- | --- |
@@ -141,7 +141,11 @@ All four mount at their identical paths inside. One mount line covers every watc
 
 `overseer/tokens` mounts **read-only** and holds one file per resource owner, and nothing else ([#392](https://github.com/alp82/curia/issues/392)). The daemon writes it on the dispatch tick, so the value turns over about every fifty minutes. A `permission denied` for that path in the daemon log means docker made the directory first. Fix it with `sudo chown -R 1000:1000 ~/curia-work/overseer/tokens`.
 
-`credentials/` mounts **read-only** too, and holds one file per model provider ([#648](https://github.com/alp82/curia/issues/648)). The overseer re-reads it on every turn, so replacing the model credential no longer means recreating that service. Same `permission denied` fix: `sudo chown -R 1000:1000 ~/curia-work/credentials`.
+`credentials/` is the daemon's model-credential store, one file per provider ([#648](https://github.com/alp82/curia/issues/648)). Since [#867](https://github.com/alp82/curia/issues/867) it is **not mounted** into the overseer: the daemon writes the overseer a copy into `cfg/curia-overseer/.credentials.json`, the same file every claude agent gets, when it prepares a pane and on every tick. Replacing the model credential still reaches the next turn with nothing recreated. Same `permission denied` fix for the store itself: `sudo chown -R 1000:1000 ~/curia-work/credentials`.
+
+The `ttyd` service holds no Docker socket since #867 either. It runs `tmux attach` over the socket volume and nothing else. Recreate `tmux`/`ttyd` at the next zero-agent window to apply that.
+
+**The packaged installation uses a different Compose file.** `deploy/bundle/compose.yaml` is the shape an installed Curia runs on: every mount is a boundary of the installation root, no env file exists, and the four long-lived credentials are files under `secrets/`. That file is what the versioned bundle packages and `curia install` starts. This box keeps running on `deploy/compose.yaml` and `daemon/.env.daemon` until its cutover, and [The source cutover runbook](operator/source-cutover-runbook.md) moves the env file's values into secret files, with `deploy/cutover/cutover.mjs` doing the mechanical steps. See [Secrets, mounts, and what survives](operator/secrets.md) and [8. Migrate the current deployment](operator/guide/08-migrate-the-current-deployment.md). This file and the READMEs are the contributor's documentation; the [operator guide](operator/README.md) is for an installed Curia.
 
 ### The model credential moves to the store
 
@@ -173,6 +177,8 @@ Curia also deploys itself, with no dev box in the loop ([#270](https://github.co
 - `feat:` selects a minor release.
 - `feat!:` selects a major release.
 
+When the release pull request merges, Release Please drafts the release, and the rest of the same workflow (`.github/workflows/release.yml`) publishes the version in order: it builds and pushes the four service images, renders the Compose bundle and the release manifest against their digests, attaches them to the draft, publishes the release (which creates the tag), and publishes `@curia-sh/cli` last. Which published version installations run is a separate act, the stable-release index, in [Releases, the stable-release index, and version selection](operator/releases.md). This box doesn't consume those artifacts until its cutover.
+
 The `open_pull_request` tool produces these titles from its `release_level` argument. The pull-request title workflow rejects titles that don't select a release. Release Please then opens or updates one release pull request with the version files and `daemon/CHANGELOG.md`. Merge that release pull request before you deploy. Until it merges, `main` still has the old version and the deploy gate refuses it.
 
 A self-deploy refuses `origin/main` when its version is malformed, unchanged, or lower than the running version. Git commit IDs remain internal rollback references. Discord, the dashboard, the journal projection, and the deploy log identify releases by version.
@@ -187,6 +193,8 @@ The release workflow uses the existing Curia GitHub App. It doesn't use a person
 4. Set the default squash commit title to the pull-request title.
 
 The app keeps **Workflows** at **No access**. Release Please only changes the version files and changelog after this workflow is on `main`. Curia agents still can't add or edit workflow files.
+
+The publication of images, the bundle, the package, and the stable-release index needs more one-time setup: the signing key, the npm trusted publisher, the `release` environment, immutable releases, and public GHCR packages. The list is [One-time setup](operator/releases.md#one-time-setup).
 
 The release manifest starts at `0.2.0`. Its `bootstrap-sha` excludes repository history before this automation change. Remove `bootstrap-sha` from `release-please-config.json` after the first release pull request merges.
 

@@ -31,6 +31,10 @@ Desktop.ini
 config/*.local.yaml
 # The atomic write's temp file, which exists between a stage and a rename.
 config/.*.candidate
+# The operator configuration (#866). The Curia app and the lifecycle interface
+# write it, so git never tracks it. The second line is its atomic temp file.
+config/config.yaml
+config/.config.yaml.*.tmp
 secrets/
 credentials.json
 *.pem

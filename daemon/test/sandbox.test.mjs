@@ -65,7 +65,7 @@ describe('the docker run line (#156)', () => {
     assert.match(cmd, /-v \/home\/alp\/curia-work\/repos\/o__r\/wt\/42:\/workspace/)
     assert.match(cmd, /-v \/home\/alp\/curia-work\/cfg\/curia-42:\/cfg/)
     // the two shared caches, and nothing else of the box
-    const mounts = [...cmd.matchAll(/-v (\S+)/g)].map((m) => m[1])
+    const mounts = [...cmd.matchAll(/(?:-v|--mount) (\S+)/g)].map((m) => m[1])
     assert.equal(mounts.length, 4)
     for (const m of mounts) {
       // #473 moved curia's HOME to `home/` inside the workspace root, so the
@@ -75,6 +75,18 @@ describe('the docker run line (#156)', () => {
       assert.ok(!m.startsWith('/home/alp:'), `${m} mounts the operator's home`)
       assert.ok(!m.includes('/tmp/tmux'), `${m} mounts the tmux socket`)
     }
+  })
+
+  test('the cache volumes are named volumes, and under an installation they carry its label at creation (#886)', () => {
+    const plain = line()
+    assert.match(plain, /--mount type=volume,src=curia-agent-npm-cache,dst=\/cache\/npm /)
+    assert.match(plain, /--mount type=volume,src=curia-agent-browsers,dst=\/cache\/playwright-browsers /)
+    assert.ok(!plain.includes('sh.curia.installation'), 'no installation, no label')
+    const id = 'a'.repeat(32)
+    const labelled = line({ installationId: id })
+    assert.match(labelled, new RegExp(`--mount type=volume,src=curia-agent-npm-cache,dst=/cache/npm,volume-label=sh\\.curia\\.installation=${id} `))
+    assert.match(labelled, new RegExp(`--label sh\\.curia\\.installation=${id} `))
+    assert.throws(() => line({ installationId: 'a b' }), /not quote-free/)
   })
 
   test('the published ports are loopback only, and the same number on both sides', () => {

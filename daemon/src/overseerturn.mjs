@@ -41,10 +41,10 @@ import path from 'node:path'
 import { query as sdkQuery } from '@anthropic-ai/claude-agent-sdk'
 import { seedConfigDir, agentEnv, cfgDirFor } from './workspace.mjs'
 import { buildSystemPrompt, toolsFor, checkoutReport } from './overseerprompt.mjs'
-import { syncCheckouts, checkoutsRootFor } from './checkouts.mjs'
+import { syncCheckouts } from './checkouts.mjs'
 import { installCredentialConfig, unroutedOwners, unroutedNote } from './overseercreds.mjs'
-import { overseerTokensRootFor } from './overseertoken.mjs'
-import { AnthropicCredentialStore, anthropicStoreFile } from './credentials.mjs'
+import { CLAUDE_CREDENTIAL_FILE, readClaudeCredentialToken } from './credentials.mjs'
+import { pathsOf } from './paths.mjs'
 import { SIGNALS } from './messaging.mjs'
 
 // The route the daemon POSTs a turn to, on the container.
@@ -80,8 +80,10 @@ export const CONTAINER_MAX_TURNS = 40
 // `daemon/data/overseer/config`, and #315 deleted that host. Nothing reads the
 // old tree any more, and the cutover copied no history (ADR-0016), so whatever
 // a box still carries there is dead paper.
+export const OVERSEER_SESSION = 'curia-overseer'
+
 export function overseerConfigDirFor(workspaceRoot) {
-  return cfgDirFor(workspaceRoot, 'curia-overseer')
+  return cfgDirFor(workspaceRoot, OVERSEER_SESSION)
 }
 
 // The cwd every turn runs in, and it never moves: `resume` is keyed by cwd
@@ -185,23 +187,29 @@ export async function credentialPass(repos, dir, {
 // worse outage than an agent dying, because the overseer is how the operator
 // finds out anything is wrong at all.
 //
-// So it is a FILE the daemon writes and this container mounts READ-ONLY, and
-// this function reads it beside the checkout pass and the credential pass the
-// turn already runs per turn. A turn in flight when the credential changes
-// fails; the next one is correct.
+// So it is a FILE the daemon writes and this container reads per turn, beside
+// the checkout pass and the credential pass the turn already runs. A turn in
+// flight when the credential changes fails; the next one is correct.
+//
+// THE FILE IS THIS CONTAINER'S OWN COPY (#867), `.credentials.json` in the
+// overseer's config directory, the same shape every claude agent gets. It used
+// to be the store itself behind a read-only mount of `credentials/`. Under an
+// installation root the store is one file in `secrets/`, and a container that
+// holds a shell gets no mount of that boundary. The daemon writes the copy when
+// it prepares a pane and heals it on every tick.
 //
 // NOT OVER THE LOOPBACK TURN BODY. A secret riding the request would put it in
 // one more place — the daemon's memory, the wire, and whatever logs either side.
 //
-// THE STORE IS THE ONLY SOURCE (#726). An absent store needs `reauth anthropic`.
+// THE COPY IS THE ONLY SOURCE (#726). An absent copy needs `reauth anthropic`.
 // A frozen environment token has unknown age and validity, so using it would
 // restore the second source that the provider store replaced.
-export function modelCredentialEnv(root) {
-  const record = new AnthropicCredentialStore({ workspaceRoot: root }).read()
-  if (record) return { env: { CLAUDE_CODE_OAUTH_TOKEN: record.token }, note: null }
+export function modelCredentialEnv(configDir) {
+  const token = readClaudeCredentialToken(configDir)
+  if (token) return { env: { CLAUDE_CODE_OAUTH_TOKEN: token }, note: null }
   return {
     env: {},
-    note: `${SIGNALS.warn} there is no anthropic credential for this turn: ${anthropicStoreFile(root)} holds none. Run reauth anthropic`,
+    note: `${SIGNALS.warn} there is no anthropic credential for this turn: ${path.join(configDir, CLAUDE_CREDENTIAL_FILE)} holds none. Run reauth anthropic`,
   }
 }
 
@@ -228,6 +236,7 @@ function runOneTurn({
   queryFn = sdkQuery, sync = syncCheckouts, creds = credentialPass, now = () => new Date(),
 }) {
   const root = cfg.dispatch.workspace_root
+  const paths = pathsOf(cfg)
   const repos = cfg.watch.map((w) => w.repo)
   const configDir = overseerConfigDirFor(root)
   const home = overseerHomeFor(root)
@@ -243,13 +252,13 @@ function runOneTurn({
       // process: it is idempotent, and a config dir a deploy replaced would
       // otherwise stay unseeded until the container was restarted again.
       fs.mkdirSync(home, { recursive: true })
-      seedConfigDir(configDir, home)
+      seedConfigDir(configDir, home, null, 'claude', { sweep: false })
 
       // The git routing, before the fetch that needs it (#361). Every note it
       // returns names an owner the watch list added and this container holds no
       // token for, which is the cause of the clone failure the verdict below
       // would otherwise report without a reason.
-      for (const text of await creds(repos, overseerTokensRootFor(root))) {
+      for (const text of await creds(repos, paths.overseerTokens)) {
         log(text)
         emit(TURN_EVENTS.note, { text })
       }
@@ -257,13 +266,13 @@ function runOneTurn({
       // ADR-0014's one fetch per turn, before the model runs, in parallel. It
       // never refuses the turn: a repo it could not reach comes back as a
       // verdict, and the prompt states the age of its last good fetch.
-      const checkouts = await sync(root, repos, { now })
+      const checkouts = await sync(root, repos, { now, base: paths.overseerRepos })
       emit(TURN_EVENTS.note, { text: checkoutNote(checkouts) })
 
-      // The model credential, from the store the daemon writes (#648). Read here
+      // The model credential, the copy the daemon writes (#648, #867). Read here
       // rather than at the `query` call so its note reaches the operator in the
       // same stream as the checkout verdict.
-      const credential = modelCredentialEnv(root)
+      const credential = modelCredentialEnv(configDir)
       if (credential.note) {
         log(credential.note)
         emit(TURN_EVENTS.note, { text: credential.note })
@@ -272,7 +281,7 @@ function runOneTurn({
       // The standing orders and the tool list are ONE call each (#328), and the
       // verdict text is composed beside them (#314).
       const systemPrompt = [
-        buildSystemPrompt({ shell: true, checkoutsRoot: checkoutsRootFor(root), repos }),
+        buildSystemPrompt({ shell: true, checkoutsRoot: paths.overseerRepos, repos }),
         checkoutReport(checkouts, { now }),
       ].join('\n\n')
       const { allowed, disallowed } = toolsFor({ shell: true })

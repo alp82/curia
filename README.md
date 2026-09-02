@@ -107,6 +107,8 @@ CURIA_GH_APP_KEY_FILE=.curia-app.pem
 
 Optional: `CURIA_GUILD_ID`, `CURIA_CHANNEL` (default `curia`), `PORT` (4271).
 
+This env file belongs to the source deployment only. An installed Curia keeps each credential as one owner-only file under `secrets/` in its installation root and the Discord facts in `state/discord.json`, and refuses to start with a credential in its environment. See [Secrets, mounts, and what survives](docs/operator/secrets.md).
+
 The overseer takes no model variable. It runs in its own container since the
 cutover (#315), on `claude-sonnet-5` with no fallback, and the model is
 `OVERSEER_CONTAINER_MODEL` in `daemon/src/overseerturn.mjs`.
@@ -290,3 +292,6 @@ Logs are the service's output. Under compose: `docker compose -f deploy/compose.
   `*.local.yaml` beside either one holds your box's own answers and stays out of git.
 - `docs/landing-page/` — the brief, the build notes and the hosting record for <https://curia.sh>.
 - `daemon/README.md` and `docs/deploy.md` — the operator's own box, not yours.
+- `docs/operator/README.md` — the operator guide for an installed Curia: the packaged lifecycle from a
+  supported host to a verified Full loop, daily operation, update and rollback, uninstall and purge.
+  The setup in this file is the source deployment, which is contributor territory.

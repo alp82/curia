@@ -11,7 +11,7 @@ import path from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
-import { loadCuriaConfig, loadRoutingConfig, localConfigFile, overrideSummary } from '../src/config.mjs'
+import { loadCuriaConfig, loadRoutingConfig, localConfigFile, operatorConfigFile, overrideSummary } from '../src/config.mjs'
 import { DEFAULT_SKILLS, defaultSkillsRoot } from '../src/workspace.mjs'
  import { DEFAULT_INDEX } from '../src/attach.mjs'
 import { DEFAULT_TIMELINE_INDEX } from '../src/timeline.mjs'
@@ -768,6 +768,88 @@ describe('the tracked file and the override beside it (#292)', () => {
   })
 })
 
+// The operator configuration (#866): `config/config.yaml` beside `curia.yaml`,
+// read through the one contract module in `cli/src/config.mjs`. Its keys win
+// over the shipped file, and a file the contract refuses refuses the boot with
+// the contract's own message: the path, the line, the key, the rule.
+describe('the operator configuration layer (#866)', () => {
+  before(() => { tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-operator-cfg-')) })
+  after(() => { fs.rmSync(tmp, { recursive: true, force: true }) })
+
+  // Every `writeConfig` file in this describe shares one directory, so each
+  // case writes the operator file and removes it again.
+  const operator = (file, ...lines) => {
+    fs.writeFileSync(operatorConfigFile(file), `${lines.join('\n')}\n`)
+    return file
+  }
+  const without = (file) => fs.rmSync(operatorConfigFile(file), { force: true })
+
+  test('the file lives beside curia.yaml as config.yaml', () => {
+    assert.equal(operatorConfigFile('/x/config/curia.yaml'), '/x/config/config.yaml')
+  })
+
+  test('no operator file is the ordinary case of a source checkout, not an error', () => {
+    const file = writeConfig()
+    without(file)
+    assert.equal(loadCuriaConfig(file).dispatch.max_concurrent, 2)
+  })
+
+  test('every operator key wins over the shipped file, and the keys it leaves out keep the shipped answer', () => {
+    const file = operator(writeConfig(),
+      'max_concurrent: 3', 'auto_dispatch: true', 'poll_interval_s: 15', 'prototype_variations: 2',
+      'messages_per_send: 1', 'live_pane_cap: 7', 'watch:', '  - repo: op/one', '    mode: map', '  - repo: op/two')
+    const cfg = loadCuriaConfig(file)
+    without(file)
+    assert.equal(cfg.dispatch.max_concurrent, 3)
+    assert.equal(cfg.dispatch.auto_dispatch, true)
+    assert.equal(cfg.dispatch.poll_interval_s, 15)
+    assert.equal(cfg.dispatch.prototype_variations, 2)
+    assert.equal(cfg.dispatch.messages_per_send, 1)
+    assert.equal(cfg.overseer.live_pane_cap, 7)
+    assert.deepEqual(cfg.watch, [{ repo: 'op/one', mode: 'map' }, { repo: 'op/two', mode: 'auto' }])
+    assert.equal(cfg.dispatch.claim_login, 'alp82', 'a key outside the contract still comes from curia.yaml')
+  })
+
+  test('a partial file overrides only what it sets', () => {
+    const file = operator(writeConfig(), 'max_concurrent: 4')
+    const cfg = loadCuriaConfig(file)
+    without(file)
+    assert.equal(cfg.dispatch.max_concurrent, 4)
+    assert.equal(cfg.dispatch.poll_interval_s, 60)
+    assert.deepEqual(cfg.watch, [{ repo: 'o/r', mode: 'auto' }])
+  })
+
+  test('the operator file wins over the hand override too', () => {
+    const file = operator(writeConfig(), 'max_concurrent: 4')
+    fs.writeFileSync(localConfigFile(file), 'dispatch:\n  max_concurrent: 7\n')
+    const cfg = loadCuriaConfig(file)
+    without(file)
+    assert.equal(cfg.dispatch.max_concurrent, 4)
+  })
+
+  test('an invalid direct edit refuses the boot with the exact diagnostic', () => {
+    const file = operator(writeConfig(), 'max_concurrent: 4', 'auto_dispatch: sometimes')
+    assert.throws(() => loadCuriaConfig(file), (e) => {
+      assert.equal(e.message, `${operatorConfigFile(file)} line 2: \`auto_dispatch\` must be true or false (got sometimes)`)
+      return true
+    })
+    without(file)
+  })
+
+  test('a rule that reads two sections together still runs, and the refusal names the operator file', () => {
+    const file = operator(writeConfig(), 'max_concurrent: 500')
+    assert.throws(() => loadCuriaConfig(file), (e) => /config\.yaml: sandbox ports/.test(e.message))
+    without(file)
+  })
+
+  test('the loader takes a validated operator object in place of the file, which is how the app judges a save', () => {
+    const file = operator(writeConfig(), 'max_concurrent: 4')
+    assert.equal(loadCuriaConfig(file, { operator: { max_concurrent: 5 } }).dispatch.max_concurrent, 5)
+    assert.equal(loadCuriaConfig(file, { operator: null }).dispatch.max_concurrent, 2)
+    without(file)
+  })
+})
+
 // The whole decision rests on git not tracking the override, so the ignore rule
 // is pinned against git itself rather than against a reading of the pattern.
 describe('git ignores the override and tracks the base (#292)', () => {
@@ -788,6 +870,11 @@ describe('git ignores the override and tracks the base (#292)', () => {
 
   test('the atomic write’s candidate is ignored too, so a crash leaves no untracked file', () => {
     assert.equal(ignored('config/.curia.local.yaml.candidate'), true)
+  })
+
+  test('the operator configuration and its atomic temporary file are ignored (#866)', () => {
+    assert.equal(ignored('config/config.yaml'), true, 'the app writes it, so a tracked copy would dirty the checkout')
+    assert.equal(ignored('config/.config.yaml.123.abcdef.tmp'), true)
   })
 })
 
@@ -845,5 +932,78 @@ describe('the aistack section (#695)', () => {
     assert.ok(shipped.aistack.interval_hours > 0)
     assert.equal('enabled' in shipped.aistack, false,
       'the switch is the machine credential under curia\'s HOME, not a config key')
+  })
+})
+
+// ---- the installation root outranks the file (#867) --------------------------
+//
+// Under `CURIA_ROOT` the service data lives inside the root's boundaries, and
+// the loader states every path once as `cfg.paths`. The file's own
+// `workspace_root` is the source deployment's answer and yields to `work/`.
+
+describe('the installation root and the service paths (#867)', () => {
+  before(() => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-config-root-'))
+    root = path.join(tmp, 'host-skills')
+    fs.mkdirSync(root, { recursive: true })
+  })
+  after(() => { fs.rmSync(tmp, { recursive: true, force: true }) })
+
+  const noSkills = () => `skills:\n  root: ${root}\n  install: []`
+
+  test('without a root, the paths are the source deployment\'s, off the workspace root', () => {
+    const cfg = loadCuriaConfig(writeConfig(noSkills()), { env: {} })
+    const ws = path.join(tmp, 'work')
+    assert.equal(cfg.paths.root, null)
+    assert.equal(cfg.paths.workspaceRoot, ws)
+    assert.equal(cfg.paths.home, path.join(ws, 'home'))
+    assert.equal(cfg.paths.anthropicStore, path.join(ws, 'credentials', 'anthropic.json'))
+    assert.equal(cfg.paths.overseerRepos, path.join(ws, 'overseer', 'repos'))
+    assert.equal(cfg.paths.overseerTokens, path.join(ws, 'overseer', 'tokens'))
+    assert.equal(cfg.paths.secrets, null)
+    assert.equal(cfg.paths.state, null)
+  })
+
+  test('under a root, every path is inside the root and the workspace root is work/', () => {
+    const installRoot = path.join(tmp, 'install')
+    const cfg = loadCuriaConfig(writeConfig(noSkills()), { env: { CURIA_ROOT: installRoot } })
+    assert.equal(cfg.paths.root, installRoot)
+    assert.equal(cfg.dispatch.workspace_root, path.join(installRoot, 'work'))
+    assert.equal(cfg.paths.workspaceRoot, path.join(installRoot, 'work'))
+    assert.equal(cfg.paths.state, path.join(installRoot, 'state'))
+    assert.equal(cfg.paths.secrets, path.join(installRoot, 'secrets'))
+    assert.equal(cfg.paths.anthropicStore, path.join(installRoot, 'secrets', 'anthropic.json'))
+    assert.equal(cfg.paths.codexAuth, path.join(installRoot, 'secrets', 'codex-auth.json'))
+    assert.equal(cfg.paths.home, path.join(installRoot, 'cache', 'home'))
+    assert.equal(cfg.paths.overseerRepos, path.join(installRoot, 'cache', 'overseer-repos'))
+    assert.equal(cfg.paths.overseerTokens, path.join(installRoot, 'run', 'overseer-tokens'))
+    for (const [name, p] of Object.entries(cfg.paths)) {
+      if (p) assert.ok(p.startsWith(installRoot), `${name} (${p}) is outside the root`)
+    }
+  })
+
+  test('under a root the operator configuration is config/config.yaml in the root, not beside curia.yaml', () => {
+    const installRoot = path.join(tmp, 'install-op')
+    fs.mkdirSync(path.join(installRoot, 'config'), { recursive: true })
+    fs.writeFileSync(path.join(installRoot, 'config', 'config.yaml'), 'max_concurrent: 7\n')
+    const file = writeConfig(noSkills())
+    // A file beside curia.yaml would be the source deployment's, and it is not read.
+    fs.writeFileSync(operatorConfigFile(file), 'max_concurrent: 9\n')
+    const cfg = loadCuriaConfig(file, { env: { CURIA_ROOT: installRoot } })
+    assert.equal(cfg.dispatch.max_concurrent, 7)
+  })
+
+  test('a relative root is refused', () => {
+    assert.throws(() => loadCuriaConfig(writeConfig(noSkills()), { env: { CURIA_ROOT: 'relative' } }), /absolute/)
+  })
+
+  // The shipped file says `agent_uid: 1000`, which is the source box's fact.
+  // Under a root the containers run as the operator (#869), and the service
+  // is one of them, so the uid it runs as is the uid the agents get.
+  test('under a root the agent uid is the service\'s own uid, whatever the shipped file says', () => {
+    const installRoot = path.join(tmp, 'install-uid')
+    const withUid = `${noSkills()}\n${sandboxYaml().join('\n').replace(/agent_uid: \d+/, 'agent_uid: 4242')}`
+    assert.equal(loadCuriaConfig(writeConfig(withUid), { env: {} }).sandbox.agent_uid, 4242)
+    assert.equal(loadCuriaConfig(writeConfig(withUid), { env: { CURIA_ROOT: installRoot } }).sandbox.agent_uid, process.getuid())
   })
 })

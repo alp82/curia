@@ -26,6 +26,8 @@ None of this is secret. The app id travels in every JWT the daemon signs. The pr
 
 [#694](https://github.com/alp82/curia/issues/694) replaced the first three steps below with one press. The Curia app asks the service for a manifest, the browser posts it to `https://github.com/settings/apps/new`, and GitHub redirects back with a one-hour conversion code. The service converts that code itself: it writes the private key to `daemon/.curia-app.pem` at mode 0600, writes `CURIA_GH_APP_ID` and `CURIA_GH_APP_KEY_FILE` into `daemon/.env.daemon`, and adopts the app in process, so step 6 and the restart are gone too.
 
+In an installed Curia ([#867](https://github.com/alp82/curia/issues/867)) the converted app lands in one owner-only file instead, `secrets/github-app.json` in the installation root, holding `{ "id": "<app id>", "pem": "<private key>" }`. No env file is written. See [Secrets, mounts, and what survives](operator/secrets.md). The **GitHub** card of the Setup screen ([#875](https://github.com/alp82/curia/issues/875)) runs this same flow on a fresh installation, then verifies the installation and the minted credential. See [Connect GitHub](operator/integration-setup.md#connect-github).
+
 The manifest states the five permissions of step 2 and no events, so nothing on the **Permissions & events** page has to be set by hand. Neither the browser nor the dashboard sidecar ever sees the conversion response: the browser carries `code` and `state` back and gets the app id, the slug, the bot login and the install link.
 
 Steps 4 and 5 stay yours. An installation is granted per owner, and only a human can grant it.

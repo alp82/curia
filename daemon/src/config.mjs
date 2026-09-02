@@ -22,10 +22,49 @@ import { readDashboard } from './dashboard.mjs'
 import { readOverseer } from './overseerservice.mjs'
 import { CONSUMER_NAMES, consumerContractFault, providerContractFault } from './credentials.mjs'
 import { HARNESS_REGISTRY } from './harnesses.mjs'
+import {
+  WATCH_MODES as OPERATOR_WATCH_MODES, operatorConfigPath, readOperatorConfig, validateOperatorConfig,
+} from '../../cli/src/config.mjs'
+import { servicePaths } from './paths.mjs'
+import { readInstallationRecord } from '../../cli/src/root.mjs'
 
-// Exported because the settings screen writes this key (#265), and a second
-// list of the legal modes would be a second answer to one question.
-export const WATCH_MODES = ['auto', 'map', 'ready-for-agent']
+// The legal watch modes come from the operator configuration contract (#866),
+// which the settings screen writes through. Re-exported here so the daemon's
+// own callers keep one name for one list.
+export const WATCH_MODES = OPERATOR_WATCH_MODES
+
+// ---------------------------------------------------------------------------
+// the operator configuration (#866)
+// ---------------------------------------------------------------------------
+//
+// `config/config.yaml`, beside `curia.yaml`, holds operator intent: the
+// concurrency, the dispatch switches, the pane cap, and the watch list. It is
+// the file the operator edits by hand, the app saves, and `curia install`
+// writes. One module reads, validates, and writes it in every process
+// (`cli/src/config.mjs`), so the daemon, the app, and the lifecycle interface
+// cannot disagree about what the file means or what a refusal says.
+//
+// Its keys win over `curia.yaml` and over the hand override beside it. A key
+// the file leaves out keeps the shipped answer, so a source checkout without
+// the file runs exactly as before. An invalid file refuses the boot with the
+// contract's own message, which names the path, the line, the key, and the
+// rule. Nothing here falls back to an older copy: the running daemon keeps
+// what it loaded, and the next boot reads what is on disk.
+export const operatorConfigFile = (file) => path.join(path.dirname(file), 'config.yaml')
+
+// Lays a validated operator configuration over the merged `curia.yaml`
+// shape, before the rules below judge the whole.
+function applyOperatorConfig(cfg, op) {
+  if (!op) return
+  const d = cfg.dispatch && typeof cfg.dispatch === 'object' ? cfg.dispatch : (cfg.dispatch = {})
+  for (const key of ['max_concurrent', 'auto_dispatch', 'poll_interval_s', 'prototype_variations', 'messages_per_send']) {
+    if (op[key] !== undefined) d[key] = op[key]
+  }
+  if (op.live_pane_cap !== undefined) {
+    cfg.overseer = { ...(cfg.overseer && typeof cfg.overseer === 'object' ? cfg.overseer : {}), live_pane_cap: op.live_pane_cap }
+  }
+  if (op.watch !== undefined) cfg.watch = op.watch.map((w) => ({ repo: w.repo, mode: w.mode }))
+}
 
 // A GitHub login as GitHub itself allows one: letters, digits and single
 // hyphens, no hyphen at either end, 39 characters at most. The whole point of
@@ -119,8 +158,8 @@ export function readLayered(file, { localFile } = {}) {
 
 // What the daemon says at boot about the overrides it read, so the second file
 // is never invisible to somebody reading the first one. Null when there is none.
-export function overrideSummary(file) {
-  const local = localConfigFile(file)
+export function overrideSummary(file, localFile = localConfigFile(file)) {
+  const local = localFile
   if (!fs.existsSync(local)) return null
   const over = parse(fs.readFileSync(local, 'utf8'))
   return { file: local, keys: isMapping(over) ? Object.keys(over) : [] }
@@ -144,14 +183,34 @@ export function overrideSummary(file) {
 // skipped is exactly what the sidecar cannot see and cannot change. Every other
 // rule — the shapes, the ports, the collisions, `3 × max_concurrent` against
 // the sandbox range — runs in both processes, unchanged.
-export function loadCuriaConfig(file, { checkPaths = true, localFile, env = process.env } = {}) {
+//
+// `operator` is the operator configuration (#866): left out, the loader reads
+// `config.yaml` beside `file` and takes none when there is no file; `null`
+// reads the shipped layers alone; an object is a candidate the app judges
+// before it writes, validated here by the contract's own rules first.
+function installationIdOf(root, file) {
+  try {
+    return readInstallationRecord(root)?.installationId ?? null
+  } catch (e) {
+    fail(file, `the installation record under CURIA_ROOT cannot be read: ${e.message}`)
+  }
+}
+
+export function loadCuriaConfig(file, { checkPaths = true, localFile, env = process.env, operator } = {}) {
   const layers = readLayered(file, { localFile })
   const cfg = layers.data
+  // Under an installation root (#867) the operator configuration is the root's
+  // own `config/config.yaml`. Beside `curia.yaml` is the source deployment's.
+  const installRoot = env.CURIA_ROOT || null
+  if (installRoot && !path.isAbsolute(installRoot)) fail(file, `CURIA_ROOT must be an absolute path (got ${installRoot})`)
+  const operatorFile = installRoot ? operatorConfigPath(installRoot) : operatorConfigFile(file)
+  const op = operator === undefined ? readOperatorConfig(operatorFile) : (operator === null ? null : validateOperatorConfig(operator))
   // What a refusal names. A merged config has two authors, so a message that
   // named the tracked file alone would send the operator to edit a line that is
   // no longer the one running.
-  const src = layers.localFile ? `${file} + ${layers.localFile}` : file
+  const src = [file, layers.localFile, op ? operatorFile : null].filter(Boolean).join(' + ')
   if (!cfg || typeof cfg !== 'object') fail(src, 'not a mapping')
+  applyOperatorConfig(cfg, op)
 
   if (!Array.isArray(cfg.watch) || !cfg.watch.length) fail(src, '`watch` must be a non-empty list')
   for (const entry of cfg.watch) {
@@ -202,9 +261,25 @@ export function loadCuriaConfig(file, { checkPaths = true, localFile, env = proc
   //
   // The variable is absent outside compose — a dev run, the suite — and then
   // there is no second answer to check against.
-  const mounted = env.CURIA_WORKSPACE_ROOT
-  if (mounted && path.resolve(mounted) !== path.resolve(d.workspace_root)) {
-    fail(src, `dispatch.workspace_root is ${d.workspace_root}, but compose mounts ${mounted} (CURIA_WORKSPACE_ROOT in deploy/.env) — worktrees would be written inside the container and lost on the next recreate`)
+  //
+  // THE INSTALLATION ROOT OUTRANKS BOTH (#867). Under `CURIA_ROOT` the
+  // worktrees live in `work/` inside the root, the Compose bundle mounts that
+  // boundary, and the file's own `workspace_root` is the source deployment's
+  // answer. `cfg.paths` states every service path once, for every process
+  // that loads this file.
+  cfg.paths = servicePaths({ root: installRoot, workspaceRoot: d.workspace_root })
+  // The installation ID (#865) labels every agent container and cache volume
+  // the service creates, so `curia uninstall` and `curia purge` (#855) find
+  // them by the same label the Compose bundle puts on the services. Without a
+  // root there is no installation and nothing is labelled.
+  cfg.installationId = installRoot ? installationIdOf(installRoot, file) : null
+  if (installRoot) {
+    d.workspace_root = cfg.paths.workspaceRoot
+  } else {
+    const mounted = env.CURIA_WORKSPACE_ROOT
+    if (mounted && path.resolve(mounted) !== path.resolve(d.workspace_root)) {
+      fail(src, `dispatch.workspace_root is ${d.workspace_root}, but compose mounts ${mounted} (CURIA_WORKSPACE_ROOT in deploy/.env) — worktrees would be written inside the container and lost on the next recreate`)
+    }
   }
   // Who a claim assigns (#390, ADR-0018). A claim is an issue assignee, and
   // GitHub does not let an App be one — so the daemon calls as `curia-sh[bot]`
@@ -479,6 +554,10 @@ export function loadCuriaConfig(file, { checkPaths = true, localFile, env = proc
     // its first write. Defaulted to the daemon's own uid, which is the only
     // value that can be right by construction.
     sb.agent_uid = sb.agent_uid ?? process.getuid?.()
+    // Under an installation root the file's answer is the source box's (#869).
+    // Every container of the bundle runs as the operator's uid, this process
+    // included, so the uid it runs as is the one that owns the worktrees.
+    if (installRoot) sb.agent_uid = process.getuid?.() ?? sb.agent_uid
     if (!(Number.isInteger(sb.agent_uid) && sb.agent_uid >= 0 && sb.agent_uid < 2 ** 31)) {
       fail(src, `sandbox.agent_uid must be a uid (got ${JSON.stringify(sb.agent_uid)})`)
     }

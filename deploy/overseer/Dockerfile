@@ -1,6 +1,6 @@
 # The overseer image (#327, building the service [ADR-0015](../../docs/adr/0015-the-overseer-is-a-service.md)
-# decided). One long-lived container beside the dashboard, and many
-# conversations pass through it.
+# decided; release stage by #869). One long-lived container beside the
+# dashboard, and many conversations pass through it.
 #
 # ITS OWN IMAGE, NOT THE AGENT IMAGE. The agent image already carries git, gh
 # and both harnesses, so reuse was the obvious move. Its tag is a CONTENT
@@ -25,18 +25,19 @@
 # stays an agent's job, and the overseer dispatches one. What it can do is read
 # every watched repo at every ref, which is what ADR-0014 asked for.
 #
-# The CODE is not baked in. It runs from the repo mount, exactly as the daemon's
-# and the dashboard's do, so a deploy is a pull plus a restart. What IS baked in
-# is the dependency tree, for the reason the dashboard states: `daemon/` as a
-# whole must not be mounted, because `.env.daemon` and `data/` live in it.
+# Three stages, the same shape as the daemon image: `toolchain` is the shell
+# and the harness, `box` is the source deployment's image (the code runs from
+# the repo mount, the dependency tree is baked in for the reason the dashboard
+# states), and `release` is the published image with the code at /opt/curia.
 
-# No default: the pin is one version across every curia image, and it comes from
-# the anchor in deploy/compose.yaml (#357, applied by #409).
+# No default: the pin is one version across every curia image, and it comes
+# from config/curia.yaml through the anchor in deploy/compose.yaml on the box
+# and deploy/bundle/pins.mjs in a release (#357, applied by #409).
 ARG NODE_VERSION
 ARG GH_VERSION=2.97.0
 ARG CLAUDE_VERSION
 
-FROM node:${NODE_VERSION}-bookworm-slim
+FROM node:${NODE_VERSION}-bookworm-slim AS toolchain
 ARG GH_VERSION
 ARG CLAUDE_VERSION
 
@@ -81,6 +82,14 @@ RUN npm install -g --no-fund --no-audit \
 COPY deploy/overseer/gh-shim.sh /usr/local/bin/gh
 RUN chmod 0755 /usr/local/bin/gh
 
+# The SDK checks for a newer self on start. The image is the pin, and this
+# container is recreated by a deploy, never by an update it decided itself.
+ENV DISABLE_AUTOUPDATER=1
+
+# ---------------------------------------------------------------------------
+# The source deployment's image. deploy/compose.yaml builds this stage.
+FROM toolchain AS box
+
 # THE BAKED DEPENDENCY TREE HAS TO SIT WHERE THE REPO MOUNTS (#473), the same
 # reason the dashboard image states. So this path is the variable the mounts
 # take, and it carries no default: an empty arg fails the chown below rather
@@ -104,10 +113,31 @@ RUN npm ci --omit=dev --no-fund --no-audit --ignore-scripts \
 ARG CURIA_HOME
 RUN mkdir -p "$CURIA_HOME" && chown 1000:1000 "$CURIA_HOME"
 
-# The SDK checks for a newer self on start. The image is the pin, and this
-# container is recreated by a deploy, never by an update it decided itself.
-ENV DISABLE_AUTOUPDATER=1
+LABEL org.opencontainers.image.title="curia overseer" \
+      org.opencontainers.image.source="https://github.com/alp82/curia" \
+      curia.gh-version="${GH_VERSION}"
+
+# ---------------------------------------------------------------------------
+# The release image (#869). Last, so a build that names no target builds it.
+#
+# The overseer reads the daemon's modules, the seed's assets (`voice.md`, #314),
+# the shipped configuration, and the lifecycle interface's source (#866). The
+# per-owner git config lands under HOME, which the bundle sets to `cache/home`
+# inside the installation root. Root-owned and world-readable, read-only to the
+# operator that runs it.
+FROM toolchain AS release
+
+WORKDIR /opt/curia/daemon
+COPY daemon/package.json daemon/package-lock.json ./
+RUN npm ci --omit=dev --no-fund --no-audit --ignore-scripts \
+  && npm cache clean --force
+COPY daemon/src ./src
+COPY daemon/bin ./bin
+COPY daemon/assets ./assets
+COPY cli/src /opt/curia/cli/src
+COPY config/curia.yaml config/routing.yaml /opt/curia/config/
 
 LABEL org.opencontainers.image.title="curia overseer" \
       org.opencontainers.image.source="https://github.com/alp82/curia" \
+      org.opencontainers.image.description="The Curia overseer: one shell-holding container that every conversation passes through." \
       curia.gh-version="${GH_VERSION}"

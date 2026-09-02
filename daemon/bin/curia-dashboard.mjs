@@ -29,12 +29,24 @@ const log = (...a) => console.log(`[${new Date().toISOString()}]`, ...a)
 
 const { dashboard, allow, timelinePort, terminalPort } = loadDashboardConfig(CONFIG)
 
+// Under an installation root (#877) the allowlist is the operator confirmed
+// through integration setup, which the daemon keeps in `state/tailscale.json`.
+// This container mounts nothing of the root, so it asks the daemon, and
+// `identity.allow` in the shipped curia.yaml admits nobody here: that list is
+// the source deployment's.
+const underRoot = Boolean(process.env.CURIA_ROOT)
+
 const surface = new DashboardSurface({
   port: dashboard.port,
   servePort: dashboard.serve_port,
   index: dashboard.index,
   pollIntervalS: dashboard.poll_interval_s,
-  allow,
+  allow: underRoot ? [] : allow,
+  identitySource: underRoot ? 'daemon' : 'config',
+  // And the settings screen's two files (#880): this container mounts
+  // nothing of the root, so under one it reads them and lands a save
+  // through the service's `/settings` instead of its own filesystem.
+  settingsSource: underRoot ? 'daemon' : 'files',
   daemonPort: daemonPort(),
   // The chat (#267) is the daemon's timeline surface, served under this
   // address. Both containers share the host network, so the port is the same
@@ -62,7 +74,7 @@ if (!verified) {
 }
 
 const first = await surface.assert()
-if (first.verified) log(`dashboard published on https://<this box>:${dashboard.serve_port}/ — identity check in front, ${allow.length} login(s) admitted`)
+if (first.verified) log(`dashboard published on https://<this box>:${dashboard.serve_port}/ — identity check in front, ${surface.allow.size} login(s) admitted${underRoot ? ' (from the operator confirmed in setup)' : ''}`)
 surface.startAssertLoop()
 
 // A clean stop withdraws its own rule. A crash does not, and does not need to:

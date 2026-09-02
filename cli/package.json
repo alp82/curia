@@ -1,0 +1,36 @@
+{
+  "name": "@curia-sh/cli",
+  "version": "0.4.1",
+  "description": "Curia's lifecycle interface: install, update, roll back, diagnose, and remove one Curia installation.",
+  "type": "module",
+  "bin": {
+    "curia": "bin/curia.mjs"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "manifest.json",
+    "stable-index.pub",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/alp82/curia.git",
+    "directory": "cli"
+  },
+  "homepage": "https://curia.sh",
+  "//engines": "The host Node only matters while the package is invoked without an installed version, such as in this test suite. An installed Curia runs the lifecycle interface on its own pinned runtime under versions/<version>/node.",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "//curia": "The Node.js runtime the bootstrap stages under versions/<version>/node: the exact version config/curia.yaml pins for the release images, read by deploy/bootstrap/curia-install.sh with sed, so it stays one x.y.z on its own line. daemon/test/bootstrap.test.mjs keeps it equal to the pin.",
+  "curia": {
+    "node": "24.19.0"
+  },
+  "scripts": {
+    "test": "node --test 'test/*.test.mjs'"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

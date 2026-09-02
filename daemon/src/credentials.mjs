@@ -42,7 +42,7 @@ import { CONSUMER_NAMES } from './credentialcontracts.mjs'
 import { codexAccessTokenExpiry, codexTokenClock } from './codexcredential.mjs'
 
 export { CONSUMER_NAMES } from './credentialcontracts.mjs'
-export { codexAccessTokenExpiry, codexTokenClock } from './codexcredential.mjs'
+export { codexAccessTokenExpiry, codexTokenClock, codexTokenIdentity } from './codexcredential.mjs'
 
 // ---- reading the credential ------------------------------------------------
 
@@ -315,10 +315,12 @@ export class CodexCredentialBroker {
   #transientFailures = 0
 
   constructor({
-    home = null, fetchImpl = globalThis.fetch, now = Date.now,
+    home = null, authFile = null, fetchImpl = globalThis.fetch, now = Date.now,
     log = () => {}, journal = () => {},
   } = {}) {
-    this.authFile = codexAuthFile(home)
+    // `authFile` is `cfg.paths.codexAuth` (#867): `secrets/codex-auth.json`
+    // under an installation root, the home's `.codex/auth.json` without one.
+    this.authFile = authFile ?? codexAuthFile(home)
     this.fetchImpl = fetchImpl
     this.now = now
     this.log = log
@@ -1243,6 +1245,18 @@ export function writeClaudeCredentials(cfgDir, record) {
   return writeCredentialFile(path.join(cfgDir, CLAUDE_CREDENTIAL_FILE), claudeCredentialsJson(record), { mode: HOST_CREDENTIAL_MODE })
 }
 
+// The token in one consumer's copy, or null when the copy is absent or not a
+// `sk-ant-…` token. The overseer's turn reads its own copy this way (#867):
+// the container never sees the store.
+export function readClaudeCredentialToken(cfgDir) {
+  try {
+    const token = JSON.parse(fs.readFileSync(path.join(cfgDir, CLAUDE_CREDENTIAL_FILE), 'utf8'))?.claudeAiOauth?.accessToken
+    return ANTHROPIC_TOKEN_RE.test(String(token ?? '')) ? token : null
+  } catch {
+    return null
+  }
+}
+
 // ---- the two contract tables ------------------------------------------------
 //
 // ADR-0027 left this open in as many words: the table "may no longer be keyed by
@@ -1300,20 +1314,23 @@ export const CONSUMER_CREDENTIALS = Object.freeze({
   }),
   overseer: Object.freeze({
     provider: ANTHROPIC_PROVIDER,
-    // THE STORE ITSELF, behind a read-only mount — the #392 precedent, the same
-    // shape in the same container for the same reason. The daemon writes one
-    // file and compose mounts it; there is no per-consumer copy to keep in step.
-    // `runOneTurn` re-reads it per turn, beside the checkout pass and the
-    // credential pass it already runs per turn.
-    deliver: Object.freeze({ how: 'mount', file: 'anthropic.json' }),
-    heal: 'next-turn',
+    // A COPY IN ITS OWN CONFIG DIRECTORY, the same shape a claude agent gets
+    // (#867). It used to read the store itself behind a read-only mount of the
+    // whole `credentials/` tree. Under an installation root the store is one
+    // file in `secrets/`, and a container that holds a shell gets no mount of
+    // that boundary: the daemon writes the copy into `work/cfg/curia-overseer`
+    // and heals it on the tick beside every live claude agent's. A turn or a
+    // pane re-reads the copy, so a replaced credential reaches the next one
+    // with nothing restarted.
+    deliver: Object.freeze({ how: 'config-dir', file: CLAUDE_CREDENTIAL_FILE }),
+    heal: 'in-place',
   }),
 })
 
-// The delivery shapes this daemon knows how to perform. A consumer naming
+// The delivery shape this daemon knows how to perform. A consumer naming
 // anything else is a consumer nothing delivers to, and `config.mjs` refuses it
 // at boot rather than letting a dispatch discover it.
-export const DELIVERY_SHAPES = Object.freeze(new Set(['config-dir', 'mount']))
+export const DELIVERY_SHAPES = Object.freeze(new Set(['config-dir']))
 
 // Why a HARNESS's provider is unusable, or null when it is fine. A harness whose
 // provider has no contract row would spawn agents curia cannot give a credential
@@ -1345,8 +1362,11 @@ export function consumerContractFault(consumer) {
 // is nothing to refresh here. It owns the record and fan-out to live claude
 // agents. #726 retired environment seeding after re-authentication shipped.
 export class AnthropicCredentialStore {
-  constructor({ workspaceRoot, now = Date.now, journal = () => {} } = {}) {
-    this.file = anthropicStoreFile(workspaceRoot)
+  // `file` is `cfg.paths.anthropicStore` (#867): `secrets/anthropic.json`
+  // under an installation root, `<workspace_root>/credentials/anthropic.json`
+  // in the source deployment. `workspaceRoot` alone still names the latter.
+  constructor({ file = null, workspaceRoot, now = Date.now, journal = () => {} } = {}) {
+    this.file = file ?? anthropicStoreFile(workspaceRoot)
     this.now = now
     this.journal = journal
   }

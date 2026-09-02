@@ -1,0 +1,391 @@
+# The release workflow (#869, #870, #871, implementing #849 and #854).
+#
+# On every push to main, Release Please opens or updates the release pull
+# request. When that pull request merges, Release Please creates a *draft*
+# release for the new version (release-please-config.json sets `draft`), and
+# the rest of this workflow publishes the version in dependency order:
+#
+#   1. images    build the four service images from the `release` stage of
+#                their Dockerfiles, push each to GHCR under its version tag,
+#                and attest the digest the registry returned;
+#   2. bundle    render deploy/bundle/compose.yaml against those digests, write
+#                the release manifest that binds the package version, the
+#                bundle checksum, the four digests, and this commit, render the
+#                bootstrap script with this version stamped in, prove the
+#                result with the same tests the suite runs, and attach the
+#                bundle, its checksum, the digest set, the manifest, and the
+#                bootstrap to the draft release;
+#   3. publish   publish the draft release, which creates the tag and locks
+#                the assets (GitHub's immutable releases), then copy the
+#                manifest into cli/manifest.json and publish `@curia-sh/cli`
+#                last, through npm trusted publishing, which records
+#                provenance.
+#
+# deploy/release/publish.mjs is the gate at each step. An identity that already
+# exists with the same bytes is kept, so a rerun after a failed step finishes
+# the publication; an identity that exists with different bytes refuses, so
+# nothing published is ever replaced. Publication never touches the
+# stable-release index: promoting a version is .github/workflows/stable-index.yml.
+#
+# One file on purpose: npm's trusted publisher and `gh attestation verify
+# --signer-workflow` both name the workflow file, so the images, the release,
+# and the package must be signed by this one. `workflow_dispatch` is a
+# rehearsal of the same path on any branch: it pushes the images under a
+# commit tag, renders the bundle against their real digests, and publishes
+# nothing.
+#
+# Every action is pinned to a commit SHA, and each job holds only the
+# permissions it needs. The `publish` job runs in the `release` environment,
+# so a required reviewer there gates the point of no return.
+
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    name: Prepare or draft the release
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    outputs:
+      created: ${{ steps.name.outputs.created }}
+      version: ${{ steps.name.outputs.version }}
+      sha: ${{ steps.name.outputs.sha }}
+    steps:
+      - name: Mint Curia GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.0.0
+        with:
+          client-id: ${{ vars.CURIA_RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.CURIA_RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-issues: write
+          permission-pull-requests: write
+
+      - name: Prepare or draft the release
+        id: release
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+      # The package lives at `daemon/`, so the action prefixes its outputs
+      # with the path. One step reads them into plain names.
+      - name: Name the drafted release
+        id: name
+        env:
+          OUTPUTS: ${{ toJSON(steps.release.outputs) }}
+        run: |
+          node -e '
+            const o = JSON.parse(process.env.OUTPUTS)
+            const created = (o["daemon--release_created"] ?? o.release_created) === "true"
+            const version = o["daemon--version"] ?? o.version ?? ""
+            const sha = o["daemon--sha"] ?? o.sha ?? ""
+            require("node:fs").appendFileSync(process.env.GITHUB_OUTPUT, `created=${created}\nversion=${version}\nsha=${sha}\n`)
+            console.log(created ? `drafted release ${version} at ${sha}` : "no release to publish")
+          '
+
+  pins:
+    name: Read the release pins
+    needs: release-please
+    if: ${{ !cancelled() && (github.event_name == 'workflow_dispatch' || needs.release-please.outputs.created == 'true') }}
+    runs-on: ubuntu-latest
+    outputs:
+      node: ${{ steps.pins.outputs.NODE_VERSION }}
+      claude: ${{ steps.pins.outputs.CLAUDE_VERSION }}
+      version: ${{ steps.version.outputs.version }}
+      release: ${{ steps.version.outputs.release }}
+      sha: ${{ steps.version.outputs.sha }}
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - name: Name the commit
+        id: commit
+        env:
+          EVENT: ${{ github.event_name }}
+          RELEASE_SHA: ${{ needs.release-please.outputs.sha }}
+          SHA: ${{ github.sha }}
+        run: |
+          if [[ "$EVENT" == "push" ]]; then
+            echo "sha=${RELEASE_SHA:-$SHA}" >> "$GITHUB_OUTPUT"
+          else
+            echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Check out the release commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.0.2
+        with:
+          ref: ${{ steps.commit.outputs.sha }}
+
+      - name: Read the Node and Claude Code pins from config/curia.yaml
+        id: pins
+        run: node deploy/bundle/pins.mjs | tee -a "$GITHUB_OUTPUT"
+
+      # A release is the version Release Please drafted, tagged `v<version>`
+      # on the images. A rehearsal is the checkout's version with a suffix,
+      # tagged by commit, so it can never be mistaken for a release.
+      - name: Name the version
+        id: version
+        env:
+          EVENT: ${{ github.event_name }}
+          RELEASE_VERSION: ${{ needs.release-please.outputs.version }}
+          SHA: ${{ steps.commit.outputs.sha }}
+        run: |
+          if [[ "$EVENT" == "push" ]]; then
+            test -n "$RELEASE_VERSION"
+            echo "version=${RELEASE_VERSION}" >> "$GITHUB_OUTPUT"
+            echo "tag=${RELEASE_VERSION}" >> "$GITHUB_OUTPUT"
+            echo "release=true" >> "$GITHUB_OUTPUT"
+            echo "publishing release ${RELEASE_VERSION} from ${SHA}"
+          else
+            base=$(node -p "require('./daemon/package.json').version")
+            echo "version=${base}-rehearsal.${SHA:0:7}" >> "$GITHUB_OUTPUT"
+            echo "tag=sha-${SHA}" >> "$GITHUB_OUTPUT"
+            echo "release=false" >> "$GITHUB_OUTPUT"
+            echo "rehearsing ${base}-rehearsal.${SHA:0:7} from ${SHA}"
+          fi
+          echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
+
+  images:
+    name: Build and push ${{ matrix.service }}
+    needs: pins
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    strategy:
+      fail-fast: true
+      matrix:
+        service: [daemon, tmux, dashboard, overseer]
+    steps:
+      - name: Check out the release commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.0.2
+        with:
+          ref: ${{ needs.pins.outputs.sha }}
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Is this identity published already? A tag that exists with an
+      # attestation from this workflow at this commit is reused as it is; a
+      # tag that exists without one refuses; an absent tag is built.
+      - name: Decide whether to build
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >
+          node deploy/release/publish.mjs image
+          --service "${{ matrix.service }}"
+          --reference "ghcr.io/alp82/curia-${{ matrix.service }}:${{ needs.pins.outputs.tag }}"
+          --commit "${{ needs.pins.outputs.sha }}"
+
+      # The image manifest itself is the subject: no provenance or SBOM
+      # manifest list from the builder, so the digest the bundle names is the
+      # digest of the image and `docker pull <name>@<digest>` gets exactly it.
+      - name: Build the release stage and push it
+        id: build
+        if: steps.plan.outputs.build == 'true'
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: deploy/${{ matrix.service }}/Dockerfile
+          target: release
+          platforms: linux/amd64
+          push: true
+          provenance: false
+          sbom: false
+          tags: ghcr.io/alp82/curia-${{ matrix.service }}:${{ needs.pins.outputs.tag }}
+          build-args: |
+            NODE_VERSION=${{ needs.pins.outputs.node }}
+            CLAUDE_VERSION=${{ needs.pins.outputs.claude }}
+          labels: |
+            org.opencontainers.image.version=${{ needs.pins.outputs.version }}
+            org.opencontainers.image.revision=${{ needs.pins.outputs.sha }}
+
+      - name: Attest the build provenance of the pushed digest
+        if: steps.plan.outputs.build == 'true'
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/alp82/curia-${{ matrix.service }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
+      - name: Record the digest
+        env:
+          SERVICE: ${{ matrix.service }}
+          DIGEST: ${{ steps.plan.outputs.build == 'true' && steps.build.outputs.digest || steps.plan.outputs.digest }}
+        run: |
+          mkdir -p digests
+          printf '%s\n' "$DIGEST" > "digests/$SERVICE"
+          echo "$SERVICE $DIGEST"
+
+      - name: Hand the digest to the bundle job
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: digest-${{ matrix.service }}
+          path: digests/${{ matrix.service }}
+          if-no-files-found: error
+
+  bundle:
+    name: Render and attach the bundle
+    needs: [pins, images]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out the release commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.0.2
+        with:
+          ref: ${{ needs.pins.outputs.sha }}
+
+      - name: Set up the pinned Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ needs.pins.outputs.node }}
+
+      - name: Collect the digests
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: digest-*
+          path: digests
+          merge-multiple: true
+
+      - name: Write the digest set
+        run: |
+          node -e '
+            const fs = require("node:fs")
+            const out = {}
+            for (const s of ["daemon", "tmux", "dashboard", "overseer"]) out[s] = fs.readFileSync(`digests/${s}`, "utf8").trim()
+            fs.writeFileSync("digests.json", JSON.stringify(out, null, 2))
+            console.log(JSON.stringify(out, null, 2))
+          '
+
+      - name: Render the bundle and the manifest
+        env:
+          VERSION: ${{ needs.pins.outputs.version }}
+          COMMIT: ${{ needs.pins.outputs.sha }}
+        run: node deploy/bundle/render.mjs --version "$VERSION" --digests digests.json --commit "$COMMIT" --out dist
+
+      # The bootstrap script is the same for every release and selects the
+      # version from the signed stable-release index; only its own version
+      # is stamped in, so a support question can name the bootstrap that ran.
+      - name: Render the bootstrap
+        env:
+          VERSION: ${{ needs.pins.outputs.version }}
+        run: node deploy/bootstrap/render.mjs --version "$VERSION" --out dist
+
+      # The same tests the suite runs on every change, against the files that
+      # are about to be published: the mount contract, the labels, the health
+      # checks, the digest references, the manifest that binds them, and
+      # Compose's own reading of the bundle.
+      - name: Prove the bundle
+        run: |
+          npm ci --prefix daemon --no-fund --no-audit
+          npm test --prefix cli
+          node --test daemon/test/bundlecompose.test.mjs daemon/test/bundlerelease.test.mjs daemon/test/releaseimages.test.mjs daemon/test/releasepublish.test.mjs daemon/test/releaseworkflow.test.mjs daemon/test/bootstrap.test.mjs
+          docker compose --env-file <(printf 'CURIA_ROOT=/tmp/curia\nCURIA_UID=1001\nCURIA_GID=1001\nDOCKER_GID=998\nCURIA_INSTALLATION_ID=00000000000000000000000000000000\n') \
+            -f "dist/curia-bundle-${{ needs.pins.outputs.version }}/compose.yaml" config --quiet
+
+      # A version whose package pins no stable-index key, or pins one the
+      # signing secret does not match, could never select an update. Refuse
+      # it here, before anything lands on the release.
+      - name: Prove the stable-index key
+        if: needs.pins.outputs.release == 'true'
+        env:
+          CURIA_STABLE_INDEX_KEY: ${{ secrets.CURIA_STABLE_INDEX_KEY }}
+        run: node deploy/release/publish.mjs key
+
+      - name: Keep the rendered bundle as a run artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: curia-bundle-${{ needs.pins.outputs.version }}
+          path: |
+            dist/curia-bundle-*.tar.gz
+            dist/curia-bundle-*.tar.gz.sha256
+            dist/curia-images-*.json
+            dist/curia-manifest-*.json
+            dist/curia-install.sh
+          if-no-files-found: error
+
+      - name: Attach the bundle, its checksum, the digest set, the manifest, and the bootstrap to the draft release
+        if: needs.pins.outputs.release == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.pins.outputs.version }}
+        run: node deploy/release/publish.mjs assets --version "$VERSION" --dist dist
+
+  publish:
+    name: Publish the release and the package
+    needs: [pins, bundle]
+    if: needs.pins.outputs.release == 'true'
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - name: Check out the release commit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.0.2
+        with:
+          ref: ${{ needs.pins.outputs.sha }}
+
+      - name: Set up the pinned Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ needs.pins.outputs.node }}
+
+      - name: Collect the rendered bundle
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: curia-bundle-${{ needs.pins.outputs.version }}
+          path: dist
+
+      # Trusted publishing needs npm 11.5.1 or later. The pinned Node ships a
+      # newer npm; this step proves it rather than assuming it.
+      - name: Prove the npm version
+        run: |
+          node -e '
+            const [a, b, c] = require("node:child_process").execFileSync("npm", ["--version"], { encoding: "utf8" }).trim().split(".").map(Number)
+            const ok = a > 11 || (a === 11 && (b > 5 || (b === 5 && c >= 1)))
+            if (!ok) { console.error(`npm ${a}.${b}.${c} is older than 11.5.1, which trusted publishing needs`); process.exit(1) }
+            console.log(`npm ${a}.${b}.${c}`)
+          '
+
+      # The release goes first: the tag and the locked assets exist before
+      # the package that names them is on the registry.
+      - name: Publish the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.pins.outputs.version }}
+        run: node deploy/release/publish.mjs release --version "$VERSION"
+
+      - name: Publish @curia-sh/cli with the manifest inside
+        env:
+          VERSION: ${{ needs.pins.outputs.version }}
+        run: node deploy/release/publish.mjs package --version "$VERSION" --dist dist --cli cli
+
+      - name: Verify the published release the way an installation will
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.pins.outputs.version }}
+        run: node deploy/release/publish.mjs verify --version "$VERSION"

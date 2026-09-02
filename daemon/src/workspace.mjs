@@ -859,7 +859,7 @@ export function composeMemoryFile(cfgDir, harness) {
 // it as a `projects` key, which Claude Code matches against its own cwd — and a
 // container's cwd is the mount point, not the host path. Everything this
 // function WRITES goes to `cfgDir`, which is always the host path.
-export function seedConfigDir(cfgDir, wtPath, skills = null, harness = 'claude', { sandboxed = false, apiKey = null, adapter = null } = {}) {
+export function seedConfigDir(cfgDir, wtPath, skills = null, harness = 'claude', { sandboxed = false, apiKey = null, adapter = null, sweep = true } = {}) {
   const selected = adapter ?? harness
   const h = workspaceFor(selected)
   fs.mkdirSync(cfgDir, { recursive: true })
@@ -868,7 +868,12 @@ export function seedConfigDir(cfgDir, wtPath, skills = null, harness = 'claude',
   // before #53, could hold a real snapshot, and a stale copy that still parses
   // is worse than none because it is a *silent* return to the frozen-token
   // failure. The codex seed then puts its symlink back.
-  removeCredentials(cfgDir)
+  //
+  // `sweep: false` is the overseer's (#867): its config dir is re-seeded per
+  // turn inside the container, and the credential copy in it is the daemon's,
+  // healed on every tick. A per-turn sweep would delete a live copy the
+  // container cannot replace.
+  if (sweep) removeCredentials(cfgDir)
   // The seed needs the boundary too (#158): the codex harness shares the host's
   // credential file through a symlink on the bare path and cannot share it at
   // all across a mount, so it copies instead.

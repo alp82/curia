@@ -40,7 +40,7 @@
      2. Null is not empty. An unreadable fleet is not an idle box, and a frontier
         nobody has computed is not an empty frontier. Every section that can fail
         on its own says which of the two it is. -->
-<meta name="curia-dashboard" content="proto=15">
+<meta name="curia-dashboard" content="proto=18">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark light">
 <title>Curia app</title>
@@ -60,6 +60,10 @@
     --map-done-bg: #29463b; --map-done-ink: #a9cabc;
     --map-run-bg: #142b38; --map-run-ink: #a9ddf3; --map-run-line: #65b8db;
     --map-front-bg: #10252d; --map-fog-a: #2b3037; --map-fog-b: #20242a;
+    /* The setup rail's brand colors (#874, the #853 treatment): each card
+       carries its service's own color, dimmed until it verifies. Tailscale's
+       black is a token because black on the dark ground is no color at all. */
+    --brand-github: #24292f; --brand-discord: #5865f2; --brand-tailscale: #3a4149; --brand-model: #d8c6ac;
   }
   @media (prefers-color-scheme: light) {
     :root:not([data-theme="dark"]) {
@@ -74,6 +78,7 @@
       --map-done-bg: #dcebe4; --map-done-ink: #315f4b;
       --map-run-bg: #e0f0f7; --map-run-ink: #276a86; --map-run-line: #3f91b2;
       --map-front-bg: #e4f3f6; --map-fog-a: #d9dde0; --map-fog-b: #eef0f1;
+      --brand-tailscale: #252525;
     }
   }
   * { box-sizing: border-box; }
@@ -566,6 +571,107 @@
     .map-back { display: inline-block; margin-bottom: 10px; color: var(--ink-dim); font-size: 12px; }
   }
 
+  /* ---------- integration setup (#874, the frame #853 accepted) ----------
+     A rail of four FIXED-HEIGHT service cards on the left and the selected
+     card's own configuration on the right. Every card is one surface with a
+     68 px brand header and a 120 px footer, the same height in every state,
+     so a verification never shifts the rail. Treatment B: an unverified
+     header is dimmed, a connected header takes the full brand color and its
+     footer a light tint of it. A failed verification is red on the border,
+     the header, and the footer, and it names the failure and one action. */
+  .setup { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 22px; align-items: start; }
+  .setup-rail { display: flex; flex-direction: column; gap: 12px; }
+  .setup-count { padding: 0 2px 4px; }
+  .setup-count h3 { font-size: 20px; letter-spacing: -.02em; margin: 2px 0; }
+  .setup-card {
+    --brand: var(--brand-github); --on-brand: #fff;
+    width: 100%; height: 190px; padding: 0; overflow: hidden; display: flex; flex-direction: column;
+    border: 1px solid var(--line); border-radius: 14px; background: var(--bg-raise); color: var(--ink);
+    text-align: left; box-shadow: var(--shadow);
+  }
+  .setup-card.discord { --brand: var(--brand-discord); }
+  .setup-card.tailscale { --brand: var(--brand-tailscale); }
+  .setup-card.model { --brand: var(--brand-model); --on-brand: #20231f; }
+  .setup-card.on { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .setup-head {
+    flex: 0 0 68px; padding: 13px 15px; display: flex; align-items: center; gap: 10px;
+    color: var(--ink-dim); background: color-mix(in srgb, var(--brand) 22%, var(--bg-raise));
+  }
+  .setup-card.connected .setup-head { color: var(--on-brand); background: var(--brand); }
+  .setup-title { min-width: 0; flex: 1; font-size: 15px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .setup-badge {
+    flex: 0 0 auto; padding: 3px 8px; border-radius: 999px; font-size: 10.5px; font-weight: 650; white-space: nowrap;
+    color: inherit; background: color-mix(in srgb, currentColor 14%, transparent);
+  }
+  .setup-logo {
+    width: 28px; height: 28px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 50%;
+    color: var(--ink-dim); background: color-mix(in srgb, var(--bg-raise) 70%, transparent);
+  }
+  .setup-logo svg { width: 18px; height: 18px; fill: currentColor; }
+  .setup-card.connected .setup-logo { color: var(--brand); background: var(--on-brand); }
+  .setup-logo.discord { border-radius: 9px; }
+  .setup-dots { display: grid; grid-template-columns: repeat(3, 4px); gap: 3px; }
+  .setup-dots i { width: 4px; height: 4px; border-radius: 50%; background: currentColor; }
+  .setup-dots i:nth-child(2n) { opacity: .4; }
+  .setup-marks { display: flex; gap: 3px; font-size: 11px; font-weight: 800; }
+  .setup-marks span { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; background: color-mix(in srgb, currentColor 18%, transparent); }
+  .setup-marks span + span { border-radius: 6px; }
+  .setup-foot { flex: 1; min-height: 0; padding: 14px 15px; background: var(--bg-raise); }
+  .setup-card.connected .setup-foot { background: color-mix(in srgb, var(--brand) 10%, var(--bg-raise)); }
+  .setup-primary { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; font-weight: 650; }
+  .setup-primary .emoji { flex: 0 0 19px; font-size: 15px; line-height: 1.2; }
+  .setup-primary .fact { min-width: 0; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .setup-secondary { margin: 8px 0 0 27px; color: var(--ink-dim); font-size: 11.5px; line-height: 1.45; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+  .setup-pending { display: flex; gap: 8px; color: var(--ink-faint); font-size: 12px; line-height: 1.45; }
+  .setup-card.failed { border: 2px solid var(--bad); }
+  .setup-card.failed.on { outline-color: var(--bad); }
+  .setup-card.failed .setup-head { color: var(--bad); background: var(--chip-bad-bg); }
+  .setup-card.failed .setup-logo { color: var(--bad); background: color-mix(in srgb, var(--bg-raise) 60%, transparent); }
+  .setup-card.failed .setup-foot { color: var(--bad); background: color-mix(in srgb, var(--bad) 8%, var(--bg-raise)); }
+  .setup-card.failed .setup-secondary { color: color-mix(in srgb, var(--bad) 80%, var(--ink)); }
+  .setup-loop {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+    margin-top: 4px; padding: 14px 15px; border: 1px dashed var(--line); border-radius: 14px;
+  }
+  .setup-loop .dim-note { flex: 1 1 180px; }
+  /* The run (#882): the legs, one row each, and the links to the real
+     artifacts. Color marks attention only; every state is also a word. */
+  .setup-loop.run { flex-direction: column; align-items: stretch; border-style: solid; }
+  .setup-loop.run > div { display: flex; flex-direction: column; gap: 4px; }
+  .loop-legs { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 3px; }
+  .loop-leg { display: flex; gap: 8px; align-items: baseline; font-size: 13px; }
+  .loop-leg .loop-mark { width: 1.4em; text-align: center; flex: none; }
+  .loop-leg.pending { color: var(--ink-faint); }
+  .loop-leg.failed { color: var(--bad); }
+  .loop-leg .dim-note { margin-left: auto; }
+  .loop-links { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 8px; font-size: 13px; }
+  .loop-actions { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+  .setup-panel { border: 1px solid var(--line); border-radius: 14px; padding: 24px 26px; background: var(--bg-raise); max-width: 690px; }
+  .setup-panel h2 { font-size: 19px; letter-spacing: -.02em; margin: 4px 0 10px; }
+  .setup-panel p { margin: 0 0 10px; line-height: 1.5; }
+  .setup-note { border-left: 4px solid var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--bg-raise)); padding: 11px 14px; border-radius: 6px; margin: 14px 0; }
+  .setup-problem { border-left: 4px solid var(--bad); background: var(--chip-bad-bg); padding: 12px 14px; border-radius: 6px; margin: 14px 0; line-height: 1.5; }
+  .setup-problem b { color: var(--bad); display: block; margin-bottom: 2px; }
+  .setup-steps { padding-left: 20px; line-height: 1.6; margin: 0 0 12px; }
+  /* The model card's provider rows (#878): one row per provider, its own
+     badge, its own panel, so the second provider lands beside the first. */
+  .setup-provider { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; margin: 12px 0; }
+  .setup-provider.connected { border-color: color-mix(in srgb, var(--ok) 50%, var(--line)); }
+  .setup-provider.failed { border-color: color-mix(in srgb, var(--bad) 60%, var(--line)); }
+  .setup-provider-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+  .setup-steps li { margin-bottom: 6px; }
+  .setup-panel details { margin-top: 12px; }
+  .setup-panel summary { cursor: pointer; color: var(--ink-dim); font-size: 13px; }
+  .setup-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 18px; }
+  .setup-pointer { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; padding: 10px 14px; margin-bottom: 14px; border: 1px solid var(--accent); border-radius: 10px; background: color-mix(in srgb, var(--accent) 8%, var(--bg-raise)); }
+  /* Narrow screens stack full-width cards under the count; the rail never
+     compresses sideways and every card keeps its height (#853). */
+  @media (max-width: 760px) {
+    .setup { grid-template-columns: 1fr; }
+    .setup-card { width: 100%; }
+    .setup-panel { padding: 18px 16px; }
+  }
+
   /* ---------- settings (#265, on the #248 look) ---------- */
   .btn {
     border: 1px solid var(--line); background: var(--bg-raise); color: var(--ink);
@@ -580,7 +686,7 @@
   .btn.restart-hot { background: var(--bad); border-color: var(--bad); color: #fff; font-weight: 600; }
   .btn[disabled] { opacity: .55; cursor: default; }
 
-  input[type=text], input[type=number] {
+  input[type=text], input[type=number], input[type=password] {
     background: var(--bg-inset); color: var(--ink); border: 1px solid var(--line);
     border-radius: 6px; padding: 4px 8px; font: 12.5px ui-monospace, Menlo, monospace; max-width: 100%;
   }
@@ -772,6 +878,9 @@ const SCREENS = {
      read most of the time and acted on rarely — and because the one act it
      carries is not a config change. */
   credentials: ["Credentials", screenCredentials],
+  /* #874. Integration setup sits before Settings: it is the first-run frame
+     that connects the four integrations and opens the Full loop. */
+  setup: ["Setup", screenSetup],
   settings: ["Settings", screenSettings],
 };
 const NAMES = Object.keys(SCREENS);
@@ -800,6 +909,10 @@ var UI = {
      (#362) — applied, declined, offline — plus the three that interrupt them:
      restarting, refused, unread. */
   set: { models: false, phase: "clean", error: null, busy: false, note: null },
+  /* The setup frame's own state (#874): whether a read is in flight, and the
+     one sentence the last press left behind. The selected card is not here —
+     it is the record's `step`, kept by the service so a reopen restores it. */
+  setup: { busy: false, note: null, loopBusy: false, loopTimer: null, discord: null, discordBusy: null, tailscale: null, tailscaleBusy: null, openai: null, openaiBusy: null, openaiTimer: null, anthropic: null, anthropicBusy: null, anthropicTimer: null },
   /* The drill-in frame's own state (#699), one entry per page that is a list
      of sections: which section is open, and whether the phone is on the list
      in front of it. */
@@ -822,6 +935,8 @@ var draft = null;     /* the same, with the operator's unsaved edits on it */
 var repos = null;     /* the watchable repos, read through the service on demand */
 var conversations = null; /* the browser conversations (#333), read on the Chat screen only */
 var aistack = null;   /* the aistack registration and sync verdict (#706), read on that section only */
+var curiaUpdate = null; /* the installed and recommended versions and the daily check's last result (#883), read on that section only */
+var setup = null;     /* the setup record and the four freshly verified cards (#874), read on arrival and on Try again */
 var aistackAct = { busy: null, said: null, poll: null }; /* which aistack press is in flight, and what it answered */
 
 /* Browser-local Action bookkeeping (#804). This map is the seam shared by
@@ -2228,6 +2343,7 @@ function screenHome(p) {
       <div class="track" aria-label="${closed} of ${total} walked"><i style="width:${pct}%"></i></div></div>`;
   }).join("") || `<div class="empty">No open map.</div>`;
   return `${head(p, "Home")}
+    ${setupPointer()}
     ${spentBanner(o)}
     ${holdBanner(o)}
     <div class="home-verdict"><div class="verdict-ring"><div><span class="v">${esc(needsYou(o))}</span><span class="k">needs you</span></div></div>
@@ -3031,6 +3147,13 @@ const SET_SECTIONS = [
     enter: () => { loadAistack(); },
   },
   {
+    key: "update", title: "Update", gist: gistUpdate, body: setUpdate,
+    hint: "The installed Curia version, the recommended stable release, and what the daily check found.",
+    /* Its own read, on arrival: the service keeps the daily check's record,
+       and the panel shows that record rather than starting a check. */
+    enter: () => { loadUpdate(); },
+  },
+  {
     key: "maintenance", title: "Maintenance", gist: gistMaintenance, body: setMaintenance,
     hint: "Whether the service runs what the files say, and the restart for the keys a save cannot apply.",
   },
@@ -3123,7 +3246,7 @@ function restartNeeds() {
 
 function settingsActionPaths(patch) {
   const paths = [];
-  if (["dispatch", "overseer", "watch"].some((key) => Object.prototype.hasOwnProperty.call(patch, key))) paths.push("curia.local.yaml");
+  if (["dispatch", "overseer", "watch"].some((key) => Object.prototype.hasOwnProperty.call(patch, key))) paths.push("config.yaml");
   if (Object.prototype.hasOwnProperty.call(patch, "routing")) paths.push("routing.local.yaml");
   return paths;
 }
@@ -3444,14 +3567,22 @@ function setMaintenance(p) {
   } else {
     state = `<p class="qhint">The service is running these files. It read them ${esc(ago(run?.loaded_at))}.</p>`;
   }
-  /* #292: the screen reads two layers and writes only the top one. Said here,
-     because "I saved and git shows nothing changed" must not be a puzzle the
-     operator has to solve on the box. */
+  /* #866: a config.yaml the contract refuses. The service keeps what it loaded
+     and will not start on the file after a restart, so the page says the exact
+     line rather than drawing the shipped answers as if they were the file's. */
+  if (settings?.operator_error) {
+    state += `<p class="unread">The service will not take <span class="mono">config.yaml</span>: ${esc(settings.operator_error)}.
+      Fix the file on the box. Until then the settings shown are the shipped answers, not the file's.</p>`;
+  }
+  /* #292, #866: the screen reads the layers and writes only the top one. Said
+     here, because "I saved and git shows nothing changed" must not be a puzzle
+     the operator has to solve on the box. */
   const writes = settings.writes
-    ? `A save writes <span class="mono">${esc(fileName(settings.writes.curia))}</span> and
+    ? `A save writes <span class="mono">${esc(fileName(settings.writes.curia))}</span> (your operator
+       configuration: concurrency, dispatch, the pane cap, and the watch list) and
        <span class="mono">${esc(fileName(settings.writes.routing))}</span>, beside the tracked files.
        Git does not track those, so the box's checkout stays clean and a deploy never collides with a
-       save. They hold what this box answers differently, and nothing else.`
+       save. Curia checks each file before it lands, and lands it in one step.`
     : "";
   return `${state}<div class="rows">
     <div class="row"><span class="grow"><button class="btn${differs?.length ? " restart-hot" : ""}"
@@ -3462,6 +3593,101 @@ function setMaintenance(p) {
       Agent panes live in their own container, so they survive it.`)}
     ${writes ? `<div class="row"><span class="grow dim-note">where a save lands</span>${qq("set-writes")}</div>${qhint("set-writes", writes)}` : ""}
   </div>`;
+}
+
+/* ---- Update (#883) ----------------------------------------------------------
+
+   The section that says which Curia is installed and which the stable-release
+   index recommends. Three facts shape it, and each is a thing this section does
+   NOT do.
+
+   1. IT STARTS NO CHECK. The service checks the index at startup when the last
+      successful check is older than a day, then once a day, and keeps the
+      result in state/. This section reads that record on arrival and shows
+      it with its age; a press here would be a second schedule.
+   2. IT STARTS NO UPDATE. The operator runs `curia update` on the box. The
+      section states the command and links the release notes, and that is the
+      whole of its help. There is no automatic update and no Discord message.
+   3. IT NEVER SAYS "UP TO DATE" ON A GUESS. A failed check is said as a failed
+      check beside what the last good read found and when. A service that
+      cannot be asked is unknown. */
+
+/* How far ahead an instant is, in the words `ago` uses for the past. */
+function inWords(iso) {
+  const s = Math.max(0, Math.round((new Date(iso).getTime() - Date.now()) / 1000));
+  if (s < 60) return s + "s";
+  if (s < 3600) return Math.round(s / 60) + "m";
+  return Math.round(s / 3600) + "h";
+}
+
+async function loadUpdate() {
+  try {
+    const res = await fetch("/api/update", { headers: { accept: "application/json" }, cache: "no-store" });
+    if (!res.ok) throw new Error("the sidecar answered " + res.status);
+    curiaUpdate = await res.json();
+  } catch (e) {
+    curiaUpdate = { managed: null, installed: null, error: e.message };
+  }
+  render();
+}
+
+function gistUpdate() {
+  const u = curiaUpdate;
+  if (!u) return `<span class="dim-note">not read yet</span>`;
+  if (u.managed === null || u.installed === null) return `<span class="dim-note">curia cannot tell</span>`;
+  if (u.managed === false) return `<span class="dim-note">${esc(u.installed)} · source checkout</span>`;
+  if (u.installed_withdrawn) return `<span style="color:var(--warn)">${esc(u.installed)} withdrawn</span>`;
+  if (u.update_available) return `<span style="color:var(--warn)">${esc(u.recommended)} available</span>`;
+  if (u.ok === false && !u.succeeded_at) return `<span class="dim-note">${esc(u.installed)} · check failed</span>`;
+  if (!u.checked_at) return `<span class="dim-note">${esc(u.installed)} · not checked yet</span>`;
+  return `<span style="color:var(--ok)">${esc(u.installed)} · up to date</span>`;
+}
+
+function setUpdate() {
+  const u = curiaUpdate;
+  if (!u) return `<p class="qhint">reading…</p>`;
+  if (u.managed === null || u.installed === null) {
+    return `<p class="unread">curia cannot say which version is installed: ${esc(u.error ?? "the service is not answering")}.
+      The daily check lives on the service, so this section is blank exactly while the service is.</p>`;
+  }
+  const notes = (version, url) => url
+    ? `<a href="${esc(url)}" target="_blank" rel="noopener">release notes for ${esc(version)}</a>`
+    : "";
+  if (u.managed === false) {
+    return `<div class="rows">
+      <div class="row"><span class="key">installed</span><span class="grow mono">${esc(u.installed)}</span><span>${notes(u.installed, u.release_notes?.installed)}</span></div>
+    </div>
+    <p class="qhint">${esc(u.reason ?? "")}</p>`;
+  }
+  /* The one warning that outranks everything else on the panel: the version
+     this box runs was withdrawn. The recommendation and the command follow. */
+  const withdrawn = u.installed_withdrawn
+    ? `<p class="unread">The installed version ${esc(u.installed)} was withdrawn. The ${notes(u.installed, u.release_notes?.installed)} say why.
+       Update to ${esc(u.recommended ?? "the next stable release once one is recommended")}.</p>`
+    : "";
+  let verdict;
+  if (u.update_available) {
+    verdict = `<p class="unread">Curia ${esc(u.recommended)} is available. On the box, run <span class="mono">${esc(u.command ?? "curia update")}</span>.
+      It stages and verifies the release before anything switches, and running agents keep working through the switch.</p>`;
+  } else if (u.recommended) {
+    verdict = `<p class="qhint">${esc(u.installed)} is the recommended stable release. Nothing to update.</p>`;
+  } else if (u.succeeded_at) {
+    verdict = `<p class="qhint">No stable release is recommended right now.</p>`;
+  } else {
+    verdict = `<p class="qhint">No successful check yet, so curia does not know whether an update exists.</p>`;
+  }
+  const check = u.ok === false
+    ? `<p class="unread">The last check failed ${esc(u.checked_at ? ago(u.checked_at) : "")}: ${esc(u.error ?? "no reason given")}
+       ${u.succeeded_at ? `The recommendation shown is from the last successful check, ${esc(ago(u.succeeded_at))}.` : ""}
+       The running installation is not affected.</p>`
+    : u.checked_at
+      ? `<p class="qhint">Checked ${esc(ago(u.checked_at))}${u.next_check_at ? `; the next check is in ${esc(inWords(u.next_check_at))}` : ""}. Curia checks once a day and never updates on its own.</p>`
+      : `<p class="qhint">The service has not checked yet. It checks at startup and once a day, and never updates on its own.</p>`;
+  return `${withdrawn}${verdict}<div class="rows">
+    <div class="row"><span class="key">installed</span><span class="grow mono">${esc(u.installed)}</span><span>${notes(u.installed, u.release_notes?.installed)}</span></div>
+    <div class="row"><span class="key">recommended</span><span class="grow mono">${esc(u.recommended ?? "none")}</span><span>${notes(u.recommended, u.release_notes?.recommended)}</span></div>
+    ${u.withdrawn?.length ? `<div class="row"><span class="key">withdrawn</span><span class="grow mono">${u.withdrawn.map(esc).join(", ")}</span></div>` : ""}
+  </div>${check}`;
 }
 
 /* ---- aistack (#706) ---------------------------------------------------------
@@ -4352,6 +4578,24 @@ async function doGitHubAppRefresh() {
 async function doGitHubAppSetup() {
   const name = document.getElementById("github-app-name")?.value?.trim();
   if (!name) return refuse("github-app", "Enter a GitHub App name.");
+  return startGitHubApp(name, "settings");
+}
+
+/* The GitHub card's one press (#875): the name is the card's safe checkpoint
+   for a reopen, and the handoff is the same manifest flow the Settings
+   section runs, told to land back on Setup. */
+async function doSetupGitHubApp() {
+  const name = document.getElementById("setup-github-app-name")?.value?.trim();
+  if (!name) return refuse("github-app", "Enter a GitHub App name.");
+  await rememberSetupProgress("github", { app_name: name });
+  return startGitHubApp(name, "setup");
+}
+
+/* The manifest handoff (#694). The service prepares the manifest and the
+   state; the browser posts the manifest to GitHub's own page, where the
+   operator reviews it and presses once. Nothing about the account crosses
+   here. `screen` is where GitHub's redirect lands afterwards. */
+async function startGitHubApp(name, screen) {
   const actionId = `app-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
   const action = beginAction({
     action_id: actionId, kind: "github-app-setup", target: "github-app-setup",
@@ -4360,7 +4604,7 @@ async function doGitHubAppSetup() {
   if (!action) return null;
   UI.act.said = null;
   render();
-  const out = await githubAppAction("github-app", "/api/github-app/start", actionId, { name });
+  const out = await githubAppAction("github-app", "/api/github-app/start", actionId, { name, screen });
   const setup = out?.setup;
   if (!setup?.action || !setup?.manifest) return;
   const form = document.createElement("form");
@@ -4663,6 +4907,843 @@ function screenCredentials(p) {
       </table></div>` : `<div class="empty">This service brokers no model credential.</div>`}
       <p class="dim-note" style="margin-top:10px">Subscription credentials only. curia holds no API key, and this page offers no field for one.</p>
     </div>`;
+}
+
+/* ---- integration setup (#874, the frame the #853 prototype settled) --------
+
+   ONE RAIL, FOUR CARDS, ANY ORDER. GitHub, Discord, Tailscale and the model
+   provider are independently selectable; the Full loop is the one dependent
+   step and sits under the rail as an action, not a card. The selected card is
+   the record's `step`, kept by the service, so closing the tab and coming back
+   lands on the same card.
+
+   A CARD'S STATE IS THIS READ'S VERIFICATION. `GET /api/setup` verifies every
+   integration fresh and the page draws what came back. Nothing here remembers
+   "connected": Try again is a fresh read, and so is arriving.
+
+   THE SEAMS. `SETUP_CONTENT[key].content(card, progress, p)` is each card's
+   configuration slot; #875 to #879 replace the stub with the real connect
+   flow, and their verifier on the service side is what turns the card. The
+   GitHub card (#875) is `setupGitHub`, the Discord card (#876) `setupDiscord`,
+   the Tailscale card (#877) `setupTailscale`, the model card `setupModel` with
+   one row per provider, OpenAI (#878) in `setupOpenAI` and Anthropic (#879)
+   in `setupAnthropic`. Safe progress a step wants back after
+   a close goes through `rememberSetupProgress`, never into browser storage.
+   The Full loop's action enables on the service's gate alone (#880):
+   `full_loop.ready` with the verified facts under `full_loop.facts`, which
+   the panel names. `runFullLoop` (#882) presses the run through the sidecar
+   and `setupLoopRun` draws the run the service reads off its journal: one
+   row per leg, the linked artifacts, the elapsed time, and on a failure the
+   leg, the cause, the action, and Try again. */
+
+const SETUP_ORDER = ["github", "discord", "tailscale", "model"];
+
+/* The content slot, per card: the body of the configuration panel, given
+   the card, its remembered progress, and the held overview reading. A stub
+   says what the step will do and that it is not available in this release
+   yet, so an operator who lands here early reads a fact and not an empty
+   form. */
+var SETUP_CONTENT = {
+  github: {
+    content: (card, progress, p) => `<p>Curia creates a dedicated GitHub App. You review and approve it on GitHub, then install it for at least one repository owner.</p>
+      <div class="setup-note">You sign in and grant access on GitHub. Curia never sees your password or browser session.</div>
+      ${card.state === "unavailable" ? setupUnavailable(card) : setupGitHub(card, progress, p)}`,
+  },
+  discord: {
+    content: (card, progress) => `<p>Curia connects a dedicated Discord bot you create, then finds or creates its command channel in the server you choose.</p>
+      <div class="setup-note">The bot token is written once to its protected secret file. Curia never shows it again.</div>
+      ${card.state === "unavailable" ? setupUnavailable(card) : setupDiscord(card, progress)}`,
+  },
+  tailscale: {
+    content: (card, progress) => `<p>Curia verifies the Tailscale installation this host already runs, shows the identity that opened this app, and makes that identity the initial allowed operator after you confirm it.</p>
+      <div class="setup-note">Curia never installs or reconfigures Tailscale. It publishes one Serve route of its own, the Curia app.</div>
+      ${card.state === "unavailable" ? setupUnavailable(card) : setupTailscale(card, progress)}`,
+  },
+  model: {
+    content: (card, progress) => `<p>One verified provider is required. Sign in with your subscription, and Curia completes one minimal model request and applies a working routing preset. Add the second provider here whenever you like.</p>
+      <div class="setup-note">Subscription sign-in only. Curia holds no API key, and this panel offers no field for one.</div>
+      ${card.state === "unavailable" ? setupUnavailable(card) : setupModel(card, progress)}`,
+  },
+};
+
+/* The GitHub card's own panel (#875), in the three states the verifier
+   reports. Unconnected: the App does not exist yet, so the one press is
+   Create GitHub App, with the name as the only input. Failed or connected:
+   the App exists, so the panel draws it, the install link per watched owner
+   from the held overview (the same rows the Settings section draws), and,
+   once connected, the real ticket the service discovered or the honest zero. */
+function setupGitHub(card, progress, p) {
+  const app = p?.overview?.github_app ?? null;
+  if (card.state === "unconnected") {
+    const action = actionFor({ conflict_key: "github-app:setup" });
+    const pending = app?.status === "pending"
+      ? `<p class="qhint">A GitHub App setup is pending until ${esc(ago(app.expires_at))}. Finish it on GitHub, or start again with a new name.</p>` : "";
+    return `<p><input id="setup-github-app-name" value="${esc(progress?.app_name || "curia-box")}" aria-label="GitHub App name">
+      <button class="btn primary" ${action ? "disabled" : ""} onclick="doSetupGitHubApp()">Create GitHub App</button></p>
+      ${action ? `<p class="qhint">${esc(action.progress || "Starting GitHub App setup")}</p>` : ""}
+      ${pending}${said("github-app")}
+      <p class="qhint">GitHub slugifies the name, and Curia posts as <code>&lt;slug&gt;[bot]</code>. The name must be free across GitHub.</p>`;
+  }
+  const facts = app?.app ?? null;
+  const identity = facts
+    ? `<div class="rows"><div class="row"><span class="key grow">GitHub App</span><span>${facts.settings_url
+      ? `<a href="${esc(facts.settings_url)}" target="_blank" rel="noopener">${esc(facts.slug || facts.id)}</a>`
+      : esc(facts.slug || facts.id)}</span></div></div>` : "";
+  const owners = (app?.owners ?? []).map((owner) => `<div class="row">
+    <span class="key grow">${esc(owner.owner)}</span>
+    <span>${esc(ownerState(owner, app?.installations))}</span>
+    <span><a href="${esc(owner.install_url)}" target="_blank" rel="noopener">${owner.installed === true ? "Manage installation" : `Install on ${esc(owner.owner)}`}</a></span></div>`).join("");
+  const install = owners
+    ? `<p>Install the App for each owner you watch, and grant it the watched repositories. Then select <b>Try again</b>.</p><div class="rows">${owners}</div>`
+    : `<p class="qhint">No repository is on the watch list. Add one under <a href="#settings" onclick="goto('settings');return false">Settings</a>, then select <b>Try again</b>.</p>`;
+  const detail = card.detail ?? null;
+  const found = card.state !== "connected" || !detail ? "" : detail.ticket
+    ? `<div class="setup-note">Ready for an agent: <a href="${esc(detail.ticket.url)}" target="_blank" rel="noopener">#${esc(detail.ticket.number)} · ${esc(detail.ticket.title)}</a>
+      <span class="dim-note">${esc(detail.open_tickets)} open ticket${detail.open_tickets === 1 ? "" : "s"} in ${esc((detail.covered ?? []).join(", "))}.</span></div>`
+    : `<div class="setup-note">No open ticket is ready for an agent in ${esc((detail.covered ?? []).join(", "))}. Curia starts work when one carries <code>ready-for-agent</code>.</div>`;
+  return `${identity}${install}${found}`;
+}
+
+/* The Discord card's own panel (#876), in the states the verifier reports.
+   Before the token exists: the guide to the application and the bot, and
+   the one form, the token and the operator's user ID, which is the only time
+   the token crosses. After: the bot's name, the invite link, the server
+   list the service read on the token, and the channel name, which is the
+   second and last press. Connected: the channel, the delivered
+   confirmation, and the registered commands, all from this read. */
+const DISCORD_STAGES_WITH_TOKEN_FORM = ["token", "operator"];
+function setupDiscord(card, progress) {
+  const d = UI.setup.discord;
+  const detail = card.detail ?? null;
+  const stage = card.state === "failed" ? (detail?.stage ?? null) : null;
+  if (card.state === "connected" && detail) {
+    const bridge = detail.bridge === "up"
+      ? `<span class="dim-note">The bridge is running.</span>`
+      : `<span class="dim-note">The bridge reads the token when the service starts. <a href="#" onclick="doRestart();return false">Restart Curia</a> to start it.</span>`;
+    return `<div class="rows">
+      <div class="row"><span class="key grow">Channel</span><span><a href="${esc(detail.channel?.url)}" target="_blank" rel="noopener">#${esc(detail.channel?.name)}</a> in ${esc(detail.guild?.name)}${detail.channel?.created ? " · created by Curia" : ""}</span></div>
+      <div class="row"><span class="key grow">Confirmation</span><span><a href="${esc(detail.confirmation?.url)}" target="_blank" rel="noopener">${detail.confirmation?.posted ? "Posted" : "Delivered"} ${esc(ago(detail.confirmation?.at))}</a></span></div>
+      <div class="row"><span class="key grow">Operator</span><span>${esc(detail.operator?.name || detail.operator?.username || detail.operator?.id)} <span class="dim-note">${esc(detail.operator?.id)}</span></span></div>
+      <div class="row"><span class="key grow">Commands</span><span>${(detail.commands ?? []).map((c) => `<code>/${esc(c)}</code>`).join(" ")}</span></div>
+    </div><p>${bridge}</p>
+    <details><summary>Change the server or the channel</summary>${setupDiscordChannelForm(d, progress, detail)}</details>`;
+  }
+  const secretPresent = card.state === "failed" || d?.secret === "present" || d?.secret === "refused";
+  if (!secretPresent) return `${setupDiscordGuide()}${setupDiscordTokenForm(d, true)}`;
+  if (!d || d.loading) return `<p class="qhint">Reading the bot's servers…</p>`;
+  const tokenFirst = DISCORD_STAGES_WITH_TOKEN_FORM.includes(stage) || d.secret === "refused" || Boolean(d.error);
+  const bot = d.bot ? `<div class="rows"><div class="row"><span class="key grow">Bot</span><span>${esc(d.bot.username)}${d.invite_url ? ` · <a href="${esc(d.invite_url)}" target="_blank" rel="noopener">Add the bot to a server</a>` : ""}</span></div></div>` : "";
+  const problem = d.error && !stage ? `<p class="qhint">${esc(d.error)}</p>` : "";
+  return `${bot}${problem}
+    ${tokenFirst ? setupDiscordTokenForm(d, true) : ""}
+    ${setupDiscordChannelForm(d, progress, detail)}
+    ${tokenFirst ? "" : `<details><summary>Replace the bot token</summary>${setupDiscordTokenForm(d, false)}</details>`}`;
+}
+
+function setupDiscordGuide() {
+  return `<ol class="setup-steps">
+    <li>Open the <a href="https://discord.com/developers/applications" target="_blank" rel="noopener">Discord developer portal</a> and select <b>New Application</b>. Name it for this installation, for example <code>curia-box</code>.</li>
+    <li>Under <b>Bot</b>, turn on <b>Message Content Intent</b>, then select <b>Reset Token</b> and copy the token. Discord shows it once.</li>
+    <li>In Discord, turn on <b>Developer Mode</b> under <b>Settings</b> &gt; <b>Advanced</b>, then copy your user ID from your profile menu.</li>
+  </ol>`;
+}
+
+function setupDiscordTokenForm(d, open) {
+  const busy = UI.setup.discordBusy === "discord-setup:token";
+  const settings = d?.settings ?? null;
+  return `<p><input id="setup-discord-token" type="password" autocomplete="off" placeholder="Bot token" aria-label="Bot token">
+    <input id="setup-discord-user" type="text" value="${esc(settings?.allowed_users?.[0] ?? "")}" placeholder="Your Discord user ID" aria-label="Discord user ID" inputmode="numeric">
+    <button class="btn primary" ${busy ? "disabled" : ""} onclick="doSetupDiscordToken()">${busy ? "Connecting…" : "Connect bot"}</button></p>
+    ${open ? said("discord-setup:token") : ""}
+    <p class="qhint">The token goes straight to <code>secrets/discord-bot-token</code>. The user ID is the whole access check: only that account may command Curia.</p>`;
+}
+
+function setupDiscordChannelForm(d, progress, detail) {
+  const busy = UI.setup.discordBusy === "discord-setup:channel";
+  const settings = d?.settings ?? null;
+  const guilds = d?.guilds?.length ? d.guilds : (detail?.guilds ?? (detail?.guild ? [detail.guild] : []));
+  const chosen = progress?.guild_id || settings?.guild_id || detail?.guild?.id || guilds[0]?.id || "";
+  const channel = progress?.channel || settings?.channel || detail?.channel?.name || "curia";
+  const options = guilds.map((g) => `<option value="${esc(g.id)}" ${g.id === chosen ? "selected" : ""}>${esc(g.name)}</option>`).join("");
+  const invite = d?.invite_url || detail?.invite_url;
+  const none = !guilds.length ? `<p class="qhint">The bot is in no server yet. ${invite ? `<a href="${esc(invite)}" target="_blank" rel="noopener">Add the bot to your server</a>, then select <b>Try again</b>.` : ""}</p>` : "";
+  return `<p><select id="setup-discord-guild" aria-label="Server" ${guilds.length ? "" : "disabled"}>${options}</select>
+    <input id="setup-discord-channel" type="text" value="${esc(channel)}" placeholder="curia" aria-label="Command channel">
+    <button class="btn primary" ${busy || !guilds.length ? "disabled" : ""} onclick="doSetupDiscordChannel()">${busy ? "Verifying…" : "Connect channel"}</button></p>
+    ${none}${said("discord-setup:channel")}
+    <p class="qhint">Curia reuses a top-level text channel of that name when the bot can use it, and creates one otherwise. The name is yours to choose. <code>curia</code> is only a suggestion.</p>`;
+}
+
+/* The Discord card's reads and writes (#876). The panel's own read is what
+   the service knows on the token from disk; it runs when the card is
+   selected and after every write. The token itself is read off its field,
+   sent once, and the field is cleared before the answer comes back. */
+async function loadDiscordSetup() {
+  UI.setup.discord = { ...(UI.setup.discord ?? {}), loading: true };
+  render();
+  try {
+    const res = await fetch("/api/setup/discord", { headers: { accept: "application/json" }, cache: "no-store" });
+    if (!res.ok) throw new Error("the sidecar answered " + res.status);
+    UI.setup.discord = await res.json();
+  } catch (error) {
+    UI.setup.discord = { secret: null, settings: null, bot: null, guilds: [], invite_url: null, error: error.message };
+  }
+  render();
+}
+function ensureDiscordSetupRead() {
+  if (!setup?.cards || setupSelected() !== "discord") return;
+  const card = setupCardOf("discord");
+  if (!card || card.state === "unavailable" || card.state === "connected") return;
+  if (UI.setup.discord === null) loadDiscordSetup();
+}
+async function doSetupDiscordToken() {
+  const tokenField = document.getElementById("setup-discord-token");
+  const token = String(tokenField?.value ?? "").trim();
+  if (tokenField) tokenField.value = "";
+  const userId = document.getElementById("setup-discord-user")?.value?.trim() ?? "";
+  if (!token) return refuse("discord-setup:token", "Paste the bot token.");
+  if (!userId) return refuse("discord-setup:token", "Enter your Discord user ID.");
+  const out = await discordSetupWrite("discord-setup:token", "/api/setup/discord/token", { token, user_id: userId });
+  if (out) UI.setup.discord = out;
+  render();
+  return out;
+}
+async function doSetupDiscordChannel() {
+  const guildId = document.getElementById("setup-discord-guild")?.value ?? "";
+  const channel = document.getElementById("setup-discord-channel")?.value?.trim() ?? "";
+  if (!guildId) return refuse("discord-setup:channel", "Select a server.");
+  if (!channel) return refuse("discord-setup:channel", "Enter a channel name.");
+  await rememberSetupProgress("discord", { guild_id: guildId, channel });
+  const out = await discordSetupWrite("discord-setup:channel", "/api/setup/discord/channel", { guild_id: guildId, channel });
+  if (out) UI.setup.discord = null;
+  return loadSetup();
+}
+async function discordSetupWrite(key, path, body) {
+  UI.setup.discordBusy = key;
+  UI.act.said = null;
+  render();
+  try {
+    const res = await fetch(path, {
+      method: "POST", headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify(body),
+    });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(out.error || ("the sidecar answered " + res.status));
+    return out;
+  } catch (error) {
+    UI.act.said = { key, text: error.message, ok: false };
+    return null;
+  } finally {
+    UI.setup.discordBusy = null;
+  }
+}
+
+/* The Tailscale card's own panel (#877), in the three states the verifier
+   reports. Unconnected: no operator is recorded, so the panel names the
+   identity Serve stamped on the request that opened this app, the node, and
+   the machine-name field, and the one press is the confirmation. Failed:
+   the failed verification with its action, and the machine-name form so a
+   name can be corrected. Connected: the private address, the operator, the
+   node, the Serve route, and the timed admission, from this read. */
+function setupTailscale(card, progress) {
+  const t = UI.setup.tailscale;
+  const detail = card.detail ?? null;
+  if (card.state === "connected" && detail) {
+    const op = detail.operator ?? {};
+    const seen = op.last_seen_at ? `Arrived through Tailscale ${esc(ago(op.last_seen_at))}` : "Not seen through Tailscale since the service started";
+    return `<div class="rows">
+      <div class="row"><span class="key grow">Private address</span><span><a href="${esc(detail.app_url)}" target="_blank" rel="noopener">${esc(detail.app_url)}</a></span></div>
+      <div class="row"><span class="key grow">Operator</span><span>${esc(op.login)} <span class="dim-note">confirmed ${esc(ago(op.confirmed_at))}</span></span></div>
+      <div class="row"><span class="key grow">Node</span><span>${esc(detail.address)} · online · ${(detail.node?.ips ?? []).map(esc).join(", ")}${detail.node?.version ? ` · Tailscale ${esc(detail.node.version)}` : ""}</span></div>
+      <div class="row"><span class="key grow">Serve</span><span><code>:${esc(detail.serve?.route?.https)}</code> → <code>${esc(detail.serve?.route?.target)}</code>${detail.serve?.created ? " · created by Curia" : ""}</span></div>
+      <div class="row"><span class="key grow">Reachability</span><span>Admitted ${esc(op.login)} in ${esc(detail.app?.ms)} ms · ${seen}</span></div>
+    </div>
+    <details><summary>Change the machine name</summary>${setupTailscaleForm(t, progress, detail, card)}</details>`;
+  }
+  if (!t || t.loading) return `<p class="qhint">Reading the node…</p>`;
+  return `${setupTailscaleNode(t, detail)}${setupTailscaleForm(t, progress, detail, card)}`;
+}
+
+function setupTailscaleNode(t, detail) {
+  const node = t.node ?? detail?.node ?? null;
+  if (t.error && !node) return `<p class="qhint">${esc(t.error)}</p>`;
+  if (!node) return "";
+  const state = !node.installed ? "not installed on this host"
+    : node.error ? `not answering (${node.error})`
+      : node.backend_state !== "Running" ? `${node.backend_state}` : node.online ? "online" : "offline";
+  const name = node.dns_name ? `<b>${esc(node.dns_name)}</b> · ` : "";
+  return `<div class="rows"><div class="row"><span class="key grow">This node</span><span>${name}${esc(state)}${(node.ips ?? []).length ? ` · ${node.ips.map(esc).join(", ")}` : ""}</span></div></div>`;
+}
+
+function setupTailscaleForm(t, progress, detail, card) {
+  const busy = UI.setup.tailscaleBusy === "tailscale-setup:operator";
+  const requester = t?.requester ?? null;
+  const operator = t?.operator ?? detail?.operator ?? null;
+  const current = (t?.node?.dns_name ?? detail?.address ?? "").split(".")[0] || null;
+  const name = progress?.machine_name || t?.machine_name || detail?.machine_name?.wanted || "curia.sh";
+  const who = requester
+    ? `<div class="setup-note"><b>You opened Curia as ${esc(requester)}</b> through Tailscale.${operator && operator.login !== requester ? ` The recorded operator is ${esc(operator.login)}.` : ""}${!operator ? " Confirm to make this identity the allowed operator. Until then, nobody is." : ""}</div>`
+    : `<div class="setup-note">This request carried no Tailscale identity. Open the Curia app through its Tailscale address to confirm the operator.</div>`;
+  const label = operator ? "Confirm again and verify" : "Confirm operator and verify";
+  return `${who}
+    <p><input id="setup-tailscale-machine" type="text" value="${esc(name)}" placeholder="curia.sh" aria-label="Tailscale machine name">
+    <button class="btn primary" ${busy || !requester ? "disabled" : ""} onclick="doSetupTailscaleOperator()">${busy ? "Verifying…" : label}</button></p>
+    ${said("tailscale-setup:operator")}
+    <p class="qhint">Machine name: the name this node has in Tailscale. Default <code>curia.sh</code>${current ? `, current node <code>${esc(current)}</code>` : ""}. Curia doesn't rename the node. To rename it, run <code>sudo tailscale set --hostname &lt;name&gt;</code> on the host.</p>`;
+}
+
+/* The Tailscale card's reads and writes (#877). The panel's own read carries
+   the identity this request arrived with; the confirmation sends only the
+   machine name, and the sidecar names the login off the request itself. */
+async function loadTailscaleSetup() {
+  UI.setup.tailscale = { ...(UI.setup.tailscale ?? {}), loading: true };
+  render();
+  try {
+    const res = await fetch("/api/setup/tailscale", { headers: { accept: "application/json" }, cache: "no-store" });
+    if (!res.ok) throw new Error("the sidecar answered " + res.status);
+    UI.setup.tailscale = await res.json();
+  } catch (error) {
+    UI.setup.tailscale = { requester: null, operator: null, node: null, serve: null, app_url: null, first_operator: null, error: error.message };
+  }
+  render();
+}
+function ensureTailscaleSetupRead() {
+  if (!setup?.cards || setupSelected() !== "tailscale") return;
+  const card = setupCardOf("tailscale");
+  if (!card || card.state === "unavailable" || card.state === "connected") return;
+  if (UI.setup.tailscale === null) loadTailscaleSetup();
+}
+async function doSetupTailscaleOperator() {
+  const machine = document.getElementById("setup-tailscale-machine")?.value?.trim() ?? "";
+  if (!machine) return refuse("tailscale-setup:operator", "Enter the machine name.");
+  await rememberSetupProgress("tailscale", { machine_name: machine });
+  UI.setup.tailscaleBusy = "tailscale-setup:operator";
+  UI.act.said = null;
+  render();
+  try {
+    const res = await fetch("/api/setup/tailscale/operator", {
+      method: "POST", headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({ machine_name: machine }),
+    });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(out.error || ("the sidecar answered " + res.status));
+    UI.setup.tailscale = null;
+  } catch (error) {
+    UI.act.said = { key: "tailscale-setup:operator", text: error.message, ok: false };
+    UI.setup.tailscaleBusy = null;
+    render();
+    return null;
+  }
+  UI.setup.tailscaleBusy = null;
+  return loadSetup();
+}
+
+/* The model-provider card (#852: one provider is required, the second is
+   optional). ONE CARD, ONE ROW PER PROVIDER, so the second provider lands
+   beside the first without restructuring: each row draws its own state
+   badge and its own panel, and the card's state is what the service
+   composed out of both. OpenAI (#878) is `setupOpenAI`; Anthropic (#879)
+   is `setupAnthropic`. */
+const SETUP_PROVIDERS = ["openai", "anthropic"];
+function setupModel(card, progress) {
+  const rows = SETUP_PROVIDERS.map((key) => {
+    const p = card.providers?.[key] ?? { title: key, state: "unavailable" };
+    const badge = p.state === "connected" ? "Connected and verified" : p.state === "failed" ? "Action required"
+      : p.state === "unavailable" ? "Not available" : "Ready to connect";
+    const body = p.state === "unavailable"
+      ? `<p class="qhint">Connecting ${esc(p.title ?? key)} isn't available yet in this release. This row lights up when it lands.</p>`
+      : key === "openai" ? setupOpenAI(p, card, progress) : setupAnthropic(p, card, progress);
+    return `<div class="setup-provider ${esc(key)} ${esc(p.state)}">
+      <div class="setup-provider-head"><b>${esc(p.title ?? key)}</b><span class="setup-badge">${esc(badge)}</span></div>
+      ${body}</div>`;
+  });
+  return rows.join("");
+}
+
+/* The OpenAI row (#878). One press, the subscription sign-in curia already
+   runs (`codex login --device-auth` in a session the service drives); while
+   it waits the panel draws the link, the one-time code, and the terminal
+   fallback the service composed, the same card the Credentials screen
+   draws. Connected, it draws the safe facts of this read. Never a key
+   field: the credential lands in its secret file by the login, and the
+   only thing the page ever holds is the one-time code. */
+function setupOpenAI(p, card, progress) {
+  const o = UI.setup.openai;
+  const detail = p.detail ?? null;
+  const flow = o?.login ?? null;
+  if (p.state === "connected" && detail) {
+    const expires = detail.credential?.expires_at ? Math.round((new Date(detail.credential.expires_at).getTime() - Date.now()) / 1000) : null;
+    const rows = `<div class="rows">
+      <div class="row"><span class="key grow">Plan</span><span>${esc(detail.identity?.plan_type ?? "unknown")}</span></div>
+      <div class="row"><span class="key grow">Credential</span><span>${expires === null ? "expiry unknown" : `expires in ${esc(dur(Math.max(0, expires)))}`} · refreshed by Curia</span></div>
+      <div class="row"><span class="key grow">Verification</span><span>${esc(detail.request?.model)} answered in ${esc(detail.request?.ms)} ms · ${esc(ago(detail.request?.at))}</span></div>
+      <div class="row"><span class="key grow">Routing</span><span>${esc(detail.routing?.model)} for every ticket type${detail.routing?.applied ? " · preset applied by Curia" : " · ready"}</span></div>
+    </div>`;
+    return `${rows}<details><summary>Sign in to OpenAI again</summary>${setupOpenAIForm(o, flow, "Sign in to OpenAI again")}</details>`;
+  }
+  if (!o || o.loading) return `<p class="qhint">Reading the credential…</p>`;
+  const label = p.state === "failed" || o.secret?.state === "present" ? "Sign in to OpenAI again" : "Sign in to OpenAI";
+  return setupOpenAIForm(o, flow, label);
+}
+
+function setupOpenAIForm(o, flow, label) {
+  if (flow?.state === "waiting") return credFlow(flow);
+  const busy = UI.setup.openaiBusy === "openai-setup:login" || flow?.state === "starting";
+  const ended = o?.ending && !flow
+    ? `<div class="setup-note">The last OpenAI sign-in ended: ${esc(o.ending.why ?? o.ending.state)}. Start it again whenever you're ready.</div>` : "";
+  const sentence = o?.said && !flow ? `<p class="qhint">${esc(o.said.split("\n")[0])}</p>` : "";
+  const problem = o?.error ? `<p class="qhint">${esc(o.error)}</p>` : o?.secret?.state === "refused" ? `<p class="qhint">${esc(o.secret.why)}</p>` : "";
+  return `${ended}${problem}
+    <ol class="setup-steps">
+      <li>Select <b>${esc(label)}</b>. Curia opens a sign-in session on this host and shows a link and a one-time code here.</li>
+      <li>Open the link on any device, sign in to your ChatGPT account, and enter the code. Nothing is pasted back.</li>
+      <li>Curia adopts the credential the moment it lands, completes one minimal model request, and applies the routing preset.</li>
+    </ol>
+    <p><button class="btn primary" ${busy ? "disabled" : ""} onclick="doSetupOpenAILogin()">${busy ? "Starting…" : esc(label)}</button></p>
+    ${sentence}${said("openai-setup:login")}`;
+}
+
+/* The OpenAI row's reads and writes (#878). The panel's own read is polled
+   while a login is starting or waiting, because the link and the code
+   appear on the service's tick; the moment the login is gone the frame
+   verifies fresh, which is what turns the card. */
+async function loadOpenAISetup() {
+  clearTimeout(UI.setup.openaiTimer);
+  const before = UI.setup.openai?.login ?? null;
+  UI.setup.openai = { ...(UI.setup.openai ?? {}), loading: !UI.setup.openai };
+  render();
+  try {
+    const res = await fetch("/api/setup/openai", { headers: { accept: "application/json" }, cache: "no-store" });
+    if (!res.ok) throw new Error("the sidecar answered " + res.status);
+    UI.setup.openai = await res.json();
+  } catch (error) {
+    UI.setup.openai = { provider: "openai", secret: null, identity: null, login: null, ending: null, said: null, routing: null, error: error.message };
+  }
+  render();
+  const now = UI.setup.openai.login ?? null;
+  if (now && UI.screen === "setup") {
+    UI.setup.openaiTimer = setTimeout(loadOpenAISetup, 3000);
+  } else if (before && !now) {
+    return loadSetup();
+  }
+  return null;
+}
+function ensureOpenAISetupRead() {
+  if (!setup?.cards || setupSelected() !== "model") return;
+  const card = setupCardOf("model");
+  if (!card || card.state === "unavailable") return;
+  if (UI.setup.openai === null) loadOpenAISetup();
+}
+async function doSetupOpenAILogin() {
+  await rememberSetupProgress("model", { provider: "openai" });
+  UI.setup.openaiBusy = "openai-setup:login";
+  UI.act.said = null;
+  render();
+  try {
+    const res = await fetch("/api/setup/openai/login", {
+      method: "POST", headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({}),
+    });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(out.error || ("the sidecar answered " + res.status));
+    UI.setup.openai = out;
+  } catch (error) {
+    UI.act.said = { key: "openai-setup:login", text: error.message, ok: false };
+    UI.setup.openaiBusy = null;
+    render();
+    return null;
+  }
+  UI.setup.openaiBusy = null;
+  return loadOpenAISetup();
+}
+
+/* The Anthropic row (#879). One press, the subscription sign-in curia
+   already runs (`claude setup-token` in a session the service drives);
+   while it waits the panel draws the authorize link and the terminal
+   fallback the service composed, the typed lane of the Credentials
+   screen's own card: the operator pastes the code the browser shows back
+   into the terminal, and the token curia reads off the pane reaches the
+   store and never this page. Connected, it draws the safe facts of this
+   read. Never a key field. */
+function setupAnthropic(p, card, progress) {
+  const o = UI.setup.anthropic;
+  const detail = p.detail ?? null;
+  const flow = o?.login ?? null;
+  if (p.state === "connected" && detail) {
+    const expires = detail.credential?.expires_at ? Math.round((new Date(detail.credential.expires_at).getTime() - Date.now()) / 1000) : null;
+    const rows = `<div class="rows">
+      <div class="row"><span class="key grow">Credential</span><span>subscription token adopted ${esc(ago(detail.credential?.obtained_at))} · ${expires === null ? "expiry unknown" : `about ${esc(dur(Math.max(0, expires)))} left, an estimate from Anthropic's documented lifetime`}</span></div>
+      <div class="row"><span class="key grow">Verification</span><span>${esc(detail.request?.model)} answered in ${esc(detail.request?.ms)} ms · ${esc(ago(detail.request?.at))}</span></div>
+      <div class="row"><span class="key grow">Routing</span><span>${esc(detail.routing?.model)} for every ticket type that could not run${detail.routing?.applied ? " · preset applied by Curia" : " · ready"}</span></div>
+    </div>`;
+    return `${rows}<details><summary>Sign in to Anthropic again</summary>${setupAnthropicForm(o, flow, "Sign in to Anthropic again")}</details>`;
+  }
+  if (!o || o.loading) return `<p class="qhint">Reading the credential…</p>`;
+  const label = p.state === "failed" || o.secret?.state === "present" ? "Sign in to Anthropic again" : "Sign in to Anthropic";
+  return setupAnthropicForm(o, flow, label);
+}
+
+function setupAnthropicForm(o, flow, label) {
+  if (flow?.state === "waiting") return credFlow(flow);
+  const busy = UI.setup.anthropicBusy === "anthropic-setup:login" || flow?.state === "starting";
+  const ended = o?.ending && !flow
+    ? `<div class="setup-note">The last Anthropic sign-in ended: ${esc(o.ending.why ?? o.ending.state)}. Start it again whenever you're ready.</div>` : "";
+  const sentence = o?.said && !flow ? `<p class="qhint">${esc(o.said.split("\n")[0])}</p>` : "";
+  const problem = o?.error ? `<p class="qhint">${esc(o.error)}</p>` : o?.secret?.state === "refused" ? `<p class="qhint">${esc(o.secret.why)}</p>` : "";
+  return `${ended}${problem}
+    <ol class="setup-steps">
+      <li>Select <b>${esc(label)}</b>. Curia opens a sign-in session on this host and shows a link here.</li>
+      <li>Open the link, sign in to your Claude subscription, and paste the code the browser shows back into the terminal the row links to.</li>
+      <li>Curia reads the token off that terminal, asks Anthropic whether it authenticates, adopts it, completes one minimal model request, and applies the routing preset.</li>
+    </ol>
+    <p><button class="btn primary" ${busy ? "disabled" : ""} onclick="doSetupAnthropicLogin()">${busy ? "Starting…" : esc(label)}</button></p>
+    ${sentence}${said("anthropic-setup:login")}`;
+}
+
+/* The Anthropic row's reads and writes (#879), the OpenAI row's shape: the
+   panel's own read is polled while a login is starting or waiting, and the
+   moment the login is gone the frame verifies fresh. */
+async function loadAnthropicSetup() {
+  clearTimeout(UI.setup.anthropicTimer);
+  const before = UI.setup.anthropic?.login ?? null;
+  UI.setup.anthropic = { ...(UI.setup.anthropic ?? {}), loading: !UI.setup.anthropic };
+  render();
+  try {
+    const res = await fetch("/api/setup/anthropic", { headers: { accept: "application/json" }, cache: "no-store" });
+    if (!res.ok) throw new Error("the sidecar answered " + res.status);
+    UI.setup.anthropic = await res.json();
+  } catch (error) {
+    UI.setup.anthropic = { provider: "anthropic", secret: null, credential: null, login: null, ending: null, said: null, routing: null, error: error.message };
+  }
+  render();
+  const now = UI.setup.anthropic.login ?? null;
+  if (now && UI.screen === "setup") {
+    UI.setup.anthropicTimer = setTimeout(loadAnthropicSetup, 3000);
+  } else if (before && !now) {
+    return loadSetup();
+  }
+  return null;
+}
+function ensureAnthropicSetupRead() {
+  if (!setup?.cards || setupSelected() !== "model") return;
+  const card = setupCardOf("model");
+  if (!card || card.state === "unavailable" || card.providers?.anthropic?.state === "unavailable") return;
+  if (UI.setup.anthropic === null) loadAnthropicSetup();
+}
+async function doSetupAnthropicLogin() {
+  await rememberSetupProgress("model", { provider: "anthropic" });
+  UI.setup.anthropicBusy = "anthropic-setup:login";
+  UI.act.said = null;
+  render();
+  try {
+    const res = await fetch("/api/setup/anthropic/login", {
+      method: "POST", headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({}),
+    });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(out.error || ("the sidecar answered " + res.status));
+    UI.setup.anthropic = out;
+  } catch (error) {
+    UI.act.said = { key: "anthropic-setup:login", text: error.message, ok: false };
+    UI.setup.anthropicBusy = null;
+    render();
+    return null;
+  }
+  UI.setup.anthropicBusy = null;
+  return loadAnthropicSetup();
+}
+
+function setupUnavailable(card) {
+  if (card.state !== "unavailable") return "";
+  return `<div class="setup-note">Connecting ${esc(card.title)} isn't available yet in this release. The card stays here, and this step lights up when it lands.</div>`;
+}
+
+/* The brand marks the rail carries (#853). A logo names the service beside
+   its word; it is never the only thing that does. */
+function setupLogo(key) {
+  if (key === "github") return `<span class="setup-logo" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.64 0 8.13c0 3.59 2.29 6.64 5.47 7.71.4.08.55-.18.55-.39 0-.19-.01-.83-.01-1.51-2.01.38-2.53-.5-2.69-.96-.09-.23-.48-.96-.82-1.15-.28-.15-.68-.53-.01-.54.63-.01 1.08.59 1.23.83.72 1.23 1.87.88 2.33.67.07-.53.28-.88.51-1.08-1.78-.2-3.64-.9-3.64-4.01 0-.89.31-1.62.82-2.19-.08-.2-.36-1.04.08-2.16 0 0 .67-.22 2.2.84A7.4 7.4 0 0 1 8 3.92c.68 0 1.36.09 2 .27 1.53-1.06 2.2-.84 2.2-.84.44 1.12.16 1.96.08 2.16.51.57.82 1.3.82 2.19 0 3.12-1.87 3.81-3.65 4.01.29.25.54.73.54 1.49 0 1.08-.01 1.95-.01 2.22 0 .22.15.47.55.39A8.14 8.14 0 0 0 16 8.13C16 3.64 12.42 0 8 0Z"/></svg></span>`;
+  if (key === "discord") return `<span class="setup-logo discord" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20.317 4.37a19.8 19.8 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.211.375-.445.865-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.618-1.25.077.077 0 0 0-.078-.037A19.74 19.74 0 0 0 3.677 4.37a.07.07 0 0 0-.032.028C.533 9.046-.319 13.58.099 18.058a.082.082 0 0 0 .031.056c2.053 1.508 4.041 2.423 5.993 3.03a.078.078 0 0 0 .084-.028c.462-.63.873-1.295 1.226-1.994a.076.076 0 0 0-.042-.106 12.3 12.3 0 0 1-1.872-.892.077.077 0 0 1-.008-.128c.126-.094.252-.192.372-.291a.074.074 0 0 1 .078-.01c3.928 1.793 8.18 1.793 12.061 0a.074.074 0 0 1 .079.009c.12.099.246.198.373.292a.077.077 0 0 1-.007.128c-.598.343-1.22.645-1.873.891a.077.077 0 0 0-.041.107c.36.698.772 1.363 1.225 1.993a.076.076 0 0 0 .084.029c1.961-.607 3.95-1.522 6.002-3.03a.077.077 0 0 0 .031-.055c.5-5.177-.838-9.674-3.548-13.66a.061.061 0 0 0-.031-.029ZM8.02 15.331c-1.183 0-2.157-1.086-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.095 2.157 2.419 0 1.333-.956 2.419-2.157 2.419Zm7.975 0c-1.183 0-2.157-1.086-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.095 2.157 2.419 0 1.333-.946 2.419-2.157 2.419Z"/></svg></span>`;
+  if (key === "tailscale") return `<span class="setup-logo" aria-hidden="true"><span class="setup-dots">${"<i></i>".repeat(9)}</span></span>`;
+  return `<span class="setup-marks" aria-hidden="true"><span>◎</span><span>A</span></span>`;
+}
+
+/* The footer: one real fact and one supporting line once connected, the
+   failed verification and its one action on an error, and before either the
+   name of the data that will appear. Never a decorative metric. */
+function setupFooter(card) {
+  if (card.state === "failed") {
+    return `<div class="setup-primary"><span class="emoji" aria-hidden="true">⚠️</span><span class="fact">${esc(card.error?.failed)}</span></div>
+      <div class="setup-secondary">${esc(card.error?.action)}</div>`;
+  }
+  if (card.state === "connected" && card.footer) {
+    return `<div class="setup-primary"><span class="emoji" aria-hidden="true">${esc(card.footer.emoji || "✅")}</span><span class="fact">${esc(card.footer.primary)}</span></div>
+      <div class="setup-secondary">${esc(card.footer.secondary)}</div>`;
+  }
+  return `<div class="setup-pending"><span aria-hidden="true">○</span><span>${esc(card.pending)}</span></div>`;
+}
+
+function setupCard(card, selected) {
+  return `<button class="setup-card ${esc(card.key)} ${esc(card.state)}${selected ? " on" : ""}" aria-pressed="${selected ? "true" : "false"}"
+      onclick="selectSetupCard('${js(card.key)}')">
+    <div class="setup-head">${setupLogo(card.key)}<span class="setup-title">${esc(card.title)}</span><span class="setup-badge">${esc(card.badge)}</span></div>
+    <div class="setup-foot">${setupFooter(card)}</div>
+  </button>`;
+}
+
+const setupCards = () => (setup?.cards ?? []);
+const setupCardOf = (key) => setupCards().find((c) => c.key === key) ?? null;
+const setupSelected = () => (setupCardOf(setup?.step) ? setup.step : SETUP_ORDER[0]);
+const setupConnected = () => setupCards().filter((c) => c.state === "connected").map((c) => c.key);
+
+/* The one dependent step, under the rail. The button is enabled by the
+   service's gate and by nothing on this page: four connected cards with no
+   verified facts behind them are still not a loop to run. */
+function setupFullLoop() {
+  const gate = setup?.full_loop;
+  if (gate?.run && gate.run.state && gate.run.state !== "idle") return setupLoopRun(gate.run);
+  const missing = gate?.missing ?? SETUP_ORDER.filter((k) => !setupConnected().includes(k));
+  const ready = Boolean(gate?.ready);
+  const why = ready ? "Every integration is connected and verified."
+    : missing.length ? `Waiting for ${missing.map((k) => esc(setupCardOf(k)?.title ?? k)).join(", ")}.`
+      : esc(gate?.reason ?? "The Full loop isn't available yet in this release.");
+  return `<div class="setup-loop"><div><b>Full loop</b><div class="dim-note">${why}</div>${ready ? setupLoopFacts(gate?.facts) : ""}</div>
+    <button class="btn primary" ${ready ? `onclick="runFullLoop()"` : "disabled"}>Run Full loop</button></div>`;
+}
+
+/* The facts the gate hands the loop, named where the action is: the
+   repository or the discovered ticket, the channel, the private address, the
+   leading provider and its model. Drawn from this read's gate and nothing
+   remembered, so what the button would run on is what the rail verified. */
+const SETUP_PROVIDER_NAMES = { openai: "OpenAI", anthropic: "Anthropic" };
+function setupLoopFacts(facts) {
+  if (!facts) return "";
+  const bits = [];
+  const ticket = facts.github?.ticket;
+  if (ticket) bits.push(`🎫 #${esc(ticket.number)} · ${esc(ticket.repo)}`);
+  else if (facts.github?.repo) bits.push(`📦 ${esc(facts.github.repo)}`);
+  if (facts.discord?.channel?.name) bits.push(`💬 #${esc(facts.discord.channel.name)}`);
+  if (facts.tailscale?.address) bits.push(`🔒 ${esc(facts.tailscale.address)}`);
+  if (facts.model?.provider) {
+    const name = SETUP_PROVIDER_NAMES[facts.model.provider] ?? facts.model.provider;
+    bits.push(`${facts.model.provider === "anthropic" ? "🧠" : "⚡"} ${esc(name)} · ${esc(facts.model.model ?? "")}`);
+  }
+  return bits.length ? `<div class="dim-note setup-loop-facts">${bits.join(" · ")}</div>` : "";
+}
+
+/* The run (#882): the installation's acceptance. The press asks the service
+   to run one real Full loop on the ticket marked for the rehearsal; from then
+   on the panel draws the run the service reads off its journal, one row per
+   leg, with the real GitHub and Discord artifacts linked and the elapsed time.
+   A failure names the leg, one cause, and one action, and Try again reruns
+   that leg. Nothing here decides anything: the service's read is the run. */
+const LOOP_MARK = { complete: "✓", running: "…", failed: "✗", pending: "·" };
+function loopDur(ms) {
+  if (ms == null || !Number.isFinite(ms)) return "";
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s} s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m} min ${s % 60} s`;
+  return `${Math.floor(m / 60)} h ${m % 60} min`;
+}
+function setupLoopRun(run) {
+  const where = run.ticket ? `${esc(run.repo)}#${esc(run.ticket.number)}` : esc(run.repo ?? "");
+  const elapsed = loopDur(run.elapsed_ms);
+  const head = run.state === "complete" ? `<b>Full loop verified.</b><div class="dim-note">${where} · every leg completed in ${elapsed}.</div>`
+    : run.state === "failed" ? `<b>The Full loop did not complete.</b><div class="dim-note">${where} · stopped after ${elapsed}.</div>`
+      : `<b>Running the Full loop.</b><div class="dim-note">${where} · ${elapsed} so far. The page follows the service's read every 5 seconds.</div>`;
+  const legs = (run.legs ?? []).map((l) => `<li class="loop-leg ${esc(l.state)}"><span class="loop-mark" aria-hidden="true">${LOOP_MARK[l.state] ?? "·"}</span><span>${esc(l.title)} · ${esc(l.state)}</span>${l.link ? ` <a href="${esc(l.link)}" target="_blank" rel="noopener">open</a>` : ""}${l.ms != null ? `<span class="dim-note">${loopDur(l.ms)}</span>` : ""}</li>`).join("");
+  const links = run.links ?? {};
+  const names = { ticket: "Ticket", pull_request: "Pull request", map: "Map", thread: "Discord thread", channel: "Command channel" };
+  const linkRow = Object.keys(names).filter((k) => links[k]).map((k) => `<a href="${esc(links[k])}" target="_blank" rel="noopener">${names[k]} ↗</a>`).join("");
+  const problem = run.failed
+    ? `<div class="setup-problem"><b>${esc(run.failed.title)} failed: ${esc(run.failed.cause)}</b>${esc(run.failed.action)}</div>`
+    : "";
+  const busy = UI.setup.loopBusy;
+  const actions = run.state === "failed"
+    ? `<button class="btn primary" ${busy ? "disabled" : ""} onclick="retryFullLoop()">${busy ? "Retrying…" : "Try again"}</button>`
+    : run.state === "complete"
+      ? `<a class="btn primary" href="#home" onclick="goto('home');return false">Open Curia</a>`
+      : `<button class="btn primary" disabled>Running…</button>`;
+  return `<div class="setup-loop run"><div>${head}<ul class="loop-legs">${legs}</ul>${linkRow ? `<div class="loop-links">${linkRow}</div>` : ""}${problem}
+    <div class="loop-actions">${actions}${UI.setup.note ? `<span class="dim-note">${esc(UI.setup.note)}</span>` : ""}</div></div></div>`;
+}
+async function pressFullLoop(path) {
+  UI.setup.loopBusy = true;
+  UI.setup.note = null;
+  render();
+  try {
+    const res = await fetch(path, {
+      method: "POST", headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({}),
+    });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(out.error ?? `the sidecar answered ${res.status}`);
+    if (setup?.full_loop && out.run) setup.full_loop.run = out.run;
+  } catch (error) {
+    UI.setup.note = error.message;
+  }
+  UI.setup.loopBusy = false;
+  render();
+  ensureFullLoopRead();
+}
+function runFullLoop() { return pressFullLoop("/api/setup/full-loop"); }
+function retryFullLoop() { return pressFullLoop("/api/setup/full-loop/retry"); }
+/* While a run is live the panel follows the service's read; the timer stops
+   itself when the run ends or the operator leaves the screen. */
+function ensureFullLoopRead() {
+  const live = UI.screen === "setup" && setup?.full_loop?.run?.state === "running";
+  if (!live) {
+    if (UI.setup.loopTimer) { clearTimeout(UI.setup.loopTimer); UI.setup.loopTimer = null; }
+    return;
+  }
+  if (UI.setup.loopTimer) return;
+  UI.setup.loopTimer = setTimeout(async () => {
+    UI.setup.loopTimer = null;
+    try {
+      const res = await fetch("/api/setup/full-loop", { headers: { accept: "application/json" }, cache: "no-store" });
+      const run = await res.json();
+      if (setup?.full_loop && run?.state) setup.full_loop.run = run;
+    } catch { /* the next read asks again */ }
+    render();
+    ensureFullLoopRead();
+  }, 5000);
+}
+
+/* The panel: the selected card's own configuration, the error treatment
+   when its verification failed, and the frame's one forward action. */
+function setupPanel(card, p) {
+  const slot = SETUP_CONTENT[card.key];
+  const progress = setup?.progress?.[card.key] ?? {};
+  const problem = card.state === "failed"
+    ? `<div class="setup-problem"><b>${esc(card.error?.failed)}</b>${esc(card.error?.action)}</div>`
+    : "";
+  const busy = UI.setup.busy;
+  const tryAgain = card.state === "failed"
+    ? `<button class="btn primary" ${busy ? "disabled" : ""} onclick="retrySetup()">${busy ? "Verifying…" : "Try again"}</button>`
+    : "";
+  const allReady = setupConnected().length === SETUP_ORDER.length;
+  const run = setup?.full_loop?.run;
+  const forward = card.state === "connected"
+    ? (allReady
+      ? (run?.state === "running" ? `<button class="btn primary" disabled>Running the Full loop…</button>`
+        : run?.state === "complete" ? `<a class="btn primary" href="#home" onclick="goto('home');return false">Open Curia</a>`
+          : run?.state === "failed" ? `<button class="btn primary" ${UI.setup.loopBusy ? "disabled" : ""} onclick="retryFullLoop()">Try again</button>`
+            : `<button class="btn primary" ${setup?.full_loop?.ready && !UI.setup.loopBusy ? `onclick="runFullLoop()"` : "disabled"}>Run Full loop</button>`)
+      : `<button class="btn primary" onclick="continueSetup()">Continue setup</button>`)
+    : "";
+  return `<div class="setup-panel">
+    <div class="eyebrow">Independent connection · ${esc(card.badge)}</div>
+    <h2>${esc(card.title)}</h2>
+    ${slot ? slot.content(card, progress, p) : ""}
+    ${problem}
+    <div class="setup-actions">${tryAgain}${forward}
+      <a href="#home" onclick="goto('home');return false">Close setup</a></div>
+    ${UI.setup.note ? `<div class="dim-note" style="margin-top:10px">${esc(UI.setup.note)}</div>` : ""}
+  </div>`;
+}
+
+function screenSetup(p) {
+  const top = head(p, "Setup");
+  if (!setup) return `${top}<div class="later">Verifying the four integrations…</div>`;
+  /* Null is not empty (rule 2): a service that could not be asked is not four
+     unconnected cards. */
+  if (!setup.cards) {
+    return `${top}<div class="unread">curia could not verify the integrations: ${esc(setup.error ?? "the service did not answer")}.
+      <button class="btn sm" ${UI.setup.busy ? "disabled" : ""} onclick="retrySetup()">${UI.setup.busy ? "Verifying…" : "Try again"}</button></div>`;
+  }
+  const selected = setupSelected();
+  const cards = SETUP_ORDER.map((k) => setupCardOf(k)).filter(Boolean);
+  const done = setupConnected().length;
+  return `${top}<div class="setup">
+    <aside class="setup-rail" aria-label="Integrations">
+      <div class="setup-count"><div class="eyebrow">Your installation</div><h3>${done}/${cards.length} verified</h3>
+        <div class="dim-note">Connect the four in any order. Each card shows this read's verification, not a saved result.</div></div>
+      ${cards.map((c) => setupCard(c, c.key === selected)).join("")}
+      ${setupFullLoop()}
+    </aside>
+    <section>${setupPanel(setupCardOf(selected), p)}</section>
+  </div>`;
+}
+
+/* The Home pointer: on a fresh installation the one thing Home has to say is
+   which integrations are not connected yet. It draws only from a read that
+   answered, so a service that could not be asked points at nothing. */
+function setupPointer() {
+  if (!setup?.cards || UI.screen === "setup") return "";
+  const missing = SETUP_ORDER.filter((k) => setupCardOf(k)?.state !== "connected");
+  if (!missing.length) return "";
+  return `<div class="setup-pointer"><b>Integration setup isn't finished.</b>
+    <span class="dim-note">Not connected yet: ${missing.map((k) => esc(setupCardOf(k)?.title ?? k)).join(", ")}.</span>
+    <a href="#setup" onclick="goto('setup');return false">Open setup →</a></div>`;
+}
+
+/* ---- the reads and writes ---- */
+
+async function loadSetup() {
+  UI.setup.busy = true;
+  render();
+  try {
+    const res = await fetch("/api/setup", { headers: { accept: "application/json" }, cache: "no-store" });
+    if (!res.ok) throw new Error("the sidecar answered " + res.status);
+    setup = await res.json();
+  } catch (error) {
+    setup = { step: setup?.step ?? null, progress: setup?.progress ?? null, cards: null, full_loop: null, error: error.message };
+  }
+  UI.setup.busy = false;
+  render();
+  ensureDiscordSetupRead();
+  ensureTailscaleSetupRead();
+  ensureOpenAISetupRead();
+  ensureAnthropicSetupRead();
+  ensureFullLoopRead();
+}
+/* Try again is a fresh verification of everything, which is the only kind of
+   verification there is. */
+function retrySetup() {
+  UI.setup.note = null;
+  return loadSetup();
+}
+
+/* Selecting a card: the rail moves now, and the service keeps the choice so
+   a reopen lands here. A write that fails leaves the selection on the page
+   and says so; nothing about it is a secret and nothing about it is lost. */
+async function selectSetupCard(key) {
+  if (!SETUP_ORDER.includes(key) || !setup) return;
+  setup.step = key;
+  UI.setup.note = null;
+  render();
+  ensureDiscordSetupRead();
+  ensureTailscaleSetupRead();
+  ensureOpenAISetupRead();
+  ensureAnthropicSetupRead();
+  await writeSetup({ step: key });
+}
+function continueSetup() {
+  const next = SETUP_ORDER.find((k) => setupCardOf(k)?.state !== "connected") ?? setupSelected();
+  return selectSetupCard(next);
+}
+/* The safe checkpoint a step keeps for a reopen (#875 to #879 call this):
+   the fields the service allows for that card, never a secret. The service
+   refuses any other key by name. */
+async function rememberSetupProgress(card, fields) {
+  if (!setup) return null;
+  setup.progress = { ...(setup.progress ?? {}), [card]: { ...(setup.progress?.[card] ?? {}), ...fields } };
+  return writeSetup({ progress: { [card]: fields } });
+}
+async function writeSetup(body) {
+  try {
+    const res = await fetch("/api/setup", {
+      method: "POST", headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify(body),
+    });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(out.error || ("the sidecar answered " + res.status));
+    return out;
+  } catch (error) {
+    UI.setup.note = `curia could not keep this step for a reopen: ${error.message}`;
+    render();
+    return null;
+  }
 }
 
 function screenSettings(p) {
@@ -5028,6 +6109,7 @@ function enter(k) {
   if (UI.screen === "chat" && k !== "chat") applyChatRoute([]);
   UI.screen = k;
   if (k === "settings" && !settings) loadSettings();
+  if (k === "setup") loadSetup();
   if (k === "chat") loadConversations();
   if (k === "feed") recordFeedVisit();
 }
@@ -5169,6 +6251,10 @@ if (typeof document !== "undefined" && document.getElementById("app")) {
      and a marker that needed the section opened would be a marker nobody sees.
      `enter` already took the read on the settings screen itself. */
   if (UI.screen !== "settings") loadSettings();
+  /* The setup read at boot serves the Home pointer (#874): a fresh
+     installation lands on Home, and the one thing it has to say there is
+     which integrations are not connected yet. */
+  if (UI.screen !== "setup") loadSetup();
   render();
   if (document.visibilityState === "visible") tick();
 }
