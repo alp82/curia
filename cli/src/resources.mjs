@@ -1,4 +1,4 @@
-import { INSTALLATION_LABEL } from './bundle.mjs'
+import { IMAGE_REGISTRY, INSTALLATION_LABEL, RELEASE_IMAGES } from './bundle.mjs'
 import { dockerRunner } from './compose.mjs'
 
 // The Docker resources of one installation, found by label and by nothing
@@ -73,6 +73,61 @@ export async function removeInstallationResources(installationId, { docker = doc
   return found
 }
 
+// The release images on the host: every image under one of the four exact
+// repositories `RELEASE_IMAGES` names, whatever release it belongs to, as
+// `{ id, reference }` with the reference `<repository>@<digest>` (or
+// `<repository>:<tag>` for one pulled by tag). Images are not labelled with
+// an installation, because two installations on one host share a pulled
+// image, so the repository is the identity; a name that merely starts with
+// `curia-` is never read as a release image.
+export async function releaseImages({ docker = dockerRunner } = {}) {
+  const seen = new Map()
+  for (const name of Object.values(RELEASE_IMAGES)) {
+    const repository = `${IMAGE_REGISTRY}/${name}`
+    const rows = await run(docker, ['image', 'ls', '--no-trunc', '--digests', '--filter', `reference=${repository}`, '--format', '{{.ID}}\t{{.Repository}}\t{{.Tag}}\t{{.Digest}}'])
+    for (const line of rows) {
+      const [id, repo, tag, digest] = line.split('\t')
+      const reference = digest && digest !== '<none>' ? `${repo}@${digest}` : `${repo}:${tag}`
+      if (!seen.has(id)) seen.set(id, { id, reference })
+    }
+  }
+  return [...seen.values()]
+}
+
+// Removes every release image that Docker proves unused, and keeps the rest
+// with the reason. Unused means: `docker ps --all --filter ancestor=<id>`
+// lists no container, of this installation or any other, and Docker itself
+// accepts the removal without `--force`. An image Docker refuses (a container
+// created between the two calls, a dependent image) is kept and reported,
+// not a failure: images are shared host resources, and keeping one leaves
+// nothing of the installation behind. Returns `{ found, removed, kept }`
+// with `kept` as `[{ reference, reason }]`.
+export async function removeReleaseImages({ docker = dockerRunner, stdout } = {}) {
+  const found = await releaseImages({ docker })
+  const removed = []
+  const kept = []
+  for (const image of found) {
+    const users = (await run(docker, ['ps', '--all', '--no-trunc', '--filter', `ancestor=${image.id}`, '--format', '{{.ID}}\t{{.Names}}']))
+      .map((line) => line.split('\t')[1])
+    if (users.length > 0) {
+      const reason = `in use by ${describe(users, 'container')}`
+      stdout?.write(`kept the image ${image.reference}: ${reason}\n`)
+      kept.push({ reference: image.reference, reason })
+      continue
+    }
+    const result = await docker(['image', 'rm', image.id])
+    if (!result.ok) {
+      const reason = `docker refused: ${lastLines(result)}`
+      stdout?.write(`kept the image ${image.reference}: ${reason}\n`)
+      kept.push({ reference: image.reference, reason })
+      continue
+    }
+    stdout?.write(`removed the image ${image.reference}\n`)
+    removed.push(image)
+  }
+  return { found, removed, kept }
+}
+
 function describe(names, noun) {
   return `${names.length} ${noun}${names.length === 1 ? '' : 's'}: ${names.join(', ')}`
 }
@@ -81,8 +136,11 @@ function describe(names, noun) {
 async function run(docker, args) {
   const result = await docker(args)
   if (!result.ok) {
-    const detail = result.missing ? 'docker is not on the path' : (result.stderr || result.stdout || `exit ${result.code}`).trim().split('\n').slice(-5).join('\n')
-    throw new DockerError(`docker ${args.join(' ')} failed:\n${detail}`)
+    throw new DockerError(`docker ${args.join(' ')} failed:\n${lastLines(result)}`)
   }
   return String(result.stdout ?? '').split('\n').map((l) => l.trim()).filter((l) => l !== '')
+}
+
+function lastLines(result) {
+  return result.missing ? 'docker is not on the path' : (result.stderr || result.stdout || `exit ${result.code}`).trim().split('\n').slice(-5).join('\n')
 }

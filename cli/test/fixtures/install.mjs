@@ -267,29 +267,39 @@ export function fakeLoopback(docker, { initial, live = [], readopt = () => 'adop
 }
 
 // A fake Docker host for the removal commands (#886 and #887): a set of
-// containers, networks, and volumes with labels, answering the label-filtered
-// listings and the removals the way the `docker` CLI does, and recording
-// every call. Compose verbs go to `compose`, a `fakeDocker`. `fail` names
-// verbs that refuse a number of times before they work (`{ rm: 1 }`), to
-// model a partial cleanup.
-export function fakeDockerHost({ containers = [], networks = [], volumes = [], compose = fakeDocker(), fail = {} } = {}) {
+// containers, networks, volumes, and images with labels, answering the
+// label-filtered listings and the removals the way the `docker` CLI does,
+// and recording every call. Compose verbs go to `compose`, a `fakeDocker`.
+// `fail` names verbs that refuse a number of times before they work
+// (`{ rm: 1 }`), to model a partial cleanup. A container's `image` is the
+// ID of the image it runs, which `ps --filter ancestor=<id>` answers and
+// which makes `image rm` refuse the way Docker does; an image is
+// `{ id, repository, digest }` for one pulled by digest or
+// `{ id, repository, tag }` for one built or pulled by tag.
+export function fakeDockerHost({ containers = [], networks = [], volumes = [], images = [], compose = fakeDocker(), fail = {} } = {}) {
   const host = {
-    containers: containers.map((c) => ({ state: 'running', labels: {}, ...c })),
+    containers: containers.map((c) => ({ state: 'running', labels: {}, image: null, ...c })),
     networks: networks.map((n) => ({ labels: {}, ...n })),
     volumes: volumes.map((v) => ({ labels: {}, ...v })),
+    images: images.map((i) => ({ tag: null, digest: null, ...i })),
   }
   const calls = []
   const remaining = { ...fail }
   const matches = (args) => {
     const at = args.indexOf('--filter')
     if (at < 0) return () => true
-    const [, key, value] = /^label=([^=]+)=(.*)$/.exec(args[at + 1])
-    return (r) => r.labels[key] === value
+    const label = /^label=([^=]+)=(.*)$/.exec(args[at + 1])
+    if (label) return (r) => r.labels[label[1]] === label[2]
+    const ancestor = /^ancestor=(.*)$/.exec(args[at + 1])
+    if (ancestor) return (r) => r.image === ancestor[1]
+    const reference = /^reference=(.*)$/.exec(args[at + 1])
+    if (reference) return (r) => r.repository === reference[1]
+    throw new Error(`fake: unknown filter ${args[at + 1]}`)
   }
   const run = async (args) => {
     calls.push(args)
     if (args[0] === 'compose') return compose(args)
-    const verb = ['network', 'volume'].includes(args[0]) ? `${args[0]} ${args[1]}` : args[0]
+    const verb = ['network', 'volume', 'image'].includes(args[0]) ? `${args[0]} ${args[1]}` : args[0]
     if (remaining[verb] > 0) {
       remaining[verb] -= 1
       return { ok: false, stdout: '', stderr: `fake: ${verb} refused this time`, code: 1 }
@@ -311,6 +321,17 @@ export function fakeDockerHost({ containers = [], networks = [], volumes = [], c
       case 'volume rm':
         host.volumes = host.volumes.filter((v) => !args.includes(v.name))
         return { ok: true, stdout: '', stderr: '' }
+      case 'image ls':
+        return lines(host.images.filter(matches(args)).map((i) => [i.id, i.repository, i.tag ?? '<none>', i.digest ?? '<none>']))
+      case 'image rm': {
+        const id = args[2]
+        const image = host.images.find((i) => i.id === id)
+        if (!image) return { ok: false, stdout: '', stderr: `Error response from daemon: No such image: ${id}`, code: 1 }
+        const users = host.containers.filter((c) => c.image === id)
+        if (users.length > 0) return { ok: false, stdout: '', stderr: `Error response from daemon: conflict: unable to delete ${id} (must be forced) - image is being used by running container ${users[0].id}`, code: 1 }
+        host.images = host.images.filter((i) => i.id !== id)
+        return { ok: true, stdout: `Deleted: ${id}\n`, stderr: '' }
+      }
       default:
         return { ok: false, stdout: '', stderr: `fake: no such docker command: ${args.join(' ')}`, code: 125 }
     }
@@ -318,7 +339,7 @@ export function fakeDockerHost({ containers = [], networks = [], volumes = [], c
   run.calls = calls
   run.host = host
   run.compose = compose
-  run.verbs = () => calls.map((c) => (c[0] === 'compose' ? `compose ${c[c.indexOf('-f') + 2]}` : ['network', 'volume'].includes(c[0]) ? `${c[0]} ${c[1]}` : c[0]))
+  run.verbs = () => calls.map((c) => (c[0] === 'compose' ? `compose ${c[c.indexOf('-f') + 2]}` : ['network', 'volume', 'image'].includes(c[0]) ? `${c[0]} ${c[1]}` : c[0]))
   return run
 }
 

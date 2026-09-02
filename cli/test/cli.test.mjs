@@ -88,19 +88,17 @@ describe('command routing', () => {
     assert.match(r.err, /curia help/)
   })
 
-  for (const name of ['purge']) {
-    test(`${name} routes to its seam and reports that the command is not available yet`, async () => {
-      const root = tempRoot()
-      try {
-        const r = await run([name], { CURIA_ROOT: join(root, 'fresh') })
-        assert.equal(r.exit, EXIT.refused)
-        assert.match(r.err, new RegExp(`^curia ${name}: not available in version ${packageVersion.replaceAll('.', '\\.')}`))
-        assert.equal(r.out, '')
-      } finally {
-        rmSync(root, { recursive: true, force: true })
-      }
-    })
-  }
+  test('every lifecycle command is available: purge over a fresh root refuses at preflight, not as a stub', async () => {
+    const root = tempRoot()
+    try {
+      const r = await run(['purge'], { CURIA_ROOT: join(root, 'fresh') })
+      assert.equal(r.exit, EXIT.refused)
+      assert.match(r.err, /^curia purge: preflight: .* holds no installation, so there is nothing to purge/)
+      assert.doesNotMatch(r.err, /not available/)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
 
   test('a lifecycle command refuses root execution before anything else', async () => {
     const r = await run(['install'], { CURIA_ROOT: '/nonexistent/curia' }, { uid: 0 })

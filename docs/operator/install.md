@@ -58,7 +58,7 @@ Run the command that the failure message names. Every step checks what is alread
 - `start` rewrites `run/compose.env`, pulls only images that are missing, and recreates only containers whose definition changed.
 - `health` waits again.
 
-There is no saved progress record, no repair mode, and no automatic retry. The command doesn't retry a step on its own, and it doesn't undo a completed step. To remove the runnable system and keep the installation, run `curia uninstall`; see [Uninstall and reinstall from the preserved root](uninstall.md). To start over from nothing, run `curia purge` and then the bootstrap.
+There is no saved progress record, no repair mode, and no automatic retry. The command doesn't retry a step on its own, and it doesn't undo a completed step. To remove the runnable system and keep the installation, run `curia uninstall`; see [Uninstall and reinstall from the preserved root](uninstall.md). To start over from nothing, run `curia purge` and then the bootstrap; see [Purge and external cleanup](purge.md).
 
 Some failures and their corrective actions:
 

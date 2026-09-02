@@ -2,7 +2,7 @@
 
 The `curia` command is the lifecycle interface of an installed Curia. This page lists the launcher, the commands, and the exit codes. It's a reference: the lifecycle topics in the operator guide tell you when to run each command and what to check afterwards. Follow those topics and open this page from them.
 
-This page describes the vocabulary that the first packaged release ships. Commands that a later release adds say so on their own line.
+This page describes the vocabulary that the first packaged release ships.
 
 ## The launcher
 
@@ -41,7 +41,7 @@ Curia creates the root and seven directories inside it. The following table list
 | `cache/` | The overseer's mirrors of origin and the containers' home directory with its tool caches. | Removable. `curia uninstall` empties it. |
 | `run/` | The lifecycle lock, renewable tokens, sockets, and staging for one operation. | Removable. `curia uninstall` empties it. |
 
-The root and all seven directories are owned by you with mode `0700`. Configuration, secret, and state files use mode `0600`. Curia sets these modes itself and doesn't depend on your `umask`. Only `curia purge` removes the preserved directories. What each container mounts from the root, and what a restart keeps, is in [Secrets, mounts, and what survives](secrets.md).
+The root and all seven directories are owned by you with mode `0700`. Configuration, secret, and state files use mode `0600`. Curia sets these modes itself and doesn't depend on your `umask`. Only `curia purge` removes the preserved directories; see [Purge and external cleanup](purge.md). What each container mounts from the root, and what a restart keeps, is in [Secrets, mounts, and what survives](secrets.md).
 
 `state/installation.json` is the installation record. It holds three fields and nothing else: `format` (the record format, `1`), `installationId` (a random ID that Curia generates once per installation), and `activeVersion` (the installed version the launcher runs). Curia writes the record atomically, so the file is always either the previous complete record or the new one.
 
@@ -87,15 +87,13 @@ Run `curia help` to print this list from the installed version. The commands app
 | `curia rollback` | Finds the one retained previous release, has it validate your configuration, then switches back to it through the same health, version, and re-adoption checks as the update's switch. Refuses without a change when there is no such release, when two candidates exist, or when the previous release refuses the configuration. The release you rolled back from becomes the new rollback release. See [Rollback](rollback.md). | Now |
 | `curia doctor` | Checks the host, the installation, the operator configuration, the installed release and its provenance, the secret files, the containers, the service, the integrations, and the Curia app. It's read-only, keeps no history, and repairs nothing. See [Diagnostics with `curia doctor`](doctor.md). | Now |
 | `curia uninstall` | Stops Curia and removes the launcher, `versions/`, `cache/`, `run/`, every container, network, and volume that carries the installation's label, and the Serve routes Curia created. Keeps `config/`, `secrets/`, `state/`, and `work/` with the installation ID, so the bootstrap reinstalls the same Curia. Leaves the images for `curia purge`. Safe to repeat. See [Uninstall and reinstall from the preserved root](uninstall.md). | Now |
-| `curia purge` | Removes the entire installation root and every Curia-labelled Docker resource, after one confirmation. | Later release |
+| `curia purge` | Prints the exact installation root with a warning, takes one confirmation (type the root on the terminal, or pass `--confirm <root>`), then removes every container, network, and volume that carries the installation's label, the Serve routes Curia created, the release images that Docker proves unused, the launcher, and last the entire root with `config/`, `secrets/`, `state/`, and `work/`. Reports the external resources it never deletes. Safe to repeat. See [Purge and external cleanup](purge.md). | Now |
 | `curia version` | Prints the lifecycle interface version, the active installed version, and the installation root. | Now |
 | `curia help` | Prints the command list and exit codes. | Now |
 
 `curia --version` prints only the lifecycle interface version.
 
-`curia install`, `curia reinstall`, `curia rollback`, `curia doctor`, and `curia uninstall` take no options. `curia update` takes one optional exact version and `--prerelease`, and nothing else. The root comes from `CURIA_ROOT`, which the bootstrap and the launcher set, and the stage from `CURIA_STAGE`, which the bootstrap sets. A failed step names itself and the command that reruns it; see [When a step fails](install.md#when-a-step-fails), [When a step fails](update.md#when-a-step-fails) for an update, [When the rollback release doesn't come up](rollback.md#when-the-rollback-release-doesnt-come-up) for a rollback, and [When a step fails](uninstall.md#when-a-step-fails) for an uninstall.
-
-In this release, the command marked **Later release** checks the installation root as described in [When a lifecycle command refuses the root](#when-a-lifecycle-command-refuses-the-root), then exits with code `3` and a message that names the installed version and the release map. Nothing changes on the host.
+`curia install`, `curia reinstall`, `curia rollback`, `curia doctor`, and `curia uninstall` take no options. `curia update` takes one optional exact version and `--prerelease`, and nothing else. `curia purge` takes `--confirm <root>` and nothing else. The root comes from `CURIA_ROOT`, which the bootstrap and the launcher set, and the stage from `CURIA_STAGE`, which the bootstrap sets. A failed step names itself and the command that reruns it; see [When a step fails](install.md#when-a-step-fails), [When a step fails](update.md#when-a-step-fails) for an update, [When the rollback release doesn't come up](rollback.md#when-the-rollback-release-doesnt-come-up) for a rollback, [When a step fails](uninstall.md#when-a-step-fails) for an uninstall, and [When a step fails](purge.md#when-a-step-fails) for a purge.
 
 ## Exit codes
 
