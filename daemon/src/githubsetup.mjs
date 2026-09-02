@@ -26,10 +26,20 @@
 // Before the App exists the card is plain, not failed: `{ unconnected }`,
 // which the frame draws as "Ready to connect". Everything after is one
 // failed verification with one corrective action, in the order the operator
-// meets it: the watch list, the App, the install, the mint, the grant, the
+// meets it: the App, the install, the mint, the grant, the watch list, the
 // tickets.
+//
+// THE OPERATOR CHOOSES WHAT TO WATCH HERE (#891). A fresh installation has no
+// watched repository (#866 writes none, and the shipped watch list stays with
+// the source deployment), so the card reads what every installation covers
+// and hands the list on as `detail.available`; the panel offers it with a
+// checkbox per repository and writes the choice into `config/config.yaml`
+// through the settings save. ONE covered watched repository connects the
+// card. An owner on the watch list with no installation is a fact the detail
+// carries (`owners[].installed`), and it is called missing only when no
+// watched owner is installed at all.
 
-import { api, WRITE_PERMISSIONS, listInstallationRepos, mintInstallationToken } from './githubapp.mjs'
+import { api, WRITE_PERMISSIONS, installUrlFor, listInstallationRepos, mintInstallationToken } from './githubapp.mjs'
 
 // What each permission of the minted credential is called on the card.
 const CAPABILITY_NAMES = Object.freeze({
@@ -70,21 +80,22 @@ export function githubVerifier({ minter, watch, fetchImpl = globalThis.fetch }) 
     const app = minter()
     if (!app) return { ok: false, unconnected: true }
 
-    const repos = watch().map((w) => w.repo)
-    if (!repos.length) {
-      return {
-        ok: false,
-        failed: 'No repository is on the watch list, so there is nothing for the App installation to cover',
-        action: 'Add a repository to the watch list under Settings, then try again.',
-      }
+    const watched = watch().map((w) => w.repo)
+    const owners = [...new Set(watched.map(ownerOf))]
+
+    // The App's own facts name the install link the panel draws. A failed
+    // read there is not a failed verification: the link falls back to
+    // GitHub's installations page.
+    let facts = null
+    try {
+      facts = await app.readFacts()
+    } catch {
+      facts = null
     }
-    const owners = [...new Set(repos.map(ownerOf))]
+    const install_url = installUrlFor({ slug: facts?.slug ?? null })
 
     let installs
     try {
-      // The App's own facts feed the install links the panel draws; a failed
-      // read there is not a failed verification, so it is not awaited.
-      app.readFacts().catch(() => {})
       installs = await app.refreshInstallations()
     } catch (e) {
       return {
@@ -93,27 +104,24 @@ export function githubVerifier({ minter, watch, fetchImpl = globalThis.fetch }) 
         action: 'Check the App on its GitHub settings page and this host\'s clock, then try again.',
       }
     }
-    const installedOn = new Map(installs.map((i) => [String(i.owner ?? '').toLowerCase(), i]))
+    const installedOn = new Set(installs.map((i) => String(i.owner ?? '').toLowerCase()))
     const ownerRows = owners.map((owner) => ({ owner, installed: installedOn.has(owner.toLowerCase()) }))
-    const detail = { owners: ownerRows, covered: [] }
-    const missing = ownerRows.filter((o) => !o.installed).map((o) => o.owner)
-    if (missing.length === owners.length) {
-      return {
-        ok: false,
-        failed: `curia's GitHub App is not installed on ${list(owners)}`,
-        action: `Install the App on ${owners[0]} from the link in this panel and grant it ${repos.find((r) => ownerOf(r) === owners[0])}, then try again.`,
-        detail,
-      }
-    }
+    const detail = { owners: ownerRows, covered: [], watched, available: [], install_url }
+    const watchedOwners = new Set(owners.map((o) => o.toLowerCase()))
 
-    // One real mint per installed owner, then that installation's own grant.
+    // One real mint per installation, then that installation's own grant. A
+    // watched owner's refusal is the failed verification; an installation on
+    // an owner nobody watches yet only fails to add its repositories to the
+    // choice, because nothing the card proves depends on it.
     const tokens = new Map()
-    for (const { owner } of ownerRows.filter((o) => o.installed)) {
-      const install = installedOn.get(owner.toLowerCase())
+    for (const install of installs) {
+      const owner = String(install.owner ?? '')
+      const isWatched = watchedOwners.has(owner.toLowerCase())
       let minted
       try {
         minted = await mintInstallationToken(install.id, { jwt: app.jwt(), permissions: WRITE_PERMISSIONS, fetchImpl })
       } catch (e) {
+        if (!isWatched) continue
         return {
           ok: false,
           failed: `curia could not mint an installation token for ${owner}: ${e.message}`,
@@ -125,6 +133,7 @@ export function githubVerifier({ minter, watch, fetchImpl = globalThis.fetch }) 
       try {
         granted = await listInstallationRepos({ token: minted.token, fetchImpl })
       } catch (e) {
+        if (!isWatched) continue
         return {
           ok: false,
           failed: `curia could not read what the App installation on ${owner} covers: ${e.message}`,
@@ -132,13 +141,42 @@ export function githubVerifier({ minter, watch, fetchImpl = globalThis.fetch }) 
           detail,
         }
       }
+      detail.available.push(...granted)
       const lowered = new Set(granted.map((r) => r.toLowerCase()))
-      for (const repo of repos) if (ownerOf(repo) === owner && lowered.has(repo.toLowerCase())) detail.covered.push(repo)
-      tokens.set(owner, minted)
+      for (const repo of watched) {
+        if (ownerOf(repo).toLowerCase() === owner.toLowerCase() && lowered.has(repo.toLowerCase())) detail.covered.push(repo)
+      }
+      tokens.set(owner.toLowerCase(), minted)
+    }
+
+    if (!watched.length) {
+      if (!installs.length) {
+        return {
+          ok: false,
+          failed: 'curia\'s GitHub App is not installed on any account, so there is no repository to watch yet',
+          action: 'Install the App on the account that owns your repositories from the link in this panel, then try again.',
+          detail,
+        }
+      }
+      return {
+        ok: false,
+        failed: 'No repository is on the watch list, so there is nothing for the App installation to cover',
+        action: 'Choose the repositories Curia watches in this panel, then select Watch these repositories.',
+        detail,
+      }
+    }
+    const missing = ownerRows.filter((o) => !o.installed).map((o) => o.owner)
+    if (missing.length === owners.length) {
+      return {
+        ok: false,
+        failed: `curia's GitHub App is not installed on ${list(missing)}`,
+        action: `Install the App on ${missing[0]} from the link in this panel and grant it ${watched.find((r) => ownerOf(r) === missing[0])}, then try again.`,
+        detail,
+      }
     }
     if (!detail.covered.length) {
       const owner = ownerRows.find((o) => o.installed).owner
-      const wanted = repos.filter((r) => ownerOf(r) === owner)
+      const wanted = watched.filter((r) => ownerOf(r) === owner)
       return {
         ok: false,
         failed: `The App installation on ${owner} doesn't cover ${list(wanted)}`,
@@ -155,7 +193,7 @@ export function githubVerifier({ minter, watch, fetchImpl = globalThis.fetch }) 
     for (const repo of detail.covered) {
       let read
       try {
-        read = await readTickets(repo, { token: tokens.get(ownerOf(repo)).token, fetchImpl })
+        read = await readTickets(repo, { token: tokens.get(ownerOf(repo).toLowerCase()).token, fetchImpl })
       } catch (e) {
         return {
           ok: false,
@@ -167,7 +205,7 @@ export function githubVerifier({ minter, watch, fetchImpl = globalThis.fetch }) 
       open += read.open
       if (!ticket && read.ticket) ticket = read.ticket
     }
-    const first = tokens.get(ownerOf(detail.covered[0]))
+    const first = tokens.get(ownerOf(detail.covered[0]).toLowerCase())
     const capabilities = Object.keys(CAPABILITY_NAMES).filter((k) => first.permissions?.[k]).map((k) => CAPABILITY_NAMES[k])
     const ready = `${list(capabilities, 'and')} ready`
     const tickets = `${open} open ticket${open === 1 ? '' : 's'}`

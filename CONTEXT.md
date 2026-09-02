@@ -240,7 +240,7 @@ What stops a second charting agent from editing one map body: the session name. 
 A charting session that researched holds this lock, and an agent slot, through its whole review. Charting is no longer a fast act. The operator accepted that price ([ADR-0008](docs/adr/0008-resolved-means-merged.md)).
 
 **Watched repo**:
-A repo on the watch list: `watch` in the operator configuration, or the shipped list in `config/curia.yaml` when the operator configuration leaves it out. Curia dispatches only against watched repos.
+A repo on the watch list: `watch` in the operator configuration. In the source deployment the shipped list in `config/curia.yaml` applies when the operator configuration leaves it out; under an installation root the operator configuration is the only source, and a fresh installation watches nothing until the operator chooses on the Setup screen's GitHub card ([#891](https://github.com/alp82/curia/issues/891)). Curia dispatches only against watched repos.
 
 **Tracker doc**:
 `docs/agents/issue-tracker.md` in a watched repo. It tells agents how that tracker expresses maps, blocking, and resolution. A map child does not dispatch without it.

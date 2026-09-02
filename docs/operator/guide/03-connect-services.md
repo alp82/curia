@@ -27,9 +27,10 @@ The rail on the left holds four cards, **GitHub**, **Discord**, **Tailscale**, a
 
 1. On the **GitHub** card, keep the suggested App name or enter your own, then select **Create GitHub App**. The browser opens GitHub's own page with the App's manifest.
 2. On GitHub, select **Create GitHub App for &lt;you&gt;**. GitHub sends the browser back to the Setup screen, and the service converts the code into the App's key.
-3. The card lists every watched owner with an **Install on &lt;owner&gt;** link. Install the App for each one and grant it the watched repositories, then select **Try again**.
+3. Select **Install the App on GitHub**. On GitHub, install the App on the account that owns your repositories and grant it the repositories Curia may work on, then return and select **Try again**.
+4. The card lists every repository the installation covers, all ticked. Untick any Curia shouldn't work on, then select **Watch these repositories**. Curia writes the list into `config/config.yaml` and verifies again.
 
-The card connects when it shows **Connected and verified** and the footer names a real ticket that carries `ready-for-agent` and no assignee, or the covered repository with its open-ticket count. What the verification proves is in [Connect GitHub](../integration-setup.md#connect-github).
+The card connects when it shows **Connected and verified** and the footer names a real ticket that carries `ready-for-agent` and no assignee, or the covered repository with its open-ticket count. A fresh installation watches nothing until you choose here; the shipped `curia.yaml` watch list belongs to the source deployment and never applies to an installation. What the verification proves is in [Connect GitHub](../integration-setup.md#connect-github).
 
 ## Connect Discord
 

@@ -1860,6 +1860,93 @@ describe('the Discord card routes (#876)', () => {
   })
 })
 
+// ---- the GitHub card's watch choice (#891) ------------------------------------
+//
+// One write: the repositories the operator ticked land in the watch list
+// through the same validated settings save the Settings screen uses, and the
+// daemon applies them through the same reload. The route composes the list
+// out of `owner/name` strings and nothing else, keeps the mode a repository
+// already has, and refuses a name that is not a repository without sending it.
+describe('the GitHub card watch route (#891)', () => {
+  const ALLOW = ['alp@example.com']
+  const SERVE_PORT = 8445
+  const ORIGIN = 'https://box.tail1234.ts.net:8445'
+  let surface
+  let daemon
+  let calls
+  let reply
+  const served = (extra = {}) => ({ host: 'box.tail1234.ts.net:8445', [LOGIN_HEADER]: 'alp@example.com', ...extra })
+  const press = (p, body) => req(surface.port, p, { method: 'POST', headers: served({ origin: ORIGIN, 'content-type': 'application/json' }), body })
+  const sent = (route) => calls.filter((c) => c.url === route)
+
+  beforeEach(async () => {
+    calls = []
+    reply = {
+      'GET /settings': [200, { dispatch: { max_concurrent: 4 }, overseer: { live_pane_cap: 3 }, watch: [{ repo: 'alp82/curia', mode: 'map' }], routing: {}, files: {}, writes: {} }],
+      'POST /settings': [200, { ok: true, written: ['config.yaml'], at: '2026-09-02T10:00:00.000Z' }],
+      'POST /reload': [200, { ok: true, applied: ['watch'] }],
+    }
+    daemon = http.createServer((r, res) => {
+      let buf = ''
+      r.on('data', (d) => { buf += d })
+      r.on('end', () => {
+        calls.push({ method: r.method, url: r.url, body: buf ? JSON.parse(buf) : null })
+        const [code, body] = reply[`${r.method} ${r.url}`] ?? [404, { error: 'no such route' }]
+        res.writeHead(code, { 'content-type': 'application/json' })
+        res.end(JSON.stringify(body))
+      })
+    })
+    await new Promise((done) => daemon.listen(0, '127.0.0.1', done))
+    surface = new DashboardSurface({
+      port: 0, servePort: SERVE_PORT, index: DEFAULT_DASHBOARD_INDEX, allow: ALLOW, pollIntervalS: 5,
+      daemonPort: daemon.address().port, settingsSource: 'daemon',
+      log: () => {},
+      deps: {
+        fetchOverview: async () => ({ daemon: { port: 4271 } }),
+        assertServe: async () => {},
+        serveOff: async () => {},
+        attachBase: async () => 'box.tail1234.ts.net',
+        tailnetSelf: async () => ({ dnsName: 'box.tail1234.ts.net', ips: ['100.98.118.33'] }),
+      },
+    })
+    await surface.start()
+    await surface.resolveHosts()
+  })
+  afterEach(async () => {
+    await surface.stop()
+    daemon.close()
+  })
+
+  test('the ticked repositories land through the settings save with their modes kept, and the daemon applies them', async () => {
+    const res = await press('/api/setup/github/watch', { repos: ['alp82/aistack', 'alp82/curia'], mode: 'ignored', token: 'never' })
+    assert.equal(res.status, 200, res.text)
+    const [save] = sent('/settings').filter((c) => c.method === 'POST')
+    assert.deepEqual(save.body, { watch: [{ repo: 'alp82/aistack', mode: 'auto' }, { repo: 'alp82/curia', mode: 'map' }] })
+    assert.equal(sent('/reload').length, 1, 'the save applies through the reload, like every settings save')
+    const out = JSON.parse(res.text)
+    assert.deepEqual(out.written, ['config.yaml'])
+    assert.equal(out.reload.ok, true)
+  })
+
+  test('a name that is not a repository is refused by shape, and nothing crosses', async () => {
+    const bad = await press('/api/setup/github/watch', { repos: ['alp82/curia', 'not a repo'] })
+    assert.equal(bad.status, 409)
+    assert.match(JSON.parse(bad.text).error, /is not a repository/)
+    assert.equal(sent('/settings').filter((c) => c.method === 'POST').length, 0)
+    const none = await press('/api/setup/github/watch', { repos: [] })
+    assert.equal(none.status, 409)
+    assert.match(JSON.parse(none.text).error, /at least one repository/i)
+  })
+
+  test('the daemon\'s refusal of the list is the sentence the page shows, and no reload follows', async () => {
+    reply['POST /settings'] = [400, { ok: false, error: '`watch` lists alp82/curia twice' }]
+    const res = await press('/api/setup/github/watch', { repos: ['alp82/curia'] })
+    assert.equal(res.status, 409)
+    assert.equal(JSON.parse(res.text).error, '`watch` lists alp82/curia twice')
+    assert.equal(sent('/reload').length, 0)
+  })
+})
+
 describe('the Tailscale card routes and the first-operator window (#877)', () => {
   const SERVE_PORT = 8445
   const ORIGIN = 'https://box.tail1234.ts.net:8445'

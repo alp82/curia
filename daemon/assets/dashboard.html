@@ -921,7 +921,7 @@ var UI = {
   /* The setup frame's own state (#874): whether a read is in flight, and the
      one sentence the last press left behind. The selected card is not here —
      it is the record's `step`, kept by the service so a reopen restores it. */
-  setup: { busy: false, note: null, loopBusy: false, loopTimer: null, discord: null, discordBusy: null, discordTimer: null, tailscale: null, tailscaleBusy: null, tailscaleName: null, tailscaleRenamed: null, openai: null, openaiBusy: null, openaiTimer: null, anthropic: null, anthropicBusy: null, anthropicTimer: null },
+  setup: { busy: false, note: null, loopBusy: false, loopTimer: null, githubBusy: false, discord: null, discordBusy: null, discordTimer: null, tailscale: null, tailscaleBusy: null, tailscaleName: null, tailscaleRenamed: null, openai: null, openaiBusy: null, openaiTimer: null, anthropic: null, anthropicBusy: null, anthropicTimer: null },
   /* The drill-in frame's own state (#699), one entry per page that is a list
      of sections: which section is open, and whether the phone is on the list
      in front of it. */
@@ -5052,9 +5052,18 @@ var SETUP_CONTENT = {
 /* The GitHub card's own panel (#875), in the three states the verifier
    reports. Unconnected: the App does not exist yet, so the one press is
    Create GitHub App, with the name as the only input. Failed or connected:
-   the App exists, so the panel draws it, the install link per watched owner
-   from the held overview (the same rows the Settings section draws), and,
-   once connected, the real ticket the service discovered or the honest zero. */
+   the App exists, so the panel draws it, the owner rows, the repositories
+   the operator may watch, and, once connected, the real ticket the service
+   discovered or the honest zero.
+
+   EVERYTHING HERE IS THIS READ'S (#891). The owner rows are the verifier's
+   own reading of the installations (`card.detail.owners`), never the held
+   overview's: the overview is a different read at a different time, and the
+   rehearsal saw it draw an owner as installed beside a verification that
+   called the same owner missing. The overview lends the install link per
+   owner and nothing else. The watch choice is the verifier's `available`
+   list, the repositories every installation covers, and the press writes
+   the ticked ones as the watch list through the settings save. */
 function setupGitHub(card, progress, p) {
   const app = p?.overview?.github_app ?? null;
   if (card.state === "unconnected") {
@@ -5072,19 +5081,80 @@ function setupGitHub(card, progress, p) {
     ? `<div class="rows"><div class="row"><span class="key grow">GitHub App</span><span>${facts.settings_url
       ? `<a href="${esc(facts.settings_url)}" target="_blank" rel="noopener">${esc(facts.slug || facts.id)}</a>`
       : esc(facts.slug || facts.id)}</span></div></div>` : "";
-  const owners = (app?.owners ?? []).map((owner) => `<div class="row">
+  const detail = card.detail ?? null;
+  const installUrl = detail?.install_url || "https://github.com/settings/installations";
+  const links = new Map((app?.owners ?? []).map((owner) => [owner.owner, owner.install_url]));
+  const owners = (detail?.owners ?? []).map((owner) => `<div class="row">
     <span class="key grow">${esc(owner.owner)}</span>
-    <span>${esc(ownerState(owner, app?.installations))}</span>
-    <span><a href="${esc(owner.install_url)}" target="_blank" rel="noopener">${owner.installed === true ? "Manage installation" : `Install on ${esc(owner.owner)}`}</a></span></div>`).join("");
+    <span>${owner.installed ? "installed" : "missing access"}</span>
+    <span><a href="${esc(links.get(owner.owner) || installUrl)}" target="_blank" rel="noopener">${owner.installed ? "Manage installation" : `Install on ${esc(owner.owner)}`}</a></span></div>`).join("");
   const install = owners
     ? `<p>Install the App for each owner you watch, and grant it the watched repositories. Then select <b>Try again</b>.</p><div class="rows">${owners}</div>`
-    : `<p class="qhint">No repository is on the watch list. Add one under <a href="#settings" onclick="goto('settings');return false">Settings</a>, then select <b>Try again</b>.</p>`;
-  const detail = card.detail ?? null;
+    : `<p>Install the App on the account that owns your repositories: <a href="${esc(installUrl)}" target="_blank" rel="noopener">Install the App on GitHub</a>. Then select <b>Try again</b>, and choose the repositories to watch here.</p>`;
   const found = card.state !== "connected" || !detail ? "" : detail.ticket
     ? `<div class="setup-note">Ready for an agent: <a href="${esc(detail.ticket.url)}" target="_blank" rel="noopener">#${esc(detail.ticket.number)} · ${esc(detail.ticket.title)}</a>
       <span class="dim-note">${esc(detail.open_tickets)} open ticket${detail.open_tickets === 1 ? "" : "s"} in ${esc((detail.covered ?? []).join(", "))}.</span></div>`
     : `<div class="setup-note">No open ticket is ready for an agent in ${esc((detail.covered ?? []).join(", "))}. Curia starts work when one carries <code>ready-for-agent</code>.</div>`;
-  return `${identity}${install}${found}`;
+  return `${identity}${install}${setupGitHubRepos(card, detail)}${found}`;
+}
+
+/* The repositories the card offers to watch (#891): every repository the
+   App's installations cover, in the order the verifier read them, then any
+   watched repository no installation covers, so a press never drops a
+   repository the operator chose by hand without showing it. */
+function setupGitHubRepoList(detail) {
+  const available = detail?.available ?? [];
+  const watched = detail?.watched ?? [];
+  return [...available, ...watched.filter((repo) => !available.includes(repo))];
+}
+
+function setupGitHubRepos(card, detail) {
+  const repos = setupGitHubRepoList(detail);
+  if (!repos.length) return "";
+  const available = new Set(detail?.available ?? []);
+  const watched = detail?.watched ?? [];
+  const busy = UI.setup.githubBusy;
+  const rows = repos.map((repo, i) => `<div class="row"><label class="grow"><input type="checkbox" id="setup-github-repo-${i}" value="${esc(repo)}"${!watched.length || watched.includes(repo) ? " checked" : ""}> ${esc(repo)}</label>
+    ${available.has(repo) ? "" : `<span class="dim-note">not covered by an installation</span>`}</div>`).join("");
+  const form = `<div class="rows">${rows}</div>
+    <p><button class="btn primary" ${busy ? "disabled" : ""} onclick="doSetupGitHubWatch()">${busy ? "Saving…" : "Watch these repositories"}</button></p>
+    ${said("github-setup:watch")}
+    <p class="qhint">The ticked repositories become the watch list in <code>config/config.yaml</code>, and the verification runs again on them.</p>`;
+  if (card.state === "connected") return `<details><summary>Change the watched repositories</summary>${form}</details>`;
+  return `<p>Choose the repositories Curia watches. The list is what the App's installations cover.</p>${form}`;
+}
+
+/* The one press of the watch choice (#891): the ticked repositories go to
+   the sidecar, which lands them through the validated settings save and the
+   reload, and then the card verifies fresh on the new list. A refusal is the
+   sidecar's sentence and takes no fresh read, so the choice stays on the
+   page for the operator to correct. */
+async function doSetupGitHubWatch() {
+  const detail = setupCardOf("github")?.detail ?? null;
+  const repos = setupGitHubRepoList(detail).filter((repo, i) => document.getElementById(`setup-github-repo-${i}`)?.checked);
+  UI.act.said = null;
+  if (!repos.length) {
+    UI.act.said = { key: "github-setup:watch", text: "Tick at least one repository for Curia to watch.", ok: false };
+    render();
+    return null;
+  }
+  UI.setup.githubBusy = true;
+  render();
+  try {
+    const res = await fetch("/api/setup/github/watch", {
+      method: "POST", headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({ repos }),
+    });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(out.error || ("the sidecar answered " + res.status));
+  } catch (error) {
+    UI.act.said = { key: "github-setup:watch", text: error.message, ok: false };
+    UI.setup.githubBusy = false;
+    render();
+    return null;
+  }
+  UI.setup.githubBusy = false;
+  return retrySetup();
 }
 
 /* The Discord card's own panel (#876), in the states the verifier reports.
@@ -5869,6 +5939,9 @@ async function loadSetup() {
     const res = await fetch("/api/setup", { headers: { accept: "application/json" }, cache: "no-store" });
     if (!res.ok) throw new Error("the sidecar answered " + res.status);
     setup = await res.json();
+    /* A card's panel shows this read's result only (#891): a write refusal
+       a card said before the read is not part of what the read found. */
+    if (/^(github-app|github-setup:|discord-setup:)/.test(UI.act.said?.key ?? "")) UI.act.said = null;
   } catch (error) {
     setup = { step: setup?.step ?? null, progress: setup?.progress ?? null, cards: null, full_loop: null, error: error.message };
   }

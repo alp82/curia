@@ -1007,3 +1007,58 @@ describe('the installation root and the service paths (#867)', () => {
     assert.equal(loadCuriaConfig(writeConfig(withUid), { env: { CURIA_ROOT: installRoot } }).sandbox.agent_uid, process.getuid())
   })
 })
+
+// ---- the watch list under a root is the operator's alone (#891) --------------
+//
+// The packaged image ships the source box's own `config/curia.yaml`, watch list
+// included. A fresh installation that layered `config/config.yaml` over it
+// watched the maintainer's repositories until the operator noticed. Under a
+// root the shipped watch list is not a default: `watch` comes from the root's
+// `config/config.yaml` and nowhere else, and an installation that has not
+// chosen a repository watches nothing.
+
+describe('the watch list under an installation root (#891)', () => {
+  const SHIPPED = path.resolve(DIRNAME, '..', '..', 'config', 'curia.yaml')
+
+  before(() => { tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-config-watch-')) })
+  after(() => { fs.rmSync(tmp, { recursive: true, force: true }) })
+
+  const freshRoot = (name, ...lines) => {
+    const installRoot = path.join(tmp, name)
+    fs.mkdirSync(path.join(installRoot, 'config'), { recursive: true })
+    fs.writeFileSync(path.join(installRoot, 'config', 'config.yaml'), `${lines.join('\n')}\n`)
+    return installRoot
+  }
+
+  test('a fresh installation starts from the shipped curia.yaml and watches no repository', () => {
+    const installRoot = freshRoot('fresh', 'max_concurrent: 4')
+    const cfg = loadCuriaConfig(SHIPPED, { checkPaths: false, env: { CURIA_ROOT: installRoot } })
+    assert.deepEqual(cfg.watch, [])
+  })
+
+  test('a root with no operator file at all watches nothing either', () => {
+    const installRoot = path.join(tmp, 'bare')
+    fs.mkdirSync(installRoot, { recursive: true })
+    assert.deepEqual(loadCuriaConfig(SHIPPED, { checkPaths: false, env: { CURIA_ROOT: installRoot } }).watch, [])
+  })
+
+  test('the hand override beside the shipped file does not reach a root either', () => {
+    const file = writeConfig()
+    fs.writeFileSync(localConfigFile(file), 'watch:\n  - repo: box/override\n')
+    const installRoot = freshRoot('overridden', 'max_concurrent: 4')
+    assert.deepEqual(loadCuriaConfig(file, { env: { CURIA_ROOT: installRoot } }).watch, [])
+  })
+
+  test('the root\'s own watch list is the whole list', () => {
+    const installRoot = freshRoot('chosen', 'watch:', '  - repo: me/app', '  - repo: me/roadmap', '    mode: map')
+    const cfg = loadCuriaConfig(SHIPPED, { checkPaths: false, env: { CURIA_ROOT: installRoot } })
+    assert.deepEqual(cfg.watch, [{ repo: 'me/app', mode: 'auto' }, { repo: 'me/roadmap', mode: 'map' }])
+  })
+
+  test('the source deployment keeps the shipped watch list, and still refuses an empty one', () => {
+    assert.equal(loadCuriaConfig(SHIPPED, { checkPaths: false, env: {}, operator: null }).watch.length, 4)
+    const file = writeConfig()
+    fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace('watch:\n  - repo: o/r\n', 'watch: []\n'))
+    assert.throws(() => loadCuriaConfig(file, { env: {} }), /`watch` must be a non-empty list/)
+  })
+})

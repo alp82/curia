@@ -55,12 +55,16 @@ describe('the GitHub card (#875)', () => {
     assert.equal(gh.calls.length, 0)
   })
 
-  test('with no watched repository there is nothing an installation could cover, and the action says where to add one', async () => {
-    const { verify } = verifierOver({ '/app/installations?per_page=100': [200, installations] }, { watch: [] })
+  test('with no watched repository there is nothing an installation could cover, and the action is the choice in the panel', async () => {
+    const { verify } = verifierOver({
+      '/app/installations?per_page=100': [200, installations],
+      'POST /app/installations/7/access_tokens': tokenAnswer,
+      '/installation/repositories?per_page=100&page=1': [200, { repositories: [{ full_name: 'alp82/curia' }] }],
+    }, { watch: [] })
     const answer = await verify({ progress: {} })
     assert.equal(answer.ok, false)
     assert.match(answer.failed, /no repository is on the watch list/i)
-    assert.match(answer.action, /Settings/)
+    assert.match(answer.action, /Watch these repositories/)
   })
 
   test('an App GitHub refuses is one failed verification naming the refusal, with the App and the clock as the action', async () => {
@@ -77,7 +81,10 @@ describe('the GitHub card (#875)', () => {
     assert.equal(answer.ok, false)
     assert.match(answer.failed, /not installed on alp82 or getalfredo/)
     assert.match(answer.action, /Install the App on alp82/)
-    assert.deepEqual(answer.detail, { owners: [{ owner: 'alp82', installed: false }, { owner: 'getalfredo', installed: false }], covered: [] })
+    assert.deepEqual(answer.detail, {
+      owners: [{ owner: 'alp82', installed: false }, { owner: 'getalfredo', installed: false }],
+      covered: [], watched: ['alp82/curia', 'getalfredo/landing-page'], available: [], install_url: 'https://github.com/settings/installations',
+    })
   })
 
   test('a mint the installation refuses is the failed verification, and the action is the grant', async () => {
@@ -191,5 +198,86 @@ describe('the GitHub card (#875)', () => {
     assert.equal((await verify({ progress: {} })).ok, true)
     assert.equal(gh.calls.filter((c) => c.route === '/app/installations?per_page=100').length, 3)
     assert.equal(gh.calls.filter((c) => c.route === '/app/installations/7/access_tokens').length, 2, 'every verification mints afresh; nothing is a cached yes')
+  })
+})
+
+// The rehearsal of the packaged lifecycle (#891) found the card summing every
+// watched owner into one "not installed" sentence while one of them was
+// installed, and a fresh installation with no watched repository had nowhere
+// to go. The rule (#875) is that ONE covered watched repository connects the
+// card; a missing owner is a fact the detail carries, never a failure while
+// another owner covers; and with no watch list the card offers the
+// repositories the App's installations cover so the operator can choose.
+describe('the GitHub card after the rehearsal (#891)', () => {
+  const appFacts = [200, { id: 42, slug: 'curia-box', name: 'curia-box', owner: { login: 'alp82' }, html_url: 'https://github.com/apps/curia-box' }]
+
+  test('one installed owner that covers a watched repository connects the card, and the other owner is missing as a fact only', async () => {
+    const { verify } = verifierOver({
+      '/app': appFacts,
+      '/app/installations?per_page=100': [200, installations],
+      'POST /app/installations/7/access_tokens': tokenAnswer,
+      '/installation/repositories?per_page=100&page=1': [200, { repositories: [{ full_name: 'alp82/curia' }] }],
+      '/repos/alp82/curia/issues?state=open&per_page=100': [200, []],
+    }, { watch: [{ repo: 'getalfredo/landing-page' }, { repo: 'alp82/curia' }] })
+    const answer = await verify({ progress: {} })
+    assert.equal(answer.ok, true, JSON.stringify(answer))
+    assert.deepEqual(answer.detail.owners, [{ owner: 'getalfredo', installed: false }, { owner: 'alp82', installed: true }])
+    assert.deepEqual(answer.detail.covered, ['alp82/curia'])
+    assert.deepEqual(answer.detail.watched, ['getalfredo/landing-page', 'alp82/curia'])
+    assert.ok(!JSON.stringify(answer).includes('not installed'), 'an installed owner is never called missing')
+  })
+
+  test('with no installed owner the failure names exactly the missing owners, which is every watched one', async () => {
+    const { verify } = verifierOver({ '/app': appFacts, '/app/installations?per_page=100': [200, []] }, { watch: [{ repo: 'alp82/curia' }, { repo: 'getalfredo/landing-page' }] })
+    const answer = await verify({ progress: {} })
+    assert.equal(answer.ok, false)
+    assert.equal(answer.failed, "curia's GitHub App is not installed on alp82 or getalfredo")
+    assert.deepEqual(answer.detail.owners, [{ owner: 'alp82', installed: false }, { owner: 'getalfredo', installed: false }])
+  })
+
+  test('with no watched repository and an installed App, the card lists the repositories the installations cover, so the operator can choose', async () => {
+    const { verify, gh } = verifierOver({
+      '/app': appFacts,
+      '/app/installations?per_page=100': [200, [...installations, { id: 8, account: { login: 'getalfredo', id: 2002 } }]],
+      'POST /app/installations/7/access_tokens': tokenAnswer,
+      'POST /app/installations/8/access_tokens': tokenAnswer,
+      '/installation/repositories?per_page=100&page=1': () => {
+        const last = gh.calls.filter((c) => c.route === '/app/installations/8/access_tokens').length
+        return [200, { repositories: last ? [{ full_name: 'getalfredo/landing-page' }] : [{ full_name: 'alp82/curia' }, { full_name: 'alp82/aistack' }] }]
+      },
+    }, { watch: [] })
+    const answer = await verify({ progress: {} })
+    assert.equal(answer.ok, false)
+    assert.match(answer.failed, /No repository is on the watch list/)
+    assert.match(answer.action, /Watch these repositories/)
+    assert.deepEqual(answer.detail.available, ['alp82/curia', 'alp82/aistack', 'getalfredo/landing-page'])
+    assert.deepEqual(answer.detail.watched, [])
+    assert.deepEqual(answer.detail.owners, [])
+    assert.equal(answer.detail.install_url, 'https://github.com/apps/curia-box/installations/new')
+    assert.ok(!JSON.stringify(answer).includes(TOKEN))
+  })
+
+  test('with no watched repository and no installation, the action is the install link, not the Settings screen', async () => {
+    const { verify } = verifierOver({ '/app': appFacts, '/app/installations?per_page=100': [200, []] }, { watch: [] })
+    const answer = await verify({ progress: {} })
+    assert.equal(answer.ok, false)
+    assert.match(answer.failed, /not installed on any account/)
+    assert.match(answer.action, /Install the App/)
+    assert.deepEqual(answer.detail.available, [])
+    assert.equal(answer.detail.install_url, 'https://github.com/apps/curia-box/installations/new')
+  })
+
+  test('a connected card carries the repositories the installations cover beside the watched ones, so the choice can be changed', async () => {
+    const { verify } = verifierOver({
+      '/app': appFacts,
+      '/app/installations?per_page=100': [200, installations],
+      'POST /app/installations/7/access_tokens': tokenAnswer,
+      '/installation/repositories?per_page=100&page=1': [200, { repositories: [{ full_name: 'alp82/curia' }, { full_name: 'alp82/aistack' }] }],
+      '/repos/alp82/curia/issues?state=open&per_page=100': [200, []],
+    })
+    const answer = await verify({ progress: {} })
+    assert.equal(answer.ok, true)
+    assert.deepEqual(answer.detail.available, ['alp82/curia', 'alp82/aistack'])
+    assert.deepEqual(answer.detail.watched, ['alp82/curia'])
   })
 })

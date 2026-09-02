@@ -22,9 +22,13 @@ Every key is optional. A key you leave out takes Curia's shipped default. The fo
 | `prototype_variations` | A positive whole number. | How many variations a prototype ticket produces in one round. |
 | `messages_per_send` | A whole number from 1 through 4. | How many Discord messages one send may carry. |
 | `live_pane_cap` | A positive whole number. | How many overseer conversations may hold a live terminal pane at once. Separate from `max_concurrent`, which counts agents. |
-| `watch` | A list of `repo` entries, each with an optional `mode`. | The repositories Curia dispatches against. `repo` is `owner/name`. `mode` is `auto`, `map`, or `ready-for-agent`, and `auto` is the default. |
+| `watch` | A list of `repo` entries, each with an optional `mode`. | The repositories Curia dispatches against. `repo` is `owner/name`. `mode` is `auto`, `map`, or `ready-for-agent`, and `auto` is the default. In an installation this file is the only source of the list. |
 
 Curia checks the file as a whole, not only key by key. For example, the sandbox port range has to hold three ports for every concurrent agent, so a `max_concurrent` that the range can't serve is refused even though the number itself is valid.
+
+### The watch list is yours alone
+
+In an installation, `watch` has no shipped default. The service image carries the source deployment's own `curia.yaml`, and its watch list applies only to that deployment. Under an installation root the service reads the watch list from `config/config.yaml` and nowhere else. A fresh installation leaves the key out and watches nothing until you choose a repository: the **GitHub** card of the [Setup screen](integration-setup.md#choose-the-repositories-to-watch) lists the repositories your App installations cover and writes the ones you tick into this file, and the settings screen edits the same list.
 
 ## The file
 
