@@ -157,6 +157,17 @@ describe('the daemon under an installation root (#867)', () => {
       assert.equal(openai.login, null)
       assert.equal(openai.routing.ready, false)
       assert.ok(!/api_key|apiKey/.test(openaiText))
+      // The Anthropic half (#879) under a root: the same presence-only
+      // read on the store's secret file, no login in flight, the same
+      // routing readiness, and no token and no key in it.
+      const anthropicText = await (await fetch(`http://127.0.0.1:${ports[0]}/setup/anthropic`)).text()
+      assert.ok(!anthropicText.includes(TOKEN))
+      const anthropicRead = JSON.parse(anthropicText)
+      assert.deepEqual(anthropicRead.secret, { state: 'absent' })
+      assert.equal(anthropicRead.credential, null)
+      assert.equal(anthropicRead.login, null)
+      assert.equal(anthropicRead.routing.model, 'sonnet')
+      assert.ok(!/api_key|apiKey|sk-ant-/.test(anthropicText))
       // The Tailscale card (#877) under a root: no operator is recorded, so
       // the identity read says nobody is admitted and the first-operator
       // window is open; curia.yaml's `tester@example.com` admits nobody here.

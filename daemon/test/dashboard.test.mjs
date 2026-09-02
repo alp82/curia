@@ -2008,3 +2008,86 @@ describe('the OpenAI card routes (#878)', () => {
     assert.match(JSON.parse(refused.text).error, /runs no containers/)
   })
 })
+
+// The Anthropic half of the model card (#879): the same two routes on the
+// sidecar, the read relayed unedited and the press composed with no field.
+describe('the Anthropic card routes (#879)', () => {
+  const SERVE_PORT = 8445
+  const ORIGIN = 'https://box.tail1234.ts.net:8445'
+  const ALLOW = ['alp@example.com']
+  let surface
+  let daemon
+  let calls
+  let reply
+  let logged
+  const served = (extra = {}) => ({ host: 'box.tail1234.ts.net:8445', [LOGIN_HEADER]: 'alp@example.com', ...extra })
+  const press = (p, body) => req(surface.port, p, { method: 'POST', headers: served({ origin: ORIGIN, 'content-type': 'application/json' }), body })
+  const sent = (route) => calls.find((c) => c.url === route)
+  const OVERVIEW = {
+    provider: 'anthropic', root: true, secret: { state: 'absent' }, credential: null, ending: null, said: null,
+    login: { provider: 'anthropic', session: 'curia-auth-anthropic', state: 'waiting', url: 'https://claude.com/cai/oauth/authorize?code_challenge=x&state=y', code: null, typed: true, terminal_url: null, seconds_left: 1700 },
+    routing: { ready: false, model: 'fable', rows: [], missing: ['research'], credentialed: [] },
+  }
+
+  beforeEach(async () => {
+    calls = []
+    logged = []
+    reply = {
+      '/setup/anthropic': [200, OVERVIEW],
+      '/setup/anthropic/login': [200, { ok: true, ...OVERVIEW, login: { provider: 'anthropic', state: 'starting' } }],
+    }
+    daemon = http.createServer((r, res) => {
+      let buf = ''
+      r.on('data', (d) => { buf += d })
+      r.on('end', () => {
+        calls.push({ method: r.method, url: r.url, body: buf ? JSON.parse(buf) : null })
+        const [code, body] = reply[r.url] ?? [404, { error: 'no such route' }]
+        res.writeHead(code, { 'content-type': 'application/json' })
+        res.end(JSON.stringify(body))
+      })
+    })
+    await new Promise((done) => daemon.listen(0, '127.0.0.1', done))
+    surface = new DashboardSurface({
+      port: 0, servePort: SERVE_PORT, index: DEFAULT_DASHBOARD_INDEX, allow: ALLOW, pollIntervalS: 5,
+      daemonPort: daemon.address().port,
+      log: (line) => logged.push(String(line)),
+      deps: {
+        fetchOverview: async () => ({ daemon: { port: 4271 } }),
+        assertServe: async () => {},
+        serveOff: async () => {},
+        attachBase: async () => 'box.tail1234.ts.net',
+        tailnetSelf: async () => ({ dnsName: 'box.tail1234.ts.net', ips: ['100.98.118.33'] }),
+      },
+    })
+    await surface.start()
+    await surface.resolveHosts()
+  })
+  afterEach(() => {
+    surface?.stop()
+    daemon?.close()
+  })
+
+  test('the panel read comes from the daemon unedited, with the typed login and never a token, and a daemon that cannot be asked answers the reason', async () => {
+    const res = await req(surface.port, '/api/setup/anthropic', { headers: served() })
+    assert.equal(res.status, 200)
+    assert.deepEqual(JSON.parse(res.text), OVERVIEW)
+    daemon.close()
+    const down = JSON.parse((await req(surface.port, '/api/setup/anthropic', { headers: served() })).text)
+    assert.equal(down.secret, null)
+    assert.equal(down.login, null)
+    assert.match(down.error, /daemon|ECONNREFUSED|socket hang up/i)
+  })
+
+  test('the sign-in press crosses with no field at all, whatever the browser sent, and answers the daemon\'s read; a refusal is the sentence the page shows', async () => {
+    const res = await press('/api/setup/anthropic/login', { api_key: 'sk-ant-api03-should-never-cross', token: 'sk-ant-oat01-should-never-cross' })
+    assert.equal(res.status, 200)
+    assert.deepEqual(sent('/setup/anthropic/login').body, {})
+    assert.equal(JSON.parse(res.text).login.state, 'starting')
+    assert.ok(!res.text.includes('should-never-cross'))
+    assert.ok(!logged.join('\n').includes('should-never-cross'))
+    reply['/setup/anthropic/login'] = [400, { ok: false, error: 'this daemon runs no containers, so it has nothing to run the login in' }]
+    const refused = await press('/api/setup/anthropic/login', {})
+    assert.equal(refused.status, 409)
+    assert.match(JSON.parse(refused.text).error, /runs no containers/)
+  })
+})

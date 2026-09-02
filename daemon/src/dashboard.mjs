@@ -1262,6 +1262,16 @@ export class DashboardSurface {
           return out
         })
       }
+      // The Anthropic half (#879), the same press: it starts the `claude
+      // setup-token` session the daemon already runs and carries no field.
+      if (url.pathname === '/api/setup/anthropic/login') {
+        return this.#write(res, async () => {
+          await this.#body(req)
+          const out = await this.#daemon({ method: 'POST', path: '/setup/anthropic/login', body: {}, accept: [200, 400], timeout: SETUP_TIMEOUT_MS })
+          if (out.ok === false) throw refuse(out.error)
+          return out
+        })
+      }
       // The aistack registration (#706), in three presses: start the device
       // flow, stop waiting for it, and grant the standing permission once the
       // machine exists.
@@ -1427,6 +1437,14 @@ export class DashboardSurface {
       return this.#daemon({ path: '/setup/openai', timeout: SETUP_TIMEOUT_MS }).then(
         (r) => this.#json(res, 200, r),
         (e) => this.#json(res, 200, { provider: 'openai', secret: null, identity: null, login: null, ending: null, said: null, routing: null, error: e.message }),
+      )
+    }
+    // The Anthropic half's own read (#879): the credential by presence, the
+    // live sign-in's link, and routing readiness. Never a token.
+    if (url.pathname === '/api/setup/anthropic') {
+      return this.#daemon({ path: '/setup/anthropic', timeout: SETUP_TIMEOUT_MS }).then(
+        (r) => this.#json(res, 200, r),
+        (e) => this.#json(res, 200, { provider: 'anthropic', secret: null, credential: null, login: null, ending: null, said: null, routing: null, error: e.message }),
       )
     }
     // The Tailscale card's own read (#877): the identity Serve stamped on this

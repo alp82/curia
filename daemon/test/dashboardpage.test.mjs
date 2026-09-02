@@ -4836,16 +4836,25 @@ describe('integration setup (#874)', () => {
     routing: { ready: false, model: 'gpt', rows: [{ type: 'untyped', model: 'opus', provider: 'anthropic', active: true, credentialed: false, ok: false }], missing: ['untyped'], credentialed: [] },
     error: null, ...over,
   })
-  const providers = (openai, anthropic = { title: 'Anthropic', state: 'unavailable' }) => ({ openai: { title: 'OpenAI', ...openai }, anthropic })
+  const providers = (openai, anthropic = { title: 'Anthropic', state: 'unconnected' }) => ({ openai: { title: 'OpenAI', ...openai }, anthropic: { title: 'Anthropic', ...anthropic } })
   const WAITING = { provider: 'openai', session: 'curia-auth-openai', state: 'waiting', url: 'https://auth.openai.com/codex/device', code: '83CC-A4ZTO', typed: false, terminal_url: 'https://box.tail1234.ts.net:8446/?arg=curia-auth-openai', seconds_left: 840, expires_at: '2026-09-02T10:30:00.000Z' }
+  // The Anthropic row (#879): the same shape, the typed lane.
+  const ANTHROPIC_OVERVIEW = (over = {}) => ({
+    provider: 'anthropic', root: true, secret: { state: 'absent' }, credential: null, login: null, ending: null, said: null,
+    routing: { ready: false, model: 'fable', rows: [{ type: 'research', model: 'gpt', provider: 'openai', active: true, credentialed: false, ok: false }], missing: ['research'], credentialed: [] },
+    error: null, ...over,
+  })
+  const ANTHROPIC_WAITING = { provider: 'anthropic', session: 'curia-auth-anthropic', state: 'waiting', url: 'https://claude.com/cai/oauth/authorize?code_challenge=abc&state=xyz', code: null, typed: true, terminal_url: 'https://box.tail1234.ts.net:8446/?arg=curia-auth-anthropic', seconds_left: 1700, expires_at: '2026-09-02T10:30:00.000Z' }
 
-  test('the unconnected model card offers the OpenAI subscription sign-in as its one press, names Anthropic as not available yet, and has no key field', () => {
+  test('the unconnected model card offers one subscription sign-in per provider row, OpenAI and Anthropic, and has no key field', () => {
     page.setup = SETUP({ step: 'model', cards: { model: { state: 'unconnected', badge: 'Ready to connect', providers: providers({ state: 'unconnected' }) } } })
     page.UI.setup.openai = OPENAI_OVERVIEW()
+    page.UI.setup.anthropic = ANTHROPIC_OVERVIEW()
     const html = page.screenSetup(payload())
     assert.match(text(html), /OpenAI Ready to connect/)
     assert.match(html, /onclick="doSetupOpenAILogin\(\)">Sign in to OpenAI</)
-    assert.match(text(html), /Anthropic Not available/)
+    assert.match(text(html), /Anthropic Ready to connect/)
+    assert.match(html, /onclick="doSetupAnthropicLogin\(\)">Sign in to Anthropic</)
     assert.match(text(html), /Subscription sign-in only\. Curia holds no API key, and this panel offers no field for one\./)
     assert.doesNotMatch(html, /type="password"|api[_ -]?key" /i)
     assert.doesNotMatch(html, /Try again/)
@@ -4858,11 +4867,13 @@ describe('integration setup (#874)', () => {
       calls.push({ url, method: init.method ?? 'GET', body: init.body ? JSON.parse(init.body) : null })
       if (url === '/api/setup/openai') return { ok: true, json: async () => OPENAI_OVERVIEW(++reads > 1 ? { login: WAITING, said: '🔑 signing `openai` back in.' } : {}) }
       if (url === '/api/setup/openai/login') return { ok: true, json: async () => ({ ok: true, ...OPENAI_OVERVIEW({ login: { provider: 'openai', state: 'starting' } }) }) }
+      if (url === '/api/setup/anthropic') return { ok: true, json: async () => ANTHROPIC_OVERVIEW() }
       return { ok: true, json: async () => (init.method === 'POST' ? { ok: true } : SETUP()) }
     }
     await page.selectSetupCard('model')
     await new Promise((resolve) => setImmediate(resolve))
     assert.equal(calls.filter((c) => c.url === '/api/setup/openai').length, 1)
+    assert.equal(calls.filter((c) => c.url === '/api/setup/anthropic').length, 1, 'the Anthropic row reads once too')
     calls = []
     await page.doSetupOpenAILogin()
     assert.deepEqual(calls.map((c) => [c.method, c.url]), [['POST', '/api/setup'], ['POST', '/api/setup/openai/login'], ['GET', '/api/setup/openai']])
@@ -4919,14 +4930,107 @@ describe('integration setup (#874)', () => {
         },
       }),
     } } })
+    page.UI.setup.anthropic = ANTHROPIC_OVERVIEW()
     const html = page.screenSetup(payload())
     assert.match(text(html), /Plan pro/)
     assert.match(text(html), /Credential expires in 9\.0d/)
     assert.match(text(html), /Verification gpt-5\.6-sol answered in 912 ms/)
     assert.match(text(html), /Routing gpt for every ticket type · preset applied by Curia/)
-    assert.match(text(html), /Anthropic Not available/)
+    assert.match(text(html), /Anthropic Ready to connect/)
+    assert.match(html, /onclick="doSetupAnthropicLogin\(\)">Sign in to Anthropic</)
     assert.match(html, /<details><summary>Sign in to OpenAI again<\/summary>/)
     assert.match(html, /Continue setup/)
+    assert.doesNotMatch(html, /Try again/)
+  })
+
+  test('Sign in to Anthropic remembers the provider, posts no field, then polls the read for the typed login', async () => {
+    page.setup = SETUP({ step: 'model', cards: { model: { state: 'unconnected', badge: 'Ready to connect', providers: providers({ state: 'unconnected' }) } } })
+    let reads = 0
+    page.fetch = async (url, init = {}) => {
+      calls.push({ url, method: init.method ?? 'GET', body: init.body ? JSON.parse(init.body) : null })
+      if (url === '/api/setup/anthropic') return { ok: true, json: async () => ANTHROPIC_OVERVIEW(++reads > 0 ? { login: ANTHROPIC_WAITING, said: '🔑 signing `anthropic` back in.' } : {}) }
+      if (url === '/api/setup/anthropic/login') return { ok: true, json: async () => ({ ok: true, ...ANTHROPIC_OVERVIEW({ login: { provider: 'anthropic', state: 'starting' } }) }) }
+      if (url === '/api/setup/openai') return { ok: true, json: async () => OPENAI_OVERVIEW() }
+      return { ok: true, json: async () => (init.method === 'POST' ? { ok: true } : SETUP()) }
+    }
+    page.UI.setup.anthropic = ANTHROPIC_OVERVIEW()
+    calls = []
+    await page.doSetupAnthropicLogin()
+    assert.deepEqual(calls.map((c) => [c.method, c.url]), [['POST', '/api/setup'], ['POST', '/api/setup/anthropic/login'], ['GET', '/api/setup/anthropic']])
+    assert.deepEqual(calls[0].body, { progress: { model: { provider: 'anthropic' } } })
+    assert.deepEqual(calls[1].body, {}, 'the press carries no field: nothing about the login is the browser\'s to name')
+    assert.equal(page.UI.setup.anthropic.login.typed, true)
+    page.clearTimeout(page.UI.setup.anthropicTimer)
+  })
+
+  test('while the Anthropic login waits the panel draws the authorize link, the paste-back step, and the terminal fallback, and never a code to read', () => {
+    page.setup = SETUP({ step: 'model', cards: { model: { state: 'unconnected', badge: 'Ready to connect', providers: providers({ state: 'unconnected' }) } } })
+    page.UI.setup.openai = OPENAI_OVERVIEW()
+    page.UI.setup.anthropic = ANTHROPIC_OVERVIEW({ login: ANTHROPIC_WAITING })
+    const html = page.screenSetup(payload())
+    assert.match(html, /href="https:\/\/claude\.com\/cai\/oauth\/authorize\?code_challenge=abc&amp;state=xyz"/)
+    assert.match(text(html), /Paste the code the browser shows back into the terminal/)
+    assert.match(html, /href="https:\/\/box\.tail1234\.ts\.net:8446\/\?arg=curia-auth-anthropic"/)
+    assert.match(text(html), /anthropic · signing in · 28:20 left/)
+    assert.doesNotMatch(html, /class="reauth-code"/, 'the typed lane shows no code: the operator puts one in')
+    assert.doesNotMatch(html, /onclick="doSetupAnthropicLogin\(\)"/, 'no second press while one login runs')
+    assert.match(html, /onclick="doSetupOpenAILogin\(\)"/, 'the other row keeps its press')
+  })
+
+  test('an Anthropic login that ended without a credential is said beside the plain row, and the press is offered again', () => {
+    page.setup = SETUP({ step: 'model', cards: { model: { state: 'unconnected', badge: 'Ready to connect', providers: providers({ state: 'unconnected' }) } } })
+    page.UI.setup.openai = OPENAI_OVERVIEW()
+    page.UI.setup.anthropic = ANTHROPIC_OVERVIEW({ ending: { provider: 'anthropic', state: 'failed', why: 'Anthropic answered HTTP 401 for the token read off the login pane', ended_at: '2026-09-02T10:15:00.000Z', after_s: 300 } })
+    const html = page.screenSetup(payload())
+    assert.match(text(html), /The last Anthropic sign-in ended: Anthropic answered HTTP 401 for the token read off the login pane/)
+    assert.match(html, /onclick="doSetupAnthropicLogin\(\)">Sign in to Anthropic</)
+  })
+
+  test('a failed Anthropic row names the failure and the action, offers the sign-in again beside Try again, and shows no credential material', () => {
+    const error = { failed: 'Anthropic refused the credential (HTTP 401: invalid x-api-key)', action: 'Sign in to Anthropic from this panel, then try again.' }
+    page.setup = SETUP({ step: 'model', cards: { model: {
+      state: 'failed', badge: 'Action required', error,
+      providers: providers({ state: 'unconnected' }, { state: 'failed', error, detail: { stage: 'request', provider: 'anthropic', credential: { kind: 'setup-token', obtained_at: '2026-08-24T12:00:00.000Z', expires_at: '2027-08-24T12:00:00.000Z', estimated: true } } }),
+    } } })
+    page.UI.setup.openai = OPENAI_OVERVIEW()
+    page.UI.setup.anthropic = ANTHROPIC_OVERVIEW({ secret: { state: 'present' }, credential: { kind: 'setup-token', obtained_at: '2026-08-24T12:00:00.000Z', expires_at: '2027-08-24T12:00:00.000Z', estimated: true } })
+    const html = page.screenSetup(payload())
+    assert.match(html, /class="setup-card model failed on"/)
+    assert.match(text(html), /Anthropic refused the credential \(HTTP 401: invalid x-api-key\)/)
+    assert.match(html, /onclick="doSetupAnthropicLogin\(\)">Sign in to Anthropic again</)
+    assert.match(html, /onclick="retrySetup\(\)">Try again</)
+    assert.doesNotMatch(html, /sk-ant-/)
+  })
+
+  test('a connected Anthropic row draws the adoption, the estimated expiry, the timed request, and the routing preset; with both rows connected the card says two providers', () => {
+    const now = Date.now()
+    page.setup = SETUP({ step: 'model', cards: { model: {
+      ...ALL.model, badge: 'Two providers verified',
+      providers: providers({
+        state: 'connected', footer: { primary: 'OpenAI', secondary: 'verification request completed in 0.9 s', emoji: '⚡' },
+        detail: {
+          provider: 'openai', identity: { account_id: 'acct-42', plan_type: 'pro' }, credential: { expires_at: new Date(now + 9 * 86_400_000).toISOString() },
+          request: { model: 'gpt-5.6-sol', id: 'resp_1', at: new Date(now).toISOString(), ms: 912, usage: { input_tokens: 12, output_tokens: 1 } },
+          routing: { ready: true, applied: false, model: 'gpt', file: '/root/state/routing.local.yaml', rows: [], missing: [] }, verified_at: new Date(now).toISOString(),
+        },
+      }, {
+        state: 'connected', footer: { primary: 'Anthropic', secondary: 'verification request completed in 1.4 s', emoji: '🧠' },
+        detail: {
+          provider: 'anthropic',
+          credential: { kind: 'setup-token', obtained_at: new Date(now - 10 * 86_400_000).toISOString(), expires_at: new Date(now + 355 * 86_400_000).toISOString(), estimated: true },
+          request: { model: 'claude-haiku-4-5-20251001', id: 'msg_01', request_id: 'req_abc', at: new Date(now).toISOString(), ms: 1402, stop_reason: 'end_turn', usage: { input_tokens: 31, output_tokens: 1 } },
+          routing: { ready: true, applied: true, model: 'fable', file: '/root/state/routing.local.yaml', rows: [], missing: [] }, verified_at: new Date(now).toISOString(),
+        },
+      }),
+    } } })
+    const html = page.screenSetup(payload())
+    assert.match(text(html), /Two providers verified/)
+    assert.match(text(html), /Credential subscription token adopted 240h ago · about 355\.0d left, an estimate from Anthropic's documented lifetime/)
+    assert.match(text(html), /Verification claude-haiku-4-5-20251001 answered in 1402 ms/)
+    assert.match(text(html), /Routing fable for every ticket type that could not run · preset applied by Curia/)
+    assert.match(html, /<details><summary>Sign in to Anthropic again<\/summary>/)
+    assert.match(html, /<details><summary>Sign in to OpenAI again<\/summary>/)
+    assert.doesNotMatch(html, /sk-ant-|acct-42/)
     assert.doesNotMatch(html, /Try again/)
   })
 })
