@@ -387,6 +387,8 @@ Dispatch also asserts the tracker prerequisite: a **map child** whose worktree c
 
 The daemon owns the only write connection, and it runs WAL with `synchronous=full` (ADR-0017). `src/journal.mjs` holds the schema, the writer and the migration. Every other process opens the journal read-only.
 
+**A minor release's migration is additive** (#885, implementing #854). On an installed host the previous release stays under `versions/` as the rollback release, and `curia rollback` starts it on the same journal. So a minor release may add a column with a default, an index, a table, or a trigger, and never renames, drops, retypes, or constrains a column, never rewrites `body`, and never sets a `user_version` this code refuses (the schema pins none). The insert names its columns and the schema is `create ... if not exists`, which is what makes the older daemon's write path work on the newer file. `test/journalforward.test.mjs` opens a journal migrated that way and proves the append and the rebuild read. The same rule covers every record under `state/`: an optional key may be added, a format number never raised. The operator's view is [Migrations and the rollback release](../docs/operator/rollback.md#migrations-and-the-rollback-release). Anything that cannot follow the rule is a major release.
+
 Supersede (#29): a re-issued `ask_human` (same agent + same payload while an older escalation is open) closes the old record, strips its buttons in Discord, and routes late answers to the live successor.
 
 ### Reading the journal

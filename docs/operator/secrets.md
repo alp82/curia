@@ -72,7 +72,7 @@ The seven directories of the root fall into two groups. `config/`, `secrets/`, `
 | Operation | Keeps | Replaces or removes |
 |---|---|---|
 | Service or host restart | Everything. | Stale entries under `run/`, such as a lock whose process is gone. |
-| `curia update` or `curia rollback` | `config/`, `secrets/`, `state/`, `work/`, the tmux runtime, the attach surface, and every running agent container. | The service, app, and overseer containers, `run/compose.env`, and every release under `versions/` other than the new active one and the previous one. See [What keeps running](update.md#what-keeps-running). |
+| `curia update` or `curia rollback` | `config/`, `secrets/`, `state/`, `work/`, the tmux runtime, the attach surface, and every running agent container. | The service, app, and overseer containers, `run/compose.env`, and every release under `versions/` other than the new active one and the previous one. See [What keeps running](update.md#what-keeps-running) and [What a rollback keeps](rollback.md#what-a-rollback-keeps). |
 | `curia reinstall` | `config/`, `secrets/`, `state/`, `work/`. | `versions/`, `cache/`, `run/`. |
 | `curia uninstall` | `config/`, `secrets/`, `state/`, `work/`. | Containers, networks, volumes, the launcher, `versions/`, `cache/`, `run/`. |
 | `curia purge` | Nothing. | The entire root and every Curia-labelled Docker resource. |

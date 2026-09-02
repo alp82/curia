@@ -1,8 +1,10 @@
 import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 
 import { Refusal } from './exit.mjs'
 import { readArchive } from './archive.mjs'
+import { operatorConfigPath } from './config.mjs'
 import { verifyStagedRelease } from './manifest.mjs'
 import { versionPaths } from './root.mjs'
 
@@ -77,6 +79,41 @@ export async function verifyRetained({ version, dir, stdout }, release) {
     checksum: readFileSync(join(dir, 'bundle.tar.gz.sha256'), 'utf8'),
   }, { stdout }, release)
   if (!report.ok) throw report.refusal
+}
+
+// A release validates the current operator configuration with its own
+// reader (#883, lifted for #885): the package's `src/config.mjs` under
+// versions/<version>/, imported from there, and its `readOperatorConfig` on
+// `config/config.yaml`. That is how `curia update` learns that the target
+// accepts the configuration before anything switches, and how `curia
+// rollback` learns that the rollback release still reads it. Nothing is
+// written. A release that refuses the file throws an `IncompatibleRelease`
+// whose `reason` is `configuration`, with the contract's own sentence; a
+// release that carries no reader cannot validate and throws one whose
+// `reason` is `reader`. The caller adds the action that fits its command.
+export class IncompatibleRelease extends Error {
+  constructor(message, reason) {
+    super(message)
+    this.name = 'IncompatibleRelease'
+    this.reason = reason
+  }
+}
+
+export async function validateWithRelease({ root, version, dir = versionPaths(root, version).dir }) {
+  const reader = join(dir, 'cli', 'src', 'config.mjs')
+  if (!existsSync(reader)) {
+    throw new IncompatibleRelease(`${version} carries no operator configuration reader (cli/src/config.mjs), so it cannot validate the current configuration.`, 'reader')
+  }
+  const release = await import(pathToFileURL(reader).href)
+  if (typeof release.readOperatorConfig !== 'function') {
+    throw new IncompatibleRelease(`${version}'s configuration reader has no readOperatorConfig, so it cannot validate the current configuration.`, 'reader')
+  }
+  try {
+    release.readOperatorConfig(operatorConfigPath(root))
+  } catch (e) {
+    if (e?.name !== 'ConfigError') throw e
+    throw new IncompatibleRelease(`${version} refuses the current operator configuration: ${e.message}.`, 'configuration')
+  }
 }
 
 // The one file the verified bundle archive holds.

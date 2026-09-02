@@ -37,11 +37,15 @@ import { writeInstallationRecord } from './root.mjs'
 //      was active is the one rollback release.
 //
 // A failure anywhere after the recreate switches the core services back to
-// the release that was active, once, waits for its health, and reports both
-// outcomes. The record is untouched by a failure: it names the target only
-// after acceptance, so the launcher and the service's own reads follow the
-// switch and never a half of one. The staged target stays under versions/
-// for the rerun.
+// the release that was active, once, and proves that release the same way:
+// its health, its version on both `/ping` routes, and the same live
+// sessions adopted back. Then it reports both outcomes. Nothing runs the
+// target a second time, and nothing runs the switch back a second time: a
+// switch back that fails its own proof is reported as failed too, with the
+// reinstall as the way out. The record is untouched by a failure: it names
+// the target only after acceptance, so the launcher and the service's own
+// reads follow the switch and never a half of one. The staged target stays
+// under versions/ for the rerun.
 //
 // Docker is reached through `compose.mjs` and its injectable runner; the
 // service and the app through an injectable `fetch`. Nothing here prints or
@@ -100,7 +104,7 @@ export async function switchRelease(
     adopted = await acceptRecreated({ to, live, read, sleep, now, say })
     writeInstallationRecord(root, { ...record, activeVersion: to })
   } catch (e) {
-    throw await switchBack({ previous, from, docker, sleep, now, stdout, cause: e })
+    throw await switchBack({ previous, from, live, read, docker, sleep, now, stdout, cause: e })
   }
   say(`${to} is the active version; ${from} is kept for 'curia rollback'`)
   for (const other of readdirSync(join(root, 'versions'))) {
@@ -160,17 +164,23 @@ async function acceptRecreated({ to, live, read, sleep, now, say }) {
   }
 }
 
-// One switch back to the release that was active, then the failure that
-// names both outcomes. The record was never changed.
-async function switchBack({ previous, from, docker, sleep, now, stdout, cause }) {
-  stdout.write(`switching back to ${from}\n`)
+// One switch back to the release that was active, proven the way the target
+// was (health, version, re-adoption of the same live sessions), then the
+// failure that names both outcomes. The record was never changed.
+async function switchBack({ previous, from, live, read, docker, sleep, now, stdout, cause }) {
+  const say = (text) => stdout.write(`${text}\n`)
+  say(`switching back to ${from}`)
+  let adopted
   try {
     await compose(previous, ['up', '--detach', '--no-deps', ...CORE_SERVICES], { docker })
     await waitForHealth(previous, { docker, sleep, now, stdout })
+    adopted = await acceptRecreated({ to: from, live, read, sleep, now, say })
   } catch (e) {
     return new SwitchError(`${cause.message} The switch back to ${from} failed too: ${e.message} The record still names ${from}; run 'curia reinstall' to start it again, or read the logs first.`)
   }
-  return new SwitchError(`${cause.message} Switched back to ${from}, which is healthy. The record still names ${from}.`)
+  const n = adopted.adopted.length
+  const readopted = n === 0 ? '' : ` and re-adopted ${n} live ${n === 1 ? 'session' : 'sessions'}`
+  return new SwitchError(`${cause.message} Switched back to ${from}, which is healthy${readopted}. The record still names ${from}.`)
 }
 
 // A JSON read that answers instead of throwing.

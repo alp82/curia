@@ -81,18 +81,20 @@ Because the tmux runtime keeps running, an agent's pane is what the recreated se
 
 ### What is kept for a rollback
 
-After a successful switch, `versions/` holds two complete releases: the target, now active, and the release that was active before it. The previous release is the one rollback release. `curia rollback` switches back to it through the same steps, with the same health and re-adoption checks. Any older release under `versions/` is removed during the switch; Curia keeps no history beyond one.
+After a successful switch, `versions/` holds two complete releases: the target, now active, and the release that was active before it. The previous release is the one rollback release. `curia rollback` switches back to it through the same steps, with the same health and re-adoption checks, after the rollback release validates your configuration; [Rollback](rollback.md) is its reference. Any older release under `versions/` is removed during the switch; Curia keeps no history beyond one.
 
 A second `curia update` moves the pair forward: the release you updated from becomes the rollback release, and the one before it is removed. The command prints `removed <version>, which is no longer a rollback release` for each one.
 
 ### When the switch fails
 
-Acceptance fails when a recreated service exits or turns unhealthy, when a service is still starting after four minutes, when the service or the app reports another version than the target, or when a live session isn't adopted within two minutes. In every case the switch goes back once: it recreates the service, the app, and the overseer from the release that was active and waits for its health. It doesn't retry the target. The command exits with code `1` and its message names the cause, the switch back, and where the installation stands:
+Acceptance fails when a recreated service exits or turns unhealthy, when a service is still starting after four minutes, when the service or the app reports another version than the target, or when a live session isn't adopted within two minutes. In every case the switch goes back once: it recreates the service, the app, and the overseer from the release that was active, waits for its health, checks that the service and the app report that release, and reads the live sessions until every one that was live before the switch is adopted back. It doesn't retry the target, and it doesn't switch back a second time. The command exits with code `1` and its message names the cause, the switch back, and where the installation stands:
 
 ```text
-curia update: switch failed: overseer exited with code 1. Read its log with 'docker compose --env-file /home/you/.local/share/curia/run/compose.env -f /home/you/.local/share/curia/versions/1.4.0/bundle/compose.yaml logs overseer', fix the cause, and run the command again. Switched back to 1.3.0, which is healthy. The record still names 1.3.0.
+curia update: switch failed: overseer exited with code 1. Read its log with 'docker compose --env-file /home/you/.local/share/curia/run/compose.env -f /home/you/.local/share/curia/versions/1.4.0/bundle/compose.yaml logs overseer', fix the cause, and run the command again. Switched back to 1.3.0, which is healthy and re-adopted 2 live sessions. The record still names 1.3.0.
 Run '/home/you/.local/bin/curia update' to run switch again; the completed steps are kept.
 ```
+
+[What an update does on its own](rollback.md#what-an-update-does-on-its-own) spells out the switch back step by step.
 
 The record is written only after acceptance, so a failed switch never changes `activeVersion`, and the launcher keeps running the release that was active. The staged target stays under `versions/<target>/`, and a rerun finds it, verifies it, downloads nothing, and switches again.
 
@@ -129,7 +131,7 @@ Some failures and their corrective actions:
 | `switch failed: <service> exited` or `is unhealthy`, then `Switched back to <previous>, which is healthy` | The target didn't come up on this host. Read the service's log with the command in the message, fix the cause or choose another version, and rerun. Your agents kept running throughout. |
 | `switch failed: the service reports <x> and the Curia app reports <y>, not <target>` | The recreated containers don't run the target release. A target older than the release that added the version report fails this way too. Choose a newer version. |
 | `switch failed: <target> did not re-adopt <session> within 120 seconds` | The recreated service found the pane but didn't track it. Curia switched back, and the previous release adopted it again. Read the service's log for `reconcile:` lines about that session before you rerun. |
-| `switch failed: ... The switch back to <previous> failed too` | Neither release came up. Read both logs, then run `curia reinstall` to start the release the record names. |
+| `switch failed: ... The switch back to <previous> failed too` | The previous release didn't come up either, or didn't report its version or adopt a live session back. Read both logs, then run `curia reinstall` to start the release the record names. |
 | `acquire: another lifecycle operation is running` | A second lifecycle command holds the lock. Wait for it to finish, as [The lifecycle lock](command-reference.md#the-lifecycle-lock) describes. |
 
 ## What gets written where
