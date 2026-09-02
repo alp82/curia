@@ -136,13 +136,18 @@ describe('the daemon under an installation root (#867)', () => {
 
       // Integration setup (#874) under the root: the read verifies fresh.
       // The GitHub card (#875) is plain while `secrets/github-app.json` is
-      // absent, every card whose ticket has not landed is not available, the
-      // write keeps the selected card in `state/setup.json`, and a field that
-      // is not on the closed list is refused by name.
-      const setup = await (await fetch(`http://127.0.0.1:${ports[0]}/setup`)).json()
+      // absent, the Discord card (#876) fails on the missing operator ID
+      // before Discord is asked and its sentence carries no token, every
+      // card whose ticket has not landed is not available, the write keeps
+      // the selected card in `state/setup.json`, and a field that is not on
+      // the closed list is refused by name.
+      const setupText = await (await fetch(`http://127.0.0.1:${ports[0]}/setup`)).text()
+      assert.ok(!setupText.includes(TOKEN), 'the setup read never carries the token')
+      const setup = JSON.parse(setupText)
       assert.deepEqual(setup.cards.map((c) => [c.key, c.state]), [
-        ['github', 'unconnected'], ['discord', 'unavailable'], ['tailscale', 'unavailable'], ['model', 'unavailable'],
+        ['github', 'unconnected'], ['discord', 'failed'], ['tailscale', 'unavailable'], ['model', 'unavailable'],
       ])
+      assert.match(setup.cards[1].error.failed, /No Discord user ID/)
       assert.equal(setup.step, 'github')
       assert.equal(setup.full_loop.ready, false)
       const post = (body) => fetch(`http://127.0.0.1:${ports[0]}/setup`, {

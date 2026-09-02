@@ -70,6 +70,7 @@ import { JournalBackup } from './backup.mjs'
 import { AistackSync } from './aistack.mjs'
 import { AistackRegistration } from './aistackreg.mjs'
 import { githubVerifier } from './githubsetup.mjs'
+import { DiscordSetup } from './discordsetup.mjs'
 import { IntegrationSetup } from './setup.mjs'
 import {
   probeTtyd, serveOff, attachBase, appTerminalUrl, validSessionName,
@@ -1383,11 +1384,20 @@ const aistackReg = new AistackRegistration({
 // verification rather than holding them: `appMinter` is replaced when the
 // manifest flow adopts a converted App, and the watch list changes on a
 // settings save, and the card sees both without a restart.
+//
+// The Discord card (#876) reads the token off its secret file and the facts
+// off `state/discord.json` on every call, so a token submitted through the
+// panel is seen by the next read. The bridge itself reads both at boot, and
+// the connected card says whether it is up.
+const discordSetup = new DiscordSetup({
+  root: INSTALL_ROOT, stateDir: DATA, env: process.env, log, bridgeState: () => bridge?.health?.state ?? null,
+})
 const integrationSetup = new IntegrationSetup({
   stateDir: DATA,
   log,
   verifiers: {
     github: githubVerifier({ minter: () => appMinter, watch: () => curiaConfig.watch }),
+    discord: discordSetup.verifier(),
   },
 })
 
@@ -3763,6 +3773,34 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
     const body = await readBody(req)
     try {
       return json(200, { ok: true, ...integrationSetup.remember({ step: body.step, progress: body.progress }) })
+    } catch (e) {
+      if (!e.refusal) throw e
+      return json(400, { ok: false, error: e.message })
+    }
+  }
+  // The Discord card (#876). The read is the panel's own: the token by
+  // presence, the bot, its servers, the invite link, and the safe facts. The
+  // token submission lands the token in `secrets/discord-bot-token` and the
+  // operator ID in `state/discord.json` and answers the same read; the
+  // channel choice lands the server and the channel name and answers the
+  // freshly verified card. No answer carries the token.
+  if (url.pathname === '/setup/discord' && req.method === 'GET') {
+    return json(200, await discordSetup.overview())
+  }
+  if (url.pathname === '/setup/discord/token' && req.method === 'POST') {
+    const body = await readBody(req)
+    try {
+      return json(200, { ok: true, ...(await discordSetup.submitToken({ token: body.token, user_id: body.user_id })) })
+    } catch (e) {
+      if (!e.refusal) throw e
+      return json(400, { ok: false, error: e.message })
+    }
+  }
+  if (url.pathname === '/setup/discord/channel' && req.method === 'POST') {
+    const body = await readBody(req)
+    try {
+      const settings = await discordSetup.chooseChannel({ guild_id: body.guild_id, channel: body.channel })
+      return json(200, { ok: true, settings, card: await integrationSetup.verify('discord') })
     } catch (e) {
       if (!e.refusal) throw e
       return json(400, { ok: false, error: e.message })

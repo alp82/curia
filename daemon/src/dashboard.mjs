@@ -291,6 +291,13 @@ const APP_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,33}$/
 // The screen GitHub's redirect lands on (#875): the Settings section or the
 // Setup screen, whichever started the trip. A name, never a location.
 const APP_SCREEN_RE = /^(settings|setup)$/
+// The Discord card (#876). The token is checked for shape HERE, so a paste
+// that is not a token is refused without crossing, and refused BY NAME: no
+// sentence this surface writes carries the value. The user ID, the server
+// id, and the channel name are the shapes `state/discord.json` takes.
+const DISCORD_TOKEN_RE = /^[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]{20,}$/
+const SNOWFLAKE_RE = /^[0-9]{5,25}$/
+const CHANNEL_NAME_RE = /^[a-z0-9][a-z0-9_-]{0,99}$/
 
 export const MAX_WORDS = 4000
 
@@ -1146,6 +1153,31 @@ export class DashboardSurface {
           return out
         })
       }
+      // The Discord card (#876). Two writes, each composed here out of the
+      // fields it names and nothing else. The token crosses once, to the
+      // daemon, which lands it in its secret file; this surface holds no copy
+      // and its answers and logs never carry it. The daemon's refusal is the
+      // sentence the page shows.
+      if (url.pathname === '/api/setup/discord/token') {
+        return this.#write(res, async () => {
+          const b = await this.#body(req)
+          if (typeof b.token !== 'string' || !DISCORD_TOKEN_RE.test(b.token)) throw refuse('That is not the shape a Discord bot token takes. Copy the token from the Bot page of your application, with no spaces around it.')
+          const userId = field(b.user_id, SNOWFLAKE_RE, 'a Discord user ID')
+          const out = await this.#daemon({ method: 'POST', path: '/setup/discord/token', body: { token: b.token, user_id: userId }, accept: [200, 400], timeout: SETUP_TIMEOUT_MS })
+          if (out.ok === false) throw refuse(out.error)
+          return out
+        })
+      }
+      if (url.pathname === '/api/setup/discord/channel') {
+        return this.#write(res, async () => {
+          const b = await this.#body(req)
+          const guildId = field(b.guild_id, SNOWFLAKE_RE, 'a Discord server id')
+          const channel = field(b.channel, CHANNEL_NAME_RE, 'a Discord channel name')
+          const out = await this.#daemon({ method: 'POST', path: '/setup/discord/channel', body: { guild_id: guildId, channel }, accept: [200, 400], timeout: SETUP_TIMEOUT_MS })
+          if (out.ok === false) throw refuse(out.error)
+          return out
+        })
+      }
       // The aistack registration (#706), in three presses: start the device
       // flow, stop waiting for it, and grant the standing permission once the
       // machine exists.
@@ -1294,6 +1326,14 @@ export class DashboardSurface {
       return this.#daemon({ path: '/setup', timeout: SETUP_TIMEOUT_MS }).then(
         (r) => this.#json(res, 200, r),
         (e) => this.#json(res, 200, { step: null, progress: null, cards: null, full_loop: null, error: e.message }),
+      )
+    }
+    // The Discord card's own read (#876): the token by presence, the bot, its
+    // servers, and the safe facts, straight from the daemon. Never the token.
+    if (url.pathname === '/api/setup/discord') {
+      return this.#daemon({ path: '/setup/discord', timeout: SETUP_TIMEOUT_MS }).then(
+        (r) => this.#json(res, 200, r),
+        (e) => this.#json(res, 200, { secret: null, settings: null, bot: null, guilds: [], invite_url: null, error: e.message }),
       )
     }
     // The aistack registration and the sync verdict (#706). Straight from the

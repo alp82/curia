@@ -329,7 +329,9 @@ export function interruptedReceipt(content, { by, session, graceMs }) {
 
 // #81's grown catalogue — a static macro manifest; expansion only, never
 // interpretation. `tickets` renames `frontier` on the command surface.
-const SLASH_MANIFEST = [
+// Exported for the Discord card of integration setup (#876), which registers
+// the same manifest over REST before the bridge has started.
+export const SLASH_MANIFEST = [
   new SlashCommandBuilder().setName('tickets').setDescription('List takeable tickets')
     .addStringOption((o) => o.setName('repo').setDescription('Limit to one repo (any unambiguous part of the name)')),
   new SlashCommandBuilder().setName('next').setDescription('Dispatch the next takeable ticket')

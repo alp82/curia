@@ -1670,3 +1670,117 @@ describe('the embedded terminal (#714)', () => {
     assert.equal(seen.length, 0)
   })
 })
+
+// ---- the Discord card (#876) --------------------------------------------------
+//
+// Three routes, one rule: the token crosses this surface once, to the daemon,
+// and comes back in no answer and no log line. The two writes are composed
+// out of the fields they name, and a paste that is not a token is refused by
+// shape without echoing it.
+describe('the Discord card routes (#876)', () => {
+  const ALLOW = ['alp@example.com']
+  const SERVE_PORT = 8445
+  const ORIGIN = 'https://box.tail1234.ts.net:8445'
+  const TOKEN = 'MTIzNDU2Nzg5MDEyMzQ1Njc4.GaBcDe.this-token-must-never-be-shown-anywhere-1234'
+  let surface
+  let daemon
+  let calls
+  let reply
+  let logged
+  const served = (extra = {}) => ({ host: 'box.tail1234.ts.net:8445', [LOGIN_HEADER]: 'alp@example.com', ...extra })
+  const press = (p, body) => req(surface.port, p, { method: 'POST', headers: served({ origin: ORIGIN, 'content-type': 'application/json' }), body })
+  const sent = (route) => calls.find((c) => c.url === route)
+
+  beforeEach(async () => {
+    calls = []
+    logged = []
+    reply = {
+      '/setup/discord': [200, { secret: 'present', source: 'file', bot: { id: '2', username: 'curia-box' }, guilds: [{ id: '333333333333333333', name: 'Alp' }], settings: { allowed_users: ['111111111111111111'], guild_id: null, channel: 'curia' }, invite_url: 'https://discord.com/oauth2/authorize?client_id=2', error: null }],
+      '/setup/discord/token': [200, { ok: true, secret: 'present', bot: { id: '2', username: 'curia-box' }, guilds: [], settings: { allowed_users: ['111111111111111111'], guild_id: null, channel: 'curia' } }],
+      '/setup/discord/channel': [200, { ok: true, settings: { allowed_users: ['111111111111111111'], guild_id: '333333333333333333', channel: 'ops' }, card: { key: 'discord', state: 'connected' } }],
+    }
+    daemon = http.createServer((r, res) => {
+      let buf = ''
+      r.on('data', (d) => { buf += d })
+      r.on('end', () => {
+        calls.push({ method: r.method, url: r.url, body: buf ? JSON.parse(buf) : null })
+        const [code, body] = reply[r.url] ?? [404, { error: 'no such route' }]
+        res.writeHead(code, { 'content-type': 'application/json' })
+        res.end(JSON.stringify(body))
+      })
+    })
+    await new Promise((done) => daemon.listen(0, '127.0.0.1', done))
+    surface = new DashboardSurface({
+      port: 0, servePort: SERVE_PORT, index: DEFAULT_DASHBOARD_INDEX, allow: ALLOW, pollIntervalS: 5,
+      daemonPort: daemon.address().port,
+      log: (line) => logged.push(String(line)),
+      deps: {
+        fetchOverview: async () => ({ daemon: { port: 4271 } }),
+        assertServe: async () => {},
+        serveOff: async () => {},
+        attachBase: async () => 'box.tail1234.ts.net',
+        tailnetSelf: async () => ({ dnsName: 'box.tail1234.ts.net', ips: ['100.98.118.33'] }),
+      },
+    })
+    await surface.start()
+    await surface.resolveHosts()
+  })
+  afterEach(() => {
+    surface?.stop()
+    daemon?.close()
+  })
+
+  test('the panel read comes from the daemon unedited, and a daemon that cannot be asked answers the reason', async () => {
+    const res = await req(surface.port, '/api/setup/discord', { headers: served() })
+    assert.equal(res.status, 200)
+    assert.deepEqual(JSON.parse(res.text), reply['/setup/discord'][1])
+    daemon.close()
+    const down = JSON.parse((await req(surface.port, '/api/setup/discord', { headers: served() })).text)
+    assert.equal(down.secret, null)
+    assert.match(down.error, /daemon|ECONNREFUSED|socket hang up/i)
+  })
+
+  test('the token submission crosses once, as exactly the two fields, and the token is in no answer and no log line', async () => {
+    const res = await press('/api/setup/discord/token', { token: TOKEN, user_id: '111111111111111111', extra: 'dropped' })
+    assert.equal(res.status, 200)
+    assert.deepEqual(sent('/setup/discord/token').body, { token: TOKEN, user_id: '111111111111111111' })
+    assert.ok(!res.text.includes(TOKEN), 'the answer never carries the token')
+    assert.ok(!logged.join('\n').includes(TOKEN), 'the log never carries the token')
+  })
+
+  test('a paste that is not a token is refused by shape without crossing and without being echoed', async () => {
+    for (const token of ['not a token', `${TOKEN} `, '']) {
+      const res = await press('/api/setup/discord/token', { token, user_id: '111111111111111111' })
+      assert.equal(res.status, 409)
+      assert.match(JSON.parse(res.text).error, /shape a Discord bot token takes/)
+      assert.ok(!res.text.includes('not a token'))
+    }
+    assert.equal(sent('/setup/discord/token'), undefined)
+    assert.ok(!logged.join('\n').includes(TOKEN))
+    const bad = await press('/api/setup/discord/token', { token: TOKEN, user_id: 'alp' })
+    assert.equal(bad.status, 409)
+    assert.match(JSON.parse(bad.text).error, /"alp" is not a Discord user ID/)
+    assert.ok(!bad.text.includes(TOKEN))
+    assert.ok(!logged.join('\n').includes(TOKEN))
+  })
+
+  test('the daemon\'s refusal of a token is the sentence the page shows, and it never carries the token either', async () => {
+    reply['/setup/discord/token'] = [400, { ok: false, error: 'Discord refused the bot token' }]
+    const res = await press('/api/setup/discord/token', { token: TOKEN, user_id: '111111111111111111' })
+    assert.equal(res.status, 409)
+    assert.equal(JSON.parse(res.text).error, 'Discord refused the bot token')
+    assert.ok(!res.text.includes(TOKEN))
+  })
+
+  test('the channel choice crosses as the server id and the channel name, shaped, and answers the verified card', async () => {
+    const res = await press('/api/setup/discord/channel', { guild_id: '333333333333333333', channel: 'ops', token: TOKEN })
+    assert.equal(res.status, 200)
+    assert.deepEqual(sent('/setup/discord/channel').body, { guild_id: '333333333333333333', channel: 'ops' })
+    assert.equal(JSON.parse(res.text).card.state, 'connected')
+    calls = []
+    const bad = await press('/api/setup/discord/channel', { guild_id: '333333333333333333', channel: 'Bad Channel' })
+    assert.equal(bad.status, 409)
+    assert.match(JSON.parse(bad.text).error, /is not a Discord channel name/)
+    assert.equal(sent('/setup/discord/channel'), undefined)
+  })
+})

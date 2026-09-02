@@ -1,6 +1,6 @@
 # Integration setup
 
-Integration setup is the **Setup** screen of the Curia app. It connects one installation to the four resources the Full loop needs: GitHub, Discord, Tailscale, and one model provider. This page is the reference for the setup frame: what the four cards show, how you move between them, what a reopen restores, and what Curia keeps on disk. The GitHub card's own steps are in [Connect GitHub](#connect-github). The other cards' steps are documented as they land.
+Integration setup is the **Setup** screen of the Curia app. It connects one installation to the four resources the Full loop needs: GitHub, Discord, Tailscale, and one model provider. This page is the reference for the setup frame: what the four cards show, how you move between them, what a reopen restores, and what Curia keeps on disk. The GitHub card's own steps are in [Connect GitHub](#connect-github) and the Discord card's in [Connect Discord](#connect-discord). The other cards' steps are documented as they land.
 
 After `curia install` finishes, open the address it printed, `https://<your node's MagicDNS name>:8445/`, and open **Setup**. Home also points at **Setup** while an integration isn't connected.
 
@@ -50,6 +50,54 @@ The card connects when steps 1 to 5 pass. The footer shows a real discovered tic
 A failed step names the failure and one action, for example `curia's GitHub App is not installed on alp82` with `Install the App on alp82 from the link in this panel and grant it alp82/curia, then try again.` Do what the action says and select **Try again**, which runs the whole verification again.
 
 The card remembers only the App name (`progress.github.app_name`) for a reopen. The App id and key live in `secrets/github-app.json` and nowhere else.
+
+## Connect Discord
+
+The Discord card connects a dedicated bot you create in Discord's developer portal, then finds or creates the command channel Curia speaks in. You paste the bot token once. Curia writes it to `secrets/discord-bot-token` in the installation root, owner-only, mode `0600`, and never shows it again.
+
+### Create the bot
+
+1. Open the [Discord developer portal](https://discord.com/developers/applications) and select **New Application**. Name it for this installation, for example `curia-box`.
+2. Under **Bot**, turn on **Message Content Intent**. The bridge reads the messages you type in the command channel, and Discord withholds their text without this intent.
+3. Select **Reset Token** and copy the token. Discord shows it once.
+4. In Discord, turn on **Developer Mode** under **Settings** > **Advanced**, then copy your user ID from your profile menu.
+5. On the **Discord** card, paste the token, enter your user ID, and select **Connect bot**.
+
+The token goes to the service and straight into its secret file. The user ID goes to `state/discord.json` as the one allowed user, which is the whole access check: only that account can command Curia. The card then shows the bot's name and lists the servers the bot is in.
+
+### Add the bot and choose the channel
+
+1. If the bot isn't in your server yet, select **Add the bot to a server**. The link opens Discord's own authorization page with the `bot` and `applications.commands` scopes and the permissions Curia uses: View Channel, Send Messages, Embed Links, Attach Files, Read Message History, Create Public Threads, Send Messages in Threads, Manage Threads, and Manage Channels. Approve it in Discord, then select **Try again**.
+2. Select the server and enter the command channel's name. The field suggests `curia`, but any name works.
+3. Select **Connect channel**.
+
+Curia reuses a top-level text channel of that name when the bot can use it, and creates one when there is none. A channel of that name under a category isn't the one, because the bridge opens only top-level channels.
+
+### What verification proves
+
+Every read of the card runs the same verification, in this order:
+
+1. The token is on disk. Without it the card is plain, **Ready to connect**.
+2. An operator user ID is beside it.
+3. Discord accepts the token.
+4. The bot is in the selected server.
+5. Your user ID is a member of that server.
+6. The command channel exists top-level as a text channel, or Curia creates it.
+7. In that channel, the bot holds every permission the bridge uses.
+8. Curia registers its slash commands on that server.
+9. A confirmation message from Curia stands in the channel. Curia posts one when none is there.
+
+The card connects when steps 1 to 9 pass. The footer shows the channel and the server, then `Confirmation delivered · <n> commands registered`. The panel links the channel and the confirmation message, names the operator Curia found, and lists the registered commands.
+
+Curia looks for its own earlier confirmation before posting another, so opening **Setup** doesn't fill the channel with repeated lines. To get a fresh confirmation, delete the earlier one and select **Try again**.
+
+A failed step names the failure and one action, for example `curia can't Send Messages in #curia` with `Allow Send Messages for the bot in #curia's permissions, then try again.` Do what the action says and select **Try again**. When Discord refuses the token, the panel puts the token form first so you can submit a new one.
+
+### After the card connects
+
+The bridge, the part of the service that logs in to Discord, reads the token and `state/discord.json` when the service starts. After the card connects for the first time, the panel says whether the bridge is running and offers **Restart Curia** when it isn't. Until the bridge runs, the card is verified but the bot doesn't answer in the channel.
+
+The card remembers the server id and the channel name (`progress.discord.guild_id` and `progress.discord.channel`) for a reopen. The token lives in `secrets/discord-bot-token` and nowhere else. The token never appears in a log line, a diagnostic, or a browser response, and a refused paste is described by shape rather than echoed.
 
 ## Verification is fresh
 
