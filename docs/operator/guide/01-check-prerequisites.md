@@ -7,7 +7,7 @@ Operator guide · [Index](../README.md)
 - **Change the installation:** [7. Update or roll back](07-update-or-roll-back.md) · [8. Migrate the current deployment](08-migrate-the-current-deployment.md) · [9. Uninstall or purge](09-uninstall-or-purge.md)
 - **When something fails:** [Troubleshooting](troubleshooting.md)
 
-**Outcome:** A supported host that passes every preflight check, and the four accounts Curia connects to, ready to sign in.
+**Outcome:** A supported host that passes every preflight check, with Tailscale installed and ready to join your tailnet, and the four accounts Curia connects to, ready to sign in.
 
 **Starting state:** A Linux host you can log in to as a user who isn't `root`. Nothing from Curia is on it yet.
 
@@ -46,12 +46,13 @@ Curia detects and verifies these three and never installs or reconfigures them. 
 
    Log out and in so the group applies.
 2. **Docker Compose v2, 2.20 or later**, as the `docker compose` plugin. The Docker Engine install page includes it. Compose v1 (`docker-compose`) is refused.
-3. **Tailscale 1.80 or later**, from the [Tailscale Linux download page](https://tailscale.com/download/linux). Then log the node in, make your user the Tailscale operator, and enable HTTPS certificates for your tailnet under **DNS** in the [Tailscale admin console](https://login.tailscale.com/admin/dns):
+3. **Tailscale 1.80 or later**, from the [Tailscale Linux download page](https://tailscale.com/download/linux). Don't log the node in: `curia install` joins your tailnet in the next topic and prints the login link on the terminal. Make your user the Tailscale operator, and enable HTTPS certificates for your tailnet under **DNS** in the [Tailscale admin console](https://login.tailscale.com/admin/dns):
 
    ```sh
-   sudo tailscale up
    sudo tailscale set --operator=$USER
    ```
+
+   A node that is already logged in is fine too. `curia install` reports its name and never renames it.
 
 Keep the host clock synchronized. Certificate and signature checks fail when the clock is more than five minutes off, so leave `systemd-timesyncd` or another Network Time Protocol client enabled. Both supported systems enable one by default.
 
@@ -77,14 +78,14 @@ Run the three verification commands as your own user, without `sudo`:
 ```sh
 docker version
 docker compose version
-tailscale status
+tailscale version
 ```
 
-`docker version` prints a server section (your user can reach the daemon), `docker compose version` prints a v2 version, and `tailscale status` lists this node as online. You know the sign-in for each of the four accounts.
+`docker version` prints a server section (your user can reach the daemon), `docker compose version` prints a v2 version, and `tailscale version` prints 1.80 or later. `tailscale status` may print `Logged out.`: that's the state `curia install` starts from. You know the sign-in for each of the four accounts.
 
 ## If a check fails
 
-Each command names what is missing. The one corrective action for every condition Curia checks is in [The checks](../supported-hosts.md#the-checks): for example, a Docker daemon your user can't reach is `sudo usermod -aG docker $USER` and a new login, and a node that reads `NeedsLogin` is `sudo tailscale up`. Do that action and run the same verification command again.
+Each command names what is missing. The one corrective action for every condition Curia checks is in [The checks](../supported-hosts.md#the-checks): for example, a Docker daemon your user can't reach is `sudo usermod -aG docker $USER` and a new login, and a `tailscale` command that can't reach its daemon is `sudo systemctl start tailscaled`. Do that action and run the same verification command again.
 
 The bootstrap in the next topic runs every one of these checks again as preflight and stops at the first refused condition with the same action, so nothing you miss here changes the host.
 

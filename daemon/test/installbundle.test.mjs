@@ -20,7 +20,7 @@ import { EXIT } from '../../cli/src/exit.mjs'
 import { COMPOSE_PROJECT, INSTALLATION_LABEL } from '../../cli/src/bundle.mjs'
 import { SERVICES } from '../../cli/src/layout.mjs'
 import { readInstallationRecord } from '../../cli/src/root.mjs'
-import { DIGESTS, healthy, hostProbes, release, releaseProbesFor, stageOf } from '../../cli/test/fixtures/install.mjs'
+import { DIGESTS, fakeTailscale, healthy, hostProbes, release, releaseProbesFor, stageOf } from '../../cli/test/fixtures/install.mjs'
 import { BUNDLE_COMPOSE_FILE } from './fixtures/compose.mjs'
 
 const compose = spawnSync('docker', ['compose', 'version'], { encoding: 'utf8' })
@@ -53,7 +53,7 @@ describe('curia install starts the release bundle through docker compose', { ski
     const docker = composeConfigRunner()
     const exit = await runInstall(
       { env: { HOME: home, CURIA_ROOT: root, CURIA_STAGE: stageOf(scratch, r) }, args: [], stdout: { write: (s) => out.push(s) }, stderr: { write() {} }, uid: process.getuid(), gid: process.getgid(), root, mode: 'install' },
-      { hostProbes: hostProbes(), releaseProbes: releaseProbesFor(r), docker, sleep: async () => {}, now: () => 0 },
+      { hostProbes: hostProbes(), releaseProbes: releaseProbesFor(r), docker, tailscale: fakeTailscale(), sleep: async () => {}, now: () => 0 },
     )
     assert.equal(exit, EXIT.ok, out.join(''))
 

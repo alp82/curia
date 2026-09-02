@@ -46,7 +46,7 @@ async function installed({ home = mkdtempSync(join(scratch, 'home-')), root = jo
   const r = releaseIn(scratch, { version: VERSION })
   const io = capture()
   const env = { HOME: home, CURIA_ROOT: root, CURIA_STAGE: stageIn(scratch, r) }
-  const deps = { hostProbes: hostProbes(), releaseProbes: releaseProbesFor(r), docker: fakeDocker(), sleep: async () => {}, now: () => 0 }
+  const deps = { hostProbes: hostProbes(), releaseProbes: releaseProbesFor(r), docker: fakeDocker(), tailscale: fakeTailscale(), sleep: async () => {}, now: () => 0 }
   const exit = await runInstall({ env, stdout: io.stdout, stderr: io.stderr, uid: process.getuid(), gid: process.getgid(), root, mode: 'install' }, deps)
   assert.equal(exit, EXIT.ok, io.err())
   const record = readInstallationRecord(root)

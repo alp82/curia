@@ -1,5 +1,6 @@
 // The Tailscale card of integration setup (#877, filling the #874 seam under
-// the #852 contract and the #853 journey).
+// the #852 contract and the #853 journey; the machine-name field dropped
+// after the #891 rehearsal).
 //
 // One module holds the whole Tailscale step: the panel's own read, the one
 // confirmation that records the initial allowed operator, the Serve route
@@ -8,19 +9,22 @@
 // socket on an injectable `exec`, and the app is probed on loopback with an
 // injectable `probe` over `node:http`, so the suite needs no tailnet.
 //
-// CURIA DETECTS TAILSCALE AND NEVER CHANGES IT. The node's login, its name,
-// its certificates, and the operator permission are the host's (#850). Every
-// miss names the exact command the operator runs by hand. The one thing
-// Curia writes into tailscaled is its own Serve route, the app on the
-// dashboard's Serve port, and the record of that route is what uninstall
-// (#886) withdraws later.
+// CURIA DETECTS TAILSCALE AND NEVER CHANGES IT. The node's login and its
+// name are `curia install`'s tailnet step (`cli/src/tailnet.mjs`), where the
+// operator names the node up front and the login happens on the terminal;
+// its certificates and the operator permission are the host's (#850). Here
+// the node's name is a fact read from the node, never something the
+// operator types or Curia compares. Every miss names the exact command the
+// operator runs by hand. The one thing Curia writes into tailscaled is its
+// own Serve route, the app on the dashboard's Serve port, and the record of
+// that route is what uninstall (#886) withdraws later.
 //
 // THE OPERATOR IS THE IDENTITY THAT OPENED THE APP. Tailscale Serve stamps
 // `Tailscale-User-Login` on every request and overwrites a forged one
 // (ADR-0011), so the login the sidecar read is a fact and not a claim. The
 // panel shows it, and nothing is recorded until the operator presses the
 // confirmation. The record is `state/tailscale.json`: the login, when it was
-// confirmed, the machine name the operator expects, and the Serve routes
+// confirmed, the machine name as the node reports it, and the Serve routes
 // Curia created. No value in it is a secret.
 //
 // WHERE THE ALLOWLIST COMES FROM. Under an installation root the recorded
@@ -38,22 +42,17 @@
 //   2. tailscale answers on this host;
 //   3. the node is logged in, running, and online;
 //   4. the tailnet issues a certificate for the node, which names the
-//      private address;
-//   5. the node's MagicDNS name is the machine name the operator expects;
-//   6. Curia's own Serve route stands, created when it is missing;
-//   7. the app answers on loopback and admits the confirmed login, timed.
+//      private address; the node's name is the first label of it, recorded;
+//   5. Curia's own Serve route stands, created when it is missing;
+//   6. the app answers on loopback and admits the confirmed login, timed.
 //
 // Each miss is one failed verification with one corrective action and the
 // stage it failed at. Nothing is remembered between reads: a retry measures
 // again, and a node that went offline reads as offline.
 
-import { LOGIN_RE, MACHINE_NAME_RE, TAILSCALE_FILE, readTailscaleRecord, serveRoutes, tailscalePath, writeTailscaleRecord } from '../../cli/src/tailscale.mjs'
+import { LOGIN_RE, TAILSCALE_FILE, readTailscaleRecord, serveRoutes, tailscalePath, writeTailscaleRecord } from '../../cli/src/tailscale.mjs'
 import http from 'node:http'
 import { execFileP } from './exec.mjs'
-
-// The machine-name input's default (#853). A node named `curia.sh` reads as
-// `curia-sh` in MagicDNS, which is what `magicDnsLabel` computes.
-export const DEFAULT_MACHINE_NAME = 'curia.sh'
 
 // The record and the route parser live in `cli/src/tailscale.mjs`, because
 // `curia uninstall` (#886) reads the same record to withdraw the routes.
@@ -61,12 +60,9 @@ export { TAILSCALE_FILE, readTailscaleRecord, serveRoutes, tailscalePath, writeT
 
 const refuse = (msg) => Object.assign(new Error(msg), { refusal: true })
 
-// The MagicDNS label tailscaled derives from a hostname: lowercase, every
-// run of characters outside `a-z0-9-` becomes one hyphen, no leading or
-// trailing hyphen, at most 63 characters.
-export function magicDnsLabel(name) {
-  return String(name ?? '').toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 63)
-}
+// The node's machine name: the first label of its MagicDNS name, which is
+// what the tailnet calls it.
+const nodeName = (node) => (node?.dns_name ?? node?.cert_domains?.[0] ?? '').split('.')[0] || null
 
 // The Serve route Curia publishes for the app, as `tailscale serve` names it.
 export const appRoute = ({ servePort, appPort }) => ({ https: servePort, target: `http://127.0.0.1:${appPort}` })
@@ -214,8 +210,7 @@ export class TailscaleSetup {
       root: Boolean(this.root),
       requester,
       operator: record.operator,
-      machine_name: record.machine_name ?? DEFAULT_MACHINE_NAME,
-      default_machine_name: DEFAULT_MACHINE_NAME,
+      machine_name: nodeName(node) ?? record.machine_name,
       first_operator: Boolean(this.root) && !record.operator,
       node,
       serve: { ...serve, route: appRoute({ servePort: this.servePort, appPort: this.appPort }), recorded: record.serve },
@@ -228,16 +223,16 @@ export class TailscaleSetup {
   // The one confirmation (#852): the identity that opened the app becomes
   // the initial allowed operator. The sidecar sends the login off the request
   // it verified, so a body that names someone else never reaches here; the
-  // shape is checked again all the same.
-  async confirmOperator({ login, machine_name: machineName = DEFAULT_MACHINE_NAME } = {}) {
+  // shape is checked again all the same. The machine name recorded beside
+  // it is the node's own, read now.
+  async confirmOperator({ login } = {}) {
     if (typeof login !== 'string' || !LOGIN_RE.test(login)) throw refuse('The request carried no Tailscale identity. Open the Curia app through its Tailscale address, not on loopback, then confirm again.')
-    if (typeof machineName !== 'string' || !MACHINE_NAME_RE.test(machineName)) throw refuse('That is not a machine name. Use letters, digits, hyphens, and dots, such as curia.sh.')
     if (!this.root) throw refuse('This deployment reads the allowed operators from identity.allow in curia.yaml and has no record to write. Add the login there and deploy.')
     const current = this.#record()
     const record = writeTailscaleRecord(this.stateDir, {
       ...current,
       operator: { login: login.toLowerCase(), confirmed_at: this.now().toISOString() },
-      machine_name: machineName,
+      machine_name: nodeName(await this.#node()) ?? current.machine_name,
     })
     this.syncAllow()
     this.log(`tailscale setup: ${record.operator.login} is the allowed operator, recorded in ${tailscalePath(this.stateDir)}`)
@@ -247,7 +242,7 @@ export class TailscaleSetup {
   // The frame's verifier (#874): `{ ok, primary, secondary, emoji, detail }`,
   // `{ ok: false, failed, action, detail }`, or `{ ok: false, unconnected }`.
   verifier() {
-    return async ({ progress = {} } = {}) => {
+    return async () => {
       let record
       try {
         record = this.#record()
@@ -256,7 +251,7 @@ export class TailscaleSetup {
       }
       if (!record.operator) return { ok: false, unconnected: true }
       try {
-        return await this.#verify(record, progress)
+        return await this.#verify(record)
       } catch (e) {
         this.log(`tailscale setup: verification did not finish: ${e.message}`)
         return { ok: false, failed: e.message, action: 'Fix the cause the message names, then try again.', detail: { stage: 'unknown' } }
@@ -264,7 +259,7 @@ export class TailscaleSetup {
     }
   }
 
-  async #verify(record, progress) {
+  async #verify(record) {
     const facts = { operator: { ...record.operator, last_seen_at: this.lastSeen?.login === record.operator.login ? this.lastSeen.at : null } }
     const fail = (stage, failed, action) => ({ ok: false, failed, action, detail: { stage, ...facts } })
 
@@ -286,14 +281,12 @@ export class TailscaleSetup {
     facts.address = address
     facts.app_url = this.appUrl(address)
 
-    // The machine name: what the operator expects, against what the node is
-    // named. Curia never renames the node; the action is the command.
-    const wanted = progress.machine_name || record.machine_name || DEFAULT_MACHINE_NAME
-    const expected = magicDnsLabel(wanted)
-    const actual = address.split('.')[0]
-    facts.machine_name = { wanted, expected, actual }
-    if (expected !== actual) {
-      return fail('name', `This node is named ${actual}, not ${expected}`, `Run \`sudo tailscale set --hostname ${wanted}\` on this host, or enter ${actual} as the machine name in this panel, then try again.`)
+    // The machine name is the node's own: a fact the record keeps, refreshed
+    // here when the node was renamed by hand. Curia never renames a node.
+    const machineName = address.split('.')[0]
+    facts.machine_name = machineName
+    if (record.machine_name !== machineName) {
+      record = writeTailscaleRecord(this.stateDir, { ...record, machine_name: machineName })
     }
 
     // Curia's own Serve route: the app on the Serve port. Found when it

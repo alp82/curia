@@ -27,7 +27,7 @@ Open the topic for the operation you need. Each of these entries is direct:
 
 1. **Get Curia running**
    1. [Check prerequisites](guide/01-check-prerequisites.md). A supported host with Docker Engine, Docker Compose, and Tailscale, and the four accounts.
-   2. [Install Curia](guide/02-install-curia.md). One bootstrap command, six named steps, five healthy services.
+   2. [Install Curia](guide/02-install-curia.md). One bootstrap command, seven named steps with one link to approve, five healthy services.
    3. [Connect services](guide/03-connect-services.md). GitHub, Discord, Tailscale, and one model provider, verified on the Setup screen.
    4. [Run your first Full loop](guide/04-run-your-first-full-loop.md). One real ticket through all eight legs. This is the acceptance.
 2. **Run Curia**

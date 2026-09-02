@@ -144,7 +144,7 @@ test('a pending page is removed from the list once it lands', () => {
 
 test('every curia command in the operator pages is one the interface routes, with its own options', () => {
   const known = new Set([...Object.keys(commands), 'help', '--help', '-h', '--version', '-V'])
-  const options = { update: new Set(['--prerelease']), purge: new Set(['--confirm']) }
+  const options = { install: new Set(['--name']), update: new Set(['--prerelease']), purge: new Set(['--confirm']) }
   // A message quoted in code font may read `curia can't ...`: the bot speaks
   // as curia. Nothing else after `curia ` is prose.
   const prose = new Set(['can'])

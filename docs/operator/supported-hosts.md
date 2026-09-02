@@ -28,7 +28,7 @@ Curia detects and verifies these three, and never installs or reconfigures them:
 
 - **Docker Engine**, rootful, running, enabled at boot, with your user in the `docker` group. Oldest tested version: 24.0. Versions older than 20.10 are refused.
 - **Docker Compose v2**, as the `docker compose` plugin. Oldest tested version: 2.20. Compose v1 (`docker-compose`) is refused.
-- **Tailscale**, logged in, with your user set as the Tailscale operator, and HTTPS certificates enabled for the tailnet. Oldest tested version: 1.80.
+- **Tailscale**, installed, with `tailscaled` running. Oldest tested version: 1.80. The node doesn't have to be logged in: `curia install` joins the tailnet in its `tailnet` step and prints the login link. That step also needs your user to be the Tailscale operator and HTTPS certificates to be enabled for the tailnet, and it refuses with the exact command or setting when they aren't. See [The tailnet step](install.md#the-tailnet-step).
 
 A version newer than the tested range produces a warning, not a refusal. A supported host also needs `bash`, `curl`, `tar`, `gzip`, the coreutils checksum tools (`sha256sum`, `sha512sum`, `base64`, `od`), and CA certificates for [the bootstrap](bootstrap.md), and `ss` from `iproute2` for the port check to name a process. All of these ship with both supported systems.
 
@@ -85,17 +85,17 @@ The following table lists every check, what it can do, the condition it reports,
 | Docker Compose | Refuse | `docker compose` is not available, or is Compose v1. | Install the Compose v2 plugin, 2.20 or later. |
 | Docker Compose | Warn | Compose is older than 2.20 or newer than major version 2. | Update to the tested range, or watch for behavior changes. |
 | Tailscale | Refuse | Tailscale is not installed. | Install Tailscale from the [Tailscale Linux download page](https://tailscale.com/download/linux). |
-| Tailscale | Refuse | Your user can't open `/var/run/tailscale/tailscaled.sock`, or may not use Serve. | Run `sudo tailscale set --operator=$USER`. |
-| Tailscale | Refuse | The node is not running or is offline, for example `NeedsLogin`. | Run `sudo tailscale up` and finish the login in the browser. |
-| Tailscale | Refuse | The tailnet issues no HTTPS certificate for this node. | Enable HTTPS certificates under **DNS** in the [Tailscale admin console](https://login.tailscale.com/admin/dns). |
+| Tailscale | Refuse | `tailscaled` is not running. | Run `sudo systemctl start tailscaled`. |
 | Tailscale | Warn | Tailscale is older than 1.80 or newer than major version 1. | Update to the tested range, or watch for behavior changes. |
 | outbound access | Refuse | One of `registry.npmjs.org`, `github.com`, or `ghcr.io` didn't answer over HTTPS. | Allow outbound HTTPS to the release origins, or fix DNS or the proxy. |
 | release verification | Refuse | A release origin's certificate didn't verify. | Run `sudo apt-get install --reinstall ca-certificates` and remove any intercepting proxy. |
 | release verification | Refuse | The host clock is more than five minutes from the release origins. | Run `sudo timedatectl set-ntp true` and wait for the clock to sync. |
 | Docker socket group | Refuse | No `docker` group exists. The service and tmux containers join it to reach the socket. | Run `sudo groupadd docker`, then `sudo usermod -aG docker $USER`, then log out and in. |
 
+The node's login, the Tailscale operator permission, and the tailnet's HTTPS certificate are not preflight checks. They belong to the `tailnet` step of `curia install`, which logs the node in when it isn't and refuses on the other two with the exact command or setting; `curia reinstall`, `curia update`, and `curia rollback` inspect the same three facts in their `preflight` step and refuse without logging in. See [The tailnet step](install.md#the-tailnet-step).
+
 The unsupported categories that the specification names, such as Windows Subsystem for Linux, nested containers, immutable hosts, hosts without systemd, and rootless Docker, are not refused by name. When every functional check passes, installation continues, with a warning where the check can tell.
 
 ## What preflight doesn't check
 
-Preflight checks the host and nothing more. The installation root's ownership and permissions are checked separately, before preflight, as [When a lifecycle command refuses the root](command-reference.md#when-a-lifecycle-command-refuses-the-root) describes. Release artifacts are verified when they're downloaded, as [The release manifest and release verification](release-manifest.md) describes. Each integration verifies its own account and connection during setup. `curia doctor` adds the configuration, integration, container, and reachability checks on top of the host checks.
+Preflight checks the host and nothing more. The installation root's ownership and permissions are checked separately, before preflight, as [When a lifecycle command refuses the root](command-reference.md#when-a-lifecycle-command-refuses-the-root) describes. The tailnet is joined and checked after preflight, in the `tailnet` step of `curia install`. Release artifacts are verified when they're downloaded, as [The release manifest and release verification](release-manifest.md) describes. Each integration verifies its own account and connection during setup. `curia doctor` adds the configuration, integration, container, and reachability checks on top of the host checks.

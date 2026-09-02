@@ -5138,13 +5138,14 @@ async function discordSetupWrite(key, path, body) {
   }
 }
 
-/* The Tailscale card's own panel (#877), in the three states the verifier
-   reports. Unconnected: no operator is recorded, so the panel names the
-   identity Serve stamped on the request that opened this app, the node, and
-   the machine-name field, and the one press is the confirmation. Failed:
-   the failed verification with its action, and the machine-name form so a
-   name can be corrected. Connected: the private address, the operator, the
-   node, the Serve route, and the timed admission, from this read. */
+/* The Tailscale card's own panel (#877; the machine-name field dropped
+   after #891), in the three states the verifier reports. Unconnected: no
+   operator is recorded, so the panel names the identity Serve stamped on
+   the request that opened this app and the node, both facts, and the one
+   press is the confirmation. Failed: the failed verification with its
+   action, and the confirmation again. Connected: the private address, the
+   operator, the node, the Serve route, and the timed admission, from this
+   read. The node's name is the tailnet's fact: `curia install` named it. */
 function setupTailscale(card, progress) {
   const t = UI.setup.tailscale;
   const detail = card.detail ?? null;
@@ -5157,8 +5158,7 @@ function setupTailscale(card, progress) {
       <div class="row"><span class="key grow">Node</span><span>${esc(detail.address)} · online · ${(detail.node?.ips ?? []).map(esc).join(", ")}${detail.node?.version ? ` · Tailscale ${esc(detail.node.version)}` : ""}</span></div>
       <div class="row"><span class="key grow">Serve</span><span><code>:${esc(detail.serve?.route?.https)}</code> → <code>${esc(detail.serve?.route?.target)}</code>${detail.serve?.created ? " · created by Curia" : ""}</span></div>
       <div class="row"><span class="key grow">Reachability</span><span>Admitted ${esc(op.login)} in ${esc(detail.app?.ms)} ms · ${seen}</span></div>
-    </div>
-    <details><summary>Change the machine name</summary>${setupTailscaleForm(t, progress, detail, card)}</details>`;
+    </div>`;
   }
   if (!t || t.loading) return `<p class="qhint">Reading the node…</p>`;
   return `${setupTailscaleNode(t, detail)}${setupTailscaleForm(t, progress, detail, card)}`;
@@ -5179,22 +5179,20 @@ function setupTailscaleForm(t, progress, detail, card) {
   const busy = UI.setup.tailscaleBusy === "tailscale-setup:operator";
   const requester = t?.requester ?? null;
   const operator = t?.operator ?? detail?.operator ?? null;
-  const current = (t?.node?.dns_name ?? detail?.address ?? "").split(".")[0] || null;
-  const name = progress?.machine_name || t?.machine_name || detail?.machine_name?.wanted || "curia.sh";
+  const current = (t?.node?.dns_name ?? detail?.address ?? "").split(".")[0] || t?.machine_name || null;
   const who = requester
     ? `<div class="setup-note"><b>You opened Curia as ${esc(requester)}</b> through Tailscale.${operator && operator.login !== requester ? ` The recorded operator is ${esc(operator.login)}.` : ""}${!operator ? " Confirm to make this identity the allowed operator. Until then, nobody is." : ""}</div>`
     : `<div class="setup-note">This request carried no Tailscale identity. Open the Curia app through its Tailscale address to confirm the operator.</div>`;
   const label = operator ? "Confirm again and verify" : "Confirm operator and verify";
   return `${who}
-    <p><input id="setup-tailscale-machine" type="text" value="${esc(name)}" placeholder="curia.sh" aria-label="Tailscale machine name">
-    <button class="btn primary" ${busy || !requester ? "disabled" : ""} onclick="doSetupTailscaleOperator()">${busy ? "Verifying…" : label}</button></p>
+    <p><button class="btn primary" ${busy || !requester ? "disabled" : ""} onclick="doSetupTailscaleOperator()">${busy ? "Verifying…" : label}</button></p>
     ${said("tailscale-setup:operator")}
-    <p class="qhint">Machine name: the name this node has in Tailscale. Default <code>curia.sh</code>${current ? `, current node <code>${esc(current)}</code>` : ""}. Curia doesn't rename the node. To rename it, run <code>sudo tailscale set --hostname &lt;name&gt;</code> on the host.</p>`;
+    <p class="qhint">${current ? `This node is named <code>${esc(current)}</code> on the tailnet, the name <code>curia install</code> joined it under. ` : ""}Curia never installs or reconfigures Tailscale, and it doesn't rename the node. To rename it, run <code>sudo tailscale set --hostname &lt;name&gt;</code> on the host.</p>`;
 }
 
 /* The Tailscale card's reads and writes (#877). The panel's own read carries
-   the identity this request arrived with; the confirmation sends only the
-   machine name, and the sidecar names the login off the request itself. */
+   the identity this request arrived with; the confirmation sends no field
+   at all, and the sidecar names the login off the request itself. */
 async function loadTailscaleSetup() {
   UI.setup.tailscale = { ...(UI.setup.tailscale ?? {}), loading: true };
   render();
@@ -5214,16 +5212,13 @@ function ensureTailscaleSetupRead() {
   if (UI.setup.tailscale === null) loadTailscaleSetup();
 }
 async function doSetupTailscaleOperator() {
-  const machine = document.getElementById("setup-tailscale-machine")?.value?.trim() ?? "";
-  if (!machine) return refuse("tailscale-setup:operator", "Enter the machine name.");
-  await rememberSetupProgress("tailscale", { machine_name: machine });
   UI.setup.tailscaleBusy = "tailscale-setup:operator";
   UI.act.said = null;
   render();
   try {
     const res = await fetch("/api/setup/tailscale/operator", {
       method: "POST", headers: { "content-type": "application/json", accept: "application/json" },
-      body: JSON.stringify({ machine_name: machine }),
+      body: JSON.stringify({}),
     });
     const out = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(out.error || ("the sidecar answered " + res.status));

@@ -343,20 +343,50 @@ export function fakeDockerHost({ containers = [], networks = [], volumes = [], i
   return run
 }
 
-// A fake `tailscale` CLI holding the node's Serve config: `serving` is a list
-// of `{ https, target }`. `missing` models a host without the command;
-// `broken` models a node that answers every call with an error.
-export function fakeTailscale({ serving = [], missing = false, broken = false } = {}) {
+// A fake `tailscale` CLI holding the node's Serve config and its status:
+// `serving` is a list of `{ https, target }`; `status` is what `tailscale
+// status --json` answers (a Running node named `host` by default); `up`
+// says what `tailscale up` does: `lines` it prints (the login link by
+// default), `denied` for a user who is not the operator, and `after`, the
+// number of status reads after which the node is Running (`becomes`);
+// `servePermitted` false denies `serve status`. `missing` models a host
+// without the command; `broken` models a node that answers every call
+// with an error.
+export const NODE_ADDRESS = 'host.tail1234.ts.net'
+export const LOGIN_URL = 'https://login.tailscale.com/a/0123456789abcdef'
+export const nodeStatus = (label = 'host') => ({
+  BackendState: 'Running',
+  CertDomains: [`${label}.tail1234.ts.net`],
+  Self: { DNSName: `${label}.tail1234.ts.net.`, Online: true, TailscaleIPs: ['100.98.118.33'] },
+})
+export const loggedOutStatus = () => ({ BackendState: 'NeedsLogin', CertDomains: [], Self: { DNSName: '', Online: false } })
+
+export function fakeTailscale({ serving = [], status = nodeStatus(), up = {}, servePermitted = true, missing = false, broken = false } = {}) {
   const calls = []
   let routes = serving.map((r) => ({ ...r }))
-  const run = async (args) => {
+  const state = { status, reads: 0 }
+  const run = async (args, { onLine } = {}) => {
     calls.push(args)
     if (missing) return { ok: false, stdout: '', stderr: 'spawn tailscale ENOENT', code: 'ENOENT', missing: true }
     if (broken) return { ok: false, stdout: '', stderr: 'failed to connect to local Tailscale service; is Tailscale running?', code: 1 }
     const line = args.join(' ')
+    if (line === 'status --json') {
+      state.reads += 1
+      if (up.after !== undefined && state.reads > up.after) state.status = up.becomes ?? nodeStatus(up.label)
+      return { ok: true, stdout: JSON.stringify(state.status), stderr: '' }
+    }
+    if (args[0] === 'up') {
+      if (up.denied) return { ok: false, stdout: '', stderr: 'Access denied: tailscale up requires root or operator permission\n', code: 1 }
+      for (const l of up.lines ?? ['To authenticate, visit:', '', `\t${LOGIN_URL}`, '']) onLine?.(l)
+      return { ok: true, stdout: '', stderr: '' }
+    }
+    if (line === 'serve status') {
+      if (!servePermitted) return { ok: false, stdout: '', stderr: 'Access denied: serve config denied\n', code: 1 }
+      return { ok: true, stdout: 'No serve config\n', stderr: '' }
+    }
     if (line === 'serve status --json') {
       const web = {}
-      for (const r of routes) web[`host.tail1234.ts.net:${r.https}`] = { Handlers: { '/': { Proxy: r.target } } }
+      for (const r of routes) web[`${NODE_ADDRESS}:${r.https}`] = { Handlers: { '/': { Proxy: r.target } } }
       return { ok: true, stdout: JSON.stringify(routes.length ? { Web: web } : {}), stderr: '' }
     }
     const off = /^serve --https=(\d+) off$/.exec(line)
@@ -368,5 +398,6 @@ export function fakeTailscale({ serving = [], missing = false, broken = false } 
   }
   run.calls = calls
   run.serving = () => routes
+  run.state = state
   return run
 }

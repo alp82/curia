@@ -12,7 +12,7 @@ import { SERVICES, serviceLayout } from '../src/layout.mjs'
 import { readInstallationRecord, versionPaths } from '../src/root.mjs'
 import { launcherPath } from '../src/launcher.mjs'
 import { composeEnvPath } from '../src/compose.mjs'
-import { fakeDocker, healthy, hostProbes, release as releaseIn, releaseProbesFor, stageOf as stageIn } from './fixtures/install.mjs'
+import { LOGIN_URL, fakeDocker, fakeTailscale, healthy, hostProbes, loggedOutStatus, nodeStatus, release as releaseIn, releaseProbesFor, stageOf as stageIn } from './fixtures/install.mjs'
 
 const VERSION = packageVersion
 
@@ -38,19 +38,20 @@ function capture() {
 }
 
 // One installation attempt through the command's own seam.
-async function attempt({ home, root, stage, mode = 'install', r, docker = fakeDocker(), probes = {} }) {
+async function attempt({ home, root, stage, mode = 'install', args = [], r, docker = fakeDocker(), tailscale = fakeTailscale(), probes = {} }) {
   const io = capture()
-  const env = { HOME: home, CURIA_ROOT: root, ...(stage ? { CURIA_STAGE: stage } : {}) }
-  const deps = { hostProbes: hostProbes(probes.host), releaseProbes: releaseProbesFor(r), docker, sleep: async () => {}, now: () => 0 }
+  const env = { HOME: home, USER: 'operator', CURIA_ROOT: root, ...(stage ? { CURIA_STAGE: stage } : {}) }
+  let time = 0
+  const deps = { hostProbes: hostProbes(probes.host), releaseProbes: releaseProbesFor(r), docker, tailscale, sleep: async (ms) => { time += ms }, now: () => time }
   let exit
   let error = null
   try {
-    exit = await runInstall({ env, args: [], stdout: io.stdout, stderr: io.stderr, uid: process.getuid(), gid: process.getgid(), root, mode }, deps)
+    exit = await runInstall({ env, args, stdout: io.stdout, stderr: io.stderr, uid: process.getuid(), gid: process.getgid(), root, mode }, deps)
   } catch (e) {
     error = e
     exit = e instanceof Refusal ? EXIT.refused : EXIT.failed
   }
-  return { exit, error, out: io.out(), err: io.err(), docker }
+  return { exit, error, out: io.out(), err: io.err(), docker, tailscale }
 }
 
 function fresh() {
@@ -62,7 +63,7 @@ function fresh() {
 
 describe('the named steps', () => {
   test('are one linear sequence', () => {
-    assert.deepEqual(INSTALL_STEPS, ['preflight', 'root', 'stage', 'activate', 'start', 'health'])
+    assert.deepEqual(INSTALL_STEPS, ['preflight', 'root', 'tailnet', 'stage', 'activate', 'start', 'health'])
   })
 
   test('the app address uses the Curia app port from config/curia.yaml', () => {
@@ -116,6 +117,9 @@ describe('clean install', () => {
     assert.match(a.out, new RegExp(`Curia ${VERSION.replaceAll('.', '\\.')} is installed and running`))
     assert.match(a.out, /https:\/\/host\.tail1234\.ts\.net:8445\//)
     assert.match(a.out, /integration setup/)
+    // The tailnet step found the node logged in under its own name and said so.
+    assert.match(a.out, /\[3\/7\] tailnet\nnode host \(host\.tail1234\.ts\.net\) is logged in to the tailnet\nthis node is named host, not curia\. Curia never renames a node/)
+    assert.ok(a.tailscale.calls.every((c) => c[0] !== 'up'), 'a logged-in node is never brought up again')
   })
 
   test('the stage is left for the bootstrap to remove; nothing is moved out of it', async () => {
@@ -219,7 +223,7 @@ describe('preserved-root reinstall', () => {
     const again = await attempt({ home, root, stage: stageOf(r), r })
     assert.equal(again.exit, EXIT.ok)
     assert.equal(readInstallationRecord(root).installationId, id)
-    assert.match(again.out, /\[2\/6\] root\nreinstalling/)
+    assert.match(again.out, /\[2\/7\] root\nreinstalling/)
   })
 })
 
@@ -259,7 +263,7 @@ describe('a partial failure and the retry', () => {
     const again = await attempt({ home, root, r })
     assert.equal(again.error, null, again.error?.stack)
     assert.equal(again.exit, EXIT.ok)
-    assert.match(again.out, /\[3\/6\] stage\n.*already installed/)
+    assert.match(again.out, /\[4\/7\] stage\n.*already installed/)
     assert.deepEqual(again.docker.verbs(), ['pull', 'up', 'ps'])
   })
 
@@ -274,6 +278,90 @@ describe('a partial failure and the retry', () => {
   })
 })
 
+describe('the tailnet step', () => {
+  test('a node that is not logged in joins the tailnet as --name before anything is downloaded, with the login link as the one action', async () => {
+    const r = release()
+    const { home, root } = fresh()
+    const tailscale = fakeTailscale({ status: loggedOutStatus(), up: { after: 2, label: 'curia-box' } })
+    const a = await attempt({ home, root, stage: stageOf(r), r, args: ['--name', 'curia-box'], tailscale })
+    assert.equal(a.error, null, a.error?.stack)
+    assert.equal(a.exit, EXIT.ok)
+    assert.deepEqual(tailscale.calls.filter((c) => c[0] === 'up'), [['up', '--hostname', 'curia-box', '--timeout', '10m']])
+    assert.match(a.out, /\[3\/7\] tailnet\nthis node is not logged in to a tailnet; joining it as curia-box/)
+    assert.match(a.out, new RegExp(`Open this link on a device where you are signed in to Tailscale and approve this machine:\\n  ${LOGIN_URL.replaceAll('.', '\\.')}`))
+    assert.match(a.out, /logged in as node curia-box \(curia-box\.tail1234\.ts\.net\)/)
+    assert.match(a.out, /https:\/\/curia-box\.tail1234\.ts\.net:8445\//)
+    // The login came before the stage: nothing was placed until the host could be reached.
+    const at = (step) => a.out.indexOf(`] ${step}\n`)
+    assert.ok(a.out.indexOf(LOGIN_URL) > at('tailnet') && a.out.indexOf(LOGIN_URL) < at('stage'))
+  })
+
+  test('--name defaults to curia, takes --name=<label> too, and refuses anything that is not a MagicDNS label before anything runs', async () => {
+    const r = release()
+    const { home, root } = fresh()
+    const eq = fakeTailscale({ status: loggedOutStatus(), up: { after: 1, label: 'box-2' } })
+    assert.equal((await attempt({ home, root, stage: stageOf(r), r, args: ['--name=box-2'], tailscale: eq })).exit, EXIT.ok)
+    assert.deepEqual(eq.calls.find((c) => c[0] === 'up'), ['up', '--hostname', 'box-2', '--timeout', '10m'])
+    for (const bad of [['--name', 'Curia.sh'], ['--name', '-box'], ['--name'], ['--name', 'x'.repeat(64)], ['--frobnicate'], ['extra']]) {
+      const io = capture()
+      const exit = await runCli({ argv: ['install', ...bad], env: { CURIA_ROOT: '/nonexistent/curia', HOME: '/nonexistent' }, stdout: io.stdout, stderr: io.stderr, commands })
+      assert.equal(exit, EXIT.usage, bad.join(' '))
+      assert.match(io.err(), /^curia install: /)
+    }
+    const io = capture()
+    await runCli({ argv: ['install', '--name', 'Curia.sh'], env: { CURIA_ROOT: '/nonexistent/curia', HOME: '/nonexistent' }, stdout: io.stdout, stderr: io.stderr, commands })
+    assert.match(io.err(), /Curia\.sh is not a machine name\. Use lowercase letters, digits, and hyphens/)
+  })
+
+  test('a login that does not arrive fails the tailnet step, the rerun lands there, and nothing was staged', async () => {
+    const r = release()
+    const { home, root } = fresh()
+    const failed = await attempt({ home, root, stage: stageOf(r), r, tailscale: fakeTailscale({ status: loggedOutStatus(), up: { after: 100_000 } }) })
+    assert.equal(failed.exit, EXIT.failed)
+    assert.match(failed.error.message, /^tailnet failed: no login arrived within 10 minutes/)
+    assert.match(failed.error.message, /run the bootstrap again; it resumes at tailnet/)
+    assert.deepEqual(readdirSync(join(root, 'versions')), [], 'nothing was staged before the host could be reached')
+    assert.deepEqual(failed.docker.verbs(), [])
+    // The rerun finds the node logged in and continues.
+    const again = await attempt({ home, root, stage: stageOf(r), r })
+    assert.equal(again.error, null, again.error?.stack)
+    assert.match(again.out, /\[3\/7\] tailnet\nnode host/)
+  })
+
+  test('a user who may not operate Tailscale is refused at the tailnet step with the exact command, on the login and after it', async () => {
+    const r = release()
+    const { home, root } = fresh()
+    const onUp = await attempt({ home, root, stage: stageOf(r), r, tailscale: fakeTailscale({ status: loggedOutStatus(), up: { denied: true } }) })
+    assert.equal(onUp.exit, EXIT.refused)
+    assert.match(onUp.error.message, /^tailnet: your user may not operate Tailscale on this host \(Access denied/)
+    assert.match(onUp.error.message, /Run `sudo tailscale set --operator=operator` and run the command again/)
+    const onServe = await attempt({ home, root, stage: stageOf(r), r, tailscale: fakeTailscale({ servePermitted: false }) })
+    assert.equal(onServe.exit, EXIT.refused)
+    assert.match(onServe.error.message, /^tailnet: your user may not operate Tailscale on this host \(Access denied: serve config denied\)\. Run `sudo tailscale set --operator=operator`/)
+    assert.deepEqual(readdirSync(join(root, 'versions')), [])
+  })
+
+  test('a tailnet without HTTPS certificates is refused at the tailnet step naming the HTTPS setting', async () => {
+    const r = release()
+    const { home, root } = fresh()
+    const a = await attempt({ home, root, stage: stageOf(r), r, tailscale: fakeTailscale({ status: { ...nodeStatus(), CertDomains: [] } }) })
+    assert.equal(a.exit, EXIT.refused)
+    assert.match(a.error.message, /^tailnet: the tailnet issues no HTTPS certificate for this node/)
+    assert.match(a.error.message, /https:\/\/login\.tailscale\.com\/admin\/dns/)
+  })
+
+  test('reinstall runs the step inspect-only: a logged-out node is refused naming curia install, and nothing is brought up', async () => {
+    const r = release()
+    const { home, root } = fresh()
+    assert.equal((await attempt({ home, root, stage: stageOf(r), r })).exit, EXIT.ok)
+    const tailscale = fakeTailscale({ status: loggedOutStatus() })
+    const again = await attempt({ home, root, stage: stageOf(r), r, mode: 'reinstall', tailscale })
+    assert.equal(again.exit, EXIT.refused)
+    assert.match(again.error.message, /^tailnet: this node is not logged in to a tailnet \(NeedsLogin\)\. Run 'curia install'/)
+    assert.ok(tailscale.calls.every((c) => c[0] === 'status'), 'reinstall never runs tailscale up')
+  })
+})
+
 describe('through the command table', () => {
   test('install and reinstall are wired and refuse root execution before anything else', async () => {
     for (const name of ['install', 'reinstall']) {
@@ -284,8 +372,11 @@ describe('through the command table', () => {
     }
   })
 
-  test('the summaries name what each command does', () => {
+  test('the summaries name what each command does, and install declares its option', () => {
     assert.match(commands.install.summary, /Install/)
+    assert.match(commands.install.summary, /--name/)
+    assert.equal(commands.install.options, true)
+    assert.equal(commands.reinstall.options, undefined)
     assert.match(commands.reinstall.summary, /preserved/)
   })
 })

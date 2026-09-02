@@ -5,11 +5,13 @@
 // names the command the operator runs; the identity that opened the app is
 // shown and recorded only on an explicit confirmation, into
 // `state/tailscale.json`, and that record is the identity allowlist under a
-// root; Curia creates and records only its own Serve route; verification is
-// the current fact, in the order the operator meets it: the node, its login
-// and connection, its certificate, its name, the Serve route, and the app's
-// own admission of the confirmed login, timed. Nothing here touches a
-// tailnet: `tailscale` is a fake `exec` and the app is a fake `probe`.
+// root; the node's name is a fact read from the node and recorded, never a
+// field the operator types or a comparison (#891); Curia creates and
+// records only its own Serve route; verification is the current fact, in
+// the order the operator meets it: the node, its login and connection, its
+// certificate, the Serve route, and the app's own admission of the
+// confirmed login, timed. Nothing here touches a tailnet: `tailscale` is a
+// fake `exec` and the app is a fake `probe`.
 
 import { test, describe, beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
@@ -19,7 +21,7 @@ import os from 'node:os'
 import path from 'node:path'
 
 import {
-  TailscaleSetup, readTailscaleRecord, writeTailscaleRecord, magicDnsLabel, serveRoutes, DEFAULT_MACHINE_NAME,
+  TailscaleSetup, readTailscaleRecord, writeTailscaleRecord, serveRoutes,
 } from '../src/tailscalesetup.mjs'
 
 const LOGIN = 'alp@example.com'
@@ -100,7 +102,7 @@ describe('the Tailscale card (#877)', () => {
     })
     return { setup, cli, probe, log, allow, verify: setup.verifier() }
   }
-  const confirmed = (over = {}) => writeTailscaleRecord(stateDir, { operator: { login: LOGIN, confirmed_at: '2026-09-01T00:00:00.000Z' }, machine_name: 'curia.sh', serve: [], ...over })
+  const confirmed = (over = {}) => writeTailscaleRecord(stateDir, { operator: { login: LOGIN, confirmed_at: '2026-09-01T00:00:00.000Z' }, machine_name: 'curia-sh', serve: [], ...over })
 
   describe('detection', () => {
     test('with no operator recorded the card is unconnected, and tailscale is not asked anything', async () => {
@@ -109,13 +111,14 @@ describe('the Tailscale card (#877)', () => {
       assert.equal(cli.calls.length, 0)
     })
 
-    test('the panel read shows the identity that opened the app, the node, the recorded facts, and the private address, and records nothing', async () => {
+    test('the panel read shows the identity that opened the app, the node with its name, the recorded facts, and the private address, and records nothing', async () => {
       const { setup } = setupOver()
       const out = await setup.overview({ login: 'Alp@Example.com' })
       assert.equal(out.requester, LOGIN)
       assert.equal(out.operator, null)
       assert.equal(out.first_operator, true)
-      assert.equal(out.machine_name, DEFAULT_MACHINE_NAME)
+      assert.equal(out.machine_name, 'curia-sh', 'the machine name is the node\'s own')
+      assert.equal('default_machine_name' in out, false, 'there is no default: the operator named the node at install')
       assert.equal(out.node.online, true)
       assert.equal(out.node.dns_name, DNS)
       assert.equal(out.node.version, '1.98.10')
@@ -145,11 +148,11 @@ describe('the Tailscale card (#877)', () => {
   })
 
   describe('the confirmation gate', () => {
-    test('confirming records the identity that opened the app and the machine name in state/tailscale.json, owner-only, and admits that login at once', async () => {
+    test('confirming records the identity that opened the app and the node\'s own machine name in state/tailscale.json, owner-only, and admits that login at once', async () => {
       const { setup, allow, log } = setupOver()
       assert.deepEqual([...allow], [])
-      const out = await setup.confirmOperator({ login: 'Alp@Example.com', machine_name: 'curia.sh' })
-      assert.deepEqual(readTailscaleRecord(stateDir), { operator: { login: LOGIN, confirmed_at: '2026-09-02T10:00:00.000Z' }, machine_name: 'curia.sh', serve: [] })
+      const out = await setup.confirmOperator({ login: 'Alp@Example.com' })
+      assert.deepEqual(readTailscaleRecord(stateDir), { operator: { login: LOGIN, confirmed_at: '2026-09-02T10:00:00.000Z' }, machine_name: 'curia-sh', serve: [] })
       assert.equal(fs.statSync(path.join(stateDir, 'tailscale.json')).mode & 0o777, 0o600)
       assert.deepEqual([...allow], [LOGIN])
       assert.deepEqual(setup.identity(), { allow: [LOGIN], first_operator: false })
@@ -166,12 +169,14 @@ describe('the Tailscale card (#877)', () => {
       assert.deepEqual(setup.identity(), { allow: [], first_operator: true })
     })
 
-    test('a confirmation without a Tailscale identity, or with a name that is not a machine name, is refused by name', async () => {
+    test('a confirmation without a Tailscale identity is refused by name, and a node that cannot be read records no name', async () => {
       const { setup } = setupOver()
-      await assert.rejects(() => setup.confirmOperator({ login: '', machine_name: 'curia.sh' }), (e) => e.refusal && /no Tailscale identity/.test(e.message))
-      await assert.rejects(() => setup.confirmOperator({ login: 'stranger', machine_name: 'curia.sh' }), (e) => e.refusal && /no Tailscale identity/.test(e.message))
-      await assert.rejects(() => setup.confirmOperator({ login: LOGIN, machine_name: 'not a name!' }), (e) => e.refusal && /not a machine name/.test(e.message))
+      await assert.rejects(() => setup.confirmOperator({ login: '' }), (e) => e.refusal && /no Tailscale identity/.test(e.message))
+      await assert.rejects(() => setup.confirmOperator({ login: 'stranger' }), (e) => e.refusal && /no Tailscale identity/.test(e.message))
       assert.equal(fs.existsSync(path.join(stateDir, 'tailscale.json')), false)
+      const down = setupOver(tailscaleCli({ status: cliError('failed to connect to local tailscaled') }))
+      await down.setup.confirmOperator({ login: LOGIN })
+      assert.equal(readTailscaleRecord(stateDir).machine_name, null)
     })
 
     test('without an installation root the allowlist is curia.yaml\'s, the window never opens, and the confirmation names the key', async () => {
@@ -212,7 +217,7 @@ describe('the Tailscale card (#877)', () => {
       assert.equal(answer.primary, DNS)
       assert.match(answer.secondary, /^alp@example\.com · admitted in \d+ ms$/)
       assert.equal(answer.detail.app_url, `https://${DNS}:${SERVE_PORT}/`)
-      assert.deepEqual(answer.detail.machine_name, { wanted: 'curia.sh', expected: 'curia-sh', actual: 'curia-sh' })
+      assert.equal(answer.detail.machine_name, 'curia-sh')
       assert.deepEqual(answer.detail.serve, { url: `https://${DNS}:${SERVE_PORT}/`, route: { https: SERVE_PORT, target: `http://127.0.0.1:${APP_PORT}` }, created: false, error: null })
       assert.equal(answer.detail.app.status, 200)
       assert.equal(typeof answer.detail.app.ms, 'number')
@@ -264,20 +269,19 @@ describe('the Tailscale card (#877)', () => {
       assert.equal(answer.detail.stage, 'certificate')
     })
 
-    test('a node named differently from the machine name the operator expects is one failed verification, and the action is the rename command or the current name', async () => {
-      confirmed({ machine_name: 'curia.sh' })
+    // Since #891 the operator names the node at `curia install`, and the
+    // card compares nothing: the node's name is a fact, and the record takes
+    // it when the node was renamed by hand.
+    test('a node named differently from what the record holds is a fact, not a failure: the card connects and the record takes the node\'s name', async () => {
+      confirmed({ machine_name: 'curia-sh' })
       const cli = tailscaleCli({ status: status({ CertDomains: ['alp-workstation.tail1234.ts.net'], Self: { DNSName: 'alp-workstation.tail1234.ts.net.', Online: true } }) })
       const { verify } = setupOver(cli)
       const answer = await verify({ progress: {} })
-      assert.equal(answer.ok, false)
-      assert.match(answer.failed, /This node is named alp-workstation, not curia-sh/)
-      assert.match(answer.action, /sudo tailscale set --hostname curia\.sh.*or enter alp-workstation as the machine name/)
-      assert.equal(answer.detail.stage, 'name')
-      assert.ok(cli.calls.every((args) => args[0] === 'status'), 'Curia never renames the node')
-      // The remembered progress wins over the record, so a corrected name verifies.
-      const corrected = await verify({ progress: { machine_name: 'alp-workstation' } })
-      assert.equal(corrected.ok, true, JSON.stringify(corrected))
-      assert.equal(corrected.primary, 'alp-workstation.tail1234.ts.net')
+      assert.equal(answer.ok, true, JSON.stringify(answer))
+      assert.equal(answer.primary, 'alp-workstation.tail1234.ts.net')
+      assert.equal(answer.detail.machine_name, 'alp-workstation')
+      assert.equal(readTailscaleRecord(stateDir).machine_name, 'alp-workstation')
+      assert.ok(cli.calls.every((args) => !args.includes('--hostname') && args[0] !== 'set'), 'Curia never renames the node')
     })
 
     test('a missing Serve route is created as Curia\'s own, exactly the app on the Serve port, and recorded in state/tailscale.json', async () => {
@@ -375,13 +379,6 @@ describe('the Tailscale card (#877)', () => {
   })
 
   describe('the pieces', () => {
-    test('a MagicDNS label is the hostname as tailscaled sanitizes it', () => {
-      assert.equal(magicDnsLabel('curia.sh'), 'curia-sh')
-      assert.equal(magicDnsLabel('Alp Workstation'), 'alp-workstation')
-      assert.equal(magicDnsLabel('--box--'), 'box')
-      assert.equal(magicDnsLabel('a'.repeat(70)).length, 63)
-    })
-
     test('the served routes are read out of the serve config, and an empty config is no route', () => {
       assert.deepEqual(serveRoutes(serveConfig()), [{ https: SERVE_PORT, mount: '/', target: `http://127.0.0.1:${APP_PORT}` }])
       assert.deepEqual(serveRoutes({}), [])

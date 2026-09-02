@@ -4000,7 +4000,7 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
   if (url.pathname === '/setup/tailscale/operator' && req.method === 'POST') {
     const body = await readBody(req)
     try {
-      const overview = await tailscaleSetup.confirmOperator({ login: body.login, machine_name: body.machine_name })
+      const overview = await tailscaleSetup.confirmOperator({ login: body.login })
       return json(200, { ok: true, ...overview, card: await integrationSetup.verify('tailscale') })
     } catch (e) {
       if (!e.refusal) throw e

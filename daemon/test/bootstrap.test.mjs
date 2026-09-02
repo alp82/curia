@@ -299,6 +299,30 @@ describe('the bootstrap script', () => {
     assert.match(r.out, new RegExp(`selected ${STABLE}, the exact version`))
   })
 
+  // The node joins the tailnet during `curia install` (#891), named up
+  // front: the bootstrap hands `--name` through and checks its shape first.
+  test('hands --name through to curia install, and refuses a name that is not a MagicDNS label before any download', async () => {
+    catalogue()
+    const named = await run(['--name', 'curia-box'])
+    assert.equal(named.exit, 0, `${named.out}\n${named.err}`)
+    assert.deepEqual(named.handoff.argv, ['install', '--name', 'curia-box'])
+    const plain = await run([])
+    assert.deepEqual(plain.handoff.argv, ['install'])
+    for (const bad of ['Curia.sh', '-box', 'x'.repeat(64)]) {
+      const before = served.hits.length
+      const r = await run(['--name', bad])
+      assert.equal(r.exit, EXIT.usage, bad)
+      assert.equal(r.handoff, null)
+      assert.match(r.err, /not a machine name|longer than the 63 characters/)
+      assert.equal(served.hits.length, before, 'nothing was downloaded')
+    }
+    const purge = await run(['--purge', '--name', 'curia-box'])
+    assert.equal(purge.exit, EXIT.usage)
+    assert.match(purge.err, /--name is an installation option/)
+    const help = await run(['--help'])
+    assert.match(help.out, /--name <name>/)
+  })
+
   test('resolves the root the way the lifecycle interface does: CURIA_ROOT, then XDG_DATA_HOME, then HOME', async () => {
     catalogue()
     const xdg = await run([], { env: { XDG_DATA_HOME: '/x/data' } })

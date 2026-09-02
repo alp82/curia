@@ -1,4 +1,5 @@
 import { mkdirSync, readFileSync, rmSync } from 'node:fs'
+import { userInfo } from 'node:os'
 import { join } from 'node:path'
 
 import { EXIT, Refusal, UsageError } from './exit.mjs'
@@ -8,6 +9,8 @@ import { launcherPath } from './launcher.mjs'
 import { withLifecycleLock } from './lock.mjs'
 import { releaseProbes } from './manifest.mjs'
 import { hostProbes, preflight } from './preflight.mjs'
+import { joinTailnet } from './tailnet.mjs'
+import { tailscaleRunner } from './tailscale.mjs'
 import { openRoot, versionPaths } from './root.mjs'
 import { StableIndexError, fetchStableIndex, pinnedPublicKey, releaseNotesUrl, renderSelection, selectRelease, selectionFromArgs, stableProbes } from './stable.mjs'
 import { IncompatibleRelease, isCompleteStage, placeVersion, validateWithRelease, verifyRetained } from './stage.mjs'
@@ -19,8 +22,12 @@ import { dockerRunner } from './compose.mjs'
 // index to a verified, validated target release staged beside the active
 // one, as one linear sequence of named steps.
 //
-//   preflight  the root boundary (`openRoot`, which must find an installation)
-//              and the host preflight. Nothing on disk changes.
+//   preflight  the root boundary (`openRoot`, which must find an installation),
+//              the host preflight, and the tailnet step of `curia install`
+//              in its inspect-only form (`joinTailnet` in tailnet.mjs): the
+//              node must be logged in, the operator must be permitted, and
+//              the certificate must be issued, or the update is refused.
+//              Nothing on disk changes.
 //   select     the stable-release index is downloaded and proven against the
 //              pinned key, and one version is selected from it: the stable
 //              release by default, an exact version when asked, an exact
@@ -64,11 +71,11 @@ const packageVersion = JSON.parse(readFileSync(new URL('../package.json', import
 // The command's seam. `context` is what `runCli` hands a command. `deps` are
 // the boundaries a test replaces: the host probes, the stable-index probe
 // and the pinned key, the acquisition probes, the release probes, the
-// target's configuration validator, the Docker runner, the loopback `fetch`,
-// and the clock the waits use.
+// target's configuration validator, the Docker runner, the `tailscale`
+// runner, the loopback `fetch`, and the clock the waits use.
 export async function runUpdate(
   { env, args = [], stdout, uid, gid, root },
-  { hostProbes: host = hostProbes, stableProbes: stable = stableProbes, publicKey = pinnedPublicKey(), acquireProbes: acquire = acquireProbes, releaseProbes: release = releaseProbes, validateTarget = validateWithRelease, docker = dockerRunner, fetch: fetchImpl = globalThis.fetch, sleep, now } = {},
+  { hostProbes: host = hostProbes, stableProbes: stable = stableProbes, publicKey = pinnedPublicKey(), acquireProbes: acquire = acquireProbes, releaseProbes: release = releaseProbes, validateTarget = validateWithRelease, docker = dockerRunner, tailscale = tailscaleRunner, fetch: fetchImpl = globalThis.fetch, sleep, now } = {},
 ) {
   let selection
   try {
@@ -93,6 +100,7 @@ export async function runUpdate(
     const hostReport = await preflight({ uid, root, stdout }, host)
     if (!hostReport.ok) throw hostReport.refusal
     const dockerGid = hostReport.facts.docker.group.gid
+    await joinTailnet({ mode: 'inspect', user: env.USER || userInfo().username, stdout }, { tailscale, sleep, now })
 
     // 2. select
     steps.begin('select')

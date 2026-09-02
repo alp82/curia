@@ -11,7 +11,7 @@ import { packageVersion } from '../src/commands.mjs'
 import { EXIT } from '../src/exit.mjs'
 import { operatorConfigPath } from '../src/config.mjs'
 import { versionPaths } from '../src/root.mjs'
-import { fakeDocker, healthy, hostProbes, release as releaseIn, releaseProbesFor, stageOf as stageIn } from './fixtures/install.mjs'
+import { fakeDocker, fakeTailscale, healthy, hostProbes, release as releaseIn, releaseProbesFor, stageOf as stageIn } from './fixtures/install.mjs'
 
 const VERSION = packageVersion
 
@@ -42,7 +42,7 @@ async function installed() {
   const env = { HOME: home, CURIA_ROOT: root, CURIA_STAGE: stageIn(scratch, r) }
   const exit = await runInstall(
     { env, args: [], stdout: io.stdout, stderr: io.stderr, uid: process.getuid(), gid: process.getgid(), root, mode: 'install' },
-    { hostProbes: hostProbes(), releaseProbes: releaseProbesFor(r), docker: fakeDocker(), sleep: async () => {}, now: () => 0 },
+    { hostProbes: hostProbes(), releaseProbes: releaseProbesFor(r), docker: fakeDocker(), tailscale: fakeTailscale(), sleep: async () => {}, now: () => 0 },
   )
   assert.equal(exit, EXIT.ok, io.out())
   return { home, root, r, env: { HOME: home, CURIA_ROOT: root } }
