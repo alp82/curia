@@ -654,11 +654,6 @@
   .setup-panel h2 { font-size: 19px; letter-spacing: -.02em; margin: 4px 0 10px; }
   .setup-panel p { margin: 0 0 10px; line-height: 1.5; }
   .setup-note { border-left: 4px solid var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--bg-raise)); padding: 11px 14px; border-radius: 6px; margin: 14px 0; }
-  /* The word after a rename of the node (#891): the new address stands out,
-     because the browser is on the old one. */
-  .setup-renamed { border-left-color: var(--ok); background: var(--chip-ok-bg); font-size: 1.05em; line-height: 1.5; }
-  .setup-renamed a { font-weight: 600; word-break: break-all; }
-  #setup-tailscale-name { width: 14em; margin-right: 8px; }
   .setup-problem { border-left: 4px solid var(--bad); background: var(--chip-bad-bg); padding: 12px 14px; border-radius: 6px; margin: 14px 0; line-height: 1.5; }
   .setup-problem b { color: var(--bad); display: block; margin-bottom: 2px; }
   .setup-steps { padding-left: 20px; line-height: 1.6; margin: 0 0 12px; }
@@ -921,7 +916,7 @@ var UI = {
   /* The setup frame's own state (#874): whether a read is in flight, and the
      one sentence the last press left behind. The selected card is not here —
      it is the record's `step`, kept by the service so a reopen restores it. */
-  setup: { busy: false, note: null, loopBusy: false, loopTimer: null, githubBusy: false, discord: null, discordBusy: null, discordTimer: null, tailscale: null, tailscaleBusy: null, tailscaleName: null, tailscaleRenamed: null, openai: null, openaiBusy: null, openaiTimer: null, anthropic: null, anthropicBusy: null, anthropicTimer: null },
+  setup: { busy: false, note: null, loopBusy: false, loopTimer: null, githubBusy: false, discord: null, discordBusy: null, discordTimer: null, tailscale: null, tailscaleBusy: null, openai: null, openaiBusy: null, openaiTimer: null, anthropic: null, anthropicBusy: null, anthropicTimer: null },
   /* The drill-in frame's own state (#699), one entry per page that is a list
      of sections: which section is open, and whether the phone is on the list
      in front of it. */
@@ -5038,8 +5033,8 @@ var SETUP_CONTENT = {
       ${card.state === "unavailable" ? setupUnavailable(card) : setupDiscord(card, progress)}`,
   },
   tailscale: {
-    content: (card, progress) => `<p>Curia verifies the Tailscale installation this host already runs, shows the identity that opened this app, names the node, and makes that identity the initial allowed operator after you confirm it.</p>
-      <div class="setup-note">Curia never installs Tailscale or logs the node in. It names the node from the field on this card and publishes one Serve route of its own, the Curia app.</div>
+    content: (card, progress) => `<p>Curia verifies the Tailscale installation this host already runs, shows the identity that opened this app, and makes that identity the initial allowed operator after you confirm it.</p>
+      <div class="setup-note">Curia never installs or reconfigures Tailscale. It publishes one Serve route of its own, the Curia app.</div>
       ${card.state === "unavailable" ? setupUnavailable(card) : setupTailscale(card, progress)}`,
   },
   model: {
@@ -5329,25 +5324,24 @@ async function discordSetupWrite(key, path, body) {
   }
 }
 
-/* The Tailscale card's own panel (#877; the node-name field decided at the
-   #891 rehearsal), in the three states the verifier reports. Unconnected:
-   no operator is recorded, so the panel names the identity Serve stamped
-   on the request that opened this app and the node, both facts, the one
-   field is the node's name prefilled with the name the node has, and the
-   one press is the confirmation, which renames the node when the name
-   changed. Failed: the failed verification with its action, and the
-   confirmation again. Connected: the private address, the operator, the
-   node, the Serve route, and the timed admission, from this read. After a
-   rename the new address stands above every state, because the operator
-   is on the old one. */
+/* The Tailscale card's own panel (#877; the machine-name field dropped
+   after #891), in the three states the verifier reports. Unconnected: no
+   operator is recorded, so the panel names the identity Serve stamped on
+   the request that opened this app and the node, both facts, and the one
+   press is the confirmation. Failed: the failed verification with its
+   action, and the confirmation again. Connected: the private address, the
+   operator, the node, the Serve route, and the timed admission, from this
+   read. The node's name is the tailnet's fact: it was chosen at
+   installation with `--name`, and the card never edits it, because the
+   sidecar reads the hosts it serves at start and a rename under a running
+   app breaks it (#891). */
 function setupTailscale(card, progress) {
   const t = UI.setup.tailscale;
   const detail = card.detail ?? null;
-  const renamed = setupTailscaleRenamed(UI.setup.tailscaleRenamed);
   if (card.state === "connected" && detail) {
     const op = detail.operator ?? {};
     const seen = op.last_seen_at ? `Arrived through Tailscale ${esc(ago(op.last_seen_at))}` : "Not seen through Tailscale since the service started";
-    return `${renamed}<div class="rows">
+    return `<div class="rows">
       <div class="row"><span class="key grow">Private address</span><span><a href="${esc(detail.app_url)}" target="_blank" rel="noopener">${esc(detail.app_url)}</a></span></div>
       <div class="row"><span class="key grow">Operator</span><span>${esc(op.login)} <span class="dim-note">confirmed ${esc(ago(op.confirmed_at))}</span></span></div>
       <div class="row"><span class="key grow">Node</span><span>${esc(detail.address)} · online · ${(detail.node?.ips ?? []).map(esc).join(", ")}${detail.node?.version ? ` · Tailscale ${esc(detail.node.version)}` : ""}</span></div>
@@ -5355,21 +5349,9 @@ function setupTailscale(card, progress) {
       <div class="row"><span class="key grow">Reachability</span><span>Admitted ${esc(op.login)} in ${esc(detail.app?.ms)} ms · ${seen}</span></div>
     </div>`;
   }
-  if (!t || t.loading) return `${renamed}<p class="qhint">Reading the node…</p>`;
-  return `${renamed}${setupTailscaleNode(t, detail)}${setupTailscaleForm(t, progress, detail, card)}`;
+  if (!t || t.loading) return `<p class="qhint">Reading the node…</p>`;
+  return `${setupTailscaleNode(t, detail)}${setupTailscaleForm(t, progress, detail, card)}`;
 }
-
-/* The word after a rename: the new address, with a link, and that the old
-   one stops working, said plainly because the browser is on the old one. */
-function setupTailscaleRenamed(r) {
-  if (!r) return "";
-  return `<div class="setup-note setup-renamed"><b>Renamed the node ${esc(r.from)} to ${esc(r.to)}.</b> The Curia app is now at <a href="${esc(r.app_url)}" target="_blank" rel="noopener">${esc(r.app_url)}</a>. Open it there: the address ${esc(r.previous_app_url)} you are on stops working.</div>`;
-}
-
-/* A MagicDNS label, the shape a node name takes: lowercase letters, digits,
-   and hyphens, up to 63, not starting or ending with a hyphen. The daemon
-   checks the same shape; this check saves the round trip. */
-const MAGICDNS_LABEL_RE = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/;
 
 function setupTailscaleNode(t, detail) {
   const node = t.node ?? detail?.node ?? null;
@@ -5391,22 +5373,15 @@ function setupTailscaleForm(t, progress, detail, card) {
     ? `<div class="setup-note"><b>You opened Curia as ${esc(requester)}</b> through Tailscale.${operator && operator.login !== requester ? ` The recorded operator is ${esc(operator.login)}.` : ""}${!operator ? " Confirm to make this identity the allowed operator. Until then, nobody is." : ""}</div>`
     : `<div class="setup-note">This request carried no Tailscale identity. Open the Curia app through its Tailscale address to confirm the operator.</div>`;
   const label = operator ? "Confirm again and verify" : "Confirm operator and verify";
-  const name = UI.setup.tailscaleName ?? current ?? progress?.machine_name ?? "curia";
-  const suffix = (t?.node?.dns_name ?? detail?.address ?? "").split(".").slice(1).join(".");
-  const port = t?.serve?.route?.https ?? detail?.serve?.route?.https ?? 8445;
-  const moves = suffix ? ` Another name renames the node when you confirm, and the app moves to <code>https://&lt;name&gt;.${esc(suffix)}:${esc(port)}/</code>.` : " Another name renames the node when you confirm.";
   return `${who}
-    <p><input id="setup-tailscale-name" type="text" value="${esc(name)}" placeholder="curia" aria-label="Node name" autocomplete="off" spellcheck="false" ${busy ? "disabled" : ""}>
-    <button class="btn primary" ${busy || !requester ? "disabled" : ""} onclick="doSetupTailscaleOperator()">${busy ? "Verifying…" : label}</button></p>
+    <p><button class="btn primary" ${busy || !requester ? "disabled" : ""} onclick="doSetupTailscaleOperator()">${busy ? "Verifying…" : label}</button></p>
     ${said("tailscale-setup:operator")}
-    <p class="qhint">${current ? `This node is named <code>${esc(current)}</code> on the tailnet.${moves} ` : "The node name is what your tailnet calls this host, a MagicDNS label. "}Curia never installs Tailscale or logs the node in.</p>`;
+    <p class="qhint">${current ? `This node is named <code>${esc(current)}</code> on the tailnet. ` : ""}The name was chosen at installation with <code>--name</code>. To change it, reinstall with another <code>--name</code>, or run <code>sudo tailscale set --hostname &lt;name&gt;</code> on the host and then <a href="#" onclick="doRestart();return false">Restart Curia</a>. Curia never installs or reconfigures Tailscale.</p>`;
 }
 
 /* The Tailscale card's reads and writes (#877). The panel's own read carries
-   the identity this request arrived with; the confirmation sends the node
-   name and nothing else, and the sidecar names the login off the request
-   itself. A name that is not a MagicDNS label is refused here, before the
-   round trip; the daemon refuses it again all the same. */
+   the identity this request arrived with; the confirmation sends no field
+   at all, and the sidecar names the login off the request itself. */
 async function loadTailscaleSetup() {
   UI.setup.tailscale = { ...(UI.setup.tailscale ?? {}), loading: true };
   render();
@@ -5426,27 +5401,17 @@ function ensureTailscaleSetupRead() {
   if (UI.setup.tailscale === null) loadTailscaleSetup();
 }
 async function doSetupTailscaleOperator() {
-  const field = document.getElementById("setup-tailscale-name");
-  const name = field ? String(field.value ?? "").trim() : null;
-  UI.setup.tailscaleName = name;
-  UI.act.said = null;
-  if (field && !MAGICDNS_LABEL_RE.test(name)) {
-    UI.act.said = { key: "tailscale-setup:operator", text: "The node name must be a MagicDNS label: lowercase letters, digits, and hyphens, up to 63 characters, not starting or ending with a hyphen.", ok: false };
-    render();
-    return null;
-  }
   UI.setup.tailscaleBusy = "tailscale-setup:operator";
+  UI.act.said = null;
   render();
   try {
     const res = await fetch("/api/setup/tailscale/operator", {
       method: "POST", headers: { "content-type": "application/json", accept: "application/json" },
-      body: JSON.stringify(name === null ? {} : { machine_name: name }),
+      body: JSON.stringify({}),
     });
     const out = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(out.error || ("the sidecar answered " + res.status));
     UI.setup.tailscale = null;
-    UI.setup.tailscaleName = null;
-    UI.setup.tailscaleRenamed = out.renamed ?? null;
   } catch (error) {
     UI.act.said = { key: "tailscale-setup:operator", text: error.message, ok: false };
     UI.setup.tailscaleBusy = null;

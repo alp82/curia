@@ -44,11 +44,10 @@ The card connects when the footer shows the channel and the server, then `Confir
 
 ## Connect Tailscale
 
-1. On the **Tailscale** card, read the identity the panel names, `You opened Curia as <login> through Tailscale`. It's the login Tailscale stamped on your request. The panel also names the node and its address, the name `curia install` joined the tailnet under.
-2. Check **Node name**. The field holds the node's current name. Keep it, or enter another MagicDNS label to rename the node.
-3. Select **Confirm operator and verify**.
+1. On the **Tailscale** card, read the identity the panel names, `You opened Curia as <login> through Tailscale`. It's the login Tailscale stamped on your request. The panel also names the node and its address, the name `curia install` joined the tailnet under. There is nothing to type: the name was chosen at installation with `--name`, and the card doesn't change it. To change it, reinstall with another `--name`, or run `sudo tailscale set --hostname <name>` on the host and then select **Restart Curia** on the card.
+2. Select **Confirm operator and verify**.
 
-From that moment the recorded login is the only identity the app and every published surface admit. The card connects when the footer shows the node's MagicDNS name, then `<login> · admitted in <n> ms`. When you changed the name, the card shows the new address as a link and says that the address you are on stops working. Open the app at the new address and continue there. The details are in [Connect Tailscale](../integration-setup.md#connect-tailscale).
+From that moment the recorded login is the only identity the app and every published surface admit. The card connects when the footer shows the node's MagicDNS name, then `<login> · admitted in <n> ms`. The details are in [Connect Tailscale](../integration-setup.md#connect-tailscale).
 
 ## Connect a model provider
 

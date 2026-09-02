@@ -172,6 +172,7 @@ export async function runInstall(
       say(`Curia ${version} is installed and running.`)
       say(`  installation root: ${root}`)
       say(`  launcher:          ${launcher}`)
+      say(`  node name:         ${node.name}`)
       say(`  Curia app:         ${app}`)
       say('')
       say(`Next: open the Curia app at ${app} from a device on your tailnet and start integration setup. It connects GitHub, Discord, Tailscale, and one model provider, then runs the Full loop.`)

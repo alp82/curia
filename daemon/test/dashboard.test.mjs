@@ -2211,7 +2211,7 @@ describe('the Tailscale card routes and the first-operator window (#877)', () =>
     identity = { allow: ['alp@example.com'], first_operator: false }
     const res = await press('/api/setup/tailscale/operator', { machine_name: 'curia.sh', login: 'stranger@example.com' })
     assert.equal(res.status, 200)
-    assert.deepEqual(sent('/setup/tailscale/operator').body, { login: 'alp@example.com', machine_name: 'curia.sh' }, 'the login is the request\'s own, never the body\'s; the node name is the field')
+    assert.deepEqual(sent('/setup/tailscale/operator').body, { login: 'alp@example.com' }, 'no field the browser sent crosses: not a login, not a machine name')
     assert.equal(JSON.parse(res.text).card.state, 'connected')
     assert.equal(surface.firstOperator, false)
     assert.deepEqual([...surface.allow], ['alp@example.com'])

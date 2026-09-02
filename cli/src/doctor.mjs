@@ -1,5 +1,4 @@
 import { existsSync } from 'node:fs'
-import { join } from 'node:path'
 
 import { BOOTSTRAP_COMMAND } from './acquire.mjs'
 import { EXIT } from './exit.mjs'
@@ -12,7 +11,6 @@ import { releaseProbes, verifyInstalledRelease } from './manifest.mjs'
 import { hostProbes, preflight } from './preflight.mjs'
 import { openRoot, versionPaths } from './root.mjs'
 import { SECRET_NAMES, credentialsInEnvironment, secretsStatus } from './secrets.mjs'
-import { readTailscaleRecord } from './tailscale.mjs'
 
 // `curia doctor` (#881, implementing #857): one read-only pass over every
 // direct check an installed Curia has, in the order an operator would look.
@@ -30,9 +28,8 @@ import { readTailscaleRecord } from './tailscale.mjs'
 //   containers     the state and health of the five services from Compose
 //   service        the service answers on loopback
 //   integrations   the four cards and the Full-loop gate, as the running
-//                  service verifies them on this read, the operator it
-//                  admits, and the node name the Tailscale card recorded
-//                  held against the node the host reports
+//                  service verifies them on this read, and the operator it
+//                  admits
 //   app            the Curia app answers on loopback, and its tailnet address
 //
 // Every check is `{ name, status, observed, action }`, the shape the preflight
@@ -113,7 +110,7 @@ export async function runDoctor(
     const setup = await read.json(`http://127.0.0.1:${SERVICE_PORT}/setup`)
     const identity = await read.json(`http://127.0.0.1:${SERVICE_PORT}/identity`)
     const checks = integrationChecks(setup)
-    report.checks([...checks.checks, operatorCheck(identity), ...nodeNameCheck(root, hostReport.facts)])
+    report.checks([...checks.checks, operatorCheck(identity)])
     address = checks.address
   } else {
     report.note('integrations not checked: the service did not answer.')
@@ -267,25 +264,6 @@ function operatorCheck(identity) {
     return warning('admitted operator', 'no operator confirmed; the app admits the first tailnet identity to Setup only.', 'Open the Curia app from your tailnet and select Confirm operator and verify on the Tailscale card.')
   }
   return warning('admitted operator', 'the service admits no login.', 'Confirm the operator on the Tailscale card of Setup.')
-}
-
-// The node name the Tailscale card recorded in `state/tailscale.json` (#891),
-// held against the first label of the certificate the host reports. No name
-// recorded is no check: the operator has not confirmed the card yet, and the
-// admitted-operator check says so.
-function nodeNameCheck(root, facts) {
-  let recorded
-  try {
-    recorded = readTailscaleRecord(join(root, 'state')).machine_name
-  } catch (e) {
-    return [warning('Tailscale node', `state/tailscale.json could not be read (${oneLine(e.message)}).`, 'Fix the file, or confirm the operator again on the Tailscale card of Setup, which writes it.')]
-  }
-  if (!recorded) return []
-  const actual = String(facts?.tailscale?.certDomains?.[0] ?? '').split('.')[0] || null
-  if (actual === recorded) return [passed('Tailscale node', `${recorded}, as state/tailscale.json records`)]
-  const fix = 'Open the Curia app, select Setup, then the Tailscale card, check the Node name, and select Confirm operator and verify: the card renames the node to the name you enter and records it.'
-  if (!actual) return [warning('Tailscale node', `state/tailscale.json records the name ${recorded}, but the node reports no MagicDNS name.`, fix)]
-  return [warning('Tailscale node', `state/tailscale.json records the name ${recorded}, but the node is ${actual}.`, fix)]
 }
 
 async function appCheck(read, { project, address }) {

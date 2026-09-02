@@ -16,17 +16,21 @@ The bootstrap hands off to `curia install` with the installation root in `CURIA_
 | 6. `start` | Writes `run/compose.env` with the five run-time values from [The bundle](bundle.md#the-bundle), creates the directories the containers mount so Docker never creates one as root, pulls the five images by digest (the four the bundle names through Compose, and the agent image the release manifest binds), and brings the project up. | `run/compose.env`, directories under `cache/`, `run/`, and `work/`, and the Docker images, containers, network, and volume. |
 | 7. `health` | Waits until every service reports healthy, as [Health checks](bundle.md#health-checks) describes. A service that exits or turns unhealthy fails the step at once. A service still starting after four minutes fails it too. | Nothing. |
 
-On success the command prints the installation root, the launcher, and the address of the Curia app on your tailnet, `https://<your node's MagicDNS name>:8445/`, and tells you the next action: open the app and start integration setup. Nothing in integration setup needs the terminal again. See [Integration setup](integration-setup.md).
+On success the command prints the installation root, the launcher, the node name, and the address of the Curia app on your tailnet, `https://<your node's MagicDNS name>:8445/`, and tells you the next action: open the app and start integration setup. Nothing in integration setup needs the terminal again. See [Integration setup](integration-setup.md).
 
 ## The tailnet step
 
 The Curia app is reachable only through Tailscale Serve, so the login to your tailnet can't happen in the browser. It happens on the terminal, inside `curia install`, before anything is downloaded, so nothing lands on a host you can't reach.
 
-`curia install --name <machine-name>` names the node, and it's the first place to choose the name. The default is `curia`. The name must be a MagicDNS label: lowercase letters, digits, and hyphens, up to 63 characters, not starting or ending with a hyphen. Anything else is a usage error before anything runs. The bootstrap takes the same option and hands it through; see [The bootstrap](bootstrap.md#the-command). You can change the name later from the **Node name** field of the Tailscale card in the Curia app; see [Rename the node](integration-setup.md#rename-the-node).
+The node's name is a decision you make before the install command runs, because the Curia app is served under it from the moment it starts and nothing in the app changes it later:
 
-The step reads the node and does one of two things:
+1. Choose the name. The default is `curia`. The name must be a MagicDNS label: lowercase letters, digits, and hyphens, up to 63 characters, not starting or ending with a hyphen.
+2. The address of the Curia app follows from it: `https://<name>.<tailnet>.ts.net:8445/`.
+3. Pass it as `--name <machine-name>` to the bootstrap or to `curia install`. Anything else is a usage error before anything runs. The bootstrap takes the same option and hands it through; see [The bootstrap](bootstrap.md#the-command).
 
-- **The node is logged in.** The step reports its name and MagicDNS address and changes nothing. When the node's name isn't the one `--name` asked for, the step says so as a fact and continues with the actual name; the tailnet step doesn't rename a node. To use the name you asked for, enter it in the **Node name** field of the Tailscale card after the install, run `sudo tailscale set --hostname <name>` on the host, or run the command again with `--name <actual name>`.
+The step prints the chosen name first, `the node name is <name>, chosen with --name`, then reads the node and does one of two things:
+
+- **The node is logged in.** The step reports its name and MagicDNS address and changes nothing. When the node's name isn't the one `--name` asked for, the step says so as a fact and that the existing name wins, and it continues with the actual name. Curia never renames a node. To use the name you asked for, run `sudo tailscale set --hostname <name>` on the host and run the command again, or run the command again with `--name <actual name>`.
 - **The node isn't logged in.** The step runs `tailscale up --hostname <name>` and prints the one action:
 
   ```text
@@ -36,6 +40,8 @@ The step reads the node and does one of two things:
   ```
 
   Open the link on any device where you're signed in to Tailscale and approve the machine. The step polls the node until it's running, then continues. When no login arrives within 10 minutes, the step fails; run the command again and it lands at the same step.
+
+To change the name after the install, reinstall with another `--name`, or run `sudo tailscale set --hostname <name>` on the host and then restart Curia, from **Restart Curia** on the Tailscale card or with `docker compose -p curia restart`. The app's sidecar reads the hosts it serves when it starts, so a rename under a running app answers `Host <new name> is not a name this box serves` until the restart. The Tailscale card shows the name and address as facts and has no field; see [Connect Tailscale](integration-setup.md#connect-tailscale).
 
 Then, in both cases, the step checks two facts and refuses with exit code `3` when one is missing:
 

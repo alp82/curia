@@ -119,10 +119,11 @@ describe('clean install', () => {
     // The steps and the completion.
     for (const [i, step] of INSTALL_STEPS.entries()) assert.match(a.out, new RegExp(`^\\[${i + 1}/${INSTALL_STEPS.length}\\] ${step}\\b`, 'm'), `prints step ${step}`)
     assert.match(a.out, new RegExp(`Curia ${VERSION.replaceAll('.', '\\.')} is installed and running`))
-    assert.match(a.out, /https:\/\/host\.tail1234\.ts\.net:8445\//)
+    assert.match(a.out, /  node name:\s+host\n  Curia app:\s+https:\/\/host\.tail1234\.ts\.net:8445\/\n/, 'the completion names the node beside the app address')
     assert.match(a.out, /integration setup/)
-    // The tailnet step found the node logged in under its own name and said so.
-    assert.match(a.out, /\[3\/7\] tailnet\nnode host \(host\.tail1234\.ts\.net\) is logged in to the tailnet\nthis node is named host, not curia\. The tailnet step never renames a node/)
+    // The tailnet step said which name was chosen, found the node logged in
+    // under another one, and said that the existing name wins.
+    assert.match(a.out, /\[3\/7\] tailnet\nthe node name is curia, chosen with --name\nnode host \(host\.tail1234\.ts\.net\) is logged in to the tailnet\nthis node is named host, not curia\. The existing name wins/)
     assert.ok(a.tailscale.calls.every((c) => c[0] !== 'up'), 'a logged-in node is never brought up again')
   })
 
@@ -302,10 +303,10 @@ describe('the tailnet step', () => {
     assert.equal(a.error, null, a.error?.stack)
     assert.equal(a.exit, EXIT.ok)
     assert.deepEqual(tailscale.calls.filter((c) => c[0] === 'up'), [['up', '--hostname', 'curia-box', '--timeout', '10m']])
-    assert.match(a.out, /\[3\/7\] tailnet\nthis node is not logged in to a tailnet; joining it as curia-box/)
+    assert.match(a.out, /\[3\/7\] tailnet\nthe node name is curia-box, chosen with --name\nthis node is not logged in to a tailnet; joining it as curia-box/)
     assert.match(a.out, new RegExp(`Open this link on a device where you are signed in to Tailscale and approve this machine:\\n  ${LOGIN_URL.replaceAll('.', '\\.')}`))
     assert.match(a.out, /logged in as node curia-box \(curia-box\.tail1234\.ts\.net\)/)
-    assert.match(a.out, /https:\/\/curia-box\.tail1234\.ts\.net:8445\//)
+    assert.match(a.out, /  node name:\s+curia-box\n  Curia app:\s+https:\/\/curia-box\.tail1234\.ts\.net:8445\/\n/)
     // The login came before the stage: nothing was placed until the host could be reached.
     const at = (step) => a.out.indexOf(`] ${step}\n`)
     assert.ok(a.out.indexOf(LOGIN_URL) > at('tailnet') && a.out.indexOf(LOGIN_URL) < at('stage'))
@@ -340,7 +341,7 @@ describe('the tailnet step', () => {
     // The rerun finds the node logged in and continues.
     const again = await attempt({ home, root, stage: stageOf(r), r })
     assert.equal(again.error, null, again.error?.stack)
-    assert.match(again.out, /\[3\/7\] tailnet\nnode host/)
+    assert.match(again.out, /\[3\/7\] tailnet\nthe node name is curia, chosen with --name\nnode host/)
   })
 
   test('a user who may not operate Tailscale is refused at the tailnet step with the exact command, on the login and after it', async () => {
