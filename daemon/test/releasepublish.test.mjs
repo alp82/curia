@@ -240,6 +240,21 @@ describe('publishPackage', () => {
     return file
   }
 
+  test('hands the pack probe absolute directories, because npm resolves the destination against the package', async () => {
+    const d = dist()
+    const cli = cliDir()
+    const seen = []
+    const relativeDist = path.relative(process.cwd(), d.out)
+    const relativeCli = path.relative(process.cwd(), cli)
+    assert.ok(!path.isAbsolute(relativeDist) && !path.isAbsolute(relativeCli))
+    await publishPackage({ version: VERSION, dist: relativeDist, cli: relativeCli, stdout: lines() }, {
+      packument: async () => ({ error: 'HTTP 404' }),
+      pack: async (cwd, dest) => { seen.push([cwd, dest]); return pack(cwd, dest) },
+      npmPublish: async () => {},
+    })
+    assert.deepEqual(seen, [[cli, d.out]])
+  })
+
   test('copies the rendered manifest into the package byte for byte, packs, and publishes when the registry has no such version', async () => {
     const d = dist()
     const cli = cliDir()

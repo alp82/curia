@@ -117,9 +117,17 @@ export const publicationProbes = Object.freeze({
       return null
     }
   },
+  // npm resolves `--pack-destination` against its working directory, which is
+  // the package, so the destination is made absolute here and the error
+  // carries npm's own words instead of the silenced command line.
   pack: async (cwd, dest) => {
-    const { stdout } = await run('npm', ['pack', '--pack-destination', dest, '--silent'], { cwd, encoding: 'utf8', env: { ...process.env, npm_config_update_notifier: 'false' } })
-    return path.join(dest, stdout.trim().split('\n').pop())
+    const destination = path.resolve(dest)
+    try {
+      const { stdout } = await run('npm', ['pack', '--pack-destination', destination, '--silent'], { cwd, encoding: 'utf8', env: { ...process.env, npm_config_update_notifier: 'false' } })
+      return path.join(destination, stdout.trim().split('\n').pop())
+    } catch (error) {
+      throw new PublicationError(`npm pack failed in ${cwd}: ${String(error.stderr ?? error.message).trim()}`)
+    }
   },
   npmPublish: async (cwd) => {
     await run('npm', ['publish', '--access', 'public', '--provenance'], { cwd, encoding: 'utf8', env: { ...process.env, npm_config_update_notifier: 'false' } })
@@ -241,7 +249,11 @@ export async function publishRelease({ version, stdout }, probes = publicationPr
 // ---------------------------------------------------------------------------
 // The package: the manifest goes in, the tarball goes out, once.
 
-export async function publishPackage({ version, dist, cli, stdout }, probes = publicationProbes) {
+export async function publishPackage({ version, dist: distArg, cli: cliArg, stdout }, probes = publicationProbes) {
+  // Both directories are read from here and packed from inside `cli`, so they
+  // are absolute before any probe sees them.
+  const dist = path.resolve(distArg)
+  const cli = path.resolve(cliArg)
   const manifestName = releaseAssets(version).manifest
   const manifestText = fs.readFileSync(path.join(dist, manifestName), 'utf8')
   const manifest = parseManifest(manifestText)
