@@ -35,7 +35,7 @@ Curia creates the root and seven directories inside it. The following table list
 |---|---|---|
 | `config/` | `config.yaml`, your operator configuration. See [Operator configuration](configuration.md). | Preserved |
 | `secrets/` | Long-lived credentials, one owner-only file each. See [Secrets, mounts, and what survives](secrets.md). | Preserved |
-| `state/` | The installation record `state/installation.json`, the journal, attachments, results, and the service's own token records. | Preserved |
+| `state/` | The installation record `state/installation.json`, the journal, attachments, results, the service's own token records, the Discord facts in `state/discord.json`, and the setup checkpoint in `state/setup.json`. See [Integration setup](integration-setup.md). | Preserved |
 | `work/` | Worktrees, per-session config directories, and the overseer's native sessions, all of which can resume. | Preserved |
 | `versions/` | Installed versions: the pinned runtime, the lifecycle interface, the release manifest, the Compose bundle, and the retained artifacts of each. See [Release images and the Compose bundle](bundle.md) and [The release manifest and release verification](release-manifest.md). | Replaceable |
 | `cache/` | The overseer's mirrors of origin and the containers' home directory with its tool caches. | Removable |

@@ -19,8 +19,12 @@ The operator's complete path from a fresh supported host through a proven Full l
 _Avoid_: setup when referring to the complete lifecycle, onboarding when referring only to installation.
 
 **Integration setup**:
-The fixed first-run sequence that connects one installation to its required GitHub, Discord, Tailscale, and model-provider resources. It ends when each integration passes its current verification check.
+The first-run frame that connects one installation to its required GitHub, Discord, Tailscale, and model-provider resources. It ends when each integration passes its current verification check. Since [#874](https://github.com/alp82/curia/issues/874) it is the **Setup screen** of the Curia app: one rail of four fixed-height service cards, selectable in any order, the selected card's configuration beside it, and the Full loop as the one dependent action under the rail. See [Integration setup](docs/operator/integration-setup.md).
 _Avoid_: onboarding, integration wizard.
+
+**Setup checkpoint**:
+What integration setup keeps between a close and a reopen: `state/setup.json`, holding the selected card and a closed list of safe fields per card (`app_name`, `guild_id`, `channel`, `machine_name`, `provider`). The service writes it at mode `0600` and refuses any other key by name. It never holds a token and never holds a completion marker, because a card's connected state is this read's **integration verification** ([#874](https://github.com/alp82/curia/issues/874), implementing [#852](https://github.com/alp82/curia/issues/852)). `daemon/src/setup.mjs` is the one module: the four cards, the field list, the per-integration verifier seams, and the Full-loop gate seam.
+_Avoid_: setup state, completion record, browser storage.
 
 **Integration verification**:
 A fresh check that Curia can use an external resource with the authority required for the Full loop. A saved completion marker is not verification.

@@ -302,8 +302,9 @@ describe('the Curia app frame (#686)', () => {
       [...drawer.matchAll(/<span class="nav-label">([^<]+)<\/span>/g)].map((match) => match[1]),
       // Credentials sits between Chat and Settings (#661). It landed while the
       // Curia app frame was in review, so the two agreed on every screen but this
-      // one until they met on `main`.
-      ['Home', 'Maps', 'Agents', 'Feed', 'Chat', 'Credentials', 'Settings'],
+      // one until they met on `main`. Setup (#874) sits before Settings: it is
+      // the first-run frame, read most of the time and acted on once.
+      ['Home', 'Maps', 'Agents', 'Feed', 'Chat', 'Credentials', 'Setup', 'Settings'],
     )
   })
 
@@ -1233,7 +1234,7 @@ describe('the read screens (#264)', () => {
       assert.match(el.innerHTML, /class="notchbar"/)
       assert.match(el.innerHTML, /class="agents-key[^\"]*"/)
       const desktop = el.innerHTML.slice(el.innerHTML.indexOf('drawer'), el.innerHTML.indexOf('</nav>'))
-      assert.match(text(desktop), /curia · app Home 2 Maps Agents Feed Chat Credentials Settings/)
+      assert.match(text(desktop), /curia · app Home 2 Maps Agents Feed Chat Credentials Setup Settings/)
       page.document.getElementById = () => null
     })
   })
@@ -4322,5 +4323,210 @@ describe('the Credentials screen (#661)', () => {
     assert.match(src, new RegExp(`<meta name="curia-dashboard" content="proto=${DASHBOARD_PROTO}">`))
     assert.match(src, /"\/api\/reauth"/)
     assert.match(src, /credentials:\s*\["Credentials",\s*screenCredentials\]/)
+  })
+})
+
+// ---- integration setup (#874, the frame the #853 prototype settled) ----------
+//
+// The screen draws its own read, `GET /api/setup`, and the test drives it
+// with the wire shape the service answers. What is pinned is the frame and
+// not any integration: four fixed-height cards in the accepted order, a
+// selection in any order that the service keeps for a reopen, a connected
+// state that comes from this read and never from stored progress, the error
+// treatment with one action and Try again, and a Full loop action that stays
+// unavailable until the gate says otherwise.
+describe('integration setup (#874)', () => {
+  const card = (key, title, over = {}) => ({
+    key, title, state: 'unavailable', badge: 'Not available', footer: null, error: null,
+    pending: `${title} data will appear after ${title} verifies.`, ...over,
+  })
+  const CARDS = (over = {}) => [
+    card('github', 'GitHub', over.github), card('discord', 'Discord', over.discord),
+    card('tailscale', 'Tailscale', over.tailscale), card('model', 'Model provider', over.model),
+  ]
+  const SETUP = (over = {}) => ({
+    step: 'github', progress: {}, cards: CARDS(over.cards ?? {}),
+    full_loop: { ready: false, missing: ['github', 'discord', 'tailscale', 'model'], reason: 'Waiting for GitHub, Discord, Tailscale, Model provider.', facts: null },
+    ...Object.fromEntries(Object.entries(over).filter(([k]) => k !== 'cards')),
+  })
+  const connected = (primary, secondary, emoji = '✅') => ({ state: 'connected', badge: 'Connected and verified', footer: { primary, secondary, emoji } })
+  const ALL = {
+    github: connected('alp82/curia', 'No open tickets · Issues, pull requests, and Actions ready', '📦'),
+    discord: connected('#curia', 'Confirmation delivered · 6 commands registered', '💬'),
+    tailscale: connected('curia.tail1234.ts.net', 'alp@example.com · Serve reachable in 38 ms', '🔒'),
+    model: { ...connected('OpenAI', 'Routing ready · verification request completed in 0.9 s', '⚡'), badge: 'Provider verified' },
+  }
+
+  let page
+  let calls
+  beforeEach(() => {
+    calls = []
+    page = loadPage({
+      fetchImpl: async (url, init = {}) => {
+        calls.push({ url, method: init.method ?? 'GET', body: init.body ? JSON.parse(init.body) : null })
+        return { ok: true, json: async () => (init.method === 'POST' ? { ok: true } : SETUP()) }
+      },
+    })
+    page.UI.screen = 'setup'
+  })
+
+  test('Setup is a screen of the app, and it draws the held overview reading like every other', () => {
+    assert.match(text(page.desktopNav(0, '')), /Credentials Setup Settings/)
+    page.setup = SETUP()
+    assert.match(text(page.screenSetup(payload())), /read \d+s ago/)
+  })
+
+  test('the four cards draw in the accepted order, each a fixed-height surface with its logo, word, and badge', () => {
+    page.setup = SETUP()
+    const html = page.screenSetup(payload())
+    const keys = [...html.matchAll(/class="setup-card (\w+) /g)].map((m) => m[1])
+    assert.deepEqual(keys, ['github', 'discord', 'tailscale', 'model'])
+    for (const title of ['GitHub', 'Discord', 'Tailscale', 'Model provider']) {
+      assert.match(html, new RegExp(`<span class="setup-title">${title}</span><span class="setup-badge">Not available</span>`))
+    }
+    assert.match(text(html), /0\/4 verified/)
+    // The stub says the step is not available rather than drawing an empty form.
+    assert.match(text(html), /Connecting GitHub isn't available yet/)
+  })
+
+  test('the rail geometry is one height in every state, and narrow screens stack the cards full width', () => {
+    const src = fs.readFileSync(DEFAULT_DASHBOARD_INDEX, 'utf8')
+    assert.match(src, /\.setup-card \{[^}]*height: 190px;/s)
+    assert.match(src, /\.setup-head \{[^}]*flex: 0 0 68px;/s)
+    const narrow = /@media \(max-width: 760px\) \{\s*\.setup \{ grid-template-columns: 1fr; \}\s*\.setup-card \{ width: 100%; \}/
+    assert.match(src, narrow)
+  })
+
+  test('before a card verifies its footer names the data that will appear, and nothing else', () => {
+    page.setup = SETUP()
+    const html = page.screenSetup(payload())
+    assert.match(html, /setup-pending[^<]*<span aria-hidden="true">○<\/span><span>GitHub data will appear after GitHub verifies\.<\/span>/)
+    assert.doesNotMatch(html, /setup-primary/)
+  })
+
+  test('a connected card takes the connected treatment and its footer is the one real fact the read carried', () => {
+    page.setup = SETUP({ cards: { github: connected('#861 · Chart backup and recovery lifecycle', 'ready-for-agent · alp82/curia · 9 open tickets', '🎫') } })
+    const html = page.screenSetup(payload())
+    assert.match(html, /class="setup-card github connected on"/)
+    assert.match(html, /<span class="fact">#861 · Chart backup and recovery lifecycle<\/span>/)
+    assert.match(html, /<div class="setup-secondary">ready-for-agent · alp82\/curia · 9 open tickets<\/div>/)
+    assert.match(text(html), /1\/4 verified/)
+  })
+
+  test('selection in any order posts the step so a reopen lands on it, and the rail moves at once', async () => {
+    page.setup = SETUP()
+    await page.selectSetupCard('tailscale')
+    assert.equal(page.setup.step, 'tailscale')
+    assert.match(page.screenSetup(payload()), /class="setup-card tailscale unavailable on" aria-pressed="true"/)
+    await page.selectSetupCard('github')
+    await page.selectSetupCard('model')
+    assert.deepEqual(calls.filter((c) => c.method === 'POST').map((c) => c.body), [{ step: 'tailscale' }, { step: 'github' }, { step: 'model' }])
+    assert.ok(calls.every((c) => c.url === '/api/setup'))
+  })
+
+  test('a card that is not one of the four is not a selection', async () => {
+    page.setup = SETUP()
+    await page.selectSetupCard('full')
+    assert.equal(page.setup.step, 'github')
+    assert.equal(calls.length, 0)
+  })
+
+  test('a reopen restores the selected card and hands the card its own remembered progress, through the content slot', () => {
+    page.setup = SETUP({ step: 'discord', progress: { discord: { channel: 'ops', guild_id: '123456789' } } })
+    const seen = []
+    page.SETUP_CONTENT.discord.content = (c, progress) => { seen.push({ key: c.key, progress }); return '<p>slot</p>' }
+    const html = page.screenSetup(payload())
+    assert.match(html, /class="setup-card discord unavailable on"/)
+    assert.match(html, /<h2>Discord<\/h2>/)
+    assert.deepEqual(seen, [{ key: 'discord', progress: { channel: 'ops', guild_id: '123456789' } }])
+  })
+
+  test('remembered progress is a checkpoint and never a connection: a card with progress and no fresh yes stays unconnected', () => {
+    page.setup = SETUP({ progress: { discord: { channel: 'ops' }, tailscale: { machine_name: 'curia.sh' } } })
+    const html = page.screenSetup(payload())
+    assert.doesNotMatch(html, /setup-card \w+ connected/)
+    assert.match(text(html), /0\/4 verified/)
+    assert.match(html, /this read's verification, not a saved result/)
+  })
+
+  test('safe progress goes to the service through one call, never into browser storage', async () => {
+    page.setup = SETUP()
+    await page.rememberSetupProgress('tailscale', { machine_name: 'curia.sh' })
+    assert.deepEqual(calls.filter((c) => c.method === 'POST').map((c) => c.body), [{ progress: { tailscale: { machine_name: 'curia.sh' } } }])
+    assert.equal(JSON.stringify(page.setup.progress.tailscale), JSON.stringify({ machine_name: 'curia.sh' }))
+    assert.equal(page.localStorage.getItem('setup'), null)
+  })
+
+  test('a failed verification is red on the card and names the failure and one action, with Try again on the current step', async () => {
+    page.setup = SETUP({
+      step: 'tailscale',
+      cards: { tailscale: { state: 'failed', badge: 'Action required', error: { failed: 'Tailscale Serve is not reachable', action: 'Run tailscale serve --bg 8445 on this host, then try again.' } } },
+    })
+    const html = page.screenSetup(payload())
+    assert.match(html, /class="setup-card tailscale failed on"/)
+    assert.match(html, /<span class="setup-badge">Action required<\/span>/)
+    assert.match(html, /setup-problem"><b>Tailscale Serve is not reachable<\/b>Run tailscale serve --bg 8445 on this host, then try again\./)
+    assert.match(html, /onclick="retrySetup\(\)">Try again</)
+    // Try again is a fresh read of every card, never a local flip.
+    await page.retrySetup()
+    assert.deepEqual(calls.map((c) => [c.method, c.url]), [['GET', '/api/setup']])
+    assert.equal(page.setup.cards.find((c) => c.key === 'tailscale').state, 'unavailable', 'the card is what the read said')
+  })
+
+  test('a connected card offers Continue setup to the next unconnected card, in rail order', async () => {
+    page.setup = SETUP({ step: 'tailscale', cards: { tailscale: ALL.tailscale, github: ALL.github } })
+    assert.match(page.screenSetup(payload()), /onclick="continueSetup\(\)">Continue setup</)
+    await page.continueSetup()
+    assert.equal(page.setup.step, 'discord')
+  })
+
+  test('the Full loop action stays unavailable with four connected cards until the gate supplies its facts', () => {
+    page.setup = SETUP({
+      step: 'model', cards: ALL,
+      full_loop: { ready: false, missing: [], reason: 'The Full loop is not available yet in this release.', facts: null },
+    })
+    const html = page.screenSetup(payload())
+    assert.match(text(html), /4\/4 verified/)
+    const loop = /setup-loop[\s\S]*?<\/div><\/div>/.exec(html)[0]
+    assert.match(loop, /The Full loop is not available yet in this release\./)
+    assert.match(html, /<button class="btn primary" disabled>Run Full loop<\/button>/)
+    assert.doesNotMatch(html, /onclick="runFullLoop\(\)"/)
+    assert.doesNotMatch(html, /Continue setup/)
+  })
+
+  test('a missing card is named as what the Full loop waits for', () => {
+    page.setup = SETUP({ cards: { github: ALL.github, discord: ALL.discord, model: ALL.model }, full_loop: { ready: false, missing: ['tailscale'], reason: 'Waiting for Tailscale.', facts: null } })
+    assert.match(page.screenSetup(payload()), /Waiting for Tailscale\./)
+  })
+
+  test('the gate opens the action, and nothing on the page opens it otherwise', () => {
+    page.setup = SETUP({ step: 'model', cards: ALL, full_loop: { ready: true, missing: [], reason: null, facts: { channel: '#curia' } } })
+    const html = page.screenSetup(payload())
+    assert.match(html, /<button class="btn primary" onclick="runFullLoop\(\)">Run Full loop<\/button>/)
+  })
+
+  test('a service that could not be asked is not four unconnected cards', () => {
+    page.setup = { step: null, progress: null, cards: null, full_loop: null, error: 'the daemon did not answer /setup within 60s' }
+    const html = page.screenSetup(payload())
+    assert.match(text(html), /curia could not verify the integrations: the daemon did not answer/)
+    assert.doesNotMatch(html, /setup-card/)
+    assert.match(html, /onclick="retrySetup\(\)"/)
+  })
+
+  test('Home points at setup while an integration is not connected, and stops when all four are', () => {
+    page.UI.screen = 'home'
+    page.setup = SETUP({ cards: { github: ALL.github } })
+    assert.match(text(page.screenHome(payload())), /Integration setup isn't finished\. Not connected yet: Discord, Tailscale, Model provider\./)
+    page.setup = SETUP({ cards: ALL })
+    assert.doesNotMatch(page.screenHome(payload()), /setup-pointer/)
+    page.setup = null
+    assert.doesNotMatch(page.screenHome(payload()), /setup-pointer/)
+  })
+
+  test('arriving at Setup takes its own read, and the read is a fresh verification every time', async () => {
+    page.enter('setup')
+    page.enter('setup')
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.deepEqual(calls.map((c) => [c.method, c.url]), [['GET', '/api/setup'], ['GET', '/api/setup']])
   })
 })

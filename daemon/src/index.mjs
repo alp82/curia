@@ -69,6 +69,7 @@ import { TokenWatch } from './tokenwatch.mjs'
 import { JournalBackup } from './backup.mjs'
 import { AistackSync } from './aistack.mjs'
 import { AistackRegistration } from './aistackreg.mjs'
+import { IntegrationSetup } from './setup.mjs'
 import {
   probeTtyd, serveOff, attachBase, appTerminalUrl, validSessionName,
   isConsoleKey, consoleKeyForSession, sessionForConsoleKey,
@@ -1370,6 +1371,13 @@ const aistackReg = new AistackRegistration({
   journal: (type, detail) => reduction.journal(type, detail),
   log: (line) => log(line),
 })
+
+// The integration setup frame (#874). Its record is `state/setup.json` beside
+// the journal, and its verifiers are the seams #875 to #879 fill, one per
+// integration; the Full loop gate is #880's. With none of them wired, every
+// card reports "not available" and the frame is still whole: selectable,
+// resumable, and honest that nothing is connected.
+const integrationSetup = new IntegrationSetup({ stateDir: DATA, log })
 
 // The one shape the Settings section reads (#706): the registration, plus what
 // the recurring sync did last. Composed here rather than in either module,
@@ -3733,6 +3741,21 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
   // status out of a device code, a link, a hostname and the reduced sync
   // verdict, and the two acts spawn the CLI and answer what it said. The token
   // stays in the file the CLI writes under curia's HOME.
+  // Integration setup (#874). The read verifies every card fresh — a stored
+  // completion is not a fact — and the write keeps only the selected card
+  // and the closed list of safe fields; the module refuses the rest by name.
+  if (url.pathname === '/setup' && req.method === 'GET') {
+    return json(200, await integrationSetup.status())
+  }
+  if (url.pathname === '/setup' && req.method === 'POST') {
+    const body = await readBody(req)
+    try {
+      return json(200, { ok: true, ...integrationSetup.remember({ step: body.step, progress: body.progress }) })
+    } catch (e) {
+      if (!e.refusal) throw e
+      return json(400, { ok: false, error: e.message })
+    }
+  }
   if (url.pathname === '/aistack' && req.method === 'GET') {
     return json(200, aistackStatus())
   }

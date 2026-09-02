@@ -31,6 +31,8 @@ Three kinds of short-lived values are not secret files, and you never manage the
 
 The Discord facts that are not secret live in `state/discord.json`: `allowed_users` (the Discord user IDs that may speak to Curia, which is the whole access check), `guild_id`, and `channel` (default `curia`). The Discord step of integration setup writes the file. When the file names no allowed user, the service starts without the Discord bridge and says so.
 
+The setup checkpoint lives in `state/setup.json`: the selected card and a closed list of safe fields per card, never a token and never a completion marker. See [Integration setup](integration-setup.md#what-a-reopen-restores).
+
 ## What each container sees
 
 Every long-running Curia process runs in a container. The following table lists what each one mounts from the installation root, at the same path inside the container as on the host. A container that isn't listed for a directory can't reach it.

@@ -133,6 +133,31 @@ describe('the daemon under an installation root (#867)', () => {
       assert.deepEqual(Object.keys(overview.secrets), [...SECRET_NAMES])
       assert.equal(overview.secrets['discord-bot-token'].state, 'present')
       assert.equal(overview.secrets['github-app.json'].state, 'absent')
+
+      // Integration setup (#874) under the root: the read verifies fresh and
+      // reports every card not available while no integration ticket has
+      // landed, the write keeps the selected card in `state/setup.json`, and
+      // a field that is not on the closed list is refused by name.
+      const setup = await (await fetch(`http://127.0.0.1:${ports[0]}/setup`)).json()
+      assert.deepEqual(setup.cards.map((c) => [c.key, c.state]), [
+        ['github', 'unavailable'], ['discord', 'unavailable'], ['tailscale', 'unavailable'], ['model', 'unavailable'],
+      ])
+      assert.equal(setup.step, 'github')
+      assert.equal(setup.full_loop.ready, false)
+      const post = (body) => fetch(`http://127.0.0.1:${ports[0]}/setup`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+      })
+      const kept = await post({ step: 'tailscale', progress: { tailscale: { machine_name: 'curia.sh' } } })
+      assert.equal(kept.status, 200)
+      const record = JSON.parse(fs.readFileSync(path.join(root, 'state', 'setup.json'), 'utf8'))
+      assert.deepEqual(record, { format: 1, step: 'tailscale', progress: { tailscale: { machine_name: 'curia.sh' } } })
+      const refused = await post({ progress: { discord: { token: TOKEN } } })
+      assert.equal(refused.status, 400)
+      const refusal = await refused.text()
+      assert.match(refusal, /token.* is not a field the discord card may remember/)
+      assert.ok(!refusal.includes(TOKEN))
+      assert.ok(!fs.readFileSync(path.join(root, 'state', 'setup.json'), 'utf8').includes(TOKEN))
+      assert.equal((await (await fetch(`http://127.0.0.1:${ports[0]}/setup`)).json()).step, 'tailscale')
     } finally {
       if (child.exitCode === null) child.kill('SIGKILL')
     }

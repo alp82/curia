@@ -33,6 +33,7 @@ import { fileURLToPath } from 'node:url'
 import { assertServe, serveOff, attachBase } from './attach.mjs'
 import { identityRefusal, readAllow, serveHosts, tailnetSelf, LOGIN_HEADER } from './identity.mjs'
 import { readSettings, saveSettings } from './settings.mjs'
+import { CARDS as SETUP_CARDS, PROGRESS_FIELDS as SETUP_FIELDS } from './setup.mjs'
 // The two config layers (#292). config.mjs imports readDashboard from this file
 // in turn; both edges are runtime calls, never module-level ones.
 import { readLayered } from './config.mjs'
@@ -89,7 +90,10 @@ export const daemonPort = () => Number(process.env.PORT ?? DEFAULT_DAEMON_PORT)
 // Bumped to 15 by #809: credential sign-in now carries an Action identity
 // through `/api/reauth`. A proto-14 sidecar drops that identity and leaves the
 // optimistic projection pending with no daemon evidence that can settle it.
-export const DASHBOARD_PROTO = 15
+// Bumped to 16 by #874: the page carries the integration setup frame, which
+// reads `/api/setup` and POSTs it. A proto-15 sidecar answers 404 on both, and
+// a setup screen whose every card is unreadable is not a screen.
+export const DASHBOARD_PROTO = 16
 
 // The Credentials screen's own hash (#661). It is here rather than in the
 // daemon that links to it, because the page's screen names are this file's half
@@ -241,6 +245,10 @@ export const AISTACK_ACT_TIMEOUT_MS = 150_000
 // gone — so this waits longer than the poll does, on a card the operator opened
 // and is watching.
 export const DIFF_TIMEOUT_MS = 30_000
+
+// The setup read (#874) verifies every integration fresh, and a verification
+// may cross the network to GitHub, Discord, Tailscale, or a model provider.
+export const SETUP_TIMEOUT_MS = 60_000
 
 // The biggest settings patch this surface will read. The screen writes a watch
 // list and a handful of numbers, so anything near this is not a settings save.
@@ -1103,6 +1111,37 @@ export class DashboardSurface {
       // deletes one, and both are composed here out of a shape this file names:
       // `new` sends no field at all, and `delete` sends one key this side
       // validates before the daemon validates it again.
+      // Integration setup (#874). The record the daemon keeps is the selected
+      // card and a closed list of safe fields per card, and this side composes
+      // the write out of exactly that list: a key the list does not name goes
+      // nowhere, so a token typed into a field a later ticket adds cannot ride
+      // into `state/setup.json` by way of this route. The daemon checks the
+      // shapes again.
+      if (url.pathname === '/api/setup') {
+        return this.#write(res, async () => {
+          const b = await this.#body(req)
+          const body = {}
+          if (b.step !== undefined) {
+            const step = String(b.step ?? '')
+            if (!SETUP_CARDS.includes(step)) throw refuse(`"${step.slice(0, 40)}" is not a setup card`)
+            body.step = step
+          }
+          if (b.progress !== undefined) {
+            if (!b.progress || typeof b.progress !== 'object') throw refuse('progress must be a mapping of card to fields')
+            body.progress = {}
+            for (const card of SETUP_CARDS) {
+              const fields = b.progress[card]
+              if (!fields || typeof fields !== 'object') continue
+              body.progress[card] = Object.fromEntries(SETUP_FIELDS[card]
+                .filter((key) => typeof fields[key] === 'string')
+                .map((key) => [key, fields[key]]))
+            }
+          }
+          const out = await this.#daemon({ method: 'POST', path: '/setup', body, accept: [200, 400] })
+          if (out.ok === false) throw refuse(out.error)
+          return out
+        })
+      }
       // The aistack registration (#706), in three presses: start the device
       // flow, stop waiting for it, and grant the standing permission once the
       // machine exists.
@@ -1241,6 +1280,17 @@ export class DashboardSurface {
       } catch (e) {
         return this.#json(res, 500, { error: e.message })
       }
+    }
+    // Integration setup (#874): the record and the four cards, each verified
+    // on this read. Straight from the daemon, which holds the verifiers and
+    // the secret files they check. A daemon that cannot be asked answers null
+    // cards with the reason: "curia could not verify" and "nothing is
+    // connected" are opposite facts, and the frame says which.
+    if (url.pathname === '/api/setup') {
+      return this.#daemon({ path: '/setup', timeout: SETUP_TIMEOUT_MS }).then(
+        (r) => this.#json(res, 200, r),
+        (e) => this.#json(res, 200, { step: null, progress: null, cards: null, full_loop: null, error: e.message }),
+      )
     }
     // The aistack registration and the sync verdict (#706). Straight from the
     // daemon, which is the process that holds the credential and spawns the
