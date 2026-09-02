@@ -302,10 +302,11 @@ describe('the switch', () => {
   test('a live session the recreated service does not adopt fails the switch, which switches back once', async () => {
     const { env, root } = await installed()
     const before = snapshot(root)
-    const a = await attempt({ env, root, index: indexOf({ stable: '1.4.0' }), targets: [release('1.4.0')], loopback: { live: ['curia-7', 'curia-9'], readopt: (s) => (s === 'curia-9' ? 'untracked' : 'adopted') } })
+    const a = await attempt({ env, root, index: indexOf({ stable: '1.4.0' }), targets: [release('1.4.0')], loopback: { live: ['curia-7', 'curia-9'], readopt: (s, bundle) => (bundle === '1.4.0' && s === 'curia-9' ? 'untracked' : 'adopted') } })
     assert.equal(a.exit, EXIT.failed)
     assert.match(a.error.message, /^switch failed: 1\.4\.0 did not re-adopt curia-9 within \d+ seconds/)
-    assert.match(a.error.message, new RegExp(`Switched back to ${ACTIVE.replaceAll('.', '\\.')}, which is healthy`))
+    assert.match(a.error.message, new RegExp(`Switched back to ${ACTIVE.replaceAll('.', '\\.')}, which is healthy and re-adopted 2 live sessions\\. The record still names`))
+    assert.match(a.out, /re-adopted 2 live sessions: curia-7, curia-9/, 'the switch back proves re-adoption the way the switch does')
     assert.match(a.error.message, /Run '.*curia update' to run switch again/)
     const ups = a.docker.calls.filter((c) => c.includes('up'))
     assert.equal(ups.length, 2, 'the target once, the previous release once')
@@ -331,8 +332,23 @@ describe('the switch', () => {
     assert.equal(a.exit, EXIT.failed)
     assert.match(a.error.message, /^switch failed: overseer exited with code 1\./)
     assert.match(a.error.message, /logs overseer/)
-    assert.match(a.error.message, new RegExp(`Switched back to ${ACTIVE.replaceAll('.', '\\.')}, which is healthy\\.`))
+    assert.match(a.error.message, new RegExp(`Switched back to ${ACTIVE.replaceAll('.', '\\.')}, which is healthy and re-adopted 1 live session\\.`))
     assert.ok(asked >= 2)
+    assert.deepEqual(snapshot(root), before)
+  })
+
+  test('a switch back that does not re-adopt a live session is a failed switch back, reported once and never retried', async () => {
+    const { env, root } = await installed()
+    const before = snapshot(root)
+    const docker = fakeDocker({
+      ps: (args) => ({ ok: true, stdout: healthyStates(bundleOf(args) === '1.4.0' ? { daemon: { State: 'exited', Health: '', ExitCode: 1 } } : {}) }),
+    })
+    const a = await attempt({ env, root, index: indexOf({ stable: '1.4.0' }), targets: [release('1.4.0')], docker, loopback: { live: ['curia-7'], readopt: (s, bundle) => (bundle === ACTIVE ? 'untracked' : 'adopted') } })
+    assert.equal(a.exit, EXIT.failed)
+    assert.match(a.error.message, /^switch failed: daemon exited with code 1\./)
+    assert.match(a.error.message, new RegExp(`The switch back to ${ACTIVE.replaceAll('.', '\\.')} failed too: ${ACTIVE.replaceAll('.', '\\.')} did not re-adopt curia-7 within \\d+ seconds`))
+    assert.match(a.error.message, /curia reinstall/)
+    assert.deepEqual(a.docker.calls.filter((c) => c.includes('up')).map(bundleOf), ['1.4.0', ACTIVE])
     assert.deepEqual(snapshot(root), before)
   })
 

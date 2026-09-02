@@ -90,7 +90,7 @@ export function release(scratch, { version, template = TEMPLATE, digests = DIGES
   const tarball = archiveOf(scratch, packageFiles)
   const runtime = runtimeArchiveOf(scratch, nodeVersion)
   const shasums = `${sha256(runtime)}  node-v${nodeVersion}-linux-x64.tar.gz\n${'0'.repeat(64)}  node-v${nodeVersion}-linux-arm64.tar.gz\n`
-  return { version, compose, archive, checksum, text, packageJson, entry, tarball, integrity: sri(tarball), nodeVersion, runtime, shasums }
+  return { version, compose, archive, checksum, text, packageJson, entry, files, tarball, integrity: sri(tarball), nodeVersion, runtime, shasums }
 }
 
 // The artifact origins of one release as the acquisition reads them: a map
@@ -130,6 +130,10 @@ export function stageOf(scratch, r, { tamper } = {}) {
   writeFileSync(join(stage, 'cli', 'package.json'), r.packageJson)
   writeFileSync(join(stage, 'cli', MANIFEST_FILE), r.text)
   writeFileSync(join(stage, 'cli', 'bin', 'curia.mjs'), r.entry, { mode: 0o755 })
+  for (const [name, content] of Object.entries(r.files ?? {})) {
+    mkdirSync(dirname(join(stage, 'cli', name)), { recursive: true })
+    writeFileSync(join(stage, 'cli', name), content)
+  }
   writeFileSync(join(stage, 'cli.tgz'), r.tarball)
   writeFileSync(join(stage, 'bundle.tar.gz'), tamper === 'bundle' ? Buffer.concat([r.archive, Buffer.from('x')]) : r.archive)
   writeFileSync(join(stage, 'bundle.tar.gz.sha256'), r.checksum)
@@ -213,8 +217,11 @@ export function fakeDocker(answers = {}) {
 // from tmux). `settle` is how many reads after a recreate answer an
 // indeterminate fleet (`agents: null`) before the adoption shows, which is
 // what a listener that answers before the boot reconcile finishes looks
-// like; only `/overview` reads count. `versionOf(bundleVersion)` is what the recreated containers report,
-// for a bundle whose images do not match its version.
+// like; only `/overview` reads count. `readopt` also gets the version of
+// the bundle the service was recreated from, so a test can make one release
+// adopt what another does not. `versionOf(bundleVersion)` is what the
+// recreated containers report, for a bundle whose images do not match its
+// version.
 export function fakeLoopback(docker, { initial, live = [], readopt = () => 'adopted', settle = 0, versionOf = (v) => v } = {}) {
   const reads = []
   let recreates = 0
@@ -225,10 +232,10 @@ export function fakeLoopback(docker, { initial, live = [], readopt = () => 'adop
   }
   const running = () => {
     const ups = docker.calls.filter((c) => c.includes('up'))
-    if (ups.length === 0) return { version: initial, fresh: false }
+    if (ups.length === 0) return { version: initial, bundle: initial, fresh: false }
     const file = ups.at(-1)[ups.at(-1).indexOf('-f') + 1]
-    const version = file.split('/versions/')[1].split('/')[0]
-    return { version: versionOf(version), fresh: true }
+    const bundle = file.split('/versions/')[1].split('/')[0]
+    return { version: versionOf(bundle), bundle, fresh: true }
   }
   const answer = (status, body) => ({ ok: status >= 200 && status < 300, status, json: async () => body, text: async () => JSON.stringify(body) })
   const fetch = async (url) => {
@@ -236,7 +243,7 @@ export function fakeLoopback(docker, { initial, live = [], readopt = () => 'adop
     reads.push(`${u.port}${u.pathname}`)
     if (recreated() !== recreates) { recreates = recreated(); readsSinceRecreate = 0 }
     if (u.pathname === '/overview') readsSinceRecreate += 1
-    const { version, fresh } = running()
+    const { version, bundle, fresh } = running()
     if (u.port === '4273') {
       if (u.pathname === '/ping') return answer(200, { curia: 'curia-dashboard', version })
       return answer(403, {})
@@ -247,7 +254,7 @@ export function fakeLoopback(docker, { initial, live = [], readopt = () => 'adop
       const agents = []
       const untracked = []
       for (const session of live) {
-        const fate = fresh ? readopt(session) : 'adopted'
+        const fate = fresh ? readopt(session, bundle) : 'adopted'
         if (fate === 'adopted') agents.push({ session, tmux_live: true, uptime_s: fresh ? null : 120 })
         else if (fate === 'untracked') untracked.push(session)
       }

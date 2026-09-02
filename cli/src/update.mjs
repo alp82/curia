@@ -1,6 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
+import { mkdirSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { pathToFileURL } from 'node:url'
 
 import { EXIT, Refusal, UsageError } from './exit.mjs'
 import { acquireProbes, acquireRelease } from './acquire.mjs'
@@ -11,7 +10,8 @@ import { releaseProbes } from './manifest.mjs'
 import { hostProbes, preflight } from './preflight.mjs'
 import { openRoot, versionPaths } from './root.mjs'
 import { StableIndexError, fetchStableIndex, pinnedPublicKey, releaseNotesUrl, renderSelection, selectRelease, selectionFromArgs, stableProbes } from './stable.mjs'
-import { isCompleteStage, placeVersion, verifyRetained } from './stage.mjs'
+import { IncompatibleRelease, isCompleteStage, placeVersion, validateWithRelease, verifyRetained } from './stage.mjs'
+import { namedSteps } from './steps.mjs'
 import { switchRelease } from './switch.mjs'
 import { dockerRunner } from './compose.mjs'
 
@@ -68,7 +68,7 @@ const packageVersion = JSON.parse(readFileSync(new URL('../package.json', import
 // and the clock the waits use.
 export async function runUpdate(
   { env, args = [], stdout, uid, gid, root },
-  { hostProbes: host = hostProbes, stableProbes: stable = stableProbes, publicKey = pinnedPublicKey(), acquireProbes: acquire = acquireProbes, releaseProbes: release = releaseProbes, validateTarget = validateWithTarget, docker = dockerRunner, fetch: fetchImpl = globalThis.fetch, sleep, now } = {},
+  { hostProbes: host = hostProbes, stableProbes: stable = stableProbes, publicKey = pinnedPublicKey(), acquireProbes: acquire = acquireProbes, releaseProbes: release = releaseProbes, validateTarget = validateWithRelease, docker = dockerRunner, fetch: fetchImpl = globalThis.fetch, sleep, now } = {},
 ) {
   let selection
   try {
@@ -77,8 +77,8 @@ export async function runUpdate(
     if (e instanceof StableIndexError) throw new UsageError(e.message)
     throw e
   }
-  const launcher = launcherPath(env)
-  const steps = sequence({ stdout, launcher, args })
+  const command = [launcherPath(env), 'update', ...args].join(' ')
+  const steps = namedSteps({ steps: UPDATE_STEPS, stdout, rerun: (step) => `Run '${command}' to run ${step} again; the completed steps are kept.` })
   const say = (text) => stdout.write(`${text}\n`)
 
   try {
@@ -144,7 +144,12 @@ export async function runUpdate(
 
       // 5. validate
       steps.begin('validate')
-      await validateTarget({ root, version: target, dir: paths.dir })
+      try {
+        await validateTarget({ root, version: target, dir: paths.dir })
+      } catch (e) {
+        if (!(e instanceof IncompatibleRelease)) throw e
+        throw new Error(e.reason === 'configuration' ? `${e.message} Fix the file, or choose another version. The active version is unchanged.` : `${e.message} Choose a version that does.`)
+      }
       say(`${target} accepts the current operator configuration at ${operatorConfigPath(root)}`)
 
       // 6. switch
@@ -160,49 +165,6 @@ export async function runUpdate(
     })
   } catch (e) {
     throw steps.wrap(e)
-  }
-}
-
-// The target validates the current operator configuration with its own
-// reader: the staged package's `src/config.mjs`, imported from
-// versions/<target>/. A target that refuses the file fails the update here,
-// with the contract's own sentence; a target that carries no reader cannot
-// validate and fails too. Nothing is written.
-async function validateWithTarget({ root, version, dir }) {
-  const reader = join(dir, 'cli', 'src', 'config.mjs')
-  if (!existsSync(reader)) {
-    throw new Error(`${version} carries no operator configuration reader (cli/src/config.mjs), so it cannot validate the current configuration. Choose a version that does.`)
-  }
-  const target = await import(pathToFileURL(reader).href)
-  if (typeof target.readOperatorConfig !== 'function') {
-    throw new Error(`${version}'s configuration reader has no readOperatorConfig, so it cannot validate the current configuration. Choose a version that does.`)
-  }
-  try {
-    target.readOperatorConfig(operatorConfigPath(root))
-  } catch (e) {
-    if (e?.name !== 'ConfigError') throw e
-    throw new Error(`${version} refuses the current operator configuration: ${e.message}. Fix the file, or choose another version. The active version is unchanged.`)
-  }
-}
-
-// The step sequence: prints each header, remembers the current step, and
-// turns an error into one that names the step and the command that reruns
-// it.
-function sequence({ stdout, launcher, args }) {
-  let current = null
-  const command = [launcher, 'update', ...args].join(' ')
-  return {
-    begin(name) {
-      current = name
-      stdout.write(`[${UPDATE_STEPS.indexOf(name) + 1}/${UPDATE_STEPS.length}] ${name}\n`)
-    },
-    wrap(e) {
-      if (current === null) return e
-      if (e instanceof Refusal) return new Refusal(`${current}: ${e.message}`)
-      const wrapped = new Error(`${current} failed: ${e.message}\nRun '${command}' to run ${current} again; the completed steps are kept.`)
-      wrapped.cause = e
-      return wrapped
-    },
   }
 }
 
