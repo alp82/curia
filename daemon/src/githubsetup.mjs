@@ -1,0 +1,187 @@
+// The GitHub card of integration setup (#875, filling the #874 seam under
+// the #852 contract and the #853 journey).
+//
+// One verifier, and it answers the frame's one question: is GitHub connected
+// on THIS read? The manifest flow that creates the App is `GitHubAppSetup`
+// (#694), already routed and already landing the converted App in
+// `secrets/github-app.json` under a root (#867); this module adds nothing to
+// it. What #852 asks the card to prove, after the App exists and the operator
+// installed it on github.com, is two facts:
+//
+//   1. the installation covers at least one WATCHED repository, and
+//   2. curia can mint the installation credential its agents run on.
+//
+// Both are measured, never remembered. Every read re-reads the installations
+// (an install is an act between polls), mints one real WRITE token per
+// installed owner (the agents' set; a fresh mint is proof of the grant in a
+// way a cached one is not), asks that installation what it covers, and reads
+// the open tickets of the covered repositories on that same token. The token
+// is dropped when the read ends: it reaches no file, no log, and no answer.
+//
+// THE ZERO IS HONEST (#853). A covered repository with a `ready-for-agent`
+// ticket connects the card on that real ticket. One without connects it on
+// the repository, the count of open tickets, and what the minted credential
+// grants — never a fabricated ticket.
+//
+// Before the App exists the card is plain, not failed: `{ unconnected }`,
+// which the frame draws as "Ready to connect". Everything after is one
+// failed verification with one corrective action, in the order the operator
+// meets it: the watch list, the App, the install, the mint, the grant, the
+// tickets.
+
+import { api, WRITE_PERMISSIONS, listInstallationRepos, mintInstallationToken } from './githubapp.mjs'
+
+// What each permission of the minted credential is called on the card.
+const CAPABILITY_NAMES = Object.freeze({
+  issues: 'Issues', pull_requests: 'pull requests', contents: 'contents', statuses: 'commit statuses',
+})
+
+// The label the dispatch loop takes work from (docs/agents/triage-labels.md).
+export const READY_LABEL = 'ready-for-agent'
+
+const ownerOf = (repo) => String(repo).split('/')[0]
+
+function list(items, word = 'or') {
+  if (items.length <= 1) return items.join('')
+  if (items.length === 2) return `${items[0]} ${word} ${items[1]}`
+  return `${items.slice(0, -1).join(', ')}, ${word} ${items[items.length - 1]}`
+}
+
+// The one page of open issues the card reads per covered repository. Pull
+// requests share the number space and are dropped; a ticket is discovered
+// when it carries the ready label and nobody holds it yet.
+async function readTickets(repo, { token, fetchImpl }) {
+  const payload = await api(`/repos/${repo}/issues?state=open&per_page=100`, { jwt: token, fetchImpl })
+  const open = (payload ?? []).filter((i) => i && !i.pull_request)
+  const ready = open.find((i) =>
+    (i.labels ?? []).some((l) => (typeof l === 'string' ? l : l?.name) === READY_LABEL)
+    && !(i.assignees ?? []).length)
+  return {
+    open: open.length,
+    ticket: ready ? { repo, number: ready.number, title: String(ready.title ?? ''), url: ready.html_url ?? null } : null,
+  }
+}
+
+// `minter` and `watch` are read on every call rather than held: the App is
+// adopted in process when the manifest flow completes, and the watch list
+// changes on a settings save, and the card has to see both without a restart.
+export function githubVerifier({ minter, watch, fetchImpl = globalThis.fetch }) {
+  return async function verifyGitHub() {
+    const app = minter()
+    if (!app) return { ok: false, unconnected: true }
+
+    const repos = watch().map((w) => w.repo)
+    if (!repos.length) {
+      return {
+        ok: false,
+        failed: 'No repository is on the watch list, so there is nothing for the App installation to cover',
+        action: 'Add a repository to the watch list under Settings, then try again.',
+      }
+    }
+    const owners = [...new Set(repos.map(ownerOf))]
+
+    let installs
+    try {
+      // The App's own facts feed the install links the panel draws; a failed
+      // read there is not a failed verification, so it is not awaited.
+      app.readFacts().catch(() => {})
+      installs = await app.refreshInstallations()
+    } catch (e) {
+      return {
+        ok: false,
+        failed: e.message,
+        action: 'Check the App on its GitHub settings page and this host\'s clock, then try again.',
+      }
+    }
+    const installedOn = new Map(installs.map((i) => [String(i.owner ?? '').toLowerCase(), i]))
+    const ownerRows = owners.map((owner) => ({ owner, installed: installedOn.has(owner.toLowerCase()) }))
+    const detail = { owners: ownerRows, covered: [] }
+    const missing = ownerRows.filter((o) => !o.installed).map((o) => o.owner)
+    if (missing.length === owners.length) {
+      return {
+        ok: false,
+        failed: `curia's GitHub App is not installed on ${list(owners)}`,
+        action: `Install the App on ${owners[0]} from the link in this panel and grant it ${repos.find((r) => ownerOf(r) === owners[0])}, then try again.`,
+        detail,
+      }
+    }
+
+    // One real mint per installed owner, then that installation's own grant.
+    const tokens = new Map()
+    for (const { owner } of ownerRows.filter((o) => o.installed)) {
+      const install = installedOn.get(owner.toLowerCase())
+      let minted
+      try {
+        minted = await mintInstallationToken(install.id, { jwt: app.jwt(), permissions: WRITE_PERMISSIONS, fetchImpl })
+      } catch (e) {
+        return {
+          ok: false,
+          failed: `curia could not mint an installation token for ${owner}: ${e.message}`,
+          action: `Accept the App's permissions on the ${owner} installation on GitHub, then try again.`,
+          detail,
+        }
+      }
+      let granted
+      try {
+        granted = await listInstallationRepos({ token: minted.token, fetchImpl })
+      } catch (e) {
+        return {
+          ok: false,
+          failed: `curia could not read what the App installation on ${owner} covers: ${e.message}`,
+          action: 'Check the installation on GitHub, then try again.',
+          detail,
+        }
+      }
+      const lowered = new Set(granted.map((r) => r.toLowerCase()))
+      for (const repo of repos) if (ownerOf(repo) === owner && lowered.has(repo.toLowerCase())) detail.covered.push(repo)
+      tokens.set(owner, minted)
+    }
+    if (!detail.covered.length) {
+      const owner = ownerRows.find((o) => o.installed).owner
+      const wanted = repos.filter((r) => ownerOf(r) === owner)
+      return {
+        ok: false,
+        failed: `The App installation on ${owner} doesn't cover ${list(wanted)}`,
+        action: `Grant the App access to ${wanted[0]} on the ${owner} installation on GitHub, then try again.`,
+        detail,
+      }
+    }
+
+    // The tickets, on the same credential. The first ready ticket in watch
+    // order is the one the card shows; the count is every open ticket of
+    // every covered repository.
+    let open = 0
+    let ticket = null
+    for (const repo of detail.covered) {
+      let read
+      try {
+        read = await readTickets(repo, { token: tokens.get(ownerOf(repo)).token, fetchImpl })
+      } catch (e) {
+        return {
+          ok: false,
+          failed: `curia could not read the tickets of ${repo}: ${e.message}`,
+          action: 'Check that the App installation still grants Issues on that repository, then try again.',
+          detail,
+        }
+      }
+      open += read.open
+      if (!ticket && read.ticket) ticket = read.ticket
+    }
+    const first = tokens.get(ownerOf(detail.covered[0]))
+    const capabilities = Object.keys(CAPABILITY_NAMES).filter((k) => first.permissions?.[k]).map((k) => CAPABILITY_NAMES[k])
+    const ready = `${list(capabilities, 'and')} ready`
+    const tickets = `${open} open ticket${open === 1 ? '' : 's'}`
+    const repoLine = detail.covered.length > 1 ? `${detail.covered[0]} + ${detail.covered.length - 1} more` : detail.covered[0]
+    Object.assign(detail, { open_tickets: open, ticket })
+    if (ticket) {
+      return { ok: true, emoji: '🎫', primary: `#${ticket.number} · ${ticket.title}`, secondary: `${READY_LABEL} · ${ticket.repo} · ${tickets}`, detail }
+    }
+    return {
+      ok: true,
+      emoji: '📦',
+      primary: repoLine,
+      secondary: `${open ? `${tickets}, none ready for an agent` : 'No open tickets'} · ${ready}`,
+      detail,
+    }
+  }
+}

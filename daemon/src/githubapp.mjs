@@ -198,6 +198,9 @@ export const APP_SETUP_TTL_MS = 60 * 60 * 1000
 // `start()` mints, and nothing else is a state.
 export const APP_SETUP_CODE_RE = /^[A-Za-z0-9_-]{1,255}$/
 export const APP_SETUP_STATE_RE = /^[0-9a-f]{64}$/
+// The two screens of the Curia app that start the flow (#694 Settings, #875
+// Setup), and so the two places the redirect may land.
+export const APP_SETUP_SCREENS = Object.freeze(['settings', 'setup'])
 
 function atomicWrite(file, text, mode = 0o600) {
   fs.mkdirSync(path.dirname(file), { recursive: true })
@@ -294,9 +297,12 @@ export class GitHubAppSetup {
     }
   }
 
-  start({ name, redirectUrl, organization = null, actionId = null } = {}) {
+  // `screen` is where the browser lands when GitHub sends it back (#875):
+  // the Settings section or the Setup screen, whichever started the trip.
+  start({ name, redirectUrl, organization = null, actionId = null, screen = 'settings' } = {}) {
     const appName = String(name ?? '').trim()
     if (!appName || appName.length > 34) throw new Error('the GitHub App name must contain 1 to 34 characters')
+    if (!APP_SETUP_SCREENS.includes(screen)) throw new Error(`the GitHub App setup screen must be one of ${APP_SETUP_SCREENS.join(', ')}`)
     let redirect
     try {
       redirect = new URL(String(redirectUrl))
@@ -315,7 +321,7 @@ export class GitHubAppSetup {
     if (redirect.search || redirect.hash) throw new Error('the GitHub App redirect URL must carry no query or fragment')
     const state = Buffer.from(this.randomBytes(32)).toString('hex')
     const expires = this.now() + APP_SETUP_TTL_MS
-    this.#writeState({ state, expires_at: expires, status: 'pending', ...(actionId ? { action_id: String(actionId) } : {}) })
+    this.#writeState({ state, expires_at: expires, status: 'pending', screen, ...(actionId ? { action_id: String(actionId) } : {}) })
     const ownerPath = organization
       ? `/organizations/${encodeURIComponent(String(organization))}/settings/apps/new`
       : '/settings/apps/new'
@@ -402,8 +408,9 @@ export class GitHubAppSetup {
     if (!APP_SETUP_STATE_RE.test(stateValue)) throw new Error('that GitHub App setup carries no state curia minted, so curia did not start it')
     const record = this.#readState()
     if (stateValue !== record.state) throw new Error('the GitHub App setup state does not match')
+    const screen = APP_SETUP_SCREENS.includes(record.screen) ? record.screen : 'settings'
     if (record.status === 'complete') {
-      return { ok: false, reason: 'already completed', app: record.app }
+      return { ok: false, reason: 'already completed', app: record.app, screen }
     }
     if (this.now() > record.expires_at) throw new Error('the GitHub App setup state expired after one hour')
 
@@ -434,7 +441,7 @@ export class GitHubAppSetup {
     const app = { id: converted.id, slug: converted.slug }
     this.#writeState({ ...record, status: 'complete', app, completed_at: this.now() })
     try { fs.unlinkSync(this.secretFile) } catch (error) { if (error?.code !== 'ENOENT') throw error }
-    return { ok: true, app }
+    return { ok: true, app, screen }
   }
 }
 
@@ -447,7 +454,7 @@ const FETCH_TIMEOUT_MS = 20_000
 // One place that builds a request and reads a failure, so every error the
 // operator sees names the same three things: what curia asked for, what GitHub
 // answered, and what to do about it.
-async function api(route, { jwt, method = 'GET', body = null, fetchImpl = globalThis.fetch } = {}) {
+export async function api(route, { jwt, method = 'GET', body = null, fetchImpl = globalThis.fetch } = {}) {
   const res = await fetchImpl(`${API}${route}`, {
     method,
     headers: {

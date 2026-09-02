@@ -138,7 +138,7 @@ describe('the conversion (#694)', () => {
 
     const completed = await setup.complete({ code: 'temporary-code', state: started.state })
 
-    assert.deepEqual(completed, { ok: true, app: { id: '42', slug: 'curia-alp' } })
+    assert.deepEqual(completed, { ok: true, app: { id: '42', slug: 'curia-alp' }, screen: 'settings' })
     assert.deepEqual(setup.status(), { status: 'complete', app: { id: '42', slug: 'curia-alp' } })
     assert.doesNotMatch(JSON.stringify(completed), /PRIVATE KEY|client_secret|webhook_secret/)
     assert.equal(calls.length, 1)
@@ -154,13 +154,30 @@ describe('the conversion (#694)', () => {
     assert.equal(fs.existsSync(setup.secretFile), false, 'the conversion response does not outlive the setup')
 
     const replay = await setup.complete({ code: 'temporary-code', state: started.state })
-    assert.deepEqual(replay, { ok: false, reason: 'already completed', app: { id: '42', slug: 'curia-alp' } })
+    assert.deepEqual(replay, { ok: false, reason: 'already completed', app: { id: '42', slug: 'curia-alp' }, screen: 'settings' })
     assert.equal(calls.length, 1, 'a replay must not reach GitHub at all')
     assert.equal(adopted.length, 1)
   })
 
   // Under an installation root (#867) the converted app is one owner-only
   // secret file and no env file is touched: the key never leaves `secrets/`.
+  // #875: the Setup screen starts the same flow the Settings section does,
+  // and the redirect back has to land on the screen that started it. The
+  // screen is part of the record, so a daemon restart mid-trip keeps it.
+  test('the screen that started the setup rides the record and comes back with the completion', async () => {
+    const setup = new GitHubAppSetup({ ...paths('screen'), fetchImpl: async () => response(converted()) })
+    const started = setup.start({ name: 'curia-alp', redirectUrl: 'https://box.example/complete', screen: 'setup' })
+    const completed = await new GitHubAppSetup({ ...paths('screen'), fetchImpl: async () => response(converted()) })
+      .complete({ code: 'temporary-code', state: started.state })
+    assert.equal(completed.screen, 'setup')
+    assert.equal((await setup.complete({ code: 'temporary-code', state: started.state })).screen, 'setup', 'a replay lands on the same screen')
+
+    const plain = new GitHubAppSetup({ ...paths('screen-default'), fetchImpl: async () => response(converted()) })
+    const settings = plain.start({ name: 'curia-alp', redirectUrl: 'https://box.example/complete' })
+    assert.equal((await plain.complete({ code: 'temporary-code', state: settings.state })).screen, 'settings')
+    assert.throws(() => plain.start({ name: 'curia-alp', redirectUrl: 'https://box.example/complete', screen: 'javascript:alert(1)' }), /screen/)
+  })
+
   test('under an installation root the app lands in secrets/github-app.json, and nothing is written beside the daemon', async () => {
     const p = paths('root')
     const installRoot = path.join(root, 'install-root')

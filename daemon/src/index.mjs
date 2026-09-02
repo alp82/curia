@@ -69,6 +69,7 @@ import { TokenWatch } from './tokenwatch.mjs'
 import { JournalBackup } from './backup.mjs'
 import { AistackSync } from './aistack.mjs'
 import { AistackRegistration } from './aistackreg.mjs'
+import { githubVerifier } from './githubsetup.mjs'
 import { IntegrationSetup } from './setup.mjs'
 import {
   probeTtyd, serveOff, attachBase, appTerminalUrl, validSessionName,
@@ -1374,10 +1375,21 @@ const aistackReg = new AistackRegistration({
 
 // The integration setup frame (#874). Its record is `state/setup.json` beside
 // the journal, and its verifiers are the seams #875 to #879 fill, one per
-// integration; the Full loop gate is #880's. With none of them wired, every
-// card reports "not available" and the frame is still whole: selectable,
+// integration; the Full loop gate is #880's. A card without its verifier
+// reports "not available" and the frame is still whole: selectable,
 // resumable, and honest that nothing is connected.
-const integrationSetup = new IntegrationSetup({ stateDir: DATA, log })
+//
+// The GitHub card (#875) reads the minter and the watch list on every
+// verification rather than holding them: `appMinter` is replaced when the
+// manifest flow adopts a converted App, and the watch list changes on a
+// settings save, and the card sees both without a restart.
+const integrationSetup = new IntegrationSetup({
+  stateDir: DATA,
+  log,
+  verifiers: {
+    github: githubVerifier({ minter: () => appMinter, watch: () => curiaConfig.watch }),
+  },
+})
 
 // The one shape the Settings section reads (#706): the registration, plus what
 // the recurring sync did last. Composed here rather than in either module,
@@ -3277,7 +3289,7 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
   }
 
   if (url.pathname === '/github-app/start' && req.method === 'POST') {
-    const { name, redirect_url: redirectUrl, action_id: actionId } = await readBody(req)
+    const { name, redirect_url: redirectUrl, action_id: actionId, screen } = await readBody(req)
     if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(String(actionId ?? ''))) {
       return json(400, { error: 'action_id is not a valid Action id' })
     }
@@ -3296,7 +3308,7 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
       return json(200, { action: refused })
     }
     try {
-      const started = githubAppSetup.start({ name, redirectUrl, actionId: action.action_id })
+      const started = githubAppSetup.start({ name, redirectUrl, actionId: action.action_id, ...(screen !== undefined ? { screen } : {}) })
       const accepted = reduction.recordAction({ ...action, status: 'accepted' })
       reduction.recordAction({ ...action, status: 'progress', progress: 'Waiting for GitHub to complete setup' })
       reduction.journal('github_app_setup_started', { expires_at: started.expires_at, action_id: action.action_id })

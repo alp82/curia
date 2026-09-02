@@ -1,6 +1,6 @@
 # Integration setup
 
-Integration setup is the **Setup** screen of the Curia app. It connects one installation to the four resources the Full loop needs: GitHub, Discord, Tailscale, and one model provider. This page is the reference for the setup frame: what the four cards show, how you move between them, what a reopen restores, and what Curia keeps on disk. Each integration's own connect steps are documented on that integration's card as it lands.
+Integration setup is the **Setup** screen of the Curia app. It connects one installation to the four resources the Full loop needs: GitHub, Discord, Tailscale, and one model provider. This page is the reference for the setup frame: what the four cards show, how you move between them, what a reopen restores, and what Curia keeps on disk. The GitHub card's own steps are in [Connect GitHub](#connect-github). The other cards' steps are documented as they land.
 
 After `curia install` finishes, open the address it printed, `https://<your node's MagicDNS name>:8445/`, and open **Setup**. Home also points at **Setup** while an integration isn't connected.
 
@@ -18,6 +18,38 @@ Every card has the same height in every state, so a verification never moves the
 | Failed | **Action required** | Red border, red-tinted header and footer. | The verification that failed and the one corrective action. |
 
 The footer never shows a decorative number. Before a card verifies, it names the data that will appear. After, it shows what Curia found.
+
+## Connect GitHub
+
+The GitHub card creates a dedicated GitHub App for this installation through GitHub's manifest flow, then verifies that the App can reach at least one watched repository. Curia never asks for your GitHub password, a personal access token, or anything from GitHub's consent page. You sign in and approve on GitHub.
+
+### Create the App
+
+1. On the **GitHub** card, keep the suggested App name or enter your own. GitHub slugifies the name, and Curia posts as `<slug>[bot]`, so the name is read as the author of every commit, pull request, and gate approval. The name must be free across all of GitHub.
+2. Select **Create GitHub App**. Curia prepares the manifest (the five repository permissions from [The curia GitHub App](../github-app.md#2-grant-the-permissions), no webhook, installable on any account) and the browser opens GitHub's own page with that manifest.
+3. On GitHub, review the App and select **Create GitHub App for &lt;you&gt;**. GitHub sends the browser back to the Curia app with a one-hour conversion code.
+
+The service converts the code itself. It writes the App id and the private key to `secrets/github-app.json` in the installation root, owner-only, mode `0600`, and adopts the App in the running service. The key is never shown, never logged, and never sent to the browser. If the conversion fails, the card says why, and **Create GitHub App** starts the flow again.
+
+### Install the App
+
+After the App exists, the card lists every owner on the watch list with an **Install on &lt;owner&gt;** link. Install the App for each owner whose repositories Curia watches, and grant it the watched repositories. On GitHub, **Only select repositories** with the watched repositories is enough. Then select **Try again**.
+
+### What verification proves
+
+Every read of the card runs the same verification:
+
+1. At least one repository is on the watch list.
+2. GitHub accepts the App's own credential and lists its installations.
+3. For each installed owner, Curia mints an installation token with the write permissions agents run on. The token is used for this verification and dropped. It reaches no file and no log.
+4. The installation grants at least one watched repository.
+5. Curia reads the open tickets of the covered repositories with that token.
+
+The card connects when steps 1 to 5 pass. The footer shows a real discovered ticket, one that carries `ready-for-agent` and has no assignee, with its repository and the count of open tickets. When there is no such ticket, the footer names the covered repository, the count of open tickets (or `No open tickets`), and what the minted credential can do: `Issues, pull requests, and contents ready`. Curia never invents a ticket.
+
+A failed step names the failure and one action, for example `curia's GitHub App is not installed on alp82` with `Install the App on alp82 from the link in this panel and grant it alp82/curia, then try again.` Do what the action says and select **Try again**, which runs the whole verification again.
+
+The card remembers only the App name (`progress.github.app_name`) for a reopen. The App id and key live in `secrets/github-app.json` and nowhere else.
 
 ## Verification is fresh
 
@@ -46,7 +78,7 @@ The Full loop is the one dependent step. Under the rail, the **Full loop** panel
 Closing and reopening **Setup** restores the card you were on and any safe progress a step kept. Curia keeps that in `state/setup.json` in the installation root, written by the service, mode `0600`. The file holds:
 
 - `step`: the selected card, one of `github`, `discord`, `tailscale`, `model`.
-- `progress`: per card, only these fields: `app_name` for GitHub, `guild_id` and `channel` for Discord, `machine_name` for Tailscale, `provider` for the model card.
+- `progress`: per card, only these fields: `app_name` for GitHub (the name you gave the App), `guild_id` and `channel` for Discord, `machine_name` for Tailscale, `provider` for the model card.
 
 The file never holds a token, a key, or a completion marker. A field outside that list is refused by name. Nothing about setup is stored in the browser. A `state/setup.json` file that can't be read starts setup on the GitHub card with no progress, and the service log says so.
 

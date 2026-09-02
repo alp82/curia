@@ -4453,6 +4453,24 @@ async function doGitHubAppRefresh() {
 async function doGitHubAppSetup() {
   const name = document.getElementById("github-app-name")?.value?.trim();
   if (!name) return refuse("github-app", "Enter a GitHub App name.");
+  return startGitHubApp(name, "settings");
+}
+
+/* The GitHub card's one press (#875): the name is the card's safe checkpoint
+   for a reopen, and the handoff is the same manifest flow the Settings
+   section runs, told to land back on Setup. */
+async function doSetupGitHubApp() {
+  const name = document.getElementById("setup-github-app-name")?.value?.trim();
+  if (!name) return refuse("github-app", "Enter a GitHub App name.");
+  await rememberSetupProgress("github", { app_name: name });
+  return startGitHubApp(name, "setup");
+}
+
+/* The manifest handoff (#694). The service prepares the manifest and the
+   state; the browser posts the manifest to GitHub's own page, where the
+   operator reviews it and presses once. Nothing about the account crosses
+   here. `screen` is where GitHub's redirect lands afterwards. */
+async function startGitHubApp(name, screen) {
   const actionId = `app-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
   const action = beginAction({
     action_id: actionId, kind: "github-app-setup", target: "github-app-setup",
@@ -4461,7 +4479,7 @@ async function doGitHubAppSetup() {
   if (!action) return null;
   UI.act.said = null;
   render();
-  const out = await githubAppAction("github-app", "/api/github-app/start", actionId, { name });
+  const out = await githubAppAction("github-app", "/api/github-app/start", actionId, { name, screen });
   const setup = out?.setup;
   if (!setup?.action || !setup?.manifest) return;
   const form = document.createElement("form");
@@ -4778,24 +4796,26 @@ function screenCredentials(p) {
    integration fresh and the page draws what came back. Nothing here remembers
    "connected": Try again is a fresh read, and so is arriving.
 
-   THE SEAMS. `SETUP_CONTENT[key].content(card, progress)` is each card's
+   THE SEAMS. `SETUP_CONTENT[key].content(card, progress, p)` is each card's
    configuration slot; #875 to #879 replace the stub with the real connect
-   flow, and their verifier on the service side is what turns the card. Safe
-   progress a step wants back after a close goes through
-   `rememberSetupProgress`, never into browser storage. `runFullLoop` is the
-   seam #880 fills; until then the action stays unavailable. */
+   flow, and their verifier on the service side is what turns the card. The
+   GitHub card (#875) is `setupGitHub`. Safe progress a step wants back after
+   a close goes through `rememberSetupProgress`, never into browser storage.
+   `runFullLoop` is the seam #880 fills; until then the action stays
+   unavailable. */
 
 const SETUP_ORDER = ["github", "discord", "tailscale", "model"];
 
-/* The content slot, per card: the body of the configuration panel. Every
-   stub says what the step will do and that it is not available in this
-   release yet, so an operator who lands here early reads a fact and not an
-   empty form. */
+/* The content slot, per card: the body of the configuration panel, given
+   the card, its remembered progress, and the held overview reading. A stub
+   says what the step will do and that it is not available in this release
+   yet, so an operator who lands here early reads a fact and not an empty
+   form. */
 var SETUP_CONTENT = {
   github: {
-    content: (card) => `<p>Curia creates a dedicated GitHub App. You review and approve it on GitHub, then install it for at least one repository owner.</p>
+    content: (card, progress, p) => `<p>Curia creates a dedicated GitHub App. You review and approve it on GitHub, then install it for at least one repository owner.</p>
       <div class="setup-note">You sign in and grant access on GitHub. Curia never sees your password or browser session.</div>
-      ${setupUnavailable(card)}`,
+      ${card.state === "unavailable" ? setupUnavailable(card) : setupGitHub(card, progress, p)}`,
   },
   discord: {
     content: (card) => `<p>Curia guides you through creating a dedicated Discord application and bot, then installs the bot into the server you choose with its role and the channel permissions it needs.</p>
@@ -4811,6 +4831,44 @@ var SETUP_CONTENT = {
       ${setupUnavailable(card)}`,
   },
 };
+
+/* The GitHub card's own panel (#875), in the three states the verifier
+   reports. Unconnected: the App does not exist yet, so the one press is
+   Create GitHub App, with the name as the only input. Failed or connected:
+   the App exists, so the panel draws it, the install link per watched owner
+   from the held overview (the same rows the Settings section draws), and,
+   once connected, the real ticket the service discovered or the honest zero. */
+function setupGitHub(card, progress, p) {
+  const app = p?.overview?.github_app ?? null;
+  if (card.state === "unconnected") {
+    const action = actionFor({ conflict_key: "github-app:setup" });
+    const pending = app?.status === "pending"
+      ? `<p class="qhint">A GitHub App setup is pending until ${esc(ago(app.expires_at))}. Finish it on GitHub, or start again with a new name.</p>` : "";
+    return `<p><input id="setup-github-app-name" value="${esc(progress?.app_name || "curia-box")}" aria-label="GitHub App name">
+      <button class="btn primary" ${action ? "disabled" : ""} onclick="doSetupGitHubApp()">Create GitHub App</button></p>
+      ${action ? `<p class="qhint">${esc(action.progress || "Starting GitHub App setup")}</p>` : ""}
+      ${pending}${said("github-app")}
+      <p class="qhint">GitHub slugifies the name, and Curia posts as <code>&lt;slug&gt;[bot]</code>. The name must be free across GitHub.</p>`;
+  }
+  const facts = app?.app ?? null;
+  const identity = facts
+    ? `<div class="rows"><div class="row"><span class="key grow">GitHub App</span><span>${facts.settings_url
+      ? `<a href="${esc(facts.settings_url)}" target="_blank" rel="noopener">${esc(facts.slug || facts.id)}</a>`
+      : esc(facts.slug || facts.id)}</span></div></div>` : "";
+  const owners = (app?.owners ?? []).map((owner) => `<div class="row">
+    <span class="key grow">${esc(owner.owner)}</span>
+    <span>${esc(ownerState(owner, app?.installations))}</span>
+    <span><a href="${esc(owner.install_url)}" target="_blank" rel="noopener">${owner.installed === true ? "Manage installation" : `Install on ${esc(owner.owner)}`}</a></span></div>`).join("");
+  const install = owners
+    ? `<p>Install the App for each owner you watch, and grant it the watched repositories. Then select <b>Try again</b>.</p><div class="rows">${owners}</div>`
+    : `<p class="qhint">No repository is on the watch list. Add one under <a href="#settings" onclick="goto('settings');return false">Settings</a>, then select <b>Try again</b>.</p>`;
+  const detail = card.detail ?? null;
+  const found = card.state !== "connected" || !detail ? "" : detail.ticket
+    ? `<div class="setup-note">Ready for an agent: <a href="${esc(detail.ticket.url)}" target="_blank" rel="noopener">#${esc(detail.ticket.number)} · ${esc(detail.ticket.title)}</a>
+      <span class="dim-note">${esc(detail.open_tickets)} open ticket${detail.open_tickets === 1 ? "" : "s"} in ${esc((detail.covered ?? []).join(", "))}.</span></div>`
+    : `<div class="setup-note">No open ticket is ready for an agent in ${esc((detail.covered ?? []).join(", "))}. Curia starts work when one carries <code>ready-for-agent</code>.</div>`;
+  return `${identity}${install}${found}`;
+}
 
 function setupUnavailable(card) {
   if (card.state !== "unavailable") return "";
@@ -4877,7 +4935,7 @@ function runFullLoop() {
 
 /* The panel: the selected card's own configuration, the error treatment
    when its verification failed, and the frame's one forward action. */
-function setupPanel(card) {
+function setupPanel(card, p) {
   const slot = SETUP_CONTENT[card.key];
   const progress = setup?.progress?.[card.key] ?? {};
   const problem = card.state === "failed"
@@ -4896,7 +4954,7 @@ function setupPanel(card) {
   return `<div class="setup-panel">
     <div class="eyebrow">Independent connection · ${esc(card.badge)}</div>
     <h2>${esc(card.title)}</h2>
-    ${slot ? slot.content(card, progress) : ""}
+    ${slot ? slot.content(card, progress, p) : ""}
     ${problem}
     <div class="setup-actions">${tryAgain}${forward}
       <a href="#home" onclick="goto('home');return false">Close setup</a></div>
@@ -4923,7 +4981,7 @@ function screenSetup(p) {
       ${cards.map((c) => setupCard(c, c.key === selected)).join("")}
       ${setupFullLoop()}
     </aside>
-    <section>${setupPanel(setupCardOf(selected))}</section>
+    <section>${setupPanel(setupCardOf(selected), p)}</section>
   </div>`;
 }
 
