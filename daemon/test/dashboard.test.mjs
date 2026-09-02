@@ -423,6 +423,9 @@ describe('the settings write and the restart (#265)', () => {
   let reloadAnswer
   let aistackAnswer
   let aistackRequestBody
+  let setupAnswer
+  let setupRequestBody
+  let setupPostStatus
   let restartRequestBody
   let overviewAnswer
   const ALLOW = ['alp@example.com']
@@ -463,10 +466,29 @@ describe('the settings write and the restart (#265)', () => {
     // that holds the credential, so this side never composes one of these.
     aistackAnswer = { ok: true, registered: false, flow: { phase: 'unregistered' }, sync: { last: null, alarm: null } }
     aistackRequestBody = null
+    // What it answers on the setup routes (#874). The daemon verifies and
+    // keeps the record; this side composes the write and relays the read.
+    setupAnswer = { step: 'github', progress: {}, cards: [], full_loop: { ready: false, missing: [], reason: null, facts: null } }
+    setupRequestBody = null
+    setupPostStatus = 200
     restartRequestBody = null
     overviewAnswer = async () => ({ daemon: { port: 4271, uptime_s: 90 }, agents: [] })
     daemon = http.createServer((r, res) => {
       daemonCalls.push({ method: r.method, url: r.url, origin: r.headers.origin ?? null })
+      // The setup write (#874) answers its own status, so it sits before the
+      // shared 200 below.
+      if (r.url === '/setup' && r.method === 'POST') {
+        let raw = ''
+        r.setEncoding('utf8')
+        r.on('data', (chunk) => { raw += chunk })
+        return r.on('end', () => {
+          setupRequestBody = JSON.parse(raw)
+          res.writeHead(setupPostStatus, { 'content-type': 'application/json' })
+          res.end(JSON.stringify(setupPostStatus === 200
+            ? { ok: true, step: setupRequestBody.step ?? 'github', progress: setupRequestBody.progress ?? {} }
+            : { ok: false, error: 'the discord channel is not the shape a channel takes' }))
+        })
+      }
       res.writeHead(200, { 'content-type': 'application/json' })
       if (r.url === '/repos') return res.end(JSON.stringify({ login: 'alp82', repos: ['o/r', 'o/other'], error: null }))
       if (r.url === '/settings/action') return res.end(JSON.stringify({
@@ -493,6 +515,7 @@ describe('the settings write and the restart (#265)', () => {
         })
       }
       if (r.url.startsWith('/aistack')) return res.end(JSON.stringify(aistackAnswer))
+      if (r.url === '/setup') return res.end(JSON.stringify(setupAnswer))
       if (r.url === '/restart') {
         let raw = ''
         r.setEncoding('utf8')
@@ -821,6 +844,66 @@ describe('the settings write and the restart (#265)', () => {
     const body = JSON.parse((await req(surface.port, '/api/repos', { headers: served() })).text)
     assert.equal(body.repos, null, 'an empty list would read as "you have no repos"')
     assert.ok(body.error)
+  })
+
+  // ---- integration setup (#874) ---------------------------------------------
+  //
+  // The daemon verifies every card and keeps the record; this process relays
+  // the read and composes the write out of the closed field list, so nothing
+  // a browser sends beyond a card name and its safe fields crosses the wire.
+
+  test('the setup status comes from the daemon, unedited, on every read', async () => {
+    setupAnswer = {
+      step: 'discord', progress: { discord: { channel: 'ops' } },
+      cards: [{ key: 'github', state: 'unavailable' }], full_loop: { ready: false, missing: ['github'], reason: 'Waiting for GitHub.', facts: null },
+    }
+    const res = await req(surface.port, '/api/setup', { headers: served() })
+    assert.equal(res.status, 200)
+    assert.deepEqual(JSON.parse(res.text), setupAnswer)
+    assert.deepEqual(daemonCalls, [{ method: 'GET', url: '/setup', origin: null }])
+  })
+
+  test('a daemon that cannot be asked about setup answers null cards with the reason, never four unconnected ones', async () => {
+    await new Promise((done) => daemon.close(done))
+    daemon = null
+    const body = JSON.parse((await req(surface.port, '/api/setup', { headers: served() })).text)
+    assert.equal(body.cards, null)
+    assert.ok(body.error)
+  })
+
+  test('a write carries the selected card and the safe fields, and nothing else the browser sent', async () => {
+    const res = await req(surface.port, '/api/setup', {
+      method: 'POST', headers: writes(),
+      body: {
+        step: 'discord',
+        progress: { discord: { channel: 'ops', guild_id: '123456789', token: 'MTIz.never', bot_token: 'MTIz.never' }, full: { done: true } },
+        complete: ['github'], connected: { github: true },
+      },
+    })
+    assert.equal(res.status, 200, res.text)
+    assert.deepEqual(daemonCalls, [{ method: 'POST', url: '/setup', origin: null }])
+    assert.deepEqual(setupRequestBody, { step: 'discord', progress: { discord: { channel: 'ops', guild_id: '123456789' } } })
+    assert.ok(!JSON.stringify(setupRequestBody).includes('never'))
+  })
+
+  test('a card that is not one of the four is refused on this side, and nothing reaches the daemon', async () => {
+    const res = await req(surface.port, '/api/setup', { method: 'POST', headers: writes(), body: { step: 'full' } })
+    assert.equal(res.status, 409)
+    assert.match(JSON.parse(res.text).error, /"full" is not a setup card/)
+    assert.deepEqual(daemonCalls, [])
+  })
+
+  test("the daemon's refusal of a field reads as a refusal, not as this box failing", async () => {
+    setupPostStatus = 400
+    const res = await req(surface.port, '/api/setup', { method: 'POST', headers: writes(), body: { progress: { discord: { channel: 'Bad Channel' } } } })
+    assert.equal(res.status, 409)
+    assert.match(JSON.parse(res.text).error, /not the shape a channel takes/)
+  })
+
+  test('a setup write needs the same Origin gate every write does', async () => {
+    const res = await req(surface.port, '/api/setup', { method: 'POST', headers: served({ 'content-type': 'application/json' }), body: { step: 'github' } })
+    assert.equal(res.status, 403)
+    assert.deepEqual(daemonCalls, [])
   })
 
   // ---- the aistack registration (#706) -------------------------------------

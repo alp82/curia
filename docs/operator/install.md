@@ -15,7 +15,7 @@ The bootstrap hands off to `curia install` with the installation root in `CURIA_
 | 5. `start` | Writes `run/compose.env` with the five run-time values from [The bundle](bundle.md#the-bundle), creates the directories the containers mount so Docker never creates one as root, pulls the four images by digest, and brings the project up. | `run/compose.env`, directories under `cache/`, `run/`, and `work/`, and the Docker images, containers, network, and volume. |
 | 6. `health` | Waits until every service reports healthy, as [Health checks](bundle.md#health-checks) describes. A service that exits or turns unhealthy fails the step at once. A service still starting after four minutes fails it too. | Nothing. |
 
-On success the command prints the installation root, the launcher, and the address of the Curia app on your tailnet, `https://<your node's MagicDNS name>:8445/`, and tells you the next action: open the app and start integration setup. Nothing in integration setup needs the terminal again.
+On success the command prints the installation root, the launcher, and the address of the Curia app on your tailnet, `https://<your node's MagicDNS name>:8445/`, and tells you the next action: open the app and start integration setup. Nothing in integration setup needs the terminal again. See [Integration setup](integration-setup.md).
 
 The version `curia install` installs is always the version of the lifecycle interface that runs it. The bootstrap runs the staged package, so the version it downloaded is the version installed. Installing another version is `curia update`.
 

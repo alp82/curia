@@ -40,7 +40,7 @@
      2. Null is not empty. An unreadable fleet is not an idle box, and a frontier
         nobody has computed is not an empty frontier. Every section that can fail
         on its own says which of the two it is. -->
-<meta name="curia-dashboard" content="proto=15">
+<meta name="curia-dashboard" content="proto=16">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark light">
 <title>Curia app</title>
@@ -60,6 +60,10 @@
     --map-done-bg: #29463b; --map-done-ink: #a9cabc;
     --map-run-bg: #142b38; --map-run-ink: #a9ddf3; --map-run-line: #65b8db;
     --map-front-bg: #10252d; --map-fog-a: #2b3037; --map-fog-b: #20242a;
+    /* The setup rail's brand colors (#874, the #853 treatment): each card
+       carries its service's own color, dimmed until it verifies. Tailscale's
+       black is a token because black on the dark ground is no color at all. */
+    --brand-github: #24292f; --brand-discord: #5865f2; --brand-tailscale: #3a4149; --brand-model: #d8c6ac;
   }
   @media (prefers-color-scheme: light) {
     :root:not([data-theme="dark"]) {
@@ -74,6 +78,7 @@
       --map-done-bg: #dcebe4; --map-done-ink: #315f4b;
       --map-run-bg: #e0f0f7; --map-run-ink: #276a86; --map-run-line: #3f91b2;
       --map-front-bg: #e4f3f6; --map-fog-a: #d9dde0; --map-fog-b: #eef0f1;
+      --brand-tailscale: #252525;
     }
   }
   * { box-sizing: border-box; }
@@ -566,6 +571,85 @@
     .map-back { display: inline-block; margin-bottom: 10px; color: var(--ink-dim); font-size: 12px; }
   }
 
+  /* ---------- integration setup (#874, the frame #853 accepted) ----------
+     A rail of four FIXED-HEIGHT service cards on the left and the selected
+     card's own configuration on the right. Every card is one surface with a
+     68 px brand header and a 120 px footer, the same height in every state,
+     so a verification never shifts the rail. Treatment B: an unverified
+     header is dimmed, a connected header takes the full brand color and its
+     footer a light tint of it. A failed verification is red on the border,
+     the header, and the footer, and it names the failure and one action. */
+  .setup { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 22px; align-items: start; }
+  .setup-rail { display: flex; flex-direction: column; gap: 12px; }
+  .setup-count { padding: 0 2px 4px; }
+  .setup-count h3 { font-size: 20px; letter-spacing: -.02em; margin: 2px 0; }
+  .setup-card {
+    --brand: var(--brand-github); --on-brand: #fff;
+    width: 100%; height: 190px; padding: 0; overflow: hidden; display: flex; flex-direction: column;
+    border: 1px solid var(--line); border-radius: 14px; background: var(--bg-raise); color: var(--ink);
+    text-align: left; box-shadow: var(--shadow);
+  }
+  .setup-card.discord { --brand: var(--brand-discord); }
+  .setup-card.tailscale { --brand: var(--brand-tailscale); }
+  .setup-card.model { --brand: var(--brand-model); --on-brand: #20231f; }
+  .setup-card.on { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .setup-head {
+    flex: 0 0 68px; padding: 13px 15px; display: flex; align-items: center; gap: 10px;
+    color: var(--ink-dim); background: color-mix(in srgb, var(--brand) 22%, var(--bg-raise));
+  }
+  .setup-card.connected .setup-head { color: var(--on-brand); background: var(--brand); }
+  .setup-title { min-width: 0; flex: 1; font-size: 15px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .setup-badge {
+    flex: 0 0 auto; padding: 3px 8px; border-radius: 999px; font-size: 10.5px; font-weight: 650; white-space: nowrap;
+    color: inherit; background: color-mix(in srgb, currentColor 14%, transparent);
+  }
+  .setup-logo {
+    width: 28px; height: 28px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 50%;
+    color: var(--ink-dim); background: color-mix(in srgb, var(--bg-raise) 70%, transparent);
+  }
+  .setup-logo svg { width: 18px; height: 18px; fill: currentColor; }
+  .setup-card.connected .setup-logo { color: var(--brand); background: var(--on-brand); }
+  .setup-logo.discord { border-radius: 9px; }
+  .setup-dots { display: grid; grid-template-columns: repeat(3, 4px); gap: 3px; }
+  .setup-dots i { width: 4px; height: 4px; border-radius: 50%; background: currentColor; }
+  .setup-dots i:nth-child(2n) { opacity: .4; }
+  .setup-marks { display: flex; gap: 3px; font-size: 11px; font-weight: 800; }
+  .setup-marks span { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; background: color-mix(in srgb, currentColor 18%, transparent); }
+  .setup-marks span + span { border-radius: 6px; }
+  .setup-foot { flex: 1; min-height: 0; padding: 14px 15px; background: var(--bg-raise); }
+  .setup-card.connected .setup-foot { background: color-mix(in srgb, var(--brand) 10%, var(--bg-raise)); }
+  .setup-primary { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; font-weight: 650; }
+  .setup-primary .emoji { flex: 0 0 19px; font-size: 15px; line-height: 1.2; }
+  .setup-primary .fact { min-width: 0; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .setup-secondary { margin: 8px 0 0 27px; color: var(--ink-dim); font-size: 11.5px; line-height: 1.45; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+  .setup-pending { display: flex; gap: 8px; color: var(--ink-faint); font-size: 12px; line-height: 1.45; }
+  .setup-card.failed { border: 2px solid var(--bad); }
+  .setup-card.failed.on { outline-color: var(--bad); }
+  .setup-card.failed .setup-head { color: var(--bad); background: var(--chip-bad-bg); }
+  .setup-card.failed .setup-logo { color: var(--bad); background: color-mix(in srgb, var(--bg-raise) 60%, transparent); }
+  .setup-card.failed .setup-foot { color: var(--bad); background: color-mix(in srgb, var(--bad) 8%, var(--bg-raise)); }
+  .setup-card.failed .setup-secondary { color: color-mix(in srgb, var(--bad) 80%, var(--ink)); }
+  .setup-loop {
+    display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap;
+    margin-top: 4px; padding: 14px 15px; border: 1px dashed var(--line); border-radius: 14px;
+  }
+  .setup-loop .dim-note { flex: 1 1 180px; }
+  .setup-panel { border: 1px solid var(--line); border-radius: 14px; padding: 24px 26px; background: var(--bg-raise); max-width: 690px; }
+  .setup-panel h2 { font-size: 19px; letter-spacing: -.02em; margin: 4px 0 10px; }
+  .setup-panel p { margin: 0 0 10px; line-height: 1.5; }
+  .setup-note { border-left: 4px solid var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--bg-raise)); padding: 11px 14px; border-radius: 6px; margin: 14px 0; }
+  .setup-problem { border-left: 4px solid var(--bad); background: var(--chip-bad-bg); padding: 12px 14px; border-radius: 6px; margin: 14px 0; line-height: 1.5; }
+  .setup-problem b { color: var(--bad); display: block; margin-bottom: 2px; }
+  .setup-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 18px; }
+  .setup-pointer { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; padding: 10px 14px; margin-bottom: 14px; border: 1px solid var(--accent); border-radius: 10px; background: color-mix(in srgb, var(--accent) 8%, var(--bg-raise)); }
+  /* Narrow screens stack full-width cards under the count; the rail never
+     compresses sideways and every card keeps its height (#853). */
+  @media (max-width: 760px) {
+    .setup { grid-template-columns: 1fr; }
+    .setup-card { width: 100%; }
+    .setup-panel { padding: 18px 16px; }
+  }
+
   /* ---------- settings (#265, on the #248 look) ---------- */
   .btn {
     border: 1px solid var(--line); background: var(--bg-raise); color: var(--ink);
@@ -772,6 +856,9 @@ const SCREENS = {
      read most of the time and acted on rarely — and because the one act it
      carries is not a config change. */
   credentials: ["Credentials", screenCredentials],
+  /* #874. Integration setup sits before Settings: it is the first-run frame
+     that connects the four integrations and opens the Full loop. */
+  setup: ["Setup", screenSetup],
   settings: ["Settings", screenSettings],
 };
 const NAMES = Object.keys(SCREENS);
@@ -800,6 +887,10 @@ var UI = {
      (#362) — applied, declined, offline — plus the three that interrupt them:
      restarting, refused, unread. */
   set: { models: false, phase: "clean", error: null, busy: false, note: null },
+  /* The setup frame's own state (#874): whether a read is in flight, and the
+     one sentence the last press left behind. The selected card is not here —
+     it is the record's `step`, kept by the service so a reopen restores it. */
+  setup: { busy: false, note: null },
   /* The drill-in frame's own state (#699), one entry per page that is a list
      of sections: which section is open, and whether the phone is on the list
      in front of it. */
@@ -822,6 +913,7 @@ var draft = null;     /* the same, with the operator's unsaved edits on it */
 var repos = null;     /* the watchable repos, read through the service on demand */
 var conversations = null; /* the browser conversations (#333), read on the Chat screen only */
 var aistack = null;   /* the aistack registration and sync verdict (#706), read on that section only */
+var setup = null;     /* the setup record and the four freshly verified cards (#874), read on arrival and on Try again */
 var aistackAct = { busy: null, said: null, poll: null }; /* which aistack press is in flight, and what it answered */
 
 /* Browser-local Action bookkeeping (#804). This map is the seam shared by
@@ -2228,6 +2320,7 @@ function screenHome(p) {
       <div class="track" aria-label="${closed} of ${total} walked"><i style="width:${pct}%"></i></div></div>`;
   }).join("") || `<div class="empty">No open map.</div>`;
   return `${head(p, "Home")}
+    ${setupPointer()}
     ${spentBanner(o)}
     ${holdBanner(o)}
     <div class="home-verdict"><div class="verdict-ring"><div><span class="v">${esc(needsYou(o))}</span><span class="k">needs you</span></div></div>
@@ -4673,6 +4766,239 @@ function screenCredentials(p) {
     </div>`;
 }
 
+/* ---- integration setup (#874, the frame the #853 prototype settled) --------
+
+   ONE RAIL, FOUR CARDS, ANY ORDER. GitHub, Discord, Tailscale and the model
+   provider are independently selectable; the Full loop is the one dependent
+   step and sits under the rail as an action, not a card. The selected card is
+   the record's `step`, kept by the service, so closing the tab and coming back
+   lands on the same card.
+
+   A CARD'S STATE IS THIS READ'S VERIFICATION. `GET /api/setup` verifies every
+   integration fresh and the page draws what came back. Nothing here remembers
+   "connected": Try again is a fresh read, and so is arriving.
+
+   THE SEAMS. `SETUP_CONTENT[key].content(card, progress)` is each card's
+   configuration slot; #875 to #879 replace the stub with the real connect
+   flow, and their verifier on the service side is what turns the card. Safe
+   progress a step wants back after a close goes through
+   `rememberSetupProgress`, never into browser storage. `runFullLoop` is the
+   seam #880 fills; until then the action stays unavailable. */
+
+const SETUP_ORDER = ["github", "discord", "tailscale", "model"];
+
+/* The content slot, per card: the body of the configuration panel. Every
+   stub says what the step will do and that it is not available in this
+   release yet, so an operator who lands here early reads a fact and not an
+   empty form. */
+var SETUP_CONTENT = {
+  github: {
+    content: (card) => `<p>Curia creates a dedicated GitHub App. You review and approve it on GitHub, then install it for at least one repository owner.</p>
+      <div class="setup-note">You sign in and grant access on GitHub. Curia never sees your password or browser session.</div>
+      ${setupUnavailable(card)}`,
+  },
+  discord: {
+    content: (card) => `<p>Curia guides you through creating a dedicated Discord application and bot, then installs the bot into the server you choose with its role and the channel permissions it needs.</p>
+      <div class="setup-note">The bot token is written once to its protected secret file. Curia never shows it again.</div>
+      ${setupUnavailable(card)}`,
+  },
+  tailscale: {
+    content: (card) => `<p>Curia verifies the Tailscale installation this host already runs, shows the identity that opened this app, and makes that identity the initial allowed operator after you confirm it.</p>
+      ${setupUnavailable(card)}`,
+  },
+  model: {
+    content: (card) => `<p>One verified provider is required. Sign in with your subscription, and Curia completes one minimal model request and applies a working routing preset. Add the second provider here whenever you like.</p>
+      ${setupUnavailable(card)}`,
+  },
+};
+
+function setupUnavailable(card) {
+  if (card.state !== "unavailable") return "";
+  return `<div class="setup-note">Connecting ${esc(card.title)} isn't available yet in this release. The card stays here, and this step lights up when it lands.</div>`;
+}
+
+/* The brand marks the rail carries (#853). A logo names the service beside
+   its word; it is never the only thing that does. */
+function setupLogo(key) {
+  if (key === "github") return `<span class="setup-logo" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.64 0 8.13c0 3.59 2.29 6.64 5.47 7.71.4.08.55-.18.55-.39 0-.19-.01-.83-.01-1.51-2.01.38-2.53-.5-2.69-.96-.09-.23-.48-.96-.82-1.15-.28-.15-.68-.53-.01-.54.63-.01 1.08.59 1.23.83.72 1.23 1.87.88 2.33.67.07-.53.28-.88.51-1.08-1.78-.2-3.64-.9-3.64-4.01 0-.89.31-1.62.82-2.19-.08-.2-.36-1.04.08-2.16 0 0 .67-.22 2.2.84A7.4 7.4 0 0 1 8 3.92c.68 0 1.36.09 2 .27 1.53-1.06 2.2-.84 2.2-.84.44 1.12.16 1.96.08 2.16.51.57.82 1.3.82 2.19 0 3.12-1.87 3.81-3.65 4.01.29.25.54.73.54 1.49 0 1.08-.01 1.95-.01 2.22 0 .22.15.47.55.39A8.14 8.14 0 0 0 16 8.13C16 3.64 12.42 0 8 0Z"/></svg></span>`;
+  if (key === "discord") return `<span class="setup-logo discord" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M20.317 4.37a19.8 19.8 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.211.375-.445.865-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.618-1.25.077.077 0 0 0-.078-.037A19.74 19.74 0 0 0 3.677 4.37a.07.07 0 0 0-.032.028C.533 9.046-.319 13.58.099 18.058a.082.082 0 0 0 .031.056c2.053 1.508 4.041 2.423 5.993 3.03a.078.078 0 0 0 .084-.028c.462-.63.873-1.295 1.226-1.994a.076.076 0 0 0-.042-.106 12.3 12.3 0 0 1-1.872-.892.077.077 0 0 1-.008-.128c.126-.094.252-.192.372-.291a.074.074 0 0 1 .078-.01c3.928 1.793 8.18 1.793 12.061 0a.074.074 0 0 1 .079.009c.12.099.246.198.373.292a.077.077 0 0 1-.007.128c-.598.343-1.22.645-1.873.891a.077.077 0 0 0-.041.107c.36.698.772 1.363 1.225 1.993a.076.076 0 0 0 .084.029c1.961-.607 3.95-1.522 6.002-3.03a.077.077 0 0 0 .031-.055c.5-5.177-.838-9.674-3.548-13.66a.061.061 0 0 0-.031-.029ZM8.02 15.331c-1.183 0-2.157-1.086-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.095 2.157 2.419 0 1.333-.956 2.419-2.157 2.419Zm7.975 0c-1.183 0-2.157-1.086-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.095 2.157 2.419 0 1.333-.946 2.419-2.157 2.419Z"/></svg></span>`;
+  if (key === "tailscale") return `<span class="setup-logo" aria-hidden="true"><span class="setup-dots">${"<i></i>".repeat(9)}</span></span>`;
+  return `<span class="setup-marks" aria-hidden="true"><span>◎</span><span>A</span></span>`;
+}
+
+/* The footer: one real fact and one supporting line once connected, the
+   failed verification and its one action on an error, and before either the
+   name of the data that will appear. Never a decorative metric. */
+function setupFooter(card) {
+  if (card.state === "failed") {
+    return `<div class="setup-primary"><span class="emoji" aria-hidden="true">⚠️</span><span class="fact">${esc(card.error?.failed)}</span></div>
+      <div class="setup-secondary">${esc(card.error?.action)}</div>`;
+  }
+  if (card.state === "connected" && card.footer) {
+    return `<div class="setup-primary"><span class="emoji" aria-hidden="true">${esc(card.footer.emoji || "✅")}</span><span class="fact">${esc(card.footer.primary)}</span></div>
+      <div class="setup-secondary">${esc(card.footer.secondary)}</div>`;
+  }
+  return `<div class="setup-pending"><span aria-hidden="true">○</span><span>${esc(card.pending)}</span></div>`;
+}
+
+function setupCard(card, selected) {
+  return `<button class="setup-card ${esc(card.key)} ${esc(card.state)}${selected ? " on" : ""}" aria-pressed="${selected ? "true" : "false"}"
+      onclick="selectSetupCard('${js(card.key)}')">
+    <div class="setup-head">${setupLogo(card.key)}<span class="setup-title">${esc(card.title)}</span><span class="setup-badge">${esc(card.badge)}</span></div>
+    <div class="setup-foot">${setupFooter(card)}</div>
+  </button>`;
+}
+
+const setupCards = () => (setup?.cards ?? []);
+const setupCardOf = (key) => setupCards().find((c) => c.key === key) ?? null;
+const setupSelected = () => (setupCardOf(setup?.step) ? setup.step : SETUP_ORDER[0]);
+const setupConnected = () => setupCards().filter((c) => c.state === "connected").map((c) => c.key);
+
+/* The one dependent step, under the rail. The button is enabled by the
+   service's gate and by nothing on this page: four connected cards with no
+   verified facts behind them are still not a loop to run. */
+function setupFullLoop() {
+  const gate = setup?.full_loop;
+  const missing = gate?.missing ?? SETUP_ORDER.filter((k) => !setupConnected().includes(k));
+  const ready = Boolean(gate?.ready);
+  const why = ready ? "Every integration is connected and verified."
+    : missing.length ? `Waiting for ${missing.map((k) => esc(setupCardOf(k)?.title ?? k)).join(", ")}.`
+      : esc(gate?.reason ?? "The Full loop isn't available yet in this release.");
+  return `<div class="setup-loop"><div><b>Full loop</b><div class="dim-note">${why}</div></div>
+    <button class="btn primary" ${ready ? `onclick="runFullLoop()"` : "disabled"}>Run Full loop</button></div>`;
+}
+
+/* The seam #880 fills: one real request from Discord through a model to a
+   delivered result, on the verified facts the gate supplied. */
+function runFullLoop() {
+  UI.setup.note = "The Full loop isn't available yet in this release.";
+  render();
+}
+
+/* The panel: the selected card's own configuration, the error treatment
+   when its verification failed, and the frame's one forward action. */
+function setupPanel(card) {
+  const slot = SETUP_CONTENT[card.key];
+  const progress = setup?.progress?.[card.key] ?? {};
+  const problem = card.state === "failed"
+    ? `<div class="setup-problem"><b>${esc(card.error?.failed)}</b>${esc(card.error?.action)}</div>`
+    : "";
+  const busy = UI.setup.busy;
+  const tryAgain = card.state === "failed"
+    ? `<button class="btn primary" ${busy ? "disabled" : ""} onclick="retrySetup()">${busy ? "Verifying…" : "Try again"}</button>`
+    : "";
+  const allReady = setupConnected().length === SETUP_ORDER.length;
+  const forward = card.state === "connected"
+    ? (allReady
+      ? `<button class="btn primary" ${setup?.full_loop?.ready ? `onclick="runFullLoop()"` : "disabled"}>Run Full loop</button>`
+      : `<button class="btn primary" onclick="continueSetup()">Continue setup</button>`)
+    : "";
+  return `<div class="setup-panel">
+    <div class="eyebrow">Independent connection · ${esc(card.badge)}</div>
+    <h2>${esc(card.title)}</h2>
+    ${slot ? slot.content(card, progress) : ""}
+    ${problem}
+    <div class="setup-actions">${tryAgain}${forward}
+      <a href="#home" onclick="goto('home');return false">Close setup</a></div>
+    ${UI.setup.note ? `<div class="dim-note" style="margin-top:10px">${esc(UI.setup.note)}</div>` : ""}
+  </div>`;
+}
+
+function screenSetup(p) {
+  const top = head(p, "Setup");
+  if (!setup) return `${top}<div class="later">Verifying the four integrations…</div>`;
+  /* Null is not empty (rule 2): a service that could not be asked is not four
+     unconnected cards. */
+  if (!setup.cards) {
+    return `${top}<div class="unread">curia could not verify the integrations: ${esc(setup.error ?? "the service did not answer")}.
+      <button class="btn sm" ${UI.setup.busy ? "disabled" : ""} onclick="retrySetup()">${UI.setup.busy ? "Verifying…" : "Try again"}</button></div>`;
+  }
+  const selected = setupSelected();
+  const cards = SETUP_ORDER.map((k) => setupCardOf(k)).filter(Boolean);
+  const done = setupConnected().length;
+  return `${top}<div class="setup">
+    <aside class="setup-rail" aria-label="Integrations">
+      <div class="setup-count"><div class="eyebrow">Your installation</div><h3>${done}/${cards.length} verified</h3>
+        <div class="dim-note">Connect the four in any order. Each card shows this read's verification, not a saved result.</div></div>
+      ${cards.map((c) => setupCard(c, c.key === selected)).join("")}
+      ${setupFullLoop()}
+    </aside>
+    <section>${setupPanel(setupCardOf(selected))}</section>
+  </div>`;
+}
+
+/* The Home pointer: on a fresh installation the one thing Home has to say is
+   which integrations are not connected yet. It draws only from a read that
+   answered, so a service that could not be asked points at nothing. */
+function setupPointer() {
+  if (!setup?.cards || UI.screen === "setup") return "";
+  const missing = SETUP_ORDER.filter((k) => setupCardOf(k)?.state !== "connected");
+  if (!missing.length) return "";
+  return `<div class="setup-pointer"><b>Integration setup isn't finished.</b>
+    <span class="dim-note">Not connected yet: ${missing.map((k) => esc(setupCardOf(k)?.title ?? k)).join(", ")}.</span>
+    <a href="#setup" onclick="goto('setup');return false">Open setup →</a></div>`;
+}
+
+/* ---- the reads and writes ---- */
+
+async function loadSetup() {
+  UI.setup.busy = true;
+  render();
+  try {
+    const res = await fetch("/api/setup", { headers: { accept: "application/json" }, cache: "no-store" });
+    if (!res.ok) throw new Error("the sidecar answered " + res.status);
+    setup = await res.json();
+  } catch (error) {
+    setup = { step: setup?.step ?? null, progress: setup?.progress ?? null, cards: null, full_loop: null, error: error.message };
+  }
+  UI.setup.busy = false;
+  render();
+}
+/* Try again is a fresh verification of everything, which is the only kind of
+   verification there is. */
+function retrySetup() {
+  UI.setup.note = null;
+  return loadSetup();
+}
+
+/* Selecting a card: the rail moves now, and the service keeps the choice so
+   a reopen lands here. A write that fails leaves the selection on the page
+   and says so; nothing about it is a secret and nothing about it is lost. */
+async function selectSetupCard(key) {
+  if (!SETUP_ORDER.includes(key) || !setup) return;
+  setup.step = key;
+  UI.setup.note = null;
+  render();
+  await writeSetup({ step: key });
+}
+function continueSetup() {
+  const next = SETUP_ORDER.find((k) => setupCardOf(k)?.state !== "connected") ?? setupSelected();
+  return selectSetupCard(next);
+}
+/* The safe checkpoint a step keeps for a reopen (#875 to #879 call this):
+   the fields the service allows for that card, never a secret. The service
+   refuses any other key by name. */
+async function rememberSetupProgress(card, fields) {
+  if (!setup) return null;
+  setup.progress = { ...(setup.progress ?? {}), [card]: { ...(setup.progress?.[card] ?? {}), ...fields } };
+  return writeSetup({ progress: { [card]: fields } });
+}
+async function writeSetup(body) {
+  try {
+    const res = await fetch("/api/setup", {
+      method: "POST", headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify(body),
+    });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(out.error || ("the sidecar answered " + res.status));
+    return out;
+  } catch (error) {
+    UI.setup.note = `curia could not keep this step for a reopen: ${error.message}`;
+    render();
+    return null;
+  }
+}
+
 function screenSettings(p) {
   if (!settings || !draft) {
     return `${head(p, "Settings")}
@@ -5036,6 +5362,7 @@ function enter(k) {
   if (UI.screen === "chat" && k !== "chat") applyChatRoute([]);
   UI.screen = k;
   if (k === "settings" && !settings) loadSettings();
+  if (k === "setup") loadSetup();
   if (k === "chat") loadConversations();
   if (k === "feed") recordFeedVisit();
 }
@@ -5177,6 +5504,10 @@ if (typeof document !== "undefined" && document.getElementById("app")) {
      and a marker that needed the section opened would be a marker nobody sees.
      `enter` already took the read on the settings screen itself. */
   if (UI.screen !== "settings") loadSettings();
+  /* The setup read at boot serves the Home pointer (#874): a fresh
+     installation lands on Home, and the one thing it has to say there is
+     which integrations are not connected yet. */
+  if (UI.screen !== "setup") loadSetup();
   render();
   if (document.visibilityState === "visible") tick();
 }
