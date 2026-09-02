@@ -31,7 +31,7 @@ The bundle is one Compose file and nothing else. It has these properties, and th
 - **Labelled resources.** Every container, the Compose network, and the tmux socket volume carry the label `sh.curia.installation=<installation ID>`, the ID from `state/installation.json`. `curia purge` removes Docker resources by that label and never by a name.
 - **Health checks.** Every service declares one. See [Health checks](#health-checks).
 - **Your numeric user and group.** Every container runs as `<your uid>:<your gid>`, and the two that reach the Docker socket also join the host's `docker` group. Nothing in the bundle or the images assumes user ID 1000.
-- **No secret, no env file, no operator path.** The bundle interpolates five values, all paths or numbers, that the lifecycle interface writes into an env file under `run/` when it starts the project: `CURIA_ROOT`, `CURIA_UID`, `CURIA_GID`, `DOCKER_GID`, and `CURIA_INSTALLATION_ID`. Credentials are files under `secrets/`, mounted into the service only.
+- **No secret, no env file, no operator path.** The bundle interpolates five values, all paths or numbers, that the lifecycle interface writes into `run/compose.env` when it starts the project: `CURIA_ROOT`, `CURIA_UID`, `CURIA_GID`, `DOCKER_GID`, and `CURIA_INSTALLATION_ID`. Credentials are files under `secrets/`, mounted into the service only.
 
 To read the bundle of the active version:
 

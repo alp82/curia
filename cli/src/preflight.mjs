@@ -379,6 +379,9 @@ export const hostProbes = Object.freeze({
     try { accessSync(path, constants.R_OK | constants.W_OK); return true } catch { return false }
   },
   groups: () => process.getgroups(),
+  // Whether the operator can listen on the port on every interface. A test
+  // that must not touch this machine's ports hands in its own answer.
+  portFree,
   fetchOrigin: async (origin) => {
     const started = Date.now()
     try {
@@ -545,6 +548,7 @@ async function tailscaleFacts(probes) {
 // listener is closed before the answer is returned. The holder of a busy
 // port comes from `ss`, when it is present and may name the process.
 async function portFactsOf(ports, sandbox, probes) {
+  const portFree = probes.portFree ?? hostProbes.portFree
   const busy = []
   for (const { port } of ports) {
     if (!(await portFree(port))) busy.push({ port, process: await holderOf(port, probes) })

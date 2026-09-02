@@ -59,7 +59,7 @@ A present but unreadable installation record is a failure (exit code `1`), not a
 
 ### When a lifecycle command refuses the host
 
-After the root, `curia install` and `curia update` check the host itself, and `curia doctor` runs the same checks. A refused host condition, such as another operating-system release, a busy port, or a Docker daemon your user can't reach, stops the command with exit code `3` and one corrective action. A warning, such as a host below the recommended profile, doesn't stop anything. The systems, the profile, every check, and every corrective action are in [Supported hosts and preflight checks](supported-hosts.md).
+After the root, `curia install`, `curia reinstall`, and `curia update` check the host itself, and `curia doctor` runs the same checks. A refused host condition, such as another operating-system release, a busy port, or a Docker daemon your user can't reach, stops the command with exit code `3` and one corrective action. A warning, such as a host below the recommended profile, doesn't stop anything. The systems, the profile, every check, and every corrective action are in [Supported hosts and preflight checks](supported-hosts.md).
 
 ### When a lifecycle command refuses a release
 
@@ -81,8 +81,8 @@ Run `curia help` to print this list from the installed version. The commands app
 
 | Command | What it does | Available |
 |---|---|---|
-| `curia install` | Installs Curia into the installation root and starts it. | Later release |
-| `curia reinstall` | Reinstalls the active version over a preserved installation root. It keeps `config/`, `secrets/`, `state/`, and `work/`. | Later release |
+| `curia install` | Installs Curia into the installation root and starts it: six named steps from the host checks to healthy services, then the app address. Over a preserved root it reinstalls. See [Install and reinstall](install.md). | Now |
+| `curia reinstall` | Reinstalls this version over a preserved installation root. It keeps the installation ID, `config/`, `secrets/`, `state/`, and `work/`, and refuses a root that holds no installation. See [Install and reinstall](install.md). | Now |
 | `curia update` | Stages, verifies, and switches to the stable release named in the stable-release index. `curia update <version>` selects an exact version, and `curia update --prerelease <version>` selects an exact prerelease. It keeps the previous release for rollback. See [How a version is selected](#how-a-version-is-selected). | Later release |
 | `curia rollback` | Switches back to the one retained previous release. | Later release |
 | `curia doctor` | Checks the host, operator configuration, integrations, containers, and service reachability. It's read-only and repairs nothing. | Later release |
@@ -92,6 +92,8 @@ Run `curia help` to print this list from the installed version. The commands app
 | `curia help` | Prints the command list and exit codes. | Now |
 
 `curia --version` prints only the lifecycle interface version.
+
+`curia install` and `curia reinstall` take no options. The root comes from `CURIA_ROOT`, which the bootstrap and the launcher set, and the stage from `CURIA_STAGE`, which the bootstrap sets. A failed step names itself and the command that reruns it; see [When a step fails](install.md#when-a-step-fails).
 
 In this release, a command marked **Later release** checks the installation root as described in [When a lifecycle command refuses the root](#when-a-lifecycle-command-refuses-the-root), then exits with code `3` and a message that names the installed version and the release map. Nothing changes on the host.
 

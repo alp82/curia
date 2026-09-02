@@ -88,7 +88,7 @@ describe('command routing', () => {
     assert.match(r.err, /curia help/)
   })
 
-  for (const name of ['install', 'reinstall', 'update', 'rollback', 'doctor', 'uninstall', 'purge']) {
+  for (const name of ['update', 'rollback', 'doctor', 'uninstall', 'purge']) {
     test(`${name} routes to its seam and reports that the command is not available yet`, async () => {
       const root = tempRoot()
       try {
@@ -105,7 +105,7 @@ describe('command routing', () => {
   test('a lifecycle command refuses root execution before anything else', async () => {
     const r = await run(['install'], { CURIA_ROOT: '/nonexistent/curia' }, { uid: 0 })
     assert.equal(r.exit, EXIT.refused)
-    assert.match(r.err, /^curia install: this command runs as root/)
+    assert.match(r.err, /^curia install: preflight: this command runs as root/)
   })
 
   test('a lifecycle command refuses an unknown nonempty root', async () => {

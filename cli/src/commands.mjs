@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 
 import { EXIT, Refusal } from './exit.mjs'
 import { installationRoot, openRoot, readInstallationRecord } from './root.mjs'
+import { installCommand } from './install.mjs'
 
 export const packageVersion = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version
 
@@ -17,9 +18,9 @@ export const packageVersion = JSON.parse(readFileSync(new URL('../package.json',
 // itself does. `version` is read-only and skips the boundary on purpose: it
 // reports the root even when a lifecycle command would refuse it.
 //
-// The seven lifecycle commands are seams the follow-up tickets fill in. Each
-// stub refuses with the same message so an operator who runs a released
-// package that lacks a command learns that fact instead of a stack trace.
+// The lifecycle commands a later ticket fills in are seams. Each stub refuses
+// with the same message so an operator who runs a released package that lacks
+// a command learns that fact instead of a stack trace.
 function notYet(name) {
   return async ({ root, uid }) => {
     openRoot(root, { uid })
@@ -38,8 +39,8 @@ async function version({ env, stdout }) {
 
 // Order matters: `curia help` lists the commands in lifecycle order.
 export const commands = {
-  install: { summary: 'Install Curia into the installation root and start it.', run: notYet('install') },
-  reinstall: { summary: 'Reinstall the active version over a preserved installation root.', run: notYet('reinstall') },
+  install: { summary: 'Install Curia into the installation root and start it.', run: installCommand('install') },
+  reinstall: { summary: 'Reinstall this version over a preserved installation root, keeping its identity, configuration, secrets, state, and work.', run: installCommand('reinstall') },
   update: { summary: 'Stage, verify, and switch to the latest stable release, or to an exact version.', run: notYet('update') },
   rollback: { summary: 'Switch back to the one retained previous release.', run: notYet('rollback') },
   doctor: { summary: 'Check the host, configuration, integrations, and services. Read-only.', run: notYet('doctor') },

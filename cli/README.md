@@ -6,7 +6,7 @@ For the operator's view, read the [command reference](https://github.com/alp82/c
 
 ## What this version ships
 
-This version ships the stable launcher, the command vocabulary, the installation-root boundary, the operator configuration contract, the supported-host preflight, the Compose bundle contract, the release manifest with its verification, and the stable-release index with its selection rule. Every lifecycle command exists and routes. Each one opens its root through the boundary first, so the root refusals are real, and then refuses with exit code `3` and a message that names the version and the release map. The follow-up tickets in [Ship Curia's supported installation lifecycle](https://github.com/alp82/curia/issues/863) fill the commands in.
+This version ships the stable launcher, the command vocabulary, the installation-root boundary, the operator configuration contract, the supported-host preflight, the Compose bundle contract, the release manifest with its verification, the stable-release index with its selection rule, and `curia install` and `curia reinstall`. Every lifecycle command exists and routes. Each one opens its root through the boundary first, so the root refusals are real. The commands a later ticket fills in refuse with exit code `3` and a message that names the version and the release map. The follow-up tickets in [Ship Curia's supported installation lifecycle](https://github.com/alp82/curia/issues/863) fill them in.
 
 ## Layout
 
@@ -26,6 +26,8 @@ This version ships the stable launcher, the command vocabulary, the installation
 - `src/stable.mjs`: the stable-release index and the selection rule: the signed index's contract, the two transitions (`promote`, `withdraw`), `selectRelease`, and the fetch that verifies the index against the key this package pins at `stable-index.pub`. See [The stable-release index](#the-stable-release-index).
 - `src/preflight.mjs`: the supported-host preflight. `gatherHostFacts` reads the host through injectable probes, `evaluateHostFacts` turns the facts into one report, and `preflight` does both and prints it. See [The host preflight](#the-host-preflight).
 - `src/launcher.mjs`: renders the stable `curia` launcher for one installation root.
+- `src/compose.mjs`: the one seam to Docker Compose. `composeProject` names one version's project files, `writeComposeEnvironment` writes `run/compose.env`, `startProject` pulls and brings the project up, and `waitForHealth` waits for the five services, all through an injectable `dockerRunner`. See [Install and reinstall](#install-and-reinstall).
+- `src/install.mjs`: `curia install` and `curia reinstall`, the six named steps from the host checks to healthy services. See [Install and reinstall](#install-and-reinstall).
 
 ## The root boundary
 
@@ -126,9 +128,25 @@ What it needs from this package:
 
 - `curia.node` in `package.json`: the exact Node.js version to stage under `versions/<version>/node`, read with `sed`, so it stays one `x.y.z` on its own line. `daemon/test/bootstrap.test.mjs` keeps it equal to `sandbox.node_version` in `config/curia.yaml`, the pin the release images run on.
 - `stable-index.pub`, `src/stable.mjs` (`fetchStableIndex`, `selectRelease`, `renderSelection`), `src/manifest.mjs` (`verifyStagedRelease`), and `src/exit.mjs` (`Refusal`): the script writes a small `verify.mjs` into its stage that imports these from the staged package and runs them on the files it downloaded, with probes that read those files instead of the network.
-- `bin/curia.mjs`: the hand-off. The script runs `curia install` or `curia purge` on the staged runtime with `CURIA_ROOT` set, and for an installation `CURIA_STAGE` set to a directory that holds `node/`, `cli/`, `cli.tgz`, `bundle.tar.gz`, and `bundle.tar.gz.sha256`, the names `versionPaths` uses. The stage is removed when the command returns, so `curia install` (#873) moves or copies what it keeps before it returns.
+- `bin/curia.mjs`: the hand-off. The script runs `curia install` or `curia purge` on the staged runtime with `CURIA_ROOT` set, and for an installation `CURIA_STAGE` set to a directory that holds `node/`, `cli/`, `cli.tgz`, `bundle.tar.gz`, and `bundle.tar.gz.sha256`, the names `versionPaths` uses. The stage is removed when the command returns, so `curia install` copies what it keeps before it returns.
 
 `daemon/test/bootstrap.test.mjs` runs the script against a local artifact server built from this package's sources and proves the hand-off, every refusal, and the purge dispatch without a network.
+
+## Install and reinstall
+
+`src/install.mjs` is `curia install` and `curia reinstall` (#873): one linear sequence of six named steps, `preflight`, `root`, `stage`, `activate`, `start`, and `health`, from the verified stage to a healthy Compose project and the app address. The operator's view is [Install and reinstall](https://github.com/alp82/curia/blob/main/docs/operator/install.md).
+
+The interface:
+
+- `runInstall(context, deps)` is the command. `context` is what `runCli` hands a command (`env`, `stdout`, `uid`, `gid`, `root`) plus `mode`, `install` or `reinstall`. `deps` are the boundaries a test replaces: `hostProbes` (the preflight's), `releaseProbes` (the manifest's), `docker` (the runner in `src/compose.mjs`), and `sleep` and `now` for the health wait. `installCommand(mode)` binds the mode for the command table.
+- `INSTALL_STEPS` names the steps in order. Every step is idempotent by inspection: it reads what is there and does only what is missing, so a rerun lands at the step that failed with no persisted operation record. A failure is rethrown as `<step> failed: <cause>` plus the command that reruns it (the bootstrap before the launcher exists, the launcher after). A `Refusal` is rethrown as `<step>: <condition>` and stays a refusal.
+- The version installed is `packageVersion`, this interface's own. With `CURIA_STAGE` set, `stage` verifies the stage through `verifyStagedRelease`, refuses a stage of another version, copies it into a sibling of `versions/<version>/`, and renames it into place, replacing the directory if it was there. Without `CURIA_STAGE`, `stage` verifies the retained artifacts already under `versions/<version>/` and moves on, or refuses when there is no complete version.
+- `root` runs `ensureLayout`, then takes `withLifecycleLock` for the rest of the command, writes the record (a fresh ID for a fresh root, the existing record otherwise), and writes `initialOperatorConfig()` only when `config/config.yaml` is absent. `activate` writes the record with the version active, writes the launcher through `writeAtomically` at mode `0755`, and removes every other directory under `versions/`. `start` writes `run/compose.env`, creates the mount sources from `serviceLayout`, pulls, and brings the project up. `health` is `waitForHealth`.
+- `APP_SERVE_PORT` is the Curia app's Serve port, which the completion line uses with the node's first `CertDomains` entry from the preflight facts. `daemon/test/preflightports.test.mjs` keeps it equal to `dashboard.serve_port` in `config/curia.yaml`.
+
+`src/compose.mjs` is the one seam to Docker: `composeProject({ root, version })` names the env file and the bundle file and builds the `docker compose --env-file ... -f ...` argument list; `writeComposeEnvironment` writes the env file with `bundleEnvironment`; `startProject` runs `pull` then `up --detach --remove-orphans`; `serviceStates` reads `ps --all --format json` (one object per line, or one array on older Compose); and `waitForHealth` polls until every service in `SERVICES` is healthy, fails at once on one that exited or is unhealthy, and fails at `HEALTH_TIMEOUT_MS` on one still starting, naming the service and the `logs` command. `dockerRunner` is the real `docker`; every function takes a `docker` to replace it. `curia update` (#883), `curia rollback` (#884), `curia uninstall` (#886), and `curia purge` (#887) reuse this module for switching and teardown.
+
+The tests are `test/install.test.mjs` and `test/compose.test.mjs`, against `test/fixtures/install.mjs`: one packaged release built the way the workflow builds one, the stage as the bootstrap leaves it, fake host probes, and a fake `docker` that records the Compose verbs and answers `ps`. They cover the clean install, the preserved-root reinstall, a failed activation and its rerun, a failed health wait and its launcher rerun without a stage, a failed pull, and every refusal. `daemon/test/installbundle.test.mjs` installs the real `deploy/bundle/compose.yaml` and has Docker Compose read the env file and the installed bundle; it skips where Docker is absent.
 
 ## The launcher
 
