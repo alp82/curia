@@ -93,7 +93,11 @@ export const daemonPort = () => Number(process.env.PORT ?? DEFAULT_DAEMON_PORT)
 // Bumped to 16 by #874: the page carries the integration setup frame, which
 // reads `/api/setup` and POSTs it. A proto-15 sidecar answers 404 on both, and
 // a setup screen whose every card is unreadable is not a screen.
-export const DASHBOARD_PROTO = 16
+// Bumped to 17 by #882: the setup frame runs the Full loop through
+// `/api/setup/full-loop` and its retry, and draws the run the read carries.
+// A proto-16 sidecar answers 404 on the press, and a Run Full loop that runs
+// nothing is the stub this release retired.
+export const DASHBOARD_PROTO = 17
 
 // The Credentials screen's own hash (#661). It is here rather than in the
 // daemon that links to it, because the page's screen names are this file's half
@@ -1230,6 +1234,29 @@ export class DashboardSurface {
           return out
         })
       }
+      // The Full loop's press and retry (#882). The press names at most a
+      // covered repository and a ticket number, both shaped here; the daemon
+      // reads its own gate and refuses a closed one. The answer is the run.
+      if (url.pathname === '/api/setup/full-loop' || url.pathname === '/api/setup/full-loop/retry') {
+        return this.#write(res, async () => {
+          const b = await this.#body(req)
+          const body = {}
+          if (!url.pathname.endsWith('/retry')) {
+            if (typeof b.repo === 'string' && b.repo) {
+              if (!/^[\w.-]+\/[\w.-]+$/.test(b.repo)) throw refuse(`"${b.repo.slice(0, 60)}" is not a repository`)
+              body.repo = b.repo
+            }
+            if (b.ticket !== undefined && b.ticket !== null && b.ticket !== '') {
+              const n = Number(b.ticket)
+              if (!Number.isInteger(n) || n <= 0) throw refuse(`"${String(b.ticket).slice(0, 40)}" is not a ticket number`)
+              body.ticket = n
+            }
+          }
+          const out = await this.#daemon({ method: 'POST', path: url.pathname.replace('/api', ''), body, accept: [200, 400], timeout: SETUP_TIMEOUT_MS })
+          if (out.ok === false) throw refuse(out.error)
+          return out
+        })
+      }
       // The Discord card (#876). Two writes, each composed here out of the
       // fields it names and nothing else. The token crosses once, to the
       // daemon, which lands it in its secret file; this surface holds no copy
@@ -1443,6 +1470,14 @@ export class DashboardSurface {
       return this.#daemon({ path: '/setup', timeout: SETUP_TIMEOUT_MS }).then(
         (r) => this.#json(res, 200, r),
         (e) => this.#json(res, 200, { step: null, progress: null, cards: null, full_loop: null, error: e.message }),
+      )
+    }
+    // The Full loop's run (#882), as the daemon reads it off the journal. A
+    // daemon that cannot be asked answers a null state with the reason.
+    if (url.pathname === '/api/setup/full-loop') {
+      return this.#daemon({ path: '/setup/full-loop', timeout: SETUP_TIMEOUT_MS }).then(
+        (r) => this.#json(res, 200, r),
+        (e) => this.#json(res, 200, { state: null, legs: null, error: e.message }),
       )
     }
     // The Discord card's own read (#876): the token by presence, the bot, its

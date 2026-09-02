@@ -161,10 +161,14 @@ async function ask(verifier, context) {
 }
 
 export class IntegrationSetup {
-  constructor({ stateDir, verifiers = {}, fullLoop = null, log = console.log }) {
+  // `run` (#882) answers the Full loop's current run from the journal, so
+  // one read of `/setup` carries the gate and the run side by side; it is
+  // null before the loop's run is wired, and never a stored marker.
+  constructor({ stateDir, verifiers = {}, fullLoop = null, run = null, log = console.log }) {
     this.stateDir = stateDir
     this.verifiers = verifiers
     this.fullLoop = fullLoop
+    this.run = run
     this.log = log
   }
 
@@ -265,6 +269,7 @@ export class IntegrationSetup {
         full_loop.reason = e.message
       }
     }
+    full_loop.run = this.run ? this.run() : null
     return { ...record, cards, full_loop }
   }
 }

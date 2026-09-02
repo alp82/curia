@@ -279,7 +279,49 @@ When setup is ready, the panel says `Every integration is connected and verified
 
 ### Run Full loop
 
-**Run Full loop** enables only when setup is ready. In this release, selecting it says that the loop is ready on this read's verified facts and runs nothing. Running the Full loop as the installation acceptance lands with a later ticket of the same map.
+**Run Full loop** enables only when setup is ready. Selecting it runs one real Full loop, and that run is the installation's acceptance: setup succeeds when every leg of the loop completes in one pass, and not before. There is no separate evidence report. The completion state links the GitHub and Discord artifacts the run produced and reports the elapsed time.
+
+#### Prepare the rehearsal ticket
+
+Before you select **Run Full loop**, mark one ticket of the covered repository for the rehearsal:
+
+1. Create or pick an open ticket that Curia can take: unassigned, unblocked, and either a child of an open map or labelled `ready-for-agent` when the repository has no open map.
+2. Add the `rehearsal` label to that ticket. Curia runs the Full loop only on a ticket that carries this label, so the run never spends a ticket you didn't choose.
+3. Write the ticket so that the agent has to ask you one question it can't answer from the repository. The escalation leg needs a real question and a real answer.
+4. Keep the ticket small. The run holds a review gate that you approve from Discord, and the merge is a real merge into the repository's default branch.
+
+When the covered repository has several marked tickets, Curia takes the first one on its frontier. To choose another, name its number when you press the button from the API, or leave only one ticket marked.
+
+#### What the run covers
+
+The run walks the eight legs of the Full loop in order. Each leg is observed through the record Curia already keeps while an agent works, never through a marker the run writes for itself. The following table lists the legs and what completes each one.
+
+| Leg | What completes it |
+|---|---|
+| Frontier discovery | The dispatcher's own frontier read of the repository lists the marked ticket as takeable. |
+| Dispatch | The dispatcher claims the ticket and spawns the agent session (`agent_spawned`). |
+| Escalation and answer | The agent asks a question through Discord and your answer reaches it. The review gate doesn't count as this leg. |
+| Pull request | The agent's `open_pull_request` opens or updates the pull request. |
+| Review | You approve the review gate in the ticket's thread. A rejection sends the agent back and completes nothing. |
+| Merge | The resolution receipt finds the pull request merged. |
+| Ticket resolution | The receipt finds the resolution comment and the closed ticket. |
+| Map update | The receipt finds the pointer line on the parent map's **Decisions so far**. |
+
+While the run is live, the **Full loop** panel under the rail shows one row per leg, the elapsed time, and the links as they appear. The page follows the service's read every 5 seconds. Your part of the run happens in Discord: answer the agent's question in the ticket's thread, then approve at the review gate. Everything else is the agent's and the daemon's.
+
+#### When the run completes
+
+The panel says **Full loop verified** and names the repository, the ticket, and the total elapsed time from the press to the last leg. It links the ticket, the pull request, the parent map, the Discord thread, and the command channel. Select **Open Curia** to leave setup. The run's start and completion are also on the Feed as journal events, which is the only record Curia keeps of it. `curia doctor` keeps reporting the gate, not the run: a completed run is not a readiness marker, and the next `Setup` read verifies the four cards fresh, as always.
+
+#### When a leg fails
+
+A run fails when the agent ends with a leg outstanding, when the dispatcher refuses the dispatch, or when no marked ticket is on the frontier. The panel names the failed leg, one cause, and one corrective action, and offers **Try again**. The completed legs and every connected integration stay as they are.
+
+- **Frontier discovery** fails when the repository has no takeable ticket marked `rehearsal`, or when the frontier can't be read. Label a ticket, or fix the GitHub card, then select **Try again**. The retry reads the frontier again.
+- **Dispatch** fails when the dispatcher refuses the ticket, for example over a clone an earlier agent left on disk, or a missing model credential. The cause is the dispatcher's own sentence. Fix what it names, then select **Try again**. The retry dispatches the same ticket again.
+- **Every later leg** fails when the agent ends before that leg: it exited, died, or was cancelled. Read the ticket's thread in the command channel, fix what stopped the agent, then select **Try again**. The retry dispatches the same ticket again, and only the new dispatch's legs count.
+
+A rejected review is not a failure. The agent takes your feedback, commits again, and asks for review again on the same pull request.
 
 ## What a reopen restores
 

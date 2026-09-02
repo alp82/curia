@@ -339,3 +339,45 @@ describe('an unreadable journal is not an empty one', () => {
     assert.throws(() => q.epochScan('42', 'curia-42'), /events journal is unreadable/)
   })
 })
+
+// The Full loop's two questions (#882). The loop rebuilds its run from the
+// last start row and the rows after it; what it reads is bounded here, and
+// what it accepts is pinned in fullloop.test.mjs.
+describe('the Full loop run questions', () => {
+  test('the last start row comes back whole, and null when no loop was ever pressed', () => {
+    assert.equal(ask([]).fullLoopRun(), null)
+    const q = ask([
+      { type: 'full_loop_started', repo: 'o/r', requested: null },
+      spawn('42', 'curia-42'),
+      { type: 'full_loop_started', repo: 'o/other', requested: 7 },
+    ])
+    const row = q.fullLoopRun()
+    assert.equal(row.id, 3)
+    assert.equal(JSON.parse(row.body).repo, 'o/other')
+  })
+
+  test('the rows after an id are the ticket\'s, the session\'s, the escalation answers, and the loop\'s own, in write order', () => {
+    const q = ask([
+      spawn('42', 'curia-42'),                                                  // 1, before the run
+      { type: 'full_loop_started', repo: 'o/r' },                               // 2
+      { type: 'full_loop_discovered', repo: 'o/r', ticket: 42 },                // 3
+      { type: 'dispatch_claimed', ticket: '42', agent: 'curia-42', repo: 'o/r' }, // 4
+      { type: 'esc_open', id: 'e1', agent: 'curia-42', ticket: '42', kind: 'choice' }, // 5
+      { type: 'esc_answer', id: 'e1', answer: '2' },                             // 6, no key at all
+      { type: 'esc_cancel', id: 'e9', by: 'alp' },                               // 7
+      { type: 'thread_bound', repo: 'o/r', ticket: '42', thread_id: '777' },     // 8, ticket only
+      { type: 'agent_spawned', ticket: '43', agent: 'curia-43', repo: 'o/r' },   // 9, another ticket
+      { type: 'notify', ticket: '43', agent: 'curia-43' },                       // 10
+      { type: 'full_loop_retry', repo: 'o/r', ticket: 42, leg: 'dispatch' },     // 11
+      { type: 'daemon_boot' },                                                   // 12, nobody's
+      { type: 'not_a_full_loop_row', ticket: '9' },                              // 13
+    ])
+    const ids = (rows) => rows.map((r) => r.id)
+    assert.deepEqual(ids(q.eventsSince(2, { ticket: '42', agent: 'curia-42' })), [3, 4, 5, 6, 7, 8, 11])
+    assert.deepEqual(ids(q.eventsSince(2)), [3, 6, 7, 11], 'with no key, only the answers and the loop\'s own rows')
+    assert.deepEqual(ids(q.eventsSince(8, { ticket: '42', agent: 'curia-42' })), [11])
+    const row = q.eventsSince(4, { ticket: '42', agent: 'curia-42' })[0]
+    assert.deepEqual(Object.keys(row).sort(), ['agent', 'body', 'id', 'ticket', 'ts', 'type'])
+    assert.equal(row.agent, 'curia-42')
+  })
+})

@@ -134,7 +134,10 @@ _Avoid_: golden thread (banned by the operator).
 The agent-side slice of the full loop: notify, a blocking question, the answer, resume, commit, result.
 
 **Rehearsal**:
-A scripted live run of the full loop on real repos. It proves every leg in one unbroken pass.
+A scripted live run of the full loop on real repos. It proves every leg in one unbroken pass. The ticket a rehearsal spends carries the `rehearsal` label; the **Full-loop run** selects it by that label and nothing else.
+
+**Full-loop run**:
+The first real Full loop as an installation's acceptance ([#882](https://github.com/alp82/curia/issues/882), implementing [#857](https://github.com/alp82/curia/issues/857)): `daemon/src/fullloop.mjs`. **Run Full loop** takes this read's **Full-loop gate**, selects the covered repository and the ticket marked `rehearsal` on its frontier through the dispatcher's own frontier read, and dispatches it through the dispatcher's own `start`. Every later leg is judged from the journal rows the daemon already writes while the agent works, counted only after the run's spawn, only for the ticket's session, and only in order; a row from an earlier dispatch, another ticket, the reviewer, or out of order counts for nothing, and neither does the run's own completion row. Setup succeeds only when all eight legs complete in one pass; the completion state links the ticket, the pull request, the map, the Discord thread, and the channel, and reports the elapsed time. A failure names the leg, one cause, and one action, keeps the completed legs and the connected integrations, and **Try again** reruns the failed leg. Nothing is stored but the journal rows, so `curia doctor` keeps reading the gate. See [Run Full loop](docs/operator/integration-setup.md#run-full-loop).
 
 ### Tickets and maps
 

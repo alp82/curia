@@ -76,6 +76,7 @@ import { OpenAISetup } from './openaisetup.mjs'
 import { AnthropicSetup } from './anthropicsetup.mjs'
 import { IntegrationSetup } from './setup.mjs'
 import { fullLoopGate } from './fullloopgate.mjs'
+import { FullLoop } from './fullloop.mjs'
 import {
   probeTtyd, serveOff, attachBase, appTerminalUrl, validSessionName,
   isConsoleKey, consoleKeyForSession, sessionForConsoleKey,
@@ -1470,10 +1471,14 @@ const anthropicSetup = new AnthropicSetup({
 // The Full-loop gate (#880) is a function of the cards: it reads no file
 // and keeps no marker, so every read, restart, and reconnection recomputes
 // readiness from what the five verifiers found now.
+// The loop's run (#882) is built after the dispatcher it drives; the read
+// answers null until then, which no request sees.
+let fullLoop = null
 const integrationSetup = new IntegrationSetup({
   stateDir: DATA,
   log,
   fullLoop: fullLoopGate,
+  run: () => fullLoop?.status() ?? null,
   verifiers: {
     github: githubVerifier({ minter: () => appMinter, watch: () => curiaConfig.watch }),
     discord: discordSetup.verifier(),
@@ -1664,6 +1669,19 @@ const dispatcher = new Dispatcher({
 // own sweep — so no future path can lose a note in silence the way #223 lost a
 // whole cross-check verdict.
 reduction.onNotesExpired = (ev) => dispatcher.announceExpiredNotes(ev)
+
+// The Full loop as the installation acceptance (#882). The press runs the
+// dispatcher's own frontier read and `start` on the ticket marked for the
+// rehearsal, and the run is judged from the journal rows the daemon writes
+// while the agent works. Nothing is stored but those rows.
+fullLoop = new FullLoop({
+  discover: async (repo) => (await dispatcher.frontier(repo))[0] ?? { repo, error: `${repo} is not a watched repository` },
+  dispatch: (repo, n) => dispatcher.start(n, { repo, by: 'setup' }),
+  journal: (type, data) => reduction.journal(type, data),
+  lastRun: () => reduction.questions.fullLoopRun(),
+  eventsSince: (id, keys) => reduction.questions.eventsSince(id, keys),
+  log,
+})
 
 // ---- the identity check (#151) ----------------------------------------------
 //
@@ -3855,6 +3873,25 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
     const body = await readBody(req)
     try {
       return json(200, { ok: true, ...integrationSetup.remember({ step: body.step, progress: body.progress }) })
+    } catch (e) {
+      if (!e.refusal) throw e
+      return json(400, { ok: false, error: e.message })
+    }
+  }
+  // The Full loop's run (#882). The read is the run as the journal tells it.
+  // The press takes this read's gate, so a closed gate runs nothing, and
+  // selects the covered repository and the ticket marked for the rehearsal;
+  // the retry reruns the failed leg. Both answer the run.
+  if (url.pathname === '/setup/full-loop' && req.method === 'GET') {
+    return json(200, fullLoop.status())
+  }
+  if ((url.pathname === '/setup/full-loop' || url.pathname === '/setup/full-loop/retry') && req.method === 'POST') {
+    const body = await readBody(req)
+    try {
+      const run = url.pathname.endsWith('/retry')
+        ? await fullLoop.retry()
+        : await fullLoop.start((await integrationSetup.status()).full_loop, { repo: body.repo ?? null, ticket: body.ticket ?? null })
+      return json(200, { ok: true, run })
     } catch (e) {
       if (!e.refusal) throw e
       return json(400, { ok: false, error: e.message })

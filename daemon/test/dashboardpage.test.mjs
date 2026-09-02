@@ -4506,8 +4506,9 @@ describe('integration setup (#874)', () => {
   })
 
   // #880: at convergence the panel names what the loop would run on, from
-  // this read's gate, and the press hands the facts on and runs nothing.
-  test('at convergence the Full loop panel names the gate\'s facts, and the press runs nothing in this release', async () => {
+  // this read's gate. #882: the press runs it through the sidecar and draws
+  // the run the service answers.
+  test('at convergence the Full loop panel names the gate\'s facts, and the press runs the loop through the sidecar', async () => {
     const facts = {
       verified_at: '2026-09-02T10:00:00.000Z',
       github: { repo: 'alp82/curia', covered: ['alp82/curia'], owners: [], open_tickets: 3, ticket: { repo: 'alp82/curia', number: 861, title: 'Chart backup', url: 'https://github.com/alp82/curia/issues/861' } },
@@ -4524,10 +4525,10 @@ describe('integration setup (#874)', () => {
     assert.match(line, /🧠 Anthropic · fable/)
     assert.match(html, /Every integration is connected and verified\./)
     assert.match(html, /<button class="btn primary" onclick="runFullLoop\(\)">Run Full loop<\/button>/)
-    page.runFullLoop()
-    html = page.screenSetup(payload())
-    assert.match(text(html), /The Full loop is ready on this read's verified facts\. This release doesn't run it yet\./)
-    assert.equal(calls.filter((c) => c.method === 'POST').length, 0, 'the press writes nothing')
+    await page.runFullLoop()
+    const press = calls.find((c) => c.method === 'POST')
+    assert.equal(press.url, '/api/setup/full-loop')
+    assert.deepEqual(press.body, {}, 'the press names nothing: the service selects the repository and the marked ticket')
 
     // No ticket discovered: the repository is named, and nothing is invented.
     page.setup = SETUP({ step: 'model', cards: ALL, full_loop: { ready: true, missing: [], reason: null, facts: { ...facts, github: { ...facts.github, ticket: null }, model: { ...facts.model, provider: 'openai', model: 'gpt' } } } })
@@ -4535,6 +4536,106 @@ describe('integration setup (#874)', () => {
     assert.match(plain, /📦 alp82\/curia/)
     assert.doesNotMatch(plain, /🎫/)
     assert.match(plain, /⚡ OpenAI · gpt/)
+  })
+
+  // #882: the run, as the service reads it off its journal. The panel draws
+  // exactly that: one row per leg, the artifacts linked, the elapsed time,
+  // and on a failure the leg, the cause, the action, and Try again.
+  const LEG_KEYS = ['discovery', 'dispatch', 'escalation', 'pull_request', 'review', 'merge', 'resolution', 'map_update']
+  const LEG_TITLES = ['Frontier discovery', 'Dispatch', 'Escalation and answer', 'Pull request', 'Review', 'Merge', 'Ticket resolution', 'Map update']
+  const RUN = (state, { legs = [], failed = null, elapsed = 61_000 } = {}) => ({
+    state,
+    repo: 'alp82/curia',
+    ticket: { number: 42, title: 'The rehearsal ticket', url: 'https://github.com/alp82/curia/issues/42', map: 40 },
+    started_at: '2026-09-02T10:00:00.000Z',
+    finished_at: state === 'running' ? null : '2026-09-02T10:01:01.000Z',
+    elapsed_ms: elapsed,
+    legs: LEG_KEYS.map((key, i) => ({ key, title: LEG_TITLES[i], state: legs[i] ?? 'pending', at: legs[i] === 'complete' ? '2026-09-02T10:00:30.000Z' : null, ms: legs[i] === 'complete' ? 3000 : null, link: null })),
+    failed,
+    links: { ticket: 'https://github.com/alp82/curia/issues/42', thread: 'https://discord.com/channels/2/777', channel: 'https://discord.com/channels/2/4', pull_request: legs[3] === 'complete' ? 'https://github.com/alp82/curia/pull/50' : null, map: 'https://github.com/alp82/curia/issues/40' },
+  })
+  const RUN_FACTS = { github: { repo: 'alp82/curia', covered: ['alp82/curia'], ticket: null }, discord: { channel: { name: 'curia' } }, tailscale: { address: 'a.ts.net' }, model: { provider: 'anthropic', model: 'fable' } }
+
+  test('a running Full loop draws one row per leg with its state as a word, the elapsed time, and no press', () => {
+    const run = RUN('running', { legs: ['complete', 'complete', 'running'] })
+    page.setup = SETUP({ step: 'model', cards: ALL, full_loop: { ready: true, missing: [], reason: null, facts: RUN_FACTS, run } })
+    const html = page.screenSetup(payload())
+    const body = text(html)
+    assert.match(body, /Running the Full loop\./)
+    assert.match(body, /alp82\/curia#42 · 1 min 1 s so far/)
+    assert.match(body, /Frontier discovery · complete/)
+    assert.match(body, /Dispatch · complete/)
+    assert.match(body, /Escalation and answer · running/)
+    assert.match(body, /Map update · pending/)
+    assert.doesNotMatch(html, /onclick="runFullLoop\(\)"/, 'no second press while a run is live')
+    assert.match(html, /<button class="btn primary" disabled>Running the Full loop…<\/button>/)
+    assert.match(html, /href="https:\/\/github\.com\/alp82\/curia\/issues\/42"[^>]*>Ticket/)
+    assert.match(html, /href="https:\/\/discord\.com\/channels\/2\/777"[^>]*>Discord thread/)
+    assert.doesNotMatch(html, /Pull request ↗/, 'a link the run has not produced is not drawn')
+    assert.doesNotMatch(html, /setup-loop-facts/, 'the gate\'s facts line gives way to the run')
+  })
+
+  test('a complete Full loop is the verified state: every leg, every artifact linked, the total elapsed time, and Open Curia', () => {
+    const run = RUN('complete', { legs: LEG_KEYS.map(() => 'complete'), elapsed: 754_000 })
+    run.legs[3].link = 'https://github.com/alp82/curia/pull/50'
+    page.setup = SETUP({ step: 'model', cards: ALL, full_loop: { ready: true, missing: [], reason: null, facts: RUN_FACTS, run } })
+    const html = page.screenSetup(payload())
+    const body = text(html)
+    assert.match(body, /Full loop verified\./)
+    assert.match(body, /alp82\/curia#42 · every leg completed in 12 min 34 s\./)
+    for (const title of LEG_TITLES) assert.match(body, new RegExp(`${title} · complete`))
+    assert.match(html, /href="https:\/\/github\.com\/alp82\/curia\/pull\/50"[^>]*>Pull request ↗/)
+    assert.match(html, /href="https:\/\/github\.com\/alp82\/curia\/issues\/40"[^>]*>Map ↗/)
+    assert.match(html, /href="https:\/\/discord\.com\/channels\/2\/4"[^>]*>Command channel ↗/)
+    assert.match(html, /href="https:\/\/github\.com\/alp82\/curia\/pull\/50"[^>]*>open</, 'the leg row links its own artifact')
+    assert.match(html, /onclick="goto\('home'\);return false">Open Curia/)
+    assert.doesNotMatch(html, /onclick="runFullLoop\(\)"/)
+    assert.doesNotMatch(html, /Try again/)
+  })
+
+  test('a failed Full loop names the leg, the cause, and the action, keeps the completed legs, and Try again retries the same step', async () => {
+    const failed = { leg: 'review', title: 'Review', cause: 'The agent ended before Review: the agent exited.', action: 'Read the thread of alp82/curia#42 in #curia and fix what stopped the agent, then select Try again to dispatch alp82/curia#42 again.' }
+    const run = RUN('failed', { legs: ['complete', 'complete', 'complete', 'complete', 'failed'], failed })
+    page.setup = SETUP({ step: 'model', cards: ALL, full_loop: { ready: true, missing: [], reason: null, facts: RUN_FACTS, run } })
+    const html = page.screenSetup(payload())
+    const body = text(html)
+    assert.match(body, /The Full loop did not complete\./)
+    assert.match(body, /Review failed: The agent ended before Review: the agent exited\./)
+    assert.match(body, /Read the thread of alp82\/curia#42 in #curia and fix what stopped the agent, then select Try again/)
+    assert.match(body, /Pull request · complete/)
+    assert.match(body, /Review · failed/)
+    assert.match(html, /onclick="retryFullLoop\(\)">Try again</)
+    assert.doesNotMatch(html, /onclick="runFullLoop\(\)"/)
+    await page.retryFullLoop()
+    const press = calls.find((c) => c.method === 'POST')
+    assert.equal(press.url, '/api/setup/full-loop/retry')
+    assert.deepEqual(press.body, {})
+  })
+
+  test('the press draws the run the sidecar answers, and a refused press says the sentence and presses nothing else', async () => {
+    const running = RUN('running', { legs: ['complete', 'running'] })
+    let answer = { ok: true, run: running }
+    let status = 200
+    const p2 = loadPage({
+      fetchImpl: async (url, init = {}) => ({ ok: status === 200, status, json: async () => (init.method === 'POST' ? answer : SETUP()) }),
+    })
+    p2.UI.screen = 'setup'
+    p2.setup = SETUP({ step: 'model', cards: ALL, full_loop: { ready: true, missing: [], reason: null, facts: RUN_FACTS, run: { state: 'idle', legs: [] } } })
+    assert.match(p2.screenSetup(payload()), /onclick="runFullLoop\(\)">Run Full loop</, 'an idle run leaves the press')
+    await p2.runFullLoop()
+    assert.equal(p2.setup.full_loop.run, running)
+    assert.match(text(p2.screenSetup(payload())), /Running the Full loop\./)
+    assert.ok(p2.UI.setup.loopTimer, 'a live run is followed')
+    clearTimeout(p2.UI.setup.loopTimer)
+    p2.UI.setup.loopTimer = null
+
+    p2.setup.full_loop.run = { state: 'idle', legs: [] }
+    answer = { error: "The Full loop isn't ready: Waiting for Discord." }
+    status = 409
+    await p2.runFullLoop()
+    assert.equal(p2.setup.full_loop.run.state, 'idle', 'a refused press changes no run')
+    assert.match(text(p2.screenSetup(payload())), /The Full loop isn't ready: Waiting for Discord\./)
+    assert.equal(p2.UI.setup.loopTimer, null)
   })
 
   test('the facts line is drawn from the gate\'s answer only: a closed gate draws none', () => {
