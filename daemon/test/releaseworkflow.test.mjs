@@ -110,6 +110,13 @@ describe('the release workflow', () => {
     for (const file of ['bundlecompose', 'bundlerelease', 'releaseimages', 'releasepublish', 'releaseworkflow', 'bootstrap']) {
       assert.match(prove.run, new RegExp(`daemon/test/${file}\\.test\\.mjs`), `the bundle job runs ${file}`)
     }
+    // Compose reads its env file by path, so a process substitution leaves
+    // every variable unset and the proof fails on the first `:?` expansion.
+    assert.doesNotMatch(prove.run, /--env-file\s+<\(/, 'the compose proof writes a real env file')
+    assert.match(prove.run, /--env-file\s+"\$RUNNER_TEMP\/bundle\.env"/, 'the compose proof reads the env file it wrote')
+    for (const name of ['CURIA_ROOT', 'CURIA_UID', 'CURIA_GID', 'DOCKER_GID', 'CURIA_INSTALLATION_ID']) {
+      assert.match(prove.run, new RegExp(`${name}=`), `the compose proof supplies ${name}`)
+    }
   })
 
   test('the bundle job renders the bootstrap with the release version, keeps it with the bundle, and attaches it through the gate', () => {
