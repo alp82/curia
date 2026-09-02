@@ -1,0 +1,16 @@
+{
+  "index": {
+    "format": 1,
+    "sequence": 1,
+    "updated": "2026-09-02T11:07:47Z",
+    "stable": null,
+    "withdrawn": [
+      "0.6.0"
+    ]
+  },
+  "signature": {
+    "algorithm": "ed25519",
+    "key": "51fed796b5398de8",
+    "value": "cab+4TxuM0A9p4UMrqL8aAm5kBboF0yHVnTT+KsKoQTc8l+yCIGxKB9JIrmh/J3aUR3g0jsvSKhEQltwTmAyDQ=="
+  }
+}
