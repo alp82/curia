@@ -107,9 +107,23 @@ describe('the release workflow', () => {
     assert.equal(key.env.CURIA_STABLE_INDEX_KEY, '${{ secrets.CURIA_STABLE_INDEX_KEY }}')
     assert.equal(assets.if, "needs.pins.outputs.release == 'true'")
     const prove = bundle.steps.find((s) => s.name === 'Prove the bundle')
-    for (const file of ['bundlecompose', 'bundlerelease', 'releaseimages', 'releasepublish', 'releaseworkflow']) {
+    for (const file of ['bundlecompose', 'bundlerelease', 'releaseimages', 'releasepublish', 'releaseworkflow', 'bootstrap']) {
       assert.match(prove.run, new RegExp(`daemon/test/${file}\\.test\\.mjs`), `the bundle job runs ${file}`)
     }
+  })
+
+  test('the bundle job renders the bootstrap with the release version, keeps it with the bundle, and attaches it through the gate', () => {
+    const bundle = release.jobs.bundle
+    const steps = bundle.steps
+    const render = steps.find((s) => /bootstrap\/render\.mjs/.test(s.run ?? ''))
+    assert.ok(render, 'the bootstrap is rendered')
+    assert.match(render.run, /--version "\$VERSION" --out dist/)
+    assert.equal(render.env.VERSION, '${{ needs.pins.outputs.version }}')
+    const prove = steps.findIndex((s) => s.name === 'Prove the bundle')
+    const upload = steps.find((s) => String(s.uses).startsWith('actions/upload-artifact@'))
+    const assets = steps.findIndex((s) => /publish\.mjs assets/.test(s.run ?? ''))
+    assert.ok(steps.indexOf(render) < prove && prove < assets, 'rendered, then proven, then attached')
+    assert.match(upload.with.path, /dist\/curia-install\.sh/)
   })
 
   test('every action is pinned to a full commit', () => {

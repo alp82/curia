@@ -30,7 +30,7 @@ Curia detects and verifies these three, and never installs or reconfigures them:
 - **Docker Compose v2**, as the `docker compose` plugin. Oldest tested version: 2.20. Compose v1 (`docker-compose`) is refused.
 - **Tailscale**, logged in, with your user set as the Tailscale operator, and HTTPS certificates enabled for the tailnet. Oldest tested version: 1.80.
 
-A version newer than the tested range produces a warning, not a refusal. A supported host also needs `bash`, `curl`, `sha256sum`, and CA certificates for the bootstrap, and `ss` from `iproute2` for the port check to name a process. All of these ship with both supported systems.
+A version newer than the tested range produces a warning, not a refusal. A supported host also needs `bash`, `curl`, `tar`, `gzip`, the coreutils checksum tools (`sha256sum`, `sha512sum`, `base64`, `od`), and CA certificates for [the bootstrap](bootstrap.md), and `ss` from `iproute2` for the port check to name a process. All of these ship with both supported systems.
 
 You run every lifecycle command as your own user, never as root. Curia never escalates privileges.
 
@@ -43,7 +43,8 @@ Preflight verifies outbound HTTPS to the three release origins, and nothing else
 | Destination | Used for |
 |---|---|
 | `registry.npmjs.org` | The lifecycle interface package. |
-| `github.com`, `api.github.com`, `objects.githubusercontent.com`, `raw.githubusercontent.com` | The bootstrap script, the release assets, the stable-release index (`raw.githubusercontent.com`), the pinned Node.js runtime, and the GitHub App. |
+| `github.com`, `api.github.com`, `objects.githubusercontent.com`, `raw.githubusercontent.com` | The bootstrap script, the release assets, the stable-release index (`raw.githubusercontent.com`), and the GitHub App. |
+| `nodejs.org` | The pinned Node.js runtime and its `SHASUMS256.txt`, downloaded by the bootstrap. |
 | `ghcr.io`, `pkg-containers.githubusercontent.com` | The service images. |
 | `discord.com`, `gateway.discord.gg` | The Discord bot. |
 | `controlplane.tailscale.com`, `login.tailscale.com`, and the DERP relays | Tailscale. |

@@ -132,6 +132,7 @@ describe('the contract', () => {
       checksum: 'curia-bundle-1.2.3.tar.gz.sha256',
       images: 'curia-images-1.2.3.json',
       package: 'curia-sh-cli-1.2.3.tgz',
+      bootstrap: 'curia-install.sh',
     })
   })
 

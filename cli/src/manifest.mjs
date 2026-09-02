@@ -72,7 +72,9 @@ export function isReleaseVersion(version) {
 }
 
 // The assets a release publishes, by their file names. The package asset is
-// what `npm pack` names the tarball; the registry serves the same bytes.
+// what `npm pack` names the tarball; the registry serves the same bytes. The
+// bootstrap keeps one fixed name, so the documented install command can
+// fetch it from releases/latest/download without knowing a version.
 export function releaseAssets(version) {
   return {
     manifest: `curia-manifest-${version}.json`,
@@ -80,6 +82,7 @@ export function releaseAssets(version) {
     checksum: `curia-bundle-${version}.tar.gz.sha256`,
     images: `curia-images-${version}.json`,
     package: `curia-sh-cli-${version}.tgz`,
+    bootstrap: 'curia-install.sh',
   }
 }
 
