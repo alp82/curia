@@ -1,6 +1,6 @@
 # The bootstrap
 
-The bootstrap is one Bash script, `curia-install.sh`, that puts a verified Curia on a supported host that has no Node.js, or removes one. This page is the reference for the command, what the script downloads and proves before it runs anything, why it stops, and its purge mode. The lifecycle topics in the operator guide tell you when to run it; this page tells you what it does.
+The bootstrap is one Bash script, `curia-install.sh`, that puts a verified Curia on a supported host that has no Node.js, or removes one. This page is the reference for the command, what the script downloads and proves before it runs anything, why it stops, and its purge mode. [2. Install Curia](guide/02-install-curia.md) in the operator guide tells you when to run it; this page tells you what it does.
 
 ## The command
 

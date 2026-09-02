@@ -1,6 +1,6 @@
 # Install and reinstall
 
-`curia install` turns a verified stage into a running Curia: one installed version under the installation root, the stable launcher, the Compose project up, and every service healthy. `curia reinstall` runs the same sequence over a root that already holds an installation and keeps everything that installation owns. This page is the reference for both commands: the steps, what each one changes, what a reinstall preserves, what a failure looks like, and how you retry. [The bootstrap](bootstrap.md) tells you how to start an installation; this page tells you what happens after the hand-off.
+`curia install` turns a verified stage into a running Curia: one installed version under the installation root, the stable launcher, the Compose project up, and every service healthy. `curia reinstall` runs the same sequence over a root that already holds an installation and keeps everything that installation owns. This page is the reference for both commands: the steps, what each one changes, what a reinstall preserves, what a failure looks like, and how you retry. [2. Install Curia](guide/02-install-curia.md) in the operator guide is where you run the installation, and [The bootstrap](bootstrap.md) is what starts it; this page tells you what happens after the hand-off.
 
 ## What `curia install` does
 

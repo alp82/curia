@@ -1,6 +1,6 @@
 # Release images and the Compose bundle
 
-Every long-running Curia process runs in a container from a published image, and one Compose bundle per release names those images by digest. This page is the reference for what a release ships, what each service is, how each one reports health, and how the containers run as you. The lifecycle topics in the operator guide tell you when to install, update, or roll back; this page tells you what those commands put on the host.
+Every long-running Curia process runs in a container from a published image, and one Compose bundle per release names those images by digest. This page is the reference for what a release ships, what each service is, how each one reports health, and how the containers run as you. The [operator guide](README.md) tells you when to install, update, or roll back; this page tells you what those commands put on the host.
 
 ## What a release ships
 
@@ -81,4 +81,4 @@ The images create no user of their own. A process that looks its user up, such a
 
 ## The source deployment
 
-The current source deployment on one box runs `deploy/compose.yaml`, which builds the same Dockerfiles at their `box` stage and mounts the checkout. It doesn't use the bundle. The cutover runbook moves that box onto an installed version.
+The current source deployment on one box runs `deploy/compose.yaml`, which builds the same Dockerfiles at their `box` stage and mounts the checkout. It doesn't use the bundle. The cutover runbook moves that box onto an installed version; see [8. Migrate the current deployment](guide/08-migrate-the-current-deployment.md).

@@ -1,6 +1,6 @@
 # Releases, the stable-release index, and version selection
 
-A Curia release is published once and never changed. Which release an installation should run is a separate fact, kept in a small signed file. This page is the reference for how a version is published, how the stable release is named, how a bad version is withdrawn, and how `curia update` picks a version. The lifecycle topics in the operator guide tell you when to update; this page tells you what "the stable release" means and where that answer comes from.
+A Curia release is published once and never changed. Which release an installation should run is a separate fact, kept in a small signed file. This page is the reference for how a version is published, how the stable release is named, how a bad version is withdrawn, and how `curia update` picks a version. [7. Update or roll back](guide/07-update-or-roll-back.md) in the operator guide tells you when to update; this page tells you what "the stable release" means and where that answer comes from.
 
 ## Publication order
 

@@ -1,6 +1,6 @@
 # Supported hosts and preflight checks
 
-Curia runs on one host that you prepare and Curia checks. This page is the reference for the supported systems, the host profile, the prerequisites you install, and the checks that `curia install`, `curia update`, and `curia doctor` run against the host. The lifecycle topics in the operator guide tell you when each command runs the checks.
+Curia runs on one host that you prepare and Curia checks. This page is the reference for the supported systems, the host profile, the prerequisites you install, and the checks that `curia install`, `curia update`, and `curia doctor` run against the host. [1. Check prerequisites](guide/01-check-prerequisites.md) in the operator guide is where you prepare the host; this page is what Curia checks.
 
 ## The supported systems
 
@@ -20,7 +20,7 @@ The following table lists the two profiles. A host below the minimum profile is 
 | Minimum | 2 | 4 GiB | 15 GiB |
 | Recommended | 4 | 8 GiB | 30 GiB |
 
-Free disk is measured on the file system that holds the installation root. Every new installation runs four agents at once. You can raise that number in the Curia app; the app estimates the memory that number needs.
+Free disk is measured on the file system that holds the installation root. Every new installation runs four agents at once. You can change that number in the Curia app or in `config/config.yaml`; see [Operator configuration](configuration.md). Curia never lowers it on its own.
 
 ## The prerequisites you install
 

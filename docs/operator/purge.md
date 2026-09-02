@@ -1,6 +1,6 @@
 # Purge and external cleanup
 
-`curia purge` removes every local trace of one Curia installation: the installation root with your configuration, credentials, history, and unfinished work, the launcher, the installation's containers, networks, and volumes, the release images nothing else on the host uses, and the Tailscale Serve routes Curia created. It asks one question first, and there is no way back. This page is the reference for the command: the warning, the confirmation, the steps, what stays on the host, how you retry, and the external resources that remain yours to remove. To remove the runnable system and keep the installation instead, run `curia uninstall`; see [Uninstall and reinstall from the preserved root](uninstall.md).
+`curia purge` removes every local trace of one Curia installation: the installation root with your configuration, credentials, history, and unfinished work, the launcher, the installation's containers, networks, and volumes, the release images nothing else on the host uses, and the Tailscale Serve routes Curia created. It asks one question first, and there is no way back. This page is the reference for the command: the warning, the confirmation, the steps, what stays on the host, how you retry, and the external resources that remain yours to remove. To remove the runnable system and keep the installation instead, run `curia uninstall`; see [Uninstall and reinstall from the preserved root](uninstall.md). [Purge](guide/09-uninstall-or-purge.md#purge) in the operator guide is where you run it.
 
 ## What `curia purge` does
 

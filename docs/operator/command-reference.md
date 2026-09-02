@@ -1,6 +1,6 @@
 # Command reference
 
-The `curia` command is the lifecycle interface of an installed Curia. This page lists the launcher, the commands, and the exit codes. It's a reference: the lifecycle topics in the operator guide tell you when to run each command and what to check afterwards. Follow those topics and open this page from them.
+The `curia` command is the lifecycle interface of an installed Curia. This page lists the launcher, the commands, and the exit codes. It's a reference: the [operator guide](README.md) tells you when to run each command and what to check afterwards. Follow its topics and open this page from them.
 
 This page describes the vocabulary that the first packaged release ships.
 

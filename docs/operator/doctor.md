@@ -1,6 +1,6 @@
 # Diagnostics with `curia doctor`
 
-`curia doctor` reads the state of an installed Curia and prints one line per check: the host, the installation root, the operator configuration, the installed release and its provenance, the secret files, the containers, the service, the four integrations, and the Curia app. This page is the reference for the command: what it checks, in what order, how the output reads, what the exit code means, and what it never prints. The lifecycle topics in the operator guide tell you when to run it.
+`curia doctor` reads the state of an installed Curia and prints one line per check: the host, the installation root, the operator configuration, the installed release and its provenance, the secret files, the containers, the service, the four integrations, and the Curia app. This page is the reference for the command: what it checks, in what order, how the output reads, what the exit code means, and what it never prints. [6. Check the installation](guide/06-check-the-installation.md) in the operator guide tells you when to run it.
 
 To run it from the installed launcher:
 

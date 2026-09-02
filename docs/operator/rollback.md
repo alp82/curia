@@ -1,6 +1,6 @@
 # Rollback
 
-`curia rollback` switches an installed Curia back to the one release it kept from the last update, while your agents keep working. This page is the reference for which release that is, what the command does step by step, when it refuses, what happens when the rollback release doesn't come up, what an update does on its own when its switch fails, and the rule that keeps the rollback release able to read what a newer release wrote. [Update discovery, staging, and the switch](update.md) describes the switch itself; a rollback is that switch with the versions swapped.
+`curia rollback` switches an installed Curia back to the one release it kept from the last update, while your agents keep working. This page is the reference for which release that is, what the command does step by step, when it refuses, what happens when the rollback release doesn't come up, what an update does on its own when its switch fails, and the rule that keeps the rollback release able to read what a newer release wrote. [Update discovery, staging, and the switch](update.md) describes the switch itself; a rollback is that switch with the versions swapped. [Roll back](guide/07-update-or-roll-back.md#roll-back) in the operator guide is where you run it.
 
 ## The rollback release
 
