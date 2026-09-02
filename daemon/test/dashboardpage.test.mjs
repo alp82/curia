@@ -4668,7 +4668,9 @@ describe('integration setup (#874)', () => {
     assert.match(body, /Escalation and answer · running/)
     assert.match(body, /Map update · pending/)
     assert.doesNotMatch(html, /onclick="runFullLoop\(\)"/, 'no second press while a run is live')
-    assert.match(html, /<button class="btn primary" disabled>Running the Full loop…<\/button>/)
+    assert.match(html, /<section><div class="setup-panel" id="setup-run">/, 'a live run is the selected panel (#891)')
+    page.UI.setup.panel = 'card'
+    assert.match(page.screenSetup(payload()), /<button class="btn primary" disabled>Running the Full loop…<\/button>/, 'the card panel names the run as the forward action')
     assert.match(html, /href="https:\/\/github\.com\/alp82\/curia\/issues\/42"[^>]*>Ticket/)
     assert.match(html, /href="https:\/\/discord\.com\/channels\/2\/777"[^>]*>Discord thread/)
     assert.doesNotMatch(html, /Pull request ↗/, 'a link the run has not produced is not drawn')
@@ -5206,7 +5208,7 @@ describe('integration setup (#874)', () => {
     assert.match(html, /href="https:\/\/discord\.com\/channels\/333333333333333333\/444444444444444444\/777"[^>]*>Posted /)
     assert.match(html, /<code>\/tickets<\/code> <code>\/next<\/code> <code>\/status<\/code>/)
     assert.match(text(html), /Alp 111111111111111111/)
-    assert.match(html, /onclick="doRestart\(\);return false">Restart Curia</)
+    assert.match(html, /onclick="doSetupRestart\(\);return false">Restart Curia</)
     assert.match(html, /<div class="setup-secondary">Confirmation delivered · 6 commands registered<\/div>/)
     assert.doesNotMatch(html, /type="password"/, 'no token form on a connected card')
     assert.match(html, /Continue setup/)
@@ -5665,5 +5667,180 @@ describe('integration setup (#874)', () => {
     assert.match(html, /<details><summary>Sign in to OpenAI again<\/summary>/)
     assert.doesNotMatch(html, /sk-ant-|acct-42/)
     assert.doesNotMatch(html, /Try again/)
+  })
+
+  // The rehearsal (#891): after a press the panel kept the pre-action content,
+  // the sign-in steps or the old failure, until the next read landed with the
+  // connected state. One mechanism for every card: the press switches the card
+  // and its panel to what Curia is doing, and only the next read for that card
+  // replaces it, with the failure or the connected state it found.
+  const deferred = () => { let resolve; const promise = new Promise((r) => { resolve = r }); return { promise, resolve } }
+  const TAILSCALE_FAILED = { state: 'failed', badge: 'Action required', error: { failed: 'Tailscale Serve is not reachable', action: 'Run tailscale serve --bg 8445 on this host, then try again.' } }
+  const TAILSCALE_READ = { requester: 'alp', operator: null, node: { installed: true, online: true, backend_state: 'Running', dns_name: 'curia.tail1234.ts.net', ips: ['100.1.2.3'] }, serve: null, app_url: null, first_operator: null, error: null }
+
+  test('a card action switches the card and its panel to in-progress at once, with none of the old content, and the next read replaces it', async () => {
+    const press = deferred()
+    const read = deferred()
+    page.setup = SETUP({ step: 'tailscale', cards: { tailscale: TAILSCALE_FAILED } })
+    page.UI.setup.tailscale = TAILSCALE_READ
+    page.fetch = async (url, init = {}) => {
+      if (url === '/api/setup/tailscale/operator') { await press.promise; return { ok: true, json: async () => ({ ok: true }) } }
+      if (url === '/api/setup') { await read.promise; return { ok: true, json: async () => SETUP({ step: 'tailscale', cards: { tailscale: ALL.tailscale } }) } }
+      return { ok: true, json: async () => ({ ok: true }) }
+    }
+    const before = page.screenSetup(payload())
+    assert.match(before, /Confirm operator and verify/)
+    assert.match(before, /Tailscale Serve is not reachable/)
+
+    const pressed = page.doSetupTailscaleOperator()
+    let html = page.screenSetup(payload())
+    assert.match(html, /class="setup-card tailscale failed working on"/, 'the rail card shows the work')
+    assert.match(text(html), /Tailscale Working Verifying the operator/)
+    assert.match(html, /class="setup-panel working"/)
+    assert.match(text(html), /Verifying the operator… /)
+    assert.match(html, /class="setup-progress"/, 'a progress indicator, not a spinner in a button')
+    assert.doesNotMatch(html, /Tailscale Serve is not reachable/, 'the previous failure is gone the moment the press lands')
+    assert.doesNotMatch(html, /Confirm operator|setup-tailscale-name|Try again/, 'none of the pre-action content stays')
+
+    press.resolve()
+    await new Promise((resolve) => setImmediate(resolve))
+    html = page.screenSetup(payload())
+    assert.match(html, /class="setup-panel working"/, 'the panel stays in progress until the read lands, not until the press answers')
+    assert.doesNotMatch(html, /Serve is not reachable|Confirm operator/)
+
+    read.resolve()
+    await pressed
+    html = page.screenSetup(payload())
+    assert.doesNotMatch(html, /working/, 'the read settles the work')
+    assert.match(html, /class="setup-card tailscale connected on"/)
+    assert.match(text(html), /Connected and verified/)
+    assert.doesNotMatch(text(html), /Verifying the operator/)
+  })
+
+  test('Try again on a failed card hides the failure while the fresh read is in flight, and a read that fails again shows the new failure', async () => {
+    const read = deferred()
+    page.setup = SETUP({ step: 'tailscale', cards: { tailscale: TAILSCALE_FAILED } })
+    page.UI.setup.tailscale = TAILSCALE_READ
+    page.fetch = async () => { await read.promise; return { ok: true, json: async () => SETUP({ step: 'tailscale', cards: { tailscale: { ...TAILSCALE_FAILED, error: { failed: 'No operator confirmed', action: 'Confirm the operator on this card.' } } } }) } }
+    const retried = page.retrySetup()
+    let html = page.screenSetup(payload())
+    assert.match(text(html), /Verifying Tailscale again/)
+    assert.doesNotMatch(html, /Serve is not reachable|Try again/)
+    read.resolve()
+    await retried
+    html = page.screenSetup(payload())
+    assert.doesNotMatch(html, /working|Serve is not reachable/)
+    assert.match(html, /setup-problem"><b>No operator confirmed<\/b>Confirm the operator on this card\./)
+    assert.match(html, /onclick="retrySetup\(\)">Try again</)
+  })
+
+  test('when a sign-in ends the model card says it is completing the model request until the verification answers, never the steps again', async () => {
+    const read = deferred()
+    page.setup = SETUP({ step: 'model', cards: { model: { state: 'unconnected', badge: 'Ready to connect', providers: providers({ state: 'unconnected' }) } } })
+    page.UI.setup.openai = OPENAI_OVERVIEW({ login: WAITING })
+    page.UI.setup.anthropic = ANTHROPIC_OVERVIEW()
+    page.fetch = async (url) => {
+      if (url === '/api/setup/openai') return { ok: true, json: async () => OPENAI_OVERVIEW({ secret: { state: 'present' } }) }
+      if (url === '/api/setup') { await read.promise; return { ok: true, json: async () => SETUP({ step: 'model', cards: { model: ALL.model } }) } }
+      return { ok: true, json: async () => ({ ok: true }) }
+    }
+    const polled = page.loadOpenAISetup()
+    await new Promise((resolve) => setImmediate(resolve))
+    let html = page.screenSetup(payload())
+    assert.match(text(html), /Completing one minimal model request and applying the routing preset…/)
+    assert.doesNotMatch(html, /Sign in to OpenAI again|setup-steps|reauth-code/, 'neither the steps nor the finished login')
+    assert.match(html, /class="setup-card model unconnected working on"/)
+    read.resolve()
+    await polled
+    html = page.screenSetup(payload())
+    assert.doesNotMatch(html, /class="setup-card model[^"]*working|setup-panel working/)
+    assert.match(text(html), /Provider verified/)
+  })
+
+  test('Run Full loop selects the run panel in the main area with the eight legs, marks the rail card running, and scrolls the run into view', async () => {
+    const press = deferred()
+    const scrolled = []
+    page.document.getElementById = (id) => (id === 'setup-run' ? { scrollIntoView: (opts) => scrolled.push(opts) } : null)
+    page.setup = SETUP({ step: 'model', cards: ALL, full_loop: { ready: true, missing: [], reason: null, facts: RUN_FACTS, run: { state: 'idle', legs: [] } } })
+    const running = RUN('running', { legs: ['complete', 'running'] })
+    page.fetch = async (url, init = {}) => {
+      if (init.method === 'POST') { await press.promise; return { ok: true, json: async () => ({ ok: true, run: running }) } }
+      return { ok: true, json: async () => running }
+    }
+    let html = page.screenSetup(payload())
+    assert.match(html, /<h2>Model provider<\/h2>/, 'the selected card is the panel before the press')
+    const pressed = page.runFullLoop()
+    html = page.screenSetup(payload())
+    assert.match(html, /id="setup-run"/, 'the run is the selected panel from the press')
+    assert.doesNotMatch(html, /<h2>Model provider<\/h2>/)
+    assert.match(text(html), /Starting the Full loop…/)
+    assert.doesNotMatch(html, /onclick="runFullLoop\(\)"/, 'no second press')
+    assert.match(html, /class="setup-loop working on"/, 'the rail card shows the press')
+    assert.equal(scrolled.length, 1, 'the page scrolls the run into view on the press')
+    press.resolve()
+    await pressed
+    html = page.screenSetup(payload())
+    const main = /<section>([\s\S]*)<\/section>/.exec(html)[1]
+    assert.match(main, /id="setup-run"/)
+    assert.match(text(main), /Running the Full loop\./)
+    for (const title of LEG_TITLES) assert.match(text(main), new RegExp(`${title} · (complete|running|pending)`))
+    assert.match(html, /class="setup-loop run running on"/, 'the rail card shows the running state')
+    assert.doesNotMatch(/<aside[\s\S]*<\/aside>/.exec(html)[0], /loop-legs/, 'the legs live in the main area, not below the fold in the rail')
+    page.clearTimeout(page.UI.setup.loopTimer)
+    page.UI.setup.loopTimer = null
+    // Selecting a card brings its panel back; the rail's Full loop card brings the run back.
+    await page.selectSetupCard('github')
+    assert.match(page.screenSetup(payload()), /<h2>GitHub<\/h2>/)
+    page.selectSetupRun()
+    assert.match(page.screenSetup(payload()), /id="setup-run"/)
+  })
+
+  test('Try again on a failed run selects the run panel and shows the retry in progress until the answer', async () => {
+    const press = deferred()
+    const failed = { leg: 'review', title: 'Review', cause: 'The agent ended before Review: the agent exited.', action: 'Fix it, then select Try again.' }
+    page.setup = SETUP({ step: 'github', cards: ALL, full_loop: { ready: true, missing: [], reason: null, facts: RUN_FACTS, run: RUN('failed', { legs: ['complete', 'complete', 'complete', 'complete', 'failed'], failed }) } })
+    page.UI.setup.panel = 'card'
+    page.fetch = async () => { await press.promise; return { ok: true, json: async () => ({ ok: true, run: RUN('running', { legs: ['complete', 'complete', 'complete', 'complete', 'running'] }) }) } }
+    const pressed = page.retryFullLoop()
+    let html = page.screenSetup(payload())
+    assert.match(html, /id="setup-run"/)
+    assert.match(text(html), /Retrying Review…/)
+    assert.doesNotMatch(html, /The agent ended before Review/, 'the old failure is gone while the retry is in flight')
+    press.resolve()
+    await pressed
+    html = page.screenSetup(payload())
+    assert.match(text(html), /Review · running/)
+    page.clearTimeout(page.UI.setup.loopTimer)
+    page.UI.setup.loopTimer = null
+  })
+
+  test('Watch these repositories and Restart Curia show their work the same way', async () => {
+    const write = deferred()
+    page.setup = SETUP({ step: 'github', cards: { github: { state: 'failed', badge: 'Action required', error: { failed: 'No watched repository is covered', action: 'Choose the repositories.' }, detail: { available: ['alp82/curia'], watched: [], owners: [] } } } })
+    page.document.getElementById = (id) => (id === 'setup-github-repo-0' ? { checked: true } : null)
+    page.fetch = async (url) => {
+      if (url === '/api/setup/github/watch') { await write.promise; return { ok: true, json: async () => ({ ok: true }) } }
+      return { ok: true, json: async () => SETUP({ step: 'github', cards: { github: ALL.github } }) }
+    }
+    const pressed = page.doSetupGitHubWatch()
+    let html = page.screenSetup(payload())
+    assert.match(text(html), /Saving the watch list and verifying the repositories…/)
+    assert.doesNotMatch(html, /No watched repository is covered|Watch these repositories/)
+    write.resolve()
+    await pressed
+    html = page.screenSetup(payload())
+    assert.doesNotMatch(html, /working/)
+    assert.match(html, /class="setup-card github connected on"/)
+
+    page.setup = SETUP({ step: 'discord', cards: { discord: { ...ALL.discord, detail: { bridge: 'down', channel: { name: 'curia', url: 'https://discord.com/channels/2/4' }, guild: { name: 'g' }, confirmation: { posted: true, at: at(5), url: 'https://discord.com/channels/2/4/9' }, operator: { id: '1', name: 'alp' }, commands: ['start'] } } } })
+    page.document.getElementById = () => null
+    page.fetch = () => new Promise(() => {})
+    assert.match(page.screenSetup(payload()), /onclick="doSetupRestart\(\);return false">Restart Curia</)
+    page.doSetupRestart()
+    html = page.screenSetup(payload())
+    assert.match(text(html), /Restarting Curia so the bridge reads the token…/)
+    assert.doesNotMatch(html, /The bridge reads the token when the service starts/)
+    assert.match(html, /class="setup-card discord connected working on"/)
+    page.clearTimeout(page.UI.setup.restartTimer)
   })
 })
