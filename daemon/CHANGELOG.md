@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.9.1](https://github.com/alp82/curia/compare/v0.9.0...v0.9.1) (2026-09-02)
+
+
+### Bug Fixes
+
+* choose the node name at installation and keep the Tailscale card read-only ([#950](https://github.com/alp82/curia/issues/950)) ([3e54a17](https://github.com/alp82/curia/commit/3e54a1721ee9a1cc4e2ac570cc5459e0b2928653))
+* register Discord commands once and read them on every verification ([#951](https://github.com/alp82/curia/issues/951)) ([98e2920](https://github.com/alp82/curia/commit/98e2920b5d598fe4050e8cc8dd0cb72ba01d09c5))
+* seed agent containers from the installation's secret files ([#949](https://github.com/alp82/curia/issues/949)) ([3be5068](https://github.com/alp82/curia/commit/3be5068be0e7c9f4633720f9fd99893dc1379db4))
+* show every setup action's progress at once and bring the Full loop run into view ([#952](https://github.com/alp82/curia/issues/952)) ([8416ca0](https://github.com/alp82/curia/commit/8416ca0cc36b4ea090f9ad3e7b15abaf30076f49))
+
 ## [0.9.0](https://github.com/alp82/curia/compare/v0.8.0...v0.9.0) (2026-09-02)
 
 
