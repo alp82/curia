@@ -307,11 +307,16 @@ describe('the bootstrap script', () => {
     assert.equal(env.handoff.root, '/r/curia')
   })
 
-  test('hands off to the real lifecycle interface, which refuses install as not available in this release', async () => {
+  // The real interface's `curia install` opens the root before it probes the
+  // host, so a root that is a file proves the hand-off reached the interface
+  // and its boundary without the preflight touching this machine.
+  test('hands off to the real lifecycle interface, which opens the root it was given', async () => {
     catalogue()
-    const r = await run(['--version', EXACT])
+    const root = path.join(scratch, 'a-file-not-a-root')
+    fs.writeFileSync(root, 'x')
+    const r = await run(['--version', EXACT, '--root', root])
     assert.equal(r.exit, EXIT.refused, `${r.out}\n${r.err}`)
-    assert.match(r.err, new RegExp(`curia install: not available in version ${EXACT.replace(/\./g, '\\.')}`))
+    assert.match(r.err, /curia install: preflight: the installation root is not a directory/)
     assert.deepEqual(r.leftover, [])
   })
 
