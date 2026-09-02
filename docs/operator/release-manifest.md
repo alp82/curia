@@ -73,7 +73,7 @@ After the checks pass, Curia keeps the verified artifacts as it downloaded them,
 
 ## What `curia doctor` verifies
 
-`curia doctor` runs the six preceding checks again on the retained artifacts of the active version, then adds three checks that prove the installed files and the publication provenance. It's read-only.
+`curia doctor` runs the six preceding checks again on the retained artifacts of the active version, then adds three checks that prove the installed files and the publication provenance. It's read-only. The nine checks are the `release` section of the doctor's output; see [Diagnostics with `curia doctor`](doctor.md).
 
 | Check | What it proves |
 |---|---|

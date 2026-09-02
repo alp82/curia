@@ -14,6 +14,7 @@ import { parse } from 'yaml'
 
 import { REQUIRED_PORTS, SANDBOX_PORTS } from '../../cli/src/preflight.mjs'
 import { APP_SERVE_PORT } from '../../cli/src/install.mjs'
+import { APP_PORT } from '../../cli/src/doctor.mjs'
 
 const curia = parse(readFileSync(fileURLToPath(new URL('../../config/curia.yaml', import.meta.url)), 'utf8'))
 
@@ -25,6 +26,10 @@ describe('the preflight ports mirror config/curia.yaml', () => {
 
   test('the app address curia install reports uses the Curia app Serve port', () => {
     assert.equal(APP_SERVE_PORT, curia.dashboard.serve_port)
+  })
+
+  test('the app port curia doctor probes on loopback is the one the app binds', () => {
+    assert.equal(APP_PORT, curia.dashboard.port)
   })
 
   test('the sandbox range is the one agents publish into', () => {

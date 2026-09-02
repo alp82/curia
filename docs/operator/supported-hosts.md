@@ -60,7 +60,7 @@ The services bind these loopback ports on the host network: `4272` (the timeline
 
 Preflight runs before `curia install` and `curia update` change anything, and `curia doctor` runs the same checks. Every check prints one line: `ok`, `warning`, or `refused`, the check name, and what Curia observed. A warning or a refusal adds one corrective action on the next line.
 
-A **refused** condition stops the command with exit code `3`. Nothing has changed on the host. Remove the condition and run the command again. A **warning** is a fact that doesn't block: the command continues, and Curia makes no lifecycle guarantee for what the warning names.
+A **refused** condition stops `curia install` and `curia update` with exit code `3`. Nothing has changed on the host. Remove the condition and run the command again. `curia doctor` prints the same line, continues with its other checks, and exits with code `1`; see [Diagnostics with `curia doctor`](doctor.md). A **warning** is a fact that doesn't block: the command continues, and Curia makes no lifecycle guarantee for what the warning names.
 
 Preflight may create temporary probe resources: a short-lived listener on each port it tests, one temporary directory, and one probe container named `curia-preflight-<id>` from the `busybox:stable` image. It removes all of them before the command continues, whether the probe passed or failed. The image stays in Docker's image store like any other pulled image.
 
