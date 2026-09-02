@@ -43,6 +43,10 @@ const surface = new DashboardSurface({
   pollIntervalS: dashboard.poll_interval_s,
   allow: underRoot ? [] : allow,
   identitySource: underRoot ? 'daemon' : 'config',
+  // And the settings screen's two files (#880): this container mounts
+  // nothing of the root, so under one it reads them and lands a save
+  // through the service's `/settings` instead of its own filesystem.
+  settingsSource: underRoot ? 'daemon' : 'files',
   daemonPort: daemonPort(),
   // The chat (#267) is the daemon's timeline surface, served under this
   // address. Both containers share the host network, so the port is the same

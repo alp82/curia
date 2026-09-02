@@ -103,9 +103,11 @@ describe('each container sees exactly its grant of the installation root', () =>
     }
   })
 
-  test('the service reads config/ and cannot write it', () => {
+  // #880: the app mounts nothing of the root, so its settings save lands
+  // through the service, which therefore writes `config/config.yaml`.
+  test('the service reads config/ and writes it for the app\'s settings screen', () => {
     const config = binds('daemon').find((b) => b.host === layout.config)
-    assert.equal(config.mode, 'ro')
+    assert.equal(config.mode, 'rw')
   })
 
   test('the app mounts nothing of the root', () => {

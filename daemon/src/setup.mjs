@@ -39,10 +39,12 @@
 // lands. The model card owns the two provider verifiers and is connected by
 // either.
 //
-// The Full loop is the one dependent step, and `fullLoop` (#880) is its seam:
-// asked only once every card is connected, it answers `{ ready, reason,
-// facts }`. Without it the action stays unavailable however many cards are
-// connected, because the frame has nothing verified to run a loop on.
+// The Full loop is the one dependent step, and `fullLoop` is its gate
+// (`daemon/src/fullloopgate.mjs`, #880): asked only once every card is
+// connected, with the cards and the record's progress, it answers `{ ready,
+// reason, facts }` from those cards alone. Without a gate the action stays
+// unavailable however many cards are connected, because the frame has
+// nothing verified to run a loop on.
 
 import fs from 'node:fs'
 import path from 'node:path'
@@ -257,7 +259,7 @@ export class IntegrationSetup {
       full_loop.reason = 'The Full loop is not available yet in this release.'
     } else {
       try {
-        const gate = await this.fullLoop(cards)
+        const gate = await this.fullLoop(cards, { progress: record.progress })
         full_loop = { ready: Boolean(gate?.ready), missing, reason: gate?.reason ?? null, facts: gate?.facts ?? null }
       } catch (e) {
         full_loop.reason = e.message

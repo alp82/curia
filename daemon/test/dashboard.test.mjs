@@ -1799,9 +1799,9 @@ describe('the Tailscale card routes and the first-operator window (#877)', () =>
   const sent = (route) => calls.find((c) => c.url.startsWith(route))
 
   let daemonPort
-  const start = async ({ identitySource = 'daemon', allow = [] } = {}) => {
+  const start = async ({ identitySource = 'daemon', allow = [], settingsSource = 'files' } = {}) => {
     surface = new DashboardSurface({
-      port: 0, servePort: SERVE_PORT, index: DEFAULT_DASHBOARD_INDEX, allow, identitySource, pollIntervalS: 5,
+      port: 0, servePort: SERVE_PORT, index: DEFAULT_DASHBOARD_INDEX, allow, identitySource, settingsSource, pollIntervalS: 5,
       daemonPort,
       log: (line) => logged.push(String(line)),
       deps: {
@@ -1833,13 +1833,77 @@ describe('the Tailscale card routes and the first-operator window (#877)', () =>
           res.writeHead(200, { 'content-type': 'application/json' })
           return res.end(JSON.stringify(identity))
         }
-        const [code, body] = reply[r.url.split('?')[0]] ?? [404, { error: 'no such route' }]
+        const route = r.url.split('?')[0]
+        const [code, body] = reply[`${r.method} ${route}`] ?? reply[route] ?? [404, { error: 'no such route' }]
         res.writeHead(code, { 'content-type': 'application/json' })
         res.end(JSON.stringify(body))
       })
     })
     await new Promise((done) => daemon.listen(0, '127.0.0.1', done))
     daemonPort = daemon.address().port
+  })
+
+  // ---- the settings screen through the service (#880) ------------------------
+
+  const ROOT_SETTINGS = {
+    files: { curia: '/opt/curia/config/curia.yaml', routing: '/opt/curia/config/routing.yaml' },
+    writes: { curia: '/root/config/config.yaml', routing: '/root/state/routing.local.yaml' },
+    dispatch: { max_concurrent: 4, auto_dispatch: true, poll_interval_s: 60, prototype_variations: 3, messages_per_send: 4 },
+    overseer: { live_pane_cap: 3 }, watch: [{ repo: 'alp82/curia', mode: 'auto' }], watch_modes: ['auto', 'manual'],
+    routing: { defaults: [], models: [], review: {}, fallbacks: {} },
+  }
+  const asOperator = () => { identity = { allow: ['alp@example.com'], first_operator: false } }
+
+  test('under a root the settings screen reads through the service, which holds the root\'s files', async () => {
+    asOperator()
+    reply['GET /settings'] = [200, ROOT_SETTINGS]
+    await start({ settingsSource: 'daemon' })
+    const res = await req(surface.port, '/api/settings', { headers: served() })
+    assert.equal(res.status, 200)
+    assert.deepEqual(JSON.parse(res.text).writes, ROOT_SETTINGS.writes)
+    assert.ok(sent('/settings'), 'the read crossed to the daemon')
+  })
+
+  test('under a root a save lands through the service, the reload follows it, and the answer is the same shape as a local save', async () => {
+    asOperator()
+    reply['GET /settings'] = [200, ROOT_SETTINGS]
+    reply['POST /settings'] = [200, { ok: true, written: ['config.yaml'], at: '2026-09-02T10:00:00.000Z' }]
+    reply['POST /reload'] = [200, { ok: true, by: 'alp@example.com', applied: ['dispatch.max_concurrent'], loaded_at: '2026-09-02T10:00:01.000Z' }]
+    await start({ settingsSource: 'daemon' })
+    const res = await press('/api/settings', { dispatch: { max_concurrent: 5 } })
+    assert.equal(res.status, 200, res.text)
+    const out = JSON.parse(res.text)
+    assert.deepEqual(out.written, ['config.yaml'])
+    assert.deepEqual(out.reload.applied, ['dispatch.max_concurrent'])
+    assert.deepEqual(out.settings.writes, ROOT_SETTINGS.writes)
+    const save = calls.find((c) => c.method === 'POST' && c.url === '/settings')
+    assert.deepEqual(save.body, { dispatch: { max_concurrent: 5 } }, 'the patch crosses as it was, nothing more')
+    const order = calls.filter((c) => c.method === 'POST').map((c) => c.url)
+    assert.deepEqual(order, ['/settings', '/reload'], 'the write lands before the apply is ordered')
+    assert.match(logged.join('\n'), /saved config\.yaml/)
+  })
+
+  test('under a root a save the service refuses reads as a refusal, names the contract\'s sentence, and orders no reload', async () => {
+    asOperator()
+    reply['GET /settings'] = [200, ROOT_SETTINGS]
+    reply['POST /settings'] = [400, { ok: false, error: '/root/config/config.yaml line 1: `max_concurrent` must be a positive whole number (got 0)' }]
+    await start({ settingsSource: 'daemon' })
+    const res = await press('/api/settings', { dispatch: { max_concurrent: 0 } })
+    assert.equal(res.status, 409)
+    const out = JSON.parse(res.text)
+    assert.equal(out.refused, true)
+    assert.match(out.error, /max_concurrent.*positive whole number/)
+    assert.equal(calls.some((c) => c.url === '/reload'), false)
+  })
+
+  test('under a root a service that cannot be asked fails the read and the save, and neither touches a file here', async () => {
+    asOperator()
+    await start({ settingsSource: 'daemon' })
+    daemon.close()
+    assert.equal((await req(surface.port, '/api/settings', { headers: served() })).status, 500)
+    const res = await press('/api/settings', { dispatch: { max_concurrent: 5 } })
+    assert.equal(res.status, 500)
+    assert.match(JSON.parse(res.text).error, /daemon|ECONNREFUSED|answer/i)
   })
   afterEach(() => {
     surface?.stop()

@@ -37,7 +37,7 @@ import { readable } from './logline.mjs'
 import { resolveOutboundFiles, inboundContent, ALLOWED_EXTENSIONS, safeLeaf } from './attachments.mjs'
 import { PreviewRegistry } from './preview.mjs'
 import { loadCuriaConfig, loadRoutingConfig, localConfigFile, operatorConfigFile, overrideSummary } from './config.mjs'
-import { readOperatorConfig } from '../../cli/src/config.mjs'
+import { operatorConfigPath, readOperatorConfig } from '../../cli/src/config.mjs'
 import { PROBE_MARK, PROBE_PATH, GUEST_DAEMON_HOST, GUEST_WT, dockerGateway, probeSideChannel } from './sandbox.mjs'
 import { Cooling, providerOf } from './routing.mjs'
 import { Dispatcher } from './dispatch.mjs'
@@ -75,13 +75,14 @@ import { TailscaleSetup } from './tailscalesetup.mjs'
 import { OpenAISetup } from './openaisetup.mjs'
 import { AnthropicSetup } from './anthropicsetup.mjs'
 import { IntegrationSetup } from './setup.mjs'
+import { fullLoopGate } from './fullloopgate.mjs'
 import {
   probeTtyd, serveOff, attachBase, appTerminalUrl, validSessionName,
   isConsoleKey, consoleKeyForSession, sessionForConsoleKey,
 } from './attach.mjs'
 import { probeOverseer } from './overseerservice.mjs'
 import { replayKilledTurns, replayLine } from './overseerreplay.mjs'
-import { LIVE_PATHS, DISPATCH_KEYS, liveSettings, liveDiff, frozenDifference } from './settings.mjs'
+import { LIVE_PATHS, DISPATCH_KEYS, liveSettings, liveDiff, frozenDifference, readSettings, saveSettings } from './settings.mjs'
 import { TimelineSurface, cardFields } from './timeline.mjs'
 import { identityRefusal, hostsForPorts, tailnetSelf } from './identity.mjs'
 import { detectHarness, findTranscript } from './transcript.mjs'
@@ -223,10 +224,15 @@ fs.mkdirSync(path.join(DATA, 'results'), { recursive: true })
 fs.mkdirSync(tokensDir(DATA), { recursive: true, mode: 0o700 })
 // Where the routing override lives (#292, #878). Beside the tracked file in
 // the source deployment, where the settings screen writes it. Under an
-// installation root `config/` is mounted read-only into the service (#867),
-// so the override the model-provider card writes as its routing preset is
-// `state/routing.local.yaml`, and this process loads that pair.
+// installation root the override the model-provider card writes as its
+// routing preset, and the one the settings route below writes, is
+// `state/routing.local.yaml`, in the service's own mutable boundary (#867),
+// and this process loads that pair.
 const ROUTING_LOCAL = INSTALL_ROOT ? path.join(DATA, 'routing.local.yaml') : localConfigFile(ROUTING_FILE)
+// Where the operator configuration lives (#866): the root's own
+// `config/config.yaml`, or beside `curia.yaml` in the source deployment. The
+// loader reads it the same way; the settings route below writes it (#880).
+const OPERATOR_FILE = INSTALL_ROOT ? operatorConfigPath(INSTALL_ROOT) : operatorConfigFile(CURIA_FILE)
 const routingConfig = loadRoutingConfig(ROUTING_FILE, { localFile: ROUTING_LOCAL })
 // The apply, into the object every closure below holds (#265's reload rule):
 // nothing builds a new routing object, because the dispatcher and the
@@ -253,7 +259,7 @@ for (const name of ['curia.yaml', 'routing.yaml']) {
 // #866: the operator configuration, said out loud for the same reason. The
 // loader above already refused an invalid file, so this read cannot throw.
 {
-  const operator = readOperatorConfig(operatorConfigFile(CURIA_FILE))
+  const operator = readOperatorConfig(OPERATOR_FILE)
   log(operator
     ? `config: config.yaml sets ${Object.keys(operator).join(', ') || 'nothing'}`
     : 'config: no config.yaml — the shipped answers run')
@@ -1461,9 +1467,13 @@ const anthropicSetup = new AnthropicSetup({
   claudeVersion: curiaConfig.sandbox?.claude_version ?? null,
   log,
 })
+// The Full-loop gate (#880) is a function of the cards: it reads no file
+// and keeps no marker, so every read, restart, and reconnection recomputes
+// readiness from what the five verifiers found now.
 const integrationSetup = new IntegrationSetup({
   stateDir: DATA,
   log,
+  fullLoop: fullLoopGate,
   verifiers: {
     github: githubVerifier({ minter: () => appMinter, watch: () => curiaConfig.watch }),
     discord: discordSetup.verifier(),
@@ -4020,6 +4030,31 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
       return { status: 'confirmed', receipt: { said: out.said } }
     })
     return json(200, { action: evidence })
+  }
+
+  // The settings screen through the service (#880, closing the open fact
+  // #867 left). Under an installation root the app mounts nothing, so its
+  // sidecar reads the two files and lands a save here instead of on its own
+  // filesystem: the same `readSettings` and `saveSettings` the sidecar runs
+  // in the source deployment, on the root's `config/config.yaml` and
+  // `state/routing.local.yaml`. A save validates through the operator
+  // configuration contract and the loaders before `writeOperatorConfig`
+  // lands it; a refusal answers 400 with the contract's own sentence. The
+  // apply stays `POST /reload`, which the sidecar orders next.
+  if (url.pathname === '/settings' && req.method === 'GET') {
+    return json(200, readSettings({ curiaFile: CURIA_FILE, routingFile: ROUTING_FILE, operatorFile: OPERATOR_FILE, routingLocalFile: ROUTING_LOCAL }))
+  }
+  if (url.pathname === '/settings' && req.method === 'POST') {
+    const patch = await readBody(req)
+    try {
+      const out = saveSettings({ curiaFile: CURIA_FILE, routingFile: ROUTING_FILE, operatorFile: OPERATOR_FILE, routingLocalFile: ROUTING_LOCAL, patch })
+      log(`settings: ${out.written.length ? `saved ${out.written.join(' and ')}` : 'the save changed nothing'} for the app`)
+      return json(200, { ok: true, ...out })
+    } catch (e) {
+      if (!e.refusal) throw e
+      log(`settings: the app's save was refused — ${e.message}`)
+      return json(400, { ok: false, error: e.message })
+    }
   }
 
   if (url.pathname === '/settings/action' && req.method === 'POST') {

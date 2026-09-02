@@ -75,9 +75,9 @@ describe('SERVICE_MOUNTS', () => {
     }
   })
 
-  test('the service reads config/ and never writes it', () => {
+  test('the service reads config/ and writes it for the app, which mounts nothing', () => {
     const config = SERVICE_MOUNTS.daemon.find((m) => m.path === 'config')
-    assert.equal(config.mode, 'ro')
+    assert.equal(config.mode, 'rw')
   })
 
   test('the app receives no installation-root mount', () => {

@@ -392,7 +392,7 @@ export class DashboardSurface {
     port, servePort, index, allow, daemonPort: dPort = daemonPort(),
     pollIntervalS = DEFAULT_DASHBOARD.poll_interval_s,
     curiaFile = null, routingFile = null, timelinePort = null, terminalPort = null,
-    identitySource = 'config',
+    identitySource = 'config', settingsSource = 'files',
     log = console.log, deps = {},
   }) {
     this.port = port
@@ -402,11 +402,15 @@ export class DashboardSurface {
     this.terminalPort = terminalPort
     this.servePort = servePort
     this.index = index
-    // The two files the settings screen writes (#265). They are the only
-    // writable thing in this container: #263's mount list gives it `config/`
-    // read-write and everything else read-only.
+    // The two files the settings screen writes (#265). In the source
+    // deployment they are the only writable thing in this container: #263's
+    // mount list gives it `config/` read-write and everything else
+    // read-only. Under an installation root the app mounts nothing (#867),
+    // so `settingsSource: 'daemon'` reads them and lands a save through the
+    // service's `GET` and `POST /settings` instead (#880).
     this.curiaFile = curiaFile
     this.routingFile = routingFile
+    this.settingsSource = settingsSource
     this.daemonPort = dPort
     this.pollIntervalMs = pollIntervalS * 1000
     this.pollIntervalS = pollIntervalS
@@ -824,7 +828,7 @@ export class DashboardSurface {
   // config from the page while the daemon is down.
   async #guardWatchRemoval(patch) {
     if (!Array.isArray(patch?.watch)) return
-    const before = readSettings({ curiaFile: this.curiaFile, routingFile: this.routingFile }).watch
+    const before = (await this.#readSettings()).watch
     const kept = new Set(patch.watch.map((w) => String(w?.repo ?? '')))
     const removed = before.map((w) => w.repo).filter((repo) => !kept.has(repo))
     if (!removed.length) return
@@ -839,6 +843,27 @@ export class DashboardSurface {
     if (!held.length) return
     const names = held.map((a) => a.session).join(', ')
     throw refuse(`${held[0].repo} cannot leave the watch list while ${names} runs on it — curia would stop covering that agent's claim. Cancel it, or wait for it to finish.`)
+  }
+
+  // The settings read and the settings write, from the files this container
+  // mounts or through the service (#880). One flow either way: the handler
+  // above these two is the same, and only where the bytes come from and land
+  // differs. A daemon refusal (400) is the operator's to fix and reads as a
+  // refusal here; a daemon that cannot be asked is this process failing.
+  async #readSettings() {
+    if (this.settingsSource === 'daemon') return this.#daemon({ path: '/settings' })
+    if (!this.curiaFile || !this.routingFile) throw new Error('this sidecar was started without config file paths, so it cannot read them')
+    return readSettings({ curiaFile: this.curiaFile, routingFile: this.routingFile })
+  }
+
+  async #saveSettings(patch) {
+    if (this.settingsSource === 'daemon') {
+      const out = await this.#daemon({ method: 'POST', path: '/settings', body: patch, accept: [200, 400] })
+      if (out?.ok === false) throw refuse(out.error ?? 'the daemon refused the save')
+      return out
+    }
+    if (!this.curiaFile || !this.routingFile) throw new Error('this sidecar was started without config file paths, so it cannot save')
+    return saveSettings({ curiaFile: this.curiaFile, routingFile: this.routingFile, patch })
   }
 
   // The command seam (#33 step 9), reached with text this file composed. Every
@@ -976,13 +1001,13 @@ export class DashboardSurface {
       // message take back. They pass the cross-site check here. The timeline
       // applies its own check too.
       if (CHAT_ROUTES.has(url.pathname)) return this.#chat(req, res, url.pathname + url.search)
-      // The save (#265). The sidecar writes the file itself: it holds the only
-      // read-write mount in this container, and #249 put the edit here so that
-      // a config the daemon refuses to boot on can still be fixed from the page
-      // while the daemon is down.
+      // The save (#265). In the source deployment the sidecar writes the file
+      // itself: it holds the only read-write mount in this container, and
+      // #249 put the edit here so that a config the daemon refuses to boot on
+      // can still be fixed from the page while the daemon is down. Under an
+      // installation root the write lands through the service (#880).
       if (url.pathname === '/api/settings') {
         return this.#write(res, async () => {
-          if (!this.curiaFile || !this.routingFile) throw new Error('this sidecar was started without config file paths, so it cannot save')
           const body = await this.#body(req)
           const actionId = body.action_id == null ? null : field(body.action_id, ACTION_ID_RE, 'an Action id')
           const { action_id: _actionId, ...patch } = body
@@ -992,13 +1017,13 @@ export class DashboardSurface {
           if (begun?.action && ['refused', 'failed'].includes(begun.action.status)) {
             return {
               written: [], reload: null, action: begun.action,
-              settings: readSettings({ curiaFile: this.curiaFile, routingFile: this.routingFile }),
+              settings: await this.#readSettings(),
             }
           }
           let out
           try {
             await this.#guardWatchRemoval(patch)
-            out = saveSettings({ curiaFile: this.curiaFile, routingFile: this.routingFile, patch })
+            out = await this.#saveSettings(patch)
           } catch (error) {
             const settled = await this.#finishSettingsAction(actionId, 'refused', { reason: error.message })
             if (settled) error.receipt = { action: settled }
@@ -1020,7 +1045,7 @@ export class DashboardSurface {
           return {
             ...out, reload,
             ...(reload?.action || noChange || begun?.action ? { action: reload?.action ?? noChange ?? begun.action } : {}),
-            settings: readSettings({ curiaFile: this.curiaFile, routingFile: this.routingFile }),
+            settings: await this.#readSettings(),
           }
         })
       }
@@ -1404,12 +1429,10 @@ export class DashboardSurface {
     // screen that showed a cached copy would offer to save over an edit it
     // never saw.
     if (url.pathname === '/api/settings') {
-      if (!this.curiaFile || !this.routingFile) return this.#json(res, 500, { error: 'this sidecar was started without config file paths' })
-      try {
-        return this.#json(res, 200, readSettings({ curiaFile: this.curiaFile, routingFile: this.routingFile }))
-      } catch (e) {
-        return this.#json(res, 500, { error: e.message })
-      }
+      return this.#readSettings().then(
+        (settings) => this.#json(res, 200, settings),
+        (e) => this.#json(res, 500, { error: e.message }),
+      )
     }
     // Integration setup (#874): the record and the four cards, each verified
     // on this read. Straight from the daemon, which holds the verifiers and

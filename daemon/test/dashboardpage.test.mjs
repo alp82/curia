@@ -4505,6 +4505,46 @@ describe('integration setup (#874)', () => {
     assert.match(html, /<button class="btn primary" onclick="runFullLoop\(\)">Run Full loop<\/button>/)
   })
 
+  // #880: at convergence the panel names what the loop would run on, from
+  // this read's gate, and the press hands the facts on and runs nothing.
+  test('at convergence the Full loop panel names the gate\'s facts, and the press runs nothing in this release', async () => {
+    const facts = {
+      verified_at: '2026-09-02T10:00:00.000Z',
+      github: { repo: 'alp82/curia', covered: ['alp82/curia'], owners: [], open_tickets: 3, ticket: { repo: 'alp82/curia', number: 861, title: 'Chart backup', url: 'https://github.com/alp82/curia/issues/861' } },
+      discord: { guild: { id: '2', name: 'AI Stack' }, channel: { id: '4', name: 'curia', url: 'https://discord.com/channels/2/4' }, operator: null, commands: [], confirmation: null, bridge: 'up' },
+      tailscale: { address: 'curia.tail1234.ts.net', app_url: 'https://curia.tail1234.ts.net:8445/', operator: 'alp@example.com', admitted_ms: 12 },
+      model: { provider: 'anthropic', model: 'fable', request: null, rows: [], providers: { openai: 'unconnected', anthropic: 'connected' } },
+    }
+    page.setup = SETUP({ step: 'model', cards: ALL, full_loop: { ready: true, missing: [], reason: null, facts } })
+    let html = page.screenSetup(payload())
+    const line = /setup-loop-facts">([^<]*)</.exec(html)[1]
+    assert.match(line, /🎫 #861 · alp82\/curia/)
+    assert.match(line, /💬 #curia/)
+    assert.match(line, /🔒 curia\.tail1234\.ts\.net/)
+    assert.match(line, /🧠 Anthropic · fable/)
+    assert.match(html, /Every integration is connected and verified\./)
+    assert.match(html, /<button class="btn primary" onclick="runFullLoop\(\)">Run Full loop<\/button>/)
+    page.runFullLoop()
+    html = page.screenSetup(payload())
+    assert.match(text(html), /The Full loop is ready on this read's verified facts\. This release doesn't run it yet\./)
+    assert.equal(calls.filter((c) => c.method === 'POST').length, 0, 'the press writes nothing')
+
+    // No ticket discovered: the repository is named, and nothing is invented.
+    page.setup = SETUP({ step: 'model', cards: ALL, full_loop: { ready: true, missing: [], reason: null, facts: { ...facts, github: { ...facts.github, ticket: null }, model: { ...facts.model, provider: 'openai', model: 'gpt' } } } })
+    const plain = /setup-loop-facts">([^<]*)</.exec(page.screenSetup(payload()))[1]
+    assert.match(plain, /📦 alp82\/curia/)
+    assert.doesNotMatch(plain, /🎫/)
+    assert.match(plain, /⚡ OpenAI · gpt/)
+  })
+
+  test('the facts line is drawn from the gate\'s answer only: a closed gate draws none', () => {
+    page.setup = SETUP({ step: 'model', cards: ALL, full_loop: { ready: false, missing: [], reason: 'GitHub verified without a covered repository. Select Try again.', facts: null } })
+    const html = page.screenSetup(payload())
+    assert.doesNotMatch(html, /setup-loop-facts/)
+    assert.match(html, /GitHub verified without a covered repository\. Select Try again\./)
+    assert.match(html, /<button class="btn primary" disabled>Run Full loop<\/button>/)
+  })
+
   test('a service that could not be asked is not four unconnected cards', () => {
     page.setup = { step: null, progress: null, cards: null, full_loop: null, error: 'the daemon did not answer /setup within 60s' }
     const html = page.screenSetup(payload())

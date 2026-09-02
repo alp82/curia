@@ -204,6 +204,27 @@ describe('the daemon under an installation root (#867)', () => {
       assert.ok(!refusal.includes(TOKEN))
       assert.ok(!fs.readFileSync(path.join(root, 'state', 'setup.json'), 'utf8').includes(TOKEN))
       assert.equal((await (await fetch(`http://127.0.0.1:${ports[0]}/setup`)).json()).step, 'tailscale')
+      // The settings screen through the service (#880): under a root the app
+      // mounts nothing, so its sidecar reads the two files here and lands a
+      // save here, on the root's config/config.yaml and state/routing.local.yaml,
+      // through the operator configuration contract.
+      const settings = await (await fetch(`http://127.0.0.1:${ports[0]}/settings`)).json()
+      assert.deepEqual(settings.writes, { curia: path.join(root, 'config', 'config.yaml'), routing: path.join(root, 'state', 'routing.local.yaml') })
+      assert.equal(settings.dispatch.max_concurrent, 1)
+      const saveSettingsAt = (body) => fetch(`http://127.0.0.1:${ports[0]}/settings`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body),
+      })
+      const saved = await saveSettingsAt({ dispatch: { max_concurrent: 2 } })
+      assert.equal(saved.status, 200)
+      assert.deepEqual((await saved.json()).written, ['config.yaml'])
+      const configFile = path.join(root, 'config', 'config.yaml')
+      assert.equal(fs.statSync(configFile).mode & 0o777, 0o600)
+      assert.match(fs.readFileSync(configFile, 'utf8'), /^max_concurrent: 2$/m)
+      assert.equal((await (await fetch(`http://127.0.0.1:${ports[0]}/settings`)).json()).dispatch.max_concurrent, 2)
+      const refusedSave = await saveSettingsAt({ dispatch: { max_concurrent: 0 } })
+      assert.equal(refusedSave.status, 400)
+      assert.match((await refusedSave.json()).error, /max_concurrent.*positive whole number/)
+      assert.match(fs.readFileSync(configFile, 'utf8'), /^max_concurrent: 2$/m, 'a refused save moves nothing')
     } finally {
       if (child.exitCode === null) child.kill('SIGKILL')
     }
