@@ -640,6 +640,10 @@
   .setup-note { border-left: 4px solid var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--bg-raise)); padding: 11px 14px; border-radius: 6px; margin: 14px 0; }
   .setup-problem { border-left: 4px solid var(--bad); background: var(--chip-bad-bg); padding: 12px 14px; border-radius: 6px; margin: 14px 0; line-height: 1.5; }
   .setup-problem b { color: var(--bad); display: block; margin-bottom: 2px; }
+  .setup-steps { padding-left: 20px; line-height: 1.6; margin: 0 0 12px; }
+  .setup-steps li { margin-bottom: 6px; }
+  .setup-panel details { margin-top: 12px; }
+  .setup-panel summary { cursor: pointer; color: var(--ink-dim); font-size: 13px; }
   .setup-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 18px; }
   .setup-pointer { display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; padding: 10px 14px; margin-bottom: 14px; border: 1px solid var(--accent); border-radius: 10px; background: color-mix(in srgb, var(--accent) 8%, var(--bg-raise)); }
   /* Narrow screens stack full-width cards under the count; the rail never
@@ -664,7 +668,7 @@
   .btn.restart-hot { background: var(--bad); border-color: var(--bad); color: #fff; font-weight: 600; }
   .btn[disabled] { opacity: .55; cursor: default; }
 
-  input[type=text], input[type=number] {
+  input[type=text], input[type=number], input[type=password] {
     background: var(--bg-inset); color: var(--ink); border: 1px solid var(--line);
     border-radius: 6px; padding: 4px 8px; font: 12.5px ui-monospace, Menlo, monospace; max-width: 100%;
   }
@@ -890,7 +894,7 @@ var UI = {
   /* The setup frame's own state (#874): whether a read is in flight, and the
      one sentence the last press left behind. The selected card is not here —
      it is the record's `step`, kept by the service so a reopen restores it. */
-  setup: { busy: false, note: null },
+  setup: { busy: false, note: null, discord: null, discordBusy: null },
   /* The drill-in frame's own state (#699), one entry per page that is a list
      of sections: which section is open, and whether the phone is on the list
      in front of it. */
@@ -4818,9 +4822,9 @@ var SETUP_CONTENT = {
       ${card.state === "unavailable" ? setupUnavailable(card) : setupGitHub(card, progress, p)}`,
   },
   discord: {
-    content: (card) => `<p>Curia guides you through creating a dedicated Discord application and bot, then installs the bot into the server you choose with its role and the channel permissions it needs.</p>
+    content: (card, progress) => `<p>Curia connects a dedicated Discord bot you create, then finds or creates its command channel in the server you choose.</p>
       <div class="setup-note">The bot token is written once to its protected secret file. Curia never shows it again.</div>
-      ${setupUnavailable(card)}`,
+      ${card.state === "unavailable" ? setupUnavailable(card) : setupDiscord(card, progress)}`,
   },
   tailscale: {
     content: (card) => `<p>Curia verifies the Tailscale installation this host already runs, shows the identity that opened this app, and makes that identity the initial allowed operator after you confirm it.</p>
@@ -4868,6 +4872,140 @@ function setupGitHub(card, progress, p) {
       <span class="dim-note">${esc(detail.open_tickets)} open ticket${detail.open_tickets === 1 ? "" : "s"} in ${esc((detail.covered ?? []).join(", "))}.</span></div>`
     : `<div class="setup-note">No open ticket is ready for an agent in ${esc((detail.covered ?? []).join(", "))}. Curia starts work when one carries <code>ready-for-agent</code>.</div>`;
   return `${identity}${install}${found}`;
+}
+
+/* The Discord card's own panel (#876), in the states the verifier reports.
+   Before the token exists: the guide to the application and the bot, and
+   the one form, the token and the operator's user ID, which is the only time
+   the token crosses. After: the bot's name, the invite link, the server
+   list the service read on the token, and the channel name, which is the
+   second and last press. Connected: the channel, the delivered
+   confirmation, and the registered commands, all from this read. */
+const DISCORD_STAGES_WITH_TOKEN_FORM = ["token", "operator"];
+function setupDiscord(card, progress) {
+  const d = UI.setup.discord;
+  const detail = card.detail ?? null;
+  const stage = card.state === "failed" ? (detail?.stage ?? null) : null;
+  if (card.state === "connected" && detail) {
+    const bridge = detail.bridge === "up"
+      ? `<span class="dim-note">The bridge is running.</span>`
+      : `<span class="dim-note">The bridge reads the token when the service starts. <a href="#" onclick="doRestart();return false">Restart Curia</a> to start it.</span>`;
+    return `<div class="rows">
+      <div class="row"><span class="key grow">Channel</span><span><a href="${esc(detail.channel?.url)}" target="_blank" rel="noopener">#${esc(detail.channel?.name)}</a> in ${esc(detail.guild?.name)}${detail.channel?.created ? " · created by Curia" : ""}</span></div>
+      <div class="row"><span class="key grow">Confirmation</span><span><a href="${esc(detail.confirmation?.url)}" target="_blank" rel="noopener">${detail.confirmation?.posted ? "Posted" : "Delivered"} ${esc(ago(detail.confirmation?.at))}</a></span></div>
+      <div class="row"><span class="key grow">Operator</span><span>${esc(detail.operator?.name || detail.operator?.username || detail.operator?.id)} <span class="dim-note">${esc(detail.operator?.id)}</span></span></div>
+      <div class="row"><span class="key grow">Commands</span><span>${(detail.commands ?? []).map((c) => `<code>/${esc(c)}</code>`).join(" ")}</span></div>
+    </div><p>${bridge}</p>
+    <details><summary>Change the server or the channel</summary>${setupDiscordChannelForm(d, progress, detail)}</details>`;
+  }
+  const secretPresent = card.state === "failed" || d?.secret === "present" || d?.secret === "refused";
+  if (!secretPresent) return `${setupDiscordGuide()}${setupDiscordTokenForm(d, true)}`;
+  if (!d || d.loading) return `<p class="qhint">Reading the bot's servers…</p>`;
+  const tokenFirst = DISCORD_STAGES_WITH_TOKEN_FORM.includes(stage) || d.secret === "refused" || Boolean(d.error);
+  const bot = d.bot ? `<div class="rows"><div class="row"><span class="key grow">Bot</span><span>${esc(d.bot.username)}${d.invite_url ? ` · <a href="${esc(d.invite_url)}" target="_blank" rel="noopener">Add the bot to a server</a>` : ""}</span></div></div>` : "";
+  const problem = d.error && !stage ? `<p class="qhint">${esc(d.error)}</p>` : "";
+  return `${bot}${problem}
+    ${tokenFirst ? setupDiscordTokenForm(d, true) : ""}
+    ${setupDiscordChannelForm(d, progress, detail)}
+    ${tokenFirst ? "" : `<details><summary>Replace the bot token</summary>${setupDiscordTokenForm(d, false)}</details>`}`;
+}
+
+function setupDiscordGuide() {
+  return `<ol class="setup-steps">
+    <li>Open the <a href="https://discord.com/developers/applications" target="_blank" rel="noopener">Discord developer portal</a> and select <b>New Application</b>. Name it for this installation, for example <code>curia-box</code>.</li>
+    <li>Under <b>Bot</b>, turn on <b>Message Content Intent</b>, then select <b>Reset Token</b> and copy the token. Discord shows it once.</li>
+    <li>In Discord, turn on <b>Developer Mode</b> under <b>Settings</b> &gt; <b>Advanced</b>, then copy your user ID from your profile menu.</li>
+  </ol>`;
+}
+
+function setupDiscordTokenForm(d, open) {
+  const busy = UI.setup.discordBusy === "discord-setup:token";
+  const settings = d?.settings ?? null;
+  return `<p><input id="setup-discord-token" type="password" autocomplete="off" placeholder="Bot token" aria-label="Bot token">
+    <input id="setup-discord-user" type="text" value="${esc(settings?.allowed_users?.[0] ?? "")}" placeholder="Your Discord user ID" aria-label="Discord user ID" inputmode="numeric">
+    <button class="btn primary" ${busy ? "disabled" : ""} onclick="doSetupDiscordToken()">${busy ? "Connecting…" : "Connect bot"}</button></p>
+    ${open ? said("discord-setup:token") : ""}
+    <p class="qhint">The token goes straight to <code>secrets/discord-bot-token</code>. The user ID is the whole access check: only that account may command Curia.</p>`;
+}
+
+function setupDiscordChannelForm(d, progress, detail) {
+  const busy = UI.setup.discordBusy === "discord-setup:channel";
+  const settings = d?.settings ?? null;
+  const guilds = d?.guilds?.length ? d.guilds : (detail?.guilds ?? (detail?.guild ? [detail.guild] : []));
+  const chosen = progress?.guild_id || settings?.guild_id || detail?.guild?.id || guilds[0]?.id || "";
+  const channel = progress?.channel || settings?.channel || detail?.channel?.name || "curia";
+  const options = guilds.map((g) => `<option value="${esc(g.id)}" ${g.id === chosen ? "selected" : ""}>${esc(g.name)}</option>`).join("");
+  const invite = d?.invite_url || detail?.invite_url;
+  const none = !guilds.length ? `<p class="qhint">The bot is in no server yet. ${invite ? `<a href="${esc(invite)}" target="_blank" rel="noopener">Add the bot to your server</a>, then select <b>Try again</b>.` : ""}</p>` : "";
+  return `<p><select id="setup-discord-guild" aria-label="Server" ${guilds.length ? "" : "disabled"}>${options}</select>
+    <input id="setup-discord-channel" type="text" value="${esc(channel)}" placeholder="curia" aria-label="Command channel">
+    <button class="btn primary" ${busy || !guilds.length ? "disabled" : ""} onclick="doSetupDiscordChannel()">${busy ? "Verifying…" : "Connect channel"}</button></p>
+    ${none}${said("discord-setup:channel")}
+    <p class="qhint">Curia reuses a top-level text channel of that name when the bot can use it, and creates one otherwise. The name is yours to choose. <code>curia</code> is only a suggestion.</p>`;
+}
+
+/* The Discord card's reads and writes (#876). The panel's own read is what
+   the service knows on the token from disk; it runs when the card is
+   selected and after every write. The token itself is read off its field,
+   sent once, and the field is cleared before the answer comes back. */
+async function loadDiscordSetup() {
+  UI.setup.discord = { ...(UI.setup.discord ?? {}), loading: true };
+  render();
+  try {
+    const res = await fetch("/api/setup/discord", { headers: { accept: "application/json" }, cache: "no-store" });
+    if (!res.ok) throw new Error("the sidecar answered " + res.status);
+    UI.setup.discord = await res.json();
+  } catch (error) {
+    UI.setup.discord = { secret: null, settings: null, bot: null, guilds: [], invite_url: null, error: error.message };
+  }
+  render();
+}
+function ensureDiscordSetupRead() {
+  if (!setup?.cards || setupSelected() !== "discord") return;
+  const card = setupCardOf("discord");
+  if (!card || card.state === "unavailable" || card.state === "connected") return;
+  if (UI.setup.discord === null) loadDiscordSetup();
+}
+async function doSetupDiscordToken() {
+  const tokenField = document.getElementById("setup-discord-token");
+  const token = String(tokenField?.value ?? "").trim();
+  if (tokenField) tokenField.value = "";
+  const userId = document.getElementById("setup-discord-user")?.value?.trim() ?? "";
+  if (!token) return refuse("discord-setup:token", "Paste the bot token.");
+  if (!userId) return refuse("discord-setup:token", "Enter your Discord user ID.");
+  const out = await discordSetupWrite("discord-setup:token", "/api/setup/discord/token", { token, user_id: userId });
+  if (out) UI.setup.discord = out;
+  render();
+  return out;
+}
+async function doSetupDiscordChannel() {
+  const guildId = document.getElementById("setup-discord-guild")?.value ?? "";
+  const channel = document.getElementById("setup-discord-channel")?.value?.trim() ?? "";
+  if (!guildId) return refuse("discord-setup:channel", "Select a server.");
+  if (!channel) return refuse("discord-setup:channel", "Enter a channel name.");
+  await rememberSetupProgress("discord", { guild_id: guildId, channel });
+  const out = await discordSetupWrite("discord-setup:channel", "/api/setup/discord/channel", { guild_id: guildId, channel });
+  if (out) UI.setup.discord = null;
+  return loadSetup();
+}
+async function discordSetupWrite(key, path, body) {
+  UI.setup.discordBusy = key;
+  UI.act.said = null;
+  render();
+  try {
+    const res = await fetch(path, {
+      method: "POST", headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify(body),
+    });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(out.error || ("the sidecar answered " + res.status));
+    return out;
+  } catch (error) {
+    UI.act.said = { key, text: error.message, ok: false };
+    return null;
+  } finally {
+    UI.setup.discordBusy = null;
+  }
 }
 
 function setupUnavailable(card) {
@@ -5011,6 +5149,7 @@ async function loadSetup() {
   }
   UI.setup.busy = false;
   render();
+  ensureDiscordSetupRead();
 }
 /* Try again is a fresh verification of everything, which is the only kind of
    verification there is. */
@@ -5027,6 +5166,7 @@ async function selectSetupCard(key) {
   setup.step = key;
   UI.setup.note = null;
   render();
+  ensureDiscordSetupRead();
   await writeSetup({ step: key });
 }
 function continueSetup() {

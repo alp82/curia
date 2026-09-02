@@ -4599,6 +4599,133 @@ describe('integration setup (#874)', () => {
     assert.doesNotMatch(html, /issues\/861/)
   })
 
+  // The Discord card (#876). Before the token exists the panel guides the
+  // operator to the application and the bot and offers the one form, the
+  // token and the user ID. The token is read off its field, sent once, and
+  // the field is cleared before the answer arrives; nothing on the page
+  // holds it. After, the panel draws the bot, the invite link, the servers
+  // the service read, and the channel name; connected, it draws the channel,
+  // the delivered confirmation, and the registered commands from this read.
+  const DISCORD_OVERVIEW = (over = {}) => ({
+    secret: 'present', source: 'file', file: '/root/secrets/discord-bot-token',
+    bot: { id: '222222222222222222', username: 'curia-box' },
+    guilds: [{ id: '333333333333333333', name: "Alp's workshop" }, { id: '999999999999999999', name: 'Testing' }],
+    invite_url: 'https://discord.com/oauth2/authorize?client_id=555555555555555555&scope=bot%20applications.commands&permissions=1',
+    settings: { allowed_users: ['111111111111111111'], guild_id: null, channel: 'curia' }, error: null, ...over,
+  })
+  const DISCORD_TOKEN = 'MTIzNDU2Nzg5MDEyMzQ1Njc4.GaBcDe.this-token-must-never-be-shown-anywhere-1234'
+
+  test('the unconnected Discord card guides the operator to the bot and offers the token and the user ID, once, as a password field', () => {
+    page.setup = SETUP({ step: 'discord', cards: { discord: { state: 'unconnected', badge: 'Ready to connect' } } })
+    const html = page.screenSetup(payload())
+    assert.match(html, /href="https:\/\/discord\.com\/developers\/applications"/)
+    assert.match(text(html), /Message Content Intent/)
+    assert.match(html, /<input id="setup-discord-token" type="password"/)
+    assert.match(html, /id="setup-discord-user"/)
+    assert.match(html, /onclick="doSetupDiscordToken\(\)">Connect bot</)
+    assert.match(text(html), /Curia never shows it again/)
+    assert.doesNotMatch(html, /setup-discord-guild/, 'no server to pick before the token exists')
+  })
+
+  test('Connect bot sends the token and the ID once, clears the field before the answer, and keeps no copy on the page', async () => {
+    page.setup = SETUP({ step: 'discord', cards: { discord: { state: 'unconnected', badge: 'Ready to connect' } } })
+    page.payload = payload()
+    const fields = { 'setup-discord-token': { value: DISCORD_TOKEN }, 'setup-discord-user': { value: '111111111111111111' } }
+    page.document.getElementById = (id) => fields[id] ?? null
+    let cleared = null
+    page.fetch = async (url, init = {}) => {
+      calls.push({ url, method: init.method ?? 'GET', body: init.body ? JSON.parse(init.body) : null })
+      if (url === '/api/setup/discord/token') cleared = fields['setup-discord-token'].value
+      return { ok: true, json: async () => ({ ok: true, ...DISCORD_OVERVIEW() }) }
+    }
+    vm.runInContext('doSetupDiscordToken()', page)
+    await new Promise((resolve) => setImmediate(resolve))
+    const sent = calls.find((c) => c.url === '/api/setup/discord/token')
+    assert.deepEqual(sent.body, { token: DISCORD_TOKEN, user_id: '111111111111111111' })
+    assert.equal(cleared, '', 'the field is empty before the answer comes back')
+    assert.equal(page.UI.setup.discord.secret, 'present')
+    assert.ok(!JSON.stringify(page.UI.setup).includes(DISCORD_TOKEN))
+    assert.ok(!JSON.stringify(page.setup).includes(DISCORD_TOKEN))
+    assert.equal(page.localStorage.getItem('setup'), null)
+    const html = page.screenSetup(payload())
+    assert.ok(!html.includes(DISCORD_TOKEN), 'the token is not drawn back')
+    assert.match(html, /id="setup-discord-guild"/, 'the server list is the next form')
+  })
+
+  test('with the token on disk the panel draws the bot, the invite link, the servers, and the remembered channel, and the token form is behind a fold', () => {
+    page.setup = SETUP({ step: 'discord', progress: { discord: { guild_id: '999999999999999999', channel: 'ops' } }, cards: { discord: {
+      state: 'failed', badge: 'Action required',
+      error: { failed: "curia-box isn't in the selected server", action: 'Select a server the bot is in, then try again.' },
+      detail: { stage: 'server', guilds: [{ id: '999999999999999999', name: 'Testing' }] },
+    } } })
+    page.UI.setup.discord = DISCORD_OVERVIEW()
+    const html = page.screenSetup(payload())
+    assert.match(text(html), /curia-box/)
+    assert.match(html, /href="https:\/\/discord\.com\/oauth2\/authorize\?client_id=555555555555555555[^"]*"[^>]*>Add the bot to a server</)
+    assert.match(html, /<option value="999999999999999999" selected>Testing<\/option>/)
+    assert.match(html, /id="setup-discord-channel" type="text" value="ops"/)
+    assert.match(html, /onclick="doSetupDiscordChannel\(\)">Connect channel</)
+    assert.match(html, /<details><summary>Replace the bot token<\/summary>/)
+    assert.match(html, /onclick="retrySetup\(\)">Try again</)
+  })
+
+  test('a token Discord refused puts the token form first, with the user ID it kept', () => {
+    page.setup = SETUP({ step: 'discord', cards: { discord: {
+      state: 'failed', badge: 'Action required',
+      error: { failed: 'Discord refused the bot token', action: 'Reset the token on the Bot page of your Discord application and submit the new one in this panel.' },
+      detail: { stage: 'token' },
+    } } })
+    page.UI.setup.discord = DISCORD_OVERVIEW({ bot: null, guilds: [], invite_url: null, error: 'Discord refused the bot token' })
+    const html = page.screenSetup(payload())
+    assert.match(html, /<input id="setup-discord-token" type="password"/)
+    assert.match(html, /id="setup-discord-user" type="text" value="111111111111111111"/)
+    assert.doesNotMatch(html, /<summary>Replace the bot token/)
+  })
+
+  test('selecting the Discord card takes the panel\'s own read once, and Connect channel remembers the choice, writes it, then verifies fresh', async () => {
+    page.setup = SETUP({ cards: { discord: { state: 'failed', badge: 'Action required', error: { failed: 'No server is selected', action: 'Select one.' }, detail: { stage: 'server', guilds: [] } } } })
+    page.fetch = async (url, init = {}) => {
+      calls.push({ url, method: init.method ?? 'GET', body: init.body ? JSON.parse(init.body) : null })
+      if (url === '/api/setup/discord') return { ok: true, json: async () => DISCORD_OVERVIEW() }
+      if (url === '/api/setup/discord/channel') return { ok: true, json: async () => ({ ok: true, card: { key: 'discord', state: 'connected' } }) }
+      return { ok: true, json: async () => (init.method === 'POST' ? { ok: true } : SETUP()) }
+    }
+    await page.selectSetupCard('discord')
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.equal(calls.filter((c) => c.url === '/api/setup/discord').length, 1)
+    assert.equal(page.UI.setup.discord.bot.username, 'curia-box')
+    page.document.getElementById = (id) => ({ 'setup-discord-guild': { value: '333333333333333333' }, 'setup-discord-channel': { value: 'ops' } })[id] ?? null
+    calls = []
+    await page.doSetupDiscordChannel()
+    assert.deepEqual(calls.map((c) => [c.method, c.url]), [['POST', '/api/setup'], ['POST', '/api/setup/discord/channel'], ['GET', '/api/setup']])
+    assert.deepEqual(calls[0].body, { progress: { discord: { guild_id: '333333333333333333', channel: 'ops' } } })
+    assert.deepEqual(calls[1].body, { guild_id: '333333333333333333', channel: 'ops' })
+  })
+
+  test('a connected Discord card draws the channel, the delivered confirmation, the operator, and the commands, and says whether the bridge runs', () => {
+    page.setup = SETUP({ step: 'discord', cards: { discord: {
+      ...ALL.discord,
+      detail: {
+        guild: { id: '333333333333333333', name: "Alp's workshop" },
+        channel: { id: '444444444444444444', name: 'curia', created: true, url: 'https://discord.com/channels/333333333333333333/444444444444444444' },
+        operator: { id: '111111111111111111', username: 'alp', name: 'Alp' },
+        commands: ['tickets', 'next', 'status'],
+        confirmation: { id: '777', at: new Date().toISOString(), posted: true, url: 'https://discord.com/channels/333333333333333333/444444444444444444/777' },
+        bridge: null,
+      },
+    } } })
+    const html = page.screenSetup(payload())
+    assert.match(html, /href="https:\/\/discord\.com\/channels\/333333333333333333\/444444444444444444"[^>]*>#curia</)
+    assert.match(text(html), /created by Curia/)
+    assert.match(html, /href="https:\/\/discord\.com\/channels\/333333333333333333\/444444444444444444\/777"[^>]*>Posted /)
+    assert.match(html, /<code>\/tickets<\/code> <code>\/next<\/code> <code>\/status<\/code>/)
+    assert.match(text(html), /Alp 111111111111111111/)
+    assert.match(html, /onclick="doRestart\(\);return false">Restart Curia</)
+    assert.match(html, /<div class="setup-secondary">Confirmation delivered · 6 commands registered<\/div>/)
+    assert.doesNotMatch(html, /type="password"/, 'no token form on a connected card')
+    assert.match(html, /Continue setup/)
+  })
+
   test('arriving at Setup takes its own read, and the read is a fresh verification every time', async () => {
     page.enter('setup')
     page.enter('setup')

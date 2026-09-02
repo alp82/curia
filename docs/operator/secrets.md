@@ -29,7 +29,7 @@ Three kinds of short-lived values are not secret files, and you never manage the
 
 ### Facts beside the token
 
-The Discord facts that are not secret live in `state/discord.json`: `allowed_users` (the Discord user IDs that may speak to Curia, which is the whole access check), `guild_id`, and `channel` (default `curia`). The Discord step of integration setup writes the file. When the file names no allowed user, the service starts without the Discord bridge and says so.
+The Discord facts that are not secret live in `state/discord.json`: `allowed_users` (the Discord user IDs that may speak to Curia, which is the whole access check), `guild_id`, and `channel` (default `curia`). The Discord card of [integration setup](integration-setup.md#connect-discord) writes the file: the user ID with the token, the server and the channel on the second press. When the file names no allowed user, the service starts without the Discord bridge and says so.
 
 The setup checkpoint lives in `state/setup.json`: the selected card and a closed list of safe fields per card, never a token and never a completion marker. See [Integration setup](integration-setup.md#what-a-reopen-restores).
 
