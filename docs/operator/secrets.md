@@ -1,6 +1,6 @@
 # Secrets, mounts, and what survives
 
-An installed Curia keeps every long-lived credential as one owner-only file under `secrets/` in the [installation root](command-reference.md#the-installation-root), and gives each container only the directories it owns. This page is the reference for the secret files, for what each container can see, and for what a restart, an update, or an uninstall keeps. The lifecycle topics in the operator guide tell you when to act on any of it.
+An installed Curia keeps every long-lived credential as one owner-only file under `secrets/` in the [installation root](command-reference.md#the-installation-root), and gives each container only the directories it owns. This page is the reference for the secret files, for what each container can see, and for what a restart, an update, or an uninstall keeps. The [operator guide](README.md) tells you when to act on any of it, and every topic that changes or removes something quotes this page's survival table first.
 
 ## The secret files
 

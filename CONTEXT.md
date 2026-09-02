@@ -1022,7 +1022,7 @@ Everything else is a cache that reconcile can rebuild.
 
 - `docs/adr/`: one file per standing decision, indexed at `docs/adr/README.md`.
 - `docs/research/`: research notes, one per investigation, indexed at `docs/research/README.md`.
-- `docs/operator/`: the operator's reference pages for an installed Curia, subordinate to the lifecycle guide.
+- `docs/operator/`: the operator guide for an installed Curia. `docs/operator/README.md` is the index, `docs/operator/guide/` holds the ten lifecycle topics in the accepted guided-lifecycle structure ([#888](https://github.com/alp82/curia/issues/888), implementing [#858](https://github.com/alp82/curia/issues/858)), and the pages beside the index are the reference pages the topics link to at the point of use. `daemon/test/operatorguide.test.mjs` keeps every relative link, anchor, command name, and option in those pages true to the tree and to `cli/src`.
 - `docs/live-checks/`: first-person agent evidence.
 - `docs/agents/`: tracker, triage, and domain-doc conventions for agents.
 - `docs/full-loop.md`: the rehearsal record of the PoC map. History, not a live procedure.

@@ -1,6 +1,6 @@
 # Update discovery, staging, and the switch
 
-`curia update` moves an installed Curia to another release while your agents keep working. This page is the reference for how Curia finds out that an update exists, how you select a version, what `curia update` does step by step, what keeps running through the switch, what is kept for a rollback, what it writes where, and what the Curia app shows. [Releases, the stable-release index, and version selection](releases.md) explains how a version becomes the recommended one; this page explains what happens on your host.
+`curia update` moves an installed Curia to another release while your agents keep working. This page is the reference for how Curia finds out that an update exists, how you select a version, what `curia update` does step by step, what keeps running through the switch, what is kept for a rollback, what it writes where, and what the Curia app shows. [Releases, the stable-release index, and version selection](releases.md) explains how a version becomes the recommended one; this page explains what happens on your host. [Update](guide/07-update-or-roll-back.md#update) in the operator guide is where you run it.
 
 ## How Curia learns about an update
 
@@ -51,7 +51,7 @@ The command runs six named steps in order and prints each one as `[n/6] <step>`.
 | 5. `validate` | Has the target release validate your current operator configuration with its own reader. A `config/config.yaml` the target refuses stops the update here, with the same message the target's service would print. | Nothing. |
 | 6. `switch` | Recreates the service, the app, and the overseer from the target's bundle while tmux, ttyd, and the agent containers keep running, then accepts the target and records it as active. The next section describes it. | `run/compose.env`, the three recreated containers, `state/installation.json`, and `versions/`. |
 
-On success the command prints `Curia <target> is running.` and names the rollback command. Nothing in integration setup has to be repeated, and no Full loop runs.
+On success the command prints `Curia <target> is running. Open the Curia app as before; nothing in integration setup has to be repeated.` No Full loop runs. The release you came from stays under `versions/` as the rollback release; see [Rollback](rollback.md).
 
 ## What the switch does
 

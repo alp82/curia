@@ -1,6 +1,6 @@
 # The release manifest and release verification
 
-A Curia release is one version, and one file says what that version is made of. This page is the reference for that file, the release manifest, for the checks Curia runs against it before it activates a version, and for what each failed check means. The lifecycle topics in the operator guide tell you when Curia runs these checks; this page tells you what they prove.
+A Curia release is one version, and one file says what that version is made of. This page is the reference for that file, the release manifest, for the checks Curia runs against it before it activates a version, and for what each failed check means. The [operator guide](README.md) tells you when Curia runs these checks; this page tells you what they prove.
 
 ## What the manifest binds
 

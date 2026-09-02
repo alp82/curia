@@ -1,6 +1,6 @@
 # Operator configuration
 
-`config/config.yaml` inside the installation root is the one file that holds your operator configuration: how many agents run at once, whether Curia dispatches on its own, and which repositories it watches. This page is the reference for that file. The lifecycle topics in the operator guide tell you when to change a setting and what to check afterwards.
+`config/config.yaml` inside the installation root is the one file that holds your operator configuration: how many agents run at once, whether Curia dispatches on its own, and which repositories it watches. This page is the reference for that file. [5. Daily operation](guide/05-daily-operation.md#change-a-setting) in the operator guide tells you when to change a setting and what to check afterwards.
 
 Three things write the file, and they all check it the same way:
 
