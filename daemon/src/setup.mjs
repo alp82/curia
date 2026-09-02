@@ -28,10 +28,16 @@
 // A verifier answers `{ ok: true, primary, secondary, emoji? }` — the one real
 // fact and the supporting line the card's footer draws — or `{ ok: false,
 // failed, action }` — the failed verification and exactly one corrective
-// action. A verifier that throws is a failed verification whose sentence is
-// the thrown one. A verifier that is absent reports `unavailable`, which is
-// what the frame shows before its ticket lands. The model card owns the two
-// provider verifiers and is connected by either.
+// action — or `{ ok: false, unconnected: true }` — nothing to verify yet,
+// because the integration's own secret is not on disk (#875): that is the
+// plain "Ready to connect" card and never a failure. Either answer may carry
+// `detail`, a small non-secret record the card hands on as `card.detail`; it
+// is how a connected card's verified facts reach the Full loop gate (#880)
+// and the panel that draws them. A verifier that throws is a failed
+// verification whose sentence is the thrown one. A verifier that is absent
+// reports `unavailable`, which is what the frame shows before its ticket
+// lands. The model card owns the two provider verifiers and is connected by
+// either.
 //
 // The Full loop is the one dependent step, and `fullLoop` (#880) is its seam:
 // asked only once every card is connected, it answers `{ ready, reason,
@@ -112,7 +118,7 @@ function checkedProgress(progress) {
 
 // The card record the page draws. One shape for every state, so the card's
 // height never depends on which state it is in.
-function cardOf(key, { state, footer = null, error = null, badge, providers = null }) {
+function cardOf(key, { state, footer = null, error = null, badge, providers = null, detail = undefined }) {
   return {
     key,
     title: CARD_TITLES[key],
@@ -121,6 +127,7 @@ function cardOf(key, { state, footer = null, error = null, badge, providers = nu
     footer,
     error,
     pending: PENDING[key],
+    ...(detail !== undefined ? { detail } : {}),
     ...(providers ? { providers } : {}),
   }
 }
@@ -135,15 +142,19 @@ async function ask(verifier, context) {
   } catch (e) {
     return { state: 'failed', error: { failed: e.message, action: FALLBACK_ACTION } }
   }
+  const detail = answer?.detail !== undefined ? { detail: answer.detail } : {}
   if (answer?.ok) {
     return {
       state: 'connected',
       footer: { primary: String(answer.primary ?? ''), secondary: String(answer.secondary ?? ''), emoji: String(answer.emoji ?? '✅') },
+      ...detail,
     }
   }
+  if (answer?.unconnected) return { state: 'unconnected', ...detail }
   return {
     state: 'failed',
     error: { failed: String(answer?.failed ?? 'The verification did not pass'), action: String(answer?.action ?? FALLBACK_ACTION) },
+    ...detail,
   }
 }
 

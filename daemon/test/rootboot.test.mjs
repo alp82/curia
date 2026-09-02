@@ -134,13 +134,14 @@ describe('the daemon under an installation root (#867)', () => {
       assert.equal(overview.secrets['discord-bot-token'].state, 'present')
       assert.equal(overview.secrets['github-app.json'].state, 'absent')
 
-      // Integration setup (#874) under the root: the read verifies fresh and
-      // reports every card not available while no integration ticket has
-      // landed, the write keeps the selected card in `state/setup.json`, and
-      // a field that is not on the closed list is refused by name.
+      // Integration setup (#874) under the root: the read verifies fresh.
+      // The GitHub card (#875) is plain while `secrets/github-app.json` is
+      // absent, every card whose ticket has not landed is not available, the
+      // write keeps the selected card in `state/setup.json`, and a field that
+      // is not on the closed list is refused by name.
       const setup = await (await fetch(`http://127.0.0.1:${ports[0]}/setup`)).json()
       assert.deepEqual(setup.cards.map((c) => [c.key, c.state]), [
-        ['github', 'unavailable'], ['discord', 'unavailable'], ['tailscale', 'unavailable'], ['model', 'unavailable'],
+        ['github', 'unconnected'], ['discord', 'unavailable'], ['tailscale', 'unavailable'], ['model', 'unavailable'],
       ])
       assert.equal(setup.step, 'github')
       assert.equal(setup.full_loop.ready, false)

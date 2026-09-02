@@ -288,6 +288,9 @@ const VERB_PROVIDER_RE = /^[a-z0-9][a-z0-9-]*$/
 // it names the shape it will send. The two fields GitHub redirects back with
 // are checked on the daemon, which is the side that composes them into a URL.
 const APP_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9 ._-]{0,33}$/
+// The screen GitHub's redirect lands on (#875): the Settings section or the
+// Setup screen, whichever started the trip. A name, never a location.
+const APP_SCREEN_RE = /^(settings|setup)$/
 
 export const MAX_WORDS = 4000
 
@@ -999,6 +1002,7 @@ export class DashboardSurface {
           const b = await this.#body(req)
           const name = field(b.name, APP_NAME_RE, 'a GitHub App name')
           const actionId = field(b.action_id, ACTION_ID_RE, 'an Action id')
+          const screen = b.screen === undefined ? 'settings' : field(b.screen, APP_SCREEN_RE, 'a screen that starts a GitHub App setup')
           // The redirect is THIS surface's own address, composed from curia's
           // own records (#68) rather than from the request headers. GitHub
           // sends the conversion code back to this URL, so a caller-named
@@ -1007,7 +1011,7 @@ export class DashboardSurface {
           // tailscale says this box is.
           const redirectUrl = new URL('api/github-app/complete', await this.link()).toString()
           return this.#daemon({
-            method: 'POST', path: '/github-app/start', body: { name, redirect_url: redirectUrl, action_id: actionId }, accept: [200, 400],
+            method: 'POST', path: '/github-app/start', body: { name, redirect_url: redirectUrl, action_id: actionId, screen }, accept: [200, 400],
           })
         })
       }
@@ -1214,7 +1218,7 @@ export class DashboardSurface {
       return this.#daemon({ path: `/github-app/complete?${q}`, accept: [200, 400] }).then(
         (out) => {
           if (out.error) return this.#json(res, 400, out)
-          res.writeHead(303, { location: '/#settings' })
+          res.writeHead(303, { location: out.screen === 'setup' ? '/#setup' : '/#settings' })
           res.end()
         },
         (e) => this.#json(res, 500, { error: e.message }),

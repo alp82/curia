@@ -284,6 +284,34 @@ describe('the integration setup frame (#874)', () => {
     assert.equal(status.full_loop.ready, false)
   })
 
+  // #875: an integration whose one durable secret is not on disk yet has not
+  // failed anything. Its card is "Ready to connect", not "Action required".
+  test('a verifier may answer unconnected, which is the plain card and never a failure', async () => {
+    const setup = new IntegrationSetup({ stateDir: tmp, verifiers: { github: async () => ({ ok: false, unconnected: true }) } })
+    const card = (await setup.status()).cards.find((c) => c.key === 'github')
+    assert.equal(card.state, 'unconnected')
+    assert.equal(card.badge, 'Ready to connect')
+    assert.equal(card.error, null)
+    assert.equal(card.footer, null)
+  })
+
+  // The verified facts a card hands the Full loop gate (#880) ride the card as
+  // `detail`, beside the footer, on a connected and on a failed answer alike.
+  test('a verifier may attach non-secret detail, and the card carries it to the gate', async () => {
+    const detail = { covered: ['alp82/curia'], ticket: { number: 861, title: 'Chart backup' } }
+    const setup = new IntegrationSetup({
+      stateDir: tmp,
+      verifiers: {
+        github: async () => ({ ok: true, primary: '#861 · Chart backup', secondary: 'ready-for-agent · alp82/curia', detail }),
+        discord: async () => ({ ok: false, failed: 'no channel', action: 'make one', detail: { guild: '123' } }),
+      },
+    })
+    const cards = (await setup.status()).cards
+    assert.deepEqual(cards.find((c) => c.key === 'github').detail, detail)
+    assert.deepEqual(cards.find((c) => c.key === 'discord').detail, { guild: '123' })
+    assert.equal('detail' in cards.find((c) => c.key === 'tailscale'), false)
+  })
+
   test('the status carries the resumption record beside the fresh cards, and no secret file value', async () => {
     const setup = new IntegrationSetup({ stateDir: tmp })
     setup.remember({ step: 'model', progress: { model: { provider: 'openai' } } })

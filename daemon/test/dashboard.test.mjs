@@ -988,7 +988,8 @@ describe('the operator verbs (#266)', () => {
       '/note': [200, { ok: true, agent: 'curia-266', id: 'note-3', after: null, mode: 'queue' }],
       '/feed/read': [200, { ok: true, by: 'alp@example.com', at: '2026-08-26T09:00:00.000Z', previous: null }],
       '/github-app/start': [200, { action: 'https://github.com/settings/apps/new', manifest: { name: 'curia-box' } }],
-      '/github-app/complete?code=one-use&state=expected': [200, { ok: true, app: { id: '42', slug: 'curia-box' } }],
+      '/github-app/complete?code=one-use&state=expected': [200, { ok: true, app: { id: '42', slug: 'curia-box' }, screen: 'settings' }],
+      '/github-app/complete?code=from-setup&state=expected': [200, { ok: true, app: { id: '42', slug: 'curia-box' }, screen: 'setup' }],
       '/github-app/installations': [200, { ok: true, reply: 'Read 1 installation: alp82', installations: { state: 'read' } }],
     }
     daemon = http.createServer((r, res) => {
@@ -1079,11 +1080,29 @@ describe('the operator verbs (#266)', () => {
       name: 'curia-box',
       redirect_url: 'https://box.tail1234.ts.net:8445/api/github-app/complete',
       action_id: actionId,
+      screen: 'settings',
     })
 
     const completed = await req(surface.port, '/api/github-app/complete?code=one-use&state=expected', { headers: served() })
     assert.equal(completed.status, 303)
+    assert.equal(completed.headers.location, '/#settings')
     assert.equal(completed.text.includes('PRIVATE KEY'), false)
+  })
+
+  // The Setup screen (#875) starts the same flow, and GitHub's redirect lands
+  // back on the screen that started it. The screen is a named field of this
+  // surface, never a caller-composed location.
+  test('a setup started from the Setup screen lands back on it', async () => {
+    const started = await press('/api/github-app/start', { name: 'curia-box', action_id: 'app-github-app-setup2', screen: 'setup' })
+    assert.equal(started.status, 200)
+    assert.equal(sent('/github-app/start').body.screen, 'setup')
+    const completed = await req(surface.port, '/api/github-app/complete?code=from-setup&state=expected', { headers: served() })
+    assert.equal(completed.status, 303)
+    assert.equal(completed.headers.location, '/#setup')
+    calls = []
+    const bad = await press('/api/github-app/start', { name: 'curia-box', action_id: 'app-github-app-setup3', screen: 'https://evil.example/' })
+    assert.equal(bad.status, 409)
+    assert.equal(sent('/github-app/start'), undefined)
   })
 
   // A browser-named redirect is not a field this surface forwards, and a name

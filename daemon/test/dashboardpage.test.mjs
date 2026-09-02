@@ -4523,6 +4523,82 @@ describe('integration setup (#874)', () => {
     assert.doesNotMatch(page.screenHome(payload()), /setup-pointer/)
   })
 
+  // The GitHub card (#875). Before the App exists the panel offers the one
+  // press that opens GitHub's manifest handoff; it collects a name and never a
+  // credential. After, it draws the install link per watched owner from the
+  // held overview, and the connected panel draws the real ticket or the
+  // honest zero the service reported.
+  const APP = (over = {}) => ({
+    configured: true, status: 'complete',
+    app: { id: '42', slug: 'curia-box', bot_login: 'curia-box[bot]', key_file: '/root/secrets/github-app.json', settings_url: 'https://github.com/settings/apps/curia-box' },
+    installations: { state: 'read', at: new Date().toISOString(), error: null },
+    owners: [{ owner: 'alp82', installed: false, installation_id: null, install_url: 'https://github.com/apps/curia-box/installations/new' }],
+    manual_url: 'https://github.com/settings/apps/new',
+    ...over,
+  })
+
+  test('the unconnected GitHub card offers Create GitHub App with the remembered name, and no field for a credential', () => {
+    page.setup = SETUP({ progress: { github: { app_name: 'curia-alp' } }, cards: { github: { state: 'unconnected', badge: 'Ready to connect' } } })
+    const p = payload()
+    p.overview.github_app = APP({ configured: false, status: 'unconfigured', app: null, owners: [] })
+    const html = page.screenSetup(p)
+    assert.match(html, /id="setup-github-app-name" value="curia-alp"/)
+    assert.match(html, /onclick="doSetupGitHubApp\(\)">Create GitHub App</)
+    assert.doesNotMatch(html, /type="password"|private key|client secret/i)
+    assert.match(text(html), /Curia never sees your password or browser session/)
+    assert.doesNotMatch(html, /Try again/)
+  })
+
+  test('Create GitHub App remembers the name as safe progress, then starts the manifest handoff from the Setup screen', async () => {
+    page.setup = SETUP({ cards: { github: { state: 'unconnected', badge: 'Ready to connect' } } })
+    page.payload = payload()
+    page.document.getElementById = (id) => (id === 'setup-github-app-name' ? { value: 'curia-alp' } : null)
+    vm.runInContext('doSetupGitHubApp()', page)
+    await new Promise((resolve) => setImmediate(resolve))
+    const remembered = calls.find((c) => c.url === '/api/setup' && c.method === 'POST')
+    assert.deepEqual(remembered.body, { progress: { github: { app_name: 'curia-alp' } } })
+    const started = calls.find((c) => c.url === '/api/github-app/start')
+    assert.equal(started.body.name, 'curia-alp')
+    assert.equal(started.body.screen, 'setup')
+    assert.equal(page.setup.progress.github.app_name, 'curia-alp')
+  })
+
+  test('a failed GitHub card names the failed verification and draws the install link per watched owner', () => {
+    page.setup = SETUP({ cards: { github: {
+      state: 'failed', badge: 'Action required',
+      error: { failed: "curia's GitHub App is not installed on alp82", action: 'Install the App on alp82 from the link in this panel and grant it alp82/curia, then try again.' },
+      detail: { owners: [{ owner: 'alp82', installed: false }], covered: [] },
+    } } })
+    const p = payload()
+    p.overview.github_app = APP()
+    const html = page.screenSetup(p)
+    assert.match(html, /href="https:\/\/github.com\/apps\/curia-box\/installations\/new"[^>]*>Install on alp82</)
+    assert.match(text(html), /curia's GitHub App is not installed on alp82/)
+    assert.match(html, /onclick="retrySetup\(\)"/)
+    assert.doesNotMatch(html, /doSetupGitHubApp/)
+    assert.match(html, /href="https:\/\/github.com\/settings\/apps\/curia-box"/)
+  })
+
+  test('a connected GitHub card draws the real discovered ticket as a link, and the zero-ticket state names the repository', () => {
+    const p = payload()
+    p.overview.github_app = APP({ owners: [{ owner: 'alp82', installed: true, installation_id: 7, install_url: 'https://github.com/apps/curia-box/installations/new/permissions?target_id=1001' }] })
+    page.setup = SETUP({ cards: { github: {
+      ...connected('#861 · Chart backup', 'ready-for-agent · alp82/curia · 9 open tickets', '🎫'),
+      detail: { owners: [{ owner: 'alp82', installed: true }], covered: ['alp82/curia'], open_tickets: 9, ticket: { repo: 'alp82/curia', number: 861, title: 'Chart backup', url: 'https://github.com/alp82/curia/issues/861' } },
+    } } })
+    let html = page.screenSetup(p)
+    assert.match(html, /href="https:\/\/github.com\/alp82\/curia\/issues\/861"[^>]*>#861 · Chart backup</)
+    assert.match(html, />Manage installation</)
+    assert.match(html, /Continue setup/)
+    page.setup = SETUP({ cards: { github: {
+      ...ALL.github,
+      detail: { owners: [{ owner: 'alp82', installed: true }], covered: ['alp82/curia'], open_tickets: 0, ticket: null },
+    } } })
+    html = page.screenSetup(p)
+    assert.match(text(html), /No open ticket is ready for an agent in alp82\/curia/)
+    assert.doesNotMatch(html, /issues\/861/)
+  })
+
   test('arriving at Setup takes its own read, and the read is a fresh verification every time', async () => {
     page.enter('setup')
     page.enter('setup')
