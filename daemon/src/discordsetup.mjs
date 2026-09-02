@@ -22,9 +22,9 @@
 //   1. the token is on disk (else the card is plain, "Ready to connect");
 //   2. an operator ID is beside it;
 //   3. Discord accepts the token;
-//   4. the bot is in the selected server;
+//   4. the bot is in at least one server, and the operator has selected one;
 //   5. the operator is a member of that server;
-//   6. the named text channel exists top-level and is reused, else created;
+//   6. the named text channel exists top-level;
 //   7. the bot holds, in that channel, every permission the bridge uses;
 //   8. the command manifest registers on that server;
 //   9. a confirmation message of curia's own stands in the channel — found
@@ -34,6 +34,16 @@
 // stage it failed at, so the panel can draw the right form. Nothing is
 // remembered between reads: a retry measures again, and a connection that
 // is gone reads as gone.
+//
+// A VERIFICATION READ CREATES NOTHING (#891). The frame reads every card on
+// arrival, on the Setup page's refresh, and once at boot, and the first
+// packaged rehearsal found that such a read had picked the bot's first server
+// and created `#curia` before the operator had chosen either. So the read
+// never picks a server for the operator and never creates a channel: with
+// no server chosen it fails on the server, with no channel there it fails
+// on the channel, and the one place a channel is created is `chooseChannel`,
+// the Connect channel press, which reuses a top-level text channel of that
+// name and creates one otherwise, the bridge's `#ensureChannel` rule.
 //
 // THE CONFIRMATION IS FOUND BEFORE IT IS POSTED. The frame reads every card
 // on arrival and on Try again, and the app reads it once at boot for the
@@ -230,8 +240,13 @@ export class DiscordSetup {
     return this.overview()
   }
 
-  // The server and the channel name, written beside the operator ID. The
-  // verifier does the rest on the next read.
+  // The Connect channel press: the server and the channel name land beside
+  // the operator ID, then the channel is reused when a top-level text
+  // channel of that name is there and created when it is not. This is the
+  // only call that creates anything on Discord. A creation Discord refuses
+  // is a refusal with the corrective action; the choice stays written, so
+  // the next press or the operator's own channel completes it. Answers
+  // `{ settings, channel: { id, name, created } | null }`.
   async chooseChannel({ guild_id: guildId, channel } = {}) {
     if (typeof guildId !== 'string' || !SNOWFLAKE.test(guildId)) throw refuse('Select a server the bot is in.')
     if (typeof channel !== 'string' || !CHANNEL_NAME.test(channel)) throw refuse('That is not a Discord channel name. Use lowercase letters, digits, hyphens, and underscores.')
@@ -239,7 +254,34 @@ export class DiscordSetup {
     const current = this.#settings()
     const settings = writeDiscordSettings(this.stateDir, { ...current, guild_id: guildId, channel })
     this.log(`discord setup: server ${guildId} and channel #${channel} landed in ${discordSettingsPath(this.stateDir)}`)
-    return settings
+    const token = this.#token()
+    if (token.state !== 'present') return { settings, channel: null }
+    const api = this.#api(token.value)
+    let guildName = guildId
+    try {
+      const row = (await api('GET', '/users/@me/guilds')).find((g) => String(g.id) === guildId)
+      if (!row) throw refuse('Select a server the bot is in.')
+      guildName = String(row.name ?? guildId)
+    } catch (e) {
+      if (e.refusal) throw e
+      throw refuse(`curia could not list the bot's servers: ${redact(e.message, [token.value])}`)
+    }
+    const found = await this.#findChannel(api, guildId, channel)
+    if (found) return { settings, channel: { id: String(found.id), name: String(found.name ?? channel), created: false } }
+    try {
+      const made = await api('POST', `/guilds/${guildId}/channels`, { name: channel, type: GUILD_TEXT })
+      this.log(`discord setup: created #${channel} in ${guildName}`)
+      return { settings, channel: { id: String(made.id), name: String(made.name ?? channel), created: true } }
+    } catch (e) {
+      throw refuse(`curia could not create #${channel} in ${guildName}: ${redact(e.message, [token.value])}. Give the bot Manage Channels in ${guildName}, or create the text channel #${channel} yourself, then select Connect channel again.`)
+    }
+  }
+
+  // The channel the bridge opens (`#ensureChannel`): a top-level text
+  // channel of that name. One under a category is not the one.
+  async #findChannel(api, guildId, name) {
+    const channels = await api('GET', `/guilds/${guildId}/channels`)
+    return channels.find((c) => c && Number(c.type) === GUILD_TEXT && c.name === name && !c.parent_id) ?? null
   }
 
   // The frame's verifier (#874): `{ ok, primary, secondary, emoji, detail }`
@@ -291,7 +333,10 @@ export class DiscordSetup {
     if (!guilds.length) {
       return fail('server', `${bot.username || 'The bot'} is in no server`, 'Add the bot to your server with the invite link in this panel, then try again.', { ...invite, guilds })
     }
-    const row = settings.guild_id ? rows.find((g) => String(g.id) === settings.guild_id) : rows[0]
+    if (!settings.guild_id) {
+      return fail('server', `No server is selected for ${bot.username || 'the bot'}`, 'Select the server and the channel name in this panel, then select Connect channel.', { ...invite, guilds })
+    }
+    const row = rows.find((g) => String(g.id) === settings.guild_id)
     if (!row) {
       return fail('server', `${bot.username || 'The bot'} isn't in the selected server`, 'Select a server the bot is in, or add the bot to it with the invite link in this panel, then try again.', { ...invite, guilds })
     }
@@ -310,22 +355,14 @@ export class DiscordSetup {
     const operator = { id: operatorId, username: String(member?.user?.username ?? ''), name: String(member?.user?.global_name ?? member?.nick ?? member?.user?.username ?? '') }
     facts.operator = operator
 
-    // The channel: a top-level text channel of that name is the one the
-    // bridge opens (`#ensureChannel`); one under a category is not, so the
-    // rule here is the bridge's rule.
+    // The channel: the one the bridge opens, found and never created here.
+    // Connect channel is the press that creates it.
     const name = settings.channel || DEFAULT_CHANNEL
-    const channels = await api('GET', `/guilds/${guild.id}/channels`)
-    let channel = channels.find((c) => c && Number(c.type) === GUILD_TEXT && c.name === name && !c.parent_id) ?? null
-    let created = false
+    const channel = await this.#findChannel(api, guild.id, name)
     if (!channel) {
-      try {
-        channel = await api('POST', `/guilds/${guild.id}/channels`, { name, type: GUILD_TEXT })
-        created = true
-      } catch (e) {
-        return fail('channel', `curia could not create #${name} in ${guild.name}: ${e.message}`, `Give the bot Manage Channels in ${guild.name}, or create the text channel #${name} yourself, then try again.`, facts)
-      }
+      return fail('channel', `#${name} isn't a top-level text channel in ${guild.name}`, `Select Connect channel in this panel to create #${name}, or create the text channel yourself, then try again.`, facts)
     }
-    const channelFacts = { id: String(channel.id), name: String(channel.name ?? name), created, url: `https://discord.com/channels/${guild.id}/${channel.id}` }
+    const channelFacts = { id: String(channel.id), name: String(channel.name ?? name), created: false, url: `https://discord.com/channels/${guild.id}/${channel.id}` }
     facts.channel = channelFacts
 
     // Authority in that channel, from the server permissions Discord computed
