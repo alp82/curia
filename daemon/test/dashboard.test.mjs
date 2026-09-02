@@ -2311,4 +2311,33 @@ describe('the Anthropic card routes (#879)', () => {
     assert.equal(refused.status, 409)
     assert.match(JSON.parse(refused.text).error, /runs no containers/)
   })
+
+  // #891: the code the browser showed crosses once, as its one field, to the
+  // daemon that types it into the login. It reaches no log line here, and a
+  // paste that is not a code is refused by shape without being echoed.
+  test('the code press crosses as its one field, answers the daemon\'s read, keeps the code out of the log, and refuses a paste that is not a code without echoing it', async () => {
+    const code = 'aB3dEf#9oq-pmO4pEY1t4nD2prvbnqYYqlSkptF03z3EABHPaA'
+    reply['/setup/anthropic/code'] = [200, { ok: true, delivered: true, said: 'Code delivered. Curia reads the token off the login and verifies it from here.', ...OVERVIEW }]
+    const res = await press('/api/setup/anthropic/code', { code: `  ${code}\n`, api_key: 'sk-ant-api03-should-never-cross' })
+    assert.equal(res.status, 200)
+    assert.deepEqual(sent('/setup/anthropic/code').body, { code })
+    assert.equal(JSON.parse(res.text).delivered, true)
+    assert.ok(!res.text.includes('should-never-cross'))
+    assert.ok(!logged.join('\n').includes(code))
+
+    reply['/setup/anthropic/code'] = [400, { ok: false, error: 'the sign-in session is gone, so there is nothing to type the code into. Start the sign-in again.', delivered: false, ...OVERVIEW }]
+    const gone = await press('/api/setup/anthropic/code', { code })
+    assert.equal(gone.status, 409)
+    assert.match(JSON.parse(gone.text).error, /the sign-in session is gone/)
+
+    const before = calls.length
+    for (const bad of [{}, { code: '' }, { code: 'two words' }, { code: 'x'.repeat(600) }]) {
+      const refused = await press('/api/setup/anthropic/code', bad)
+      assert.equal(refused.status, 409)
+      assert.match(JSON.parse(refused.text).error, /paste the authorization code the browser shows/)
+      assert.ok(!refused.text.includes('two words') && !refused.text.includes('xxxx'))
+    }
+    assert.equal(calls.length, before, 'nothing crossed to the daemon')
+    assert.ok(!logged.join('\n').includes('two words'))
+  })
 })

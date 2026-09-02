@@ -4293,16 +4293,31 @@ describe('the Credentials screen (#661)', () => {
   })
 
   // #660: the anthropic lane asks the operator to type a code IN rather than
-  // read one out, and `sendText` refuses this session by name — so the typing
-  // is theirs to do, and the panel must say so rather than showing a code that
-  // does not exist.
-  test('the anthropic lane asks for a paste-back and shows no code', () => {
-    const t = text(page.screenCredentials(payload({
+  // read one out. Since #891 the card takes it: a Code field and a Submit,
+  // and curia types it into the login pane itself. The panel shows no code
+  // that does not exist.
+  test('the anthropic lane takes the code on the card and shows no code to read', () => {
+    const html = page.screenCredentials(payload({
       credentials: { consumers: [], reauth: WAITING_REAUTH({ provider: 'anthropic', session: 'curia-auth-anthropic', typed: true, code: null }) },
-    })))
-    assert.match(t, /Paste the code the browser shows back into the terminal/)
-    assert.match(t, /curia cannot type it for you/)
+    }))
+    const t = text(html)
+    assert.match(t, /Paste the code the browser shows/)
+    assert.match(html, /<input id="setup-anthropic-code"/)
+    assert.match(html, /onclick="doSetupAnthropicCode\(/)
+    assert.ok(!/curia cannot type it for you/.test(t))
     assert.ok(!/Enter this code/.test(t))
+  })
+
+  test('a delivered code and a refused code are each said on the typed lane, and a refusal keeps the field', () => {
+    const delivered = text(page.screenCredentials(payload({
+      credentials: { consumers: [], reauth: WAITING_REAUTH({ provider: 'anthropic', session: 'curia-auth-anthropic', typed: true, code: null, delivered_at: at(20), refusal: null }) },
+    })))
+    assert.match(delivered, /Code delivered/)
+    const refusedHtml = page.screenCredentials(payload({
+      credentials: { consumers: [], reauth: WAITING_REAUTH({ provider: 'anthropic', session: 'curia-auth-anthropic', typed: true, code: null, delivered_at: at(40), refusal: { why: 'OAuth error: Request failed with status code 400', at: at(20) } }) },
+    }))
+    assert.match(text(refusedHtml), /The login refused the code: OAuth error: Request failed with status code 400/)
+    assert.match(refusedHtml, /<input id="setup-anthropic-code"/)
   })
 
   // #645 finding 4. The card named the terminal and never linked it, though the
@@ -5479,12 +5494,43 @@ describe('integration setup (#874)', () => {
     page.UI.setup.anthropic = ANTHROPIC_OVERVIEW({ login: ANTHROPIC_WAITING })
     const html = page.screenSetup(payload())
     assert.match(html, /href="https:\/\/claude\.com\/cai\/oauth\/authorize\?code_challenge=abc&amp;state=xyz"/)
-    assert.match(text(html), /Paste the code the browser shows back into the terminal/)
+    assert.match(text(html), /Paste the code the browser shows/)
+    assert.match(html, /<input id="setup-anthropic-code"[^>]*>/, 'the Code field (#891)')
+    assert.match(html, /onclick="doSetupAnthropicCode\([^"]*\)">Submit</, 'and its Submit')
     assert.match(html, /href="https:\/\/box\.tail1234\.ts\.net:8446\/\?arg=curia-auth-anthropic"/)
     assert.match(text(html), /anthropic · signing in · 28:20 left/)
     assert.doesNotMatch(html, /class="reauth-code"/, 'the typed lane shows no code: the operator puts one in')
     assert.doesNotMatch(html, /onclick="doSetupAnthropicLogin\(\)"/, 'no second press while one login runs')
     assert.match(html, /onclick="doSetupOpenAILogin\(\)"/, 'the other row keeps its press')
+  })
+
+  // #891: the operator pastes the code on the card; Curia delivers it.
+  test('Submit posts the code as its one field, then polls the read; a refusal is said beside the field and the code is kept out of the page state', async () => {
+    page.setup = SETUP({ step: 'model', cards: { model: { state: 'unconnected', badge: 'Ready to connect', providers: providers({ state: 'unconnected' }) } } })
+    const code = 'aB3dEf#9oq-pmO4pEY1t4nD2prvbnqYYqlSkptF03z3EABHPaA'
+    let answer = { ok: true, json: async () => ({ ok: true, delivered: true, said: 'Code delivered. Curia reads the token off the login and verifies it from here.', ...ANTHROPIC_OVERVIEW({ login: { ...ANTHROPIC_WAITING, delivered_at: '2026-09-02T10:00:00.000Z' } }) }) }
+    page.fetch = async (url, init = {}) => {
+      calls.push({ url, method: init.method ?? 'GET', body: init.body ? JSON.parse(init.body) : null })
+      if (url === '/api/setup/anthropic/code') return answer
+      if (url === '/api/setup/anthropic') return { ok: true, json: async () => ANTHROPIC_OVERVIEW({ login: { ...ANTHROPIC_WAITING, delivered_at: '2026-09-02T10:00:00.000Z' } }) }
+      if (url === '/api/setup/openai') return { ok: true, json: async () => OPENAI_OVERVIEW() }
+      return { ok: true, json: async () => (init.method === 'POST' ? { ok: true } : SETUP()) }
+    }
+    page.UI.screen = 'setup'
+    page.UI.setup.anthropic = ANTHROPIC_OVERVIEW({ login: ANTHROPIC_WAITING })
+    calls = []
+    await page.doSetupAnthropicCode(`  ${code} `)
+    assert.deepEqual(calls.map((c) => [c.method, c.url]), [['POST', '/api/setup/anthropic/code'], ['GET', '/api/setup/anthropic']])
+    assert.deepEqual(calls[0].body, { code })
+    assert.equal(page.UI.setup.anthropic.login.delivered_at, '2026-09-02T10:00:00.000Z')
+    assert.equal(JSON.stringify([page.UI.setup.anthropic, page.UI.act]).includes(code), false, 'the page keeps no copy of the code')
+    assert.match(text(page.screenSetup(payload())), /Code delivered/)
+    page.clearTimeout(page.UI.setup.anthropicTimer)
+
+    answer = { ok: false, status: 409, json: async () => ({ error: 'the sign-in session is gone, so there is nothing to type the code into. Start the sign-in again.' }) }
+    await page.doSetupAnthropicCode(code)
+    assert.match(text(page.screenSetup(payload())), /the sign-in session is gone/)
+    page.clearTimeout(page.UI.setup.anthropicTimer)
   })
 
   test('an Anthropic login that ended without a credential is said beside the plain row, and the press is offered again', () => {

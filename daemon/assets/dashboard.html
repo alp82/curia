@@ -2304,6 +2304,8 @@ const EVENTS = {
   reauth_requested: ["credential", "warn", (e) => `a ${esc(e.provider)} sign-in was asked for${e.by ? ` by ${esc(e.by)}` : ""}`],
   reauth_started: ["credential", "warn", (e) => `a ${esc(e.provider)} sign-in is running in ${esc(e.session)} — the link is on the Credentials screen`],
   reauth_code_seen: ["credential", "warn", (e) => `curia read the ${esc(e.provider)} sign-in off its pane`],
+  reauth_code_delivered: ["credential", "warn", (e) => `curia typed the operator's code into the ${esc(e.provider)} sign-in`],
+  reauth_code_refused: ["credential", "bad", (e) => `the ${esc(e.provider)} sign-in refused the code${e.why ? ` — ${esc(e.why)}` : ""}; curia asked it for a fresh link`],
   reauth_completed: ["credential", "", (e) => `the ${esc(e.provider)} sign-in completed after ${esc(dur(e.after_s))}${
     e.expires_at ? ` — the credential now expires ${esc(clock(e.expires_at))}` : ""}`],
   reauth_failed: ["credential", "bad", (e) => `the ${esc(e.provider)} sign-in failed after ${esc(dur(e.after_s))}${
@@ -4790,10 +4792,22 @@ function credFlow(r) {
   const waited = r.started_at ? Date.now() - new Date(r.started_at).getTime() : Infinity;
   const blind = missing && waited >= LINK_WAIT_MS;
   const pending = missing && !blind;
+  /* The typed lane takes the code on the card (#891). The rehearsal found the
+     operator with the code and nowhere to enter it: the flow types it into its
+     own login pane, and the terminal below stays the fallback. The field keeps
+     the `setup-` prefix so a poll's re-render keeps what was typed. */
+  const codeBusy = UI.setup.anthropicBusy === "anthropic-setup:code";
+  const codeNote = r.refusal
+    ? `<div class="setup-note">The login refused the code: ${esc(r.refusal.why)}. Curia asked it for a fresh link; open the link again and paste the new code.</div>`
+    : r.delivered_at
+      ? `<div class="dim-note">Code delivered ${esc(ago(r.delivered_at))}. Curia reads the token off the login and verifies it from here; paste again only if the login asks for a new code.</div>`
+      : "";
   const second = r.typed
     ? `<div class="flow-step"><span class="n">2</span><div>
-         <div>Paste the code the browser shows back into the terminal</div>
-         <div class="dim-note">curia cannot type it for you: the login pane refuses every write curia can make, which is what keeps the stall ladder out of a login prompt.</div>
+         <div>Paste the code the browser shows</div>
+         <p><input id="setup-anthropic-code" type="text" autocomplete="off" spellcheck="false" placeholder="Code" aria-label="Authorization code" ${codeBusy ? "disabled" : ""}>
+           <button class="btn primary" ${codeBusy ? "disabled" : ""} onclick="doSetupAnthropicCode(document.getElementById('setup-anthropic-code').value)">${codeBusy ? "Delivering…" : "Submit"}</button></p>
+         ${codeNote}${said("anthropic-setup:code")}
        </div></div>`
     : `<div class="flow-step"><span class="n">2</span><div>
          <div>Enter this code</div>
@@ -4802,7 +4816,7 @@ function credFlow(r) {
   const third = r.typed
     ? `<div class="flow-step"><span class="n">3</span><div>
          <div>Nothing else to do</div>
-         <div class="dim-note">curia reads the token out of the pane, asks Anthropic whether it authenticates, and adopts it only on a yes.</div>
+         <div class="dim-note">curia types the code into the login, reads the token out of the pane, asks Anthropic whether it authenticates, and adopts it only on a yes. The code never reaches a log.</div>
        </div></div>`
     : `<div class="flow-step"><span class="n">3</span><div>
          <div>Nothing is pasted back</div>
@@ -5586,6 +5600,40 @@ async function doSetupAnthropicLogin() {
   }
   UI.setup.anthropicBusy = null;
   return loadAnthropicSetup();
+}
+/* The code the browser showed (#891), posted as its one field. The page keeps
+   no copy: the value comes off the field at the press and goes to the sidecar,
+   and the answer is the panel read with `delivered_at` set. A refusal is the
+   service's sentence beside the field, and the field keeps what was typed. */
+async function doSetupAnthropicCode(code) {
+  const trimmed = String(code ?? "").trim();
+  if (!trimmed) {
+    UI.act.said = { key: "anthropic-setup:code", text: "Paste the code the browser shows first.", ok: false };
+    render();
+    return null;
+  }
+  UI.setup.anthropicBusy = "anthropic-setup:code";
+  UI.act.said = null;
+  render();
+  try {
+    const res = await fetch("/api/setup/anthropic/code", {
+      method: "POST", headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({ code: trimmed }),
+    });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(out.error || ("the sidecar answered " + res.status));
+    UI.setup.anthropic = out;
+    UI.act.said = { key: "anthropic-setup:code", text: out.said || "Code delivered.", ok: true };
+  } catch (error) {
+    UI.act.said = { key: "anthropic-setup:code", text: error.message, ok: false };
+    UI.setup.anthropicBusy = null;
+    render();
+    return null;
+  }
+  UI.setup.anthropicBusy = null;
+  const el = document.getElementById("setup-anthropic-code");
+  if (el) el.value = "";
+  return UI.screen === "setup" ? loadAnthropicSetup() : tick();
 }
 
 function setupUnavailable(card) {

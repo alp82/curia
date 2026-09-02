@@ -235,12 +235,18 @@ This section is the Anthropic row of the **Model provider** card. It connects th
 
 1. On the **Model provider** card, select **Sign in to Anthropic**. Curia opens a sign-in session on this host (`claude setup-token` in a session the service drives) and the row shows a link within a few seconds. The session runs in the agent image the release ships, which `curia install` pulled; nothing is built. Opening the row prepares that image.
 2. Open the link, sign in to your Claude subscription, and approve the request. The browser shows a code. The link has a **Copy** button.
-3. Select **Open the terminal instead** on the row and paste the code into that terminal. Curia can't type it for you: the sign-in session refuses every write the service can make, which is what keeps automation out of a login prompt.
-4. Wait for the row to verify. The session prints the token once, Curia reads it off the terminal, asks Anthropic whether it authenticates, adopts it on a yes, and runs the verification.
+3. Paste the code into the **Code** field on the row and select **Submit**. Curia types it into the sign-in session for you. The row says `Code delivered` when it lands.
+4. Wait for the row to verify. The session prints the token once, Curia reads it off the session, asks Anthropic whether it authenticates, adopts it on a yes, and runs the verification.
 
-The credential lands in `secrets/anthropic.json` in the installation root, owner-only, mode `0600`, written by the same adoption that `reauth anthropic` uses. The record holds the token and the instant Curia adopted it. The link exists only in the service's memory while the login runs and in this panel. The token reaches the secret file and nothing else: not this page, not a log, not the service's own login state. The session closes after thirty minutes when nobody finishes it.
+The credential lands in `secrets/anthropic.json` in the installation root, owner-only, mode `0600`, written by the same adoption that `reauth anthropic` uses. The record holds the token and the instant Curia adopted it. The link exists only in the service's memory while the login runs and in this panel. The code crosses once, from the field to the sign-in session, and reaches no file, no log line, and no answer. The token reaches the secret file and nothing else: not this page, not a log, not the service's own login state. The session closes after thirty minutes when nobody finishes it.
 
-A login that ends without a credential (the session closed, or Anthropic rejected the token Curia read) is said on the row, and **Sign in to Anthropic** starts it again.
+If the sign-in refuses the code (a wrong paste, or a code that ran out), the row says `The login refused the code` with the sign-in's own sentence, and Curia asks the sign-in for a fresh link. Open the new link, approve again, and paste the new code. A login that ends without a credential (the session closed, or Anthropic rejected the token Curia read) is said on the row, and **Sign in to Anthropic** starts it again.
+
+#### The terminal fallback
+
+The row also links **Open the terminal instead**, which is the sign-in session itself in a terminal, where you can paste the code by hand. On an installed Curia the terminal is the app's own `/terminal/` path, `https://<address>:8445/terminal/?arg=curia-auth-anthropic`, served by the app through the same Tailscale Serve route and the same identity check as the page. There is no second route for it: `state/tailscale.json` records the one app route, and `curia uninstall` withdraws that one. The page shows a blank terminal when the session it names has already ended; the row says so, and **Sign in to Anthropic** starts a new one.
+
+The automation guard is unchanged. The service's own write path refuses every `curia-auth-` session, so nothing that types into agent panes (the stall ladder, the chat) can reach a login prompt. The code delivery is the sign-in flow writing into its own session, and it writes nowhere else.
 
 The row moves through the same states as the OpenAI row: starting the session, waiting for the link, signing in (the link, its **Copy** button, the paste-back step, and the terminal link), the failure after 3 minutes without a link, and connected within one refresh of the card after the token is adopted. One sign-in runs at a time: while the OpenAI sign-in runs, the press answers that it is still running, and the Anthropic sign-in starts once that one has ended.
 

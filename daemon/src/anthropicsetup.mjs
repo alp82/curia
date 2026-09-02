@@ -244,6 +244,25 @@ export class AnthropicSetup {
     return this.pending
   }
 
+  // The second press (#891): the code the browser showed, handed to the
+  // dispatcher's flow, which types it into the waiting login pane. The
+  // answer is the flow's own `{ delivered, why }` as a sentence beside the
+  // panel read. The code passes through this method and is kept nowhere:
+  // not in `said`, not in a log line, not in the answer.
+  async deliverCode(code) {
+    let out
+    try {
+      out = await this.login.deliver({ provider: PROVIDER, code })
+    } catch (e) {
+      out = { delivered: false, why: `the code could not be delivered (${redact(e.message, [String(code ?? '')])})` }
+    }
+    this.said = out.delivered
+      ? 'Code delivered. Curia reads the token off the login and verifies it from here.'
+      : `❌ ${out.why}`
+    this.log(`model setup: anthropic code ${out.delivered ? 'delivered to the login' : `refused — ${redact(this.said, [String(code ?? '')])}`}`)
+    return { delivered: Boolean(out.delivered), said: this.said, ...this.overview() }
+  }
+
   // The frame's verifier (#874): `{ ok, primary, secondary, emoji, detail }`,
   // `{ ok: false, failed, action, detail }`, or `{ ok: false, unconnected }`.
   verifier() {
