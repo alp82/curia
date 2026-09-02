@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.7.0](https://github.com/alp82/curia/compare/v0.6.2...v0.7.0) (2026-09-02)
+
+
+### Features
+
+* join the tailnet during installation and name the node up front ([#934](https://github.com/alp82/curia/issues/934)) ([b6c293b](https://github.com/alp82/curia/commit/b6c293bd495413f07daa014d43150dfbeccfdb57))
+* ship the agent image as the fifth release image ([#935](https://github.com/alp82/curia/issues/935)) ([e905034](https://github.com/alp82/curia/commit/e9050346e341d7fac95738ba2c4e6fcbc04b4593))
+
+
+### Bug Fixes
+
+* keep typed setup fields across refreshes and quiet the app's loopback health probe ([#932](https://github.com/alp82/curia/issues/932)) ([cab82f4](https://github.com/alp82/curia/commit/cab82f47591b124e38fda283998995ca8f3f2abb))
+* open setup's own routes before the first operator and prove admission over loopback ([#931](https://github.com/alp82/curia/issues/931)) ([8940032](https://github.com/alp82/curia/commit/8940032b91b38effc789105b75f1b46ccaa42da5))
+* send the served origin as the GitHub App manifest url from setup ([#933](https://github.com/alp82/curia/issues/933)) ([8fb1d78](https://github.com/alp82/curia/commit/8fb1d782808702986a8725e73fc2581c0ff17819))
+
 ## [0.6.2](https://github.com/alp82/curia/compare/v0.6.1...v0.6.2) (2026-09-02)
 
 
