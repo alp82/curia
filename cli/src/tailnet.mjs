@@ -16,9 +16,10 @@ import { tailscaleRunner } from './tailscale.mjs'
 //
 //   logged in    the node's name and MagicDNS address are reported. When the
 //                name differs from `--name`, that is said as a fact and the
-//                actual name is what the installation continues with: Curia
-//                never renames a node. The operator reruns with the actual
-//                name or renames the node by hand.
+//                actual name is what the installation continues with: this
+//                step never renames a node. The operator renames it later
+//                from the Tailscale card's node-name field, by hand, or
+//                reruns with the actual name.
 //   logged out   `tailscale up --hostname <name>` runs through the runner,
 //                the login URL it prints is the one action, and the step
 //                polls the status until the node is Running, bounded by
@@ -74,7 +75,7 @@ export async function joinTailnet({ name = DEFAULT_NODE_NAME, mode = 'join', use
   }
 
   if (node.name !== name) {
-    say(`this node is named ${node.name}, not ${name}. Curia never renames a node; continuing with ${node.name}. To use ${name}, run \`sudo tailscale set --hostname ${name}\` on this host, or run the command again with --name ${node.name}.`)
+    say(`this node is named ${node.name}, not ${name}. The tailnet step never renames a node; continuing with ${node.name}. To use ${name}, enter it in the Node name field of the Tailscale card after the install, run \`sudo tailscale set --hostname ${name}\` on this host, or run the command again with --name ${node.name}.`)
   }
 
   const serve = await tailscale(['serve', 'status'])

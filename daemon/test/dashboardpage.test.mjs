@@ -5082,13 +5082,15 @@ describe('integration setup (#874)', () => {
     assert.deepEqual(calls.map((c) => [c.method, c.url]), [['GET', '/api/setup'], ['GET', '/api/setup']])
   })
 
-  // The Tailscale card (#877; the machine-name field dropped after #891).
-  // Before an operator is recorded the panel names the identity Serve
-  // stamped on the request that opened the app and the node, with its name
-  // as the tailnet's fact, and the one press is the confirmation, which
-  // sends no field at all. Connected, it draws the private address, the
-  // operator, the node, the Serve route, and the timed admission from this
-  // read.
+  // The Tailscale card (#877; the node-name field decided at the #891
+  // rehearsal). Before an operator is recorded the panel names the identity
+  // Serve stamped on the request that opened the app and the node, and the
+  // one field is the node's name, prefilled with the name the node has; the
+  // one press is the confirmation, which sends that name and nothing else.
+  // A changed name renames the node, and the page then shows the new
+  // address with the word that the old one stops working. Connected, it
+  // draws the private address, the operator, the node, the Serve route, and
+  // the timed admission from this read.
   const TAILSCALE_OVERVIEW = (over = {}) => ({
     root: true, requester: 'alp@example.com', operator: null, machine_name: 'alp-workstation', first_operator: true,
     node: { installed: true, error: null, backend_state: 'Running', online: true, dns_name: 'alp-workstation.tail1234.ts.net', cert_domains: ['alp-workstation.tail1234.ts.net'], ips: ['100.98.118.33'], version: '1.98.10' },
@@ -5102,10 +5104,11 @@ describe('integration setup (#874)', () => {
     const html = page.screenSetup(payload())
     assert.match(text(html), /You opened Curia as alp@example\.com through Tailscale\. Confirm to make this identity the allowed operator\. Until then, nobody is\./)
     assert.match(text(html), /alp-workstation\.tail1234\.ts\.net · online · 100\.98\.118\.33/)
-    assert.doesNotMatch(html, /<input/, 'there is no field: the node was named at curia install')
+    assert.match(html, /<input id="setup-tailscale-name" type="text" value="alp-workstation"[^>]*aria-label="Node name"/, 'the one field is the node name, prefilled with the name the node has')
     assert.match(html, /onclick="doSetupTailscaleOperator\(\)">Confirm operator and verify</)
-    assert.match(text(html), /This node is named alp-workstation on the tailnet, the name curia install joined it under/)
-    assert.match(text(html), /Curia never installs or reconfigures Tailscale/)
+    assert.match(text(html), /This node is named alp-workstation on the tailnet\. Another name renames the node when you confirm, and the app moves to https:\/\/&lt;name&gt;\.tail1234\.ts\.net:8445\//)
+    assert.match(text(html), /Curia never installs Tailscale/)
+    assert.doesNotMatch(html, /Renamed/)
     assert.doesNotMatch(html, /type="password"/)
     assert.doesNotMatch(html, /Try again/)
   })
@@ -5118,14 +5121,15 @@ describe('integration setup (#874)', () => {
     assert.match(html, /<button class="btn primary" disabled onclick="doSetupTailscaleOperator\(\)"/)
   })
 
-  test('selecting the Tailscale card takes the panel\'s own read once, and the confirmation sends no field at all, then verifies fresh', async () => {
+  test('selecting the Tailscale card takes the panel\'s own read once, and the confirmation sends the node name and no login, then verifies fresh', async () => {
     page.setup = SETUP({ cards: { tailscale: { state: 'unconnected', badge: 'Ready to connect' } } })
     page.fetch = async (url, init = {}) => {
       calls.push({ url, method: init.method ?? 'GET', body: init.body ? JSON.parse(init.body) : null })
       if (url === '/api/setup/tailscale') return { ok: true, json: async () => TAILSCALE_OVERVIEW() }
-      if (url === '/api/setup/tailscale/operator') return { ok: true, json: async () => ({ ok: true, card: { key: 'tailscale', state: 'connected' } }) }
+      if (url === '/api/setup/tailscale/operator') return { ok: true, json: async () => ({ ok: true, renamed: null, card: { key: 'tailscale', state: 'connected' } }) }
       return { ok: true, json: async () => (init.method === 'POST' ? { ok: true } : SETUP()) }
     }
+    page.document.getElementById = (id) => (id === 'setup-tailscale-name' ? { value: ' alp-workstation ' } : null)
     await page.selectSetupCard('tailscale')
     await new Promise((resolve) => setImmediate(resolve))
     assert.equal(calls.filter((c) => c.url === '/api/setup/tailscale').length, 1)
@@ -5133,7 +5137,40 @@ describe('integration setup (#874)', () => {
     calls = []
     await page.doSetupTailscaleOperator()
     assert.deepEqual(calls.map((c) => [c.method, c.url]), [['POST', '/api/setup/tailscale/operator'], ['GET', '/api/setup']])
-    assert.deepEqual(calls[0].body, {}, 'neither a login nor a machine name is a field the page sends')
+    assert.deepEqual(calls[0].body, { machine_name: 'alp-workstation' }, 'the node name is the one field the page sends; the login is never a field')
+    assert.equal(page.UI.setup.tailscaleRenamed, null)
+  })
+
+  test('a changed node name renames the node, and the page then shows the new address with a link and the word that the old one stops working', async () => {
+    page.setup = SETUP({ step: 'tailscale', cards: { tailscale: { state: 'unconnected', badge: 'Ready to connect' } } })
+    page.UI.setup.tailscale = TAILSCALE_OVERVIEW()
+    const renamed = { from: 'alp-workstation', to: 'curia', previous_app_url: 'https://alp-workstation.tail1234.ts.net:8445/', app_url: 'https://curia.tail1234.ts.net:8445/' }
+    page.fetch = async (url, init = {}) => {
+      calls.push({ url, method: init.method ?? 'GET', body: init.body ? JSON.parse(init.body) : null })
+      if (url === '/api/setup/tailscale/operator') return { ok: true, json: async () => ({ ok: true, renamed, card: { key: 'tailscale', state: 'connected' } }) }
+      if (url === '/api/setup/tailscale') return { ok: true, json: async () => TAILSCALE_OVERVIEW({ machine_name: 'curia', app_url: renamed.app_url }) }
+      return { ok: true, json: async () => (init.method === 'POST' ? { ok: true } : SETUP({ step: 'tailscale', cards: { tailscale: { ...ALL.tailscale, detail: { operator: { login: 'alp@example.com', confirmed_at: new Date().toISOString() }, node: { online: true }, address: 'curia.tail1234.ts.net', app_url: renamed.app_url, serve: { route: { https: 8445, target: 'http://127.0.0.1:4273' } }, app: { ms: 12 } } } } })) }
+    }
+    page.document.getElementById = (id) => (id === 'setup-tailscale-name' ? { value: 'curia' } : null)
+    await page.doSetupTailscaleOperator()
+    assert.deepEqual(calls[0].body, { machine_name: 'curia' })
+    assert.deepEqual(page.UI.setup.tailscaleRenamed, renamed)
+    const html = page.screenSetup(payload())
+    assert.match(html, /class="setup-note setup-renamed"/)
+    assert.match(html, /<a href="https:\/\/curia\.tail1234\.ts\.net:8445\/"[^>]*>https:\/\/curia\.tail1234\.ts\.net:8445\/<\/a>/)
+    assert.match(text(html), /Renamed the node alp-workstation to curia\. The Curia app is now at https:\/\/curia\.tail1234\.ts\.net:8445\/\s*\. Open it there: the address https:\/\/alp-workstation\.tail1234\.ts\.net:8445\/ you are on stops working\./)
+  })
+
+  test('a node name that is not a MagicDNS label is refused on the page before anything is sent', async () => {
+    page.setup = SETUP({ step: 'tailscale', cards: { tailscale: { state: 'unconnected', badge: 'Ready to connect' } } })
+    page.UI.setup.tailscale = TAILSCALE_OVERVIEW()
+    page.fetch = async (url, init = {}) => { calls.push({ url, method: init.method ?? 'GET' }); return { ok: true, json: async () => ({}) } }
+    page.document.getElementById = (id) => (id === 'setup-tailscale-name' ? { value: 'Curia.SH' } : null)
+    await page.doSetupTailscaleOperator()
+    assert.deepEqual(calls, [])
+    assert.match(page.UI.act.said.text, /MagicDNS label/)
+    assert.equal(page.UI.act.said.ok, false)
+    assert.match(page.screenSetup(payload()), /<input id="setup-tailscale-name" type="text" value="Curia.SH"/, 'the typed name stays for the correction')
   })
 
   test('a failed Tailscale card names the failure and the action, and keeps the confirmation so the operator can confirm again', () => {
@@ -5146,7 +5183,7 @@ describe('integration setup (#874)', () => {
     const html = page.screenSetup(payload())
     assert.match(html, /class="setup-card tailscale failed on"/)
     assert.match(text(html), /The tailnet issues no HTTPS certificate for this node/)
-    assert.doesNotMatch(html, /<input/)
+    assert.match(html, /<input id="setup-tailscale-name" type="text" value="alp-workstation"/)
     assert.match(html, /onclick="doSetupTailscaleOperator\(\)">Confirm again and verify</)
     assert.match(html, /onclick="retrySetup\(\)">Try again</)
   })

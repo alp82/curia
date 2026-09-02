@@ -22,11 +22,11 @@ On success the command prints the installation root, the launcher, and the addre
 
 The Curia app is reachable only through Tailscale Serve, so the login to your tailnet can't happen in the browser. It happens on the terminal, inside `curia install`, before anything is downloaded, so nothing lands on a host you can't reach.
 
-`curia install --name <machine-name>` names the node. The default is `curia`. The name must be a MagicDNS label: lowercase letters, digits, and hyphens, up to 63 characters, not starting or ending with a hyphen. Anything else is a usage error before anything runs. The bootstrap takes the same option and hands it through; see [The bootstrap](bootstrap.md#the-command).
+`curia install --name <machine-name>` names the node, and it's the first place to choose the name. The default is `curia`. The name must be a MagicDNS label: lowercase letters, digits, and hyphens, up to 63 characters, not starting or ending with a hyphen. Anything else is a usage error before anything runs. The bootstrap takes the same option and hands it through; see [The bootstrap](bootstrap.md#the-command). You can change the name later from the **Node name** field of the Tailscale card in the Curia app; see [Rename the node](integration-setup.md#rename-the-node).
 
 The step reads the node and does one of two things:
 
-- **The node is logged in.** The step reports its name and MagicDNS address and changes nothing. When the node's name isn't the one `--name` asked for, the step says so as a fact and continues with the actual name. Curia never renames a node. To use the name you asked for, run `sudo tailscale set --hostname <name>` on the host, or run the command again with `--name <actual name>`.
+- **The node is logged in.** The step reports its name and MagicDNS address and changes nothing. When the node's name isn't the one `--name` asked for, the step says so as a fact and continues with the actual name; the tailnet step doesn't rename a node. To use the name you asked for, enter it in the **Node name** field of the Tailscale card after the install, run `sudo tailscale set --hostname <name>` on the host, or run the command again with `--name <actual name>`.
 - **The node isn't logged in.** The step runs `tailscale up --hostname <name>` and prints the one action:
 
   ```text

@@ -122,7 +122,7 @@ describe('clean install', () => {
     assert.match(a.out, /https:\/\/host\.tail1234\.ts\.net:8445\//)
     assert.match(a.out, /integration setup/)
     // The tailnet step found the node logged in under its own name and said so.
-    assert.match(a.out, /\[3\/7\] tailnet\nnode host \(host\.tail1234\.ts\.net\) is logged in to the tailnet\nthis node is named host, not curia\. Curia never renames a node/)
+    assert.match(a.out, /\[3\/7\] tailnet\nnode host \(host\.tail1234\.ts\.net\) is logged in to the tailnet\nthis node is named host, not curia\. The tailnet step never renames a node/)
     assert.ok(a.tailscale.calls.every((c) => c[0] !== 'up'), 'a logged-in node is never brought up again')
   })
 
