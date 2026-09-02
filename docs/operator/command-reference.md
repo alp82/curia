@@ -37,7 +37,7 @@ Curia creates the root and seven directories inside it. The following table list
 | `secrets/` | Long-lived credentials, one owner-only file each. See [Secrets, mounts, and what survives](secrets.md). | Preserved |
 | `state/` | The installation record `state/installation.json`, the journal, attachments, results, and the service's own token records. | Preserved |
 | `work/` | Worktrees, per-session config directories, and the overseer's native sessions, all of which can resume. | Preserved |
-| `versions/` | Installed versions: the pinned runtime, the lifecycle interface, and the Compose bundle of each. See [Release images and the Compose bundle](bundle.md). | Replaceable |
+| `versions/` | Installed versions: the pinned runtime, the lifecycle interface, the release manifest, the Compose bundle, and the retained artifacts of each. See [Release images and the Compose bundle](bundle.md) and [The release manifest and release verification](release-manifest.md). | Replaceable |
 | `cache/` | The overseer's mirrors of origin and the containers' home directory with its tool caches. | Removable |
 | `run/` | The lifecycle lock, renewable tokens, sockets, and staging for one operation. | Removable |
 
@@ -60,6 +60,10 @@ A present but unreadable installation record is a failure (exit code `1`), not a
 ### When a lifecycle command refuses the host
 
 After the root, `curia install` and `curia update` check the host itself, and `curia doctor` runs the same checks. A refused host condition, such as another operating-system release, a busy port, or a Docker daemon your user can't reach, stops the command with exit code `3` and one corrective action. A warning, such as a host below the recommended profile, doesn't stop anything. The systems, the profile, every check, and every corrective action are in [Supported hosts and preflight checks](supported-hosts.md).
+
+### When a lifecycle command refuses a release
+
+Before `curia install` or `curia update` activates a version, it verifies the downloaded artifacts against the release manifest: the manifest itself, the version, the npm integrity of the package, the bundle checksum, every image digest, and the copy of the manifest on the GitHub release. A check that fails stops the command with exit code `3`, names the condition, and gives one corrective action. Nothing is unpacked and the active version doesn't change. `curia doctor` repeats the checks on the active version and adds the publication provenance of each image and of the package. The manifest, every check, and every failure class are in [The release manifest and release verification](release-manifest.md).
 
 ### The lifecycle lock
 

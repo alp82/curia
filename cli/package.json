@@ -9,6 +9,7 @@
   "files": [
     "bin/",
     "src/",
+    "manifest.json",
     "README.md"
   ],
   "repository": {

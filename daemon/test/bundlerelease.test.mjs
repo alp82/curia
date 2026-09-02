@@ -13,10 +13,12 @@ import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 
 import { inspectBundle, RELEASE_IMAGES, IMAGE_REGISTRY } from '../../cli/src/bundle.mjs'
+import { parseManifest } from '../../cli/src/manifest.mjs'
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
 const RENDER = path.join(REPO, 'deploy', 'bundle', 'render.mjs')
 const VERSION = '1.2.3'
+const COMMIT = 'a'.repeat(40)
 const DIGESTS = {
   daemon: `sha256:${'1'.repeat(64)}`,
   tmux: `sha256:${'2'.repeat(64)}`,
@@ -30,10 +32,10 @@ let dir
 before(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-release-')) })
 after(() => fs.rmSync(dir, { recursive: true, force: true }))
 
-function render(out, digests = DIGESTS, version = VERSION) {
+function render(out, digests = DIGESTS, version = VERSION, commit = COMMIT) {
   const file = path.join(dir, `digests-${crypto.randomUUID()}.json`)
   fs.writeFileSync(file, JSON.stringify(digests))
-  return spawnSync(process.execPath, [RENDER, '--version', version, '--digests', file, '--out', out], { encoding: 'utf8' })
+  return spawnSync(process.execPath, [RENDER, '--version', version, '--digests', file, '--commit', commit, '--out', out], { encoding: 'utf8' })
 }
 
 describe('deploy/bundle/render.mjs', { skip: gnuTar ? false : 'the bundle archive needs GNU tar' }, () => {
@@ -59,6 +61,17 @@ describe('deploy/bundle/render.mjs', { skip: gnuTar ? false : 'the bundle archiv
     assert.deepEqual(images.images.tmux, { name: `${IMAGE_REGISTRY}/curia-tmux`, digest: DIGESTS.tmux, reference: `${IMAGE_REGISTRY}/curia-tmux@${DIGESTS.tmux}` })
 
     assert.match(r.stdout, new RegExp(`curia-bundle-${VERSION}.tar.gz\\s+sha256:${sum}`))
+
+    // The release manifest binds what was just written: the same checksum,
+    // the same digests, the package version, and the commit.
+    const manifest = parseManifest(fs.readFileSync(path.join(out, `curia-manifest-${VERSION}.json`), 'utf8'))
+    assert.equal(manifest.version, VERSION)
+    assert.equal(manifest.package.version, VERSION)
+    assert.equal(manifest.bundle.sha256, sum)
+    assert.equal(manifest.bundle.name, `curia-bundle-${VERSION}.tar.gz`)
+    assert.deepEqual(Object.fromEntries(Object.entries(manifest.images).map(([s, i]) => [s, i.digest])), DIGESTS)
+    assert.equal(manifest.source.commit, COMMIT)
+    assert.match(r.stdout, new RegExp(`curia-manifest-${VERSION}.json\\s+commit ${COMMIT}`))
   })
 
   test('renders the same bytes on every run, so the checksum the manifest binds is stable', () => {
@@ -69,6 +82,7 @@ describe('deploy/bundle/render.mjs', { skip: gnuTar ? false : 'the bundle archiv
     const archive = `curia-bundle-${VERSION}.tar.gz`
     assert.ok(fs.readFileSync(path.join(a, archive)).equals(fs.readFileSync(path.join(b, archive))))
     assert.equal(fs.readFileSync(path.join(a, `${archive}.sha256`), 'utf8'), fs.readFileSync(path.join(b, `${archive}.sha256`), 'utf8'))
+    assert.equal(fs.readFileSync(path.join(a, `curia-manifest-${VERSION}.json`), 'utf8'), fs.readFileSync(path.join(b, `curia-manifest-${VERSION}.json`), 'utf8'))
   })
 
   test('refuses a missing digest, a tag, or a version that is not a plain release version', () => {
@@ -82,5 +96,9 @@ describe('deploy/bundle/render.mjs', { skip: gnuTar ? false : 'the bundle archiv
     assert.equal(version.status, 1)
     assert.match(version.stderr, /version/)
     assert.ok(!fs.existsSync(path.join(dir, 'version', 'curia-bundle-v1.2.3.tar.gz')))
+    const commit = render(path.join(dir, 'commit'), DIGESTS, VERSION, 'HEAD')
+    assert.equal(commit.status, 1)
+    assert.match(commit.stderr, /commit/)
+    assert.ok(!fs.existsSync(path.join(dir, 'commit', `curia-manifest-${VERSION}.json`)))
   })
 })
