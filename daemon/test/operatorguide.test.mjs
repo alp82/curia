@@ -26,9 +26,7 @@ const GUIDE = join(OPERATOR, 'guide')
 
 // Pages a later ticket writes. A link to one of these is allowed while the file
 // is absent; once the file lands, remove the entry here.
-const PENDING = {
-  'docs/operator/source-cutover-runbook.md': 'https://github.com/alp82/curia/issues/889',
-}
+const PENDING = {}
 
 // Files outside docs/operator whose links into docs/operator are checked too.
 const OUTSIDE = ['README.md', 'CONTEXT.md', 'docs/deploy.md', 'docs/github-app.md', 'daemon/README.md']
