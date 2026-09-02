@@ -1659,14 +1659,85 @@ describe('the settings screen (#265)', () => {
 
   test('the main list names every section, each with a gist of its own', () => {
     const html = screen()
-    assert.deepEqual(rows(html), ['routing', 'projects', 'dispatch', 'connections', 'aistack', 'maintenance'])
+    assert.deepEqual(rows(html), ['routing', 'projects', 'dispatch', 'connections', 'aistack', 'update', 'maintenance'])
     const t = text(html)
     assert.match(t, /Routing opus untyped · 2 of 3 models on/)
     assert.match(t, /Projects 2 repos watched/)
     assert.match(t, /Dispatch auto · 3 agents · 60s/)
     assert.match(t, /Connections state unavailable/)
     assert.match(t, /aistack not read yet/, 'the section takes its own read, so the list says so until it has one')
+    assert.match(t, /Update not read yet/, 'so does the update section')
     assert.match(t, /Maintenance in step/, 'a color state says a word too')
+  })
+
+  // ---- Update (#883) --------------------------------------------------------
+  //
+  // The section reads the daily check's record and says what it found. What is
+  // pinned: the installed and recommended versions, availability, the two
+  // release-notes links, the withdrawal warning, a failed check said as one,
+  // and that there is no button, because there is no automatic update.
+
+  const UPDATE = (over = {}) => ({
+    managed: true, installed: '1.3.0', recommended: '1.4.0', update_available: true,
+    installed_withdrawn: false, withdrawn: [],
+    release_notes: { installed: 'https://github.com/alp82/curia/releases/tag/v1.3.0', recommended: 'https://github.com/alp82/curia/releases/tag/v1.4.0' },
+    checked_at: at(3600), succeeded_at: at(3600), ok: true, error: null, next_check_at: ahead(1380),
+    command: 'curia update', reason: null, ...over,
+  })
+
+  test('an available update names both versions, links both release notes, and states the command', () => {
+    page.curiaUpdate = UPDATE()
+    const html = screen('update')
+    const t = text(html)
+    assert.match(t, /Update 1\.4\.0 available/, 'the list row says it')
+    assert.match(t, /Curia 1\.4\.0 is available\. On the box, run curia update/)
+    assert.match(t, /installed 1\.3\.0 release notes for 1\.3\.0/)
+    assert.match(t, /recommended 1\.4\.0 release notes for 1\.4\.0/)
+    assert.match(html, /href="https:\/\/github\.com\/alp82\/curia\/releases\/tag\/v1\.4\.0"/)
+    assert.match(t, /Checked 1h ago; the next check is in 23h\. Curia checks once a day and never updates on its own\./)
+    assert.ok(!/<button|onclick=/.test(page.setUpdate()), 'nothing in the section starts an update')
+  })
+
+  test('no update: the installed version is the recommended one', () => {
+    page.curiaUpdate = UPDATE({ installed: '1.4.0', update_available: false })
+    const t = text(screen('update'))
+    assert.match(t, /Update 1\.4\.0 · up to date/)
+    assert.match(t, /1\.4\.0 is the recommended stable release\. Nothing to update\./)
+  })
+
+  test('a withdrawn installed version is the first thing said', () => {
+    page.curiaUpdate = UPDATE({ installed_withdrawn: true, withdrawn: ['1.3.0'] })
+    const t = text(screen('update'))
+    assert.match(t, /Update 1\.3\.0 withdrawn/)
+    assert.match(t, /The installed version 1\.3\.0 was withdrawn\. The release notes for 1\.3\.0 say why\. Update to 1\.4\.0\./)
+    assert.match(t, /withdrawn 1\.3\.0/)
+  })
+
+  test('a failed check is said as one, beside the last good read, and never as up to date', () => {
+    page.curiaUpdate = UPDATE({ ok: false, error: 'the stable-release index could not be downloaded from https://raw.githubusercontent.com/alp82/curia/main/release/stable.json.', checked_at: at(60), succeeded_at: at(90000), installed: '1.4.0', update_available: false })
+    const t = text(screen('update'))
+    assert.match(t, /The last check failed 1m ago: the stable-release index could not be downloaded/)
+    assert.match(t, /The recommendation shown is from the last successful check, 25h ago\. The running installation is not affected\./)
+    assert.ok(!t.includes('up to date') || /1\.4\.0 · up to date/.test(t), 'the gist may say up to date only from a verified read')
+  })
+
+  test('a failed check with no success behind it says curia does not know', () => {
+    page.curiaUpdate = UPDATE({ ok: false, error: 'no key', recommended: null, update_available: false, succeeded_at: null, release_notes: { installed: 'https://github.com/alp82/curia/releases/tag/v1.3.0', recommended: null } })
+    const t = text(screen('update'))
+    assert.match(t, /Update 1\.3\.0 · check failed/)
+    assert.match(t, /No successful check yet, so curia does not know whether an update exists/)
+    assert.match(t, /recommended none/)
+  })
+
+  test('a source checkout says the deploy updates it, and a service that cannot be asked is unknown', () => {
+    page.curiaUpdate = { managed: false, installed: '0.4.1', recommended: null, update_available: false, installed_withdrawn: false, withdrawn: [], release_notes: { installed: 'https://github.com/alp82/curia/releases/tag/v0.4.1', recommended: null }, reason: 'This Curia runs from a source checkout, so its deploy updates it.' }
+    let t = text(screen('update'))
+    assert.match(t, /Update 0\.4\.1 · source checkout/)
+    assert.match(t, /This Curia runs from a source checkout/)
+    page.curiaUpdate = { managed: null, installed: null, error: 'the sidecar answered 502' }
+    t = text(screen('update'))
+    assert.match(t, /Update curia cannot tell/)
+    assert.match(t, /curia cannot say which version is installed: the sidecar answered 502/)
   })
 
   test('one section is open at a time, and a pick opens another', () => {
@@ -2329,7 +2400,7 @@ describe('the settings screen (#265)', () => {
     assert.match(text(html), /The service is running these files\./)
     assert.ok(!html.includes('restart-hot'), 'an ordinary restart button, because nothing disagrees')
     assert.match(html, /doRestart\(\)/, 'the one restart button lives here now')
-    assert.deepEqual(rows(html), ['routing', 'projects', 'dispatch', 'connections', 'aistack', 'maintenance'], 'the sixth section, and it reads last')
+    assert.deepEqual(rows(html), ['routing', 'projects', 'dispatch', 'connections', 'aistack', 'update', 'maintenance'], 'the seventh section, and it reads last')
   })
 
   test('a service running something else names the keys, and the button goes red', () => {

@@ -38,6 +38,9 @@ import { resolveOutboundFiles, inboundContent, ALLOWED_EXTENSIONS, safeLeaf } fr
 import { PreviewRegistry } from './preview.mjs'
 import { loadCuriaConfig, loadRoutingConfig, localConfigFile, operatorConfigFile, overrideSummary } from './config.mjs'
 import { operatorConfigPath, readOperatorConfig } from '../../cli/src/config.mjs'
+import { readInstallationRecord, versionPaths } from '../../cli/src/root.mjs'
+import { STABLE_INDEX_KEY_FILE, pinnedPublicKey } from '../../cli/src/stable.mjs'
+import { UpdateCheck, indexProbes, unmanagedStatus } from './updatecheck.mjs'
 import { PROBE_MARK, PROBE_PATH, GUEST_DAEMON_HOST, GUEST_WT, dockerGateway, probeSideChannel } from './sandbox.mjs'
 import { Cooling, providerOf } from './routing.mjs'
 import { Dispatcher } from './dispatch.mjs'
@@ -1487,6 +1490,33 @@ const integrationSetup = new IntegrationSetup({
     anthropic: anthropicSetup.verifier(),
   },
 })
+
+// The daily update check (#883, implementing #854's update discovery). Under
+// an installation root the service reads the signed stable-release index at
+// startup when the last successful check is older than 24 hours, then once
+// a day, verifies it with the pinned key of the active version's package
+// (`versions/<active>/cli/stable-index.pub`, mounted read-only), and records
+// only the check result in `state/update-check.json`. It downloads no
+// release, switches nothing, and posts nothing; the app's update panel reads
+// `GET /update`. Without a root there is no index to read and the deploy
+// updates this process, which the read says. `CURIA_STABLE_INDEX_URL`
+// points the read at a mirror or a test server.
+function installedVersion() {
+  try {
+    return readInstallationRecord(INSTALL_ROOT)?.activeVersion ?? APP_VERSION
+  } catch {
+    return APP_VERSION
+  }
+}
+const updateCheck = INSTALL_ROOT
+  ? new UpdateCheck({
+    stateDir: DATA,
+    installed: installedVersion,
+    publicKey: () => pinnedPublicKey(path.join(versionPaths(INSTALL_ROOT, installedVersion()).dir, 'cli', STABLE_INDEX_KEY_FILE)),
+    probes: indexProbes(process.env.CURIA_STABLE_INDEX_URL || undefined),
+    log,
+  })
+  : null
 
 // The one shape the Settings section reads (#706): the registration, plus what
 // the recurring sync did last. Composed here rather than in either module,
@@ -3977,6 +4007,12 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
   if (url.pathname === '/aistack' && req.method === 'GET') {
     return json(200, aistackStatus())
   }
+  // The update panel's read (#883): the installed and recommended versions,
+  // whether an update is available, the release-notes links, a withdrawal
+  // warning, and what the last daily check found. Nothing here starts one.
+  if (url.pathname === '/update' && req.method === 'GET') {
+    return json(200, updateCheck ? updateCheck.status() : unmanagedStatus(APP_VERSION))
+  }
   if (url.pathname === '/aistack/register' && req.method === 'POST') {
     const { action_id: actionId } = await readBody(req).catch(() => ({}))
     if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(String(actionId ?? ''))) {
@@ -4298,6 +4334,9 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
 
 httpServer.listen(PORT, '127.0.0.1', () => {
   log(`curia daemon listening on http://127.0.0.1:${PORT}`)
+  // The daily update check (#883): armed off the boot, independent of the
+  // reconcile below, and never something the boot waits for.
+  updateCheck?.start()
   // The timeline listener and the #151 identity proxy bind before boot
   // reconcile so the reconcile's assert sees them up and publishes them — a
   // bind failure leaves that surface down and the assert withdraws instead

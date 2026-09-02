@@ -7,12 +7,13 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { gzipSync } from 'node:zlib'
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { dirname, join } from 'node:path'
 
 import { PACKAGE_NAME, MANIFEST_FILE, createManifest, renderManifest } from '../../src/manifest.mjs'
 import { renderBundle } from '../../src/bundle.mjs'
+import { releaseUrls, runtimeUrls } from '../../src/acquire.mjs'
 import { SERVICES } from '../../src/layout.mjs'
 
 const GiB = 1024 ** 3
@@ -57,17 +58,66 @@ function archiveOf(scratch, files) {
 const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex')
 const sri = (bytes) => `sha512-${createHash('sha512').update(bytes).digest('base64')}`
 
+// The Node.js version every fixture release pins, and the runtime archive
+// the way nodejs.org lays one out: a top directory, `bin/node` (here a shell
+// script that reports the version), and a symbolic link beside it.
+export const NODE_VERSION = '24.19.0'
+function runtimeArchiveOf(scratch, nodeVersion) {
+  const top = `node-v${nodeVersion}-linux-x64`
+  const dir = join(scratch, `runtime-${counter++}`)
+  mkdirSync(join(dir, top, 'bin'), { recursive: true })
+  mkdirSync(join(dir, top, 'lib', 'node_modules', 'npm', 'bin'), { recursive: true })
+  writeFileSync(join(dir, top, 'bin', 'node'), `#!/bin/sh\necho v${nodeVersion}\n`, { mode: 0o755 })
+  writeFileSync(join(dir, top, 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js'), 'npm\n')
+  symlinkSync('../lib/node_modules/npm/bin/npm-cli.js', join(dir, top, 'bin', 'npm'))
+  const tar = spawnSync('tar', ['--format=ustar', '--sort=name', '--owner=0', '--group=0', '--numeric-owner', '--mtime=@0', '-C', dir, '-cf', '-', top])
+  assert.equal(tar.status, 0, String(tar.stderr))
+  return gzipSync(tar.stdout, { level: 9 })
+}
+
 // One complete release: the bundle archive, the manifest that binds it, the
-// package tarball that embeds the manifest, and the registry's integrity.
-export function release(scratch, { version, template = TEMPLATE, digests = DIGESTS }) {
+// package tarball that embeds the manifest, the registry's integrity, and
+// the runtime the package pins.
+export function release(scratch, { version, template = TEMPLATE, digests = DIGESTS, nodeVersion = NODE_VERSION, files = {} }) {
   const compose = renderBundle(template, digests)
   const archive = archiveOf(scratch, { [`curia-bundle-${version}/compose.yaml`]: compose })
   const checksum = `${sha256(archive)}  curia-bundle-${version}.tar.gz\n`
   const text = renderManifest(createManifest({ version, commit: COMMIT, bundleSha256: sha256(archive), digests }))
-  const packageJson = JSON.stringify({ name: PACKAGE_NAME, version, bin: { curia: 'bin/curia.mjs' } }, null, 2) + '\n'
+  const packageJson = JSON.stringify({ name: PACKAGE_NAME, version, bin: { curia: 'bin/curia.mjs' }, curia: { node: nodeVersion } }, null, 2) + '\n'
   const entry = '#!/usr/bin/env node\nconsole.log("fixture cli")\n'
-  const tarball = archiveOf(scratch, { 'package/package.json': packageJson, [`package/${MANIFEST_FILE}`]: text, 'package/bin/curia.mjs': entry })
-  return { version, compose, archive, checksum, text, packageJson, entry, tarball, integrity: sri(tarball) }
+  const packageFiles = { 'package/package.json': packageJson, [`package/${MANIFEST_FILE}`]: text, 'package/bin/curia.mjs': entry }
+  for (const [name, content] of Object.entries(files)) packageFiles[`package/${name}`] = content
+  const tarball = archiveOf(scratch, packageFiles)
+  const runtime = runtimeArchiveOf(scratch, nodeVersion)
+  const shasums = `${sha256(runtime)}  node-v${nodeVersion}-linux-x64.tar.gz\n${'0'.repeat(64)}  node-v${nodeVersion}-linux-arm64.tar.gz\n`
+  return { version, compose, archive, checksum, text, packageJson, entry, tarball, integrity: sri(tarball), nodeVersion, runtime, shasums }
+}
+
+// The artifact origins of one release as the acquisition reads them: a map
+// from URL to bytes, so a test hands in files instead of a network. Every
+// entry can be replaced or removed to model a substituted or missing artifact.
+export function artifactsOf(r) {
+  const urls = releaseUrls(r.version)
+  const runtime = runtimeUrls(r.nodeVersion)
+  return new Map([
+    [urls.packument, Buffer.from(JSON.stringify({ name: PACKAGE_NAME, version: r.version, dist: { integrity: r.integrity, attestations: {} } }))],
+    [urls.tarball, r.tarball],
+    [runtime.checksums, Buffer.from(r.shasums)],
+    [runtime.archive, r.runtime],
+    [urls.manifest, Buffer.from(r.text)],
+    [urls.bundle, r.archive],
+    [urls.checksum, Buffer.from(r.checksum)],
+  ])
+}
+
+export function acquireProbesFor(artifacts) {
+  return {
+    download: async (url) => (artifacts.has(url) ? { ok: true, bytes: artifacts.get(url) } : { ok: false, status: 404 }),
+    nodeVersion: (binary) => {
+      const run = spawnSync(binary, ['--version'])
+      return run.status === 0 ? run.stdout.toString().trim() : null
+    },
+  }
 }
 
 // The stage exactly as deploy/bootstrap/curia-install.sh leaves it: the

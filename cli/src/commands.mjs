@@ -4,6 +4,7 @@ import { EXIT, Refusal } from './exit.mjs'
 import { installationRoot, openRoot, readInstallationRecord } from './root.mjs'
 import { installCommand } from './install.mjs'
 import { runDoctor } from './doctor.mjs'
+import { updateCommand } from './update.mjs'
 
 export const packageVersion = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version
 
@@ -42,7 +43,7 @@ async function version({ env, stdout }) {
 export const commands = {
   install: { summary: 'Install Curia into the installation root and start it.', run: installCommand('install') },
   reinstall: { summary: 'Reinstall this version over a preserved installation root, keeping its identity, configuration, secrets, state, and work.', run: installCommand('reinstall') },
-  update: { summary: 'Stage, verify, and switch to the latest stable release, or to an exact version.', run: notYet('update') },
+  update: { summary: 'Stage, verify, and switch to the latest stable release, or to an exact version (--prerelease for an exact prerelease).', run: updateCommand, options: true },
   rollback: { summary: 'Switch back to the one retained previous release.', run: notYet('rollback') },
   doctor: { summary: 'Check the host, configuration, integrations, and services. Read-only.', run: runDoctor },
   uninstall: { summary: 'Remove the runnable system and keep config/, secrets/, state/, and work/.', run: notYet('uninstall') },

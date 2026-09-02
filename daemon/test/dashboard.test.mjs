@@ -422,6 +422,7 @@ describe('the settings write and the restart (#265)', () => {
   let cfgDir
   let reloadAnswer
   let aistackAnswer
+  let updateAnswer
   let aistackRequestBody
   let setupAnswer
   let setupRequestBody
@@ -465,6 +466,7 @@ describe('the settings write and the restart (#265)', () => {
     // What it answers on the aistack routes (#706). The daemon is the process
     // that holds the credential, so this side never composes one of these.
     aistackAnswer = { ok: true, registered: false, flow: { phase: 'unregistered' }, sync: { last: null, alarm: null } }
+    updateAnswer = { managed: true, installed: '1.3.0', recommended: '1.4.0', update_available: true, installed_withdrawn: false, withdrawn: [], ok: true, error: null }
     aistackRequestBody = null
     // What it answers on the setup routes (#874). The daemon verifies and
     // keeps the record; this side composes the write and relays the read.
@@ -515,6 +517,7 @@ describe('the settings write and the restart (#265)', () => {
         })
       }
       if (r.url.startsWith('/aistack')) return res.end(JSON.stringify(aistackAnswer))
+      if (r.url === '/update') return res.end(JSON.stringify(updateAnswer))
       if (r.url === '/setup') return res.end(JSON.stringify(setupAnswer))
       if (r.url === '/restart') {
         let raw = ''
@@ -918,6 +921,28 @@ describe('the settings write and the restart (#265)', () => {
     assert.equal(res.status, 200)
     assert.deepEqual(JSON.parse(res.text), aistackAnswer)
     assert.deepEqual(daemonCalls, [{ method: 'GET', url: '/aistack', origin: null }])
+  })
+
+  // ---- the update panel (#883) ---------------------------------------------
+  //
+  // The daemon keeps the daily check and its record; the sidecar relays the
+  // read and adds nothing. A daemon that cannot be asked is unknown, never
+  // "up to date".
+
+  test('the update read comes from the daemon, unedited', async () => {
+    const res = await req(surface.port, '/api/update', { headers: served() })
+    assert.equal(res.status, 200)
+    assert.deepEqual(JSON.parse(res.text), updateAnswer)
+    assert.deepEqual(daemonCalls, [{ method: 'GET', url: '/update', origin: null }])
+  })
+
+  test('a daemon that cannot be asked about updates is unknown, never "up to date"', async () => {
+    await new Promise((done) => daemon.close(done))
+    daemon = null
+    const body = JSON.parse((await req(surface.port, '/api/update', { headers: served() })).text)
+    assert.equal(body.managed, null)
+    assert.equal(body.installed, null)
+    assert.ok(body.error)
   })
 
   test('a daemon that cannot be asked is unknown, never "not registered"', async () => {

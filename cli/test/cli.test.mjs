@@ -88,7 +88,7 @@ describe('command routing', () => {
     assert.match(r.err, /curia help/)
   })
 
-  for (const name of ['update', 'rollback', 'uninstall', 'purge']) {
+  for (const name of ['rollback', 'uninstall', 'purge']) {
     test(`${name} routes to its seam and reports that the command is not available yet`, async () => {
       const root = tempRoot()
       try {
@@ -114,7 +114,7 @@ describe('command routing', () => {
       writeFileSync(join(root, 'stray'), 'x')
       const r = await run(['update'], { CURIA_ROOT: root })
       assert.equal(r.exit, EXIT.refused)
-      assert.match(r.err, /^curia update: .* is not a Curia installation/)
+      assert.match(r.err, /^curia update: preflight: .* is not a Curia installation/)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

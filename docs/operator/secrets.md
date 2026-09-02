@@ -35,6 +35,8 @@ The allowed operator lives in `state/tailscale.json`: the Tailscale login the [T
 
 The setup checkpoint lives in `state/setup.json`: the selected card and a closed list of safe fields per card, never a token and never a completion marker. See [Integration setup](integration-setup.md#what-a-reopen-restores).
 
+The daily update check's result lives in `state/update-check.json`: when the service last read the stable-release index, whether the index verified, and what it named. Nothing in it is a secret. See [Update discovery and staging](update.md).
+
 The routing override lives in `state/routing.local.yaml`: the routing preset a [model provider](integration-setup.md#the-routing-preset) applied when it connected, laid over the tracked `routing.yaml` that ships with the release. The service writes its routing override here, in its own state boundary, and never edits the tracked `routing.yaml`. Nothing in it is a secret.
 
 ## What each container sees
@@ -44,13 +46,14 @@ Every long-running Curia process runs in a container. The following table lists 
 | Container | Mounts from the root | Mode | Docker socket |
 |---|---|---|---|
 | Service (`daemon`) | `config/`, `secrets/`, `state/`, `work/`, `cache/`, `run/` | read-write | Yes |
+| | `versions/` | read-only | |
 | tmux runtime (`tmux`) | `work/`, `cache/home/` | read-write | Yes |
 | Attach surface (`ttyd`) | Nothing. It reaches the tmux socket only. | | No |
 | Curia app (`dashboard`) | Nothing. It reads and updates configuration through the service. | | No |
 | Overseer (`overseer`) | `work/cfg/curia-overseer/`, `cache/overseer-repos/` | read-write | No |
 | | `run/overseer-tokens/` | read-only | |
 
-Only the service reaches `secrets/`, because the service is the one process that reads and replaces a credential. Only the service reaches `config/`: it reads `config/config.yaml` at boot and on a reload, and it writes that one file when you save from the Curia app's settings screen, because the app mounts nothing of the root. Only the service and the tmux runtime reach the Docker socket: the service runs agent containers, and the tmux runtime's panes run `docker run`. The overseer holds a shell, so it stays off the host network and gets neither a secret file nor a socket. Its model credential is a copy the service writes into its config directory.
+Only the service reaches `secrets/`, because the service is the one process that reads and replaces a credential. Only the service reaches `config/`: it reads `config/config.yaml` at boot and on a reload, and it writes that one file when you save from the Curia app's settings screen, because the app mounts nothing of the root. The service reads `versions/` for one file, the stable-index public key of the active version's package, which its daily update check verifies the index with; it writes nothing there. Only the service and the tmux runtime reach the Docker socket: the service runs agent containers, and the tmux runtime's panes run `docker run`. The overseer holds a shell, so it stays off the host network and gets neither a secret file nor a socket. Its model credential is a copy the service writes into its config directory.
 
 An agent container gets even less: its own worktree, its own config directory with its credential copies, and the two shared caches for npm and browsers. It never sees the installation root, the Docker socket, or another agent's directories.
 
