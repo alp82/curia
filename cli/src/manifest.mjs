@@ -52,7 +52,7 @@ export class ManifestError extends Error {
 export const MANIFEST_FORMAT = 1
 export const PACKAGE_NAME = '@curia-sh/cli'
 export const RELEASE_REPOSITORY = 'alp82/curia'
-export const RELEASE_WORKFLOW = '.github/workflows/release-images.yml'
+export const RELEASE_WORKFLOW = '.github/workflows/release.yml'
 
 // The manifest's file name inside the npm package, and so at
 // `versions/<version>/cli/manifest.json` once installed.

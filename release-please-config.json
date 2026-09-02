@@ -4,6 +4,15 @@
   "release-type": "node",
   "include-component-in-tag": false,
   "packages": {
-    "daemon": {}
-  }
+    "daemon": {
+      "extra-files": [
+        {
+          "type": "json",
+          "path": "/cli/package.json",
+          "jsonpath": "$.version"
+        }
+      ]
+    }
+  },
+  "draft": true
 }

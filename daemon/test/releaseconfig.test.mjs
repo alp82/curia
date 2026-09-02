@@ -24,13 +24,13 @@ describe('automatic release configuration', () => {
   test('Release Please owns the daemon Node package from a fixed boundary', () => {
     const config = json('release-please-config.json')
     assert.equal(config['release-type'], 'node')
-    assert.deepEqual(config.packages, { daemon: {} })
+    assert.deepEqual(Object.keys(config.packages), ['daemon'])
     assert.match(config['bootstrap-sha'], /^[0-9a-f]{40}$/)
     assert.equal(config['include-component-in-tag'], false)
   })
 
   test('the release workflow mints an app token and passes it to Release Please', () => {
-    const workflow = yaml('.github/workflows/release-please.yml')
+    const workflow = yaml('.github/workflows/release.yml')
     const steps = workflow.jobs['release-please'].steps
     const mint = steps.find((step) => step.id === 'app-token')
     const release = steps.find((step) => String(step.uses).startsWith('googleapis/release-please-action@'))

@@ -177,7 +177,7 @@ Curia also deploys itself, with no dev box in the loop ([#270](https://github.co
 - `feat:` selects a minor release.
 - `feat!:` selects a major release.
 
-When Release Please creates the release tag, the release-images workflow (`.github/workflows/release-images.yml`) builds and pushes the four service images, renders the Compose bundle against their digests, and attaches the bundle, its checksum, and the digest set to the release. The tag is created with the Curia GitHub App's token, which is what lets it trigger a workflow. This box doesn't consume those artifacts until its cutover.
+When the release pull request merges, Release Please drafts the release, and the rest of the same workflow (`.github/workflows/release.yml`) publishes the version in order: it builds and pushes the four service images, renders the Compose bundle and the release manifest against their digests, attaches them to the draft, publishes the release (which creates the tag), and publishes `@curia-sh/cli` last. Which published version installations run is a separate act, the stable-release index, in [Releases, the stable-release index, and version selection](operator/releases.md). This box doesn't consume those artifacts until its cutover.
 
 The `open_pull_request` tool produces these titles from its `release_level` argument. The pull-request title workflow rejects titles that don't select a release. Release Please then opens or updates one release pull request with the version files and `daemon/CHANGELOG.md`. Merge that release pull request before you deploy. Until it merges, `main` still has the old version and the deploy gate refuses it.
 
@@ -193,6 +193,8 @@ The release workflow uses the existing Curia GitHub App. It doesn't use a person
 4. Set the default squash commit title to the pull-request title.
 
 The app keeps **Workflows** at **No access**. Release Please only changes the version files and changelog after this workflow is on `main`. Curia agents still can't add or edit workflow files.
+
+The publication of images, the bundle, the package, and the stable-release index needs more one-time setup: the signing key, the npm trusted publisher, the `release` environment, immutable releases, and public GHCR packages. The list is [One-time setup](operator/releases.md#one-time-setup).
 
 The release manifest starts at `0.2.0`. Its `bootstrap-sha` excludes repository history before this automation change. Remove `bootstrap-sha` from `release-please-config.json` after the first release pull request merges.
 

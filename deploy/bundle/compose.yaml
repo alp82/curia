@@ -2,7 +2,7 @@
 # and #854).
 #
 # This is the TEMPLATE of the versioned Compose bundle. The release workflow
-# (.github/workflows/release-images.yml) renders it once per release by
+# (.github/workflows/release.yml) renders it once per release by
 # replacing each `CURIA_*_IMAGE` variable with that image's digest reference
 # (`cli/src/bundle.mjs`, `renderBundle`), and the rendered file is what
 # `versions/<version>/bundle/compose.yaml` holds and `curia install` (#873)

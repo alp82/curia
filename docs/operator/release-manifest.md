@@ -13,7 +13,7 @@ The release workflow writes one manifest per release, `curia-manifest-<version>.
 | `package` | `@curia-sh/cli` and its version, which equals `version`. |
 | `bundle` | The file name of the Compose bundle archive, `curia-bundle-<version>.tar.gz`, and its SHA-256 checksum. |
 | `images` | For each of the four services, `daemon`, `tmux`, `dashboard`, and `overseer`, the image name under `ghcr.io/alp82` and its exact `sha256:` digest. |
-| `source` | The repository, `alp82/curia`, the full commit the release was built from, and the workflow that built and attested it, `.github/workflows/release-images.yml`. |
+| `source` | The repository, `alp82/curia`, the full commit the release was built from, and the workflow that built and attested it, `.github/workflows/release.yml`. |
 
 The following example shows the shape.
 
@@ -29,7 +29,7 @@ The following example shows the shape.
     "dashboard": { "name": "ghcr.io/alp82/curia-dashboard", "digest": "sha256:…" },
     "overseer": { "name": "ghcr.io/alp82/curia-overseer", "digest": "sha256:…" }
   },
-  "source": { "repository": "alp82/curia", "commit": "…40 hex characters…", "workflow": ".github/workflows/release-images.yml" }
+  "source": { "repository": "alp82/curia", "commit": "…40 hex characters…", "workflow": ".github/workflows/release.yml" }
 }
 ```
 
@@ -37,13 +37,13 @@ Three things the manifest never holds:
 
 - **A tag.** Every image is a digest. A version tag on an image, such as `curia-daemon:1.2.3`, exists for browsing the registry, and nothing Curia installs reads it.
 - **Compatibility metadata.** The manifest identifies one release. It doesn't say which versions the release can update from or roll back to. That contract is fixed: one direct update to the latest stable release, and one retained rollback release.
-- **Anything mutable.** A published manifest, bundle, image, and package are immutable. A withdrawn release stays published and is only marked withdrawn in the stable-release index.
+- **Anything mutable.** A published manifest, bundle, image, and package are immutable. A withdrawn release stays published and is only marked withdrawn in the stable-release index, as [Releases, the stable-release index, and version selection](releases.md) describes.
 
 ## Where the manifest comes from
 
-The release workflow runs on the release tag. It pushes each image, records the digest the registry returned, attests the build provenance of that digest, renders the bundle, computes the bundle's checksum, and then writes the manifest from those facts and the commit it ran on. The manifest is the last artifact the workflow writes, and it's written from the artifacts themselves, never typed in.
+The release workflow runs on the release commit, after Release Please drafts the release. It pushes each image, records the digest the registry returned, attests the build provenance of that digest, renders the bundle, computes the bundle's checksum, and then writes the manifest from those facts and the commit it ran on. The manifest is the last artifact the workflow writes, and it's written from the artifacts themselves, never typed in.
 
-The workflow attaches the manifest to the GitHub release beside the bundle, the bundle's `.sha256` file, and the digest set `curia-images-<version>.json`. The publication step then copies the manifest into the npm package before `npm publish`, so the package that npm's own integrity check covers carries the expected checksum and digests of everything else the release installs.
+The workflow attaches the manifest to the draft release beside the bundle, the bundle's `.sha256` file, and the digest set `curia-images-<version>.json`, then publishes the release, which creates the tag. Only then does it copy the manifest into the npm package and run `npm publish`, so the package that npm's own integrity check covers carries the expected checksum and digests of everything else the release installs, and everything it names already exists. The order, and what happens when a version is published twice, is in [Publication order](releases.md#publication-order).
 
 The result is two copies that must be the same bytes: the one inside the package, which comes from the npm registry, and the one on the release, which comes from GitHub. A release whose two copies differ doesn't install.
 
@@ -88,7 +88,7 @@ To run the same provenance checks by hand, use the following commands, with the 
 ```sh
 gh attestation verify oci://ghcr.io/alp82/curia-daemon@sha256:<digest> \
   --repo alp82/curia \
-  --signer-workflow alp82/curia/.github/workflows/release-images.yml \
+  --signer-workflow alp82/curia/.github/workflows/release.yml \
   --source-digest <commit>
 
 gh release verify-asset v<version> curia-bundle-<version>.tar.gz --repo alp82/curia
