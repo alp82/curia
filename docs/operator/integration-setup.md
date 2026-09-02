@@ -1,6 +1,6 @@
 # Integration setup
 
-Integration setup is the **Setup** screen of the Curia app. It connects one installation to the four resources the Full loop needs: GitHub, Discord, Tailscale, and one model provider. This page is the reference for the setup frame: what the four cards show, how you move between them, what a reopen restores, and what Curia keeps on disk. The GitHub card's own steps are in [Connect GitHub](#connect-github), the Discord card's in [Connect Discord](#connect-discord), the Tailscale card's in [Connect Tailscale](#connect-tailscale), and the model provider card's OpenAI steps in [Connect OpenAI](#connect-openai). The Anthropic steps are documented when they land.
+Integration setup is the **Setup** screen of the Curia app. It connects one installation to the four resources the Full loop needs: GitHub, Discord, Tailscale, and one model provider. This page is the reference for the setup frame: what the four cards show, how you move between them, what a reopen restores, and what Curia keeps on disk. The GitHub card's own steps are in [Connect GitHub](#connect-github), the Discord card's in [Connect Discord](#connect-discord), the Tailscale card's in [Connect Tailscale](#connect-tailscale), and the model provider card's OpenAI steps in [Connect OpenAI](#connect-openai) and Anthropic steps in [Connect Anthropic](#connect-anthropic). When setup is ready and what the Full loop runs on is in [The Full loop](#the-full-loop).
 
 After `curia install` finishes, open the address it printed, `https://<your node's MagicDNS name>:8445/`, and open **Setup**. Home also points at **Setup** while an integration isn't connected.
 
@@ -251,12 +251,35 @@ While Curia can't reach the service at all, **Setup** says so instead of showing
 ## Moving through setup
 
 - After a card connects, **Continue setup** opens the next card that isn't connected, in rail order.
-- When all four cards are connected, the action becomes **Run Full loop**.
+- When GitHub, Discord, Tailscale, and at least one model provider are connected on the current read, the action becomes **Run Full loop**. Nothing else turns it: not the count on the rail, and not a saved result.
 - **Close setup** returns to Home. Closing the tab does the same.
 
 ## The Full loop
 
-The Full loop is the one dependent step. Under the rail, the **Full loop** panel names what it's waiting for: the cards that aren't connected, or, when all four are, whether the loop is available. **Run Full loop** stays unavailable until GitHub, Discord, Tailscale, and one model provider pass fresh verification and the service has the verified facts the loop runs on. This release doesn't run the Full loop yet.
+The Full loop is the one dependent step. Under the rail, the **Full loop** panel names what it's waiting for or, when setup is ready, what the loop runs on.
+
+### When setup is ready
+
+Setup is ready when all of the following hold on the current read:
+
+- The GitHub card is connected and names a covered watched repository.
+- The Discord card is connected and names the server and the command channel.
+- The Tailscale card is connected and names the private address the app answers on.
+- At least one model provider is connected and its routing preset is ready.
+
+Curia computes readiness from those verifications every time the service is asked: when you open **Setup**, when you select **Try again**, and after a service restart or a reconnection. Curia keeps no "ready" marker and no workflow state, so there is nothing to resume and nothing to reset. A card that verified on the last read and fails on this one, for example because the GitHub App was uninstalled or a model credential expired, closes the gate on this read. The card names the failure and the one action. Fix it, select **Try again**, and the next read that passes opens the gate again. A connected card that hands no fact the loop needs is named the same way, for example `GitHub verified without a covered repository. Select Try again.`
+
+### One provider is enough
+
+OpenAI and Anthropic are both supported. One verified provider is sufficient, and the second stays optional. When both are connected, the model card says **Two providers verified**, and the leading provider is the one you last signed in from this card, when it verified, or the first connected provider in card order. A second provider that fails verification is shown as failed on its row and blocks nothing while the other provider is connected.
+
+### What the panel shows
+
+When setup is ready, the panel says `Every integration is connected and verified.` and names the facts the loop runs on: the discovered ticket or the covered repository, the command channel, the private address, and the leading provider with the model its preset routes to. Those facts come from the current read's verifications and from nothing stored. The service hands the same facts to the Full loop: the repository and the ticket, the server, the channel, the confirmation message, and whether the Discord bridge runs, the address and the admitted operator, and the provider with its routing rows. None of them is a secret.
+
+### Run Full loop
+
+**Run Full loop** enables only when setup is ready. In this release, selecting it says that the loop is ready on this read's verified facts and runs nothing. Running the Full loop as the installation acceptance lands with a later ticket of the same map.
 
 ## What a reopen restores
 

@@ -88,9 +88,10 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - /var/run/tailscale/tailscaled.sock:/var/run/tailscale/tailscaled.sock
       # The service's grant (cli/src/layout.mjs SERVICE_MOUNTS.daemon): the
-      # operator configuration read-only, every secret file, and the four
+      # operator configuration (read at boot, written for the app's settings
+      # screen, which mounts nothing), every secret file, and the four
       # mutable boundaries it owns.
-      - ${CURIA_ROOT:?}/config:${CURIA_ROOT:?}/config:ro
+      - ${CURIA_ROOT:?}/config:${CURIA_ROOT:?}/config
       - ${CURIA_ROOT:?}/secrets:${CURIA_ROOT:?}/secrets
       - ${CURIA_ROOT:?}/state:${CURIA_ROOT:?}/state
       - ${CURIA_ROOT:?}/work:${CURIA_ROOT:?}/work

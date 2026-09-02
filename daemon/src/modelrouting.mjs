@@ -17,8 +17,9 @@
 // THE PRESET LANDS AS THE OVERRIDE FILE, the same `routing.local.yaml` the
 // settings screen writes, through the same writer, so the tracked
 // `routing.yaml` is never edited and the override holds only what differs.
-// Under an installation root the override lives in `state/`, because
-// `config/` is mounted read-only into the service (#867).
+// Under an installation root the override lives in `state/`, the service's
+// own mutable boundary (#867); the tracked file under `config/` is never
+// the target.
 //
 // A READY ROUTING IS LEFT ALONE. The verifier asks on every read, and an
 // operator who routed a type to the other credentialed provider from the

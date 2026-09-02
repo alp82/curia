@@ -5,7 +5,7 @@
 Three things write the file, and they all check it the same way:
 
 - You, with a text editor. Curia reads the file when the service starts and when you save from the Curia app.
-- The Curia app, from the settings screen. It validates the file before it writes it.
+- The Curia app, from the settings screen. The app sends the save to the service, which validates the file before it writes it.
 - `curia install`, once, into a fresh installation root.
 
 The file holds operator intent and nothing else. Generated state lives in `state/`, release metadata in the release manifest, and credentials in `secrets/`. None of those ever appears in `config/config.yaml`, and Curia refuses a key it doesn't know.
@@ -53,7 +53,7 @@ watch:
 
 Curia reads a plain subset of YAML: one `key: value` per line, comments after `#`, and the `watch` list as `- repo: owner/name` entries with an indented `mode` line. Anchors, flow collections such as `[a, b]`, and multi-line values are refused with a message that names the line. Indent with spaces, not tabs.
 
-When you save from the Curia app, the app rewrites the whole file with the keys it holds plus the keys you changed. It keeps your settings and drops your comments. If you keep notes about your configuration, keep them outside this file.
+When you save from the Curia app, the service rewrites the whole file with the keys it holds plus the keys you changed. It keeps your settings and drops your comments. If you keep notes about your configuration, keep them outside this file.
 
 ## Direct edits
 

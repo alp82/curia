@@ -4814,8 +4814,10 @@ function screenCredentials(p) {
    one row per provider, OpenAI (#878) in `setupOpenAI` and Anthropic (#879)
    in `setupAnthropic`. Safe progress a step wants back after
    a close goes through `rememberSetupProgress`, never into browser storage.
-   `runFullLoop` is the seam #880 fills; until then the action stays
-   unavailable. */
+   The Full loop's action enables on the service's gate alone (#880):
+   `full_loop.ready` with the verified facts under `full_loop.facts`, which
+   the panel names. `runFullLoop` is the seam the loop's run (#882) fills;
+   this release enables the action and hands the facts on. */
 
 const SETUP_ORDER = ["github", "discord", "tailscale", "model"];
 
@@ -5386,14 +5388,35 @@ function setupFullLoop() {
   const why = ready ? "Every integration is connected and verified."
     : missing.length ? `Waiting for ${missing.map((k) => esc(setupCardOf(k)?.title ?? k)).join(", ")}.`
       : esc(gate?.reason ?? "The Full loop isn't available yet in this release.");
-  return `<div class="setup-loop"><div><b>Full loop</b><div class="dim-note">${why}</div></div>
+  return `<div class="setup-loop"><div><b>Full loop</b><div class="dim-note">${why}</div>${ready ? setupLoopFacts(gate?.facts) : ""}</div>
     <button class="btn primary" ${ready ? `onclick="runFullLoop()"` : "disabled"}>Run Full loop</button></div>`;
 }
 
-/* The seam #880 fills: one real request from Discord through a model to a
-   delivered result, on the verified facts the gate supplied. */
+/* The facts the gate hands the loop, named where the action is: the
+   repository or the discovered ticket, the channel, the private address, the
+   leading provider and its model. Drawn from this read's gate and nothing
+   remembered, so what the button would run on is what the rail verified. */
+const SETUP_PROVIDER_NAMES = { openai: "OpenAI", anthropic: "Anthropic" };
+function setupLoopFacts(facts) {
+  if (!facts) return "";
+  const bits = [];
+  const ticket = facts.github?.ticket;
+  if (ticket) bits.push(`🎫 #${esc(ticket.number)} · ${esc(ticket.repo)}`);
+  else if (facts.github?.repo) bits.push(`📦 ${esc(facts.github.repo)}`);
+  if (facts.discord?.channel?.name) bits.push(`💬 #${esc(facts.discord.channel.name)}`);
+  if (facts.tailscale?.address) bits.push(`🔒 ${esc(facts.tailscale.address)}`);
+  if (facts.model?.provider) {
+    const name = SETUP_PROVIDER_NAMES[facts.model.provider] ?? facts.model.provider;
+    bits.push(`${facts.model.provider === "anthropic" ? "🧠" : "⚡"} ${esc(name)} · ${esc(facts.model.model ?? "")}`);
+  }
+  return bits.length ? `<div class="dim-note setup-loop-facts">${bits.join(" · ")}</div>` : "";
+}
+
+/* The seam the loop's run (#882) fills: one real request from Discord
+   through a model to a delivered result, on the verified facts the gate
+   supplied. This release enables the action at convergence and stops here. */
 function runFullLoop() {
-  UI.setup.note = "The Full loop isn't available yet in this release.";
+  UI.setup.note = "The Full loop is ready on this read's verified facts. This release doesn't run it yet.";
   render();
 }
 

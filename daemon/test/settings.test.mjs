@@ -350,6 +350,29 @@ describe('the operator half of a save lands in config.yaml (#866)', () => {
     assert.equal(s.operator_error, undefined)
   })
 
+  // #880: under an installation root the daemon answers the app's settings
+  // screen, and neither file is beside the tracked one there. Both targets
+  // are named, and nothing lands beside the tracked files.
+  test('the two files a save lands in can be named, for a root\'s config.yaml and state/routing.local.yaml', () => {
+    const operator = path.join(tmp, 'root-config', 'config.yaml')
+    const local = path.join(tmp, 'root-state', 'routing.local.yaml')
+    fs.mkdirSync(path.dirname(operator))
+    fs.mkdirSync(path.dirname(local))
+    const named = { ...files(), operatorFile: operator, routingLocalFile: local }
+    const out = saveSettings({ ...named, patch: { dispatch: { max_concurrent: 5 }, routing: { models: { sonnet: { active: false } } } } })
+    assert.deepEqual(out.written, ['config.yaml', 'routing.local.yaml'])
+    assert.equal(readOperatorConfig(operator).max_concurrent, 5)
+    assert.equal(fs.statSync(operator).mode & 0o777, 0o600)
+    assert.deepEqual(parse(fs.readFileSync(local, 'utf8')), { models: { sonnet: { active: false } } })
+    assert.equal(fs.existsSync(operatorFile()), false, 'nothing lands beside the tracked file')
+    assert.equal(fs.existsSync(overRouting()), false)
+    const s = readSettings(named)
+    assert.equal(s.dispatch.max_concurrent, 5)
+    assert.equal(s.routing.models.find((m) => m.name === 'sonnet').active, false, 'the read layers the named override')
+    assert.deepEqual(s.writes, { curia: operator, routing: local })
+    assert.equal(readSettings(files()).dispatch.max_concurrent, 2, 'the default targets read the shipped answer still')
+  })
+
   test('a config.yaml the contract refuses still reads, and the screen is told why', () => {
     fs.writeFileSync(operatorFile(), 'max_concurrent: 5\nwatch: nope\n')
     const s = readSettings(files())

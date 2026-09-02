@@ -51,8 +51,9 @@ export const SERVICES = Object.freeze(['daemon', 'tmux', 'ttyd', 'dashboard', 'o
 // modes. This is the container-access contract of #851, and the Compose bundle
 // is inspected against it:
 //
-//   - the service reads `config/`, owns every secret file, and writes the
-//     narrow state, work, cache, and runtime paths it uses;
+//   - the service reads `config/` and writes its `config.yaml` for the app's
+//     settings screen, owns every secret file, and writes the narrow state,
+//     work, cache, and runtime paths it uses;
 //   - the tmux runtime holds the panes that run `docker run` against host
 //     paths, so it sees the work tree and the shared home and nothing else;
 //   - the attach surface sees nothing of the root, only the tmux socket;
@@ -64,7 +65,7 @@ export const SERVICES = Object.freeze(['daemon', 'tmux', 'ttyd', 'dashboard', 'o
 //     mounted into the container that holds a shell.
 export const SERVICE_MOUNTS = Object.freeze({
   daemon: Object.freeze([
-    Object.freeze({ path: 'config', mode: 'ro' }),
+    Object.freeze({ path: 'config', mode: 'rw' }),
     Object.freeze({ path: 'secrets', mode: 'rw' }),
     Object.freeze({ path: 'state', mode: 'rw' }),
     Object.freeze({ path: 'work', mode: 'rw' }),

@@ -119,9 +119,9 @@ const routeRow = (type, route) => ({
 // The operator configuration as the screen reads it: the file's keys, or
 // none when there is no file. A file the contract refuses reads as none too,
 // with the message beside it, for the reason the plain parse below exists.
-function readOperator(curiaFile) {
+function readOperator(operatorFile) {
   try {
-    return { operator: readOperatorConfig(operatorConfigFile(curiaFile)) ?? {}, error: null }
+    return { operator: readOperatorConfig(operatorFile) ?? {}, error: null }
   } catch (e) {
     return { operator: {}, error: e.message }
   }
@@ -132,10 +132,15 @@ function readOperator(curiaFile) {
 // deliberately: a config the loaders REFUSE is exactly when the operator most
 // needs this screen, and a read that threw would hand them a blank page in
 // front of a daemon that will not boot.
-export function readSettings({ curiaFile, routingFile }) {
+//
+// `operatorFile` and `routingLocalFile` name where the two halves of a save
+// land: beside the tracked files by default (the source deployment), the
+// root's `config/config.yaml` and `state/routing.local.yaml` when the daemon
+// answers the app's settings screen under an installation root (#880).
+export function readSettings({ curiaFile, routingFile, operatorFile = operatorConfigFile(curiaFile), routingLocalFile = localConfigFile(routingFile) }) {
   const curia = readLayered(curiaFile).data ?? {}
-  const routing = readLayered(routingFile).data ?? {}
-  const { operator, error } = readOperator(curiaFile)
+  const routing = readLayered(routingFile, { localFile: routingLocalFile }).data ?? {}
+  const { operator, error } = readOperator(operatorFile)
   const dispatch = {}
   for (const key of DISPATCH_KEYS) {
     dispatch[key] = operator[key] ?? curia.dispatch?.[key] ?? (key === 'messages_per_send' ? 4 : null)
@@ -145,7 +150,7 @@ export function readSettings({ curiaFile, routingFile }) {
     // Where a save lands, which is not where the screen read from. The page
     // says this out loud, because "I saved and git shows nothing" must not be
     // a surprise the operator has to work out.
-    writes: { curia: operatorConfigFile(curiaFile), routing: localConfigFile(routingFile) },
+    writes: { curia: operatorFile, routing: routingLocalFile },
     // The operator file's own refusal, when it has one, so the screen can say
     // why the service will not take the file instead of drawing the shipped
     // answers as if they were running.
@@ -382,8 +387,8 @@ function settle(doc, keyPath, value, baseValue) {
 // operator decided. The result is judged twice before anything lands: by the
 // contract (the shapes) and by the daemon's loader (the rules that read two
 // sections together).
-function nextOperator({ curiaFile, patch }) {
-  const file = operatorConfigFile(curiaFile)
+function nextOperator({ curiaFile, operatorFile, patch }) {
+  const file = operatorFile ?? operatorConfigFile(curiaFile)
   let current
   try {
     current = readOperatorConfig(file) ?? {}
@@ -483,12 +488,14 @@ function validateRouting({ base, file, tmp }) {
 // `routing.local.yaml`. Returns the basenames actually written — a save that
 // changes nothing writes nothing, and says so.
 //
-// `routingLocalFile` is where the routing override lives, beside the tracked
-// file by default. Under an installation root `config/` is read-only to the
-// service (#867), so the routing preset of integration setup (#878) names the
-// root's `state/routing.local.yaml` here, and the daemon loads the same
-// layered pair.
-export function saveSettings({ curiaFile, routingFile, routingLocalFile = null, patch, now = () => new Date() }) {
+// `operatorFile` is where the operator half lands, `config.yaml` beside the
+// tracked file by default and the root's `config/config.yaml` when the daemon
+// saves for the app (#880). `routingLocalFile` is where the routing override
+// lives, beside the tracked file by default; under an installation root the
+// routing preset of integration setup (#878) and the daemon's settings route
+// name the root's `state/routing.local.yaml` here, and the daemon loads the
+// same layered pair.
+export function saveSettings({ curiaFile, routingFile, operatorFile = null, routingLocalFile = null, patch, now = () => new Date() }) {
   checkPatch(patch)
   const wantsOperator = Boolean(patch.dispatch || patch.overseer || patch.watch)
   if (!wantsOperator && !patch.routing) refuse('the save carried no settings')
@@ -497,7 +504,7 @@ export function saveSettings({ curiaFile, routingFile, routingLocalFile = null, 
   // no temp file. `null` when the file already says what the patch says.
   let operator = null
   if (wantsOperator) {
-    const candidate = nextOperator({ curiaFile, patch })
+    const candidate = nextOperator({ curiaFile, operatorFile, patch })
     if (!candidate.unchanged) operator = candidate
   }
 
