@@ -51,6 +51,8 @@ One boot brings up everything: the HTTP surface, ttyd, the Discord bridge, the r
 
 **No suite reads `$HOME`.** `loadCuriaConfig` checks `skills.install` against `skills.root`, and that root defaults to `~/.claude/skills`. So a fixture config that says nothing about skills asks the host a question the test cannot control. Every fixture config now names a skills root that the test seeds. See `test/fixtures/skills.mjs`. The two tests that pin the default root swap in a home directory they own. The suite gives the same answer on the operator's box, in an agent container, and on a stranger's machine.
 
+**CI runs both suites on every pull request.** The `.github/workflows/ci.yml` workflow runs `npm test --prefix cli` and then `npm test --prefix daemon` on `ubuntu-latest`, on the Node that `config/curia.yaml` pins, on every pull request and on every push to `main`. The runner has no `tailscale`, so a test that reaches a host binary instead of an injected runner fails there before it can fail a publication, the way the 0.7.0 bundle job did. `test/ciworkflow.test.mjs` pins the trigger, the order, and the action pins.
+
 **One host binary stays optional.** The tmux describes in `tmux.test.mjs` need `tmux`, and each one states why it skipped. An agent container carries no tmux, so a green run there shows three skipped describes. Nothing needs a ttyd binary since #260 — `attach.test.mjs` pins the compose command instead.
 
 ## Surfaces

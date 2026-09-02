@@ -29,7 +29,7 @@ describe('the release workflow', () => {
   test('is the one workflow the manifest names as the signer, and there is no second release workflow', () => {
     assert.equal(RELEASE_WORKFLOW, '.github/workflows/release.yml')
     const files = fs.readdirSync(path.join(root, '.github', 'workflows')).sort()
-    assert.deepEqual(files, ['pull-request-title.yml', 'release.yml', 'stable-index.yml'])
+    assert.deepEqual(files, ['ci.yml', 'pull-request-title.yml', 'release.yml', 'stable-index.yml'])
   })
 
   test('runs on pushes to main and on dispatch, never on a tag, and serializes publications', () => {

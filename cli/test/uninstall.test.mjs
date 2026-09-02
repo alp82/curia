@@ -47,7 +47,7 @@ async function installed({ home = mkdtempSync(join(scratch, 'home-')), root = jo
   const r = releaseIn(scratch, { version: VERSION })
   const io = capture()
   const env = { HOME: home, CURIA_ROOT: root, CURIA_STAGE: stageIn(scratch, r) }
-  const deps = { hostProbes: hostProbes(), releaseProbes: releaseProbesFor(r), docker: fakeDocker(), sleep: async () => {}, now: () => 0 }
+  const deps = { hostProbes: hostProbes(), releaseProbes: releaseProbesFor(r), docker: fakeDocker(), tailscale: fakeTailscale(), sleep: async () => {}, now: () => 0 }
   const exit = await runInstall({ env, stdout: io.stdout, stderr: io.stderr, uid: process.getuid(), gid: process.getgid(), root, mode: 'install' }, deps)
   assert.equal(exit, EXIT.ok, io.err())
   const record = readInstallationRecord(root)
@@ -312,7 +312,7 @@ describe('reinstall from the preserved root', () => {
       const io = capture()
       const docker = fakeDocker()
       const env = { HOME: home, CURIA_ROOT: root, CURIA_STAGE: stageIn(scratch, r) }
-      const deps = { hostProbes: hostProbes(), releaseProbes: releaseProbesFor(r), docker, sleep: async () => {}, now: () => 0 }
+      const deps = { hostProbes: hostProbes(), releaseProbes: releaseProbesFor(r), docker, tailscale: fakeTailscale(), sleep: async () => {}, now: () => 0 }
       const exit = await runInstall({ env, stdout: io.stdout, stderr: io.stderr, uid: process.getuid(), gid: process.getgid(), root, mode }, deps)
       assert.equal(exit, EXIT.ok, io.err())
       assert.match(io.out(), new RegExp(`reinstalling ${escape(VERSION)} over the installation at ${root} \\(installation ${id}\\)`))
@@ -337,7 +337,7 @@ describe('reinstall from the preserved root', () => {
     const { home, root, r, id } = await installed()
     assert.equal((await uninstall({ home, root, docker: dockerHostOf(id), tailscale: fakeTailscale() })).exit, EXIT.ok)
     const io = capture()
-    const deps = { hostProbes: hostProbes(), releaseProbes: releaseProbesFor(r), docker: fakeDocker(), sleep: async () => {}, now: () => 0 }
+    const deps = { hostProbes: hostProbes(), releaseProbes: releaseProbesFor(r), docker: fakeDocker(), tailscale: fakeTailscale(), sleep: async () => {}, now: () => 0 }
     await assert.rejects(
       runInstall({ env: { HOME: home, CURIA_ROOT: root }, stdout: io.stdout, stderr: io.stderr, uid: process.getuid(), gid: process.getgid(), root, mode: 'reinstall' }, deps),
       (e) => e instanceof Refusal && new RegExp(`^stage: no release to install: .*${escape(BOOTSTRAP_COMMAND)}`).test(e.message),
