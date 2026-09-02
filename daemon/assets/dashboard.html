@@ -894,7 +894,7 @@ var UI = {
   /* The setup frame's own state (#874): whether a read is in flight, and the
      one sentence the last press left behind. The selected card is not here —
      it is the record's `step`, kept by the service so a reopen restores it. */
-  setup: { busy: false, note: null, discord: null, discordBusy: null },
+  setup: { busy: false, note: null, discord: null, discordBusy: null, tailscale: null, tailscaleBusy: null },
   /* The drill-in frame's own state (#699), one entry per page that is a list
      of sections: which section is open, and whether the phone is on the list
      in front of it. */
@@ -4803,7 +4803,8 @@ function screenCredentials(p) {
    THE SEAMS. `SETUP_CONTENT[key].content(card, progress, p)` is each card's
    configuration slot; #875 to #879 replace the stub with the real connect
    flow, and their verifier on the service side is what turns the card. The
-   GitHub card (#875) is `setupGitHub`. Safe progress a step wants back after
+   GitHub card (#875) is `setupGitHub`, the Discord card (#876) `setupDiscord`,
+   the Tailscale card (#877) `setupTailscale`. Safe progress a step wants back after
    a close goes through `rememberSetupProgress`, never into browser storage.
    `runFullLoop` is the seam #880 fills; until then the action stays
    unavailable. */
@@ -4827,8 +4828,9 @@ var SETUP_CONTENT = {
       ${card.state === "unavailable" ? setupUnavailable(card) : setupDiscord(card, progress)}`,
   },
   tailscale: {
-    content: (card) => `<p>Curia verifies the Tailscale installation this host already runs, shows the identity that opened this app, and makes that identity the initial allowed operator after you confirm it.</p>
-      ${setupUnavailable(card)}`,
+    content: (card, progress) => `<p>Curia verifies the Tailscale installation this host already runs, shows the identity that opened this app, and makes that identity the initial allowed operator after you confirm it.</p>
+      <div class="setup-note">Curia never installs or reconfigures Tailscale. It publishes one Serve route of its own, the Curia app.</div>
+      ${card.state === "unavailable" ? setupUnavailable(card) : setupTailscale(card, progress)}`,
   },
   model: {
     content: (card) => `<p>One verified provider is required. Sign in with your subscription, and Curia completes one minimal model request and applies a working routing preset. Add the second provider here whenever you like.</p>
@@ -5008,6 +5010,106 @@ async function discordSetupWrite(key, path, body) {
   }
 }
 
+/* The Tailscale card's own panel (#877), in the three states the verifier
+   reports. Unconnected: no operator is recorded, so the panel names the
+   identity Serve stamped on the request that opened this app, the node, and
+   the machine-name field, and the one press is the confirmation. Failed:
+   the failed verification with its action, and the machine-name form so a
+   name can be corrected. Connected: the private address, the operator, the
+   node, the Serve route, and the timed admission, from this read. */
+function setupTailscale(card, progress) {
+  const t = UI.setup.tailscale;
+  const detail = card.detail ?? null;
+  if (card.state === "connected" && detail) {
+    const op = detail.operator ?? {};
+    const seen = op.last_seen_at ? `Arrived through Tailscale ${esc(ago(op.last_seen_at))}` : "Not seen through Tailscale since the service started";
+    return `<div class="rows">
+      <div class="row"><span class="key grow">Private address</span><span><a href="${esc(detail.app_url)}" target="_blank" rel="noopener">${esc(detail.app_url)}</a></span></div>
+      <div class="row"><span class="key grow">Operator</span><span>${esc(op.login)} <span class="dim-note">confirmed ${esc(ago(op.confirmed_at))}</span></span></div>
+      <div class="row"><span class="key grow">Node</span><span>${esc(detail.address)} · online · ${(detail.node?.ips ?? []).map(esc).join(", ")}${detail.node?.version ? ` · Tailscale ${esc(detail.node.version)}` : ""}</span></div>
+      <div class="row"><span class="key grow">Serve</span><span><code>:${esc(detail.serve?.route?.https)}</code> → <code>${esc(detail.serve?.route?.target)}</code>${detail.serve?.created ? " · created by Curia" : ""}</span></div>
+      <div class="row"><span class="key grow">Reachability</span><span>Admitted ${esc(op.login)} in ${esc(detail.app?.ms)} ms · ${seen}</span></div>
+    </div>
+    <details><summary>Change the machine name</summary>${setupTailscaleForm(t, progress, detail, card)}</details>`;
+  }
+  if (!t || t.loading) return `<p class="qhint">Reading the node…</p>`;
+  return `${setupTailscaleNode(t, detail)}${setupTailscaleForm(t, progress, detail, card)}`;
+}
+
+function setupTailscaleNode(t, detail) {
+  const node = t.node ?? detail?.node ?? null;
+  if (t.error && !node) return `<p class="qhint">${esc(t.error)}</p>`;
+  if (!node) return "";
+  const state = !node.installed ? "not installed on this host"
+    : node.error ? `not answering (${node.error})`
+      : node.backend_state !== "Running" ? `${node.backend_state}` : node.online ? "online" : "offline";
+  const name = node.dns_name ? `<b>${esc(node.dns_name)}</b> · ` : "";
+  return `<div class="rows"><div class="row"><span class="key grow">This node</span><span>${name}${esc(state)}${(node.ips ?? []).length ? ` · ${node.ips.map(esc).join(", ")}` : ""}</span></div></div>`;
+}
+
+function setupTailscaleForm(t, progress, detail, card) {
+  const busy = UI.setup.tailscaleBusy === "tailscale-setup:operator";
+  const requester = t?.requester ?? null;
+  const operator = t?.operator ?? detail?.operator ?? null;
+  const current = (t?.node?.dns_name ?? detail?.address ?? "").split(".")[0] || null;
+  const name = progress?.machine_name || t?.machine_name || detail?.machine_name?.wanted || "curia.sh";
+  const who = requester
+    ? `<div class="setup-note"><b>You opened Curia as ${esc(requester)}</b> through Tailscale.${operator && operator.login !== requester ? ` The recorded operator is ${esc(operator.login)}.` : ""}${!operator ? " Confirm to make this identity the allowed operator. Until then, nobody is." : ""}</div>`
+    : `<div class="setup-note">This request carried no Tailscale identity. Open the Curia app through its Tailscale address to confirm the operator.</div>`;
+  const label = operator ? "Confirm again and verify" : "Confirm operator and verify";
+  return `${who}
+    <p><input id="setup-tailscale-machine" type="text" value="${esc(name)}" placeholder="curia.sh" aria-label="Tailscale machine name">
+    <button class="btn primary" ${busy || !requester ? "disabled" : ""} onclick="doSetupTailscaleOperator()">${busy ? "Verifying…" : label}</button></p>
+    ${said("tailscale-setup:operator")}
+    <p class="qhint">Machine name: the name this node has in Tailscale. Default <code>curia.sh</code>${current ? `, current node <code>${esc(current)}</code>` : ""}. Curia doesn't rename the node. To rename it, run <code>sudo tailscale set --hostname &lt;name&gt;</code> on the host.</p>`;
+}
+
+/* The Tailscale card's reads and writes (#877). The panel's own read carries
+   the identity this request arrived with; the confirmation sends only the
+   machine name, and the sidecar names the login off the request itself. */
+async function loadTailscaleSetup() {
+  UI.setup.tailscale = { ...(UI.setup.tailscale ?? {}), loading: true };
+  render();
+  try {
+    const res = await fetch("/api/setup/tailscale", { headers: { accept: "application/json" }, cache: "no-store" });
+    if (!res.ok) throw new Error("the sidecar answered " + res.status);
+    UI.setup.tailscale = await res.json();
+  } catch (error) {
+    UI.setup.tailscale = { requester: null, operator: null, node: null, serve: null, app_url: null, first_operator: null, error: error.message };
+  }
+  render();
+}
+function ensureTailscaleSetupRead() {
+  if (!setup?.cards || setupSelected() !== "tailscale") return;
+  const card = setupCardOf("tailscale");
+  if (!card || card.state === "unavailable" || card.state === "connected") return;
+  if (UI.setup.tailscale === null) loadTailscaleSetup();
+}
+async function doSetupTailscaleOperator() {
+  const machine = document.getElementById("setup-tailscale-machine")?.value?.trim() ?? "";
+  if (!machine) return refuse("tailscale-setup:operator", "Enter the machine name.");
+  await rememberSetupProgress("tailscale", { machine_name: machine });
+  UI.setup.tailscaleBusy = "tailscale-setup:operator";
+  UI.act.said = null;
+  render();
+  try {
+    const res = await fetch("/api/setup/tailscale/operator", {
+      method: "POST", headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({ machine_name: machine }),
+    });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(out.error || ("the sidecar answered " + res.status));
+    UI.setup.tailscale = null;
+  } catch (error) {
+    UI.act.said = { key: "tailscale-setup:operator", text: error.message, ok: false };
+    UI.setup.tailscaleBusy = null;
+    render();
+    return null;
+  }
+  UI.setup.tailscaleBusy = null;
+  return loadSetup();
+}
+
 function setupUnavailable(card) {
   if (card.state !== "unavailable") return "";
   return `<div class="setup-note">Connecting ${esc(card.title)} isn't available yet in this release. The card stays here, and this step lights up when it lands.</div>`;
@@ -5150,6 +5252,7 @@ async function loadSetup() {
   UI.setup.busy = false;
   render();
   ensureDiscordSetupRead();
+  ensureTailscaleSetupRead();
 }
 /* Try again is a fresh verification of everything, which is the only kind of
    verification there is. */
@@ -5167,6 +5270,7 @@ async function selectSetupCard(key) {
   UI.setup.note = null;
   render();
   ensureDiscordSetupRead();
+  ensureTailscaleSetupRead();
   await writeSetup({ step: key });
 }
 function continueSetup() {

@@ -4732,4 +4732,97 @@ describe('integration setup (#874)', () => {
     await new Promise((resolve) => setImmediate(resolve))
     assert.deepEqual(calls.map((c) => [c.method, c.url]), [['GET', '/api/setup'], ['GET', '/api/setup']])
   })
+
+  // The Tailscale card (#877). Before an operator is recorded the panel names
+  // the identity Serve stamped on the request that opened the app, the
+  // node, and the machine-name field, and the one press is the confirmation,
+  // which sends the machine name and never a login. Connected, it draws the
+  // private address, the operator, the node, the Serve route, and the timed
+  // admission from this read.
+  const TAILSCALE_OVERVIEW = (over = {}) => ({
+    root: true, requester: 'alp@example.com', operator: null, machine_name: 'curia.sh', default_machine_name: 'curia.sh', first_operator: true,
+    node: { installed: true, error: null, backend_state: 'Running', online: true, dns_name: 'alp-workstation.tail1234.ts.net', cert_domains: ['alp-workstation.tail1234.ts.net'], ips: ['100.98.118.33'], version: '1.98.10' },
+    serve: { routes: [], error: null, route: { https: 8445, target: 'http://127.0.0.1:4273' }, recorded: [] },
+    app_url: 'https://alp-workstation.tail1234.ts.net:8445/', last_seen: null, error: null, ...over,
+  })
+
+  test('the unconnected Tailscale card names the identity that opened the app, the node, and the machine name defaulting to curia.sh, and the one press confirms', () => {
+    page.setup = SETUP({ step: 'tailscale', cards: { tailscale: { state: 'unconnected', badge: 'Ready to connect' } } })
+    page.UI.setup.tailscale = TAILSCALE_OVERVIEW()
+    const html = page.screenSetup(payload())
+    assert.match(text(html), /You opened Curia as alp@example\.com through Tailscale\. Confirm to make this identity the allowed operator\. Until then, nobody is\./)
+    assert.match(text(html), /alp-workstation\.tail1234\.ts\.net · online · 100\.98\.118\.33/)
+    assert.match(html, /id="setup-tailscale-machine" type="text" value="curia\.sh"/)
+    assert.match(html, /onclick="doSetupTailscaleOperator\(\)">Confirm operator and verify</)
+    assert.match(text(html), /current node alp-workstation/)
+    assert.match(text(html), /Curia never installs or reconfigures Tailscale/)
+    assert.doesNotMatch(html, /type="password"/)
+    assert.doesNotMatch(html, /Try again/)
+  })
+
+  test('a request without a Tailscale identity cannot confirm: the panel says so and the press is disabled', () => {
+    page.setup = SETUP({ step: 'tailscale', cards: { tailscale: { state: 'unconnected', badge: 'Ready to connect' } } })
+    page.UI.setup.tailscale = TAILSCALE_OVERVIEW({ requester: null })
+    const html = page.screenSetup(payload())
+    assert.match(text(html), /This request carried no Tailscale identity/)
+    assert.match(html, /<button class="btn primary" disabled onclick="doSetupTailscaleOperator\(\)"/)
+  })
+
+  test('selecting the Tailscale card takes the panel\'s own read once, and the confirmation remembers the machine name, sends only that, then verifies fresh', async () => {
+    page.setup = SETUP({ cards: { tailscale: { state: 'unconnected', badge: 'Ready to connect' } } })
+    page.fetch = async (url, init = {}) => {
+      calls.push({ url, method: init.method ?? 'GET', body: init.body ? JSON.parse(init.body) : null })
+      if (url === '/api/setup/tailscale') return { ok: true, json: async () => TAILSCALE_OVERVIEW() }
+      if (url === '/api/setup/tailscale/operator') return { ok: true, json: async () => ({ ok: true, card: { key: 'tailscale', state: 'connected' } }) }
+      return { ok: true, json: async () => (init.method === 'POST' ? { ok: true } : SETUP()) }
+    }
+    await page.selectSetupCard('tailscale')
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.equal(calls.filter((c) => c.url === '/api/setup/tailscale').length, 1)
+    assert.equal(page.UI.setup.tailscale.requester, 'alp@example.com')
+    page.document.getElementById = (id) => (id === 'setup-tailscale-machine' ? { value: 'alp-workstation' } : null)
+    calls = []
+    await page.doSetupTailscaleOperator()
+    assert.deepEqual(calls.map((c) => [c.method, c.url]), [['POST', '/api/setup'], ['POST', '/api/setup/tailscale/operator'], ['GET', '/api/setup']])
+    assert.deepEqual(calls[0].body, { progress: { tailscale: { machine_name: 'alp-workstation' } } })
+    assert.deepEqual(calls[1].body, { machine_name: 'alp-workstation' }, 'the login is never a field the page sends')
+  })
+
+  test('a failed Tailscale card names the failure and the action, and keeps the machine-name form so a name can be corrected', () => {
+    page.setup = SETUP({ step: 'tailscale', progress: { tailscale: { machine_name: 'curia.sh' } }, cards: { tailscale: {
+      state: 'failed', badge: 'Action required',
+      error: { failed: 'This node is named alp-workstation, not curia-sh', action: 'Run `sudo tailscale set --hostname curia.sh` on this host, or enter alp-workstation as the machine name in this panel, then try again.' },
+      detail: { stage: 'name', operator: { login: 'alp@example.com', confirmed_at: '2026-09-02T10:00:00.000Z' }, address: 'alp-workstation.tail1234.ts.net', node: { installed: true, online: true, backend_state: 'Running', dns_name: 'alp-workstation.tail1234.ts.net', ips: ['100.98.118.33'] } },
+    } } })
+    page.UI.setup.tailscale = TAILSCALE_OVERVIEW({ operator: { login: 'alp@example.com', confirmed_at: '2026-09-02T10:00:00.000Z' }, first_operator: false })
+    const html = page.screenSetup(payload())
+    assert.match(html, /class="setup-card tailscale failed on"/)
+    assert.match(text(html), /This node is named alp-workstation, not curia-sh/)
+    assert.match(html, /id="setup-tailscale-machine" type="text" value="curia\.sh"/)
+    assert.match(html, /onclick="doSetupTailscaleOperator\(\)">Confirm again and verify</)
+    assert.match(html, /onclick="retrySetup\(\)">Try again</)
+  })
+
+  test('a connected Tailscale card draws the private address, the operator, the node, the Serve route, and the timed admission', () => {
+    page.setup = SETUP({ step: 'tailscale', cards: { tailscale: {
+      ...ALL.tailscale,
+      detail: {
+        operator: { login: 'alp@example.com', confirmed_at: new Date(Date.now() - 60_000).toISOString(), last_seen_at: new Date().toISOString() },
+        node: { installed: true, online: true, backend_state: 'Running', dns_name: 'curia-sh.tail1234.ts.net', ips: ['100.98.118.33'], version: '1.98.10' },
+        address: 'curia-sh.tail1234.ts.net', app_url: 'https://curia-sh.tail1234.ts.net:8445/',
+        machine_name: { wanted: 'curia.sh', expected: 'curia-sh', actual: 'curia-sh' },
+        serve: { url: 'https://curia-sh.tail1234.ts.net:8445/', route: { https: 8445, target: 'http://127.0.0.1:4273' }, created: true, error: null },
+        app: { status: 200, ms: 38, error: null }, verified_at: new Date().toISOString(),
+      },
+    } } })
+    const html = page.screenSetup(payload())
+    assert.match(html, /href="https:\/\/curia-sh\.tail1234\.ts\.net:8445\/"[^>]*>https:\/\/curia-sh\.tail1234\.ts\.net:8445\/</)
+    assert.match(text(html), /Operator alp@example\.com confirmed/)
+    assert.match(text(html), /curia-sh\.tail1234\.ts\.net · online · 100\.98\.118\.33 · Tailscale 1\.98\.10/)
+    assert.match(text(html), /:8445 → http:\/\/127\.0\.0\.1:4273 · created by Curia/)
+    assert.match(text(html), /Admitted alp@example\.com in 38 ms · Arrived through Tailscale/)
+    assert.match(html, /<details><summary>Change the machine name<\/summary>/)
+    assert.match(html, /Continue setup/)
+    assert.doesNotMatch(html, /Try again/)
+  })
 })
