@@ -63,7 +63,7 @@ Every process runs with `HOME` at `cache/home/` inside the root. That directory 
 
 Curia uses named volumes for the tmux socket and for the agents' npm and browser caches. No volume holds installation identity, durable state, or resumable work. Curia can recreate every volume without losing the installation.
 
-Every container, the Compose network, and the tmux socket volume carry the label `sh.curia.installation=<installation ID>`, so `curia purge` can find what belongs to this installation. The images, the project name, and the health checks are in [Release images and the Compose bundle](bundle.md).
+Every container, the Compose network, the tmux socket volume, every agent container, and the agent cache volumes carry the label `sh.curia.installation=<installation ID>`, so `curia uninstall` and `curia purge` find what belongs to this installation by the label and never by a name. An agent cache volume that existed before this label was added keeps the labels it has, so `curia uninstall` leaves it, and `docker volume rm` removes it by hand. The images, the project name, and the health checks are in [Release images and the Compose bundle](bundle.md).
 
 ## What survives
 
@@ -74,9 +74,9 @@ The seven directories of the root fall into two groups. `config/`, `secrets/`, `
 | Service or host restart | Everything. | Stale entries under `run/`, such as a lock whose process is gone. |
 | `curia update` or `curia rollback` | `config/`, `secrets/`, `state/`, `work/`, the tmux runtime, the attach surface, and every running agent container. | The service, app, and overseer containers, `run/compose.env`, and every release under `versions/` other than the new active one and the previous one. See [What keeps running](update.md#what-keeps-running) and [What a rollback keeps](rollback.md#what-a-rollback-keeps). |
 | `curia reinstall` | `config/`, `secrets/`, `state/`, `work/`. | `versions/`, `cache/`, `run/`. |
-| `curia uninstall` | `config/`, `secrets/`, `state/`, `work/`. | Containers, networks, volumes, the launcher, `versions/`, `cache/`, `run/`. |
+| `curia uninstall` | `config/`, `secrets/`, `state/`, `work/`, and the container images. | The launcher, the contents of `versions/`, `cache/`, and `run/`, every labelled container, network, and volume, and Curia's Serve routes. See [Uninstall and reinstall from the preserved root](uninstall.md). |
 | `curia purge` | Nothing. | The entire root and every Curia-labelled Docker resource. |
 
 After a restart, the service reads the same secret files, the same journal in `state/`, and the same sessions under `work/`. Running agents keep their worktrees and their credential copies. Renewable tokens under `run/` are minted again. Nothing you did through integration setup has to be repeated.
 
-`curia uninstall` leaves the preserved directories in place, so a later `curia install` into the same root finds the same installation ID, secrets, journal, and sessions. Only `curia purge` removes them, after one confirmation. External resources, such as the GitHub App, the Discord bot, and the Tailscale node, are never deleted by Curia.
+`curia uninstall` leaves the preserved directories in place, so a later `curia install` into the same root finds the same installation ID, secrets, journal, and sessions; see [Reinstall from the preserved root](uninstall.md#reinstall-from-the-preserved-root). Only `curia purge` removes them, after one confirmation. External resources, such as the GitHub App, the Discord bot, and the Tailscale node, are never deleted by Curia.

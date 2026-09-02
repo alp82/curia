@@ -2630,6 +2630,7 @@ export class Dispatcher {
     })
     const shellCmd = dockerRunCmd({
       name: session, ticket, image: image.ref, cfgDir, wtPath, envFile, spawnCmd, ports, sandbox,
+      installationId: this.config.installationId ?? null,
     })
     return { image: image.ref, ports, shellCmd }
   }

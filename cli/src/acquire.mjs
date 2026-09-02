@@ -35,6 +35,11 @@ import { NPM_REGISTRY, PACKAGE_NAME, RELEASE_DOWNLOADS, parseManifest, releaseAs
 
 export const NODE_DIST = 'https://nodejs.org/dist'
 
+// The one command that installs Curia on a host, or reinstalls it over a
+// preserved root: the bootstrap, downloaded to a file and run. `--purge`
+// makes it the purge command; `--root <dir>` names a nondefault root.
+export const BOOTSTRAP_COMMAND = 'curl -fsSLO https://github.com/alp82/curia/releases/latest/download/curia-install.sh && bash curia-install.sh'
+
 // One download at a time, with the time a 60 MB runtime may take on a slow
 // link. `null` bytes with a status or an error, never a partial file.
 export const acquireProbes = Object.freeze({

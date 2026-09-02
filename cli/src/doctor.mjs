@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs'
 
+import { BOOTSTRAP_COMMAND } from './acquire.mjs'
 import { EXIT } from './exit.mjs'
 import { ConfigError, operatorConfigPath, readOperatorConfig } from './config.mjs'
 import { composeProject, dockerRunner, serviceStates } from './compose.mjs'
@@ -57,7 +58,7 @@ export const SERVICE_PORT = 4271
 export const APP_PORT = 4273
 
 const READ_TIMEOUT_MS = 10_000
-const BOOTSTRAP = 'curl -fsSLO https://github.com/alp82/curia/releases/latest/download/curia-install.sh && bash curia-install.sh'
+const BOOTSTRAP = BOOTSTRAP_COMMAND
 const AGAIN = 'run curia doctor again'
 
 const CARD_NAMES = Object.freeze({ github: 'GitHub', discord: 'Discord', tailscale: 'Tailscale', model: 'model provider' })
