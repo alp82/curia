@@ -18,6 +18,7 @@ improvements
 * discord supporting question styles with explanations and lists in them
 * ticket board/graph view
 * auto tasks
+* https://labs.cuvii.dev/volume/motion
 
 
 behavior toggles
@@ -61,13 +62,16 @@ for:curia
     https://crit.md
     https://sideshow.sh
     https://plannotator.ai
+    https://github.com/coldteadotai/pr-lens
     https://x.com/dexhorthy/status/2087569590268391897
+    https://academy.techpresso.co/blog/human-in-the-loop-automation
 
 like:curia
     https://box.ascii.dev
     https://repoprompt.com
     https://www.tryatlas.cc
     https://github.com/maddada/ghostex
+    https://www.primeintellect.ai/blog/prime-agent
 
 voice
     https://medium.com/engineering-in-the-age-of-ai/how-to-use-ai-to-generate-texts-that-sound-like-a-human-would-actually-write-them-c7eef78e0b42

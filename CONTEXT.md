@@ -18,8 +18,28 @@ _Avoid_: daemon in user-facing prose.
 The operator's complete path from a fresh supported host through a proven Full loop, including upgrades, recovery, and removal.
 _Avoid_: setup when referring to the complete lifecycle, onboarding when referring only to installation.
 
+**Curia release**:
+One immutable semantic version of the lifecycle interface, Compose bundle, configuration expectations, and exact container-image digests, bound by its release manifest. Components within a Curia release don't carry independent compatibility promises.
+_Avoid_: release when referring to one component artifact or a mutable package or image tag.
+
+**Stable release**:
+A Curia release offered to normal installation and update flows. A prerelease remains available only by exact version and never enters normal version selection.
+_Avoid_: stable channel, because the first supported lifecycle has no operator-selectable release channels.
+
+**Release manifest**:
+The immutable record that binds a Curia release to its lifecycle-interface version, Compose bundle checksum, and exact container-image digests.
+_Avoid_: installation manifest, version tag.
+
+**Live update**:
+A Curia update that leaves agent containers and session runtimes running while it replaces the core services, then re-adopts the live sessions. New agents use the new Curia release, while agents already running keep their original image.
+_Avoid_: zero-downtime update, which implies that every service and interaction remains continuously available.
+
+**Rollback release**:
+The one previous successful Curia release retained by an installation. Curia switches to it automatically after a failed update or when the operator runs `curia rollback`.
+_Avoid_: rollback history, which implies support for multiple historical releases.
+
 **Integration setup**:
-The fixed first-run sequence that connects one installation to its required GitHub, Discord, Tailscale, and model-provider resources. It ends when each integration passes its current verification check.
+The guided first-run flow that connects one installation to its required GitHub, Discord, Tailscale, and model-provider resources. The operator may complete these integrations in any order. The flow ends when every required integration passes its current verification check.
 _Avoid_: onboarding, integration wizard.
 
 **Integration verification**:
