@@ -36,7 +36,7 @@ The card connects when it shows **Connected and verified** and the footer names 
 1. In the [Discord developer portal](https://discord.com/developers/applications), select **New Application** and name it. Under **Bot**, turn on **Message Content Intent**, select **Reset Token**, and copy the token. Discord shows it once.
 2. In Discord, turn on **Developer Mode** under **Settings** > **Advanced**, then copy your user ID from your profile menu.
 3. On the **Discord** card, paste the token, enter your user ID, and select **Connect bot**.
-4. If the bot isn't in your server yet, select **Add the bot to a server**, approve it in Discord, and select **Try again**.
+4. Select **Add the bot to a server** and approve it in Discord. The panel waits and checks again on the page's refresh interval, so the server appears on its own within seconds. Until then there is no server to select and no channel field.
 5. Select the server, keep the channel name `curia` or enter another, and select **Connect channel**.
 
 The card connects when the footer shows the channel and the server, then `Confirmation delivered · <n> commands registered`, and Curia's confirmation message stands in the channel. The panel says whether the bridge is running. Until the service restarts once after the first connection, the card is verified and the bot doesn't answer yet: select **Restart Curia** in the panel. The details are in [Connect Discord](../integration-setup.md#connect-discord).

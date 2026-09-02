@@ -208,11 +208,11 @@ describe('the Discord card (#876)', () => {
       assert.equal(answer.detail.stage, 'operator')
     })
 
-    test('choosing the server and the channel writes the two facts beside the operator ID', async () => {
+    test('choosing the server and the channel writes the two facts beside the operator ID, and reuses the channel that is there', async () => {
       writeSecret(root, 'discord-bot-token', TOKEN)
       writeDiscordSettings(stateDir, { allowed_users: [OPERATOR] })
-      const { setup } = setupOver(happy())
-      assert.deepEqual(await setup.chooseChannel({ guild_id: GUILD, channel: 'ops' }), { allowed_users: [OPERATOR], guild_id: GUILD, channel: 'ops' })
+      const { setup } = setupOver(happy({ [`/guilds/${GUILD}/channels`]: [200, [textChannel({ name: 'ops' })]] }))
+      assert.deepEqual(await setup.chooseChannel({ guild_id: GUILD, channel: 'ops' }), { settings: { allowed_users: [OPERATOR], guild_id: GUILD, channel: 'ops' }, channel: { id: CHANNEL, name: 'ops', created: false } })
       assert.deepEqual(readDiscordSettings(stateDir), { allowed_users: [OPERATOR], guild_id: GUILD, channel: 'ops' })
       await assert.rejects(() => setup.chooseChannel({ guild_id: 'x', channel: 'ops' }), (e) => e.refusal && /server/.test(e.message))
       await assert.rejects(() => setup.chooseChannel({ guild_id: GUILD, channel: 'Bad Channel' }), (e) => e.refusal && /channel name/.test(e.message))
@@ -229,32 +229,60 @@ describe('the Discord card (#876)', () => {
       assert.equal(d.calls.some((c) => c.method === 'POST' && c.route === `/guilds/${GUILD}/channels`), false)
     })
 
-    test('a channel of that name under a category is not the one, and a top-level text channel is created', async () => {
+    test('nothing is created before Connect channel: a token with no server chosen fails on the server, even when the bot is in one', async () => {
+      writeSecret(root, 'discord-bot-token', TOKEN)
+      writeDiscordSettings(stateDir, { allowed_users: [OPERATOR] })
+      const { verify, d } = setupOver(happy({ [`/guilds/${GUILD}/channels`]: [200, []], [`POST /guilds/${GUILD}/channels`]: [201, textChannel({ id: '888' })] }))
+      const answer = await verify({ progress: {} })
+      assert.equal(answer.ok, false)
+      assert.equal(answer.detail.stage, 'server')
+      assert.match(answer.failed, /No server is selected/)
+      assert.match(answer.action, /Connect channel/)
+      assert.deepEqual(answer.detail.guilds, [{ id: GUILD, name: 'Alp\'s workshop' }])
+      assert.equal(d.calls.some((c) => c.method === 'POST'), false, 'a verification read creates nothing and posts nothing')
+    })
+
+    test('a channel that is not there at verification is the failed verification, and the read creates nothing', async () => {
       connected()
-      const { verify, d } = setupOver(happy({
-        [`/guilds/${GUILD}/channels`]: [200, [textChannel({ parent_id: '1' }), textChannel({ id: '2', type: 2 })]],
-        [`POST /guilds/${GUILD}/channels`]: [201, textChannel({ id: '888' })],
+      const { verify, d } = setupOver(happy({ [`/guilds/${GUILD}/channels`]: [200, [textChannel({ parent_id: '1' }), textChannel({ id: '2', type: 2 })]], [`POST /guilds/${GUILD}/channels`]: [201, textChannel({ id: '888' })] }))
+      const answer = await verify({ progress: {} })
+      assert.equal(answer.ok, false)
+      assert.equal(answer.detail.stage, 'channel')
+      assert.match(answer.failed, /#curia isn't a top-level text channel in Alp's workshop/)
+      assert.match(answer.action, /Connect channel/)
+      assert.equal(d.calls.some((c) => c.method === 'POST'), false)
+    })
+
+    test('Connect channel creates the top-level text channel when there is none, and the next verification reuses it', async () => {
+      writeSecret(root, 'discord-bot-token', TOKEN)
+      writeDiscordSettings(stateDir, { allowed_users: [OPERATOR] })
+      let channels = [textChannel({ parent_id: '1' }), textChannel({ id: '2', type: 2 })]
+      const { setup, verify, d } = setupOver(happy({
+        [`/guilds/${GUILD}/channels`]: () => [200, channels],
+        [`POST /guilds/${GUILD}/channels`]: () => { channels = [...channels, textChannel({ id: '888' })]; return [201, textChannel({ id: '888' })] },
         '/channels/888/messages?limit=50': [200, []],
         'POST /channels/888/messages': [200, { id: '779', timestamp: '2026-09-02T10:00:00.000Z' }],
       }))
+      const chosen = await setup.chooseChannel({ guild_id: GUILD, channel: 'curia' })
+      assert.deepEqual(chosen.settings, { allowed_users: [OPERATOR], guild_id: GUILD, channel: 'curia' })
+      assert.deepEqual(chosen.channel, { id: '888', name: 'curia', created: true })
+      assert.deepEqual(d.calls.find((c) => c.method === 'POST' && c.route === `/guilds/${GUILD}/channels`).body, { name: 'curia', type: 0 })
       const answer = await verify({ progress: {} })
       assert.equal(answer.ok, true)
-      assert.equal(answer.detail.channel.created, true)
       assert.equal(answer.detail.channel.id, '888')
-      assert.deepEqual(d.calls.find((c) => c.method === 'POST' && c.route === `/guilds/${GUILD}/channels`).body, { name: 'curia', type: 0 })
+      assert.equal(d.calls.filter((c) => c.method === 'POST' && c.route === `/guilds/${GUILD}/channels`).length, 1, 'created once, on the press')
     })
 
-    test('a creation Discord refuses is the failed verification, and the action is Manage Channels or a channel made by hand', async () => {
-      connected()
-      const { verify } = setupOver(happy({
+    test('a creation Discord refuses is the refusal Connect channel answers, and the action is Manage Channels or a channel made by hand', async () => {
+      writeSecret(root, 'discord-bot-token', TOKEN)
+      writeDiscordSettings(stateDir, { allowed_users: [OPERATOR] })
+      const { setup } = setupOver(happy({
         [`/guilds/${GUILD}/channels`]: [200, []],
         [`POST /guilds/${GUILD}/channels`]: [403, { message: 'Missing Permissions' }],
       }))
-      const answer = await verify({ progress: {} })
-      assert.equal(answer.ok, false)
-      assert.match(answer.failed, /could not create #curia in Alp's workshop: Missing Permissions/)
-      assert.match(answer.action, /Manage Channels/)
-      assert.equal(answer.detail.stage, 'channel')
+      await assert.rejects(() => setup.chooseChannel({ guild_id: GUILD, channel: 'ops' }), (e) => e.refusal
+        && /could not create #ops in Alp's workshop: Missing Permissions/.test(e.message) && /Manage Channels/.test(e.message) && !e.message.includes(TOKEN))
+      assert.deepEqual(readDiscordSettings(stateDir), { allowed_users: [OPERATOR], guild_id: GUILD, channel: 'ops' }, 'the choice is kept for the next press')
     })
 
     test('a channel overwrite that takes Send Messages from the bot fails on authority, naming what is missing', async () => {

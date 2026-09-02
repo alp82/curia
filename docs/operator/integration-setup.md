@@ -55,6 +55,8 @@ The card remembers only the App name (`progress.github.app_name`) for a reopen. 
 
 The Discord card connects a dedicated bot you create in Discord's developer portal, then finds or creates the command channel Curia speaks in. You paste the bot token once. Curia writes it to `secrets/discord-bot-token` in the installation root, owner-only, mode `0600`, and never shows it again.
 
+The flow has three parts, in this order: the token, a wait until the bot is in a server, and the channel. Nothing is created in Discord until you select **Connect channel**.
+
 ### Create the bot
 
 1. Open the [Discord developer portal](https://discord.com/developers/applications) and select **New Application**. Name it for this installation, for example `curia-box`.
@@ -63,15 +65,24 @@ The Discord card connects a dedicated bot you create in Discord's developer port
 4. In Discord, turn on **Developer Mode** under **Settings** > **Advanced**, then copy your user ID from your profile menu.
 5. On the **Discord** card, paste the token, enter your user ID, and select **Connect bot**.
 
-The token goes to the service and straight into its secret file. The user ID goes to `state/discord.json` as the one allowed user, which is the whole access check: only that account can command Curia. The card then shows the bot's name and lists the servers the bot is in.
+The token goes to the service and straight into its secret file. The user ID goes to `state/discord.json` as the one allowed user, which is the whole access check: only that account can command Curia. The card then shows the bot's name and the invite link.
 
-### Add the bot and choose the channel
+### Add the bot to a server
 
-1. If the bot isn't in your server yet, select **Add the bot to a server**. The link opens Discord's own authorization page with the `bot` and `applications.commands` scopes and the permissions Curia uses: View Channel, Send Messages, Embed Links, Attach Files, Read Message History, Create Public Threads, Send Messages in Threads, Manage Threads, and Manage Channels. Approve it in Discord, then select **Try again**.
-2. Select the server and enter the command channel's name. The field suggests `curia`, but any name works.
+Until the bot is in at least one server, the panel says `Waiting for the bot to join a server` and shows only the invite link. There is no server to select and no channel to name yet, so the panel offers neither field.
+
+1. Select **Add the bot to a server**. The link opens Discord's own authorization page with the `bot` and `applications.commands` scopes and the permissions Curia uses: View Channel, Send Messages, Embed Links, Attach Files, Read Message History, Create Public Threads, Send Messages in Threads, Manage Threads, and Manage Channels.
+2. Approve it in Discord.
+
+While the panel waits, it reads the bot's servers again on the Setup page's refresh interval (`poll_interval_s`, 5 seconds by default), so the server appears within seconds of the approval, with no reload and no press. The moment a server is there, the card verifies fresh and the panel shows the server select and the channel field.
+
+### Choose the channel
+
+1. Select the server.
+2. Enter the command channel's name. The field suggests `curia`, but any name works, and you can change it before anything exists.
 3. Select **Connect channel**.
 
-Curia reuses a top-level text channel of that name when the bot can use it, and creates one when there is none. A channel of that name under a category isn't the one, because the bridge opens only top-level channels.
+**Connect channel** writes the server and the channel name to `state/discord.json`, then reuses a top-level text channel of that name when there is one and creates one when there is none. This press is the only step that creates anything in Discord: a verification read, whether on arrival, on the refresh, or on **Try again**, never picks a server for you and never creates a channel. A channel of that name under a category isn't the one, because the bridge opens only top-level channels. When Discord refuses the creation, the panel says why under the button, keeps your choice, and names the fix: give the bot Manage Channels, or create the text channel yourself, then select **Connect channel** again.
 
 ### What verification proves
 
@@ -80,9 +91,9 @@ Every read of the card runs the same verification, in this order:
 1. The token is on disk. Without it the card is plain, **Ready to connect**.
 2. An operator user ID is beside it.
 3. Discord accepts the token.
-4. The bot is in the selected server.
+4. The bot is in at least one server, and you selected one of them.
 5. Your user ID is a member of that server.
-6. The command channel exists top-level as a text channel, or Curia creates it.
+6. The command channel exists top-level as a text channel. Verification never creates it; **Connect channel** does.
 7. In that channel, the bot holds every permission the bridge uses.
 8. Curia registers its slash commands on that server.
 9. A confirmation message from Curia stands in the channel. Curia posts one when none is there.
@@ -91,7 +102,7 @@ The card connects when steps 1 to 9 pass. The footer shows the channel and the s
 
 Curia looks for its own earlier confirmation before posting another, so opening **Setup** doesn't fill the channel with repeated lines. To get a fresh confirmation, delete the earlier one and select **Try again**.
 
-A failed step names the failure and one action, for example `curia can't Send Messages in #curia` with `Allow Send Messages for the bot in #curia's permissions, then try again.` Do what the action says and select **Try again**. When Discord refuses the token, the panel puts the token form first so you can submit a new one.
+A failed step names the failure and one action, for example `curia can't Send Messages in #curia` with `Allow Send Messages for the bot in #curia's permissions, then try again.` Do what the action says and select **Try again**. When Discord refuses the token, the panel puts the token form first so you can submit a new one. Before you select a server, the card reads `No server is selected for <bot>`, and the action is the server and the channel in this panel.
 
 ### After the card connects
 

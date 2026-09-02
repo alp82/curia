@@ -912,7 +912,7 @@ var UI = {
   /* The setup frame's own state (#874): whether a read is in flight, and the
      one sentence the last press left behind. The selected card is not here —
      it is the record's `step`, kept by the service so a reopen restores it. */
-  setup: { busy: false, note: null, loopBusy: false, loopTimer: null, discord: null, discordBusy: null, tailscale: null, tailscaleBusy: null, openai: null, openaiBusy: null, openaiTimer: null, anthropic: null, anthropicBusy: null, anthropicTimer: null },
+  setup: { busy: false, note: null, loopBusy: false, loopTimer: null, discord: null, discordBusy: null, discordTimer: null, tailscale: null, tailscaleBusy: null, openai: null, openaiBusy: null, openaiTimer: null, anthropic: null, anthropicBusy: null, anthropicTimer: null },
   /* The drill-in frame's own state (#699), one entry per page that is a list
      of sections: which section is open, and whether the phone is on the list
      in front of it. */
@@ -5007,10 +5007,14 @@ function setupGitHub(card, progress, p) {
 /* The Discord card's own panel (#876), in the states the verifier reports.
    Before the token exists: the guide to the application and the bot, and
    the one form, the token and the operator's user ID, which is the only time
-   the token crosses. After: the bot's name, the invite link, the server
-   list the service read on the token, and the channel name, which is the
-   second and last press. Connected: the channel, the delivered
-   confirmation, and the registered commands, all from this read. */
+   the token crosses. After: the bot's name and the invite link, then a wait
+   until the bot is in a server (#891: the panel re-reads on the page's own
+   refresh interval, so the server appears on its own after the invite, and
+   no select or channel field is drawn before there is a server to pick).
+   Then the server list the service read on the token and the channel name,
+   which is the second and last press, and the only one that creates
+   anything. Connected: the channel, the delivered confirmation, and the
+   registered commands, all from this read. */
 const DISCORD_STAGES_WITH_TOKEN_FORM = ["token", "operator"];
 function setupDiscord(card, progress) {
   const d = UI.setup.discord;
@@ -5065,13 +5069,22 @@ function setupDiscordChannelForm(d, progress, detail) {
   const chosen = progress?.guild_id || settings?.guild_id || detail?.guild?.id || guilds[0]?.id || "";
   const channel = progress?.channel || settings?.channel || detail?.channel?.name || "curia";
   const options = guilds.map((g) => `<option value="${esc(g.id)}" ${g.id === chosen ? "selected" : ""}>${esc(g.name)}</option>`).join("");
-  const invite = d?.invite_url || detail?.invite_url;
-  const none = !guilds.length ? `<p class="qhint">The bot is in no server yet. ${invite ? `<a href="${esc(invite)}" target="_blank" rel="noopener">Add the bot to your server</a>, then select <b>Try again</b>.` : ""}</p>` : "";
-  return `<p><select id="setup-discord-guild" aria-label="Server" ${guilds.length ? "" : "disabled"}>${options}</select>
+  if (!guilds.length) return setupDiscordWait(d, detail);
+  return `<p><select id="setup-discord-guild" aria-label="Server">${options}</select>
     <input id="setup-discord-channel" type="text" value="${esc(channel)}" placeholder="curia" aria-label="Command channel">
-    <button class="btn primary" ${busy || !guilds.length ? "disabled" : ""} onclick="doSetupDiscordChannel()">${busy ? "Verifying…" : "Connect channel"}</button></p>
-    ${none}${said("discord-setup:channel")}
-    <p class="qhint">Curia reuses a top-level text channel of that name when the bot can use it, and creates one otherwise. The name is yours to choose. <code>curia</code> is only a suggestion.</p>`;
+    <button class="btn primary" ${busy ? "disabled" : ""} onclick="doSetupDiscordChannel()">${busy ? "Verifying…" : "Connect channel"}</button></p>
+    ${said("discord-setup:channel")}
+    <p class="qhint">Curia reuses a top-level text channel of that name when the bot can use it, and creates one when you select <b>Connect channel</b>. Nothing is created before that. The name is yours to choose. <code>curia</code> is only a suggestion.</p>`;
+}
+
+/* The wait for a server (#891): the invite link and the interval the panel
+   re-reads on. No select and no channel field, because there is no server
+   to pick yet and no name to give before there is. */
+function setupDiscordWait(d, detail) {
+  const invite = d?.invite_url || detail?.invite_url;
+  const every = payload?.poll_interval_s ?? 5;
+  return `<p class="qhint">Waiting for the bot to join a server. ${invite ? `<a href="${esc(invite)}" target="_blank" rel="noopener">Add the bot to your server</a> and approve it in Discord.` : ""}
+    Curia checks again every ${esc(every)} seconds while this panel is open, and the server appears here on its own.</p>`;
 }
 
 /* The Discord card's reads and writes (#876). The panel's own read is what
@@ -5079,6 +5092,7 @@ function setupDiscordChannelForm(d, progress, detail) {
    selected and after every write. The token itself is read off its field,
    sent once, and the field is cleared before the answer comes back. */
 async function loadDiscordSetup() {
+  const before = UI.setup.discord?.loading ? null : UI.setup.discord;
   UI.setup.discord = { ...(UI.setup.discord ?? {}), loading: true };
   render();
   try {
@@ -5089,12 +5103,35 @@ async function loadDiscordSetup() {
     UI.setup.discord = { secret: null, settings: null, bot: null, guilds: [], invite_url: null, error: error.message };
   }
   render();
+  return ensureDiscordSetupWait(before);
+}
+/* The wait for a server (#891): while the token is accepted and the bot is
+   in no server, the panel's own read repeats on the page's refresh interval
+   and stops itself the moment a server is there, on a connected card, or
+   when the operator leaves the card. The read that finds the first server
+   verifies the frame fresh, so the card says what it now needs: the server
+   and the channel, chosen here. */
+function discordSetupWaiting(d) {
+  return Boolean(d && !d.loading && d.secret === "present" && d.bot && !d.error && !(d.guilds?.length));
+}
+function ensureDiscordSetupWait(before = null) {
+  clearTimeout(UI.setup.discordTimer);
+  UI.setup.discordTimer = null;
+  const d = UI.setup.discord;
+  const onCard = UI.screen === "setup" && setupSelected() === "discord" && setupCardOf("discord")?.state !== "connected";
+  if (onCard && discordSetupWaiting(d)) {
+    UI.setup.discordTimer = setTimeout(loadDiscordSetup, (payload?.poll_interval_s ?? 5) * 1000);
+    return null;
+  }
+  if (onCard && discordSetupWaiting(before) && d?.guilds?.length) return loadSetup();
+  return null;
 }
 function ensureDiscordSetupRead() {
-  if (!setup?.cards || setupSelected() !== "discord") return;
+  if (!setup?.cards || setupSelected() !== "discord") return ensureDiscordSetupWait();
   const card = setupCardOf("discord");
-  if (!card || card.state === "unavailable" || card.state === "connected") return;
-  if (UI.setup.discord === null) loadDiscordSetup();
+  if (!card || card.state === "unavailable" || card.state === "connected") return ensureDiscordSetupWait();
+  if (UI.setup.discord === null) return loadDiscordSetup();
+  return ensureDiscordSetupWait();
 }
 async function doSetupDiscordToken() {
   const tokenField = document.getElementById("setup-discord-token");
@@ -5106,6 +5143,7 @@ async function doSetupDiscordToken() {
   const out = await discordSetupWrite("discord-setup:token", "/api/setup/discord/token", { token, user_id: userId });
   if (out) UI.setup.discord = out;
   render();
+  ensureDiscordSetupWait();
   return out;
 }
 async function doSetupDiscordChannel() {

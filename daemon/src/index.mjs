@@ -3934,8 +3934,9 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
   // presence, the bot, its servers, the invite link, and the safe facts. The
   // token submission lands the token in `secrets/discord-bot-token` and the
   // operator ID in `state/discord.json` and answers the same read; the
-  // channel choice lands the server and the channel name and answers the
-  // freshly verified card. No answer carries the token.
+  // channel choice lands the server and the channel name, reuses or creates
+  // the channel (the one write to Discord that creates anything, #891), and
+  // answers the freshly verified card. No answer carries the token.
   if (url.pathname === '/setup/discord' && req.method === 'GET') {
     return json(200, await discordSetup.overview())
   }
@@ -3951,8 +3952,8 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
   if (url.pathname === '/setup/discord/channel' && req.method === 'POST') {
     const body = await readBody(req)
     try {
-      const settings = await discordSetup.chooseChannel({ guild_id: body.guild_id, channel: body.channel })
-      return json(200, { ok: true, settings, card: await integrationSetup.verify('discord') })
+      const chosen = await discordSetup.chooseChannel({ guild_id: body.guild_id, channel: body.channel })
+      return json(200, { ok: true, ...chosen, card: await integrationSetup.verify('discord') })
     } catch (e) {
       if (!e.refusal) throw e
       return json(400, { ok: false, error: e.message })

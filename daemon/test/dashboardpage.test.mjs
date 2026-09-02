@@ -4934,6 +4934,90 @@ describe('integration setup (#874)', () => {
     assert.match(html, /onclick="retrySetup\(\)">Try again</)
   })
 
+  // The wait for a server (#891). The first packaged rehearsal found the
+  // panel drawing an empty server select and a prefilled channel field the
+  // moment the token was accepted, and never noticing the invite on its
+  // own. Now, until the bot is in a server, the panel is the invite link and
+  // a wait that re-reads on the Setup page's refresh interval; the select
+  // and the channel field appear only once a server is there, and nothing
+  // is created before Connect channel.
+  test('with the token accepted and the bot in no server, the panel waits with the invite link and offers neither a server select nor a channel field', () => {
+    page.setup = SETUP({ step: 'discord', cards: { discord: {
+      state: 'failed', badge: 'Action required',
+      error: { failed: 'curia-box is in no server', action: 'Add the bot to your server with the invite link in this panel, then try again.' },
+      detail: { stage: 'server', guilds: [], invite_url: 'https://discord.com/oauth2/authorize?client_id=555555555555555555&scope=bot%20applications.commands&permissions=1' },
+    } } })
+    page.UI.setup.discord = DISCORD_OVERVIEW({ guilds: [] })
+    page.payload = payload()
+    const html = page.screenSetup(page.payload)
+    assert.match(html, /href="https:\/\/discord\.com\/oauth2\/authorize\?client_id=555555555555555555[^"]*"[^>]*>Add the bot to a server</)
+    assert.match(text(html), /Waiting for the bot to join a server/)
+    assert.match(text(html), /checks again every 5 seconds/)
+    assert.doesNotMatch(html, /setup-discord-guild/, 'no server select before the bot is in one')
+    assert.doesNotMatch(html, /setup-discord-channel/, 'no channel field before the bot is in one')
+    assert.doesNotMatch(html, /Connect channel/)
+  })
+
+  test('while it waits the panel re-reads on the refresh interval, and the server select and the channel field appear on their own once the bot joined, with no press', async () => {
+    page.setup = SETUP({ step: 'discord', cards: { discord: {
+      state: 'failed', badge: 'Action required',
+      error: { failed: 'curia-box is in no server', action: 'Add the bot to your server with the invite link in this panel, then try again.' },
+      detail: { stage: 'server', guilds: [] },
+    } } })
+    page.payload = payload()
+    const timers = []
+    page.setTimeout = (callback, ms) => { timers.push({ callback, ms }); return timers.length }
+    page.clearTimeout = () => {}
+    let joined = false
+    page.fetch = async (url, init = {}) => {
+      calls.push({ url, method: init.method ?? 'GET', body: init.body ? JSON.parse(init.body) : null })
+      if (url === '/api/setup/discord') return { ok: true, json: async () => DISCORD_OVERVIEW(joined ? {} : { guilds: [] }) }
+      return { ok: true, json: async () => (init.method === 'POST' ? { ok: true } : SETUP({ step: 'discord', cards: { discord: {
+        state: 'failed', badge: 'Action required', error: { failed: 'No server is selected for curia-box', action: 'Select the server and the channel name in this panel, then select Connect channel.' }, detail: { stage: 'server', guilds: DISCORD_OVERVIEW().guilds },
+      } } })) }
+    }
+    await page.loadDiscordSetup()
+    assert.equal(calls.filter((c) => c.url === '/api/setup/discord').length, 1)
+    assert.equal(timers.length, 1, 'one wait is armed')
+    assert.equal(timers[0].ms, 5000, 'on the page\'s own refresh interval')
+    let html = page.screenSetup(page.payload)
+    assert.doesNotMatch(html, /setup-discord-guild/)
+    await timers[0].callback()
+    assert.equal(calls.filter((c) => c.url === '/api/setup/discord').length, 2, 'the wait re-reads')
+    assert.equal(timers.length, 2, 'and arms the next wait while the bot is still in no server')
+    joined = true
+    await timers[1].callback()
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.equal(calls.filter((c) => c.url === '/api/setup/discord').length, 3)
+    assert.equal(timers.length, 2, 'the wait ends once a server is there')
+    assert.ok(calls.some((c) => c.url === '/api/setup' && c.method === 'GET'), 'the card verifies fresh once the bot joined')
+    assert.equal(calls.filter((c) => c.method === 'POST').length, 0, 'nothing is written and nothing is created by the wait')
+    html = page.screenSetup(page.payload)
+    assert.match(html, /<option value="333333333333333333" selected>Alp's workshop<\/option>/)
+    assert.match(html, /id="setup-discord-channel" type="text" value="curia"/, 'the default name, editable')
+    assert.match(html, /onclick="doSetupDiscordChannel\(\)">Connect channel</)
+  })
+
+  test('Connect bot with a bot in no server starts the wait at once', async () => {
+    page.setup = SETUP({ step: 'discord', cards: { discord: { state: 'unconnected', badge: 'Ready to connect' } } })
+    page.payload = payload()
+    const timers = []
+    page.setTimeout = (callback, ms) => { timers.push({ callback, ms }); return timers.length }
+    page.clearTimeout = () => {}
+    page.document.getElementById = (id) => ({ 'setup-discord-token': { value: DISCORD_TOKEN }, 'setup-discord-user': { value: '111111111111111111' } })[id] ?? null
+    page.fetch = async (url, init = {}) => {
+      calls.push({ url, method: init.method ?? 'GET', body: init.body ? JSON.parse(init.body) : null })
+      if (url === '/api/setup/discord/token') return { ok: true, json: async () => ({ ok: true, ...DISCORD_OVERVIEW({ guilds: [] }) }) }
+      return { ok: true, json: async () => DISCORD_OVERVIEW({ guilds: [] }) }
+    }
+    await page.doSetupDiscordToken()
+    assert.equal(timers.length, 1)
+    assert.equal(timers[0].ms, 5000)
+    const html = page.screenSetup(page.payload)
+    assert.match(text(html), /Waiting for the bot to join a server/)
+    assert.doesNotMatch(html, /setup-discord-channel/)
+  })
+
   test('a token Discord refused puts the token form first, with the user ID it kept', () => {
     page.setup = SETUP({ step: 'discord', cards: { discord: {
       state: 'failed', badge: 'Action required',
