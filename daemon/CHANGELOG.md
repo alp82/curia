@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.1](https://github.com/alp82/curia/compare/v0.6.0...v0.6.1) (2026-09-02)
+
+
+### Bug Fixes
+
+* pack the package into an absolute destination during publication ([#924](https://github.com/alp82/curia/issues/924)) ([9721441](https://github.com/alp82/curia/commit/97214418c5d51b1d0dad0669102ee0517c0c488f))
+
 ## [0.6.0](https://github.com/alp82/curia/compare/v0.5.0...v0.6.0) (2026-09-02)
 
 
