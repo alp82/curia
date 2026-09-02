@@ -15,8 +15,11 @@
 import { test, describe, before, beforeEach, afterEach } from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
 import vm from 'node:vm'
 import { DEFAULT_DASHBOARD_INDEX, DASHBOARD_PROTO } from '../src/dashboard.mjs'
+import { GitHubAppSetup } from '../src/githubapp.mjs'
 
 // The page boots itself only when a real document holds `#app`, so this fake
 // one keeps the load inert: no render, no poll, no timer. `fetch` never settles
@@ -4773,6 +4776,56 @@ describe('integration setup (#874)', () => {
     assert.equal(started.body.name, 'curia-alp')
     assert.equal(started.body.screen, 'setup')
     assert.equal(page.setup.progress.github.app_name, 'curia-alp')
+  })
+
+  // The rehearsal of the packaged lifecycle (#891) pressed Create GitHub App
+  // on a root installation and GitHub answered that "url" wasn't supplied.
+  // This is the whole trip in one place: the daemon's real manifest for the
+  // served address, the page's form, and what GitHub receives.
+  test('the manifest the Setup screen posts to GitHub carries the served origin as url, the redirect under it, and every URL GitHub requires', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-page-manifest-'))
+    const daemon = new GitHubAppSetup({
+      daemonRoot: dir, stateFile: path.join(dir, 'setup.json'), envFile: path.join(dir, '.env.daemon'), keyFile: path.join(dir, 'key.pem'),
+    })
+    const origin = 'https://curia-ubuntu.tail3b99f1.ts.net:8445'
+    const submitted = []
+    page = loadPage({
+      fetchImpl: async (url, init = {}) => {
+        const body = init.body ? JSON.parse(init.body) : null
+        if (url === '/api/github-app/start') {
+          const setup = daemon.start({ name: body.name, redirectUrl: `${origin}/api/github-app/complete`, actionId: body.action_id, screen: body.screen })
+          return { ok: true, json: async () => ({ action: { action_id: body.action_id, status: 'accepted' }, setup }) }
+        }
+        return { ok: true, json: async () => (init.method === 'POST' ? { ok: true } : SETUP()) }
+      },
+    })
+    page.UI.screen = 'setup'
+    page.setup = SETUP({ cards: { github: { state: 'unconnected', badge: 'Ready to connect' } } })
+    page.payload = payload()
+    page.document.getElementById = (id) => (id === 'setup-github-app-name' ? { value: 'curia-alp' } : null)
+    page.document.createElement = (tag) => {
+      const element = { tag, children: [], appendChild(child) { this.children.push(child) } }
+      if (tag === 'form') element.submit = () => submitted.push(element)
+      return element
+    }
+    page.document.body = { appendChild() {} }
+    vm.runInContext('doSetupGitHubApp()', page)
+    await new Promise((resolve) => setImmediate(resolve))
+    fs.rmSync(dir, { recursive: true, force: true })
+
+    assert.equal(submitted.length, 1, 'one form reached GitHub')
+    const [form] = submitted
+    assert.equal(form.method, 'POST')
+    assert.match(form.action, /^https:\/\/github\.com\/settings\/apps\/new\?state=[0-9a-f]{64}$/)
+    const field = form.children.find((c) => c.name === 'manifest')
+    assert.ok(field, 'the manifest rides the one form field GitHub reads')
+    const manifest = JSON.parse(field.value)
+    assert.equal(manifest.url, origin, 'the served origin, non-empty')
+    assert.equal(manifest.redirect_url, `${origin}/api/github-app/complete`)
+    assert.equal(manifest.name, 'curia-alp')
+    // GitHub demands `hook_attributes.url` whenever the object is present,
+    // active or not. Curia listens for no webhook, so the block is absent.
+    assert.equal('hook_attributes' in manifest, false)
   })
 
   test('a failed GitHub card names the failed verification and draws the install link per watched owner', () => {

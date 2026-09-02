@@ -202,6 +202,21 @@ export const APP_SETUP_STATE_RE = /^[0-9a-f]{64}$/
 // Setup), and so the two places the redirect may land.
 export const APP_SETUP_SCREENS = Object.freeze(['settings', 'setup'])
 
+// The URLs GitHub's manifest parser demands (#891): `url`, the App's homepage,
+// always; and `hook_attributes.url` whenever a `hook_attributes` object is
+// present, whether or not the hook is active. GitHub answers a manifest that
+// misses one with `"url" wasn't supplied` on its consent page, after the
+// operator has already left curia. This names the missing field on curia's
+// side, before the handoff starts.
+export function assertManifest(manifest) {
+  if (typeof manifest?.url !== 'string' || !manifest.url) {
+    throw new Error('the GitHub App manifest carries no "url": curia could not compose its own served origin for the App homepage')
+  }
+  if (manifest.hook_attributes !== undefined && !manifest.hook_attributes?.url) {
+    throw new Error('the GitHub App manifest carries "hook_attributes" without "hook_attributes.url", which GitHub requires even for an inactive webhook')
+  }
+}
+
 function atomicWrite(file, text, mode = 0o600) {
   fs.mkdirSync(path.dirname(file), { recursive: true })
   const temporary = `${file}.tmp-${process.pid}-${crypto.randomBytes(6).toString('hex')}`
@@ -319,6 +334,23 @@ export class GitHubAppSetup {
     if (redirect.protocol !== 'https:') throw new Error('the GitHub App redirect URL must use HTTPS')
     if (redirect.username || redirect.password) throw new Error('the GitHub App redirect URL must carry no credentials')
     if (redirect.search || redirect.hash) throw new Error('the GitHub App redirect URL must carry no query or fragment')
+    // What GitHub receives (#891). `url` is the App's homepage, and the only
+    // address curia has for itself is the served origin the redirect was
+    // composed from. No `hook_attributes`: GitHub requires a `url` inside that
+    // object whenever it is present, `active: false` or not, and the packaged
+    // rehearsal (#891) found GitHub refusing the manifest with
+    // `"url" wasn't supplied` for exactly that. Curia polls and listens for no
+    // webhook, so the block is absent rather than half-filled.
+    const manifest = {
+      name: appName,
+      url: redirect.origin,
+      redirect_url: redirect.toString(),
+      public: true,
+      default_permissions: { ...MANIFEST_PERMISSIONS },
+      default_events: [],
+    }
+    // Refuse here, by name, rather than let GitHub's consent page say it.
+    assertManifest(manifest)
     const state = Buffer.from(this.randomBytes(32)).toString('hex')
     const expires = this.now() + APP_SETUP_TTL_MS
     this.#writeState({ state, expires_at: expires, status: 'pending', screen, ...(actionId ? { action_id: String(actionId) } : {}) })
@@ -329,15 +361,7 @@ export class GitHubAppSetup {
       state,
       expires_at: new Date(expires).toISOString(),
       action: `https://github.com${ownerPath}?state=${state}`,
-      manifest: {
-        name: appName,
-        url: redirect.origin,
-        redirect_url: redirect.toString(),
-        public: true,
-        default_permissions: { ...MANIFEST_PERMISSIONS },
-        default_events: [],
-        hook_attributes: { active: false },
-      },
+      manifest,
     }
   }
 
