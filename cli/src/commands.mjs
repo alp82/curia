@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { EXIT, Refusal } from './exit.mjs'
 import { installationRoot, openRoot, readInstallationRecord } from './root.mjs'
 import { installCommand } from './install.mjs'
+import { runDoctor } from './doctor.mjs'
 
 export const packageVersion = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version
 
@@ -43,7 +44,7 @@ export const commands = {
   reinstall: { summary: 'Reinstall this version over a preserved installation root, keeping its identity, configuration, secrets, state, and work.', run: installCommand('reinstall') },
   update: { summary: 'Stage, verify, and switch to the latest stable release, or to an exact version.', run: notYet('update') },
   rollback: { summary: 'Switch back to the one retained previous release.', run: notYet('rollback') },
-  doctor: { summary: 'Check the host, configuration, integrations, and services. Read-only.', run: notYet('doctor') },
+  doctor: { summary: 'Check the host, configuration, integrations, and services. Read-only.', run: runDoctor },
   uninstall: { summary: 'Remove the runnable system and keep config/, secrets/, state/, and work/.', run: notYet('uninstall') },
   purge: { summary: 'Remove the entire installation root and every Curia-labelled Docker resource, after confirmation.', run: notYet('purge') },
   version: { summary: 'Print the lifecycle interface version and the active installed version.', run: version },

@@ -88,7 +88,7 @@ describe('command routing', () => {
     assert.match(r.err, /curia help/)
   })
 
-  for (const name of ['update', 'rollback', 'doctor', 'uninstall', 'purge']) {
+  for (const name of ['update', 'rollback', 'uninstall', 'purge']) {
     test(`${name} routes to its seam and reports that the command is not available yet`, async () => {
       const root = tempRoot()
       try {

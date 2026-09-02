@@ -6,7 +6,7 @@ For the operator's view, read the [command reference](https://github.com/alp82/c
 
 ## What this version ships
 
-This version ships the stable launcher, the command vocabulary, the installation-root boundary, the operator configuration contract, the supported-host preflight, the Compose bundle contract, the release manifest with its verification, the stable-release index with its selection rule, and `curia install` and `curia reinstall`. Every lifecycle command exists and routes. Each one opens its root through the boundary first, so the root refusals are real. The commands a later ticket fills in refuse with exit code `3` and a message that names the version and the release map. The follow-up tickets in [Ship Curia's supported installation lifecycle](https://github.com/alp82/curia/issues/863) fill them in.
+This version ships the stable launcher, the command vocabulary, the installation-root boundary, the operator configuration contract, the supported-host preflight, the Compose bundle contract, the release manifest with its verification, the stable-release index with its selection rule, `curia install` and `curia reinstall`, and `curia doctor`. Every lifecycle command exists and routes. Each one opens its root through the boundary first, so the root refusals are real. The commands a later ticket fills in refuse with exit code `3` and a message that names the version and the release map. The follow-up tickets in [Ship Curia's supported installation lifecycle](https://github.com/alp82/curia/issues/863) fill them in.
 
 ## Layout
 
@@ -28,6 +28,7 @@ This version ships the stable launcher, the command vocabulary, the installation
 - `src/launcher.mjs`: renders the stable `curia` launcher for one installation root.
 - `src/compose.mjs`: the one seam to Docker Compose. `composeProject` names one version's project files, `writeComposeEnvironment` writes `run/compose.env`, `startProject` pulls and brings the project up, and `waitForHealth` waits for the five services, all through an injectable `dockerRunner`. See [Install and reinstall](#install-and-reinstall).
 - `src/install.mjs`: `curia install` and `curia reinstall`, the six named steps from the host checks to healthy services. See [Install and reinstall](#install-and-reinstall).
+- `src/doctor.mjs`: `curia doctor`, the read-only pass over every direct check, and the redaction every printed line goes through. See [The doctor](#the-doctor).
 
 ## The root boundary
 
@@ -147,6 +148,19 @@ The interface:
 `src/compose.mjs` is the one seam to Docker: `composeProject({ root, version })` names the env file and the bundle file and builds the `docker compose --env-file ... -f ...` argument list; `writeComposeEnvironment` writes the env file with `bundleEnvironment`; `startProject` runs `pull` then `up --detach --remove-orphans`; `serviceStates` reads `ps --all --format json` (one object per line, or one array on older Compose); and `waitForHealth` polls until every service in `SERVICES` is healthy, fails at once on one that exited or is unhealthy, and fails at `HEALTH_TIMEOUT_MS` on one still starting, naming the service and the `logs` command. `dockerRunner` is the real `docker`; every function takes a `docker` to replace it. `curia update` (#883), `curia rollback` (#884), `curia uninstall` (#886), and `curia purge` (#887) reuse this module for switching and teardown.
 
 The tests are `test/install.test.mjs` and `test/compose.test.mjs`, against `test/fixtures/install.mjs`: one packaged release built the way the workflow builds one, the stage as the bootstrap leaves it, fake host probes, and a fake `docker` that records the Compose verbs and answers `ps`. They cover the clean install, the preserved-root reinstall, a failed activation and its rerun, a failed health wait and its launcher rerun without a stage, a failed pull, and every refusal. `daemon/test/installbundle.test.mjs` installs the real `deploy/bundle/compose.yaml` and has Docker Compose read the env file and the installed bundle; it skips where Docker is absent.
+
+## The doctor
+
+`src/doctor.mjs` is `curia doctor` (#881): one read-only pass over the direct checks an installed Curia has, printed in nine sections and summarized in one line. The operator's view is [Diagnostics with `curia doctor`](https://github.com/alp82/curia/blob/main/docs/operator/doctor.md).
+
+The interface:
+
+- `runDoctor(context, deps)` is the command. `context` is what `runCli` hands a command. `deps` are the boundaries a test replaces: `hostProbes` (the preflight's), `releaseProbes` (the manifest's), `docker` (the runner in `src/compose.mjs`), and `fetch` for the two loopback reads of the service and the one of the app. It returns `EXIT.ok` when nothing failed and `EXIT.failed` when a check failed or a host condition is refused. The one refusal it raises is `openRoot`'s.
+- `DOCTOR_SECTIONS` names the sections in order: `host`, `installation`, `configuration`, `release`, `secrets`, `containers`, `service`, `integrations`, `app`. `SERVICE_PORT` and `APP_PORT` are the two loopback ports it reads; `daemon/test/preflightports.test.mjs` keeps the app port equal to `config/curia.yaml`.
+- Every check is the shape the preflight and the release verification already produce, `{ name, status, observed, action }`, with `status` one of `passed`, `warning`, `failed`, or `refused`. The doctor composes the existing modules and adds no framework: `preflight` for the host, `openRoot` and `versionPaths` for the installation, `readOperatorConfig` for the configuration (the `ConfigError` message verbatim), `verifyInstalledRelease` for the release and its provenance, `secretsStatus` and `credentialsInEnvironment` for the secrets, `serviceStates` for the containers, and the service's own `GET /setup` and `GET /identity` for the integrations, so a card reads the same here and on the Setup screen.
+- `redactDiagnostic(text)` is what every printed line passes through, and `scrubFacts(value)` drops string values under credential-named keys from every service answer before the doctor reads it. Neither knows a secret value: they work by shape (a Discord token, a provider key, a GitHub token, a private key block, a JWT, a bearer, a 64-hex agent or conversation token, a `code=` or `token=` value). A `sha256:` digest and the 32-hex installation ID stay.
+
+The doctor writes nothing, takes no lock, and asks Docker for `ps` only. The tests in `test/doctor.test.mjs` install a root through the install fixtures, hand in a fake service, and cover the healthy, degraded, invalid-configuration, lost-integration, unhealthy-container, missing-installation, provenance, and secret-bearing cases with no network and no Docker.
 
 ## The launcher
 

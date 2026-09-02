@@ -60,9 +60,9 @@ describe('the packed package', () => {
   })
 
   test('installs a curia that routes a lifecycle command', () => {
-    const r = invoke('doctor')
+    const r = invoke('update')
     assert.equal(r.exit, EXIT.refused)
-    assert.match(r.err, /^curia doctor: not available in version/)
+    assert.match(r.err, /^curia update: not available in version/)
   })
 
   test('installs a curia that resolves the default root from HOME', () => {
