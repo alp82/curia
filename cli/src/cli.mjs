@@ -1,4 +1,4 @@
-import { EXIT, Refusal } from './exit.mjs'
+import { EXIT, Refusal, UsageError } from './exit.mjs'
 import { commands as lifecycleCommands, packageVersion } from './commands.mjs'
 import { installationRoot } from './root.mjs'
 
@@ -29,10 +29,12 @@ export async function runCli({ argv, env, stdout, stderr, uid = process.getuid()
     return EXIT.usage
   }
 
-  // No command takes an option yet. An option it does not know is a usage error
-  // before anything runs, never something a stub swallows.
+  // A command that declares no options takes none: an option it does not know
+  // is a usage error before anything runs, never something a stub swallows. A
+  // command that declares `options` reads its own and throws a `UsageError`
+  // for one it does not know.
   const options = args.filter((a) => a.startsWith('-'))
-  if (options.length > 0) {
+  if (!command.options && options.length > 0) {
     stderr.write(`curia ${name}: unknown option: ${options[0]}\nRun 'curia help' for the command vocabulary.\n`)
     return EXIT.usage
   }
@@ -40,6 +42,10 @@ export async function runCli({ argv, env, stdout, stderr, uid = process.getuid()
   try {
     return await command.run({ env, args, stdout, stderr, uid, gid, root: installationRoot(env) })
   } catch (e) {
+    if (e instanceof UsageError) {
+      stderr.write(`curia ${name}: ${e.message}\nRun 'curia help' for the command vocabulary.\n`)
+      return EXIT.usage
+    }
     stderr.write(`curia ${name}: ${e.message}\n`)
     return e instanceof Refusal ? EXIT.refused : EXIT.failed
   }

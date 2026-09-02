@@ -1,17 +1,17 @@
-import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 
 import { EXIT, Refusal } from './exit.mjs'
 import { writeAtomically } from './atomic.mjs'
-import { readArchive } from './archive.mjs'
 import { composeProject, dockerRunner, startProject, waitForHealth, writeComposeEnvironment } from './compose.mjs'
 import { initialOperatorConfig, operatorConfigPath, writeOperatorConfig } from './config.mjs'
 import { launcherPath, renderLauncher } from './launcher.mjs'
 import { serviceLayout } from './layout.mjs'
 import { withLifecycleLock } from './lock.mjs'
-import { releaseProbes, verifyStagedRelease } from './manifest.mjs'
+import { releaseProbes } from './manifest.mjs'
 import { hostProbes, preflight } from './preflight.mjs'
 import { createInstallationRecord, ensureLayout, openRoot, versionPaths, writeInstallationRecord } from './root.mjs'
+import { isCompleteStage, placeVersion, stagedVersion, verifyRetained } from './stage.mjs'
 
 // `curia install` and `curia reinstall` (#873, implementing #851, #854, #857,
 // and #862): from a verified stage to a healthy packaged Curia and a reachable
@@ -48,7 +48,8 @@ import { createInstallationRecord, ensureLayout, openRoot, versionPaths, writeIn
 //
 // The version installed is always this interface's own version: the bootstrap
 // runs the staged package, and the launcher runs the installed one. Installing
-// another version is `curia update` (#883).
+// another version is `curia update` (#883), which stages through the same
+// `placeVersion` in stage.mjs.
 
 export const INSTALL_STEPS = Object.freeze(['preflight', 'root', 'stage', 'activate', 'start', 'health'])
 
@@ -57,8 +58,6 @@ export const INSTALL_STEPS = Object.freeze(['preflight', 'root', 'stage', 'activ
 export const APP_SERVE_PORT = 8445
 
 export const packageVersion = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version
-
-const STAGE_FILES = Object.freeze(['node/bin/node', 'cli/bin/curia.mjs', 'cli/package.json', 'cli/manifest.json', 'cli.tgz', 'bundle.tar.gz', 'bundle.tar.gz.sha256'])
 
 // The command's seam. `context` is what `runCli` hands a command plus `gid`
 // and `mode` (`install` or `reinstall`). `deps` are the boundaries a test
@@ -107,8 +106,15 @@ export async function runInstall(
       const paths = versionPaths(root, version)
       const stage = env.CURIA_STAGE
       if (stage) {
-        await placeVersion({ root, version, stage, paths, stdout }, release)
-      } else if (STAGE_FILES.every((f) => existsSync(join(paths.dir, f)))) {
+        if (!isCompleteStage(stage)) {
+          throw new Refusal(`the stage ${stage} is incomplete. Run the bootstrap again; it downloads a complete stage.`)
+        }
+        const staged = stagedVersion(stage)
+        if (staged !== version) {
+          throw new Refusal(`the stage holds @curia-sh/cli ${staged}, but this lifecycle interface is ${version}, and an installation is always its own version. Run the bootstrap again so it installs one version end to end.`)
+        }
+        await placeVersion({ root, version, stage, stdout }, release)
+      } else if (isCompleteStage(paths.dir)) {
         say(`${version} is already installed under ${paths.dir}; verifying the retained artifacts`)
         await verifyRetained({ version, dir: paths.dir, stdout }, release)
       } else {
@@ -177,78 +183,6 @@ function sequence({ stdout, launcher, mode }) {
       wrapped.cause = e
       return wrapped
     },
-  }
-}
-
-// Verifies the stage and lands it as versions/<version>/: copied into a
-// sibling directory first, then renamed into place, so the version directory
-// is either absent, the previous complete one, or the new complete one.
-async function placeVersion({ root, version, stage, paths, stdout }, release) {
-  for (const f of STAGE_FILES) {
-    if (!existsSync(join(stage, f))) throw new Refusal(`the stage ${stage} lacks ${f}. Run the bootstrap again; it downloads a complete stage.`)
-  }
-  const staged = JSON.parse(readFileSync(join(stage, 'cli', 'package.json'), 'utf8')).version
-  if (staged !== version) {
-    throw new Refusal(`the stage holds @curia-sh/cli ${staged}, but this lifecycle interface is ${version}, and an installation is always its own version. Run the bootstrap again so it installs one version end to end.`)
-  }
-  stdout.write(`verifying the staged release ${version}\n`)
-  await verifyRetained({ version, dir: stage, stdout }, release)
-
-  const compose = composeFrom(readFileSync(join(stage, 'bundle.tar.gz')), version)
-  const staging = join(root, 'versions', `.${version}.${process.pid}.staging`)
-  rmSync(staging, { recursive: true, force: true })
-  mkdirSync(staging, { mode: 0o700 })
-  try {
-    for (const name of ['node', 'cli']) cpSync(join(stage, name), join(staging, name), { recursive: true })
-    for (const name of ['cli.tgz', 'bundle.tar.gz', 'bundle.tar.gz.sha256']) cpSync(join(stage, name), join(staging, name))
-    mkdirSync(join(staging, 'bundle'), { mode: 0o700 })
-    writeFileSync(join(staging, 'bundle', 'compose.yaml'), compose)
-    makeReadOnly(staging)
-    if (existsSync(paths.dir)) {
-      stdout.write(`replacing ${paths.dir}\n`)
-      rmSync(paths.dir, { recursive: true, force: true })
-    }
-    renameSync(staging, paths.dir)
-  } catch (e) {
-    rmSync(staging, { recursive: true, force: true })
-    throw e
-  }
-  stdout.write(`installed ${version} under ${paths.dir}\n`)
-}
-
-// The retained artifacts of one directory (a stage or an installed version)
-// through the release door. Throws the refusal when a check fails.
-async function verifyRetained({ version, dir, stdout }, release) {
-  const report = await verifyStagedRelease({
-    version,
-    tarball: readFileSync(join(dir, 'cli.tgz')),
-    archive: readFileSync(join(dir, 'bundle.tar.gz')),
-    checksum: readFileSync(join(dir, 'bundle.tar.gz.sha256'), 'utf8'),
-  }, { stdout }, release)
-  if (!report.ok) throw report.refusal
-}
-
-// The one file the verified bundle archive holds.
-function composeFrom(archive, version) {
-  const files = readArchive(archive)
-  const compose = files.get(`curia-bundle-${version}/compose.yaml`)
-  if (!compose) throw new Error(`the bundle archive holds no curia-bundle-${version}/compose.yaml`)
-  return compose.toString('utf8')
-}
-
-// Verified artifacts become read-only: every file loses its write bits and
-// keeps its execute bits, so the runtime still runs. Directories stay 0700,
-// which is what lets a reinstall replace the version as a whole.
-function makeReadOnly(dir) {
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const path = join(dir, entry.name)
-    if (entry.isSymbolicLink()) continue
-    if (entry.isDirectory()) {
-      makeReadOnly(path)
-      chmodSync(path, 0o700)
-    } else {
-      chmodSync(path, (statSync(path).mode & 0o555) | 0o400)
-    }
   }
 }
 

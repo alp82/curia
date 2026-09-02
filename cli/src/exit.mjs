@@ -21,3 +21,12 @@ export class Refusal extends Error {
     this.name = 'Refusal'
   }
 }
+
+// A command line the command cannot act on. `runCli` turns it into
+// `EXIT.usage` and points at `curia help`; nothing ran.
+export class UsageError extends Error {
+  constructor(message) {
+    super(message)
+    this.name = 'UsageError'
+  }
+}

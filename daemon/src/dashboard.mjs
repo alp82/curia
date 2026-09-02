@@ -97,7 +97,10 @@ export const daemonPort = () => Number(process.env.PORT ?? DEFAULT_DAEMON_PORT)
 // `/api/setup/full-loop` and its retry, and draws the run the read carries.
 // A proto-16 sidecar answers 404 on the press, and a Run Full loop that runs
 // nothing is the stub this release retired.
-export const DASHBOARD_PROTO = 17
+// Bumped to 18 by #883: the Settings screen carries an Update section that
+// reads `/api/update`. A proto-17 sidecar answers 404, and a panel that can
+// never say which version is installed is not a panel.
+export const DASHBOARD_PROTO = 18
 
 // The Credentials screen's own hash (#661). It is here rather than in the
 // daemon that links to it, because the page's screen names are this file's half
@@ -1523,6 +1526,17 @@ export class DashboardSurface {
       return this.#daemon({ path: '/aistack' }).then(
         (r) => this.#json(res, 200, r),
         (e) => this.#json(res, 200, { ok: false, error: e.message }),
+      )
+    }
+    // The update panel's read (#883): the installed and recommended
+    // versions, update availability, release notes, a withdrawal warning,
+    // and the daily check's last result. The daemon keeps the check and its
+    // record; the sidecar relays and adds nothing. A daemon that cannot be
+    // asked is unknown, never "up to date".
+    if (url.pathname === '/api/update') {
+      return this.#daemon({ path: '/update' }).then(
+        (r) => this.#json(res, 200, r),
+        (e) => this.#json(res, 200, { managed: null, installed: null, error: e.message }),
       )
     }
     // The repos the operator could watch. The sidecar holds no GitHub

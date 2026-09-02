@@ -37,6 +37,7 @@ export function serviceLayout(root) {
     work: at('work'),
     cache: at('cache'),
     run: at('run'),
+    versions: at('versions'),
     overseerConfigDir: at('work', 'cfg', 'curia-overseer'),
     home: at('cache', 'home'),
     overseerRepos: at('cache', 'overseer-repos'),
@@ -52,8 +53,10 @@ export const SERVICES = Object.freeze(['daemon', 'tmux', 'ttyd', 'dashboard', 'o
 // is inspected against it:
 //
 //   - the service reads `config/` and writes its `config.yaml` for the app's
-//     settings screen, owns every secret file, and writes the narrow state,
-//     work, cache, and runtime paths it uses;
+//     settings screen, owns every secret file, writes the narrow state,
+//     work, cache, and runtime paths it uses, and reads `versions/` so its
+//     daily update check (#883) verifies the stable-release index with the
+//     key the active version's package carries;
 //   - the tmux runtime holds the panes that run `docker run` against host
 //     paths, so it sees the work tree and the shared home and nothing else;
 //   - the attach surface sees nothing of the root, only the tmux socket;
@@ -71,6 +74,7 @@ export const SERVICE_MOUNTS = Object.freeze({
     Object.freeze({ path: 'work', mode: 'rw' }),
     Object.freeze({ path: 'cache', mode: 'rw' }),
     Object.freeze({ path: 'run', mode: 'rw' }),
+    Object.freeze({ path: 'versions', mode: 'ro' }),
   ]),
   tmux: Object.freeze([
     Object.freeze({ path: 'work', mode: 'rw' }),

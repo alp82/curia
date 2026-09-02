@@ -17,7 +17,7 @@ The bootstrap hands off to `curia install` with the installation root in `CURIA_
 
 On success the command prints the installation root, the launcher, and the address of the Curia app on your tailnet, `https://<your node's MagicDNS name>:8445/`, and tells you the next action: open the app and start integration setup. Nothing in integration setup needs the terminal again. See [Integration setup](integration-setup.md).
 
-The version `curia install` installs is always the version of the lifecycle interface that runs it. The bootstrap runs the staged package, so the version it downloaded is the version installed. Installing another version is `curia update`.
+The version `curia install` installs is always the version of the lifecycle interface that runs it. The bootstrap runs the staged package, so the version it downloaded is the version installed. Installing another version is `curia update`; see [Update discovery and staging](update.md).
 
 ## What `curia reinstall` does
 

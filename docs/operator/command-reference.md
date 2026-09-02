@@ -35,7 +35,7 @@ Curia creates the root and seven directories inside it. The following table list
 |---|---|---|
 | `config/` | `config.yaml`, your operator configuration. See [Operator configuration](configuration.md). | Preserved |
 | `secrets/` | Long-lived credentials, one owner-only file each. See [Secrets, mounts, and what survives](secrets.md). | Preserved |
-| `state/` | The installation record `state/installation.json`, the journal, attachments, results, the service's own token records, the Discord facts in `state/discord.json`, the setup checkpoint in `state/setup.json`, and the routing override in `state/routing.local.yaml`. See [Integration setup](integration-setup.md). | Preserved |
+| `state/` | The installation record `state/installation.json`, the journal, attachments, results, the service's own token records, the Discord facts in `state/discord.json`, the setup checkpoint in `state/setup.json`, the routing override in `state/routing.local.yaml`, and the daily update check's result in `state/update-check.json`. See [Integration setup](integration-setup.md) and [Update discovery and staging](update.md). | Preserved |
 | `work/` | Worktrees, per-session config directories, and the overseer's native sessions, all of which can resume. | Preserved |
 | `versions/` | Installed versions: the pinned runtime, the lifecycle interface, the release manifest, the Compose bundle, and the retained artifacts of each. See [Release images and the Compose bundle](bundle.md) and [The release manifest and release verification](release-manifest.md). | Replaceable |
 | `cache/` | The overseer's mirrors of origin and the containers' home directory with its tool caches. | Removable |
@@ -67,7 +67,7 @@ Before `curia install` or `curia update` activates a version, it verifies the do
 
 ### How a version is selected
 
-`curia update` reads the signed stable-release index and selects the stable release it names. With an exact version it selects that version; with `--prerelease` and an exact prerelease version it selects that prerelease, which is never selected otherwise. A withdrawn version is refused in every form, with exit code `3`. The index, the signature, promotion, and withdrawal are in [Releases, the stable-release index, and version selection](releases.md).
+`curia update` reads the signed stable-release index and selects the stable release it names. With an exact version it selects that version; with `--prerelease` and an exact prerelease version it selects that prerelease, which is never selected otherwise. A withdrawn version is refused in every form, with exit code `3`. The index, the signature, promotion, and withdrawal are in [Releases, the stable-release index, and version selection](releases.md). What the command does after selection, the service's daily check, and the app's **Update** section are in [Update discovery and staging](update.md).
 
 ### The lifecycle lock
 
@@ -83,7 +83,7 @@ Run `curia help` to print this list from the installed version. The commands app
 |---|---|---|
 | `curia install` | Installs Curia into the installation root and starts it: six named steps from the host checks to healthy services, then the app address. Over a preserved root it reinstalls. See [Install and reinstall](install.md). | Now |
 | `curia reinstall` | Reinstalls this version over a preserved installation root. It keeps the installation ID, `config/`, `secrets/`, `state/`, and `work/`, and refuses a root that holds no installation. See [Install and reinstall](install.md). | Now |
-| `curia update` | Stages, verifies, and switches to the stable release named in the stable-release index. `curia update <version>` selects an exact version, and `curia update --prerelease <version>` selects an exact prerelease. It keeps the previous release for rollback. See [How a version is selected](#how-a-version-is-selected). | Later release |
+| `curia update` | Selects the stable release named in the stable-release index, downloads and verifies every artifact of it, stages it under `versions/<target>/` beside the active version, and has the target validate your configuration. `curia update <version>` selects an exact version, and `curia update --prerelease <version>` selects an exact prerelease. In this release the command stops before the switch, with the target staged and the active version unchanged. See [Update discovery and staging](update.md). | Now, up to the switch |
 | `curia rollback` | Switches back to the one retained previous release. | Later release |
 | `curia doctor` | Checks the host, the installation, the operator configuration, the installed release and its provenance, the secret files, the containers, the service, the integrations, and the Curia app. It's read-only, keeps no history, and repairs nothing. See [Diagnostics with `curia doctor`](doctor.md). | Now |
 | `curia uninstall` | Removes the runnable system and keeps `config/`, `secrets/`, `state/`, and `work/`. | Later release |
@@ -93,7 +93,7 @@ Run `curia help` to print this list from the installed version. The commands app
 
 `curia --version` prints only the lifecycle interface version.
 
-`curia install`, `curia reinstall`, and `curia doctor` take no options. The root comes from `CURIA_ROOT`, which the bootstrap and the launcher set, and the stage from `CURIA_STAGE`, which the bootstrap sets. A failed step names itself and the command that reruns it; see [When a step fails](install.md#when-a-step-fails).
+`curia install`, `curia reinstall`, and `curia doctor` take no options. `curia update` takes one optional exact version and `--prerelease`, and nothing else. The root comes from `CURIA_ROOT`, which the bootstrap and the launcher set, and the stage from `CURIA_STAGE`, which the bootstrap sets. A failed step names itself and the command that reruns it; see [When a step fails](install.md#when-a-step-fails) and [When a step fails](update.md#when-a-step-fails) for an update.
 
 In this release, a command marked **Later release** checks the installation root as described in [When a lifecycle command refuses the root](#when-a-lifecycle-command-refuses-the-root), then exits with code `3` and a message that names the installed version and the release map. Nothing changes on the host.
 

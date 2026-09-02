@@ -1,12 +1,12 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import { gzipSync } from 'node:zlib'
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, readFileSync, readlinkSync, statSync, symlinkSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { readArchive, ArchiveError } from '../src/archive.mjs'
+import { readArchive, extractArchive, ArchiveError } from '../src/archive.mjs'
 
 // One archive made by the system tar, in the shape the release workflow and
 // `npm pack` produce: a directory entry, files, and a name past the ustar
@@ -62,5 +62,65 @@ describe('readArchive', () => {
     assert.throws(() => readArchive(gzipSync(Buffer.from('short'))), ArchiveError)
     const truncated = gzipSync(Buffer.alloc(512, 0x41))
     assert.throws(() => readArchive(truncated), ArchiveError)
+  })
+})
+
+// An archive with a directory, a file with the execute bit, and a symbolic
+// link, the way the Node.js distribution tarball is laid out.
+function runtimeArchive() {
+  const dir = mkdtempSync(join(tmpdir(), 'curia-archive-'))
+  try {
+    mkdirSync(join(dir, 'node-v1', 'bin'), { recursive: true })
+    mkdirSync(join(dir, 'node-v1', 'lib', 'tool'), { recursive: true })
+    writeFileSync(join(dir, 'node-v1', 'bin', 'node'), '#!/bin/sh\necho v1\n', { mode: 0o755 })
+    writeFileSync(join(dir, 'node-v1', 'lib', 'tool', 'cli.js'), 'cli\n', { mode: 0o644 })
+    symlinkSync('../lib/tool/cli.js', join(dir, 'node-v1', 'bin', 'tool'))
+    const tar = spawnSync('tar', ['--format=ustar', '--sort=name', '-C', dir, '-cf', '-', 'node-v1'])
+    assert.equal(tar.status, 0, String(tar.stderr))
+    return gzipSync(tar.stdout)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+describe('extractArchive', () => {
+  test('lands files, directories, modes, and symbolic links under the destination, stripping the top directory', () => {
+    const dest = mkdtempSync(join(tmpdir(), 'curia-extract-'))
+    try {
+      extractArchive(runtimeArchive(), dest, { strip: 1 })
+      assert.equal(readFileSync(join(dest, 'bin', 'node'), 'utf8'), '#!/bin/sh\necho v1\n')
+      assert.equal(statSync(join(dest, 'bin', 'node')).mode & 0o777, 0o755)
+      assert.equal(statSync(join(dest, 'lib', 'tool', 'cli.js')).mode & 0o777, 0o644)
+      assert.equal(readlinkSync(join(dest, 'bin', 'tool')), '../lib/tool/cli.js')
+      assert.equal(readFileSync(join(dest, 'bin', 'tool'), 'utf8'), 'cli\n')
+    } finally {
+      rmSync(dest, { recursive: true, force: true })
+    }
+  })
+
+  test('refuses an entry that would land outside the destination, and a link that points out of it', () => {
+    const dest = mkdtempSync(join(tmpdir(), 'curia-extract-'))
+    try {
+      // GNU tar strips `..` from a name it writes, so the escaping entry is built by hand.
+      const header = Buffer.alloc(512)
+      header.write('top/../../escape.txt', 0, 'utf8')
+      header.write('0000644\0', 100, 'latin1')
+      header.write('00000000001\0', 124, 'latin1')
+      header.write('ustar\0' + '00', 257, 'latin1')
+      header.write('        ', 148, 'latin1')
+      let sum = 0
+      for (const b of header) sum += b
+      header.write(sum.toString(8).padStart(6, '0') + '\0 ', 148, 'latin1')
+      const escaping = gzipSync(Buffer.concat([header, Buffer.from('x'.padEnd(512, '\0')), Buffer.alloc(1024)]))
+      assert.throws(() => extractArchive(escaping, dest, { strip: 1 }), (e) => e instanceof ArchiveError && /outside/.test(e.message))
+      const dir = mkdtempSync(join(tmpdir(), 'curia-archive-'))
+      mkdirSync(join(dir, 'top'))
+      symlinkSync('../../etc/passwd', join(dir, 'top', 'escape'))
+      const tar = spawnSync('tar', ['--format=ustar', '-C', dir, '-cf', '-', 'top'])
+      rmSync(dir, { recursive: true, force: true })
+      assert.throws(() => extractArchive(gzipSync(tar.stdout), dest, { strip: 1 }), (e) => e instanceof ArchiveError && /outside/.test(e.message))
+    } finally {
+      rmSync(dest, { recursive: true, force: true })
+    }
   })
 })

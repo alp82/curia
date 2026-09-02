@@ -40,7 +40,7 @@
      2. Null is not empty. An unreadable fleet is not an idle box, and a frontier
         nobody has computed is not an empty frontier. Every section that can fail
         on its own says which of the two it is. -->
-<meta name="curia-dashboard" content="proto=17">
+<meta name="curia-dashboard" content="proto=18">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark light">
 <title>Curia app</title>
@@ -935,6 +935,7 @@ var draft = null;     /* the same, with the operator's unsaved edits on it */
 var repos = null;     /* the watchable repos, read through the service on demand */
 var conversations = null; /* the browser conversations (#333), read on the Chat screen only */
 var aistack = null;   /* the aistack registration and sync verdict (#706), read on that section only */
+var curiaUpdate = null; /* the installed and recommended versions and the daily check's last result (#883), read on that section only */
 var setup = null;     /* the setup record and the four freshly verified cards (#874), read on arrival and on Try again */
 var aistackAct = { busy: null, said: null, poll: null }; /* which aistack press is in flight, and what it answered */
 
@@ -3146,6 +3147,13 @@ const SET_SECTIONS = [
     enter: () => { loadAistack(); },
   },
   {
+    key: "update", title: "Update", gist: gistUpdate, body: setUpdate,
+    hint: "The installed Curia version, the recommended stable release, and what the daily check found.",
+    /* Its own read, on arrival: the service keeps the daily check's record,
+       and the panel shows that record rather than starting a check. */
+    enter: () => { loadUpdate(); },
+  },
+  {
     key: "maintenance", title: "Maintenance", gist: gistMaintenance, body: setMaintenance,
     hint: "Whether the service runs what the files say, and the restart for the keys a save cannot apply.",
   },
@@ -3585,6 +3593,101 @@ function setMaintenance(p) {
       Agent panes live in their own container, so they survive it.`)}
     ${writes ? `<div class="row"><span class="grow dim-note">where a save lands</span>${qq("set-writes")}</div>${qhint("set-writes", writes)}` : ""}
   </div>`;
+}
+
+/* ---- Update (#883) ----------------------------------------------------------
+
+   The section that says which Curia is installed and which the stable-release
+   index recommends. Three facts shape it, and each is a thing this section does
+   NOT do.
+
+   1. IT STARTS NO CHECK. The service checks the index at startup when the last
+      successful check is older than a day, then once a day, and keeps the
+      result in state/. This section reads that record on arrival and shows
+      it with its age; a press here would be a second schedule.
+   2. IT STARTS NO UPDATE. The operator runs `curia update` on the box. The
+      section states the command and links the release notes, and that is the
+      whole of its help. There is no automatic update and no Discord message.
+   3. IT NEVER SAYS "UP TO DATE" ON A GUESS. A failed check is said as a failed
+      check beside what the last good read found and when. A service that
+      cannot be asked is unknown. */
+
+/* How far ahead an instant is, in the words `ago` uses for the past. */
+function inWords(iso) {
+  const s = Math.max(0, Math.round((new Date(iso).getTime() - Date.now()) / 1000));
+  if (s < 60) return s + "s";
+  if (s < 3600) return Math.round(s / 60) + "m";
+  return Math.round(s / 3600) + "h";
+}
+
+async function loadUpdate() {
+  try {
+    const res = await fetch("/api/update", { headers: { accept: "application/json" }, cache: "no-store" });
+    if (!res.ok) throw new Error("the sidecar answered " + res.status);
+    curiaUpdate = await res.json();
+  } catch (e) {
+    curiaUpdate = { managed: null, installed: null, error: e.message };
+  }
+  render();
+}
+
+function gistUpdate() {
+  const u = curiaUpdate;
+  if (!u) return `<span class="dim-note">not read yet</span>`;
+  if (u.managed === null || u.installed === null) return `<span class="dim-note">curia cannot tell</span>`;
+  if (u.managed === false) return `<span class="dim-note">${esc(u.installed)} · source checkout</span>`;
+  if (u.installed_withdrawn) return `<span style="color:var(--warn)">${esc(u.installed)} withdrawn</span>`;
+  if (u.update_available) return `<span style="color:var(--warn)">${esc(u.recommended)} available</span>`;
+  if (u.ok === false && !u.succeeded_at) return `<span class="dim-note">${esc(u.installed)} · check failed</span>`;
+  if (!u.checked_at) return `<span class="dim-note">${esc(u.installed)} · not checked yet</span>`;
+  return `<span style="color:var(--ok)">${esc(u.installed)} · up to date</span>`;
+}
+
+function setUpdate() {
+  const u = curiaUpdate;
+  if (!u) return `<p class="qhint">reading…</p>`;
+  if (u.managed === null || u.installed === null) {
+    return `<p class="unread">curia cannot say which version is installed: ${esc(u.error ?? "the service is not answering")}.
+      The daily check lives on the service, so this section is blank exactly while the service is.</p>`;
+  }
+  const notes = (version, url) => url
+    ? `<a href="${esc(url)}" target="_blank" rel="noopener">release notes for ${esc(version)}</a>`
+    : "";
+  if (u.managed === false) {
+    return `<div class="rows">
+      <div class="row"><span class="key">installed</span><span class="grow mono">${esc(u.installed)}</span><span>${notes(u.installed, u.release_notes?.installed)}</span></div>
+    </div>
+    <p class="qhint">${esc(u.reason ?? "")}</p>`;
+  }
+  /* The one warning that outranks everything else on the panel: the version
+     this box runs was withdrawn. The recommendation and the command follow. */
+  const withdrawn = u.installed_withdrawn
+    ? `<p class="unread">The installed version ${esc(u.installed)} was withdrawn. The ${notes(u.installed, u.release_notes?.installed)} say why.
+       Update to ${esc(u.recommended ?? "the next stable release once one is recommended")}.</p>`
+    : "";
+  let verdict;
+  if (u.update_available) {
+    verdict = `<p class="unread">Curia ${esc(u.recommended)} is available. On the box, run <span class="mono">${esc(u.command ?? "curia update")}</span>.
+      It stages and verifies the release before anything switches, and running agents keep working through the switch.</p>`;
+  } else if (u.recommended) {
+    verdict = `<p class="qhint">${esc(u.installed)} is the recommended stable release. Nothing to update.</p>`;
+  } else if (u.succeeded_at) {
+    verdict = `<p class="qhint">No stable release is recommended right now.</p>`;
+  } else {
+    verdict = `<p class="qhint">No successful check yet, so curia does not know whether an update exists.</p>`;
+  }
+  const check = u.ok === false
+    ? `<p class="unread">The last check failed ${esc(u.checked_at ? ago(u.checked_at) : "")}: ${esc(u.error ?? "no reason given")}
+       ${u.succeeded_at ? `The recommendation shown is from the last successful check, ${esc(ago(u.succeeded_at))}.` : ""}
+       The running installation is not affected.</p>`
+    : u.checked_at
+      ? `<p class="qhint">Checked ${esc(ago(u.checked_at))}${u.next_check_at ? `; the next check is in ${esc(inWords(u.next_check_at))}` : ""}. Curia checks once a day and never updates on its own.</p>`
+      : `<p class="qhint">The service has not checked yet. It checks at startup and once a day, and never updates on its own.</p>`;
+  return `${withdrawn}${verdict}<div class="rows">
+    <div class="row"><span class="key">installed</span><span class="grow mono">${esc(u.installed)}</span><span>${notes(u.installed, u.release_notes?.installed)}</span></div>
+    <div class="row"><span class="key">recommended</span><span class="grow mono">${esc(u.recommended ?? "none")}</span><span>${notes(u.recommended, u.release_notes?.recommended)}</span></div>
+    ${u.withdrawn?.length ? `<div class="row"><span class="key">withdrawn</span><span class="grow mono">${u.withdrawn.map(esc).join(", ")}</span></div>` : ""}
+  </div>${check}`;
 }
 
 /* ---- aistack (#706) ---------------------------------------------------------

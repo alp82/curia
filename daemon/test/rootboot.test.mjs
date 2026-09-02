@@ -17,9 +17,12 @@ import { fileURLToPath } from 'node:url'
 import { freePorts, waitForBoot, watchDaemon } from './fixtures/real-boot.mjs'
 import { seedSkillsRoot } from './fixtures/skills.mjs'
 import { sandboxYaml } from './fixtures/sandbox.mjs'
-import { ensureLayout } from '../../cli/src/root.mjs'
+import { createInstallationRecord, ensureLayout, versionPaths, writeInstallationRecord } from '../../cli/src/root.mjs'
 import { CREDENTIAL_ENV_KEYS, SECRET_NAMES, writeSecret } from '../../cli/src/secrets.mjs'
+import { STABLE_INDEX_KEY_FILE, createStableIndex, generateStableIndexKeys, signStableIndex } from '../../cli/src/stable.mjs'
+import { APP_VERSION } from '../src/appversion.mjs'
 import { writeDiscordSettings } from '../src/discordsettings.mjs'
+import http from 'node:http'
 
 const DIR = path.dirname(fileURLToPath(import.meta.url))
 const DAEMON = path.join(DIR, '..', 'src', 'index.mjs')
@@ -31,11 +34,28 @@ describe('the daemon under an installation root (#867)', () => {
   let root
   let cfgDir
   let ports
+  // The daily update check (#883): a signed stable-release index on a local
+  // server, and the key that signed it where the daemon reads it, in the
+  // active version's package under versions/.
+  const indexKeys = generateStableIndexKeys()
+  const indexText = signStableIndex(createStableIndex({ sequence: 3, updated: '2026-09-01T00:00:00Z', stable: '9.9.9', withdrawn: [APP_VERSION] }), indexKeys.privateKey)
+  let indexServer
+  let indexUrl
 
   before(async () => {
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'curia-rootboot-'))
     root = path.join(tmp, 'install')
     ensureLayout(root, { uid: process.getuid() })
+    writeInstallationRecord(root, createInstallationRecord(APP_VERSION))
+    const keyDir = path.join(versionPaths(root, APP_VERSION).dir, 'cli')
+    fs.mkdirSync(keyDir, { recursive: true })
+    fs.writeFileSync(path.join(keyDir, STABLE_INDEX_KEY_FILE), indexKeys.publicKey)
+    indexServer = http.createServer((req, res) => {
+      res.writeHead(req.url === '/release/stable.json' ? 200 : 404, { 'content-type': 'application/json' })
+      res.end(req.url === '/release/stable.json' ? indexText : '{}')
+    })
+    await new Promise((resolve) => indexServer.listen(0, '127.0.0.1', resolve))
+    indexUrl = `http://127.0.0.1:${indexServer.address().port}/release/stable.json`
     cfgDir = path.join(tmp, 'config')
     fs.mkdirSync(cfgDir, { recursive: true })
     ports = await freePorts(4)
@@ -76,7 +96,10 @@ describe('the daemon under an installation root (#867)', () => {
       '',
     ].join('\n'))
   })
-  after(() => { fs.rmSync(tmp, { recursive: true, force: true }) })
+  after(() => {
+    indexServer?.close()
+    fs.rmSync(tmp, { recursive: true, force: true })
+  })
 
   // The runner's own environment may carry a GitHub token; under a root every
   // one of those keys is blanked so the boot under test decides.
@@ -89,6 +112,7 @@ describe('the daemon under an installation root (#867)', () => {
       PORT: String(ports[0]),
       CURIA_CONFIG_DIR: cfgDir,
       CURIA_ROOT: root,
+      CURIA_STABLE_INDEX_URL: indexUrl,
       ...extraEnv,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -243,6 +267,28 @@ describe('the daemon under an installation root (#867)', () => {
       assert.equal(refusedSave.status, 400)
       assert.match((await refusedSave.json()).error, /max_concurrent.*positive whole number/)
       assert.match(fs.readFileSync(configFile, 'utf8'), /^max_concurrent: 2$/m, 'a refused save moves nothing')
+      // The daily update check (#883) under a root: the boot found no
+      // record, so it checked at once against the local index, verified it
+      // with the key under versions/<active>/cli/, recorded only the result
+      // in state/, and the read says what it found. Nothing was downloaded.
+      let update
+      for (let i = 0; i < 100 && !update?.checked_at; i += 1) {
+        update = await (await fetch(`http://127.0.0.1:${ports[0]}/update`)).json()
+        if (!update.checked_at) await new Promise((r) => setTimeout(r, 100))
+      }
+      assert.equal(update.ok, true, update.error)
+      assert.equal(update.managed, true)
+      assert.equal(update.installed, APP_VERSION)
+      assert.equal(update.recommended, '9.9.9')
+      assert.equal(update.update_available, true)
+      assert.equal(update.installed_withdrawn, true)
+      assert.equal(update.release_notes.recommended, 'https://github.com/alp82/curia/releases/tag/v9.9.9')
+      assert.ok(update.next_check_at > update.checked_at)
+      const checkFile = path.join(root, 'state', 'update-check.json')
+      assert.equal(fs.statSync(checkFile).mode & 0o777, 0o600)
+      assert.deepEqual(Object.keys(JSON.parse(fs.readFileSync(checkFile, 'utf8'))), ['format', 'checked_at', 'ok', 'error', 'succeeded_at', 'index'])
+      assert.match(watch.log(), /update check: stable 9\.9\.9, installed/)
+      assert.ok(!fs.existsSync(path.join(root, 'versions', '9.9.9')), 'the check stages nothing')
     } finally {
       if (child.exitCode === null) child.kill('SIGKILL')
     }

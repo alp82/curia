@@ -89,14 +89,17 @@ services:
       - /var/run/tailscale/tailscaled.sock:/var/run/tailscale/tailscaled.sock
       # The service's grant (cli/src/layout.mjs SERVICE_MOUNTS.daemon): the
       # operator configuration (read at boot, written for the app's settings
-      # screen, which mounts nothing), every secret file, and the four
-      # mutable boundaries it owns.
+      # screen, which mounts nothing), every secret file, the four mutable
+      # boundaries it owns, and the installed versions read-only, for the
+      # pinned key its daily update check verifies the stable-release index
+      # with.
       - ${CURIA_ROOT:?}/config:${CURIA_ROOT:?}/config
       - ${CURIA_ROOT:?}/secrets:${CURIA_ROOT:?}/secrets
       - ${CURIA_ROOT:?}/state:${CURIA_ROOT:?}/state
       - ${CURIA_ROOT:?}/work:${CURIA_ROOT:?}/work
       - ${CURIA_ROOT:?}/cache:${CURIA_ROOT:?}/cache
       - ${CURIA_ROOT:?}/run:${CURIA_ROOT:?}/run
+      - ${CURIA_ROOT:?}/versions:${CURIA_ROOT:?}/versions:ro
       - tmux-sock:/run/curia-tmux
     # The service's own probe route on host loopback, the one the self-deploy
     # sibling and every agent container already read. It answers only once the

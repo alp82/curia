@@ -122,7 +122,7 @@ A withdrawn version is refused in every form. A version that isn't a release ver
 
 A prerelease is a version with a hyphenated suffix, such as `1.3.0-rc.1`. Prereleases are published the same way as releases and verified the same way, and they are never the stable release. The `--prerelease` path is for rehearsing a candidate on a disposable host before it is promoted.
 
-The Curia service checks the index once a day and the Curia app shows the installed version, the recommended version, and a warning when the installed version was withdrawn. Discovery never changes the running installation, and a failed check leaves it as it is.
+The Curia service checks the index once a day and the Curia app shows the installed version, the recommended version, and a warning when the installed version was withdrawn. Discovery never changes the running installation, and a failed check leaves it as it is. The daily check, the app's **Update** section, and what `curia update` does after selection are in [Update discovery and staging](update.md).
 
 ## The signing key
 
