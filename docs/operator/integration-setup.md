@@ -296,6 +296,10 @@ A failed card names the verification that failed and exactly one corrective acti
 
 While Curia can't reach the service at all, **Setup** says so instead of showing four unconnected cards, and offers **Try again**.
 
+## What you see while Curia works
+
+Every action on a card, **Confirm operator and verify**, **Connect bot**, **Connect channel**, **Sign in**, **Submit** for a code, **Watch these repositories**, **Restart Curia**, and **Try again**, switches the card and its panel to an in-progress state the moment you select it. The card's badge reads **Working**, its footer names what Curia is doing (`Verifying the operator`, `Registering commands and posting the confirmation`, `Completing one minimal model request and applying the routing preset`), and the panel shows the same sentence over a thin moving line. Nothing that stood before stays: not the sign-in steps and not a previous failure. The state lasts until the next read for that card lands. A read that fails shows the failure and its action. A read that connects shows the connected state. A write the service refuses shows the refusal beside the form.
+
 ## Moving through setup
 
 - After a card connects, **Continue setup** opens the next card that isn't connected, in rail order.
@@ -355,7 +359,7 @@ The run walks the eight legs of the Full loop in order. Each leg is observed thr
 | Ticket resolution | The receipt finds the resolution comment and the closed ticket. |
 | Map update | The receipt finds the pointer line on the parent map's **Decisions so far**. |
 
-While the run is live, the **Full loop** panel under the rail shows one row per leg, the elapsed time, and the links as they appear. The page follows the service's read every 5 seconds. Your part of the run happens in Discord: answer the agent's question in the ticket's thread, then approve at the review gate. Everything else is the agent's and the daemon's.
+Selecting **Run Full loop** or **Try again** makes the run the selected panel, in the main area where a card's panel renders, and scrolls it into view. The panel first says `Starting the Full loop` (or `Retrying <leg>`), then, from the service's answer on, one row per leg with its state as a word, the elapsed time, and the links as they appear. The rail's **Full loop** card shows the run's state and brings the panel back after you select a card. The page follows the service's read every 5 seconds. Your part of the run happens in Discord: answer the agent's question in the ticket's thread, then approve at the review gate. Everything else is the agent's and the daemon's.
 
 #### When the run completes
 
