@@ -1857,9 +1857,18 @@ export class Dispatcher {
     }, {
       filesystem: {
         prepare: (context) => {
+          // The credential files come from the loaded config's paths (#891):
+          // under an installation root they are the `secrets/` files the
+          // reauth lanes write, and the home paths only without a root. The
+          // seed must never derive them from HOME, which is `cache/home` under
+          // a root and holds no credential.
+          const paths = pathsOf(this.config)
           this.deps.seedConfigDir(
             context.cfgDir, GUEST_WT, context.skills, context.harness,
-            { sandboxed: true, adapter },
+            {
+              sandboxed: true, adapter,
+              credentialFiles: { openai: paths.codexAuth, anthropic: paths.anthropicStore },
+            },
           )
           this.deps.writeConnectionSettings({
             wtPath: GUEST_WT, hostWtPath: context.wtPath, cfgDir: context.cfgDir,

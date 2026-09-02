@@ -859,7 +859,14 @@ export function composeMemoryFile(cfgDir, harness) {
 // it as a `projects` key, which Claude Code matches against its own cwd — and a
 // container's cwd is the mount point, not the host path. Everything this
 // function WRITES goes to `cfgDir`, which is always the host path.
-export function seedConfigDir(cfgDir, wtPath, skills = null, harness = 'claude', { sandboxed = false, apiKey = null, adapter = null, sweep = true } = {}) {
+//
+// `credentialFiles` maps a provider to the long-lived credential file the seed
+// copies from, `{ openai: cfg.paths.codexAuth, anthropic: cfg.paths.anthropicStore }`
+// (#891). The dispatcher passes the loaded config's paths, so under an
+// installation root the copy comes from `secrets/`, the file the reauth lane
+// wrote. A caller that passes none gets each harness's home-directory default,
+// which is the source deployment's answer.
+export function seedConfigDir(cfgDir, wtPath, skills = null, harness = 'claude', { sandboxed = false, apiKey = null, adapter = null, sweep = true, credentialFiles = {} } = {}) {
   const selected = adapter ?? harness
   const h = workspaceFor(selected)
   fs.mkdirSync(cfgDir, { recursive: true })
@@ -877,7 +884,7 @@ export function seedConfigDir(cfgDir, wtPath, skills = null, harness = 'claude',
   // The seed needs the boundary too (#158): the codex harness shares the host's
   // credential file through a symlink on the bare path and cannot share it at
   // all across a mount, so it copies instead.
-  h.seed(cfgDir, wtPath, { sandboxed, apiKey })
+  h.seed(cfgDir, wtPath, { sandboxed, apiKey, credentialFile: credentialFiles[h.provider] ?? null })
   // The one deliberate narrowing of the no-host-config stance below (#133):
   // the operator's communication rules are mandatory for every agent, so a
   // curia-owned copy lands as the CLI's global-memory file. `CLAUDE.md` for
