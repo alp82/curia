@@ -62,7 +62,7 @@ Each service's health check asks the process the one question that means it is s
 | `daemon` | `GET http://127.0.0.1:4271/ping` answers. The service answers only after the configuration loaded, the journal opened, and the listener bound. | 60 s |
 | `tmux` | `tmux has-session -t keeper` on the shared socket succeeds. | 10 s |
 | `ttyd` | `GET http://127.0.0.1:7681/` answers with the attach index. | 10 s |
-| `dashboard` | `GET http://127.0.0.1:4273/` answers. A local request carries no Tailscale identity and gets a 403, which still proves the listener; the app exits when it can't bind the port. | 30 s |
+| `dashboard` | `GET http://127.0.0.1:4273/ping` answers 200. The app answers its ping before the identity gate, so the local probe logs no refusal; the app exits when it can't bind the port. | 30 s |
 | `overseer` | `GET http://127.0.0.1:4274/ping` answers inside the container. | 30 s |
 
 To read the state of every service:

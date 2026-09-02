@@ -169,13 +169,13 @@ describe('owned resources carry the installation ID', () => {
 })
 
 // Each check asks the process the question that means it is serving: the
-// service and the overseer answer their own `/ping`, the tmux server holds the
-// keeper session, the attach surface and the app answer HTTP on their ports.
+// service, the app, and the overseer answer their own `/ping`, the tmux server
+// holds the keeper session, the attach surface answers HTTP on its port.
 const HEALTH = {
   daemon: /127\.0\.0\.1:4271\/ping/,
   tmux: /has-session -t keeper/,
   ttyd: /127\.0\.0\.1:7681/,
-  dashboard: /127\.0\.0\.1:4273/,
+  dashboard: /127\.0\.0\.1:4273\/ping/,
   overseer: /127\.0\.0\.1:4274\/ping/,
 }
 
@@ -189,6 +189,16 @@ describe('every service declares a health check that asks the process itself', (
       for (const key of ['interval', 'timeout', 'retries', 'start_period']) assert.ok(h[key] !== undefined, `${service} sets no ${key}`)
     })
   }
+
+  // The rehearsal (#891) found the app logging a refusal every 30 s: the
+  // probe asked `/`, which sits behind the identity gate, and a loopback
+  // caller has no Serve identity. `/ping` answers before the gate (#884), so
+  // the probe passes only on the app's own 200 and logs nothing.
+  test('the app probe asks /ping before the identity gate and passes only on a 200, so a healthy app logs no refusal', () => {
+    const probe = cfg.services.dashboard.healthcheck.test.join(' ')
+    assert.match(probe, /r\.ok \? 0 : 1/)
+    assert.doesNotMatch(probe, /status < 500/)
+  })
 
   test('the service and the app wait for a healthy tmux runtime and service, so a start settles in order', () => {
     assert.deepEqual(cfg.services.daemon.depends_on, { tmux: { condition: 'service_healthy' } })

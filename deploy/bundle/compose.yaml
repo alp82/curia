@@ -197,12 +197,14 @@ services:
     volumes:
       - /var/run/tailscale/tailscaled.sock:/var/run/tailscale/tailscaled.sock
     # The app is fail-closed at boot: it dies when it cannot bind its loopback
-    # port. So an HTTP answer on that port is the app up. A local request
-    # carries no Tailscale identity and gets a 403, which is still an answer;
-    # only a listener that is gone or broken fails this. The app image carries
-    # node and no curl.
+    # port. So its own 200 on that port is the app up. The probe asks `/ping`,
+    # which the app answers before its identity gate (#884): a local request
+    # carries no Tailscale identity, and asking any other path got a 403 and a
+    # logged refusal every 30 s (#891). Only a listener that is gone, broken,
+    # or answering something other than its own ping fails this. The app image
+    # carries node and no curl.
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4273/').then((r) => process.exit(r.status < 500 ? 0 : 1), () => process.exit(1))"]
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4273/ping').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
       interval: 30s
       timeout: 5s
       retries: 3

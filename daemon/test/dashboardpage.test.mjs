@@ -5072,6 +5072,75 @@ describe('integration setup (#874)', () => {
     assert.doesNotMatch(html, /Try again/)
   })
 
+  // The rehearsal (#891) found the Discord fields clearing themselves: the
+  // poll re-renders the whole page every few seconds, and the setup forms are
+  // not backed by a draft, so a value typed but not yet sent was lost with the
+  // elements that held it. What has to survive the render is what the
+  // operator typed and where the cursor was, on every setup field.
+  test('a poll render keeps what the operator typed into the setup fields, and the cursor, until the press sends it', () => {
+    page.setup = SETUP({ step: 'discord', cards: { discord: { state: 'unconnected', badge: 'Ready to connect' } } })
+    page.UI.setup.discord = { secret: 'absent', settings: null }
+    page.payload = payload()
+    const field = (id, defaultValue, value = defaultValue) => {
+      const el = { id, value, defaultValue, tagName: 'INPUT', selectionStart: value.length, focused: 0, range: null }
+      el.focus = () => { el.focused += 1 }
+      el.setSelectionRange = (a, b) => { el.range = [a, b] }
+      return el
+    }
+    // The elements before the render, with the operator's typing in them.
+    const typedToken = field('setup-discord-token', '', 'MTIz.abc.def')
+    const typedUser = field('setup-discord-user', '', '123456789')
+    typedUser.selectionStart = 4
+    // The elements the render writes, drawn from the page's own state: empty.
+    const freshToken = field('setup-discord-token', '')
+    const freshUser = field('setup-discord-user', '')
+    let drawn = null
+    let live = [typedToken, typedUser]
+    let asked = null
+    const app = {
+      set innerHTML(value) { drawn = value; live = [freshToken, freshUser] },
+      querySelectorAll: (selector) => { asked = selector; return live },
+    }
+    page.document.activeElement = typedUser
+    page.document.getElementById = (id) => (id === 'app' ? app : live.find((el) => el.id === id) ?? null)
+    page.render()
+    assert.match(drawn, /id="setup-discord-token"/)
+    assert.equal(freshToken.value, 'MTIz.abc.def', 'the token typed but not sent survives the render')
+    assert.equal(freshUser.value, '123456789', 'the user ID typed but not sent survives the render')
+    assert.equal(freshUser.focused, 1, 'focus comes back to the field the operator was in')
+    assert.deepEqual(freshUser.range, [4, 4], 'and the cursor stays where it was')
+    assert.equal(freshToken.focused, 0)
+    // The carry-over is for the draftless forms. The chat box is drawn from
+    // its draft and a send clears the draft, so it is not asked for.
+    assert.match(asked, /\[id\^="setup-"\]/)
+    assert.doesNotMatch(asked, /chat-box|textarea\[id\]/)
+  })
+
+  test('a poll render keeps a typed Tailscale machine name, and leaves a field the operator has not touched to the page', () => {
+    page.setup = SETUP({ step: 'tailscale', cards: { tailscale: { state: 'unconnected', badge: 'Ready to connect' } } })
+    page.UI.setup.tailscale = TAILSCALE_OVERVIEW()
+    page.payload = payload()
+    const field = (id, defaultValue, value = defaultValue) => ({ id, value, defaultValue, tagName: 'INPUT', focus() {} })
+    const typed = field('setup-tailscale-machine', 'curia.sh', 'alp-workstation')
+    const fresh = field('setup-tailscale-machine', 'curia.sh')
+    let live = [typed]
+    const app = { set innerHTML(_value) { live = [fresh] }, querySelectorAll: () => live }
+    page.document.activeElement = null
+    page.document.getElementById = (id) => (id === 'app' ? app : live.find((el) => el.id === id) ?? null)
+    page.render()
+    assert.equal(fresh.value, 'alp-workstation', 'the typed machine name survives without focus')
+
+    // Untouched: the value the page drew is the value that stands, so a
+    // read that changes the default (a remembered checkpoint) is not undone.
+    const untouched = field('setup-tailscale-machine', 'curia.sh')
+    const redrawn = field('setup-tailscale-machine', 'alp-workstation')
+    live = [untouched]
+    const app2 = { set innerHTML(_value) { live = [redrawn] }, querySelectorAll: () => live }
+    page.document.getElementById = (id) => (id === 'app' ? app2 : live.find((el) => el.id === id) ?? null)
+    page.render()
+    assert.equal(redrawn.value, 'alp-workstation', 'a field nobody typed in takes the page\'s value')
+  })
+
   test('selecting the model card takes the OpenAI read once, and Sign in remembers the provider, posts no field, then polls the read for the login', async () => {
     page.setup = SETUP({ cards: { model: { state: 'unconnected', badge: 'Ready to connect', providers: providers({ state: 'unconnected' }) } } })
     let reads = 0
