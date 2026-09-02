@@ -4825,4 +4825,108 @@ describe('integration setup (#874)', () => {
     assert.match(html, /Continue setup/)
     assert.doesNotMatch(html, /Try again/)
   })
+
+  // The model-provider card, OpenAI half (#878). One card, two provider rows,
+  // so #879 adds Anthropic beside OpenAI without restructuring. The OpenAI
+  // row offers the one press, the subscription sign-in curia already runs,
+  // and never a key field; while the login waits the panel draws the link
+  // and the code the service scraped; connected, it draws the safe facts.
+  const OPENAI_OVERVIEW = (over = {}) => ({
+    provider: 'openai', root: true, secret: { state: 'absent' }, identity: null, login: null, ending: null, said: null,
+    routing: { ready: false, model: 'gpt', rows: [{ type: 'untyped', model: 'opus', provider: 'anthropic', active: true, credentialed: false, ok: false }], missing: ['untyped'], credentialed: [] },
+    error: null, ...over,
+  })
+  const providers = (openai, anthropic = { title: 'Anthropic', state: 'unavailable' }) => ({ openai: { title: 'OpenAI', ...openai }, anthropic })
+  const WAITING = { provider: 'openai', session: 'curia-auth-openai', state: 'waiting', url: 'https://auth.openai.com/codex/device', code: '83CC-A4ZTO', typed: false, terminal_url: 'https://box.tail1234.ts.net:8446/?arg=curia-auth-openai', seconds_left: 840, expires_at: '2026-09-02T10:30:00.000Z' }
+
+  test('the unconnected model card offers the OpenAI subscription sign-in as its one press, names Anthropic as not available yet, and has no key field', () => {
+    page.setup = SETUP({ step: 'model', cards: { model: { state: 'unconnected', badge: 'Ready to connect', providers: providers({ state: 'unconnected' }) } } })
+    page.UI.setup.openai = OPENAI_OVERVIEW()
+    const html = page.screenSetup(payload())
+    assert.match(text(html), /OpenAI Ready to connect/)
+    assert.match(html, /onclick="doSetupOpenAILogin\(\)">Sign in to OpenAI</)
+    assert.match(text(html), /Anthropic Not available/)
+    assert.match(text(html), /Subscription sign-in only\. Curia holds no API key, and this panel offers no field for one\./)
+    assert.doesNotMatch(html, /type="password"|api[_ -]?key" /i)
+    assert.doesNotMatch(html, /Try again/)
+  })
+
+  test('selecting the model card takes the OpenAI read once, and Sign in remembers the provider, posts no field, then polls the read for the login', async () => {
+    page.setup = SETUP({ cards: { model: { state: 'unconnected', badge: 'Ready to connect', providers: providers({ state: 'unconnected' }) } } })
+    let reads = 0
+    page.fetch = async (url, init = {}) => {
+      calls.push({ url, method: init.method ?? 'GET', body: init.body ? JSON.parse(init.body) : null })
+      if (url === '/api/setup/openai') return { ok: true, json: async () => OPENAI_OVERVIEW(++reads > 1 ? { login: WAITING, said: '🔑 signing `openai` back in.' } : {}) }
+      if (url === '/api/setup/openai/login') return { ok: true, json: async () => ({ ok: true, ...OPENAI_OVERVIEW({ login: { provider: 'openai', state: 'starting' } }) }) }
+      return { ok: true, json: async () => (init.method === 'POST' ? { ok: true } : SETUP()) }
+    }
+    await page.selectSetupCard('model')
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.equal(calls.filter((c) => c.url === '/api/setup/openai').length, 1)
+    calls = []
+    await page.doSetupOpenAILogin()
+    assert.deepEqual(calls.map((c) => [c.method, c.url]), [['POST', '/api/setup'], ['POST', '/api/setup/openai/login'], ['GET', '/api/setup/openai']])
+    assert.deepEqual(calls[0].body, { progress: { model: { provider: 'openai' } } })
+    assert.deepEqual(calls[1].body, {}, 'the press carries no field: nothing about the login is the browser\'s to name')
+    assert.equal(page.UI.setup.openai.login.code, '83CC-A4ZTO')
+    page.clearTimeout(page.UI.setup.openaiTimer)
+  })
+
+  test('while the login waits the panel draws the link, the one-time code, and the terminal fallback the service composed', () => {
+    page.setup = SETUP({ step: 'model', cards: { model: { state: 'unconnected', badge: 'Ready to connect', providers: providers({ state: 'unconnected' }) } } })
+    page.UI.setup.openai = OPENAI_OVERVIEW({ login: WAITING })
+    const html = page.screenSetup(payload())
+    assert.match(html, /href="https:\/\/auth\.openai\.com\/codex\/device"/)
+    assert.match(html, /class="reauth-code">83CC-A4ZTO</)
+    assert.match(html, /href="https:\/\/box\.tail1234\.ts\.net:8446\/\?arg=curia-auth-openai"/)
+    assert.match(text(html), /openai · signing in · 14:00 left/)
+    assert.doesNotMatch(html, /onclick="doSetupOpenAILogin\(\)"/, 'no second press while one login runs')
+  })
+
+  test('a login that ended without a credential is said beside the plain card, and the press is offered again', () => {
+    page.setup = SETUP({ step: 'model', cards: { model: { state: 'unconnected', badge: 'Ready to connect', providers: providers({ state: 'unconnected' }) } } })
+    page.UI.setup.openai = OPENAI_OVERVIEW({ ending: { provider: 'openai', state: 'expired', why: 'the one-time code ran out before anybody finished the login', ended_at: '2026-09-02T10:15:00.000Z', after_s: 900 } })
+    const html = page.screenSetup(payload())
+    assert.match(text(html), /The last OpenAI sign-in ended: the one-time code ran out before anybody finished the login/)
+    assert.match(html, /onclick="doSetupOpenAILogin\(\)">Sign in to OpenAI</)
+  })
+
+  test('a failed model card names the failure and the action, and offers the sign-in again beside Try again', () => {
+    page.setup = SETUP({ step: 'model', cards: { model: {
+      state: 'failed', badge: 'Action required',
+      error: { failed: 'OpenAI refused the credential (HTTP 401: invalid token)', action: 'Sign in to OpenAI from this panel, then try again.' },
+      providers: providers({ state: 'failed', error: { failed: 'OpenAI refused the credential (HTTP 401: invalid token)', action: 'Sign in to OpenAI from this panel, then try again.' }, detail: { stage: 'request', provider: 'openai', identity: { account_id: 'acct-42', plan_type: 'pro' } } }),
+    } } })
+    page.UI.setup.openai = OPENAI_OVERVIEW({ secret: { state: 'present' }, identity: { account_id: 'acct-42', plan_type: 'pro', expires_at: '2026-09-11T10:00:00.000Z' } })
+    const html = page.screenSetup(payload())
+    assert.match(html, /class="setup-card model failed on"/)
+    assert.match(text(html), /OpenAI refused the credential \(HTTP 401: invalid token\)/)
+    assert.match(html, /onclick="doSetupOpenAILogin\(\)">Sign in to OpenAI again</)
+    assert.match(html, /onclick="retrySetup\(\)">Try again</)
+    assert.doesNotMatch(html, /acct-42/, 'the account id is a fact for the gate, not a line for a person')
+  })
+
+  test('a connected model card draws the plan, the credential expiry, the timed request, and the routing preset, and keeps the second provider open', () => {
+    page.setup = SETUP({ step: 'model', cards: { model: {
+      ...ALL.model,
+      providers: providers({
+        state: 'connected', footer: { primary: 'OpenAI', secondary: 'verification request completed in 0.9 s', emoji: '⚡' },
+        detail: {
+          provider: 'openai', identity: { account_id: 'acct-42', plan_type: 'pro' }, credential: { expires_at: new Date(Date.now() + 9 * 86_400_000).toISOString() },
+          request: { model: 'gpt-5.6-sol', id: 'resp_1', at: new Date().toISOString(), ms: 912, usage: { input_tokens: 12, output_tokens: 1 } },
+          routing: { ready: true, applied: true, model: 'gpt', file: '/root/state/routing.local.yaml', rows: [{ type: 'untyped', model: 'gpt', provider: 'openai', active: true, credentialed: true, ok: true }], missing: [] },
+          verified_at: new Date().toISOString(),
+        },
+      }),
+    } } })
+    const html = page.screenSetup(payload())
+    assert.match(text(html), /Plan pro/)
+    assert.match(text(html), /Credential expires in 9\.0d/)
+    assert.match(text(html), /Verification gpt-5\.6-sol answered in 912 ms/)
+    assert.match(text(html), /Routing gpt for every ticket type · preset applied by Curia/)
+    assert.match(text(html), /Anthropic Not available/)
+    assert.match(html, /<details><summary>Sign in to OpenAI again<\/summary>/)
+    assert.match(html, /Continue setup/)
+    assert.doesNotMatch(html, /Try again/)
+  })
 })

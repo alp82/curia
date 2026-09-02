@@ -42,7 +42,7 @@ import { CONSUMER_NAMES } from './credentialcontracts.mjs'
 import { codexAccessTokenExpiry, codexTokenClock } from './codexcredential.mjs'
 
 export { CONSUMER_NAMES } from './credentialcontracts.mjs'
-export { codexAccessTokenExpiry, codexTokenClock } from './codexcredential.mjs'
+export { codexAccessTokenExpiry, codexTokenClock, codexTokenIdentity } from './codexcredential.mjs'
 
 // ---- reading the credential ------------------------------------------------
 

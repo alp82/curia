@@ -1248,6 +1248,20 @@ export class DashboardSurface {
           return out
         })
       }
+      // The OpenAI half of the model card (#878). The one write starts the
+      // subscription sign-in the daemon already runs (`codex login
+      // --device-auth` in a tmux session), and it carries no field at all:
+      // there is nothing a browser can name about that login, and no key
+      // it could paste. The daemon answers the panel read, and the page
+      // polls it for the link and the code.
+      if (url.pathname === '/api/setup/openai/login') {
+        return this.#write(res, async () => {
+          await this.#body(req)
+          const out = await this.#daemon({ method: 'POST', path: '/setup/openai/login', body: {}, accept: [200, 400], timeout: SETUP_TIMEOUT_MS })
+          if (out.ok === false) throw refuse(out.error)
+          return out
+        })
+      }
       // The aistack registration (#706), in three presses: start the device
       // flow, stop waiting for it, and grant the standing permission once the
       // machine exists.
@@ -1404,6 +1418,15 @@ export class DashboardSurface {
       return this.#daemon({ path: '/setup/discord', timeout: SETUP_TIMEOUT_MS }).then(
         (r) => this.#json(res, 200, r),
         (e) => this.#json(res, 200, { secret: null, settings: null, bot: null, guilds: [], invite_url: null, error: e.message }),
+      )
+    }
+    // The OpenAI half of the model card's own read (#878): the credential by
+    // presence, the live sign-in's link and code, and routing readiness,
+    // straight from the daemon. Never a token.
+    if (url.pathname === '/api/setup/openai') {
+      return this.#daemon({ path: '/setup/openai', timeout: SETUP_TIMEOUT_MS }).then(
+        (r) => this.#json(res, 200, r),
+        (e) => this.#json(res, 200, { provider: 'openai', secret: null, identity: null, login: null, ending: null, said: null, routing: null, error: e.message }),
       )
     }
     // The Tailscale card's own read (#877): the identity Serve stamped on this

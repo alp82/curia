@@ -11,7 +11,7 @@ Curia owns four long-lived credentials. Each one is a file in `secrets/`, owned 
 | `secrets/discord-bot-token` | The Discord bot token, one line. | The Discord step of integration setup. |
 | `secrets/github-app.json` | The GitHub App: `{ "id": "<app id>", "pem": "<private key>" }`. | The GitHub step of integration setup, from GitHub's manifest conversion. |
 | `secrets/anthropic.json` | The Anthropic subscription credential that Curia adopted. | The Anthropic step of integration setup, or `reauth anthropic`. |
-| `secrets/codex-auth.json` | The OpenAI Codex credential. | The OpenAI step of integration setup, or `reauth codex`. Curia rewrites it when it refreshes the credential. |
+| `secrets/codex-auth.json` | The OpenAI Codex credential. | The OpenAI row of the [model provider card](integration-setup.md#connect-openai), or `reauth openai`. Both run the same `codex login --device-auth` session. Curia rewrites the file when it refreshes the credential. |
 
 A credential reaches a consumer through a file and nothing else. It never enters an environment variable, a Compose variable, a command argument, a log line, a diagnostic, or a browser response. The service refuses to start while any of these environment variables is set: `DISCORD_BOT_TOKEN`, `CURIA_GH_APP_ID`, `CURIA_GH_APP_KEY_FILE`, `CLAUDE_CODE_OAUTH_TOKEN`, `ANTHROPIC_API_KEY`, `GH_TOKEN`, `GITHUB_TOKEN`. The refusal names the variable and the secret file to use instead, and never prints the value.
 
@@ -34,6 +34,8 @@ The Discord facts that are not secret live in `state/discord.json`: `allowed_use
 The allowed operator lives in `state/tailscale.json`: the Tailscale login the [Tailscale card](integration-setup.md#connect-tailscale) recorded when you confirmed it, when it was confirmed, the machine name you expect, and the Serve routes Curia created. Under an installation root that login is the whole identity allowlist for the app and every published surface. The `identity.allow` list in `curia.yaml` admits nobody there. Until the file names an operator, the app admits the first tailnet identity that opens it, and only to **Setup**.
 
 The setup checkpoint lives in `state/setup.json`: the selected card and a closed list of safe fields per card, never a token and never a completion marker. See [Integration setup](integration-setup.md#what-a-reopen-restores).
+
+The routing override lives in `state/routing.local.yaml`: the routing preset a [model provider](integration-setup.md#the-routing-preset) applied when it connected, laid over the tracked `routing.yaml` that ships with the release. `config/` is read-only to the service, so this is the one routing file the service writes under an installation root. Nothing in it is a secret.
 
 ## What each container sees
 

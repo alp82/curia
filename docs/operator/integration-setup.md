@@ -1,6 +1,6 @@
 # Integration setup
 
-Integration setup is the **Setup** screen of the Curia app. It connects one installation to the four resources the Full loop needs: GitHub, Discord, Tailscale, and one model provider. This page is the reference for the setup frame: what the four cards show, how you move between them, what a reopen restores, and what Curia keeps on disk. The GitHub card's own steps are in [Connect GitHub](#connect-github), the Discord card's in [Connect Discord](#connect-discord), and the Tailscale card's in [Connect Tailscale](#connect-tailscale). The model provider card's steps are documented as they land.
+Integration setup is the **Setup** screen of the Curia app. It connects one installation to the four resources the Full loop needs: GitHub, Discord, Tailscale, and one model provider. This page is the reference for the setup frame: what the four cards show, how you move between them, what a reopen restores, and what Curia keeps on disk. The GitHub card's own steps are in [Connect GitHub](#connect-github), the Discord card's in [Connect Discord](#connect-discord), the Tailscale card's in [Connect Tailscale](#connect-tailscale), and the model provider card's OpenAI steps in [Connect OpenAI](#connect-openai). The Anthropic steps are documented when they land.
 
 After `curia install` finishes, open the address it printed, `https://<your node's MagicDNS name>:8445/`, and open **Setup**. Home also points at **Setup** while an integration isn't connected.
 
@@ -147,6 +147,50 @@ A failed step names the failure and one action, for example `This node is named 
 
 The card remembers only the machine name (`progress.tailscale.machine_name`) for a reopen. The recorded operator and Curia's Serve routes live in `state/tailscale.json`. Nothing in that file is a secret. `curia uninstall` reads the recorded routes to withdraw them.
 
+## Connect OpenAI
+
+The **Model provider** card holds one row per provider, OpenAI and Anthropic. One verified provider is required, and you can add the second one later from the same card. This section is the OpenAI row. It connects the ChatGPT subscription Curia's codex agents run on, through the sign-in Curia already uses, and verifies it with one minimal model request. There is no API-key path: the row has no key field, and Curia holds no API key.
+
+### Sign in
+
+1. On the **Model provider** card, select **Sign in to OpenAI**. Curia opens a sign-in session on this host (`codex login --device-auth` in a session the service drives) and the row shows a link and a one-time code within a few seconds. The first press on a fresh installation can take longer, because the service prepares the agent image first.
+2. Open the link on any device, sign in to your ChatGPT account, and enter the code. Nothing is pasted back. The code lives fifteen minutes.
+3. Wait for the row to verify. Curia watches for the credential, adopts it the moment it lands, and runs the verification.
+
+The credential lands in `secrets/codex-auth.json` in the installation root, owner-only, mode `0600`, written by the same adoption that `reauth openai` uses. Curia refreshes it from then on. The one-time code and the link exist only in the service's memory while the login runs and in this panel. They reach no file and no log. If the link or the code doesn't show, the row offers **Open the terminal instead**, which is the sign-in session itself.
+
+A login that ends without a credential (the code ran out, the session closed) is said on the row, and **Sign in to OpenAI** starts it again.
+
+### What verification proves
+
+Every read of the card runs the same verification, in this order:
+
+1. The credential is on disk. Without it the row is plain, **Ready to connect**.
+2. The credential is within the secret boundary, is a codex credential, and hasn't expired.
+3. OpenAI completes one minimal model request on the Codex backend the codex CLI uses with a subscription: a one-line prompt to the routing preset's model, no tools, nothing stored. Curia times this request.
+4. Routing is ready: every ticket type routes to an active model whose provider has a credential on disk, and every OpenAI model is on. When it isn't, Curia applies the routing preset, described in the next section.
+
+The card connects when steps 1 to 4 pass. The footer shows `OpenAI`, then `Routing ready · verification request completed in <n> s`. The row shows the plan of the subscription, when the credential expires, the model that answered and how long it took, and the routing preset. Curia records the opaque account ID, the plan, the model, the response ID, the token counts, the timing, and when. It never records the email on the credential or any token.
+
+A failed step names the failure and one action, for example `OpenAI refused the credential (HTTP 401: invalid token)` with `Sign in to OpenAI from this panel, then try again.` Do what the action says and select **Try again**. The following table lists the checks and their actions.
+
+| Failed check | Action |
+|---|---|
+| The secret file is a link, is owned by another user, or is readable past the owner. | Fix the file as the message says, or sign in again. |
+| The file isn't a codex credential, or the credential has expired and Curia couldn't refresh it. | Sign in to OpenAI from this panel. |
+| OpenAI refuses the credential (HTTP 401 or 403). | Sign in to OpenAI from this panel. |
+| OpenAI answers HTTP 429. | Wait for the usage window to reset, or sign in with another subscription. |
+| OpenAI can't be reached, answers another error, or the stream ends without completing. | Check outbound access (`curia doctor`), wait a moment, and try again. |
+| The routing preset can't be written. | Fix the routing override file the message names so the service can write it. |
+
+### The routing preset
+
+Routing in `routing.yaml` names a model per ticket type, and the shipped file routes most types to an Anthropic model. On a fresh installation with only OpenAI signed in, that routing can't run. So the first verified read applies a preset: every ticket type whose model can't run moves to the OpenAI model (`gpt`, which is `gpt-5.6-sol`) with the type's own reasoning effort, OpenAI's models switch on, and the models of a provider with no credential switch off. Types that already route to a model that can run stay as they are, and the tracked `routing.yaml` is never edited.
+
+The preset lands in the routing override file, the same file the Settings screen writes: `state/routing.local.yaml` in the installation root, or `config/routing.local.yaml` beside `routing.yaml` in the source deployment. The service applies it at once, with no restart. A routing that is ready is left alone, so a routing choice you make in Settings later isn't rewritten by a read, unless it routes a type to a model that can't run. When you add the second provider, its own verification switches its models back on.
+
+The card remembers only the provider you last signed in (`progress.model.provider`) for a reopen. The credential lives in `secrets/codex-auth.json` and nowhere else.
+
 ## Verification is fresh
 
 A card's state comes from a verification that Curia runs when you open **Setup** and every time you select **Try again**. Curia doesn't keep a "connected" marker. A card that verified yesterday and doesn't verify today shows as failed today, with the reason and the action.
@@ -178,7 +222,7 @@ Closing and reopening **Setup** restores the card you were on and any safe progr
 
 The file never holds a token, a key, or a completion marker. A field outside that list is refused by name. Nothing about setup is stored in the browser. A `state/setup.json` file that can't be read starts setup on the GitHub card with no progress, and the service log says so.
 
-Credentials a step collects go to their secret files under `secrets/`, as [Secrets, mounts, and what survives](secrets.md) describes. The Discord facts that aren't secret go to `state/discord.json`, and the recorded Tailscale operator and Curia's Serve routes go to `state/tailscale.json`.
+Credentials a step collects go to their secret files under `secrets/`, as [Secrets, mounts, and what survives](secrets.md) describes. The Discord facts that aren't secret go to `state/discord.json`, the recorded Tailscale operator and Curia's Serve routes go to `state/tailscale.json`, and the routing preset a model provider applies goes to `state/routing.local.yaml`.
 
 ## Where the frame lives
 
