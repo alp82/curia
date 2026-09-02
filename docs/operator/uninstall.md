@@ -1,6 +1,6 @@
 # Uninstall and reinstall from the preserved root
 
-`curia uninstall` stops Curia and removes everything that runs it from the host: the launcher, the installed versions, the caches, the runtime files, the containers, the networks, the volumes, and the Tailscale Serve routes Curia created. It keeps the installation itself: `config/`, `secrets/`, `state/`, and `work/` stay in the installation root with the installation ID, so the bootstrap reinstalls the same Curia later, with the same integrations, history, and resumable work. This page is the reference for the command: the steps, what each one removes, what stays, how you retry, and how you reinstall. Removing the installation too is `curia purge`; see [Command reference](command-reference.md#commands).
+`curia uninstall` stops Curia and removes everything that runs it from the host: the launcher, the installed versions, the caches, the runtime files, the containers, the networks, the volumes, and the Tailscale Serve routes Curia created. It keeps the installation itself: `config/`, `secrets/`, `state/`, and `work/` stay in the installation root with the installation ID, so the bootstrap reinstalls the same Curia later, with the same integrations, history, and resumable work. This page is the reference for the command: the steps, what each one removes, what stays, how you retry, and how you reinstall. Removing the installation too is `curia purge`; see [Purge and external cleanup](purge.md).
 
 ## What `curia uninstall` does
 
@@ -19,7 +19,7 @@ The command takes no options and asks no question. It runs four named steps in o
 | 3. `routes` | Reads the Serve routes Curia created from `state/tailscale.json` and turns off each one that the node still serves. | Curia's own Serve route for the app, `https://<node>:8445`. No other route, and nothing else of the node. |
 | 4. `files` | Empties `versions/`, `cache/`, and `run/`, then removes the launcher. | Every installed version, the caches, the runtime files, and `~/.local/bin/curia`. |
 
-The container images stay. Curia removes them only in `curia purge`, after confirmation. The label is what finds Curia's resources: a container with another installation's ID, a container of yours without the label, the default network, and an unlabelled volume are never listed and never touched. Curia doesn't remove resources by name.
+The container images stay. Curia removes them only in `curia purge`, after confirmation, and only those that nothing on the host uses; see [Which images go](purge.md#which-images-go). The label is what finds Curia's resources: a container with another installation's ID, a container of yours without the label, the default network, and an unlabelled volume are never listed and never touched. Curia doesn't remove resources by name.
 
 The `routes` step never installs, starts, or reconfigures Tailscale. On a host where the `tailscale` command isn't on the path, the step withdraws nothing, says so, and keeps the recorded routes for a host that runs Tailscale. On a host where the node doesn't answer, the step fails so you can start `tailscaled` and rerun.
 

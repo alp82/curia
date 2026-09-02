@@ -113,20 +113,21 @@ export class TailscaleError extends Error {
 }
 
 // Withdraws the Serve routes the record under `stateDir` names, and no
-// other. Returns `{ recorded, withdrawn, absent }`: the recorded routes, the
-// ones turned off on this call, and the ones that were not standing. The
-// `tailscale` command missing from the path counts every route as absent:
-// with no CLI there is no node this operator can reach, and the record is
-// kept for the next run that can. A node that answers with an error fails,
-// because a route may still stand.
+// other. Returns `{ recorded, withdrawn, absent, unreachable }`: the
+// recorded routes, the ones turned off on this call, the ones that were not
+// standing, and whether the node could be asked at all. The `tailscale`
+// command missing from the path counts every route as absent and the node
+// as unreachable: with no CLI there is no node this operator can reach, and
+// the record is kept for the next run that can. A node that answers with an
+// error fails, because a route may still stand.
 export async function withdrawServeRoutes({ stateDir, stdout }, { tailscale = tailscaleRunner } = {}) {
   const recorded = readTailscaleRecord(stateDir).serve
-  if (recorded.length === 0) return { recorded, withdrawn: [], absent: [] }
+  if (recorded.length === 0) return { recorded, withdrawn: [], absent: [], unreachable: false }
 
   const status = await tailscale(['serve', 'status', '--json'])
   if (!status.ok && status.missing) {
     stdout?.write(`the tailscale command is not on the path, so no Serve route is withdrawn; the record keeps ${recorded.length === 1 ? 'the route' : 'the routes'} for a host that runs Tailscale\n`)
-    return { recorded, withdrawn: [], absent: recorded }
+    return { recorded, withdrawn: [], absent: recorded, unreachable: true }
   }
   if (!status.ok) throw new TailscaleError(`tailscale serve status failed: ${firstLine(status.stderr || status.stdout) || `exit ${status.code}`}`)
   let standing
@@ -149,7 +150,7 @@ export async function withdrawServeRoutes({ stateDir, stdout }, { tailscale = ta
     stdout?.write(`withdrew the Serve route https://:${route.https} -> ${route.target}\n`)
     withdrawn.push(route)
   }
-  return { recorded, withdrawn, absent }
+  return { recorded, withdrawn, absent, unreachable: false }
 }
 
 const firstLine = (text) => String(text ?? '').trim().split('\n')[0]

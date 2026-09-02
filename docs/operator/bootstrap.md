@@ -63,7 +63,7 @@ A failure (exit code `1`) after the hand-off belongs to the lifecycle interface,
 bash curia-install.sh --purge --root /srv/curia
 ```
 
-The script acquires and proves the lifecycle interface exactly as an installation does, in a temporary stage, and then runs `curia purge` from it with `CURIA_ROOT` set to the root. `curia purge` shows the root, asks for the one confirmation, and removes the installation root and every Docker resource that carries the installation's label, as [Commands](command-reference.md#commands) describes. The script writes no launcher, creates no root, and removes the stage when the interface returns. A nondefault root stays explicit in the command: with no `--root`, the default root is purged.
+The script acquires and proves the lifecycle interface exactly as an installation does, in a temporary stage, and then runs `curia purge` from it with `CURIA_ROOT` set to the root. `curia purge` shows the root, asks you to type it as the one confirmation, and removes the installation's Docker resources, its Serve routes, the unused release images, and last the root, as [Purge and external cleanup](purge.md) describes. The script hands off only the root, so the confirmation is the question on your terminal, which is one more reason the script refuses a pipe. The script writes no launcher, creates no root, and removes the stage when the interface returns. A nondefault root stays explicit in the command: with no `--root`, the default root is purged.
 
 ## Origins
 
