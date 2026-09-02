@@ -298,6 +298,14 @@ const APP_SCREEN_RE = /^(settings|setup)$/
 const DISCORD_TOKEN_RE = /^[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]{20,}$/
 const SNOWFLAKE_RE = /^[0-9]{5,25}$/
 const CHANNEL_NAME_RE = /^[a-z0-9][a-z0-9_-]{0,99}$/
+// The Tailscale card (#877). The machine name is the shape `state/setup.json`
+// keeps; the login is never a field, because the daemon records the identity
+// Serve stamped on the request and nothing a browser typed.
+const MACHINE_NAME_RE = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$/i
+// What the first-operator window admits (#877): the page, and the setup
+// routes. The terminal, the chat, and every verb stay refused until an
+// operator is confirmed.
+const FIRST_OPERATOR_PATHS = /^\/(?:$|api\/setup(?:\/|$))/
 
 export const MAX_WORDS = 4000
 
@@ -384,6 +392,7 @@ export class DashboardSurface {
     port, servePort, index, allow, daemonPort: dPort = daemonPort(),
     pollIntervalS = DEFAULT_DASHBOARD.poll_interval_s,
     curiaFile = null, routingFile = null, timelinePort = null, terminalPort = null,
+    identitySource = 'config',
     log = console.log, deps = {},
   }) {
     this.port = port
@@ -407,6 +416,15 @@ export class DashboardSurface {
     // arrives after the listener is up is picked up without rewiring. Empty
     // means refuse — a surface that does not know its own name admits nobody.
     this.allow = new Set(allow ?? [])
+    // Where the allowlist comes from (#877). `config` is the source
+    // deployment: `identity.allow` in curia.yaml, read once at boot. `daemon`
+    // is an installation root: the confirmed operator the daemon keeps in
+    // `state/tailscale.json`, which this container cannot read, asked over
+    // loopback at boot, on every poll, and after the confirmation. Until the
+    // daemon has answered, nobody is admitted; and only the daemon's own
+    // word that no operator is confirmed yet opens the first-operator window.
+    this.identitySource = identitySource
+    this.firstOperator = false
     this.hosts = new Set()
     this.deps = { assertServe, serveOff, attachBase, tailnetSelf, fetchOverview: null, ...deps }
     this.server = null
@@ -422,7 +440,39 @@ export class DashboardSurface {
   }
 
   #refusal(req) {
-    return identityRefusal(req.headers, { allow: this.allow, hosts: this.hosts })
+    const reason = identityRefusal(req.headers, { allow: this.allow, hosts: this.hosts })
+    if (!reason || !this.firstOperator) return reason
+    // The first-operator window (#877): the daemon said no operator is
+    // confirmed yet, so the identity that opens the app is the one setup
+    // shows and asks to confirm. The Funnel and Host legs still hold; only
+    // the allowlist leg is answered by the request's own stamped login, and
+    // only for the page and the setup routes.
+    const login = String(req.headers[LOGIN_HEADER] ?? '').toLowerCase()
+    if (!login) return reason
+    const pathname = String(req.url ?? '').split('?')[0]
+    if (!FIRST_OPERATOR_PATHS.test(pathname)) return `${reason} — no operator is confirmed yet, and only setup is open before one is`
+    return identityRefusal(req.headers, { allow: new Set([login]), hosts: this.hosts })
+  }
+
+  // The allowlist from the daemon (#877), written into the live set in place.
+  // A daemon that cannot be asked leaves the last answer standing: a restart
+  // of the daemon must not open the window, and must not lock the operator
+  // out either.
+  async refreshIdentity() {
+    if (this.identitySource !== 'daemon') return
+    let out
+    try {
+      out = await this.#daemon({ path: '/identity' })
+    } catch (e) {
+      this.log(`dashboard: the daemon's identity read failed (${e.message}) — keeping the last allowlist`)
+      return
+    }
+    const logins = Array.isArray(out?.allow) ? out.allow.map((l) => String(l).toLowerCase()) : []
+    this.allow.clear()
+    for (const l of logins) this.allow.add(l)
+    const window = Boolean(out?.first_operator) && logins.length === 0
+    if (window !== this.firstOperator) this.log(window ? 'dashboard: no operator is confirmed yet — setup is open to the first Tailscale identity that arrives' : `dashboard: ${logins.length} login(s) admitted`)
+    this.firstOperator = window
   }
 
   // Bind the loopback listener. A port that will not bind is not a surface this
@@ -481,6 +531,7 @@ export class DashboardSurface {
   // `tailscale serve --bg` persists in tailscaled and skipping the assert alone
   // un-publishes nothing.
   async assert() {
+    await this.refreshIdentity()
     let refusal = null
     if (!this.listening) refusal = `the dashboard listener on 127.0.0.1:${this.port} is not up`
     else refusal = pageRefusal(this.index)
@@ -578,6 +629,7 @@ export class DashboardSurface {
     this.inFlight = (async () => {
       try {
         const overview = await this.#fetchOverview()
+        await this.refreshIdentity()
         this.snapshot = overview
         this.snapshotAt = Date.now()
         if (this.error) this.log(`dashboard: the daemon is answering again on :${this.daemonPort}`)
@@ -1178,6 +1230,24 @@ export class DashboardSurface {
           return out
         })
       }
+      // The Tailscale card (#877). The one write is the confirmation, composed
+      // here as the login Serve stamped on THIS request and the machine name
+      // the page sent: the browser cannot name who becomes the operator, only
+      // agree that it is the identity it arrived with. The allowlist is read
+      // back from the daemon at once, so the next request is admitted by the
+      // record and not by the window.
+      if (url.pathname === '/api/setup/tailscale/operator') {
+        return this.#write(res, async () => {
+          const b = await this.#body(req)
+          const login = String(req.headers[LOGIN_HEADER] ?? '').toLowerCase()
+          if (!login) throw refuse('This request carried no Tailscale identity. Open the Curia app through its Tailscale address, then confirm again.')
+          const machineName = field(b.machine_name ?? 'curia.sh', MACHINE_NAME_RE, 'a machine name')
+          const out = await this.#daemon({ method: 'POST', path: '/setup/tailscale/operator', body: { login, machine_name: machineName }, accept: [200, 400], timeout: SETUP_TIMEOUT_MS })
+          if (out.ok === false) throw refuse(out.error)
+          await this.refreshIdentity()
+          return out
+        })
+      }
       // The aistack registration (#706), in three presses: start the device
       // flow, stop waiting for it, and grant the standing permission once the
       // machine exists.
@@ -1334,6 +1404,16 @@ export class DashboardSurface {
       return this.#daemon({ path: '/setup/discord', timeout: SETUP_TIMEOUT_MS }).then(
         (r) => this.#json(res, 200, r),
         (e) => this.#json(res, 200, { secret: null, settings: null, bot: null, guilds: [], invite_url: null, error: e.message }),
+      )
+    }
+    // The Tailscale card's own read (#877): the identity Serve stamped on this
+    // request, passed to the daemon by name so the panel can show who opened
+    // the app, beside the node, the record, and the private address.
+    if (url.pathname === '/api/setup/tailscale') {
+      const login = String(req.headers[LOGIN_HEADER] ?? '').toLowerCase()
+      return this.#daemon({ path: `/setup/tailscale?login=${encodeURIComponent(login)}`, timeout: SETUP_TIMEOUT_MS }).then(
+        (r) => this.#json(res, 200, r),
+        (e) => this.#json(res, 200, { requester: login || null, operator: null, node: null, serve: null, app_url: null, first_operator: null, error: e.message }),
       )
     }
     // The aistack registration and the sync verdict (#706). Straight from the

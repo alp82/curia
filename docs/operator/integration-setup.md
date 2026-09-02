@@ -1,6 +1,6 @@
 # Integration setup
 
-Integration setup is the **Setup** screen of the Curia app. It connects one installation to the four resources the Full loop needs: GitHub, Discord, Tailscale, and one model provider. This page is the reference for the setup frame: what the four cards show, how you move between them, what a reopen restores, and what Curia keeps on disk. The GitHub card's own steps are in [Connect GitHub](#connect-github) and the Discord card's in [Connect Discord](#connect-discord). The other cards' steps are documented as they land.
+Integration setup is the **Setup** screen of the Curia app. It connects one installation to the four resources the Full loop needs: GitHub, Discord, Tailscale, and one model provider. This page is the reference for the setup frame: what the four cards show, how you move between them, what a reopen restores, and what Curia keeps on disk. The GitHub card's own steps are in [Connect GitHub](#connect-github), the Discord card's in [Connect Discord](#connect-discord), and the Tailscale card's in [Connect Tailscale](#connect-tailscale). The model provider card's steps are documented as they land.
 
 After `curia install` finishes, open the address it printed, `https://<your node's MagicDNS name>:8445/`, and open **Setup**. Home also points at **Setup** while an integration isn't connected.
 
@@ -99,6 +99,54 @@ The bridge, the part of the service that logs in to Discord, reads the token and
 
 The card remembers the server id and the channel name (`progress.discord.guild_id` and `progress.discord.channel`) for a reopen. The token lives in `secrets/discord-bot-token` and nowhere else. The token never appears in a log line, a diagnostic, or a browser response, and a refused paste is described by shape rather than echoed.
 
+## Connect Tailscale
+
+The Tailscale card verifies the Tailscale node this host already runs, publishes Curia's own Serve route for the app, and records the operator who may open Curia. Curia never installs Tailscale, logs the node in, renames it, or changes the tailnet's policy. Every failed check names the command you run on the host or the page you open in the Tailscale admin console.
+
+### Who may open Curia
+
+Every request that reaches the Curia app through Tailscale Serve carries the login of the tailnet user who sent it, and Serve overwrites a forged one. That login is the identity check in front of the app, the terminal, the chat, and every preview.
+
+On a fresh installation, no operator is recorded, so the app admits the first tailnet identity that opens it, and only to **Setup**. The rest of the app, the terminal, the chat, and every verb stay refused until an operator is confirmed. The **Tailscale** card shows the identity you arrived with: `You opened Curia as <login> through Tailscale`.
+
+### Confirm the operator
+
+1. Open the Curia app at the address `curia install` printed, `https://<node>:8445/`, through Tailscale. A request on loopback carries no identity and can't confirm anything.
+2. On the **Tailscale** card, check the identity the panel names. It is the login Tailscale stamped on your request, and the browser can't change it.
+3. Keep the machine name or enter the node's current name. The field defaults to `curia.sh`, which reads as `curia-sh` in MagicDNS. The panel names the node's current name beside the field. Curia doesn't rename the node. To rename it, run `sudo tailscale set --hostname <name>` on the host.
+4. Select **Confirm operator and verify**.
+
+Curia records the login, when it was confirmed, and the machine name in `state/tailscale.json` in the installation root, mode `0600`. From that moment the recorded login is the whole identity allowlist under an installation root, for the service and the app alike, with no restart. The `identity.allow` list in `curia.yaml` belongs to the source deployment and admits nobody under an installation root.
+
+### What verification proves
+
+Every read of the card runs the same verification, in this order:
+
+1. An operator is recorded. Without one the card is plain, **Ready to connect**.
+2. `tailscale` answers on this host.
+3. The node is logged in, running, and online.
+4. The tailnet issues an HTTPS certificate for the node. Its name is the private address.
+5. The node's MagicDNS name is the machine name you expect.
+6. Curia's own Serve route stands: the app on port `8445`, proxied to `127.0.0.1:4273`. Curia creates the route when it is missing and records it in `state/tailscale.json`. It creates no other route.
+7. The app answers on its own address and admits the recorded login. Curia times this request.
+
+The card connects when steps 1 to 7 pass. The footer shows the private MagicDNS name, then `<login> · admitted in <n> ms`. The panel shows the private address as a link, the operator and when you confirmed, the node's addresses and Tailscale version, the Serve route, and when the operator last arrived through Tailscale since the service started.
+
+A failed step names the failure and one action, for example `This node is named alp-workstation, not curia-sh` with `Run sudo tailscale set --hostname curia.sh on this host, or enter alp-workstation as the machine name in this panel, then try again.` Do what the action says and select **Try again**. The following table lists the checks and their actions.
+
+| Failed check | Action |
+|---|---|
+| Tailscale isn't installed, or `tailscale` isn't on the path. | Install Tailscale from the Linux download page and log the node in. |
+| `tailscaled` doesn't answer. | Run `sudo systemctl start tailscaled`. |
+| The node is logged out or offline. | Run `sudo tailscale up` and finish the login in the browser. |
+| The tailnet issues no HTTPS certificate. | Enable HTTPS certificates under **DNS** in the Tailscale admin console. |
+| The node's name isn't the machine name you entered. | Rename the node with `sudo tailscale set --hostname <name>`, or enter the node's current name. |
+| Serve refuses Curia's route. | Run `sudo tailscale set --operator=$USER` so your user may use Serve. |
+| The app refuses the recorded login. | Restart Curia so the app reads the recorded operator. |
+| The app doesn't answer on `127.0.0.1:4273`. | Check the dashboard service with `docker compose ps`. |
+
+The card remembers only the machine name (`progress.tailscale.machine_name`) for a reopen. The recorded operator and Curia's Serve routes live in `state/tailscale.json`. Nothing in that file is a secret. `curia uninstall` reads the recorded routes to withdraw them.
+
 ## Verification is fresh
 
 A card's state comes from a verification that Curia runs when you open **Setup** and every time you select **Try again**. Curia doesn't keep a "connected" marker. A card that verified yesterday and doesn't verify today shows as failed today, with the reason and the action.
@@ -130,7 +178,7 @@ Closing and reopening **Setup** restores the card you were on and any safe progr
 
 The file never holds a token, a key, or a completion marker. A field outside that list is refused by name. Nothing about setup is stored in the browser. A `state/setup.json` file that can't be read starts setup on the GitHub card with no progress, and the service log says so.
 
-Credentials a step collects go to their secret files under `secrets/`, as [Secrets, mounts, and what survives](secrets.md) describes. The Discord facts that aren't secret go to `state/discord.json`.
+Credentials a step collects go to their secret files under `secrets/`, as [Secrets, mounts, and what survives](secrets.md) describes. The Discord facts that aren't secret go to `state/discord.json`, and the recorded Tailscale operator and Curia's Serve routes go to `state/tailscale.json`.
 
 ## Where the frame lives
 

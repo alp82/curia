@@ -71,6 +71,7 @@ import { AistackSync } from './aistack.mjs'
 import { AistackRegistration } from './aistackreg.mjs'
 import { githubVerifier } from './githubsetup.mjs'
 import { DiscordSetup } from './discordsetup.mjs'
+import { TailscaleSetup } from './tailscalesetup.mjs'
 import { IntegrationSetup } from './setup.mjs'
 import {
   probeTtyd, serveOff, attachBase, appTerminalUrl, validSessionName,
@@ -1392,12 +1393,26 @@ const aistackReg = new AistackRegistration({
 const discordSetup = new DiscordSetup({
   root: INSTALL_ROOT, stateDir: DATA, env: process.env, log, bridgeState: () => bridge?.health?.state ?? null,
 })
+// The identity allowlist every published surface admits by (#151, #168,
+// #263). ONE set object, created empty and filled in place, so the attach
+// proxy, the timeline, and the preview registry hold live references. The
+// Tailscale card (#877) is its one writer: under an installation root the
+// confirmed operator in `state/tailscale.json` is the whole list, and
+// `curia.yaml`'s `identity.allow` stays the source deployment's answer, so a
+// login written for one box never admits anyone on another. Empty means
+// refuse, which is the right posture before an operator is confirmed.
+const identityAllow = new Set()
+const tailscaleSetup = new TailscaleSetup({
+  root: INSTALL_ROOT, stateDir: DATA, allow: identityAllow, configAllow: curiaConfig.identity.allow,
+  servePort: curiaConfig.dashboard.serve_port, appPort: curiaConfig.dashboard.port, log,
+})
 const integrationSetup = new IntegrationSetup({
   stateDir: DATA,
   log,
   verifiers: {
     github: githubVerifier({ minter: () => appMinter, watch: () => curiaConfig.watch }),
     discord: discordSetup.verifier(),
+    tailscale: tailscaleSetup.verifier(),
   },
 })
 
@@ -1585,14 +1600,14 @@ reduction.onNotesExpired = (ev) => dispatcher.announceExpiredNotes(ev)
 
 // ---- the identity check (#151) ----------------------------------------------
 //
-// One policy, both attach surfaces: the allowlist from config, and the set of
-// host names this box legitimately answers to on each serve port. The two host
-// sets are created EMPTY and filled in place, so the proxy and the timeline
-// hold live references and pick up a resolution that arrives after they start.
-// Empty means refuse (identityRefusal treats an empty set as "cannot verify my
-// own name"), which is the right posture during the window before tailscale has
+// One policy, both attach surfaces: the allowlist (`identityAllow`, filled by
+// the Tailscale card beside the setup frame), and the set of host names this
+// box legitimately answers to on each serve port. The host set is created
+// EMPTY and filled in place, so the proxy and the timeline hold live
+// references and pick up a resolution that arrives after they start. Empty
+// means refuse (identityRefusal treats an empty set as "cannot verify my own
+// name"), which is the right posture during the window before tailscale has
 // answered: a surface that does not yet know its own name cannot admit anyone.
-const identityAllow = new Set(curiaConfig.identity.allow)
 const timelineHosts = new Set()
 
 async function resolveServeHosts() {
@@ -3801,6 +3816,29 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
     try {
       const settings = await discordSetup.chooseChannel({ guild_id: body.guild_id, channel: body.channel })
       return json(200, { ok: true, settings, card: await integrationSetup.verify('discord') })
+    } catch (e) {
+      if (!e.refusal) throw e
+      return json(400, { ok: false, error: e.message })
+    }
+  }
+  // The Tailscale card (#877). The identity read is what the sidecar asks at
+  // boot and on every poll: the logins admitted now, and whether the
+  // first-operator window is open. The panel read takes the login Serve
+  // stamped on the request that asked, which the sidecar passes and the
+  // browser never chooses; the confirmation records that login as the
+  // allowed operator and answers the panel read beside the freshly verified
+  // card.
+  if (url.pathname === '/identity' && req.method === 'GET') {
+    return json(200, tailscaleSetup.identity())
+  }
+  if (url.pathname === '/setup/tailscale' && req.method === 'GET') {
+    return json(200, await tailscaleSetup.overview({ login: url.searchParams.get('login') }))
+  }
+  if (url.pathname === '/setup/tailscale/operator' && req.method === 'POST') {
+    const body = await readBody(req)
+    try {
+      const overview = await tailscaleSetup.confirmOperator({ login: body.login, machine_name: body.machine_name })
+      return json(200, { ok: true, ...overview, card: await integrationSetup.verify('tailscale') })
     } catch (e) {
       if (!e.refusal) throw e
       return json(400, { ok: false, error: e.message })

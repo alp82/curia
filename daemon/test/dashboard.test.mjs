@@ -1784,3 +1784,146 @@ describe('the Discord card routes (#876)', () => {
     assert.equal(sent('/setup/discord/channel'), undefined)
   })
 })
+
+describe('the Tailscale card routes and the first-operator window (#877)', () => {
+  const SERVE_PORT = 8445
+  const ORIGIN = 'https://box.tail1234.ts.net:8445'
+  let surface
+  let daemon
+  let calls
+  let reply
+  let identity
+  let logged
+  const served = (extra = {}) => ({ host: 'box.tail1234.ts.net:8445', [LOGIN_HEADER]: 'Alp@Example.com', ...extra })
+  const press = (p, body, extra = {}) => req(surface.port, p, { method: 'POST', headers: served({ origin: ORIGIN, 'content-type': 'application/json', ...extra }), body })
+  const sent = (route) => calls.find((c) => c.url.startsWith(route))
+
+  let daemonPort
+  const start = async ({ identitySource = 'daemon', allow = [] } = {}) => {
+    surface = new DashboardSurface({
+      port: 0, servePort: SERVE_PORT, index: DEFAULT_DASHBOARD_INDEX, allow, identitySource, pollIntervalS: 5,
+      daemonPort,
+      log: (line) => logged.push(String(line)),
+      deps: {
+        fetchOverview: async () => ({ daemon: { port: 4271 } }),
+        assertServe: async () => {},
+        serveOff: async () => {},
+        attachBase: async () => 'box.tail1234.ts.net',
+        tailnetSelf: async () => ({ dnsName: 'box.tail1234.ts.net', ips: ['100.98.118.33'] }),
+      },
+    })
+    await surface.start()
+    await surface.assert()
+  }
+
+  beforeEach(async () => {
+    calls = []
+    logged = []
+    identity = { allow: [], first_operator: true }
+    reply = {
+      '/setup/tailscale': [200, { requester: 'alp@example.com', operator: null, first_operator: true, node: { online: true, dns_name: 'box.tail1234.ts.net' }, app_url: 'https://box.tail1234.ts.net:8445/' }],
+      '/setup/tailscale/operator': [200, { ok: true, requester: 'alp@example.com', operator: { login: 'alp@example.com', confirmed_at: '2026-09-02T10:00:00.000Z' }, card: { key: 'tailscale', state: 'connected' } }],
+    }
+    daemon = http.createServer((r, res) => {
+      let buf = ''
+      r.on('data', (d) => { buf += d })
+      r.on('end', () => {
+        calls.push({ method: r.method, url: r.url, body: buf ? JSON.parse(buf) : null })
+        if (r.url === '/identity') {
+          res.writeHead(200, { 'content-type': 'application/json' })
+          return res.end(JSON.stringify(identity))
+        }
+        const [code, body] = reply[r.url.split('?')[0]] ?? [404, { error: 'no such route' }]
+        res.writeHead(code, { 'content-type': 'application/json' })
+        res.end(JSON.stringify(body))
+      })
+    })
+    await new Promise((done) => daemon.listen(0, '127.0.0.1', done))
+    daemonPort = daemon.address().port
+  })
+  afterEach(() => {
+    surface?.stop()
+    daemon?.close()
+  })
+
+  test('under a root the allowlist is the daemon\'s word, read at boot: nobody from curia.yaml is admitted', async () => {
+    identity = { allow: ['box@example.com'], first_operator: false }
+    await start({ allow: ['alp@example.com'] })
+    assert.deepEqual([...surface.allow], ['box@example.com'])
+    assert.equal(surface.firstOperator, false)
+    assert.equal((await req(surface.port, '/', { headers: served() })).status, 403)
+    assert.equal((await req(surface.port, '/', { headers: served({ [LOGIN_HEADER]: 'box@example.com' }) })).status, 200)
+  })
+
+  test('before the daemon answers, nobody is admitted and the window is shut', async () => {
+    daemon.close()
+    await start()
+    assert.deepEqual([...surface.allow], [])
+    assert.equal(surface.firstOperator, false)
+    assert.equal((await req(surface.port, '/', { headers: served() })).status, 403)
+    assert.match(logged.join('\n'), /identity read failed/)
+  })
+
+  test('with no operator confirmed, the first Tailscale identity reaches the page and the setup routes, and nothing else', async () => {
+    await start()
+    assert.equal(surface.firstOperator, true)
+    assert.equal((await req(surface.port, '/', { headers: served() })).status, 200)
+    assert.equal((await req(surface.port, '/api/setup', { headers: served() })).status, 200)
+    assert.equal((await req(surface.port, '/api/setup/tailscale', { headers: served() })).status, 200)
+    for (const p of ['/api/overview', '/terminal/', '/api/settings', '/api/chat/list']) {
+      const res = await req(surface.port, p, { headers: served() })
+      assert.equal(res.status, 403, p)
+      assert.match(res.text, /no operator is confirmed yet, and only setup is open/)
+    }
+    // The other two legs still hold in the window.
+    assert.equal((await req(surface.port, '/', { headers: { host: 'box.tail1234.ts.net:8445' } })).status, 403)
+    assert.equal((await req(surface.port, '/', { headers: served({ host: 'evil.example.com' }) })).status, 403)
+    assert.equal((await req(surface.port, '/', { headers: served({ [FUNNEL_HEADER]: '?1' }) })).status, 403)
+  })
+
+  test('the panel read carries the login Serve stamped on this request to the daemon, lowercased, and never one the browser named', async () => {
+    await start()
+    const res = await req(surface.port, '/api/setup/tailscale?login=stranger@example.com', { headers: served() })
+    assert.equal(res.status, 200)
+    assert.equal(sent('/setup/tailscale?').url, '/setup/tailscale?login=alp%40example.com')
+    assert.equal(JSON.parse(res.text).requester, 'alp@example.com')
+    daemon.close()
+    const down = JSON.parse((await req(surface.port, '/api/setup/tailscale', { headers: served() })).text)
+    assert.equal(down.requester, 'alp@example.com')
+    assert.equal(down.node, null)
+    assert.match(down.error, /daemon|ECONNREFUSED|socket hang up/i)
+  })
+
+  test('the confirmation sends the request\'s own login and the machine name, then reads the allowlist back so the window closes at once', async () => {
+    await start()
+    identity = { allow: ['alp@example.com'], first_operator: false }
+    const res = await press('/api/setup/tailscale/operator', { machine_name: 'curia.sh', login: 'stranger@example.com' })
+    assert.equal(res.status, 200)
+    assert.deepEqual(sent('/setup/tailscale/operator').body, { login: 'alp@example.com', machine_name: 'curia.sh' })
+    assert.equal(JSON.parse(res.text).card.state, 'connected')
+    assert.equal(surface.firstOperator, false)
+    assert.deepEqual([...surface.allow], ['alp@example.com'])
+    assert.equal((await req(surface.port, '/api/overview', { headers: served() })).status, 200)
+    assert.equal((await req(surface.port, '/', { headers: served({ [LOGIN_HEADER]: 'stranger@example.com' }) })).status, 403)
+  })
+
+  test('a machine name that is not one is refused without crossing, and a daemon refusal is the sentence the page shows', async () => {
+    await start()
+    const bad = await press('/api/setup/tailscale/operator', { machine_name: 'not a name!' })
+    assert.equal(bad.status, 409)
+    assert.match(JSON.parse(bad.text).error, /is not a machine name/)
+    assert.equal(sent('/setup/tailscale/operator'), undefined)
+    reply['/setup/tailscale/operator'] = [400, { ok: false, error: 'This deployment reads the allowed operators from identity.allow in curia.yaml' }]
+    const refused = await press('/api/setup/tailscale/operator', { machine_name: 'curia.sh' })
+    assert.equal(refused.status, 409)
+    assert.match(JSON.parse(refused.text).error, /identity\.allow in curia\.yaml/)
+  })
+
+  test('the source deployment keeps curia.yaml\'s list and never asks the daemon for one', async () => {
+    await start({ identitySource: 'config', allow: ['alp@example.com'] })
+    assert.deepEqual([...surface.allow], ['alp@example.com'])
+    assert.equal(surface.firstOperator, false)
+    assert.equal(calls.some((c) => c.url === '/identity'), false)
+    assert.equal((await req(surface.port, '/api/overview', { headers: served() })).status, 200)
+  })
+})

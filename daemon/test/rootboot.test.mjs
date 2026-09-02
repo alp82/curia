@@ -145,8 +145,27 @@ describe('the daemon under an installation root (#867)', () => {
       assert.ok(!setupText.includes(TOKEN), 'the setup read never carries the token')
       const setup = JSON.parse(setupText)
       assert.deepEqual(setup.cards.map((c) => [c.key, c.state]), [
-        ['github', 'unconnected'], ['discord', 'failed'], ['tailscale', 'unavailable'], ['model', 'unavailable'],
+        ['github', 'unconnected'], ['discord', 'failed'], ['tailscale', 'unconnected'], ['model', 'unavailable'],
       ])
+      // The Tailscale card (#877) under a root: no operator is recorded, so
+      // the identity read says nobody is admitted and the first-operator
+      // window is open; curia.yaml's `tester@example.com` admits nobody here.
+      assert.deepEqual(await (await fetch(`http://127.0.0.1:${ports[0]}/identity`)).json(), { allow: [], first_operator: true })
+      const noIdentity = await fetch(`http://127.0.0.1:${ports[0]}/setup/tailscale/operator`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ login: '', machine_name: 'curia.sh' }) })
+      assert.equal(noIdentity.status, 400)
+      assert.match((await noIdentity.json()).error, /no Tailscale identity/)
+      const confirmedOp = await (await fetch(`http://127.0.0.1:${ports[0]}/setup/tailscale/operator`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ login: 'Operator@Example.com', machine_name: 'curia-rootboot-test' }) })).json()
+      assert.equal(confirmedOp.ok, true)
+      assert.equal(confirmedOp.operator.login, 'operator@example.com')
+      assert.equal(confirmedOp.card.key, 'tailscale')
+      // The name can't match this host, so the verification stops before the
+      // Serve step and this test never publishes a route on the runner.
+      assert.equal(confirmedOp.card.state, 'failed', 'a confirmed operator is verified, whatever this host says about tailscale')
+      assert.ok(['node', 'certificate', 'name'].includes(confirmedOp.card.detail.stage), confirmedOp.card.detail.stage)
+      assert.deepEqual(await (await fetch(`http://127.0.0.1:${ports[0]}/identity`)).json(), { allow: ['operator@example.com'], first_operator: false })
+      const tsRecord = JSON.parse(fs.readFileSync(path.join(root, 'state', 'tailscale.json'), 'utf8'))
+      assert.equal(tsRecord.operator.login, 'operator@example.com')
+      assert.equal(fs.statSync(path.join(root, 'state', 'tailscale.json')).mode & 0o777, 0o600)
       assert.match(setup.cards[1].error.failed, /No Discord user ID/)
       assert.equal(setup.step, 'github')
       assert.equal(setup.full_loop.ready, false)
