@@ -80,6 +80,7 @@ function dist({ version = VERSION } = {}) {
     [assets.checksum]: `${sha256(archive)}  ${assets.bundle}\n`,
     [assets.images]: `${JSON.stringify({ version, images: DIGESTS }, null, 2)}\n`,
     [assets.manifest]: renderManifest(manifest),
+    [assets.bootstrap]: `#!/usr/bin/env bash\nCURIA_BOOTSTRAP_VERSION='${version}'\n`,
   }
   for (const [name, content] of Object.entries(files)) fs.writeFileSync(path.join(out, name), content)
   return { out, files, manifest, archive }
@@ -154,8 +155,8 @@ describe('attachAssets', () => {
       downloadAsset: async (tag, name) => Buffer.from(d.files[name]),
       uploadAsset: async (tag, file) => uploaded.push(path.basename(file)),
     })
-    assert.deepEqual(report, { uploaded: [assets.images, assets.manifest], kept: [assets.bundle, assets.checksum] })
-    assert.deepEqual(uploaded, [assets.images, assets.manifest])
+    assert.deepEqual(report, { uploaded: [assets.images, assets.manifest, assets.bootstrap], kept: [assets.bundle, assets.checksum] })
+    assert.deepEqual(uploaded, [assets.images, assets.manifest, assets.bootstrap])
   })
 
   test('refuses when the release carries the asset with different bytes', async () => {
@@ -198,7 +199,7 @@ describe('publishRelease', () => {
     })
     assert.deepEqual(published, [[TAG, { prerelease: false }]])
     assert.deepEqual(result, { published: true })
-    assert.match(out.text(), /release v1\.2\.3: published with 4 assets/)
+    assert.match(out.text(), /release v1\.2\.3: published with 5 assets/)
   })
 
   test('marks a prerelease version as a prerelease on GitHub', async () => {

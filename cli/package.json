@@ -23,6 +23,10 @@
   "engines": {
     "node": ">=24.0.0"
   },
+  "//curia": "The Node.js runtime the bootstrap stages under versions/<version>/node: the exact version config/curia.yaml pins for the release images, read by deploy/bootstrap/curia-install.sh with sed, so it stays one x.y.z on its own line. daemon/test/bootstrap.test.mjs keeps it equal to the pin.",
+  "curia": {
+    "node": "24.19.0"
+  },
   "scripts": {
     "test": "node --test 'test/*.test.mjs'"
   },

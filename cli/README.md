@@ -118,6 +118,18 @@ The contract:
 - `selectRelease(index, { requested, prerelease })` is the one selection rule and returns `{ version, selection }` with `selection` one of `stable`, `exact`, or `prerelease`, or throws a `Refusal`: no stable release named, a withdrawn version, a prerelease without `--prerelease`, `--prerelease` without a version or with a plain version, or a string that is not a release version. `selectionFromArgs(args)` reads `[<version>] [--prerelease]` for `curia update`, and `renderSelection` prints the one line.
 - `fetchStableIndex({ stdout, publicKey }, probes)` downloads through `stableProbes.stableIndex()`, verifies, prints one line, and returns `{ ok, index, error }`. A failed fetch carries the reason and no index, so a caller cannot select from a file that did not verify.
 
+## The bootstrap
+
+`deploy/bootstrap/curia-install.sh` is the script the operator downloads and runs on a host with no Node.js (#872). It is not part of this package: it is what acquires the package. It is one Bash file, the same for every release, published as the release asset `curia-install.sh` with only its own version stamped in by `deploy/bootstrap/render.mjs`, so `releases/latest/download/curia-install.sh` is the current one. The operator's view is [The bootstrap](https://github.com/alp82/curia/blob/main/docs/operator/bootstrap.md).
+
+What it needs from this package:
+
+- `curia.node` in `package.json`: the exact Node.js version to stage under `versions/<version>/node`, read with `sed`, so it stays one `x.y.z` on its own line. `daemon/test/bootstrap.test.mjs` keeps it equal to `sandbox.node_version` in `config/curia.yaml`, the pin the release images run on.
+- `stable-index.pub`, `src/stable.mjs` (`fetchStableIndex`, `selectRelease`, `renderSelection`), `src/manifest.mjs` (`verifyStagedRelease`), and `src/exit.mjs` (`Refusal`): the script writes a small `verify.mjs` into its stage that imports these from the staged package and runs them on the files it downloaded, with probes that read those files instead of the network.
+- `bin/curia.mjs`: the hand-off. The script runs `curia install` or `curia purge` on the staged runtime with `CURIA_ROOT` set, and for an installation `CURIA_STAGE` set to a directory that holds `node/`, `cli/`, `cli.tgz`, `bundle.tar.gz`, and `bundle.tar.gz.sha256`, the names `versionPaths` uses. The stage is removed when the command returns, so `curia install` (#873) moves or copies what it keeps before it returns.
+
+`daemon/test/bootstrap.test.mjs` runs the script against a local artifact server built from this package's sources and proves the hand-off, every refusal, and the purge dispatch without a network.
+
 ## The launcher
 
 The bootstrap writes `~/.local/bin/curia` once per installation. The launcher is a POSIX shell script with the installation root written into it. On each run it reads `state/installation.json`, takes `activeVersion`, and runs:

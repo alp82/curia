@@ -51,11 +51,13 @@ export class PublicationError extends Error {
 
 export const PUBLICATION_ORDER = Object.freeze(['images', 'assets', 'release', 'package'])
 
-// The four files the bundle job renders and the release carries, in upload
-// order. The package tarball is not one: npm serves it.
+// The five files the bundle job renders and the release carries, in upload
+// order. The package tarball is not one: npm serves it. The bootstrap is
+// last, under its fixed name, so releases/latest/download/curia-install.sh
+// is the current bootstrap once the release is published.
 function publishedAssets(version) {
   const a = releaseAssets(version)
-  return [a.bundle, a.checksum, a.images, a.manifest]
+  return [a.bundle, a.checksum, a.images, a.manifest, a.bootstrap]
 }
 
 // A digest or an integrity value, abbreviated for a report: the prefix and

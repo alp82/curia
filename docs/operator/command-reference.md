@@ -6,7 +6,7 @@ This page describes the vocabulary that the first packaged release ships. Comman
 
 ## The launcher
 
-The bootstrap installs one file, `~/.local/bin/curia`, and puts nothing else on your path. That file is the stable launcher. It runs as you, never as root, and it doesn't change across updates.
+[The bootstrap](bootstrap.md) installs one file, `~/.local/bin/curia`, and puts nothing else on your path. That file is the stable launcher. It runs as you, never as root, and it doesn't change across updates.
 
 On every run, the launcher:
 
@@ -25,7 +25,7 @@ The installation root is the one directory that holds an installed Curia. You ow
 2. `$XDG_DATA_HOME/curia`, when `XDG_DATA_HOME` is set.
 3. `~/.local/share/curia`.
 
-The root must be an absolute path. To install into a nondefault root, pass the root to the bootstrap. The bootstrap writes that root into the launcher, and every later command reads it from there.
+The root must be an absolute path. To install into a nondefault root, pass `--root` to [the bootstrap](bootstrap.md). The bootstrap writes that root into the launcher, and every later command reads it from there.
 
 ### Directory layout
 
