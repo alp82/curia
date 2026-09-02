@@ -7,6 +7,7 @@
 #     curl -fsSLO https://github.com/alp82/curia/releases/latest/download/curia-install.sh
 #     bash curia-install.sh                       install the stable release
 #     bash curia-install.sh --root /srv/curia     into a nondefault root
+#     bash curia-install.sh --name curia-box      the node's name on the tailnet
 #     bash curia-install.sh --version 1.2.4       an exact published version
 #     bash curia-install.sh --purge               purge the default root
 #     bash curia-install.sh --purge --root DIR    purge an explicit root
@@ -75,12 +76,15 @@ check_self
 
 usage() {
   cat <<'EOF'
-usage: bash curia-install.sh [--root <dir>] [--version <version> [--prerelease]]
+usage: bash curia-install.sh [--root <dir>] [--name <machine-name>] [--version <version> [--prerelease]]
        bash curia-install.sh --purge [--root <dir>] [--version <version> [--prerelease]]
 
 Options:
   --root <dir>         The installation root. Default: CURIA_ROOT, else
                        $XDG_DATA_HOME/curia, else ~/.local/share/curia.
+  --name <name>        The machine name this host joins the tailnet under
+                       when it is not logged in yet. Default: curia. A
+                       MagicDNS label: lowercase letters, digits, hyphens.
   --version <version>  Install an exact published version instead of the
                        stable release the signed index names.
   --prerelease         Allow --version to name a prerelease.
@@ -179,6 +183,7 @@ sri_to_hex() {
 # The command line.
 
 ROOT=''
+NAME=''
 REQUESTED=''
 PRERELEASE='false'
 COMMAND='install'
@@ -189,6 +194,11 @@ parse_args() {
       --root)
         [ "$#" -ge 2 ] || { printf 'curia-install: --root needs a directory\n' >&2; exit "$EXIT_USAGE"; }
         ROOT=$2
+        shift 2
+        ;;
+      --name)
+        [ "$#" -ge 2 ] || { printf 'curia-install: --name needs a machine name\n' >&2; exit "$EXIT_USAGE"; }
+        NAME=$2
         shift 2
         ;;
       --version)
@@ -229,6 +239,27 @@ resolve_root() {
   esac
 }
 
+# The machine name, checked here the way `curia install` checks it, so a
+# name that is not a MagicDNS label is a usage error before any download.
+check_name() {
+  if [ -n "$NAME" ] && [ "$COMMAND" = 'purge' ]; then
+    printf 'curia-install: --name is an installation option; a purge takes none\n' >&2
+    exit "$EXIT_USAGE"
+  fi
+  if [ -n "$NAME" ]; then
+    case "$NAME" in
+      *[!a-z0-9-]*|-*|*-|'')
+        printf 'curia-install: %s is not a machine name. Use lowercase letters, digits, and hyphens, up to 63 characters, not starting or ending with a hyphen, such as curia.\n' "$NAME" >&2
+        exit "$EXIT_USAGE"
+        ;;
+    esac
+    if [ "${#NAME}" -gt 63 ]; then
+      printf 'curia-install: %s is longer than the 63 characters a machine name may have.\n' "$NAME" >&2
+      exit "$EXIT_USAGE"
+    fi
+  fi
+}
+
 # ---------------------------------------------------------------------------
 # The stage: one temporary directory that holds every download and, once
 # proven, the unpacked runtime and package at the names an installed version
@@ -248,6 +279,7 @@ main() {
   parse_args "$@"
   check_host
   resolve_root
+  check_name
 
   if [ "$NPM_REGISTRY" != "$NPM_REGISTRY_DEFAULT" ] || [ "$RELEASE_DOWNLOADS" != "$RELEASE_DOWNLOADS_DEFAULT" ] \
      || [ "$NODE_DIST" != "$NODE_DIST_DEFAULT" ] || [ "$STABLE_INDEX_URL" != "$STABLE_INDEX_URL_DEFAULT" ]; then
@@ -424,7 +456,11 @@ EOF
   fi
   say "handing off to curia $COMMAND ($PACKAGE@$version on Node.js $reported)"
   status=0
-  "$node" "$STAGE/cli/bin/curia.mjs" "$COMMAND" || status=$?
+  if [ -n "$NAME" ]; then
+    "$node" "$STAGE/cli/bin/curia.mjs" "$COMMAND" --name "$NAME" || status=$?
+  else
+    "$node" "$STAGE/cli/bin/curia.mjs" "$COMMAND" || status=$?
+  fi
   exit "$status"
 }
 

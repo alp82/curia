@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process'
+import { spawn } from 'node:child_process'
 import { lstatSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -97,11 +97,40 @@ export function serveRoutes(config) {
 }
 
 // The real `tailscale` CLI, the same shape as `dockerRunner` in compose.mjs:
-// one invocation, output captured, never a throw.
-export const tailscaleRunner = (args, { timeoutMs = 60_000 } = {}) => new Promise((resolve) => {
-  execFile('tailscale', args, { timeout: timeoutMs, maxBuffer: 8 * 1024 * 1024 }, (error, stdout, stderr) => {
-    if (!error) return resolve({ ok: true, stdout, stderr, code: 0 })
-    resolve({ ok: false, stdout, stderr: stderr || error.message, code: error.code, missing: error.code === 'ENOENT', timedOut: Boolean(error.killed) })
+// one invocation, output captured, never a throw. `onLine` receives each
+// line of output as it arrives, which is how the tailnet step (tailnet.mjs)
+// takes the login link off a `tailscale up` that blocks until the login.
+export const tailscaleRunner = (args, { timeoutMs = 60_000, onLine } = {}) => new Promise((resolve) => {
+  let child
+  try {
+    child = spawn('tailscale', args, { stdio: ['ignore', 'pipe', 'pipe'] })
+  } catch (error) {
+    return resolve({ ok: false, stdout: '', stderr: error.message, code: error.code, missing: error.code === 'ENOENT', timedOut: false })
+  }
+  let stdout = ''
+  let stderr = ''
+  let timedOut = false
+  const timer = setTimeout(() => { timedOut = true; child.kill('SIGKILL') }, timeoutMs)
+  const lines = { out: '', err: '' }
+  const feed = (which, chunk) => {
+    lines[which] += chunk
+    let at
+    while ((at = lines[which].indexOf('\n')) >= 0) {
+      onLine?.(lines[which].slice(0, at))
+      lines[which] = lines[which].slice(at + 1)
+    }
+  }
+  child.stdout.setEncoding('utf8').on('data', (chunk) => { stdout += chunk; feed('out', chunk) })
+  child.stderr.setEncoding('utf8').on('data', (chunk) => { stderr += chunk; feed('err', chunk) })
+  child.once('error', (error) => {
+    clearTimeout(timer)
+    resolve({ ok: false, stdout, stderr: stderr || error.message, code: error.code, missing: error.code === 'ENOENT', timedOut })
+  })
+  child.once('close', (code, signal) => {
+    clearTimeout(timer)
+    for (const which of ['out', 'err']) if (lines[which]) onLine?.(lines[which])
+    if (code === 0) return resolve({ ok: true, stdout, stderr, code: 0 })
+    resolve({ ok: false, stdout, stderr: stderr || (signal ? `killed by ${signal}` : `exit ${code}`), code: code ?? signal, missing: false, timedOut })
   })
 })
 

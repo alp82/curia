@@ -105,10 +105,22 @@ describe('the daemon under an installation root (#867)', () => {
   // one of those keys is blanked so the boot under test decides.
   const cleanEnv = () => Object.fromEntries(CREDENTIAL_ENV_KEYS.map((k) => [k, '']))
 
+  // The Tailscale card compares no name since #891, so a confirmed operator
+  // on a runner whose real node is logged in with a certificate would reach
+  // the Serve step and publish a route. A `tailscale` shim first on the
+  // daemon's PATH answers a logged-out node, so the verification stops at
+  // the node and this test never touches the runner's tailnet.
+  const shim = () => {
+    const dir = fs.mkdtempSync(path.join(tmp, 'tailscale-shim-'))
+    fs.writeFileSync(path.join(dir, 'tailscale'), '#!/bin/sh\necho \'{"BackendState":"NeedsLogin","CertDomains":[],"Self":{"DNSName":"","Online":false}}\'\n', { mode: 0o755 })
+    return dir
+  }
+
   const boot = (extraEnv) => spawn(process.execPath, [DAEMON], {
     env: {
       ...process.env,
       ...cleanEnv(),
+      PATH: `${shim()}:${process.env.PATH ?? ''}`,
       PORT: String(ports[0]),
       CURIA_CONFIG_DIR: cfgDir,
       CURIA_ROOT: root,
@@ -200,17 +212,17 @@ describe('the daemon under an installation root (#867)', () => {
       // the identity read says nobody is admitted and the first-operator
       // window is open; curia.yaml's `tester@example.com` admits nobody here.
       assert.deepEqual(await (await fetch(`http://127.0.0.1:${ports[0]}/identity`)).json(), { allow: [], first_operator: true })
-      const noIdentity = await fetch(`http://127.0.0.1:${ports[0]}/setup/tailscale/operator`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ login: '', machine_name: 'curia.sh' }) })
+      const noIdentity = await fetch(`http://127.0.0.1:${ports[0]}/setup/tailscale/operator`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ login: '' }) })
       assert.equal(noIdentity.status, 400)
       assert.match((await noIdentity.json()).error, /no Tailscale identity/)
-      const confirmedOp = await (await fetch(`http://127.0.0.1:${ports[0]}/setup/tailscale/operator`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ login: 'Operator@Example.com', machine_name: 'curia-rootboot-test' }) })).json()
+      const confirmedOp = await (await fetch(`http://127.0.0.1:${ports[0]}/setup/tailscale/operator`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ login: 'Operator@Example.com' }) })).json()
       assert.equal(confirmedOp.ok, true)
       assert.equal(confirmedOp.operator.login, 'operator@example.com')
       assert.equal(confirmedOp.card.key, 'tailscale')
-      // The name can't match this host, so the verification stops before the
-      // Serve step and this test never publishes a route on the runner.
+      // The shimmed node is logged out, so the verification stops at the
+      // node and this test never publishes a route on the runner.
       assert.equal(confirmedOp.card.state, 'failed', 'a confirmed operator is verified, whatever this host says about tailscale')
-      assert.ok(['node', 'certificate', 'name'].includes(confirmedOp.card.detail.stage), confirmedOp.card.detail.stage)
+      assert.equal(confirmedOp.card.detail.stage, 'node')
       assert.deepEqual(await (await fetch(`http://127.0.0.1:${ports[0]}/identity`)).json(), { allow: ['operator@example.com'], first_operator: false })
       const tsRecord = JSON.parse(fs.readFileSync(path.join(root, 'state', 'tailscale.json'), 'utf8'))
       assert.equal(tsRecord.operator.login, 'operator@example.com')

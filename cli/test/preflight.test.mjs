@@ -35,11 +35,10 @@ function ubuntu(overrides = {}) {
     tailscale: {
       installed: true,
       version: '1.80.2',
+      daemon: { running: true, error: null },
       backendState: 'Running',
       online: true,
-      socket: { path: '/var/run/tailscale/tailscaled.sock', accessible: true },
       certDomains: ['host.tail1234.ts.net'],
-      serve: { permitted: true },
     },
     outbound: RELEASE_ORIGINS.map((origin) => ({ origin, reachable: true, certificateValid: true, skewSeconds: 2 })),
     ...overrides,
@@ -202,24 +201,20 @@ describe('refused conditions stop the operation', () => {
     refusedOn(evaluateHostFacts(ubuntu({ tailscale: null })), 'Tailscale', /not installed/, /tailscale\.com/)
   })
 
-  test('a Tailscale node that needs a login', () => {
+  test('a tailscaled that is not running', () => {
+    const tailscale = { ...ubuntu().tailscale, daemon: { running: false, error: 'failed to connect to local tailscaled; it doesn\'t appear to be running' }, backendState: 'Unknown', online: false, certDomains: [] }
+    refusedOn(evaluateHostFacts(ubuntu({ tailscale })), 'Tailscale', /tailscaled is not running/, /sudo systemctl start tailscaled/)
+  })
+
+  // Since #891 the login, the operator permission, and the certificate are
+  // the tailnet step's, inside `curia install`: the preflight asks only for
+  // the package and the daemon, because those are what Curia never installs.
+  test('a Tailscale node that needs a login passes the preflight; the tailnet step logs it in', () => {
     const tailscale = { ...ubuntu().tailscale, backendState: 'NeedsLogin', online: false, certDomains: [] }
-    refusedOn(evaluateHostFacts(ubuntu({ tailscale })), 'Tailscale', /NeedsLogin/, /sudo tailscale up/)
-  })
-
-  test('a tailscaled socket the operator cannot reach', () => {
-    const tailscale = { ...ubuntu().tailscale, socket: { path: '/var/run/tailscale/tailscaled.sock', accessible: false } }
-    refusedOn(evaluateHostFacts(ubuntu({ tailscale })), 'Tailscale', /cannot open \/var\/run\/tailscale\/tailscaled\.sock/, /tailscale set --operator/)
-  })
-
-  test('a Tailscale operator that may not use Serve', () => {
-    const tailscale = { ...ubuntu().tailscale, serve: { permitted: false, error: 'Access denied: serve requires operator permission' } }
-    refusedOn(evaluateHostFacts(ubuntu({ tailscale })), 'Tailscale', /Serve/, /tailscale set --operator=\$USER/)
-  })
-
-  test('a tailnet without HTTPS certificates', () => {
-    const tailscale = { ...ubuntu().tailscale, certDomains: [] }
-    refusedOn(evaluateHostFacts(ubuntu({ tailscale })), 'Tailscale', /HTTPS certificates/, /admin console/)
+    const report = evaluateHostFacts(ubuntu({ tailscale }))
+    assert.equal(report.ok, true)
+    assert.equal(check(report, 'Tailscale').status, 'passed')
+    assert.match(check(report, 'Tailscale').observed, /NeedsLogin/)
   })
 
   test('a release origin that is unreachable', () => {
@@ -314,7 +309,6 @@ function fakeProbes(overrides = {}) {
     if (line === 'docker compose version --short') return { ok: true, stdout: '2.32.4\n' }
     if (line === 'tailscale version') return { ok: true, stdout: '1.80.2\n  tailscale commit: abc\n' }
     if (line === 'tailscale status --json') return { ok: true, stdout: JSON.stringify({ BackendState: 'Running', Self: { Online: true }, CertDomains: ['host.tail1234.ts.net'] }) }
-    if (line === 'tailscale serve status') return { ok: true, stdout: 'No serve config\n' }
     if (line.startsWith('getent group docker')) return { ok: true, stdout: 'docker:x:988:operator\n' }
     if (line.startsWith('docker run ')) {
       const dir = args[args.indexOf('-v') + 1].split(':')[0]
@@ -356,7 +350,8 @@ describe('gatherHostFacts', () => {
     assert.equal(facts.compose.version, '2.32.4')
     assert.equal(facts.tailscale.version, '1.80.2')
     assert.deepEqual(facts.tailscale.certDomains, ['host.tail1234.ts.net'])
-    assert.deepEqual(facts.tailscale.serve, { permitted: true })
+    assert.deepEqual(facts.tailscale.daemon, { running: true, error: null })
+    assert.ok(!probes.calls.some((c) => c[0] === 'tailscale' && c[1] === 'serve'), 'the preflight never asks about Serve')
     assert.equal(facts.outbound.length, RELEASE_ORIGINS.length)
     assert.equal(facts.ports.sandboxFree, 300)
     const report = evaluateHostFacts(facts)
@@ -422,16 +417,18 @@ describe('gatherHostFacts', () => {
     assert.deepEqual(report.checks.filter((c) => c.status === 'refused').map((c) => c.name), ['Docker Engine', 'Docker capabilities', 'Docker Compose', 'Tailscale', 'Docker socket group'])
   })
 
-  test('a Serve refusal from tailscale reads as not permitted', async () => {
+  test('a tailscaled that does not answer reads as not running, and the node facts are unknown', async () => {
     const probes = fakeProbes({
       exec: async (file, args) => {
         const line = [file, ...args].join(' ')
-        if (line === 'tailscale serve status') return { ok: false, stdout: '', stderr: 'Access denied: serve requires operator permission\n', code: 1 }
+        if (line === 'tailscale status --json') return { ok: false, stdout: '', stderr: 'failed to connect to local tailscaled; it doesn\'t appear to be running\n', code: 1 }
         return fakeProbes().exec(file, args)
       },
     })
     const facts = await gatherHostFacts({ uid: 1001, root: '/home/operator/.local/share/curia' }, probes)
-    assert.deepEqual(facts.tailscale.serve, { permitted: false, error: 'Access denied: serve requires operator permission' })
+    assert.deepEqual(facts.tailscale.daemon, { running: false, error: 'failed to connect to local tailscaled; it doesn\'t appear to be running' })
+    assert.equal(facts.tailscale.backendState, 'Unknown')
+    assert.deepEqual(facts.tailscale.certDomains, [])
   })
 
   test('a Docker daemon the client cannot reach reads as not running', async () => {

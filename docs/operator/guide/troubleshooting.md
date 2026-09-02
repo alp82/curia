@@ -36,6 +36,12 @@ Before the hand-off to `curia install`. A refusal leaves nothing on the host: no
 | `preflight: ` and a host check | A refused host condition, for example a busy port, a Docker daemon your user can't reach, or another operating-system release. | The one action per check is in [The checks](../supported-hosts.md#the-checks). |
 | `preflight: ` and a root condition: foreign ownership, a mode past `0700`, a symbolic link, or an unknown nonempty root | The root or one of its seven directories isn't safe. | Fix the named path (`chmod 0700`, replace the link, or choose an empty directory). Curia never repairs or deletes it. See [When a lifecycle command refuses the root](../command-reference.md#when-a-lifecycle-command-refuses-the-root). |
 | `root: another lifecycle operation is running` | A second lifecycle command holds `run/lifecycle.lock`. | Wait for it to finish. A lock whose process is gone is taken over on the next run; never delete it by hand. |
+| `tailnet failed: no login arrived within 10 minutes` | The machine wasn't approved from the link in time. | Open the link on a device where you're signed in to Tailscale and approve the machine, then rerun; the rerun lands at `tailnet` and prints a fresh link when needed. |
+| `tailnet: your user may not operate Tailscale on this host` | Your user isn't the Tailscale operator, so `tailscale up` and Serve are refused for it. | Run the `sudo tailscale set --operator=<user>` command the message names, then rerun. |
+| `tailnet: the tailnet issues no HTTPS certificate for this node` | HTTPS certificates are off for the tailnet. | Enable them under **DNS** in the [Tailscale admin console](https://login.tailscale.com/admin/dns), then rerun. |
+| `tailnet: this node is not logged in to a tailnet` on `curia reinstall` | Reinstall inspects the tailnet and never logs in. | Run `curia install`, which joins the tailnet, or `sudo tailscale up` on the host. |
+| `this node is named <x>, not <y>` (not a refusal) | The node was already logged in under another name. | Nothing; the install continues with the actual name. To rename it, run `sudo tailscale set --hostname <name>` on the host. |
+| `<name> is not a machine name` (exit `2`) | `--name` isn't a MagicDNS label. | Use lowercase letters, digits, and hyphens, up to 63 characters. |
 | `stage: ` and a verification check | The release didn't verify against its manifest. | The failure classes are in [When a check fails](../release-manifest.md#when-a-check-fails). |
 | `activate failed` | The launcher couldn't be written. | Check that `~/.local/bin` is a directory you own. |
 | `start failed: docker compose ... pull failed` with a name-resolution or connection error | No outbound access to `ghcr.io`. | Allow it; see [Network](../supported-hosts.md#network). |
@@ -60,8 +66,7 @@ The Setup screen. A failed card reads **Action required** with the failed check 
 | Discord: `The bot is not in the selected server` | The bot wasn't added. | Select **Add the bot to a server** and approve it in Discord. |
 | Discord: `curia can't Send Messages in #curia`, or another permission | The channel's permissions block the bot. | Allow the named permission for the bot in that channel. |
 | Discord: verified, but the bot doesn't answer | The bridge reads the token at boot and hasn't restarted since the first connection. | Select **Restart Curia** in the panel. |
-| Tailscale: `This node is named <x>, not <y>` | The machine name you entered isn't the node's. | Run `sudo tailscale set --hostname <name>` on the host, or enter the current name. |
-| Tailscale: no certificate, node offline, or Serve refused | The tailnet's HTTPS certificates are off, the node is logged out, or your user isn't the Tailscale operator. | Enable HTTPS certificates under **DNS** in the admin console, run `sudo tailscale up`, or run `sudo tailscale set --operator=$USER`. |
+| Tailscale: no certificate, node offline, or Serve refused | The tailnet's HTTPS certificates were turned off, the node was logged out, or the operator permission was removed since the install. | Enable HTTPS certificates under **DNS** in the admin console, run `curia install` (or `sudo tailscale up`) to log the node in again, or run `sudo tailscale set --operator=$USER`. |
 | Model provider: the link or code doesn't show | The sign-in session hasn't started, or the agent image is still being prepared on a fresh installation. | Wait a minute, then select **Open the terminal instead** to watch the session. |
 | Model provider: `refused the credential (HTTP 401` or `403)` | The credential expired or was revoked. | Sign in again from the panel. |
 | Model provider: HTTP 429 | The subscription's usage window is spent. | Wait for it to reset, or sign in with another subscription. |
@@ -109,6 +114,7 @@ A rejected review isn't a failure. The agent takes your feedback and asks for re
 
 | You see | Cause | Action, then rerun `curia update` |
 |---|---|---|
+| `preflight: this node is not logged in to a tailnet` | The node was logged out since the install. Update inspects the tailnet and never logs in. | Run `curia install`, which joins the tailnet, or `sudo tailscale up` on the host, then rerun. |
 | `select: the stable-release index could not be downloaded` | No outbound access to `raw.githubusercontent.com`. | Allow it; see [Network](../supported-hosts.md#network). |
 | `select: ... signed with key ...` | The index was signed with a key the installed package doesn't pin. | Don't install from it. Report it. |
 | `select: <version> is withdrawn` | The version is marked known-bad. | Choose another version, or run without a version for the stable release. |
@@ -129,6 +135,7 @@ A rejected review isn't a failure. The agent takes your feedback and asks for re
 
 | You see | Cause | Action |
 |---|---|---|
+| `preflight: this node is not logged in to a tailnet` | The node was logged out. Rollback inspects the tailnet and never logs in. | Run `curia install` or `sudo tailscale up` on the host, then `curia rollback` again. |
 | `select: versions/ holds no release beside the active one` | No rollback release: no update since the last install or reinstall. | Nothing to roll back. Run `curia update <version>` to move to another version. |
 | `select: versions/ holds two releases beside the active one` | A failed update left its staged target beside the rollback release. | Run `curia update` to finish it, or remove the staged release from `versions/`, then `curia rollback` again. |
 | `validate: <version> refuses the current operator configuration` | The rollback release can't read `config/config.yaml` as it stands. | Change the named line so both releases accept it, then `curia rollback` again. Or stay on the active release. |

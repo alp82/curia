@@ -92,7 +92,6 @@ export const RELEASE_ORIGINS = Object.freeze(['https://registry.npmjs.org', 'htt
 export const CLOCK_SKEW_LIMIT_SECONDS = 300
 
 const DOCKER_SOCKET = '/var/run/docker.sock'
-const TAILSCALE_SOCKET = '/var/run/tailscale/tailscaled.sock'
 const PROBE_IMAGE = 'busybox:stable'
 const PROBE_TIMEOUT_MS = 60_000
 
@@ -108,7 +107,7 @@ export const CHECKS = Object.freeze([
   Object.freeze({ name: 'Docker Engine', severity: 'mixed', summary: 'A running Docker Engine the operator can reach, in the tested range.' }),
   Object.freeze({ name: 'Docker capabilities', severity: 'blocking', summary: 'A probe container reads a bind mount and reaches the host network.' }),
   Object.freeze({ name: 'Docker Compose', severity: 'mixed', summary: 'The Compose v2 plugin, in the tested range.' }),
-  Object.freeze({ name: 'Tailscale', severity: 'mixed', summary: 'A logged-in node with HTTPS certificates whose operator may use Serve.' }),
+  Object.freeze({ name: 'Tailscale', severity: 'mixed', summary: 'The Tailscale package is installed and tailscaled is running, in the tested range.' }),
   Object.freeze({ name: 'outbound access', severity: 'blocking', summary: 'The three release origins answer over HTTPS.' }),
   Object.freeze({ name: 'release verification', severity: 'blocking', summary: 'Certificates verify and the clock agrees with the release origins.' }),
   Object.freeze({ name: 'Docker socket group', severity: 'blocking', summary: 'A docker group exists for the containers that reach the socket.' }),
@@ -280,24 +279,19 @@ function composeCheck({ compose }) {
 
 const TAILSCALE_INSTALL = 'Install Tailscale from https://tailscale.com/download/linux and run the command again.'
 
+// The package and the daemon are what Curia never installs, so they are the
+// prerequisite. The login, the operator permission, and the certificate are
+// the tailnet step's (`cli/src/tailnet.mjs`), which `curia install` runs
+// after this and which logs the node in when it is not (#891).
 function tailscaleCheck({ tailscale }) {
   if (!tailscale) return refused('Tailscale', 'Tailscale is not installed, or the tailscale command is not on the path.', TAILSCALE_INSTALL)
   const version = versionVerdict('Tailscale', 'tailscale', tailscale.version, TAILSCALE_INSTALL)
   if (version?.status === 'refused') return version
-  if (!tailscale.socket.accessible) {
-    return refused('Tailscale', `the operator cannot open ${tailscale.socket.path}.`, 'Run `sudo tailscale set --operator=$USER` and run the command again.')
-  }
-  if (tailscale.backendState !== 'Running' || !tailscale.online) {
-    return refused('Tailscale', `the node is ${tailscale.backendState}${tailscale.online ? '' : ' and offline'}.`, 'Run `sudo tailscale up`, finish the login in the browser, and run the command again.')
-  }
-  if (!tailscale.serve.permitted) {
-    return refused('Tailscale', `the operator may not use Tailscale Serve (${tailscale.serve.error ?? 'access denied'}).`, 'Run `sudo tailscale set --operator=$USER` and run the command again.')
-  }
-  if (tailscale.certDomains.length === 0) {
-    return refused('Tailscale', 'the tailnet issues no HTTPS certificates for this node, so Serve cannot publish the Curia app.', 'Enable HTTPS certificates under DNS in the Tailscale admin console at https://login.tailscale.com/admin/dns and run the command again.')
+  if (!tailscale.daemon.running) {
+    return refused('Tailscale', `tailscaled is not running (${tailscale.daemon.error ?? 'it did not answer'}).`, 'Run `sudo systemctl start tailscaled` and run the command again.')
   }
   if (version) return version
-  return passed('Tailscale', `Tailscale ${tailscale.version}, ${tailscale.backendState}, ${tailscale.certDomains[0]}`)
+  return passed('Tailscale', `Tailscale ${tailscale.version}, tailscaled running, node ${tailscale.backendState}`)
 }
 
 function outboundCheck({ outbound }) {
@@ -527,20 +521,21 @@ async function composeFacts(probes) {
   return version ? { version } : null
 }
 
+// `tailscale status --json` answers as any user when tailscaled runs, in
+// every backend state; it fails only when the daemon is not there to ask.
 async function tailscaleFacts(probes) {
   const version = await probes.exec('tailscale', ['version'])
   if (version.missing || !version.ok) return null
-  const socket = { path: TAILSCALE_SOCKET, accessible: probes.socketAccessible(TAILSCALE_SOCKET) }
-  const status = parseJson((await probes.exec('tailscale', ['status', '--json'])).stdout) ?? {}
-  const serve = await probes.exec('tailscale', ['serve', 'status'])
+  const status = await probes.exec('tailscale', ['status', '--json'])
+  const parsed = parseJson(status.stdout)
+  const running = Boolean(parsed && typeof parsed === 'object' && parsed.BackendState)
   return {
     installed: true,
     version: version.stdout.split('\n')[0].trim(),
-    backendState: status.BackendState ?? 'Unknown',
-    online: Boolean(status.Self?.Online),
-    socket,
-    certDomains: status.CertDomains ?? [],
-    serve: serve.ok ? { permitted: true } : { permitted: false, error: firstLine(serve.stderr) || firstLine(serve.stdout) || 'access denied' },
+    daemon: running ? { running: true, error: null } : { running: false, error: firstLine(status.stderr) || firstLine(status.stdout) || 'tailscaled did not answer' },
+    backendState: parsed?.BackendState ?? 'Unknown',
+    online: Boolean(parsed?.Self?.Online),
+    certDomains: parsed?.CertDomains ?? [],
   }
 }
 

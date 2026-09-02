@@ -34,7 +34,7 @@ async function version({ env, stdout }) {
 
 // Order matters: `curia help` lists the commands in lifecycle order.
 export const commands = {
-  install: { summary: 'Install Curia into the installation root and start it.', run: installCommand('install') },
+  install: { summary: 'Install Curia into the installation root and start it, joining the tailnet as --name <machine-name> (default curia) when the node is not logged in.', run: installCommand('install'), options: true },
   reinstall: { summary: 'Reinstall this version over a preserved installation root, keeping its identity, configuration, secrets, state, and work.', run: installCommand('reinstall') },
   update: { summary: 'Stage, verify, and switch to the latest stable release, or to an exact version (--prerelease for an exact prerelease).', run: updateCommand, options: true },
   rollback: { summary: 'Switch back to the one retained previous release, after it validates the current configuration.', run: rollbackCommand },

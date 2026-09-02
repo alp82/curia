@@ -80,7 +80,7 @@ Curia is purged. The installation root /home/you/.local/share/curia is removed.
 External resources Curia never deletes. Deleting the local secret files revokes nothing: each credential stays valid until you remove it where it was issued.
   GitHub App 424242 and its installations: https://github.com/settings/apps
   Discord bot, server 987..., channel curia: https://discord.com/developers/applications
-  Tailscale node curia.sh: https://login.tailscale.com/admin/machines
+  Tailscale node curia: https://login.tailscale.com/admin/machines
   Serve route https://:8445 -> http://127.0.0.1:4273: withdrawn
   Model-provider logins (Anthropic, OpenAI): revoke them in each provider's account settings if you won't reinstall; only the local copies were deleted.
 ```

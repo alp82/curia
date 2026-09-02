@@ -51,7 +51,7 @@ const tailscale = (over = {}) => async () => ({
     node: { backend_state: 'Running', online: true, dns_name: 'curia.tail1234.ts.net.', cert_domains: ['curia.tail1234.ts.net'], ips: ['100.64.0.1'], version: '1.80.0' },
     address: 'curia.tail1234.ts.net',
     app_url: 'https://curia.tail1234.ts.net:8445/',
-    machine_name: { wanted: 'curia.sh', expected: 'curia', actual: 'curia' },
+    machine_name: 'curia',
     serve: { url: 'https://curia.tail1234.ts.net:8445', route: '127.0.0.1:4273', created: false, error: null },
     app: { status: 200, ms: 12 },
     verified_at: '2026-09-01T10:00:00.000Z',

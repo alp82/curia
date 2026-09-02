@@ -17,7 +17,7 @@ import { createStableIndex, generateStableIndexKeys, signStableIndex } from '../
 import { isCompleteStage } from '../src/stage.mjs'
 import { CORE_SERVICES } from '../src/switch.mjs'
 import { SERVICES } from '../src/layout.mjs'
-import { acquireProbesFor, artifactsOf, fakeDocker, fakeLoopback, healthy, hostProbes, release as releaseIn, releaseProbesFor, stageOf as stageIn } from './fixtures/install.mjs'
+import { acquireProbesFor, artifactsOf, fakeDocker, fakeLoopback, fakeTailscale, healthy, hostProbes, loggedOutStatus, release as releaseIn, releaseProbesFor, stageOf as stageIn } from './fixtures/install.mjs'
 
 const ACTIVE = packageVersion
 const NOW = '2026-09-02T10:00:00Z'
@@ -80,7 +80,7 @@ async function installed({ reader } = {}) {
   const env = { HOME: home, CURIA_ROOT: root, CURIA_STAGE: stageIn(scratch, r) }
   const exit = await runInstall(
     { env, args: [], stdout: io.stdout, stderr: io.stderr, uid: process.getuid(), gid: process.getgid(), root },
-    { hostProbes: hostProbes(), releaseProbes: releaseProbesFor(r), docker: fakeDocker(), sleep: async () => {}, now: () => 0 },
+    { hostProbes: hostProbes(), releaseProbes: releaseProbesFor(r), docker: fakeDocker(), tailscale: fakeTailscale(), sleep: async () => {}, now: () => 0 },
   )
   assert.equal(exit, EXIT.ok, io.err())
   writeFileSync(join(root, 'secrets', 'discord-bot-token'), `${SECRET}\n`, { mode: 0o600 })
@@ -127,6 +127,7 @@ async function attempt({ env, root, args = [], probes = {}, docker = fakeDocker(
   let clock = 0
   const deps = {
     hostProbes: hostProbes(probes.host),
+    tailscale: fakeTailscale(),
     docker,
     fetch,
     sleep: async (ms) => { clock += ms },
@@ -295,7 +296,7 @@ describe('refusals', () => {
     const io = capture()
     const exit = await runInstall(
       { env: { HOME: home, CURIA_ROOT: root, CURIA_STAGE: stageIn(scratch, r) }, args: [], stdout: io.stdout, stderr: io.stderr, uid: process.getuid(), gid: process.getgid(), root },
-      { hostProbes: hostProbes(), releaseProbes: releaseProbesFor(r), docker: fakeDocker(), sleep: async () => {}, now: () => 0 },
+      { hostProbes: hostProbes(), releaseProbes: releaseProbesFor(r), docker: fakeDocker(), tailscale: fakeTailscale(), sleep: async () => {}, now: () => 0 },
     )
     assert.equal(exit, EXIT.ok, io.err())
     const env = { HOME: home, CURIA_ROOT: root }
@@ -349,6 +350,19 @@ describe('refusals', () => {
     assert.equal(a.exit, EXIT.refused)
     assert.match(a.error.message, /^preflight: /)
     assert.equal(readInstallationRecord(root).activeVersion, '1.4.0')
+  })
+
+  // Since #891 the tailnet is the install's to join; here it is inspected
+  // only, inside preflight, and a logged-out node is a refusal that names
+  // `curia install`. Nothing is brought up.
+  test('a node that is logged out of its tailnet is refused at preflight, inspect-only', async () => {
+    const { env, root } = await installed()
+    const tailscale = fakeTailscale({ status: loggedOutStatus() })
+    const a = await attempt({ env, root, probes: { deps: { tailscale } } })
+    assert.equal(a.exit, EXIT.refused)
+    assert.match(a.error.message, /^preflight: this node is not logged in to a tailnet \(NeedsLogin\)\. Run 'curia install'/)
+    assert.ok(tailscale.calls.every((c) => c[0] === 'status'), 'only reads')
+    assert.equal(readInstallationRecord(root).activeVersion, ACTIVE)
   })
 
   test('an option is a usage error through the command line, and nothing runs', async () => {

@@ -1,7 +1,8 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from 'node:fs'
+import { userInfo } from 'node:os'
 import { dirname, join } from 'node:path'
 
-import { EXIT, Refusal } from './exit.mjs'
+import { EXIT, Refusal, UsageError } from './exit.mjs'
 import { BOOTSTRAP_COMMAND } from './acquire.mjs'
 import { writeAtomically } from './atomic.mjs'
 import { composeProject, dockerRunner, startProject, waitForHealth, writeComposeEnvironment } from './compose.mjs'
@@ -13,10 +14,13 @@ import { releaseProbes } from './manifest.mjs'
 import { hostProbes, preflight } from './preflight.mjs'
 import { createInstallationRecord, ensureLayout, openRoot, versionPaths, writeInstallationRecord } from './root.mjs'
 import { isCompleteStage, placeVersion, stagedVersion, verifyRetained } from './stage.mjs'
+import { DEFAULT_NODE_NAME, MAGICDNS_LABEL_RE, joinTailnet } from './tailnet.mjs'
+import { tailscaleRunner } from './tailscale.mjs'
 
 // `curia install` and `curia reinstall` (#873, implementing #851, #854, #857,
-// and #862): from a verified stage to a healthy packaged Curia and a reachable
-// app, as one linear sequence of six named steps.
+// and #862; the tailnet step from the #891 rehearsal): from a verified stage
+// to a healthy packaged Curia and a reachable app, as one linear sequence of
+// seven named steps.
 //
 //   preflight  the root boundary (`openRoot`) and the host preflight. Nothing
 //              on disk changes. A refusal here creates no root.
@@ -25,6 +29,14 @@ import { isCompleteStage, placeVersion, stagedVersion, verifyRetained } from './
 //              version, and a fresh root gets the initial operator
 //              configuration. A recognized root keeps its installation ID,
 //              config/, secrets/, state/, and work/: that is a reinstall.
+//   tailnet    the node is logged in to the tailnet under the name `--name`
+//              asked for (default `curia`), or joined now: the login link
+//              is printed on the terminal and the step waits for the
+//              approval. Then the operator may use Tailscale Serve and the
+//              tailnet issues the node's certificate. This comes before the
+//              stage so nothing is downloaded onto a host that cannot be
+//              reached. `curia reinstall` runs it inspect-only: it logs
+//              nothing in. The step is `joinTailnet` in tailnet.mjs.
 //   stage      the staged artifacts are verified against the release manifest
 //              and land under versions/<version>/ as one complete version,
 //              read-only, replacing that directory if it was there.
@@ -52,7 +64,7 @@ import { isCompleteStage, placeVersion, stagedVersion, verifyRetained } from './
 // another version is `curia update` (#883), which stages through the same
 // `placeVersion` in stage.mjs.
 
-export const INSTALL_STEPS = Object.freeze(['preflight', 'root', 'stage', 'activate', 'start', 'health'])
+export const INSTALL_STEPS = Object.freeze(['preflight', 'root', 'tailnet', 'stage', 'activate', 'start', 'health'])
 
 // The Tailscale Serve port of the Curia app, `dashboard.serve_port` in
 // config/curia.yaml. daemon/test/preflightports.test.mjs keeps them equal.
@@ -61,13 +73,15 @@ export const APP_SERVE_PORT = 8445
 export const packageVersion = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version
 
 // The command's seam. `context` is what `runCli` hands a command plus `gid`
-// and `mode` (`install` or `reinstall`). `deps` are the boundaries a test
-// replaces: the host probes, the release probes, the Docker runner, and the
-// clock the health wait uses.
+// and `mode` (`install` or `reinstall`); `args` holds `[--name <label>]`
+// for an install and nothing else. `deps` are the boundaries a test
+// replaces: the host probes, the release probes, the Docker runner, the
+// `tailscale` runner, and the clock the waits use.
 export async function runInstall(
-  { env, stdout, uid, gid, root, mode = 'install' },
-  { hostProbes: host = hostProbes, releaseProbes: release = releaseProbes, docker = dockerRunner, sleep, now } = {},
+  { env, args = [], stdout, uid, gid, root, mode = 'install' },
+  { hostProbes: host = hostProbes, releaseProbes: release = releaseProbes, docker = dockerRunner, tailscale = tailscaleRunner, sleep, now } = {},
 ) {
+  const name = nameFromArgs(args)
   const version = packageVersion
   const launcher = launcherPath(env)
   const steps = sequence({ stdout, launcher, mode })
@@ -80,7 +94,6 @@ export async function runInstall(
     const hostReport = await preflight({ uid, root, stdout }, host)
     if (!hostReport.ok) throw hostReport.refusal
     const dockerGid = hostReport.facts.docker.group.gid
-    const appHost = hostReport.facts.tailscale.certDomains[0]
 
     // 2. root
     steps.begin('root')
@@ -102,7 +115,12 @@ export async function runInstall(
         say(`keeping ${configPath}`)
       }
 
-      // 3. stage
+      // 3. tailnet
+      steps.begin('tailnet')
+      const node = await joinTailnet({ name, mode: mode === 'install' ? 'join' : 'inspect', user: operatorUser(env), stdout }, { tailscale, sleep, now })
+      const appHost = node.address
+
+      // 4. stage
       steps.begin('stage')
       const paths = versionPaths(root, version)
       const stage = env.CURIA_STAGE
@@ -122,7 +140,7 @@ export async function runInstall(
         throw new Refusal(`no release to install: CURIA_STAGE is not set and ${paths.dir} holds no complete version. Run the bootstrap: ${BOOTSTRAP_COMMAND}`)
       }
 
-      // 4. activate
+      // 5. activate
       steps.begin('activate')
       writeInstallationRecord(root, { ...record, activeVersion: version })
       mkdirSync(dirname(launcher), { recursive: true })
@@ -132,7 +150,7 @@ export async function runInstall(
       }
       say(`${version} is the active version; the launcher is ${launcher}`)
 
-      // 5. start
+      // 6. start
       steps.begin('start')
       const project = composeProject({ root, version })
       writeComposeEnvironment(project, { uid, gid, dockerGid, installationId: record.installationId })
@@ -143,7 +161,7 @@ export async function runInstall(
       }
       await startProject(project, { docker, stdout })
 
-      // 6. health
+      // 7. health
       steps.begin('health')
       await waitForHealth(project, { docker, sleep, now, stdout })
 
@@ -185,6 +203,41 @@ function sequence({ stdout, launcher, mode }) {
       return wrapped
     },
   }
+}
+
+// The one option: `--name <label>` or `--name=<label>`, the machine name the
+// node joins the tailnet under, which must be a MagicDNS label. Anything
+// else on the command line is a usage error before anything runs.
+export const NAME_OPTION = '--name'
+
+export function nameFromArgs(args) {
+  let name = DEFAULT_NODE_NAME
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]
+    if (arg === NAME_OPTION || arg.startsWith(`${NAME_OPTION}=`)) {
+      let value
+      if (arg === NAME_OPTION) {
+        if (i + 1 >= args.length || args[i + 1].startsWith('-')) throw new UsageError(`${NAME_OPTION} needs the machine name as its value`)
+        value = args[++i]
+      } else {
+        value = arg.slice(NAME_OPTION.length + 1)
+      }
+      if (!MAGICDNS_LABEL_RE.test(value)) {
+        throw new UsageError(`${value} is not a machine name. Use lowercase letters, digits, and hyphens, up to 63 characters, not starting or ending with a hyphen, such as curia.`)
+      }
+      name = value
+      continue
+    }
+    if (arg.startsWith('-')) throw new UsageError(`unknown option: ${arg}`)
+    throw new UsageError(`unexpected argument: ${arg}`)
+  }
+  return name
+}
+
+// The user the corrective `sudo tailscale set --operator=<user>` names: the
+// operator running this command.
+function operatorUser(env) {
+  return env.USER || userInfo().username
 }
 
 // Used by the command table: the two commands are one sequence with one

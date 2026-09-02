@@ -1,4 +1,5 @@
 import { readdirSync } from 'node:fs'
+import { userInfo } from 'node:os'
 import { join } from 'node:path'
 
 import { EXIT, Refusal } from './exit.mjs'
@@ -7,6 +8,8 @@ import { operatorConfigPath } from './config.mjs'
 import { launcherPath } from './launcher.mjs'
 import { withLifecycleLock } from './lock.mjs'
 import { hostProbes, preflight } from './preflight.mjs'
+import { joinTailnet } from './tailnet.mjs'
+import { tailscaleRunner } from './tailscale.mjs'
 import { openRoot, versionPaths } from './root.mjs'
 import { IncompatibleRelease, isCompleteStage, validateWithRelease } from './stage.mjs'
 import { namedSteps } from './steps.mjs'
@@ -17,7 +20,9 @@ import { switchRelease } from './switch.mjs'
 // release, as four named steps.
 //
 //   preflight  the root boundary (`openRoot`, which must find an
-//              installation) and the host preflight. Nothing changes.
+//              installation), the host preflight, and the tailnet step of
+//              `curia install` in its inspect-only form (`joinTailnet` in
+//              tailnet.mjs), which logs nothing in. Nothing changes.
 //   select     under the lifecycle lock from here to the end: the rollback
 //              release is the one complete release under versions/ that is
 //              not the active one. Curia keeps exactly one after a
@@ -49,11 +54,11 @@ export const ROLLBACK_STEPS = Object.freeze(['preflight', 'select', 'validate', 
 
 // The command's seam. `context` is what `runCli` hands a command. `deps` are
 // the boundaries a test replaces: the host probes, the rollback release's
-// configuration validator, the Docker runner, the loopback `fetch`, and the
-// clock the waits use.
+// configuration validator, the Docker runner, the `tailscale` runner, the
+// loopback `fetch`, and the clock the waits use.
 export async function runRollback(
   { env, args = [], stdout, uid, gid, root },
-  { hostProbes: host = hostProbes, validateTarget = validateWithRelease, docker = dockerRunner, fetch: fetchImpl = globalThis.fetch, sleep, now } = {},
+  { hostProbes: host = hostProbes, validateTarget = validateWithRelease, docker = dockerRunner, tailscale = tailscaleRunner, fetch: fetchImpl = globalThis.fetch, sleep, now } = {},
 ) {
   const command = [launcherPath(env), 'rollback', ...args].join(' ')
   const steps = namedSteps({ steps: ROLLBACK_STEPS, stdout, rerun: (step) => `Run '${command}' to run ${step} again; the completed steps are kept.` })
@@ -71,6 +76,7 @@ export async function runRollback(
     const hostReport = await preflight({ uid, root, stdout }, host)
     if (!hostReport.ok) throw hostReport.refusal
     const dockerGid = hostReport.facts.docker.group.gid
+    await joinTailnet({ mode: 'inspect', user: env.USER || userInfo().username, stdout }, { tailscale, sleep, now })
 
     return await withLifecycleLock(root, async () => {
       // 2. select

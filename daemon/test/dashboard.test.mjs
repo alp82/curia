@@ -2119,12 +2119,12 @@ describe('the Tailscale card routes and the first-operator window (#877)', () =>
     assert.match(down.error, /daemon|ECONNREFUSED|ECONNRESET|socket hang up/i)
   })
 
-  test('the confirmation sends the request\'s own login and the machine name, then reads the allowlist back so the window closes at once', async () => {
+  test('the confirmation sends the request\'s own login and nothing else, then reads the allowlist back so the window closes at once', async () => {
     await start()
     identity = { allow: ['alp@example.com'], first_operator: false }
     const res = await press('/api/setup/tailscale/operator', { machine_name: 'curia.sh', login: 'stranger@example.com' })
     assert.equal(res.status, 200)
-    assert.deepEqual(sent('/setup/tailscale/operator').body, { login: 'alp@example.com', machine_name: 'curia.sh' })
+    assert.deepEqual(sent('/setup/tailscale/operator').body, { login: 'alp@example.com' }, 'no field the browser sent crosses: not a login, not a machine name')
     assert.equal(JSON.parse(res.text).card.state, 'connected')
     assert.equal(surface.firstOperator, false)
     assert.deepEqual([...surface.allow], ['alp@example.com'])
@@ -2132,14 +2132,10 @@ describe('the Tailscale card routes and the first-operator window (#877)', () =>
     assert.equal((await req(surface.port, '/', { headers: served({ [LOGIN_HEADER]: 'stranger@example.com' }) })).status, 403)
   })
 
-  test('a machine name that is not one is refused without crossing, and a daemon refusal is the sentence the page shows', async () => {
+  test('a daemon refusal is the sentence the page shows', async () => {
     await start()
-    const bad = await press('/api/setup/tailscale/operator', { machine_name: 'not a name!' })
-    assert.equal(bad.status, 409)
-    assert.match(JSON.parse(bad.text).error, /is not a machine name/)
-    assert.equal(sent('/setup/tailscale/operator'), undefined)
     reply['/setup/tailscale/operator'] = [400, { ok: false, error: 'This deployment reads the allowed operators from identity.allow in curia.yaml' }]
-    const refused = await press('/api/setup/tailscale/operator', { machine_name: 'curia.sh' })
+    const refused = await press('/api/setup/tailscale/operator', {})
     assert.equal(refused.status, 409)
     assert.match(JSON.parse(refused.text).error, /identity\.allow in curia\.yaml/)
   })
