@@ -1,6 +1,6 @@
-# Update discovery and staging
+# Update discovery, staging, and the switch
 
-`curia update` moves an installed Curia to another release. This page is the reference for how Curia finds out that an update exists, how you select a version, what `curia update` does in this release, what it writes where, and what the Curia app shows. [Releases, the stable-release index, and version selection](releases.md) explains how a version becomes the recommended one; this page explains what happens on your host.
+`curia update` moves an installed Curia to another release while your agents keep working. This page is the reference for how Curia finds out that an update exists, how you select a version, what `curia update` does step by step, what keeps running through the switch, what is kept for a rollback, what it writes where, and what the Curia app shows. [Releases, the stable-release index, and version selection](releases.md) explains how a version becomes the recommended one; this page explains what happens on your host.
 
 ## How Curia learns about an update
 
@@ -49,11 +49,54 @@ The command runs six named steps in order and prints each one as `[n/6] <step>`.
 | 3. `acquire` | Takes the lifecycle lock, which it holds until the command ends. Downloads every artifact of the target into `cache/update/` and proves each one: the package against the registry's integrity record, the pinned Node.js runtime against `SHASUMS256.txt` from nodejs.org, the bundle against its `.sha256` file and the release manifest. When the target is already complete under `versions/<target>/`, the step verifies those retained artifacts instead and downloads nothing. | `cache/update/` while the step runs. |
 | 4. `stage` | Runs the release verification in [What Curia verifies before activation](release-manifest.md#what-curia-verifies-before-activation) and lands the target under `versions/<target>/`, read-only, through one rename. The active version stays where it is. | `versions/<target>/`. `cache/update/` is removed. |
 | 5. `validate` | Has the target release validate your current operator configuration with its own reader. A `config/config.yaml` the target refuses stops the update here, with the same message the target's service would print. | Nothing. |
-| 6. `switch` | Switches the core services to the target and records it as active. **This step isn't in this release.** The command stops here, reports that the target is staged and validated, and exits with code `1`. The active version is unchanged. | Nothing, in this release. |
+| 6. `switch` | Recreates the service, the app, and the overseer from the target's bundle while tmux, ttyd, and the agent containers keep running, then accepts the target and records it as active. The next section describes it. | `run/compose.env`, the three recreated containers, `state/installation.json`, and `versions/`. |
 
-After a run in this release, the root holds two complete versions: the active one and the staged target. Nothing else changed: the record, the launcher, `run/compose.env`, and every container are as they were. The staged target stays under `versions/<target>/` for the release that switches; a rerun finds it, verifies it, and downloads nothing.
+On success the command prints `Curia <target> is running.` and names the rollback command. Nothing in integration setup has to be repeated, and no Full loop runs.
 
-When the switch lands, it recreates the service, the app, and the overseer on the target while tmux, ttyd, and the live agent containers keep running, waits for health, proves that the service and the app report the target version, re-adopts the live sessions, and then records the target as active and keeps the previous release as the one rollback release. Until then, `curia update` is a safe rehearsal of everything before the switch.
+## What the switch does
+
+The `switch` step is the only step that changes the running installation, and it runs only after the target is staged, verified, and has validated your configuration. It does the following, in order:
+
+1. Reads the live sessions from the running service: every agent whose tmux pane is live.
+2. Rewrites `run/compose.env` with the same five values, pulls the target's images by digest, and recreates the service, the app, and the overseer from the target's bundle with `docker compose up --detach --no-deps daemon dashboard overseer`.
+3. Waits until every service reports healthy, as [Health checks](bundle.md#health-checks) describes, with the same four-minute bound as `curia install`.
+4. Reads the version the service and the app report on their `/ping` routes. Both must be the target.
+5. Reads the live sessions again from the recreated service until every session from step 1 is adopted, for up to two minutes. The service's boot pass re-adopts a live session from tmux and the journal, the same way it does after any restart. A session that ended on its own meanwhile is reported and isn't a failure.
+6. Writes `state/installation.json` with the target as `activeVersion`, in one atomic write. From here the launcher runs the target's lifecycle interface, and the service reports the target as installed.
+7. Removes every directory under `versions/` except the target and the release that was active.
+
+### What keeps running
+
+The switch recreates three containers and nothing else:
+
+| What | During the switch | After the switch |
+|---|---|---|
+| The service (`daemon`), the Curia app (`dashboard`), and the overseer | Recreated from the target's images. Requests to the service and the app fail for the seconds the recreate takes. | Run the target release. |
+| The tmux runtime and the attach surface (`ttyd`) | Keep running. Every tmux session, every pane, and every attached terminal stays where it was. | Keep the image they started on until a `curia reinstall` or a host restart. Neither carries Curia's version. |
+| Agent containers | Keep running. An agent notices nothing; its worktree, config directory, and conversation are untouched. | Keep the image they started on until their session ends. The next agent Curia spawns uses the target release's agent image. |
+| An overseer turn in flight | The overseer container is recreated, so a turn in flight dies with it. | The recreated service replays that turn once, as it does after any restart: a turn that ran no verb is sent again, and a turn that did gets a line in the conversation that says what it ran. |
+| Work under `config/`, `secrets/`, `state/`, and `work/` | Untouched. | Untouched. |
+
+Because the tmux runtime keeps running, an agent's pane is what the recreated service finds and adopts back. That's why the switch never stops tmux, never removes orphan containers, and passes `--no-deps`, which keeps Compose from touching the runtime the service depends on.
+
+### What is kept for a rollback
+
+After a successful switch, `versions/` holds two complete releases: the target, now active, and the release that was active before it. The previous release is the one rollback release. `curia rollback` switches back to it through the same steps, with the same health and re-adoption checks. Any older release under `versions/` is removed during the switch; Curia keeps no history beyond one.
+
+A second `curia update` moves the pair forward: the release you updated from becomes the rollback release, and the one before it is removed. The command prints `removed <version>, which is no longer a rollback release` for each one.
+
+### When the switch fails
+
+Acceptance fails when a recreated service exits or turns unhealthy, when a service is still starting after four minutes, when the service or the app reports another version than the target, or when a live session isn't adopted within two minutes. In every case the switch goes back once: it recreates the service, the app, and the overseer from the release that was active and waits for its health. It doesn't retry the target. The command exits with code `1` and its message names the cause, the switch back, and where the installation stands:
+
+```text
+curia update: switch failed: overseer exited with code 1. Read its log with 'docker compose --env-file /home/you/.local/share/curia/run/compose.env -f /home/you/.local/share/curia/versions/1.4.0/bundle/compose.yaml logs overseer', fix the cause, and run the command again. Switched back to 1.3.0, which is healthy. The record still names 1.3.0.
+Run '/home/you/.local/bin/curia update' to run switch again; the completed steps are kept.
+```
+
+The record is written only after acceptance, so a failed switch never changes `activeVersion`, and the launcher keeps running the release that was active. The staged target stays under `versions/<target>/`, and a rerun finds it, verifies it, downloads nothing, and switches again.
+
+When the switch back doesn't come up either, the message says so and names `curia reinstall`, which starts the release the record names from its retained artifacts. Read the logs the message names first: two releases that both fail their health check point at the host, not at either release.
 
 ## When a step fails
 
@@ -83,6 +126,10 @@ Some failures and their corrective actions:
 | `stage: <check>` | The release verification refused the target. The failure classes are in [When a check fails](release-manifest.md#when-a-check-fails). |
 | `validate failed: <target> refuses the current operator configuration` | Fix the named line in `config/config.yaml` as [Operator configuration](configuration.md) describes, or choose another version. |
 | `validate failed: <target> carries no operator configuration reader` | The target is older than the operator configuration contract. Choose a newer version. |
+| `switch failed: <service> exited` or `is unhealthy`, then `Switched back to <previous>, which is healthy` | The target didn't come up on this host. Read the service's log with the command in the message, fix the cause or choose another version, and rerun. Your agents kept running throughout. |
+| `switch failed: the service reports <x> and the Curia app reports <y>, not <target>` | The recreated containers don't run the target release. A target older than the release that added the version report fails this way too. Choose a newer version. |
+| `switch failed: <target> did not re-adopt <session> within 120 seconds` | The recreated service found the pane but didn't track it. Curia switched back, and the previous release adopted it again. Read the service's log for `reconcile:` lines about that session before you rerun. |
+| `switch failed: ... The switch back to <previous> failed too` | Neither release came up. Read both logs, then run `curia reinstall` to start the release the record names. |
 | `acquire: another lifecycle operation is running` | A second lifecycle command holds the lock. Wait for it to finish, as [The lifecycle lock](command-reference.md#the-lifecycle-lock) describes. |
 
 ## What gets written where
@@ -92,5 +139,10 @@ Some failures and their corrective actions:
 | `state/update-check.json` | The service's daily check | The last check's result: `format`, `checked_at`, `ok`, `error`, `succeeded_at`, and the verified index's `sequence`, `updated`, `stable`, and `withdrawn`. Mode `0600`. |
 | `cache/update/<target>.<pid>/` | `acquire` | The downloaded artifacts while they are proven. Removed when `stage` ends. |
 | `versions/<target>/` | `stage` | `node/`, `cli/`, `cli.tgz`, `bundle.tar.gz`, `bundle.tar.gz.sha256`, and `bundle/compose.yaml`, the same layout as the active version. |
+| `run/compose.env` | `switch` | The same five run-time values as before. Rewritten, never changed in content. |
+| `state/installation.json` | `switch`, after acceptance | The record with the target as `activeVersion`. The installation ID doesn't change. |
+| `versions/` | `switch`, after activation | The target and the previous active release only. Every other directory is removed. |
+
+The launcher at `~/.local/bin/curia` is never rewritten: it reads the record on every run, so it follows the switch on its own.
 
 No step prints or writes a secret. The command's output carries versions, paths, and URLs only, and never an integrity value or a digest.

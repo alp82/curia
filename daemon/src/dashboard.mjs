@@ -30,6 +30,7 @@ import fs from 'node:fs'
 import http from 'node:http'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { APP_VERSION } from './appversion.mjs'
 import { assertServe, serveOff, attachBase } from './attach.mjs'
 import { identityRefusal, readAllow, serveHosts, tailnetSelf, LOGIN_HEADER } from './identity.mjs'
 import { readSettings, saveSettings } from './settings.mjs'
@@ -983,6 +984,14 @@ export class DashboardSurface {
   }
 
   #handle(req, res) {
+    // The reachability probe (#884), before the identity gate: the version
+    // this process runs and nothing else, so the lifecycle interface can
+    // prove on loopback, where no Serve identity exists, that the app came
+    // back on the target release after a switch. It reads nothing and asks
+    // the daemon nothing; a version is not a secret.
+    if (req.method === 'GET' && String(req.url ?? '').split('?')[0] === '/ping') {
+      return this.#json(res, 200, { curia: 'curia-dashboard', version: APP_VERSION })
+    }
     const reason = this.#refusal(req)
     if (reason) {
       this.log(`dashboard: REFUSED ${req.url} — ${reason}`)

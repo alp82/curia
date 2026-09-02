@@ -12,6 +12,8 @@ import { hostProbes, preflight } from './preflight.mjs'
 import { openRoot, versionPaths } from './root.mjs'
 import { StableIndexError, fetchStableIndex, pinnedPublicKey, releaseNotesUrl, renderSelection, selectRelease, selectionFromArgs, stableProbes } from './stable.mjs'
 import { isCompleteStage, placeVersion, verifyRetained } from './stage.mjs'
+import { switchRelease } from './switch.mjs'
+import { dockerRunner } from './compose.mjs'
 
 // `curia update` (#883, implementing #854): from the signed stable-release
 // index to a verified, validated target release staged beside the active
@@ -38,21 +40,22 @@ import { isCompleteStage, placeVersion, verifyRetained } from './stage.mjs'
 //              configuration with its own reader (`readOperatorConfig` of
 //              the staged package), so a configuration the target refuses
 //              stops the update before anything switches.
-//   switch     the seam #884 fills: switching the core services (service,
-//              app, overseer) to the target's bundle while tmux, ttyd, and
-//              the live agent containers keep running, waiting for health,
-//              proving the service and the app report the target version,
-//              re-adopting the live sessions, then recording the target as
-//              active and keeping the previous release as the one rollback
-//              release. In this version the step reports that the target is
-//              staged and validated and exits `failed`, because the update
-//              is not complete, with the active version untouched.
+//   switch     the core services (service, app, overseer) are recreated
+//              from the target's bundle while tmux, ttyd, and the live agent
+//              containers keep running; every service reports healthy, the
+//              service and the app report the target version, and the live
+//              sessions are re-adopted; then the record names the target
+//              and the release that was active is kept as the one rollback
+//              release, every other version removed. A failure switches
+//              the core services back once and leaves the record alone.
+//              The sequence is `switchRelease` in switch.mjs, which `curia
+//              rollback` shares.
 //
 // Discovery is the same `fetchStableIndex` and `selectRelease` the service's
 // daily check and the Curia app use. A failed discovery refuses before the
 // lock, so it never touches the running installation. The command never
-// rewrites the launcher and never removes a version: one release is active,
-// one is staged, and what to keep after a switch is #884's decision.
+// rewrites the launcher: it reads the record, and the record is what the
+// switch writes.
 
 export const UPDATE_STEPS = Object.freeze(['preflight', 'select', 'acquire', 'stage', 'validate', 'switch'])
 
@@ -60,11 +63,12 @@ const packageVersion = JSON.parse(readFileSync(new URL('../package.json', import
 
 // The command's seam. `context` is what `runCli` hands a command. `deps` are
 // the boundaries a test replaces: the host probes, the stable-index probe
-// and the pinned key, the acquisition probes, the release probes, and the
-// target's configuration validator.
+// and the pinned key, the acquisition probes, the release probes, the
+// target's configuration validator, the Docker runner, the loopback `fetch`,
+// and the clock the waits use.
 export async function runUpdate(
-  { env, args = [], stdout, uid, root },
-  { hostProbes: host = hostProbes, stableProbes: stable = stableProbes, publicKey = pinnedPublicKey(), acquireProbes: acquire = acquireProbes, releaseProbes: release = releaseProbes, validateTarget = validateWithTarget } = {},
+  { env, args = [], stdout, uid, gid, root },
+  { hostProbes: host = hostProbes, stableProbes: stable = stableProbes, publicKey = pinnedPublicKey(), acquireProbes: acquire = acquireProbes, releaseProbes: release = releaseProbes, validateTarget = validateWithTarget, docker = dockerRunner, fetch: fetchImpl = globalThis.fetch, sleep, now } = {},
 ) {
   let selection
   try {
@@ -84,9 +88,11 @@ export async function runUpdate(
     if (opened.status !== 'installed') {
       throw new Refusal(`${root} holds no installation, so there is nothing to update. Run the bootstrap to install Curia there.`)
     }
-    const active = opened.record.activeVersion
+    const record = opened.record
+    const active = record.activeVersion
     const hostReport = await preflight({ uid, root, stdout }, host)
     if (!hostReport.ok) throw hostReport.refusal
+    const dockerGid = hostReport.facts.docker.group.gid
 
     // 2. select
     steps.begin('select')
@@ -143,7 +149,14 @@ export async function runUpdate(
 
       // 6. switch
       steps.begin('switch')
-      throw new Error(`switching to ${target} is not available in lifecycle interface ${packageVersion}. ${target} is staged and validated under ${paths.dir}, and ${active} stays the active version. Watch https://github.com/alp82/curia/issues/884 for the release that switches.`)
+      await switchRelease(
+        { root, from: active, to: target, record, environment: { uid, gid, dockerGid, installationId: record.installationId }, stdout },
+        { docker, fetch: fetchImpl, sleep, now },
+      )
+      say('')
+      say(`Curia ${target} is running. Open the Curia app as before; nothing in integration setup has to be repeated.`)
+      say(`If ${target} misbehaves, 'curia rollback' switches back to ${active}.`)
+      return EXIT.ok
     })
   } catch (e) {
     throw steps.wrap(e)

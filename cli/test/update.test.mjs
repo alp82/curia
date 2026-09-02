@@ -1,6 +1,6 @@
 import { test, describe, before, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -14,7 +14,9 @@ import { launcherPath } from '../src/launcher.mjs'
 import { readInstallationRecord, versionPaths } from '../src/root.mjs'
 import { createStableIndex, generateStableIndexKeys, signStableIndex } from '../src/stable.mjs'
 import { isCompleteStage } from '../src/stage.mjs'
-import { acquireProbesFor, artifactsOf, fakeDocker, hostProbes, release as releaseIn, releaseProbesFor, stageOf as stageIn } from './fixtures/install.mjs'
+import { CORE_SERVICES, READOPTION_TIMEOUT_MS } from '../src/switch.mjs'
+import { SERVICES } from '../src/layout.mjs'
+import { acquireProbesFor, artifactsOf, fakeDocker, fakeLoopback, healthy, hostProbes, release as releaseIn, releaseProbesFor, stageOf as stageIn } from './fixtures/install.mjs'
 
 const ACTIVE = packageVersion
 const NOW = '2026-09-02T10:00:00Z'
@@ -64,8 +66,10 @@ const indexOf = ({ stable = null, withdrawn = [] } = {}) => createStableIndex({ 
 // One update attempt through the command's own seam. `targets` are the
 // releases the artifact origins serve; the release probes answer for the
 // one selected.
-async function attempt({ env, root, args = [], index, indexText = index ? signed(index) : null, targets = [], probes = {} }) {
+async function attempt({ env, root, args = [], index, indexText = index ? signed(index) : null, targets = [], probes = {}, docker = fakeDocker(), loopback = {} }) {
   const io = capture()
+  const fetch = loopback.fetch ?? fakeLoopback(docker, { initial: ACTIVE, ...loopback })
+  let clock = 0
   const artifacts = new Map()
   for (const t of targets) for (const [url, bytes] of artifactsOf(t)) artifacts.set(url, bytes)
   const acquire = acquireProbesFor(artifacts)
@@ -83,6 +87,10 @@ async function attempt({ env, root, args = [], index, indexText = index ? signed
       releaseManifest: async (version) => targets.find((x) => x.version === version)?.text ?? null,
       attestation: async () => ({ ok: true }),
     },
+    docker,
+    fetch,
+    sleep: async (ms) => { clock += ms },
+    now: () => clock,
     ...probes.deps,
   }
   let exit
@@ -93,8 +101,10 @@ async function attempt({ env, root, args = [], index, indexText = index ? signed
     error = e
     exit = e instanceof Refusal ? EXIT.refused : EXIT.failed
   }
-  return { exit, error, out: io.out(), downloads }
+  return { exit, error, out: io.out(), downloads, docker, fetch }
 }
+
+const healthyStates = (overrides = {}) => healthy(SERVICES, overrides)
 
 const versionsOf = (root) => readdirSync(join(root, 'versions')).filter((n) => !n.startsWith('.')).sort()
 
@@ -135,55 +145,97 @@ describe('no update', () => {
   })
 })
 
+// The service's three steps of the switch, as the fake docker records them.
+const composeVerbs = (docker) => docker.calls.map((c) => c.slice(c.indexOf('-f') + 2))
+const bundleOf = (call) => call[call.indexOf('-f') + 1].split('/versions/')[1].split('/')[0]
+
 describe('a selected update', () => {
-  test('stages, verifies, and validates the stable release beside the active one, and stops at the switch', async () => {
+  test('stages, validates, and switches to the stable release, re-adopts the live agents, records it active, and keeps the previous release', async () => {
     const { env, root } = await installed()
     const before = snapshot(root)
     const target = release('1.4.0')
-    const a = await attempt({ env, root, index: indexOf({ stable: '1.4.0' }), targets: [target] })
-    assert.equal(a.exit, EXIT.failed)
-    assert.match(a.error.message, /^switch failed: switching to 1\.4\.0 is not available in lifecycle interface/)
-    assert.match(a.error.message, /1\.4\.0 is staged and validated under .*versions\/1\.4\.0/)
-    assert.match(a.error.message, /issues\/884/)
-    assert.match(a.error.message, /Run '.*curia update' to run switch again/)
+    const a = await attempt({ env, root, index: indexOf({ stable: '1.4.0' }), targets: [target], loopback: { live: ['curia-12', 'curia-15'] } })
+    assert.equal(a.error, null, a.error?.stack)
+    assert.equal(a.exit, EXIT.ok)
     assert.match(a.out, /selected 1\.4\.0, the stable release/)
     assert.match(a.out, new RegExp(`updating ${ACTIVE.replaceAll('.', '\\.')} to 1\\.4\\.0 \\(release notes: https://github.com/alp82/curia/releases/tag/v1\\.4\\.0\\)`))
     for (const [n, step] of UPDATE_STEPS.entries()) assert.match(a.out, new RegExp(`\\[${n + 1}/6\\] ${step}`))
     assert.match(a.out, /1\.4\.0 accepts the current operator configuration/)
 
-    // Both versions are complete; the target is read-only; nothing active changed.
+    // The switch: the images of the target pulled by digest, then the core
+    // services alone recreated from the target's bundle. Nothing brings
+    // tmux, ttyd, or an agent container down, and nothing removes orphans.
+    const verbs = composeVerbs(a.docker)
+    const pull = verbs.find((v) => v[0] === 'pull')
+    const up = verbs.find((v) => v[0] === 'up')
+    assert.deepEqual(pull, ['pull', ...CORE_SERVICES])
+    assert.deepEqual(up, ['up', '--detach', '--no-deps', ...CORE_SERVICES])
+    assert.equal(bundleOf(a.docker.calls.find((c) => c.includes('up'))), '1.4.0')
+    assert.ok(!verbs.some((v) => v[0] === 'down' || v[0] === 'stop' || v[0] === 'rm'), 'nothing is stopped')
+    assert.ok(!verbs.some((v) => v.includes('tmux') || v.includes('ttyd') || v.includes('--remove-orphans')), 'tmux and ttyd keep running')
+    assert.ok(verbs.indexOf(pull) < verbs.indexOf(up) && verbs.some((v, i) => i > verbs.indexOf(up) && v[0] === 'ps'), 'health is read after the recreate')
+
+    // Acceptance: health, the target version from the service and the app,
+    // and every live session re-adopted.
+    assert.match(a.out, /every service is healthy/)
+    assert.match(a.out, /the service reports 1\.4\.0 and the Curia app reports 1\.4\.0/)
+    assert.match(a.out, /re-adopted 2 live sessions: curia-12, curia-15/)
+    assert.ok(a.fetch.reads.includes('4271/overview'), 'the live sessions were read')
+
+    // Activation: the record names the target, the launcher is untouched,
+    // the Compose environment carries the same values, and the previous
+    // release is the one other version kept.
+    const after = snapshot(root)
+    assert.equal(after.record.activeVersion, '1.4.0')
+    assert.equal(after.record.installationId, before.record.installationId)
+    assert.equal(after.launcher, before.launcher)
+    assert.equal(after.config, before.config)
+    assert.equal(after.compose, before.compose)
     assert.deepEqual(versionsOf(root), [ACTIVE, '1.4.0'].sort())
     const paths = versionPaths(root, '1.4.0')
     assert.ok(isCompleteStage(paths.dir))
-    assert.ok(existsSync(paths.bundle), 'the bundle is unpacked beside the retained archive')
+    assert.ok(isCompleteStage(versionPaths(root, ACTIVE).dir), 'the previous release stays complete for the rollback')
     assert.equal(statSync(paths.manifest).mode & 0o222, 0, 'the staged files are read-only')
-    assert.equal(statSync(paths.node).mode & 0o111, 0o111, 'the runtime keeps its execute bits')
-    assert.deepEqual(readFileSync(paths.package), target.tarball)
-    assert.deepEqual(snapshot(root), before)
+    assert.match(a.out, new RegExp(`1\\.4\\.0 is the active version; ${ACTIVE.replaceAll('.', '\\.')} is kept for 'curia rollback'`))
+    assert.match(a.out, /Curia 1\.4\.0 is running/)
     assert.ok(!existsSync(join(root, 'cache', 'update')) || readdirSync(join(root, 'cache', 'update')).length === 0, 'the download stage is removed')
-    assert.ok(!existsSync(join(root, 'run', 'lifecycle.lock')) || true)
     assert.ok(!a.out.includes(target.integrity), 'no line prints an integrity value')
   })
 
-  test('a rerun finds the target staged, verifies it, downloads nothing, and stops at the same seam', async () => {
+  test('a rerun of a switched update finds the target active and does nothing', async () => {
     const { env, root } = await installed()
     const target = release('1.4.0')
     const first = await attempt({ env, root, index: indexOf({ stable: '1.4.0' }), targets: [target] })
-    assert.equal(first.exit, EXIT.failed)
-    const again = await attempt({ env, root, index: indexOf({ stable: '1.4.0' }), targets: [target] })
-    assert.equal(again.exit, EXIT.failed)
+    assert.equal(first.exit, EXIT.ok, first.error?.stack)
+    const again = await attempt({ env, root, index: indexOf({ stable: '1.4.0' }), targets: [target], loopback: { initial: '1.4.0' } })
+    assert.equal(again.exit, EXIT.ok, again.error?.stack)
     assert.deepEqual(again.downloads, [])
-    assert.match(again.out, /1\.4\.0 is already staged under .*; verifying the retained artifacts/)
-    assert.match(again.error.message, /^switch failed/)
-    assert.deepEqual(versionsOf(root), [ACTIVE, '1.4.0'].sort())
+    assert.match(again.out, /1\.4\.0 is the active version\. Nothing to update\./)
+    assert.deepEqual(composeVerbs(again.docker), [])
   })
 
-  test('an exact version is staged as asked, even when the index recommends another', async () => {
+  test('a rerun after a failed switch finds the target staged, verifies it, downloads nothing, and switches', async () => {
+    const { env, root } = await installed()
+    const target = release('1.4.0')
+    const broken = fakeDocker({ up: { ok: false, stdout: '', stderr: 'Error response from daemon: no such image', code: 1 } })
+    const first = await attempt({ env, root, index: indexOf({ stable: '1.4.0' }), targets: [target], docker: broken })
+    assert.equal(first.exit, EXIT.failed)
+    assert.match(first.error.message, /^switch failed: /)
+    assert.equal(readInstallationRecord(root).activeVersion, ACTIVE)
+    const again = await attempt({ env, root, index: indexOf({ stable: '1.4.0' }), targets: [target] })
+    assert.equal(again.exit, EXIT.ok, again.error?.stack)
+    assert.deepEqual(again.downloads, [])
+    assert.match(again.out, /1\.4\.0 is already staged under .*; verifying the retained artifacts/)
+    assert.equal(readInstallationRecord(root).activeVersion, '1.4.0')
+  })
+
+  test('an exact version is switched to as asked, even when the index recommends another', async () => {
     const { env, root } = await installed()
     const target = release('1.3.0')
     const a = await attempt({ env, root, args: ['1.3.0'], index: indexOf({ stable: '1.4.0' }), targets: [target] })
-    assert.equal(a.exit, EXIT.failed)
+    assert.equal(a.exit, EXIT.ok, a.error?.stack)
     assert.match(a.out, /selected 1\.3\.0, the exact version requested/)
+    assert.equal(readInstallationRecord(root).activeVersion, '1.3.0')
     assert.deepEqual(versionsOf(root), [ACTIVE, '1.3.0'].sort())
   })
 
@@ -191,9 +243,149 @@ describe('a selected update', () => {
     const { env, root } = await installed()
     const target = release('1.4.0')
     const a = await attempt({ env, root, index: indexOf({ stable: '1.4.0', withdrawn: [ACTIVE] }), targets: [target] })
-    assert.equal(a.exit, EXIT.failed)
+    assert.equal(a.exit, EXIT.ok, a.error?.stack)
     assert.match(a.out, new RegExp(`warning: the active version ${ACTIVE.replaceAll('.', '\\.')} is withdrawn\\. The release notes at https://github.com/alp82/curia/releases/tag/v${ACTIVE.replaceAll('.', '\\.')} say why`))
-    assert.match(a.error.message, /^switch failed/)
+  })
+
+  test('after a second update only the target and the previous active release remain', async () => {
+    const { env, root } = await installed()
+    const first = await attempt({ env, root, index: indexOf({ stable: '1.4.0' }), targets: [release('1.4.0')] })
+    assert.equal(first.exit, EXIT.ok, first.error?.stack)
+    const second = await attempt({ env, root, index: indexOf({ stable: '1.5.0' }), targets: [release('1.5.0')], loopback: { initial: '1.4.0' } })
+    assert.equal(second.exit, EXIT.ok, second.error?.stack)
+    assert.deepEqual(versionsOf(root), ['1.4.0', '1.5.0'])
+    assert.ok(!existsSync(versionPaths(root, ACTIVE).dir), 'the release before the previous one is removed')
+    assert.match(second.out, new RegExp(`removed ${ACTIVE.replaceAll('.', '\\.')}, which is no longer a rollback release`))
+  })
+})
+
+describe('the switch', () => {
+  test('the service and the overseer are recreated together, so a turn the switch interrupts is the daemon\'s own replay', async () => {
+    // ADR-0015 and #388: the overseer replays a turn a restart killed when
+    // the daemon and the overseer come back together, the shape of the
+    // routine deploy. The switch keeps that shape: one `up` carries the
+    // service, the app, and the overseer, and the overseer must be healthy
+    // before the switch is accepted, so the replay has a container to
+    // answer.
+    const { env, root } = await installed()
+    const a = await attempt({ env, root, index: indexOf({ stable: '1.4.0' }), targets: [release('1.4.0')] })
+    assert.equal(a.exit, EXIT.ok, a.error?.stack)
+    const ups = composeVerbs(a.docker).filter((v) => v[0] === 'up')
+    assert.equal(ups.length, 1)
+    assert.ok(ups[0].includes('daemon') && ups[0].includes('overseer') && ups[0].includes('dashboard'))
+    assert.ok(a.out.includes('the overseer replays a turn the switch interrupted'), 'the operator is told what happens to a turn in flight')
+  })
+
+  test('re-adoption is polled: a service that answers before its boot reconcile settles is read again', async () => {
+    const { env, root } = await installed()
+    const a = await attempt({ env, root, index: indexOf({ stable: '1.4.0' }), targets: [release('1.4.0')], loopback: { live: ['curia-7'], settle: 2 } })
+    assert.equal(a.exit, EXIT.ok, a.error?.stack)
+    assert.ok(a.fetch.reads.filter((r) => r === '4271/overview').length >= 4, 'read before the switch, then until the fleet is determinate')
+    assert.match(a.out, /re-adopted 1 live session: curia-7/)
+  })
+
+  test('a session that ended during the switch is reported and is not a failure', async () => {
+    const { env, root } = await installed()
+    const a = await attempt({ env, root, index: indexOf({ stable: '1.4.0' }), targets: [release('1.4.0')], loopback: { live: ['curia-7', 'curia-9'], readopt: (s) => (s === 'curia-9' ? 'ended' : 'adopted') } })
+    assert.equal(a.exit, EXIT.ok, a.error?.stack)
+    assert.match(a.out, /re-adopted 1 live session: curia-7/)
+    assert.match(a.out, /curia-9 ended during the switch/)
+  })
+
+  test('with no live session there is nothing to re-adopt, and the switch says so', async () => {
+    const { env, root } = await installed()
+    const a = await attempt({ env, root, index: indexOf({ stable: '1.4.0' }), targets: [release('1.4.0')] })
+    assert.equal(a.exit, EXIT.ok, a.error?.stack)
+    assert.match(a.out, /no live session to re-adopt/)
+  })
+
+  test('a live session the recreated service does not adopt fails the switch, which switches back once', async () => {
+    const { env, root } = await installed()
+    const before = snapshot(root)
+    const a = await attempt({ env, root, index: indexOf({ stable: '1.4.0' }), targets: [release('1.4.0')], loopback: { live: ['curia-7', 'curia-9'], readopt: (s) => (s === 'curia-9' ? 'untracked' : 'adopted') } })
+    assert.equal(a.exit, EXIT.failed)
+    assert.match(a.error.message, /^switch failed: 1\.4\.0 did not re-adopt curia-9 within \d+ seconds/)
+    assert.match(a.error.message, new RegExp(`Switched back to ${ACTIVE.replaceAll('.', '\\.')}, which is healthy`))
+    assert.match(a.error.message, /Run '.*curia update' to run switch again/)
+    const ups = a.docker.calls.filter((c) => c.includes('up'))
+    assert.equal(ups.length, 2, 'the target once, the previous release once')
+    assert.equal(bundleOf(ups[0]), '1.4.0')
+    assert.equal(bundleOf(ups[1]), ACTIVE)
+    assert.deepEqual(snapshot(root), before, 'the record, the launcher, and the environment are unchanged')
+    assert.deepEqual(versionsOf(root), [ACTIVE, '1.4.0'].sort(), 'the staged target is kept for the rerun')
+  })
+
+  test('a core service that fails its health check fails the switch, which switches back once and reports both', async () => {
+    const { env, root } = await installed()
+    const before = snapshot(root)
+    let asked = 0
+    const docker = fakeDocker({
+      ps: (args) => {
+        asked += 1
+        const onTarget = bundleOf(args) === '1.4.0'
+        const overrides = onTarget ? { overseer: { State: 'exited', Health: '', ExitCode: 1 } } : {}
+        return { ok: true, stdout: healthyStates(overrides) }
+      },
+    })
+    const a = await attempt({ env, root, index: indexOf({ stable: '1.4.0' }), targets: [release('1.4.0')], docker, loopback: { live: ['curia-7'] } })
+    assert.equal(a.exit, EXIT.failed)
+    assert.match(a.error.message, /^switch failed: overseer exited with code 1\./)
+    assert.match(a.error.message, /logs overseer/)
+    assert.match(a.error.message, new RegExp(`Switched back to ${ACTIVE.replaceAll('.', '\\.')}, which is healthy\\.`))
+    assert.ok(asked >= 2)
+    assert.deepEqual(snapshot(root), before)
+  })
+
+  test('a service that reports another version than the target fails the switch', async () => {
+    const { env, root } = await installed()
+    const a = await attempt({ env, root, index: indexOf({ stable: '1.4.0' }), targets: [release('1.4.0')], loopback: { versionOf: (v) => (v === '1.4.0' ? '1.3.9' : v) } })
+    assert.equal(a.exit, EXIT.failed)
+    assert.match(a.error.message, /^switch failed: the service reports 1\.3\.9 and the Curia app reports 1\.3\.9, not 1\.4\.0/)
+    assert.equal(readInstallationRecord(root).activeVersion, ACTIVE)
+  })
+
+  test('when the switch back does not come up either, the failure names both and the record still names the previous release', async () => {
+    const { env, root } = await installed()
+    const docker = fakeDocker({ ps: { ok: true, stdout: healthyStates({ daemon: { State: 'exited', Health: '', ExitCode: 2 } }) } })
+    const a = await attempt({ env, root, index: indexOf({ stable: '1.4.0' }), targets: [release('1.4.0')], docker })
+    assert.equal(a.exit, EXIT.failed)
+    assert.match(a.error.message, /^switch failed: daemon exited with code 2\./)
+    assert.match(a.error.message, new RegExp(`The switch back to ${ACTIVE.replaceAll('.', '\\.')} failed too: daemon exited with code 2\\.`))
+    assert.match(a.error.message, /curia reinstall/)
+    assert.equal(readInstallationRecord(root).activeVersion, ACTIVE)
+  })
+
+  test('activation is atomic: a record that cannot be written leaves the previous record whole, and the switch goes back', async () => {
+    const { env, root } = await installed()
+    const before = snapshot(root)
+    const state = join(root, 'state')
+    chmodSync(state, 0o500)
+    let a
+    try {
+      a = await attempt({ env, root, index: indexOf({ stable: '1.4.0' }), targets: [release('1.4.0')] })
+    } finally {
+      chmodSync(state, 0o700)
+    }
+    assert.equal(a.exit, EXIT.failed)
+    assert.match(a.error.message, /^switch failed: .*installation\.json/)
+    assert.match(a.error.message, new RegExp(`Switched back to ${ACTIVE.replaceAll('.', '\\.')}`))
+    assert.deepEqual(readInstallationRecord(root), before.record)
+    assert.deepEqual(readdirSync(state).filter((n) => n.startsWith('installation.json')), ['installation.json'], 'no half-written record is left beside it')
+    assert.deepEqual(versionsOf(root), [ACTIVE, '1.4.0'].sort())
+  })
+
+  test('the record is written only after acceptance, never before the recreate', async () => {
+    const { env, root } = await installed()
+    const seen = []
+    const docker = fakeDocker({ up: () => { seen.push(readInstallationRecord(root).activeVersion); return { ok: true, stdout: '', stderr: '' } } })
+    const a = await attempt({ env, root, index: indexOf({ stable: '1.4.0' }), targets: [release('1.4.0')], docker })
+    assert.equal(a.exit, EXIT.ok, a.error?.stack)
+    assert.deepEqual(seen, [ACTIVE])
+    assert.equal(readInstallationRecord(root).activeVersion, '1.4.0')
+  })
+
+  test('the re-adoption wait has a bound', () => {
+    assert.ok(READOPTION_TIMEOUT_MS >= 60_000 && READOPTION_TIMEOUT_MS <= 300_000)
   })
 })
 
@@ -208,8 +400,9 @@ describe('an exact prerelease', () => {
     assert.deepEqual(versionsOf(root), [ACTIVE])
 
     const a = await attempt({ env, root, args: ['--prerelease', '1.5.0-rc.1'], index: indexOf({ stable: '1.4.0' }), targets: [target] })
-    assert.equal(a.exit, EXIT.failed)
+    assert.equal(a.exit, EXIT.ok, a.error?.stack)
     assert.match(a.out, /selected 1\.5\.0-rc\.1, the exact prerelease requested/)
+    assert.equal(readInstallationRecord(root).activeVersion, '1.5.0-rc.1')
     assert.deepEqual(versionsOf(root), [ACTIVE, '1.5.0-rc.1'].sort())
   })
 })

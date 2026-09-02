@@ -35,7 +35,7 @@ The allowed operator lives in `state/tailscale.json`: the Tailscale login the [T
 
 The setup checkpoint lives in `state/setup.json`: the selected card and a closed list of safe fields per card, never a token and never a completion marker. See [Integration setup](integration-setup.md#what-a-reopen-restores).
 
-The daily update check's result lives in `state/update-check.json`: when the service last read the stable-release index, whether the index verified, and what it named. Nothing in it is a secret. See [Update discovery and staging](update.md).
+The daily update check's result lives in `state/update-check.json`: when the service last read the stable-release index, whether the index verified, and what it named. Nothing in it is a secret. See [Update discovery, staging, and the switch](update.md).
 
 The routing override lives in `state/routing.local.yaml`: the routing preset a [model provider](integration-setup.md#the-routing-preset) applied when it connected, laid over the tracked `routing.yaml` that ships with the release. The service writes its routing override here, in its own state boundary, and never edits the tracked `routing.yaml`. Nothing in it is a secret.
 
@@ -72,7 +72,7 @@ The seven directories of the root fall into two groups. `config/`, `secrets/`, `
 | Operation | Keeps | Replaces or removes |
 |---|---|---|
 | Service or host restart | Everything. | Stale entries under `run/`, such as a lock whose process is gone. |
-| `curia update` or `curia rollback` | `config/`, `secrets/`, `state/`, `work/`. | Staged versions, caches, and runtime files. |
+| `curia update` or `curia rollback` | `config/`, `secrets/`, `state/`, `work/`, the tmux runtime, the attach surface, and every running agent container. | The service, app, and overseer containers, `run/compose.env`, and every release under `versions/` other than the new active one and the previous one. See [What keeps running](update.md#what-keeps-running). |
 | `curia reinstall` | `config/`, `secrets/`, `state/`, `work/`. | `versions/`, `cache/`, `run/`. |
 | `curia uninstall` | `config/`, `secrets/`, `state/`, `work/`. | Containers, networks, volumes, the launcher, `versions/`, `cache/`, `run/`. |
 | `curia purge` | Nothing. | The entire root and every Curia-labelled Docker resource. |
