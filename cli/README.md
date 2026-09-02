@@ -20,6 +20,7 @@ This version ships the stable launcher, the command vocabulary, the installation
 - `src/lock.mjs`: `withLifecycleLock(root, operation)`, the exclusive lifecycle-operation lock at `run/lifecycle.lock`.
 - `src/layout.mjs`: `serviceLayout(root)`, where the service data lives inside the seven boundaries, and `SERVICE_MOUNTS`, what each container may mount. See [The service layout and the secret files](#the-service-layout-and-the-secret-files).
 - `src/secrets.mjs`: the catalogue of long-lived secret files under `secrets/`, their reader, writer, and status, shared with the Curia service.
+- `src/bundle.mjs`: the Compose bundle contract: the project name, the installation label, the four release images, the run-time variables, and the render, inspect, and env-file functions. See [The Compose bundle](#the-compose-bundle).
 - `src/preflight.mjs`: the supported-host preflight. `gatherHostFacts` reads the host through injectable probes, `evaluateHostFacts` turns the facts into one report, and `preflight` does both and prints it. See [The host preflight](#the-host-preflight).
 - `src/launcher.mjs`: renders the stable `curia` launcher for one installation root.
 
@@ -72,6 +73,18 @@ The interface:
 - The constants are the contract: `SUPPORTED_SYSTEMS`, `MINIMUM_PROFILE`, `RECOMMENDED_PROFILE`, `TESTED_VERSIONS`, `REQUIRED_PORTS`, `SANDBOX_PORTS`, `RELEASE_ORIGINS`, and `CLOCK_SKEW_LIMIT_SECONDS`. `daemon/test/preflightports.test.mjs` keeps the ports in step with `config/curia.yaml`.
 
 Three probes create temporary resources, and each removes its own before it returns: the port probe listens on every port it tests and closes the listener; the Docker probe writes one temporary directory, opens one loopback HTTP listener, and runs one `--rm` container named `curia-preflight-<id>` that reads the directory through a bind mount and fetches the listener over the host network, then removes the container by force when the run failed or timed out, closes the listener, and deletes the directory. Nothing in the module installs or reconfigures the host.
+
+## The Compose bundle
+
+`src/bundle.mjs` is the one place that says what a release's Compose bundle is, shared by the release workflow that renders it, the tests that inspect it, and the lifecycle commands that start it. The operator's view is [Release images and the Compose bundle](https://github.com/alp82/curia/blob/main/docs/operator/bundle.md).
+
+- The constants are the contract: `COMPOSE_PROJECT` (`curia`), `INSTALLATION_LABEL` (`sh.curia.installation`), `IMAGE_REGISTRY` (`ghcr.io/alp82`), `RELEASE_IMAGES` (the four images by service), and `BUNDLE_VARIABLES` (the five run-time variables, in env-file order).
+- `imageReference(service, digest)` is `ghcr.io/alp82/<image>@sha256:<digest>` and refuses anything but a full digest.
+- `renderBundle(template, digests)` replaces each `${CURIA_<SERVICE>_IMAGE...}` in `deploy/bundle/compose.yaml` with the digest reference and leaves every other variable alone. It is deterministic.
+- `inspectBundle(text)` returns the problems a rendered bundle has, one line each: a project name other than `curia`, an image that is not a digest reference under the registry, a variable outside the run-time set, a build stanza, an env file, or an operator path. Empty means fit to publish.
+- `bundleEnvironment({ root, uid, gid, dockerGid, installationId })` renders the env file `curia install` writes under `run/` and passes with `--env-file`. Paths and numbers only.
+
+The module reads text by line and never a YAML tree, because the package has no dependencies and every question is answerable that way. The release script that uses it is `deploy/bundle/render.mjs`, which writes the bundle directory, a deterministic `.tar.gz`, its `.sha256`, and the digest set for one version. `deploy/bundle/pins.mjs` reads the Node and Claude Code pins the images build with from `config/curia.yaml`.
 
 ## The launcher
 

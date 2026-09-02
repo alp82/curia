@@ -1,19 +1,29 @@
-# The daemon image (#260). The code is NOT baked in — it runs from the repo
-# mount at /home/alp/curia — so this image is only the toolchain: node (the one
-# pin every curia image shares, #357), git, gh, the docker CLI (agent containers
-# are siblings on host dockerd), the tailscale CLI (Serve over the host
-# tailscaled socket), tmux as a CLIENT of the tmux service's server, and the
-# sqlite3 shell for the journal.
+# The daemon image (#260, release stage by #869). Three stages:
+#
+#   toolchain  node (the one pin every curia image shares, #357), git, gh, the
+#              docker CLI (agent containers are siblings on host dockerd), the
+#              tailscale CLI (Serve over the host tailscaled socket), tmux as a
+#              CLIENT of the tmux service's server, and the sqlite3 shell for
+#              the journal.
+#   box        the source deployment's image (deploy/compose.yaml, `target:
+#              box`). The code is NOT baked in — it runs from the repo mount —
+#              so this stage adds only what uid 1000 on that box needs.
+#   release    the published image. The checkout sits at /opt/curia with its
+#              dependency tree installed, root-owned and read-only to whoever
+#              runs it, and nothing in it assumes a uid or a host path. The
+#              release workflow builds this stage and the Compose bundle names
+#              it by digest.
 #
 # Every version is a pin, same rule as config/curia.yaml `sandbox:`.
 
 # NODE_VERSION carries NO default (#357, applied by #409). One patch version
-# runs every curia image, and it is committed in deploy/compose.yaml for this
-# image and in config/curia.yaml for the agent one. A build that forgets the arg
+# runs every curia image, and it is committed in config/curia.yaml as
+# `sandbox.node_version`, which deploy/compose.yaml anchors for this box and
+# deploy/bundle/pins.mjs reads for a release. A build that forgets the arg
 # fails here rather than picking a Node of its own.
 ARG NODE_VERSION
 ARG NPM_VERSION=11.12.1
-ARG DOCKER_CLI_VERSION=28
+ARG DOCKER_CLI_VERSION=28.5.2
 ARG COMPOSE_VERSION=v2.39.2
 ARG TAILSCALE_VERSION=v1.98.10
 
@@ -21,7 +31,7 @@ FROM docker:${DOCKER_CLI_VERSION}-cli AS docker-cli
 FROM docker/compose-bin:${COMPOSE_VERSION} AS compose-bin
 FROM tailscale/tailscale:${TAILSCALE_VERSION} AS tailscale
 
-FROM node:${NODE_VERSION}-bookworm-slim
+FROM node:${NODE_VERSION}-bookworm-slim AS toolchain
 ARG GH_VERSION=2.97.0
 ARG NPM_VERSION
 
@@ -58,6 +68,10 @@ COPY --from=tailscale /usr/local/bin/tailscale /usr/local/bin/tailscale
 # `docker compose`. Pinned to the version proven on the box (#260).
 COPY --from=compose-bin /docker-compose /usr/local/libexec/docker/cli-plugins/docker-compose
 
+# ---------------------------------------------------------------------------
+# The source deployment's image. deploy/compose.yaml builds this stage.
+FROM toolchain AS box
+
 # Seed the tmux socket volume dir with the right owner: a named volume copies
 # ownership from the image on first use, and a root-owned dir would stop
 # uid 1000 from creating the socket.
@@ -75,3 +89,42 @@ RUN mkdir -p /run/curia-tmux && chown 1000:1000 /run/curia-tmux
 # home at a path nobody named.
 ARG CURIA_HOME
 RUN mkdir -p "$CURIA_HOME" && chown 1000:1000 "$CURIA_HOME"
+
+# ---------------------------------------------------------------------------
+# The release image (#869). Last, so a build that names no target builds it.
+#
+# What it carries is what the service reads at run time and nothing beside it:
+# the daemon's code, its assets, and its pinned dependency tree; the lifecycle
+# interface's source, which the daemon imports by relative path (#866); the
+# shipped configuration; the vendored skills; and the agent image recipe, which
+# the service builds on the host from its pins (daemon/src/image.mjs). Named
+# paths, never a tree: `daemon/` as a whole would carry the box's env file and
+# journal, and the repository root would carry the secrets directory.
+#
+# Every file is root-owned and world-readable, which is what makes an installed
+# version read-only to the operator that runs it (#851). The process writes
+# only under the installation root's mounts and under HOME, which the bundle
+# sets to `cache/home` inside the root.
+FROM toolchain AS release
+
+# The socket directory the tmux volume copies on first use, writable by any uid
+# with the sticky bit, because the operator's uid is a run-time fact (#851).
+RUN mkdir -p /run/curia-tmux && chmod 1777 /run/curia-tmux
+
+WORKDIR /opt/curia/daemon
+# Its own layer, keyed on the two pin files, so a code-only change reuses it.
+COPY daemon/package.json daemon/package-lock.json ./
+RUN npm ci --omit=dev --no-fund --no-audit --ignore-scripts \
+  && npm cache clean --force
+COPY daemon/src ./src
+COPY daemon/bin ./bin
+COPY daemon/assets ./assets
+COPY cli/src /opt/curia/cli/src
+COPY config/curia.yaml config/routing.yaml /opt/curia/config/
+COPY skills /opt/curia/skills
+COPY deploy/agent /opt/curia/deploy/agent
+
+LABEL org.opencontainers.image.title="curia daemon" \
+      org.opencontainers.image.source="https://github.com/alp82/curia" \
+      org.opencontainers.image.description="The Curia service: the agent-facing surface, the Discord bridge, and the durable journal." \
+      curia.gh-version="${GH_VERSION}"

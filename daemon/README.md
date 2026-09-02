@@ -330,6 +330,14 @@ The daemon measures the credential the WATCH LIST stands on, every six hours, an
 
 The Compose shape of an installed Curia is `deploy/bundle/compose.yaml`, inspected against `SERVICE_MOUNTS` by `test/bundlecompose.test.mjs`. The operator's page is [Secrets, mounts, and what survives](../docs/operator/secrets.md).
 
+## The release images and the bundle (#869)
+
+Each of the four service Dockerfiles under `deploy/` ends in a `release` stage, and `.github/workflows/release-images.yml` builds that stage once per release tag, pushes it to `ghcr.io/alp82/curia-<service>`, attests the digest, and renders `deploy/bundle/compose.yaml` against the four digests with `deploy/bundle/render.mjs`. The rendered bundle, its checksum, and `curia-images-<version>.json` land on the GitHub release. `workflow_dispatch` rehearses the same path on any branch under a commit tag and attaches nothing.
+
+The release stage carries the checkout at `/opt/curia`: `daemon/src`, `daemon/bin`, `daemon/assets`, the pinned `node_modules`, `cli/src` (the daemon imports the operator configuration and the layout from there), `config/curia.yaml` and `routing.yaml`, and in the daemon image `skills/` and `deploy/agent/`. Named paths, never a tree: `daemon/` as a whole would carry the box's env file and journal. `.dockerignore` at the repository root keeps those out of every build context too. The files are root-owned and read-only to the uid that runs the container, and nothing in the stage names a uid or a host path: the bundle sets `user`, `HOME`, and every mount at run time. Under `CURIA_ROOT` the loader also takes `sandbox.agent_uid` from the process's own uid rather than the file, because the file's `1000` is the source box's fact.
+
+The source deployment keeps building the `box` stage (`target: box` in `deploy/compose.yaml`), which is the image it always had. The Node and Claude Code pins reach a release build through `deploy/bundle/pins.mjs`, which reads `sandbox.node_version` and `sandbox.claude_version` from `config/curia.yaml`; `test/releaseimages.test.mjs` keeps them equal to the anchors in `deploy/compose.yaml`, inspects every release stage as text, and, with `CURIA_BUILD_IMAGES=1` and Docker present, builds the tmux image and runs it as uid 4242. The operator's page is [Release images and the Compose bundle](../docs/operator/bundle.md).
+
 ## What an agent knows (#57)
 
 `seedConfigDir` symlinks the configured skills into `<CLAUDE_CONFIG_DIR>/skills/`, so an agent resolves in the same idiom a hand session does instead of being told about skills in its prompt (#49). Config is `skills.root` + `skills.install` in `curia.yaml`; the default list is `wayfinder`, `grilling`, `domain-modeling`, `research`, `prototype`, `implement`, `tdd`, `code-review`, `diagnosing-bugs`. The charting-and-PM skills (`to-tickets`, `triage`, `to-spec`, `handoff`) are withheld — `to-tickets` is mass ticket creation in the hands of an agent that carries charting authority.
@@ -538,7 +546,7 @@ One Node patch version runs every curia image. It is committed in two places, an
 
 - `deploy/compose.yaml` passes `NODE_VERSION` to the daemon, the dashboard and the overseer from the `x-node-version` anchor. It is an anchor and not an interpolated variable, because the pin is committed and the `.env` file beside it is not.
 - `config/curia.yaml` holds `sandbox.node_version` for the agent image, beside the other pins. It rides the image content address, so a bump names a tag the box does not have and the daemon rebuilds.
-- The four Dockerfiles take `ARG NODE_VERSION` with no default. A build that forgets the arg then fails. This is the rule the agent Dockerfile already states for every other version it carries.
+- The four Dockerfiles take `ARG NODE_VERSION` with no default. A build that forgets the arg then fails. This is the rule the agent Dockerfile already states for every other version it carries. A release build reads the value from `config/curia.yaml` through `deploy/bundle/pins.mjs`, so the two committed places stay two and the workflow adds no third.
 - Every image names its distro too, as `node:${NODE_VERSION}-bookworm-slim`. A new Debian then arrives by a commit and never by a rebuild.
 - `daemon/package.json` states `engines.node`. It is a warning and not a wall, because a daemon that refuses to install is worse than the stack trace it prevents.
 - `image.test.mjs` holds the two rules that silence would break: the two committed places name one version, and no Dockerfile carries a default.
