@@ -6031,6 +6031,7 @@ function render() {
      out. It reads the same comparison the Maintenance section draws. */
   const stale = runningDiff(payload)?.length ? `<span class="nav-marker">stale</span>` : "";
   const field = activeField();
+  const typed = typedFields(app);
   app.innerHTML = `<div class="shell">
     ${desktopNav(n, stale)}
     <main>${SCREENS[UI.screen][1](payload)}</main>
@@ -6039,6 +6040,7 @@ function render() {
     ${handoffSheet()}
   </div>`;
   document.title = (n ? `(${n}) ` : "") + "Curia app";
+  restoreTyped(typed);
   restoreField(field);
   if (UI.screen === "chat") chatAfterRender();
   /* The hunks a card just asked for (#355). Started AFTER the page is written,
@@ -6074,9 +6076,36 @@ function mobileNav(needs, stale) {
 }
 
 /* The poll re-renders the whole page every few seconds, and the settings screen
-   has fields somebody may be halfway through typing in. The VALUE is never at
-   risk — every keystroke lands on the draft — so what has to survive a render
-   is the cursor, by id and offset. */
+   has fields somebody may be halfway through typing in. There the VALUE is
+   never at risk — every keystroke lands on the draft — so what has to survive
+   a render is the cursor, by id and offset. The setup forms (#874 to #879)
+   and the GitHub App name have no draft: a token or a machine name lives in
+   its field until the press sends it, and the rehearsal (#891) watched the
+   poll clear it. So a render also carries over each of THOSE fields whose
+   value is not the one the page drew, because that difference IS the
+   operator's typing, by id. A field nobody touched takes the fresh render's
+   value, so a read that moves a default is not undone. Only the draftless
+   forms qualify: the chat box is drawn from its draft, and a send clears the
+   draft, so carrying its element's text over would undo the send. */
+const DRAFTLESS_FIELDS = 'input[id^="setup-"], select[id^="setup-"], textarea[id^="setup-"], #github-app-name';
+function typedFields(app) {
+  if (typeof app?.querySelectorAll !== "function") return [];
+  const kept = [];
+  for (const el of app.querySelectorAll(DRAFTLESS_FIELDS)) {
+    if (el.type === "checkbox" || el.type === "radio") continue;
+    const drawn = el.tagName === "SELECT"
+      ? (Array.from(el.options ?? []).find((o) => o.defaultSelected)?.value ?? "")
+      : String(el.defaultValue ?? "");
+    if (String(el.value ?? "") !== drawn) kept.push({ id: el.id, value: el.value });
+  }
+  return kept;
+}
+function restoreTyped(kept) {
+  for (const f of kept) {
+    const el = document.getElementById(f.id);
+    if (el && "value" in el) el.value = f.value;
+  }
+}
 function activeField() {
   const el = document.activeElement;
   if (!el || !el.id) return null;
