@@ -17,7 +17,7 @@ import {
   REFRESH_AT_FRACTION, MEASURED_LIFETIME_MS, MIN_REFRESH_MARGIN_MS,
   AGENT_CREDENTIAL_MODE, HOST_CREDENTIAL_MODE, REAUTH_TIMEOUT_MS,
   CODEX_TOKEN_URL, CODEX_CLIENT_ID,
-  codexTokenClock, codexAccessTokenExpiry, refreshMarginMs, refreshDue, credentialState,
+  codexTokenClock, codexAccessTokenExpiry, codexTokenIdentity, refreshMarginMs, refreshDue, credentialState,
   exchangeRefreshToken, applyRefresh, writeCredentialFile,
   CodexCredentialBroker, ReauthFlow,
   authSessionName, isAuthSession, scrapeDeviceAuth, reauthRunCmd,
@@ -101,6 +101,18 @@ describe('reading the credential (#642)', () => {
     for (const bad of ['', 'not json', '{}', '{"tokens":{}}', '{"tokens":{"access_token":"a.b"}}', '{"tokens":{"access_token":123}}']) {
       assert.equal(codexAccessTokenExpiry(bad), null, bad)
     }
+  })
+
+  // The safe identity facts integration setup records (#878): the opaque
+  // account id and the plan, never the email in the profile claim and never
+  // a token. An unreadable credential answers null for each.
+  test('the identity facts are the account id and the plan, and nothing that is a person or a secret', () => {
+    const iat = Date.parse('2026-08-23T13:35:23Z')
+    const exp = iat + 10 * DAY
+    const identity = codexTokenIdentity(authJson({ iat, exp, account: 'acct-42' }))
+    assert.deepEqual(identity, { account_id: 'acct-42', plan_type: 'prolite', iat, exp })
+    assert.deepEqual(codexTokenIdentity('not json'), { account_id: null, plan_type: null, iat: null, exp: null })
+    assert.ok(!JSON.stringify(identity).includes('rt.old'))
   })
 })
 

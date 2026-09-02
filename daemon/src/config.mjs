@@ -157,8 +157,8 @@ export function readLayered(file, { localFile } = {}) {
 
 // What the daemon says at boot about the overrides it read, so the second file
 // is never invisible to somebody reading the first one. Null when there is none.
-export function overrideSummary(file) {
-  const local = localConfigFile(file)
+export function overrideSummary(file, localFile = localConfigFile(file)) {
+  const local = localFile
   if (!fs.existsSync(local)) return null
   const over = parse(fs.readFileSync(local, 'utf8'))
   return { file: local, keys: isMapping(over) ? Object.keys(over) : [] }

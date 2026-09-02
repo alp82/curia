@@ -145,8 +145,18 @@ describe('the daemon under an installation root (#867)', () => {
       assert.ok(!setupText.includes(TOKEN), 'the setup read never carries the token')
       const setup = JSON.parse(setupText)
       assert.deepEqual(setup.cards.map((c) => [c.key, c.state]), [
-        ['github', 'unconnected'], ['discord', 'failed'], ['tailscale', 'unconnected'], ['model', 'unavailable'],
+        ['github', 'unconnected'], ['discord', 'failed'], ['tailscale', 'unconnected'], ['model', 'unconnected'],
       ])
+      // The OpenAI half of the model card (#878) under a root: the panel's
+      // read is the credential by presence, no login in flight, and the
+      // routing readiness, with no key and no token anywhere in it.
+      const openaiText = await (await fetch(`http://127.0.0.1:${ports[0]}/setup/openai`)).text()
+      assert.ok(!openaiText.includes(TOKEN))
+      const openai = JSON.parse(openaiText)
+      assert.deepEqual(openai.secret, { state: 'absent' })
+      assert.equal(openai.login, null)
+      assert.equal(openai.routing.ready, false)
+      assert.ok(!/api_key|apiKey/.test(openaiText))
       // The Tailscale card (#877) under a root: no operator is recorded, so
       // the identity read says nobody is admitted and the first-operator
       // window is open; curia.yaml's `tester@example.com` admits nobody here.

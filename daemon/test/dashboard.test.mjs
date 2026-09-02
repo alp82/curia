@@ -1927,3 +1927,84 @@ describe('the Tailscale card routes and the first-operator window (#877)', () =>
     assert.equal((await req(surface.port, '/api/overview', { headers: served() })).status, 200)
   })
 })
+
+describe('the OpenAI card routes (#878)', () => {
+  const SERVE_PORT = 8445
+  const ORIGIN = 'https://box.tail1234.ts.net:8445'
+  const ALLOW = ['alp@example.com']
+  let surface
+  let daemon
+  let calls
+  let reply
+  let logged
+  const served = (extra = {}) => ({ host: 'box.tail1234.ts.net:8445', [LOGIN_HEADER]: 'alp@example.com', ...extra })
+  const press = (p, body) => req(surface.port, p, { method: 'POST', headers: served({ origin: ORIGIN, 'content-type': 'application/json' }), body })
+  const sent = (route) => calls.find((c) => c.url === route)
+  const OVERVIEW = {
+    provider: 'openai', root: true, secret: { state: 'absent' }, identity: null, ending: null, said: null,
+    login: { provider: 'openai', session: 'curia-auth-openai', state: 'waiting', url: 'https://auth.openai.com/codex/device', code: '83CC-A4ZTO', typed: false, terminal_url: null, seconds_left: 840 },
+    routing: { ready: false, model: 'gpt', rows: [], missing: ['untyped'], credentialed: [] },
+  }
+
+  beforeEach(async () => {
+    calls = []
+    logged = []
+    reply = {
+      '/setup/openai': [200, OVERVIEW],
+      '/setup/openai/login': [200, { ok: true, ...OVERVIEW, login: { provider: 'openai', state: 'starting' } }],
+    }
+    daemon = http.createServer((r, res) => {
+      let buf = ''
+      r.on('data', (d) => { buf += d })
+      r.on('end', () => {
+        calls.push({ method: r.method, url: r.url, body: buf ? JSON.parse(buf) : null })
+        const [code, body] = reply[r.url] ?? [404, { error: 'no such route' }]
+        res.writeHead(code, { 'content-type': 'application/json' })
+        res.end(JSON.stringify(body))
+      })
+    })
+    await new Promise((done) => daemon.listen(0, '127.0.0.1', done))
+    surface = new DashboardSurface({
+      port: 0, servePort: SERVE_PORT, index: DEFAULT_DASHBOARD_INDEX, allow: ALLOW, pollIntervalS: 5,
+      daemonPort: daemon.address().port,
+      log: (line) => logged.push(String(line)),
+      deps: {
+        fetchOverview: async () => ({ daemon: { port: 4271 } }),
+        assertServe: async () => {},
+        serveOff: async () => {},
+        attachBase: async () => 'box.tail1234.ts.net',
+        tailnetSelf: async () => ({ dnsName: 'box.tail1234.ts.net', ips: ['100.98.118.33'] }),
+      },
+    })
+    await surface.start()
+    await surface.resolveHosts()
+  })
+  afterEach(() => {
+    surface?.stop()
+    daemon?.close()
+  })
+
+  test('the panel read comes from the daemon unedited, with the one-time code and never a token, and a daemon that cannot be asked answers the reason', async () => {
+    const res = await req(surface.port, '/api/setup/openai', { headers: served() })
+    assert.equal(res.status, 200)
+    assert.deepEqual(JSON.parse(res.text), OVERVIEW)
+    daemon.close()
+    const down = JSON.parse((await req(surface.port, '/api/setup/openai', { headers: served() })).text)
+    assert.equal(down.secret, null)
+    assert.equal(down.login, null)
+    assert.match(down.error, /daemon|ECONNREFUSED|socket hang up/i)
+  })
+
+  test('the sign-in press crosses with no field at all, whatever the browser sent, and answers the daemon\'s read; a refusal is the sentence the page shows', async () => {
+    const res = await press('/api/setup/openai/login', { api_key: 'sk-should-never-cross', provider: 'anthropic' })
+    assert.equal(res.status, 200)
+    assert.deepEqual(sent('/setup/openai/login').body, {})
+    assert.equal(JSON.parse(res.text).login.state, 'starting')
+    assert.ok(!res.text.includes('sk-should-never-cross'))
+    assert.ok(!logged.join('\n').includes('sk-should-never-cross'))
+    reply['/setup/openai/login'] = [400, { ok: false, error: 'this daemon runs no containers, so it has nothing to run the login in' }]
+    const refused = await press('/api/setup/openai/login', {})
+    assert.equal(refused.status, 409)
+    assert.match(JSON.parse(refused.text).error, /runs no containers/)
+  })
+})

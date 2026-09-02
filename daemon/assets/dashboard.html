@@ -641,6 +641,12 @@
   .setup-problem { border-left: 4px solid var(--bad); background: var(--chip-bad-bg); padding: 12px 14px; border-radius: 6px; margin: 14px 0; line-height: 1.5; }
   .setup-problem b { color: var(--bad); display: block; margin-bottom: 2px; }
   .setup-steps { padding-left: 20px; line-height: 1.6; margin: 0 0 12px; }
+  /* The model card's provider rows (#878): one row per provider, its own
+     badge, its own panel, so the second provider lands beside the first. */
+  .setup-provider { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; margin: 12px 0; }
+  .setup-provider.connected { border-color: color-mix(in srgb, var(--ok) 50%, var(--line)); }
+  .setup-provider.failed { border-color: color-mix(in srgb, var(--bad) 60%, var(--line)); }
+  .setup-provider-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
   .setup-steps li { margin-bottom: 6px; }
   .setup-panel details { margin-top: 12px; }
   .setup-panel summary { cursor: pointer; color: var(--ink-dim); font-size: 13px; }
@@ -894,7 +900,7 @@ var UI = {
   /* The setup frame's own state (#874): whether a read is in flight, and the
      one sentence the last press left behind. The selected card is not here —
      it is the record's `step`, kept by the service so a reopen restores it. */
-  setup: { busy: false, note: null, discord: null, discordBusy: null, tailscale: null, tailscaleBusy: null },
+  setup: { busy: false, note: null, discord: null, discordBusy: null, tailscale: null, tailscaleBusy: null, openai: null, openaiBusy: null, openaiTimer: null },
   /* The drill-in frame's own state (#699), one entry per page that is a list
      of sections: which section is open, and whether the phone is on the list
      in front of it. */
@@ -4804,7 +4810,9 @@ function screenCredentials(p) {
    configuration slot; #875 to #879 replace the stub with the real connect
    flow, and their verifier on the service side is what turns the card. The
    GitHub card (#875) is `setupGitHub`, the Discord card (#876) `setupDiscord`,
-   the Tailscale card (#877) `setupTailscale`. Safe progress a step wants back after
+   the Tailscale card (#877) `setupTailscale`, the model card `setupModel` with
+   one row per provider, OpenAI (#878) in `setupOpenAI` and Anthropic (#879)
+   beside it. Safe progress a step wants back after
    a close goes through `rememberSetupProgress`, never into browser storage.
    `runFullLoop` is the seam #880 fills; until then the action stays
    unavailable. */
@@ -4833,8 +4841,9 @@ var SETUP_CONTENT = {
       ${card.state === "unavailable" ? setupUnavailable(card) : setupTailscale(card, progress)}`,
   },
   model: {
-    content: (card) => `<p>One verified provider is required. Sign in with your subscription, and Curia completes one minimal model request and applies a working routing preset. Add the second provider here whenever you like.</p>
-      ${setupUnavailable(card)}`,
+    content: (card, progress) => `<p>One verified provider is required. Sign in with your subscription, and Curia completes one minimal model request and applies a working routing preset. Add the second provider here whenever you like.</p>
+      <div class="setup-note">Subscription sign-in only. Curia holds no API key, and this panel offers no field for one.</div>
+      ${card.state === "unavailable" ? setupUnavailable(card) : setupModel(card, progress)}`,
   },
 };
 
@@ -5110,6 +5119,124 @@ async function doSetupTailscaleOperator() {
   return loadSetup();
 }
 
+/* The model-provider card (#852: one provider is required, the second is
+   optional). ONE CARD, ONE ROW PER PROVIDER, so the second provider lands
+   beside the first without restructuring: each row draws its own state
+   badge and its own panel, and the card's state is what the service
+   composed out of both. OpenAI (#878) is `setupOpenAI`; Anthropic (#879)
+   is the stub row until its ticket lands. */
+const SETUP_PROVIDERS = ["openai", "anthropic"];
+function setupModel(card, progress) {
+  const rows = SETUP_PROVIDERS.map((key) => {
+    const p = card.providers?.[key] ?? { title: key, state: "unavailable" };
+    const badge = p.state === "connected" ? "Connected and verified" : p.state === "failed" ? "Action required"
+      : p.state === "unavailable" ? "Not available" : "Ready to connect";
+    const body = key === "openai" ? setupOpenAI(p, card, progress)
+      : p.state === "unavailable" ? `<p class="qhint">Connecting Anthropic isn't available yet in this release. This row lights up when it lands.</p>` : "";
+    return `<div class="setup-provider ${esc(key)} ${esc(p.state)}">
+      <div class="setup-provider-head"><b>${esc(p.title ?? key)}</b><span class="setup-badge">${esc(badge)}</span></div>
+      ${body}</div>`;
+  });
+  return rows.join("");
+}
+
+/* The OpenAI row (#878). One press, the subscription sign-in curia already
+   runs (`codex login --device-auth` in a session the service drives); while
+   it waits the panel draws the link, the one-time code, and the terminal
+   fallback the service composed, the same card the Credentials screen
+   draws. Connected, it draws the safe facts of this read. Never a key
+   field: the credential lands in its secret file by the login, and the
+   only thing the page ever holds is the one-time code. */
+function setupOpenAI(p, card, progress) {
+  const o = UI.setup.openai;
+  const detail = p.detail ?? null;
+  const flow = o?.login ?? null;
+  if (p.state === "connected" && detail) {
+    const expires = detail.credential?.expires_at ? Math.round((new Date(detail.credential.expires_at).getTime() - Date.now()) / 1000) : null;
+    const rows = `<div class="rows">
+      <div class="row"><span class="key grow">Plan</span><span>${esc(detail.identity?.plan_type ?? "unknown")}</span></div>
+      <div class="row"><span class="key grow">Credential</span><span>${expires === null ? "expiry unknown" : `expires in ${esc(dur(Math.max(0, expires)))}`} · refreshed by Curia</span></div>
+      <div class="row"><span class="key grow">Verification</span><span>${esc(detail.request?.model)} answered in ${esc(detail.request?.ms)} ms · ${esc(ago(detail.request?.at))}</span></div>
+      <div class="row"><span class="key grow">Routing</span><span>${esc(detail.routing?.model)} for every ticket type${detail.routing?.applied ? " · preset applied by Curia" : " · ready"}</span></div>
+    </div>`;
+    return `${rows}<details><summary>Sign in to OpenAI again</summary>${setupOpenAIForm(o, flow, "Sign in to OpenAI again")}</details>`;
+  }
+  if (!o || o.loading) return `<p class="qhint">Reading the credential…</p>`;
+  const label = p.state === "failed" || o.secret?.state === "present" ? "Sign in to OpenAI again" : "Sign in to OpenAI";
+  return setupOpenAIForm(o, flow, label);
+}
+
+function setupOpenAIForm(o, flow, label) {
+  if (flow?.state === "waiting") return credFlow(flow);
+  const busy = UI.setup.openaiBusy === "openai-setup:login" || flow?.state === "starting";
+  const ended = o?.ending && !flow
+    ? `<div class="setup-note">The last OpenAI sign-in ended: ${esc(o.ending.why ?? o.ending.state)}. Start it again whenever you're ready.</div>` : "";
+  const sentence = o?.said && !flow ? `<p class="qhint">${esc(o.said.split("\n")[0])}</p>` : "";
+  const problem = o?.error ? `<p class="qhint">${esc(o.error)}</p>` : o?.secret?.state === "refused" ? `<p class="qhint">${esc(o.secret.why)}</p>` : "";
+  return `${ended}${problem}
+    <ol class="setup-steps">
+      <li>Select <b>${esc(label)}</b>. Curia opens a sign-in session on this host and shows a link and a one-time code here.</li>
+      <li>Open the link on any device, sign in to your ChatGPT account, and enter the code. Nothing is pasted back.</li>
+      <li>Curia adopts the credential the moment it lands, completes one minimal model request, and applies the routing preset.</li>
+    </ol>
+    <p><button class="btn primary" ${busy ? "disabled" : ""} onclick="doSetupOpenAILogin()">${busy ? "Starting…" : esc(label)}</button></p>
+    ${sentence}${said("openai-setup:login")}`;
+}
+
+/* The OpenAI row's reads and writes (#878). The panel's own read is polled
+   while a login is starting or waiting, because the link and the code
+   appear on the service's tick; the moment the login is gone the frame
+   verifies fresh, which is what turns the card. */
+async function loadOpenAISetup() {
+  clearTimeout(UI.setup.openaiTimer);
+  const before = UI.setup.openai?.login ?? null;
+  UI.setup.openai = { ...(UI.setup.openai ?? {}), loading: !UI.setup.openai };
+  render();
+  try {
+    const res = await fetch("/api/setup/openai", { headers: { accept: "application/json" }, cache: "no-store" });
+    if (!res.ok) throw new Error("the sidecar answered " + res.status);
+    UI.setup.openai = await res.json();
+  } catch (error) {
+    UI.setup.openai = { provider: "openai", secret: null, identity: null, login: null, ending: null, said: null, routing: null, error: error.message };
+  }
+  render();
+  const now = UI.setup.openai.login ?? null;
+  if (now && UI.screen === "setup") {
+    UI.setup.openaiTimer = setTimeout(loadOpenAISetup, 3000);
+  } else if (before && !now) {
+    return loadSetup();
+  }
+  return null;
+}
+function ensureOpenAISetupRead() {
+  if (!setup?.cards || setupSelected() !== "model") return;
+  const card = setupCardOf("model");
+  if (!card || card.state === "unavailable") return;
+  if (UI.setup.openai === null) loadOpenAISetup();
+}
+async function doSetupOpenAILogin() {
+  await rememberSetupProgress("model", { provider: "openai" });
+  UI.setup.openaiBusy = "openai-setup:login";
+  UI.act.said = null;
+  render();
+  try {
+    const res = await fetch("/api/setup/openai/login", {
+      method: "POST", headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({}),
+    });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(out.error || ("the sidecar answered " + res.status));
+    UI.setup.openai = out;
+  } catch (error) {
+    UI.act.said = { key: "openai-setup:login", text: error.message, ok: false };
+    UI.setup.openaiBusy = null;
+    render();
+    return null;
+  }
+  UI.setup.openaiBusy = null;
+  return loadOpenAISetup();
+}
+
 function setupUnavailable(card) {
   if (card.state !== "unavailable") return "";
   return `<div class="setup-note">Connecting ${esc(card.title)} isn't available yet in this release. The card stays here, and this step lights up when it lands.</div>`;
@@ -5253,6 +5380,7 @@ async function loadSetup() {
   render();
   ensureDiscordSetupRead();
   ensureTailscaleSetupRead();
+  ensureOpenAISetupRead();
 }
 /* Try again is a fresh verification of everything, which is the only kind of
    verification there is. */
@@ -5271,6 +5399,7 @@ async function selectSetupCard(key) {
   render();
   ensureDiscordSetupRead();
   ensureTailscaleSetupRead();
+  ensureOpenAISetupRead();
   await writeSetup({ step: key });
 }
 function continueSetup() {

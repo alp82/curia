@@ -36,7 +36,7 @@ import { sayGoodbye, questionGoodbye, deathWasSilent, DAEMON_BOOT } from './good
 import { readable } from './logline.mjs'
 import { resolveOutboundFiles, inboundContent, ALLOWED_EXTENSIONS, safeLeaf } from './attachments.mjs'
 import { PreviewRegistry } from './preview.mjs'
-import { loadCuriaConfig, loadRoutingConfig, operatorConfigFile, overrideSummary } from './config.mjs'
+import { loadCuriaConfig, loadRoutingConfig, localConfigFile, operatorConfigFile, overrideSummary } from './config.mjs'
 import { readOperatorConfig } from '../../cli/src/config.mjs'
 import { PROBE_MARK, PROBE_PATH, GUEST_DAEMON_HOST, GUEST_WT, dockerGateway, probeSideChannel } from './sandbox.mjs'
 import { Cooling, providerOf } from './routing.mjs'
@@ -72,6 +72,7 @@ import { AistackRegistration } from './aistackreg.mjs'
 import { githubVerifier } from './githubsetup.mjs'
 import { DiscordSetup } from './discordsetup.mjs'
 import { TailscaleSetup } from './tailscalesetup.mjs'
+import { OpenAISetup } from './openaisetup.mjs'
 import { IntegrationSetup } from './setup.mjs'
 import {
   probeTtyd, serveOff, attachBase, appTerminalUrl, validSessionName,
@@ -219,7 +220,22 @@ fs.mkdirSync(path.join(DATA, 'results'), { recursive: true })
 // Daemon-owned, never mounted into a container: one agent's token is unreadable
 // by every other agent (#159).
 fs.mkdirSync(tokensDir(DATA), { recursive: true, mode: 0o700 })
-const routingConfig = loadRoutingConfig(ROUTING_FILE)
+// Where the routing override lives (#292, #878). Beside the tracked file in
+// the source deployment, where the settings screen writes it. Under an
+// installation root `config/` is mounted read-only into the service (#867),
+// so the override the model-provider card writes as its routing preset is
+// `state/routing.local.yaml`, and this process loads that pair.
+const ROUTING_LOCAL = INSTALL_ROOT ? path.join(DATA, 'routing.local.yaml') : localConfigFile(ROUTING_FILE)
+const routingConfig = loadRoutingConfig(ROUTING_FILE, { localFile: ROUTING_LOCAL })
+// The apply, into the object every closure below holds (#265's reload rule):
+// nothing builds a new routing object, because the dispatcher and the
+// command router hold references to this one. The reload route and the
+// routing preset of integration setup both come through here.
+function applyRouting(next) {
+  for (const [type, model] of Object.entries(next.defaults)) routingConfig.defaults[type] = model
+  for (const [name, m] of Object.entries(next.models)) routingConfig.models[name].active = m.active
+  configLoadedAt = new Date().toISOString()
+}
 // When the values this process RUNS were read off disk (#362). Boot sets it,
 // and a reload that applies moves it. `GET /overview` stamps the six live
 // settings with it, which is what lets the console say "applied" as a fact it
@@ -230,8 +246,8 @@ let configLoadedAt = new Date().toISOString()
 // reads in the repo is no longer the config this daemon runs, and nothing else
 // on the box would tell them.
 for (const name of ['curia.yaml', 'routing.yaml']) {
-  const over = overrideSummary(path.join(CONFIG_DIR, name))
-  if (over) log(`config: ${name} + ${path.basename(over.file)} (overrides: ${over.keys.join(', ') || 'none'})`)
+  const over = overrideSummary(path.join(CONFIG_DIR, name), name === 'routing.yaml' ? ROUTING_LOCAL : undefined)
+  if (over) log(`config: ${name} + ${INSTALL_ROOT && name === 'routing.yaml' ? over.file : path.basename(over.file)} (overrides: ${over.keys.join(', ') || 'none'})`)
 }
 // #866: the operator configuration, said out loud for the same reason. The
 // loader above already refused an invalid file, so this read cannot throw.
@@ -1406,6 +1422,24 @@ const tailscaleSetup = new TailscaleSetup({
   root: INSTALL_ROOT, stateDir: DATA, allow: identityAllow, configAllow: curiaConfig.identity.allow,
   servePort: curiaConfig.dashboard.serve_port, appPort: curiaConfig.dashboard.port, log,
 })
+// The OpenAI half of the model card (#878). The sign-in is the dispatcher's
+// own codex device login, reached through the closures below because the
+// dispatcher is built further down; the credential is the broker's file
+// (`cfg.paths.codexAuth`), read by presence on every call; the routing
+// preset lands in the override this process loads and is applied in place.
+const openaiSetup = new OpenAISetup({
+  root: INSTALL_ROOT,
+  authFile: curiaConfig.paths.codexAuth,
+  credentialFiles: { anthropic: curiaConfig.paths.anthropicStore },
+  routing: { file: ROUTING_FILE, localFile: ROUTING_LOCAL, live: () => routingConfig, apply: applyRouting },
+  login: {
+    state: () => dispatcher.reauth?.state() ?? null,
+    ending: () => dispatcher.reauth?.ending ?? null,
+    start: ({ provider, by }) => dispatcher.startReauth({ provider, by }),
+  },
+  codexVersion: curiaConfig.sandbox?.codex_version ?? null,
+  log,
+})
 const integrationSetup = new IntegrationSetup({
   stateDir: DATA,
   log,
@@ -1413,6 +1447,7 @@ const integrationSetup = new IntegrationSetup({
     github: githubVerifier({ minter: () => appMinter, watch: () => curiaConfig.watch }),
     discord: discordSetup.verifier(),
     tailscale: tailscaleSetup.verifier(),
+    openai: openaiSetup.verifier(),
   },
 })
 
@@ -3828,6 +3863,20 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
   // browser never chooses; the confirmation records that login as the
   // allowed operator and answers the panel read beside the freshly verified
   // card.
+  // The OpenAI half of the model card (#878). The read is the panel's own:
+  // the credential by presence, its safe identity facts, the live sign-in
+  // with its link and code, and routing readiness. The one write starts the
+  // codex device login through the dispatcher and answers the read at once;
+  // the start may ensure the agent image first, so the page polls the read
+  // until the flow shows, and `said` carries curia's sentence when it has
+  // settled. Never a token in either direction.
+  if (url.pathname === '/setup/openai' && req.method === 'GET') {
+    return json(200, openaiSetup.overview())
+  }
+  if (url.pathname === '/setup/openai/login' && req.method === 'POST') {
+    openaiSetup.startLogin().catch((e) => log(`model setup: the openai sign-in start failed (${e.message})`))
+    return json(200, { ok: true, ...openaiSetup.overview() })
+  }
   if (url.pathname === '/identity' && req.method === 'GET') {
     return json(200, tailscaleSetup.identity())
   }
@@ -4020,7 +4069,7 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
     let nextRouting
     try {
       nextCuria = loadCuriaConfig(CURIA_FILE)
-      nextRouting = loadRoutingConfig(ROUTING_FILE)
+      nextRouting = loadRoutingConfig(ROUTING_FILE, { localFile: ROUTING_LOCAL })
     } catch (e) {
       // The loader's own message, unedited. It names the file and the key, and
       // it is the same sentence a refused boot would print.
@@ -4051,9 +4100,7 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
     for (const key of DISPATCH_KEYS) curiaConfig.dispatch[key] = nextCuria.dispatch[key]
     curiaConfig.watch = nextCuria.watch
     curiaConfig.overseer.live_pane_cap = nextCuria.overseer.live_pane_cap
-    for (const [type, model] of Object.entries(nextRouting.defaults)) routingConfig.defaults[type] = model
-    for (const [name, m] of Object.entries(nextRouting.models)) routingConfig.models[name].active = m.active
-    configLoadedAt = new Date().toISOString()
+    applyRouting(nextRouting)
 
     if (applied.includes('watch')) {
       checkWatchedCredentials()

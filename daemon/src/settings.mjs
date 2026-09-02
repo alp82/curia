@@ -362,8 +362,10 @@ function settle(doc, keyPath, value, baseValue) {
     return
   }
   // An override file that is still nothing but its header has no key to drop,
-  // and the document API refuses a delete against empty contents.
-  if (!doc.contents?.items) return
+  // and the document API refuses a delete against empty contents. It refuses
+  // a delete along a path that is not there too (`models.gpt.active` when the
+  // override holds `models.fable` alone), so the key is asked for first.
+  if (!doc.contents?.items || !doc.hasIn(keyPath)) return
   doc.deleteIn(keyPath)
   // And the sections the delete emptied. An override file that keeps `models:
   // {}` around says this box overrides something when it overrides nothing.
@@ -480,7 +482,13 @@ function validateRouting({ base, file, tmp }) {
 // Save the patch: the operator half into `config.yaml`, the routing half into
 // `routing.local.yaml`. Returns the basenames actually written — a save that
 // changes nothing writes nothing, and says so.
-export function saveSettings({ curiaFile, routingFile, patch, now = () => new Date() }) {
+//
+// `routingLocalFile` is where the routing override lives, beside the tracked
+// file by default. Under an installation root `config/` is read-only to the
+// service (#867), so the routing preset of integration setup (#878) names the
+// root's `state/routing.local.yaml` here, and the daemon loads the same
+// layered pair.
+export function saveSettings({ curiaFile, routingFile, routingLocalFile = null, patch, now = () => new Date() }) {
   checkPatch(patch)
   const wantsOperator = Boolean(patch.dispatch || patch.overseer || patch.watch)
   if (!wantsOperator && !patch.routing) refuse('the save carried no settings')
@@ -496,7 +504,7 @@ export function saveSettings({ curiaFile, routingFile, patch, now = () => new Da
   let routing = null
   try {
     if (patch.routing) {
-      const file = localConfigFile(routingFile)
+      const file = routingLocalFile ?? localConfigFile(routingFile)
       const baseData = parse(fs.readFileSync(routingFile, 'utf8')) ?? {}
       // No override file yet is the ordinary first save. `null` marks it, so
       // "nothing changed" and "the override is gone" stay two different
