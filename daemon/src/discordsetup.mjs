@@ -99,6 +99,23 @@ function list(items, word = 'and') {
   return `${items.slice(0, -1).join(', ')}, ${word} ${items[items.length - 1]}`
 }
 
+// How the registered commands differ from the bridge's manifest, by name
+// and description: one phrase per difference, empty when they match. The
+// options are the manifest's to send; a difference there rides the next
+// registration without failing a read.
+export function manifestDrift(registered) {
+  const byName = new Map(registered.map((c) => [String(c?.name), c]))
+  const out = []
+  for (const command of SLASH_MANIFEST) {
+    const row = byName.get(command.name)
+    if (!row) out.push(`/${command.name} is not registered`)
+    else if (String(row.description ?? '') !== command.description) out.push(`/${command.name} has another description`)
+    byName.delete(command.name)
+  }
+  for (const name of byName.keys()) out.push(`/${name} is registered and not curia's`)
+  return out
+}
+
 // The bot's permissions in one channel, computed the way Discord documents
 // it: the guild-level permissions, then the @everyone overwrite, then the
 // bot's role overwrites together, then the bot's own member overwrite. An
@@ -123,12 +140,28 @@ export function channelPermissions({ base, overwrites = [], roles = [], botId, g
 }
 
 // A Discord answer that was not 2xx. `status` lets a caller tell "refused"
-// from "absent"; the message is Discord's own sentence.
+// from "absent"; the message is Discord's own sentence. A 429 carries
+// `retryAfter`, the whole seconds Discord asks this bot to wait (#891).
 class DiscordError extends Error {
-  constructor(status, message) {
+  constructor(status, message, retryAfter = null) {
     super(message)
     this.status = status
+    this.retryAfter = retryAfter
   }
+  get rateLimited() { return this.status === 429 }
+}
+
+// The sentence every surface uses for a rate limit: a fact and the wait,
+// never advice to add the bot again.
+export const rateLimitSentence = (retryAfter) => `Discord is rate limiting this bot; it answers again in ${retryAfter} s`
+const waitAction = (retryAfter) => `Wait ${retryAfter} s for Discord's limit to pass, then try again.`
+
+// The wait off a 429: `retry_after` in the body (seconds, fractional), else
+// the Retry-After header, rounded up so the wait is never too short.
+function retryAfterOf(res, data) {
+  const raw = data?.retry_after ?? res.headers?.get?.('retry-after') ?? null
+  const seconds = Number(raw)
+  return Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds) : 1
 }
 
 // One REST call on the bot token. The token rides the header and nowhere
@@ -148,6 +181,10 @@ function client(token, fetchImpl) {
     const text = await res.text()
     let data = null
     try { data = text ? JSON.parse(text) : null } catch { data = null }
+    if (res.status === 429) {
+      const wait = retryAfterOf(res, data)
+      throw new DiscordError(429, rateLimitSentence(wait), wait)
+    }
     if (!res.ok) throw new DiscordError(res.status, redact(String(data?.message ?? `${res.status} from Discord`), [token]))
     return data
   }
@@ -164,6 +201,9 @@ export class DiscordSetup {
     this.fetchImpl = fetchImpl
     this.bridgeState = bridgeState
     this.log = log
+    // The last answer a verification finished with, so a read Discord rate
+    // limits keeps the card where it was instead of failing it (#891).
+    this.last = null
   }
 
   // The token off its file, by presence: `{ state, value }`, and a `why`
@@ -197,7 +237,7 @@ export class DiscordSetup {
     const token = this.#token()
     const out = {
       secret: token.state, source: token.source, file: this.root ? secretPath(this.root, 'discord-bot-token') : null,
-      settings: this.#settings(), bot: null, guilds: [], invite_url: null, error: token.why ?? null,
+      settings: this.#settings(), bot: null, guilds: [], invite_url: null, error: token.why ?? null, retry_after: null,
     }
     if (token.state !== 'present') return out
     const api = this.#api(token.value)
@@ -208,6 +248,7 @@ export class DiscordSetup {
       out.guilds = (await api('GET', '/users/@me/guilds')).map((g) => ({ id: String(g.id), name: String(g.name ?? '') }))
     } catch (e) {
       out.error = e.status === 401 ? 'Discord refused the bot token' : e.message
+      if (e.rateLimited) out.retry_after = e.retryAfter
     }
     return out
   }
@@ -216,7 +257,8 @@ export class DiscordSetup {
     try {
       const app = await api('GET', '/oauth2/applications/@me')
       return String(app?.id ?? me.id)
-    } catch {
+    } catch (e) {
+      if (e.rateLimited) throw e
       return String(me.id)
     }
   }
@@ -242,11 +284,15 @@ export class DiscordSetup {
 
   // The Connect channel press: the server and the channel name land beside
   // the operator ID, then the channel is reused when a top-level text
-  // channel of that name is there and created when it is not. This is the
-  // only call that creates anything on Discord. A creation Discord refuses
-  // is a refusal with the corrective action; the choice stays written, so
-  // the next press or the operator's own channel completes it. Answers
-  // `{ settings, channel: { id, name, created } | null }`.
+  // channel of that name is there and created when it is not, and the
+  // command manifest is registered on the server once (#891). This is the
+  // only call that creates anything on Discord, and with Register commands
+  // and the bridge's boot the only one that registers. A creation Discord
+  // refuses is a refusal with the corrective action; the choice stays
+  // written, so the next press or the operator's own channel completes it.
+  // A registration Discord refuses is left to the next read, which fails on
+  // the commands and names Register commands. Answers `{ settings, channel:
+  // { id, name, created } | null, commands: string[] | null }`.
   async chooseChannel({ guild_id: guildId, channel } = {}) {
     if (typeof guildId !== 'string' || !SNOWFLAKE.test(guildId)) throw refuse('Select a server the bot is in.')
     if (typeof channel !== 'string' || !CHANNEL_NAME.test(channel)) throw refuse('That is not a Discord channel name. Use lowercase letters, digits, hyphens, and underscores.')
@@ -267,13 +313,59 @@ export class DiscordSetup {
       throw refuse(`curia could not list the bot's servers: ${redact(e.message, [token.value])}`)
     }
     const found = await this.#findChannel(api, guildId, channel)
-    if (found) return { settings, channel: { id: String(found.id), name: String(found.name ?? channel), created: false } }
+    let made = null
+    if (!found) {
+      try {
+        made = await api('POST', `/guilds/${guildId}/channels`, { name: channel, type: GUILD_TEXT })
+        this.log(`discord setup: created #${channel} in ${guildName}`)
+      } catch (e) {
+        throw refuse(`curia could not create #${channel} in ${guildName}: ${redact(e.message, [token.value])}. Give the bot Manage Channels in ${guildName}, or create the text channel #${channel} yourself, then select Connect channel again.`)
+      }
+    }
+    const row = found ?? made
+    const channelFacts = { id: String(row.id), name: String(row.name ?? channel), created: !found }
+    let commands = null
     try {
-      const made = await api('POST', `/guilds/${guildId}/channels`, { name: channel, type: GUILD_TEXT })
-      this.log(`discord setup: created #${channel} in ${guildName}`)
-      return { settings, channel: { id: String(made.id), name: String(made.name ?? channel), created: true } }
+      commands = (await this.registerCommands({ api, token: token.value, guildId, guildName })).commands
     } catch (e) {
-      throw refuse(`curia could not create #${channel} in ${guildName}: ${redact(e.message, [token.value])}. Give the bot Manage Channels in ${guildName}, or create the text channel #${channel} yourself, then select Connect channel again.`)
+      this.log(`discord setup: ${e.message}`)
+    }
+    return { settings, channel: channelFacts, commands }
+  }
+
+  // The Register commands press, and Connect channel's own registration:
+  // the bridge's manifest lands on the selected server through one PUT,
+  // which replaces what was registered. A read never does this (#891):
+  // Discord counts every registration against a daily limit per server,
+  // and the Setup page reads every few seconds. Answers `{ commands }`,
+  // the registered names. A refusal names the fix; a rate limit names the
+  // wait.
+  async registerCommands({ api = null, token = null, guildId = null, guildName = null } = {}) {
+    if (!api) {
+      const got = this.#token()
+      if (got.state !== 'present') throw refuse('Submit the bot token in this panel first.')
+      token = got.value
+      api = this.#api(token)
+    }
+    let settings = null
+    try {
+      settings = this.#settings()
+    } catch (e) {
+      throw refuse(redact(e.message, [token]))
+    }
+    guildId = guildId ?? settings?.guild_id ?? null
+    if (!guildId) throw refuse('Select the server and the channel name in this panel, then select Connect channel.')
+    try {
+      const me = await api('GET', '/users/@me')
+      const appId = await this.#appId(api, me)
+      if (!guildName) guildName = String((await api('GET', '/users/@me/guilds')).find((g) => String(g.id) === guildId)?.name ?? guildId)
+      const registered = await api('PUT', `/applications/${appId}/guilds/${guildId}/commands`, SLASH_MANIFEST.map((c) => c.toJSON()))
+      const commands = (registered ?? []).map((c) => String(c.name))
+      this.log(`discord setup: registered ${commands.length} commands in ${guildName}`)
+      return { commands }
+    } catch (e) {
+      if (e.rateLimited) throw refuse(`${e.message}. Wait, then select Register commands again.`)
+      throw refuse(`curia could not register the commands in ${guildName}: ${redact(e.message, [token])}. Add the bot again with the invite link in this panel, which asks for the applications.commands scope, then select Register commands again.`)
     }
   }
 
@@ -286,18 +378,35 @@ export class DiscordSetup {
 
   // The frame's verifier (#874): `{ ok, primary, secondary, emoji, detail }`
   // or `{ ok: false, failed, action, detail }` or `{ ok: false, unconnected }`.
+  // A read Discord rate limits (429 on any call) is not a verification
+  // that failed: the card keeps the last answer, with the wait as its
+  // supporting line or its action, and the first read under a limit fails
+  // on the wait alone. Nothing here advises adding the bot again.
   verifier() {
     return async () => {
       const token = this.#token()
       if (token.state === 'absent') return { ok: false, unconnected: true }
       try {
-        return await this.#verify(token)
+        const answer = await this.#verify(token)
+        this.last = answer
+        return answer
       } catch (e) {
+        if (e.rateLimited) return this.#rateLimited(e.retryAfter)
         const message = redact(e.message, [token.value])
         this.log(`discord setup: verification did not finish: ${message}`)
         return { ok: false, failed: message, action: 'Fix the cause the message names, then try again.', detail: { stage: 'unknown' } }
       }
     }
+  }
+
+  #rateLimited(retryAfter) {
+    const sentence = rateLimitSentence(retryAfter)
+    const rateLimit = { retry_after: retryAfter, until: new Date(Date.now() + retryAfter * 1000).toISOString() }
+    this.log(`discord setup: ${sentence}`)
+    const last = this.last
+    if (last?.ok) return { ...last, secondary: sentence, detail: { ...last.detail, rate_limit: rateLimit } }
+    if (last && !last.unconnected) return { ...last, action: waitAction(retryAfter), detail: { ...last.detail, rate_limit: rateLimit } }
+    return { ok: false, failed: sentence, action: waitAction(retryAfter), detail: { stage: 'rate_limit', rate_limit: rateLimit } }
   }
 
   async #verify(token) {
@@ -321,6 +430,7 @@ export class DiscordSetup {
     try {
       me = await api('GET', '/users/@me')
     } catch (e) {
+      if (e.rateLimited) throw e
       if (e.status === 401) return fail('token', 'Discord refused the bot token', 'Reset the token on the Bot page of your Discord application and submit the new one in this panel.')
       return fail('token', `Discord did not answer for the bot: ${e.message}`, 'Check this host\'s outbound access to discord.com, then try again.')
     }
@@ -347,6 +457,7 @@ export class DiscordSetup {
     try {
       member = await api('GET', `/guilds/${guild.id}/members/${operatorId}`)
     } catch (e) {
+      if (e.rateLimited) throw e
       if (e.status === 404) {
         return fail('operator', `Discord user ${operatorId} isn't a member of ${guild.name}`, 'Join the server with that account, or correct the user ID in this panel, then try again.', facts)
       }
@@ -370,7 +481,8 @@ export class DiscordSetup {
     let roles = []
     try {
       roles = (await api('GET', `/users/@me/guilds/${guild.id}/member`))?.roles ?? []
-    } catch {
+    } catch (e) {
+      if (e.rateLimited) throw e
       roles = []
     }
     const held = channelPermissions({ base: row.permissions, overwrites: channel.permission_overwrites ?? [], roles, botId: bot.id, guildId: guild.id })
@@ -379,14 +491,23 @@ export class DiscordSetup {
       return fail('authority', `curia can't ${list(missing, 'or')} in #${channelFacts.name}`, `Allow ${list(missing)} for the bot in #${channelFacts.name}'s permissions, then try again.`, facts)
     }
 
+    // The commands: read, never registered here (#891). Connect channel and
+    // the bridge's boot register; a difference from the manifest by name or
+    // description is the failed verification, and Register commands is the
+    // one press that replaces what stands.
     let registered
     try {
-      registered = await api('PUT', `/applications/${appId}/guilds/${guild.id}/commands`, SLASH_MANIFEST.map((c) => c.toJSON()))
+      registered = await api('GET', `/applications/${appId}/guilds/${guild.id}/commands`)
     } catch (e) {
-      return fail('commands', `Discord refused the command registration: ${e.message}`, 'Add the bot again with the invite link in this panel, which asks for the applications.commands scope, then try again.', facts)
+      if (e.rateLimited) throw e
+      return fail('commands', `curia could not read the registered commands: ${e.message}`, 'Select Register commands in this panel. If Discord refuses that too, add the bot again with the invite link in this panel, which asks for the applications.commands scope, then try again.', facts)
     }
     const commands = (registered ?? []).map((c) => String(c.name))
     facts.commands = commands
+    const drift = manifestDrift(registered ?? [])
+    if (drift.length) {
+      return fail('commands', `The commands registered in ${guild.name} differ from curia's: ${list(drift)}`, 'Select Register commands in this panel to register the current commands, then try again.', facts)
+    }
 
     // The confirmation: curia's own, found when it stands in the channel,
     // posted when it does not.
@@ -395,7 +516,8 @@ export class DiscordSetup {
       const recent = await api('GET', `/channels/${channelFacts.id}/messages?limit=50`)
       const own = (recent ?? []).find((m) => String(m?.author?.id) === bot.id && String(m?.content ?? '').startsWith(CONFIRMATION_MARK))
       if (own) confirmation = { id: String(own.id), at: String(own.timestamp ?? ''), posted: false }
-    } catch {
+    } catch (e) {
+      if (e.rateLimited) throw e
       confirmation = null
     }
     if (!confirmation) {
@@ -404,6 +526,7 @@ export class DiscordSetup {
         const posted = await api('POST', `/channels/${channelFacts.id}/messages`, { content })
         confirmation = { id: String(posted.id), at: String(posted.timestamp ?? new Date().toISOString()), posted: true }
       } catch (e) {
+        if (e.rateLimited) throw e
         return fail('confirmation', `curia could not post in #${channelFacts.name}: ${e.message}`, `Allow View Channel and Send Messages for the bot in #${channelFacts.name}, then try again.`, facts)
       }
     }

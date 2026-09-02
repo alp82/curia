@@ -3942,8 +3942,11 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
   // token submission lands the token in `secrets/discord-bot-token` and the
   // operator ID in `state/discord.json` and answers the same read; the
   // channel choice lands the server and the channel name, reuses or creates
-  // the channel (the one write to Discord that creates anything, #891), and
-  // answers the freshly verified card. No answer carries the token.
+  // the channel (the one write to Discord that creates anything, #891),
+  // registers the command manifest once, and answers the freshly verified
+  // card. Register commands registers the manifest again on the selected
+  // server; a read only compares what is registered (#891). No answer
+  // carries the token.
   if (url.pathname === '/setup/discord' && req.method === 'GET') {
     return json(200, await discordSetup.overview())
   }
@@ -3961,6 +3964,15 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
     try {
       const chosen = await discordSetup.chooseChannel({ guild_id: body.guild_id, channel: body.channel })
       return json(200, { ok: true, ...chosen, card: await integrationSetup.verify('discord') })
+    } catch (e) {
+      if (!e.refusal) throw e
+      return json(400, { ok: false, error: e.message })
+    }
+  }
+  if (url.pathname === '/setup/discord/commands' && req.method === 'POST') {
+    try {
+      const registered = await discordSetup.registerCommands()
+      return json(200, { ok: true, ...registered, card: await integrationSetup.verify('discord') })
     } catch (e) {
       if (!e.refusal) throw e
       return json(400, { ok: false, error: e.message })
