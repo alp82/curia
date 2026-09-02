@@ -90,7 +90,7 @@ export async function runUninstall(
       steps.begin('routes')
       const routes = await withdrawServeRoutes({ stateDir: join(root, 'state'), stdout }, { tailscale })
       if (routes.recorded.length === 0) say('no Serve route is recorded for this installation')
-      else if (routes.withdrawn.length === 0) say(`no recorded Serve route is standing; nothing to withdraw`)
+      else if (routes.withdrawn.length === 0 && routes.stale.length === 0) say(`no recorded Serve route is standing; nothing to withdraw`)
 
       // 4. files
       steps.begin('files')

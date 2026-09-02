@@ -116,7 +116,7 @@ export async function runPurge(
       steps.begin('routes')
       const routes = await withdrawServeRoutes({ stateDir: join(root, 'state'), stdout }, { tailscale })
       if (routes.recorded.length === 0) say('no Serve route is recorded for this installation')
-      else if (routes.withdrawn.length === 0 && routes.absent.length > 0 && !routes.unreachable) say('no recorded Serve route is standing; nothing to withdraw')
+      else if (routes.withdrawn.length === 0 && routes.stale.length === 0 && routes.absent.length > 0 && !routes.unreachable) say('no recorded Serve route is standing; nothing to withdraw')
 
       // 5. images
       steps.begin('images')
@@ -144,7 +144,8 @@ export async function runPurge(
       for (const route of recordedRoutes) {
         const withdrawn = routes.withdrawn.some((r) => r.https === route.https && r.target === route.target)
         const absent = routes.absent.some((r) => r.https === route.https && r.target === route.target) && !routes.unreachable
-        say(`  Serve route https://:${route.https} -> ${route.target}: ${withdrawn ? 'withdrawn' : absent ? 'was not standing' : `still recorded when the root was removed; run 'tailscale serve --https=${route.https} off' on the node`}`)
+        const stale = routes.stale.some((r) => r.https === route.https && r.target === route.target)
+        say(`  Serve route https://:${route.https} -> ${route.target}: ${withdrawn ? 'withdrawn' : absent ? 'was not standing' : stale ? 'still standing under a name this node no longer has; \'tailscale serve reset\' on the node clears it with every other rule' : `still recorded when the root was removed; run 'tailscale serve --https=${route.https} off' on the node`}`)
       }
       say('  Model-provider logins (Anthropic, OpenAI): revoke them in each provider\'s account settings if you won\'t reinstall; only the local copies were deleted.')
       return EXIT.ok

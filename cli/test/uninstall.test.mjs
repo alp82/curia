@@ -251,6 +251,29 @@ describe('an uninstall over an installed root', () => {
     assert.ok(existsSync(other.launcher), 'the files step did not run')
   })
 
+  // A Curia rule under the old MagicDNS name of a renamed node, beside a
+  // rule that is not Curia's: the port off cannot reach the old name and a
+  // reset would take the other rule too, so the rule is left and named.
+  test('a Curia rule under another MagicDNS name is left and named when the node serves something else', async () => {
+    const { home, root, id } = await installed()
+    const tailscale = fakeTailscale({ serving: [{ ...APP_ROUTE, host: 'old-name.tail1234.ts.net' }, OTHER_ROUTE] })
+    const r = await uninstall({ home, root, docker: dockerHostOf(id), tailscale })
+    assert.equal(r.exit, EXIT.ok, r.error?.stack)
+    assert.deepEqual(tailscale.calls, [['serve', 'status', '--json'], ['serve', '--https=8445', 'off'], ['serve', 'status', '--json']], 'no reset')
+    assert.deepEqual(tailscale.serving(), [{ host: 'old-name.tail1234.ts.net', ...APP_ROUTE }, OTHER_ROUTE], 'the other rule is not touched')
+    assert.match(r.out, /the Serve route https:\/\/:8445 -> http:\/\/127\.0\.0\.1:4273 stands under https:\/\/old-name\.tail1234\.ts\.net:8445, a name this node no longer has; 'tailscale serve --https=8445 off' cannot reach it, and 'tailscale serve reset' would also remove https:\/\/host\.tail1234\.ts\.net:443 -> http:\/\/127\.0\.0\.1:3000/)
+    assertPreserved(root, id)
+
+    // The same node with nothing else served: the reset is Curia's own rule and no other.
+    const alone = await installed()
+    const only = fakeTailscale({ serving: [{ ...APP_ROUTE, host: 'old-name.tail1234.ts.net' }] })
+    const again = await uninstall({ home: alone.home, root: alone.root, docker: dockerHostOf(alone.id), tailscale: only })
+    assert.equal(again.exit, EXIT.ok, again.error?.stack)
+    assert.deepEqual(only.calls, [['serve', 'status', '--json'], ['serve', '--https=8445', 'off'], ['serve', 'status', '--json'], ['serve', 'reset']])
+    assert.deepEqual(only.serving(), [])
+    assert.match(again.out, /withdrew the Serve route https:\/\/:8445 -> http:\/\/127\.0\.0\.1:4273, which stood under https:\/\/old-name\.tail1234\.ts\.net:8445/)
+  })
+
   test('a launcher that names another root is kept', async () => {
     const { home, root, id, launcher } = await installed()
     const elsewhere = join(home, 'elsewhere')

@@ -366,9 +366,15 @@ export const nodeStatus = (label = 'host') => ({
 })
 export const loggedOutStatus = () => ({ BackendState: 'NeedsLogin', CertDomains: [], Self: { DNSName: '', Online: false } })
 
-export function fakeTailscale({ serving = [], status = nodeStatus(), up = {}, servePermitted = true, missing = false, broken = false } = {}) {
+// `serving` routes may carry a `host`, the MagicDNS name the rule stands
+// under (the node's own name by default). The real `serve --https=<port>
+// off` addresses only the node's current name, so a rule under another
+// name answers "handler does not exist", and `serve reset` clears every
+// rule; `vanishing` models the race of a rule that went away between the
+// status read and the off: the off answers that way and the rule is gone.
+export function fakeTailscale({ serving = [], status = nodeStatus(), up = {}, servePermitted = true, missing = false, broken = false, vanishing = false } = {}) {
   const calls = []
-  let routes = serving.map((r) => ({ ...r }))
+  let routes = serving.map((r) => ({ host: NODE_ADDRESS, ...r }))
   const state = { status, reads: 0 }
   const run = async (args, { onLine } = {}) => {
     calls.push(args)
@@ -391,18 +397,25 @@ export function fakeTailscale({ serving = [], status = nodeStatus(), up = {}, se
     }
     if (line === 'serve status --json') {
       const web = {}
-      for (const r of routes) web[`${NODE_ADDRESS}:${r.https}`] = { Handlers: { '/': { Proxy: r.target } } }
+      for (const r of routes) web[`${r.host}:${r.https}`] = { Handlers: { '/': { Proxy: r.target } } }
       return { ok: true, stdout: JSON.stringify(routes.length ? { Web: web } : {}), stderr: '' }
     }
     const off = /^serve --https=(\d+) off$/.exec(line)
     if (off) {
-      routes = routes.filter((r) => r.https !== Number(off[1]))
+      const mine = routes.filter((r) => r.host === NODE_ADDRESS && r.https === Number(off[1]))
+      if (vanishing) routes = routes.filter((r) => !mine.includes(r))
+      if (vanishing || mine.length === 0) return { ok: false, stdout: '', stderr: 'error: failed to remove web serve: handler does not exist\n', code: 1 }
+      routes = routes.filter((r) => !mine.includes(r))
+      return { ok: true, stdout: '', stderr: '' }
+    }
+    if (line === 'serve reset') {
+      routes = []
       return { ok: true, stdout: '', stderr: '' }
     }
     return { ok: false, stdout: '', stderr: `fake: no such tailscale command: ${line}`, code: 1 }
   }
   run.calls = calls
-  run.serving = () => routes
+  run.serving = () => routes.map(({ host, ...r }) => (host === NODE_ADDRESS ? r : { host, ...r }))
   run.state = state
   return run
 }

@@ -384,7 +384,7 @@ describe('the Tailscale card (#877)', () => {
 
   describe('the pieces', () => {
     test('the served routes are read out of the serve config, and an empty config is no route', () => {
-      assert.deepEqual(serveRoutes(serveConfig()), [{ https: SERVE_PORT, mount: '/', target: `http://127.0.0.1:${APP_PORT}` }])
+      assert.deepEqual(serveRoutes(serveConfig()), [{ https: SERVE_PORT, host: DNS, mount: '/', target: `http://127.0.0.1:${APP_PORT}` }])
       assert.deepEqual(serveRoutes({}), [])
       assert.deepEqual(serveRoutes(null), [])
     })

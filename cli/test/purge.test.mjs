@@ -351,6 +351,45 @@ describe('repeating after a partial failure', () => {
     assert.ok(!existsSync(root))
   })
 
+  // The #891 rehearsal: the node was renamed by hand, so Curia's rule stood
+  // under the old MagicDNS name. `serve status --json` listed it, the port
+  // off addressed the new name, and Tailscale answered "handler does not
+  // exist", which failed the routes step.
+  test('a Curia rule under another MagicDNS name is withdrawn with a reset when the node serves nothing else, and purge says so', async () => {
+    const { home, root, id } = await installed()
+    const tailscale = fakeTailscale({ serving: [{ ...APP_ROUTE, host: 'old-name.tail1234.ts.net' }] })
+    const r = await purge({ home, root, docker: dockerHostOf(id), tailscale, prompt: answering(root) })
+    assert.equal(r.exit, EXIT.ok, r.error?.stack)
+    assert.deepEqual(tailscale.calls, [['serve', 'status', '--json'], ['serve', '--https=8445', 'off'], ['serve', 'status', '--json'], ['serve', 'reset']])
+    assert.deepEqual(tailscale.serving(), [])
+    assert.match(r.out, /withdrew the Serve route https:\/\/:8445 -> http:\/\/127\.0\.0\.1:4273, which stood under https:\/\/old-name\.tail1234\.ts\.net:8445, a name this node no longer has/)
+    assert.match(r.out, /Serve route https:\/\/:8445 -> http:\/\/127\.0\.0\.1:4273: withdrawn/)
+    assert.ok(!existsSync(root))
+  })
+
+  test('a Curia rule under another MagicDNS name is left and named in the report when the node serves something else', async () => {
+    const { home, root, id } = await installed()
+    const tailscale = fakeTailscale({ serving: [{ ...APP_ROUTE, host: 'old-name.tail1234.ts.net' }, OTHER_ROUTE] })
+    const r = await purge({ home, root, docker: dockerHostOf(id), tailscale, prompt: answering(root) })
+    assert.equal(r.exit, EXIT.ok, r.error?.stack)
+    assert.ok(!tailscale.calls.some((c) => c.includes('reset')), 'no reset beside a rule that is not Curia\'s')
+    assert.deepEqual(tailscale.serving(), [{ host: 'old-name.tail1234.ts.net', ...APP_ROUTE }, OTHER_ROUTE])
+    assert.doesNotMatch(r.out, /nothing to withdraw/)
+    assert.match(r.out, /Serve route https:\/\/:8445 -> http:\/\/127\.0\.0\.1:4273: still standing under a name this node no longer has; 'tailscale serve reset' on the node clears it with every other rule/)
+    assert.ok(!existsSync(root))
+  })
+
+  test('a rule Tailscale says is already gone at the off is already off, not a failure', async () => {
+    const { home, root, id } = await installed()
+    const tailscale = fakeTailscale({ serving: [APP_ROUTE], vanishing: true })
+    const r = await purge({ home, root, docker: dockerHostOf(id), tailscale, prompt: answering(root) })
+    assert.equal(r.exit, EXIT.ok, r.error?.stack)
+    assert.deepEqual(tailscale.calls, [['serve', 'status', '--json'], ['serve', '--https=8445', 'off'], ['serve', 'status', '--json']], 'the node is asked again, and nothing is reset')
+    assert.match(r.out, /no recorded Serve route is standing; nothing to withdraw/)
+    assert.match(r.out, /Serve route https:\/\/:8445 -> http:\/\/127\.0\.0\.1:4273: was not standing/)
+    assert.ok(!existsSync(root))
+  })
+
   test('an image Docker refuses to remove is kept with the reason, not a failure', async () => {
     const { home, root, id } = await installed()
     const docker = dockerHostOf(id, { fail: { 'image rm': 1 } })

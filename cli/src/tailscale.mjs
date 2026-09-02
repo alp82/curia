@@ -18,7 +18,18 @@ import { writeAtomically } from './atomic.mjs'
 // CURIA DETECTS TAILSCALE AND NEVER CHANGES IT, except for its own routes.
 // `withdrawServeRoutes` reads what the node serves, turns off only a recorded
 // route that is standing, and leaves every other route alone. A route that
-// is no longer standing is nothing to do, so a rerun is quiet.
+// is no longer standing is nothing to do, so a rerun is quiet, and so is a
+// route that went away between the read and the off: Tailscale's "handler
+// does not exist" is the answer of a rule that is already off, which the
+// #891 rehearsal saw fail a purge.
+//
+// A rule stands under a MagicDNS name, and `serve --https=<port> off`
+// addresses the node's current name only. A node renamed by hand keeps
+// Curia's rule under the old name, where the port off cannot reach it and
+// only `serve reset`, which clears the whole Serve config, can. The reset
+// runs when every rule the node serves is Curia's, because then it is
+// Curia's own routes and no other. Otherwise the stale rule is left and
+// named, with the reset the operator can decide on.
 
 export const TAILSCALE_FILE = 'tailscale.json'
 export const tailscalePath = (stateDir) => join(stateDir, TAILSCALE_FILE)
@@ -85,12 +96,15 @@ export function writeTailscaleRecord(stateDir, data) {
 // The routes in a `tailscale serve status --json` answer, which is the
 // node's whole serve config: `{ Web: { "<host>:<port>": { Handlers: { "/":
 // { Proxy } } } } }`.
+// Each route names the MagicDNS host the rule stands under.
 export function serveRoutes(config) {
   const out = []
   for (const [hostPort, site] of Object.entries(config?.Web ?? {})) {
-    const port = Number(hostPort.split(':').pop())
+    const at = hostPort.lastIndexOf(':')
+    const host = at > 0 ? hostPort.slice(0, at) : ''
+    const port = Number(hostPort.slice(at + 1))
     for (const [mount, handler] of Object.entries(site?.Handlers ?? {})) {
-      if (handler?.Proxy) out.push({ https: port, mount, target: String(handler.Proxy) })
+      if (handler?.Proxy) out.push({ https: port, host, mount, target: String(handler.Proxy) })
     }
   }
   return out
@@ -142,44 +156,93 @@ export class TailscaleError extends Error {
 }
 
 // Withdraws the Serve routes the record under `stateDir` names, and no
-// other. Returns `{ recorded, withdrawn, absent, unreachable }`: the
+// other. Returns `{ recorded, withdrawn, absent, stale, unreachable }`: the
 // recorded routes, the ones turned off on this call, the ones that were not
-// standing, and whether the node could be asked at all. The `tailscale`
+// standing, the ones that stand under a name the node no longer has and
+// were left, and whether the node could be asked at all. The `tailscale`
 // command missing from the path counts every route as absent and the node
 // as unreachable: with no CLI there is no node this operator can reach, and
 // the record is kept for the next run that can. A node that answers with an
 // error fails, because a route may still stand.
 export async function withdrawServeRoutes({ stateDir, stdout }, { tailscale = tailscaleRunner } = {}) {
   const recorded = readTailscaleRecord(stateDir).serve
-  if (recorded.length === 0) return { recorded, withdrawn: [], absent: [], unreachable: false }
+  if (recorded.length === 0) return { recorded, withdrawn: [], absent: [], stale: [], unreachable: false }
 
   const status = await tailscale(['serve', 'status', '--json'])
   if (!status.ok && status.missing) {
     stdout?.write(`the tailscale command is not on the path, so no Serve route is withdrawn; the record keeps ${recorded.length === 1 ? 'the route' : 'the routes'} for a host that runs Tailscale\n`)
-    return { recorded, withdrawn: [], absent: recorded, unreachable: true }
+    return { recorded, withdrawn: [], absent: recorded, stale: [], unreachable: true }
   }
   if (!status.ok) throw new TailscaleError(`tailscale serve status failed: ${firstLine(status.stderr || status.stdout) || `exit ${status.code}`}`)
-  let standing
-  try {
-    standing = serveRoutes(JSON.parse(status.stdout.trim() || '{}'))
-  } catch {
-    throw new TailscaleError('tailscale serve status --json did not answer JSON')
-  }
+  const standing = parseServeStatus(status)
 
+  const same = (a, b) => a.https === b.https && a.target === b.target
   const withdrawn = []
   const absent = []
+  // Rules of a recorded route that the port off left standing.
+  const left = []
   for (const route of recorded) {
-    const stands = standing.some((s) => s.https === route.https && s.target === route.target)
-    if (!stands) {
+    const rules = standing.filter((s) => same(s, route))
+    if (rules.length === 0) {
       absent.push(route)
       continue
     }
     const off = await tailscale(['serve', `--https=${route.https}`, 'off'])
-    if (!off.ok) throw new TailscaleError(`tailscale serve --https=${route.https} off failed: ${firstLine(off.stderr || off.stdout) || `exit ${off.code}`}`)
-    stdout?.write(`withdrew the Serve route https://:${route.https} -> ${route.target}\n`)
-    withdrawn.push(route)
+    if (off.ok) {
+      stdout?.write(`withdrew the Serve route ${describe(route)}\n`)
+      withdrawn.push(route)
+      // One rule was the one the off reached. More than one stand under
+      // different names, and the node says which remain.
+      if (rules.length > 1) left.push(...parseServeStatus(await tailscale(['serve', 'status', '--json'])).filter((s) => same(s, route)))
+      continue
+    }
+    if (!handlerMissing(off)) throw new TailscaleError(`tailscale serve --https=${route.https} off failed: ${firstLine(off.stderr || off.stdout) || `exit ${off.code}`}`)
+    // The off addressed the node's current name and found nothing there:
+    // the rule went away since the read, or stands under another name.
+    // The node says which.
+    left.push(...parseServeStatus(await tailscale(['serve', 'status', '--json'])).filter((s) => same(s, route)))
   }
-  return { recorded, withdrawn, absent, unreachable: false }
+
+  const stale = []
+  if (left.length > 0) {
+    const others = standing.filter((s) => !recorded.some((r) => same(s, r)))
+    if (others.length === 0) {
+      const reset = await tailscale(['serve', 'reset'])
+      if (!reset.ok) throw new TailscaleError(`tailscale serve reset failed: ${firstLine(reset.stderr || reset.stdout) || `exit ${reset.code}`}`)
+      for (const route of recorded) {
+        const rules = left.filter((s) => same(s, route))
+        if (rules.length === 0) continue
+        stdout?.write(`withdrew the Serve route ${describe(route)}, which stood under ${rules.map(at).join(' and ')}, a name this node no longer has; the node served nothing else, so 'tailscale serve reset' cleared it\n`)
+        if (!withdrawn.includes(route)) withdrawn.push(route)
+      }
+    } else {
+      for (const route of recorded) {
+        const rules = left.filter((s) => same(s, route))
+        if (rules.length === 0) continue
+        stdout?.write(`the Serve route ${describe(route)} stands under ${rules.map(at).join(' and ')}, a name this node no longer has; 'tailscale serve --https=${route.https} off' cannot reach it, and 'tailscale serve reset' would also remove ${others.map((s) => `${at(s)} -> ${s.target}`).join(' and ')}\n`)
+        stale.push(route)
+      }
+    }
+  }
+  for (const route of recorded) {
+    if (!withdrawn.includes(route) && !absent.includes(route) && !stale.includes(route)) absent.push(route)
+  }
+  return { recorded, withdrawn, absent, stale, unreachable: false }
 }
+
+function parseServeStatus(status) {
+  if (!status.ok) throw new TailscaleError(`tailscale serve status failed: ${firstLine(status.stderr || status.stdout) || `exit ${status.code}`}`)
+  try {
+    return serveRoutes(JSON.parse(status.stdout.trim() || '{}'))
+  } catch {
+    throw new TailscaleError('tailscale serve status --json did not answer JSON')
+  }
+}
+
+// Tailscale's answer to an off on a hostport it does not serve: the rule
+// is already off, whether it never stood or stands under another name.
+const handlerMissing = (off) => /handler does not exist/.test(`${off.stderr}\n${off.stdout}`)
+const describe = (route) => `https://:${route.https} -> ${route.target}`
+const at = (rule) => `https://${rule.host}:${rule.https}`
 
 const firstLine = (text) => String(text ?? '').trim().split('\n')[0]
