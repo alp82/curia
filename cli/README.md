@@ -6,7 +6,7 @@ For the operator's view, read the [command reference](https://github.com/alp82/c
 
 ## What this version ships
 
-This version ships the stable launcher, the command vocabulary, the installation-root boundary, the operator configuration contract, the supported-host preflight, the Compose bundle contract, and the release manifest with its verification. Every lifecycle command exists and routes. Each one opens its root through the boundary first, so the root refusals are real, and then refuses with exit code `3` and a message that names the version and the release map. The follow-up tickets in [Ship Curia's supported installation lifecycle](https://github.com/alp82/curia/issues/863) fill the commands in.
+This version ships the stable launcher, the command vocabulary, the installation-root boundary, the operator configuration contract, the supported-host preflight, the Compose bundle contract, the release manifest with its verification, and the stable-release index with its selection rule. Every lifecycle command exists and routes. Each one opens its root through the boundary first, so the root refusals are real, and then refuses with exit code `3` and a message that names the version and the release map. The follow-up tickets in [Ship Curia's supported installation lifecycle](https://github.com/alp82/curia/issues/863) fill the commands in.
 
 ## Layout
 
@@ -23,6 +23,7 @@ This version ships the stable launcher, the command vocabulary, the installation
 - `src/bundle.mjs`: the Compose bundle contract: the project name, the installation label, the four release images, the run-time variables, and the render, inspect, and env-file functions. See [The Compose bundle](#the-compose-bundle).
 - `src/manifest.mjs`: the release manifest contract and the release verification: what one release is, how the manifest is created, rendered, and parsed, and the two verification doors that `curia install`, `curia update`, and `curia doctor` call. See [The release manifest](#the-release-manifest).
 - `src/archive.mjs`: `readArchive(bytes)`, a reader for gzipped tar archives, which is how the verification opens the package tarball and the bundle archive without a system `tar`.
+- `src/stable.mjs`: the stable-release index and the selection rule: the signed index's contract, the two transitions (`promote`, `withdraw`), `selectRelease`, and the fetch that verifies the index against the key this package pins at `stable-index.pub`. See [The stable-release index](#the-stable-release-index).
 - `src/preflight.mjs`: the supported-host preflight. `gatherHostFacts` reads the host through injectable probes, `evaluateHostFacts` turns the facts into one report, and `preflight` does both and prints it. See [The host preflight](#the-host-preflight).
 - `src/launcher.mjs`: renders the stable `curia` launcher for one installation root.
 
@@ -104,6 +105,19 @@ The contract:
 
 The tests build a complete release the way the workflow does (an archive, a manifest that binds it, a package tarball that embeds the manifest, and a fake registry) and then change one thing at a time. `daemon/test/bundlerelease.test.mjs` proves that `render.mjs` writes a manifest that binds what it rendered.
 
+## The stable-release index
+
+`src/stable.mjs` is the one place that says which published version an installation should run and how that answer is trusted. The index is `release/stable.json` on `main`, one signed file that names the stable release and the withdrawn versions and never describes a release. `deploy/release/index.mjs` writes it, `.github/workflows/stable-index.yml` commits it, and `curia update` (#883), the service's daily check, and the Curia app read it through this module. The operator's view is [Releases, the stable-release index, and version selection](https://github.com/alp82/curia/blob/main/docs/operator/releases.md).
+
+The contract:
+
+- `STABLE_INDEX_FORMAT` (`1`), `STABLE_INDEX_PATH` (`release/stable.json`), `STABLE_INDEX_URL` (the raw file on `main`), and `STABLE_INDEX_KEY_FILE` (`stable-index.pub`, beside `package.json`, so `versions/<version>/cli/stable-index.pub` once installed). `isPrerelease(version)` is the one definition of a prerelease: a release version with a hyphenated suffix. `releaseNotesUrl(version)` is the GitHub release page.
+- `createStableIndex({ sequence, updated, stable, withdrawn })`, `renderStableIndex` (the one canonical text, which the signature covers), and `parseStableIndex`. Every field is required, nothing beyond the five is allowed, `stable` is never a prerelease and never withdrawn, and a `StableIndexError` names the field and the rule.
+- `signStableIndex(index, privateKeyPem)` writes the envelope `{ index, signature: { algorithm, key, value } }`, deterministic for one index. `verifyStableIndex(text, { publicKey })` returns the index or throws: no pinned key, no signature, another key (the message names both fingerprints), or a changed byte all fail. `pinnedPublicKey()` reads the shipped key, `keyFingerprint` names one, and `generateStableIndexKeys()` makes a pair for `deploy/release/keygen.mjs` and the tests.
+- `promote(index, version, { updated })` and `withdraw(index, version, { updated })` are pure: index in, index out, the sequence one higher when something changed and the same index when nothing did. Promotion refuses a prerelease and a withdrawn version. Withdrawing the stable release clears it.
+- `selectRelease(index, { requested, prerelease })` is the one selection rule and returns `{ version, selection }` with `selection` one of `stable`, `exact`, or `prerelease`, or throws a `Refusal`: no stable release named, a withdrawn version, a prerelease without `--prerelease`, `--prerelease` without a version or with a plain version, or a string that is not a release version. `selectionFromArgs(args)` reads `[<version>] [--prerelease]` for `curia update`, and `renderSelection` prints the one line.
+- `fetchStableIndex({ stdout, publicKey }, probes)` downloads through `stableProbes.stableIndex()`, verifies, prints one line, and returns `{ ok, index, error }`. A failed fetch carries the reason and no index, so a caller cannot select from a file that did not verify.
+
 ## The launcher
 
 The bootstrap writes `~/.local/bin/curia` once per installation. The launcher is a POSIX shell script with the installation root written into it. On each run it reads `state/installation.json`, takes `activeVersion`, and runs:
@@ -122,6 +136,6 @@ with `CURIA_ROOT` exported. An update changes the active version and never rewri
 npm test
 ```
 
-The suite has no dependencies, reads no file outside its own temporary directories, and reaches no network. `test/package.test.mjs` runs `npm pack` and installs the tarball into an empty prefix, so it needs `npm` and `tar` on the path; the manifest and archive tests build their fixtures with the same `tar`. The launcher tests run the rendered script with `/bin/sh` against a fake version directory whose `node` is a shell script that reports how it was called.
+The suite has no dependencies, reads no file outside its own temporary directories, and reaches no network. The stable-index tests sign with key pairs they generate. `test/package.test.mjs` runs `npm pack` and installs the tarball into an empty prefix, so it needs `npm` and `tar` on the path; the manifest and archive tests build their fixtures with the same `tar`. The launcher tests run the rendered script with `/bin/sh` against a fake version directory whose `node` is a shell script that reports how it was called.
 
 There is no build step. `npm pack` produces the release artifact.

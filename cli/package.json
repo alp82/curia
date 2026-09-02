@@ -10,6 +10,7 @@
     "bin/",
     "src/",
     "manifest.json",
+    "stable-index.pub",
     "README.md"
   ],
   "repository": {

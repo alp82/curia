@@ -43,7 +43,7 @@ Preflight verifies outbound HTTPS to the three release origins, and nothing else
 | Destination | Used for |
 |---|---|
 | `registry.npmjs.org` | The lifecycle interface package. |
-| `github.com`, `api.github.com`, `objects.githubusercontent.com` | The bootstrap script, the stable-release index, the pinned Node.js runtime, and the GitHub App. |
+| `github.com`, `api.github.com`, `objects.githubusercontent.com`, `raw.githubusercontent.com` | The bootstrap script, the release assets, the stable-release index (`raw.githubusercontent.com`), the pinned Node.js runtime, and the GitHub App. |
 | `ghcr.io`, `pkg-containers.githubusercontent.com` | The service images. |
 | `discord.com`, `gateway.discord.gg` | The Discord bot. |
 | `controlplane.tailscale.com`, `login.tailscale.com`, and the DERP relays | Tailscale. |

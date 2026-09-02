@@ -1,0 +1,119 @@
+# The stable-release index (#871, implementing #854).
+#
+# Publication and selection are two different acts. .github/workflows/release.yml
+# publishes a version; this workflow says which published version an
+# installation should run. It has two actions, both selection metadata and
+# nothing else:
+#
+#   promote   name the version as the recommended stable release. The version
+#             must be a plain release version whose package, bundle, and
+#             manifest verify the way an installation verifies them, so a
+#             promotion never names a version that would refuse to install.
+#             Nothing is rebuilt or replaced: the artifacts an operator
+#             rehearsed are the artifacts a promotion recommends.
+#   withdraw  mark a version known-bad. Automatic selection skips it, an
+#             exact request for it refuses, and its artifacts stay published
+#             for the record and for rollback. Withdrawing the stable release
+#             leaves no stable release until the next promotion.
+#
+# deploy/release/index.mjs applies the transition from cli/src/stable.mjs,
+# signs release/stable.json with the Ed25519 key in the CURIA_STABLE_INDEX_KEY
+# secret (the matching public key ships inside @curia-sh/cli), and this
+# workflow commits the file to main with the Curia GitHub App. Installations
+# read it raw from GitHub, verify the signature against the key their
+# installed version pins, and trust nothing else.
+#
+# The job runs in the `release` environment, so the same reviewer who gates a
+# publication gates a promotion.
+
+name: Stable-release index
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: promote names the version as the stable release; withdraw marks it known-bad
+        type: choice
+        required: true
+        options:
+          - promote
+          - withdraw
+      version:
+        description: The exact version, such as 1.2.3
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  index:
+    name: ${{ inputs.action }} ${{ inputs.version }}
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - name: Mint Curia GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.0.0
+        with:
+          client-id: ${{ vars.CURIA_RELEASE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.CURIA_RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+
+      - name: Check out main
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.0.2
+        with:
+          ref: main
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Read the Node pin from config/curia.yaml
+        id: pins
+        run: node deploy/bundle/pins.mjs | tee -a "$GITHUB_OUTPUT"
+
+      - name: Set up the pinned Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ steps.pins.outputs.NODE_VERSION }}
+
+      # A promotion recommends only a version that installs: the published
+      # package, bundle, and checksum go through the same six checks
+      # `curia install` runs before it activates a version.
+      - name: Verify the published release
+        if: inputs.action == 'promote'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: node deploy/release/publish.mjs verify --version "$VERSION"
+
+      - name: Update and sign the index
+        env:
+          CURIA_STABLE_INDEX_KEY: ${{ secrets.CURIA_STABLE_INDEX_KEY }}
+          ACTION: ${{ inputs.action }}
+          VERSION: ${{ inputs.version }}
+        run: node deploy/release/index.mjs "$ACTION" "$VERSION"
+
+      - name: Commit the index to main
+        env:
+          ACTION: ${{ inputs.action }}
+          VERSION: ${{ inputs.version }}
+          ACTOR: ${{ github.actor }}
+          APP: ${{ steps.app-token.outputs.app-slug }}
+        run: |
+          git add release/stable.json
+          if git diff --cached --quiet; then
+            echo "the index did not change; nothing to commit"
+            exit 0
+          fi
+          git config user.name "${APP}[bot]"
+          git config user.email "${APP}[bot]@users.noreply.github.com"
+          if [[ "$ACTION" == "promote" ]]; then
+            git commit -m "chore(release): promote ${VERSION} as the stable release" -m "Requested by @${ACTOR} through the stable-release index workflow."
+          else
+            git commit -m "chore(release): withdraw ${VERSION}" -m "Requested by @${ACTOR} through the stable-release index workflow."
+          fi
+          git push origin HEAD:main
+          node deploy/release/index.mjs show

@@ -121,7 +121,7 @@ describe('the contract', () => {
     assert.equal(MANIFEST_FORMAT, 1)
     assert.equal(PACKAGE_NAME, '@curia-sh/cli')
     assert.equal(RELEASE_REPOSITORY, 'alp82/curia')
-    assert.equal(RELEASE_WORKFLOW, '.github/workflows/release-images.yml')
+    assert.equal(RELEASE_WORKFLOW, '.github/workflows/release.yml')
     assert.equal(MANIFEST_FILE, 'manifest.json')
   })
 
@@ -164,7 +164,7 @@ describe('the manifest', () => {
         dashboard: { name: 'ghcr.io/alp82/curia-dashboard', digest: DIGESTS.dashboard },
         overseer: { name: 'ghcr.io/alp82/curia-overseer', digest: DIGESTS.overseer },
       },
-      source: { repository: 'alp82/curia', commit: COMMIT, workflow: '.github/workflows/release-images.yml' },
+      source: { repository: 'alp82/curia', commit: COMMIT, workflow: '.github/workflows/release.yml' },
     })
   })
 
@@ -465,7 +465,7 @@ describe('verifying an installed release', () => {
     assert.match(check(report, 'image provenance').observed, /overseer/)
     assert.match(check(report, 'image provenance').observed, /no attestations found/)
     assert.match(check(report, 'image provenance').action, /gh attestation verify oci:\/\/ghcr\.io\/alp82\/curia-overseer@sha256:4{64}/)
-    assert.match(check(report, 'image provenance').action, /--signer-workflow alp82\/curia\/\.github\/workflows\/release-images\.yml/)
+    assert.match(check(report, 'image provenance').action, /--signer-workflow alp82\/curia\/\.github\/workflows\/release\.yml/)
   })
 
   test('a package the registry does not record provenance for fails the package provenance check', async () => {

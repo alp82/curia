@@ -65,6 +65,10 @@ After the root, `curia install` and `curia update` check the host itself, and `c
 
 Before `curia install` or `curia update` activates a version, it verifies the downloaded artifacts against the release manifest: the manifest itself, the version, the npm integrity of the package, the bundle checksum, every image digest, and the copy of the manifest on the GitHub release. A check that fails stops the command with exit code `3`, names the condition, and gives one corrective action. Nothing is unpacked and the active version doesn't change. `curia doctor` repeats the checks on the active version and adds the publication provenance of each image and of the package. The manifest, every check, and every failure class are in [The release manifest and release verification](release-manifest.md).
 
+### How a version is selected
+
+`curia update` reads the signed stable-release index and selects the stable release it names. With an exact version it selects that version; with `--prerelease` and an exact prerelease version it selects that prerelease, which is never selected otherwise. A withdrawn version is refused in every form, with exit code `3`. The index, the signature, promotion, and withdrawal are in [Releases, the stable-release index, and version selection](releases.md).
+
 ### The lifecycle lock
 
 One lifecycle operation runs at a time per installation root. A lifecycle command takes `run/lifecycle.lock` before it changes anything and releases the lock when it finishes, whether it succeeds or fails. A second command that finds the lock held stops with exit code `3` and names the process that holds it. Wait for that command to finish, then run yours again.
@@ -79,7 +83,7 @@ Run `curia help` to print this list from the installed version. The commands app
 |---|---|---|
 | `curia install` | Installs Curia into the installation root and starts it. | Later release |
 | `curia reinstall` | Reinstalls the active version over a preserved installation root. It keeps `config/`, `secrets/`, `state/`, and `work/`. | Later release |
-| `curia update` | Stages, verifies, and switches to the latest stable release. It accepts an exact version. It keeps the previous release for rollback. | Later release |
+| `curia update` | Stages, verifies, and switches to the stable release named in the stable-release index. `curia update <version>` selects an exact version, and `curia update --prerelease <version>` selects an exact prerelease. It keeps the previous release for rollback. See [How a version is selected](#how-a-version-is-selected). | Later release |
 | `curia rollback` | Switches back to the one retained previous release. | Later release |
 | `curia doctor` | Checks the host, operator configuration, integrations, containers, and service reachability. It's read-only and repairs nothing. | Later release |
 | `curia uninstall` | Removes the runnable system and keeps `config/`, `secrets/`, `state/`, and `work/`. | Later release |
