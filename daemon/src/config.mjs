@@ -26,6 +26,7 @@ import {
   WATCH_MODES as OPERATOR_WATCH_MODES, operatorConfigPath, readOperatorConfig, validateOperatorConfig,
 } from '../../cli/src/config.mjs'
 import { servicePaths } from './paths.mjs'
+import { readInstallationRecord } from '../../cli/src/root.mjs'
 
 // The legal watch modes come from the operator configuration contract (#866),
 // which the settings screen writes through. Re-exported here so the daemon's
@@ -187,6 +188,14 @@ export function overrideSummary(file, localFile = localConfigFile(file)) {
 // `config.yaml` beside `file` and takes none when there is no file; `null`
 // reads the shipped layers alone; an object is a candidate the app judges
 // before it writes, validated here by the contract's own rules first.
+function installationIdOf(root, file) {
+  try {
+    return readInstallationRecord(root)?.installationId ?? null
+  } catch (e) {
+    fail(file, `the installation record under CURIA_ROOT cannot be read: ${e.message}`)
+  }
+}
+
 export function loadCuriaConfig(file, { checkPaths = true, localFile, env = process.env, operator } = {}) {
   const layers = readLayered(file, { localFile })
   const cfg = layers.data
@@ -259,6 +268,11 @@ export function loadCuriaConfig(file, { checkPaths = true, localFile, env = proc
   // answer. `cfg.paths` states every service path once, for every process
   // that loads this file.
   cfg.paths = servicePaths({ root: installRoot, workspaceRoot: d.workspace_root })
+  // The installation ID (#865) labels every agent container and cache volume
+  // the service creates, so `curia uninstall` and `curia purge` (#855) find
+  // them by the same label the Compose bundle puts on the services. Without a
+  // root there is no installation and nothing is labelled.
+  cfg.installationId = installRoot ? installationIdOf(installRoot, file) : null
   if (installRoot) {
     d.workspace_root = cfg.paths.workspaceRoot
   } else {

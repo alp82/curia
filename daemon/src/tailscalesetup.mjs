@@ -47,24 +47,16 @@
 // stage it failed at. Nothing is remembered between reads: a retry measures
 // again, and a node that went offline reads as offline.
 
-import fs from 'node:fs'
-import path from 'node:path'
-
-import { writeAtomically } from '../../cli/src/atomic.mjs'
+import { LOGIN_RE, MACHINE_NAME_RE, TAILSCALE_FILE, readTailscaleRecord, serveRoutes, tailscalePath, writeTailscaleRecord } from '../../cli/src/tailscale.mjs'
 import { execFileP } from './exec.mjs'
-
-export const TAILSCALE_FILE = 'tailscale.json'
-export const tailscalePath = (stateDir) => path.join(stateDir, TAILSCALE_FILE)
 
 // The machine-name input's default (#853). A node named `curia.sh` reads as
 // `curia-sh` in MagicDNS, which is what `magicDnsLabel` computes.
 export const DEFAULT_MACHINE_NAME = 'curia.sh'
 
-// A Tailscale login as Serve stamps it: an email-shaped identity, or a
-// GitHub-style `name@github` handle. Bounded, and never whitespace.
-const LOGIN_RE = /^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}@[A-Za-z0-9][A-Za-z0-9.-]{0,127}$/
-// The machine name the operator types, the same shape `state/setup.json` keeps.
-const MACHINE_NAME_RE = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$/i
+// The record and the route parser live in `cli/src/tailscale.mjs`, because
+// `curia uninstall` (#886) reads the same record to withdraw the routes.
+export { TAILSCALE_FILE, readTailscaleRecord, serveRoutes, tailscalePath, writeTailscaleRecord }
 
 const refuse = (msg) => Object.assign(new Error(msg), { refusal: true })
 
@@ -78,57 +70,6 @@ export function magicDnsLabel(name) {
 // The Serve route Curia publishes for the app, as `tailscale serve` names it.
 export const appRoute = ({ servePort, appPort }) => ({ https: servePort, target: `http://127.0.0.1:${appPort}` })
 
-function checked(data, source) {
-  if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error(`${source}: not a mapping`)
-  for (const key of Object.keys(data)) {
-    if (!['format', 'operator', 'machine_name', 'serve'].includes(key)) throw new Error(`${source}: unknown key ${key}`)
-  }
-  let operator = null
-  if (data.operator !== null && data.operator !== undefined) {
-    const op = data.operator
-    if (!op || typeof op !== 'object' || typeof op.login !== 'string' || !LOGIN_RE.test(op.login)) {
-      throw new Error(`${source}: operator.login must be a Tailscale login`)
-    }
-    operator = { login: op.login.toLowerCase(), confirmed_at: typeof op.confirmed_at === 'string' ? op.confirmed_at : null }
-  }
-  const machine = data.machine_name ?? null
-  if (machine !== null && (typeof machine !== 'string' || !MACHINE_NAME_RE.test(machine))) {
-    throw new Error(`${source}: machine_name must be a machine name or absent`)
-  }
-  const serve = data.serve ?? []
-  if (!Array.isArray(serve) || serve.some((r) => !r || !Number.isInteger(r.https) || typeof r.target !== 'string')) {
-    throw new Error(`${source}: serve must be a list of { https, target } routes`)
-  }
-  return { operator, machine_name: machine, serve: serve.map((r) => ({ https: r.https, target: r.target })) }
-}
-
-// The record, or the empty answer when there is no file: no operator is
-// recorded, which is what a fresh installation runs until setup writes it.
-export function readTailscaleRecord(stateDir) {
-  const file = tailscalePath(stateDir)
-  let text
-  try {
-    if (fs.lstatSync(file).isSymbolicLink()) throw new Error(`${file} is a symbolic link. Replace the link with the real file.`)
-    text = fs.readFileSync(file, 'utf8')
-  } catch (e) {
-    if (e.code === 'ENOENT') return { operator: null, machine_name: null, serve: [] }
-    throw e
-  }
-  let data
-  try {
-    data = JSON.parse(text)
-  } catch {
-    throw new Error(`${file}: not JSON`)
-  }
-  return checked(data, file)
-}
-
-export function writeTailscaleRecord(stateDir, data) {
-  const record = checked(data, tailscalePath(stateDir))
-  writeAtomically(tailscalePath(stateDir), `${JSON.stringify({ format: 1, ...record }, null, 2)}\n`, { mode: 0o600 })
-  return record
-}
-
 // One `tailscale` call. `exec` answers `{ stdout, stderr }` or throws with
 // the child's stderr on it, which is the sentence the failure carries.
 async function tailscale(exec, args) {
@@ -141,20 +82,6 @@ async function tailscale(exec, args) {
 }
 
 const parseJson = (text) => { try { return JSON.parse(text) } catch { return null } }
-
-// The routes in a `tailscale serve status --json` answer, which is the
-// node's whole serve config: `{ Web: { "<host>:<port>": { Handlers: { "/":
-// { Proxy } } } } }`.
-export function serveRoutes(config) {
-  const out = []
-  for (const [hostPort, site] of Object.entries(config?.Web ?? {})) {
-    const port = Number(hostPort.split(':').pop())
-    for (const [mount, handler] of Object.entries(site?.Handlers ?? {})) {
-      if (handler?.Proxy) out.push({ https: port, mount, target: String(handler.Proxy) })
-    }
-  }
-  return out
-}
 
 export class TailscaleSetup {
   // `root` null is the source deployment: the allowlist is `curia.yaml`'s

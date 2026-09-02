@@ -489,8 +489,10 @@ export function seedKillGuard(cfgDir) {
 // single quote of its own would break that, so it is refused rather than
 // escaped — the two shipped templates carry none, and an escaping scheme here
 // would be a second quoting rule for a human to get wrong.
+export const INSTALLATION_LABEL = 'sh.curia.installation'
+
 export function dockerRunCmd({
-  name, image, cfgDir, wtPath, envFile, spawnCmd, ports = [], sandbox, ticket = null, docker = DOCKER_BIN,
+  name, image, cfgDir, wtPath, envFile, spawnCmd, ports = [], sandbox, ticket = null, installationId = null, docker = DOCKER_BIN,
 }) {
   if (String(spawnCmd ?? '').includes("'")) {
     throw new Error(`refusing to run the ${name} harness command inside a container: it carries a single quote, and the container command is single-quoted (see routing.yaml)`)
@@ -508,8 +510,14 @@ export function dockerRunCmd({
     '-v', `${assertSafe('the worktree path', wtPath)}:${GUEST_WT}`,
     '-v', `${assertSafe('the config dir', cfgDir)}:${GUEST_CFG}`,
   ]
+  // The cache volumes are created on first use, and a volume created by a
+  // plain `-v` carries no label. `--mount` labels the volume at creation with
+  // the installation it belongs to (#886), so uninstall and purge find it by
+  // the same label as every other resource of the installation. A volume
+  // that already exists keeps the labels it has.
+  const volumeLabel = installationId === null ? '' : `,volume-label=${INSTALLATION_LABEL}=${assertSafe('the installation ID', installationId)}`
   for (const { volume, mount } of cacheVolumes(sandbox)) {
-    argv.push('-v', `${assertSafe('a cache volume', volume)}:${mount}`)
+    argv.push('--mount', `type=volume,src=${assertSafe('a cache volume', volume)},dst=${mount}${volumeLabel}`)
   }
   argv.push('--env-file', assertSafe('the env file', envFile))
   // How the Stop hook and the MCP side channel get back to the daemon.
@@ -519,6 +527,7 @@ export function dockerRunCmd({
   }
   argv.push('--label', `curia.session=${assertSafe('the container name', name)}`)
   if (ticket !== null) argv.push('--label', `curia.ticket=${assertSafe('the ticket', ticket)}`)
+  if (installationId !== null) argv.push('--label', `${INSTALLATION_LABEL}=${assertSafe('the installation ID', installationId)}`)
   argv.push(assertSafe('the image', image), 'bash', '-c', `'${spawnCmd}'`)
   return argv.join(' ')
 }

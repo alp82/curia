@@ -265,3 +265,87 @@ export function fakeLoopback(docker, { initial, live = [], readopt = () => 'adop
   fetch.reads = reads
   return fetch
 }
+
+// A fake Docker host for the removal commands (#886 and #887): a set of
+// containers, networks, and volumes with labels, answering the label-filtered
+// listings and the removals the way the `docker` CLI does, and recording
+// every call. Compose verbs go to `compose`, a `fakeDocker`. `fail` names
+// verbs that refuse a number of times before they work (`{ rm: 1 }`), to
+// model a partial cleanup.
+export function fakeDockerHost({ containers = [], networks = [], volumes = [], compose = fakeDocker(), fail = {} } = {}) {
+  const host = {
+    containers: containers.map((c) => ({ state: 'running', labels: {}, ...c })),
+    networks: networks.map((n) => ({ labels: {}, ...n })),
+    volumes: volumes.map((v) => ({ labels: {}, ...v })),
+  }
+  const calls = []
+  const remaining = { ...fail }
+  const matches = (args) => {
+    const at = args.indexOf('--filter')
+    if (at < 0) return () => true
+    const [, key, value] = /^label=([^=]+)=(.*)$/.exec(args[at + 1])
+    return (r) => r.labels[key] === value
+  }
+  const run = async (args) => {
+    calls.push(args)
+    if (args[0] === 'compose') return compose(args)
+    const verb = ['network', 'volume'].includes(args[0]) ? `${args[0]} ${args[1]}` : args[0]
+    if (remaining[verb] > 0) {
+      remaining[verb] -= 1
+      return { ok: false, stdout: '', stderr: `fake: ${verb} refused this time`, code: 1 }
+    }
+    const lines = (rows) => ({ ok: true, stdout: rows.map((r) => r.join('\t')).join('\n') + (rows.length ? '\n' : ''), stderr: '' })
+    switch (verb) {
+      case 'ps': return lines(host.containers.filter(matches(args)).map((c) => [c.id, c.name, c.state]))
+      case 'network ls': return lines(host.networks.filter(matches(args)).map((n) => [n.id, n.name]))
+      case 'volume ls': return lines(host.volumes.filter(matches(args)).map((v) => [v.name]))
+      case 'stop':
+        for (const c of host.containers) if (args.includes(c.id)) c.state = 'exited'
+        return { ok: true, stdout: '', stderr: '' }
+      case 'rm':
+        host.containers = host.containers.filter((c) => !args.includes(c.id))
+        return { ok: true, stdout: '', stderr: '' }
+      case 'network rm':
+        host.networks = host.networks.filter((n) => !args.includes(n.id))
+        return { ok: true, stdout: '', stderr: '' }
+      case 'volume rm':
+        host.volumes = host.volumes.filter((v) => !args.includes(v.name))
+        return { ok: true, stdout: '', stderr: '' }
+      default:
+        return { ok: false, stdout: '', stderr: `fake: no such docker command: ${args.join(' ')}`, code: 125 }
+    }
+  }
+  run.calls = calls
+  run.host = host
+  run.compose = compose
+  run.verbs = () => calls.map((c) => (c[0] === 'compose' ? `compose ${c[c.indexOf('-f') + 2]}` : ['network', 'volume'].includes(c[0]) ? `${c[0]} ${c[1]}` : c[0]))
+  return run
+}
+
+// A fake `tailscale` CLI holding the node's Serve config: `serving` is a list
+// of `{ https, target }`. `missing` models a host without the command;
+// `broken` models a node that answers every call with an error.
+export function fakeTailscale({ serving = [], missing = false, broken = false } = {}) {
+  const calls = []
+  let routes = serving.map((r) => ({ ...r }))
+  const run = async (args) => {
+    calls.push(args)
+    if (missing) return { ok: false, stdout: '', stderr: 'spawn tailscale ENOENT', code: 'ENOENT', missing: true }
+    if (broken) return { ok: false, stdout: '', stderr: 'failed to connect to local Tailscale service; is Tailscale running?', code: 1 }
+    const line = args.join(' ')
+    if (line === 'serve status --json') {
+      const web = {}
+      for (const r of routes) web[`host.tail1234.ts.net:${r.https}`] = { Handlers: { '/': { Proxy: r.target } } }
+      return { ok: true, stdout: JSON.stringify(routes.length ? { Web: web } : {}), stderr: '' }
+    }
+    const off = /^serve --https=(\d+) off$/.exec(line)
+    if (off) {
+      routes = routes.filter((r) => r.https !== Number(off[1]))
+      return { ok: true, stdout: '', stderr: '' }
+    }
+    return { ok: false, stdout: '', stderr: `fake: no such tailscale command: ${line}`, code: 1 }
+  }
+  run.calls = calls
+  run.serving = () => routes
+  return run
+}

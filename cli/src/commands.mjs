@@ -6,6 +6,7 @@ import { installCommand } from './install.mjs'
 import { runDoctor } from './doctor.mjs'
 import { updateCommand } from './update.mjs'
 import { rollbackCommand } from './rollback.mjs'
+import { uninstallCommand } from './uninstall.mjs'
 
 export const packageVersion = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version
 
@@ -21,9 +22,9 @@ export const packageVersion = JSON.parse(readFileSync(new URL('../package.json',
 // itself does. `version` is read-only and skips the boundary on purpose: it
 // reports the root even when a lifecycle command would refuse it.
 //
-// The lifecycle commands a later ticket fills in are seams. Each stub refuses
-// with the same message so an operator who runs a released package that lacks
-// a command learns that fact instead of a stack trace.
+// The lifecycle command a later ticket fills in is a seam. The stub refuses
+// with one message so an operator who runs a released package that lacks
+// the command learns that fact instead of a stack trace.
 function notYet(name) {
   return async ({ root, uid }) => {
     openRoot(root, { uid })
@@ -47,7 +48,7 @@ export const commands = {
   update: { summary: 'Stage, verify, and switch to the latest stable release, or to an exact version (--prerelease for an exact prerelease).', run: updateCommand, options: true },
   rollback: { summary: 'Switch back to the one retained previous release, after it validates the current configuration.', run: rollbackCommand },
   doctor: { summary: 'Check the host, configuration, integrations, and services. Read-only.', run: runDoctor },
-  uninstall: { summary: 'Remove the runnable system and keep config/, secrets/, state/, and work/.', run: notYet('uninstall') },
+  uninstall: { summary: 'Stop Curia and remove the launcher, versions/, cache/, run/, the installation\'s containers, networks, volumes, and Serve routes; keep config/, secrets/, state/, and work/ for a reinstall.', run: uninstallCommand },
   purge: { summary: 'Remove the entire installation root and every Curia-labelled Docker resource, after confirmation.', run: notYet('purge') },
   version: { summary: 'Print the lifecycle interface version and the active installed version.', run: version },
 }

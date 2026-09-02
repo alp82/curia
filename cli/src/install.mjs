@@ -2,6 +2,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync } f
 import { dirname, join } from 'node:path'
 
 import { EXIT, Refusal } from './exit.mjs'
+import { BOOTSTRAP_COMMAND } from './acquire.mjs'
 import { writeAtomically } from './atomic.mjs'
 import { composeProject, dockerRunner, startProject, waitForHealth, writeComposeEnvironment } from './compose.mjs'
 import { initialOperatorConfig, operatorConfigPath, writeOperatorConfig } from './config.mjs'
@@ -118,7 +119,7 @@ export async function runInstall(
         say(`${version} is already installed under ${paths.dir}; verifying the retained artifacts`)
         await verifyRetained({ version, dir: paths.dir, stdout }, release)
       } else {
-        throw new Refusal(`no release to install: CURIA_STAGE is not set and ${paths.dir} holds no complete version. Run the bootstrap: curl -fsSLO https://github.com/alp82/curia/releases/latest/download/curia-install.sh && bash curia-install.sh`)
+        throw new Refusal(`no release to install: CURIA_STAGE is not set and ${paths.dir} holds no complete version. Run the bootstrap: ${BOOTSTRAP_COMMAND}`)
       }
 
       // 4. activate

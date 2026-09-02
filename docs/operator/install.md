@@ -25,7 +25,7 @@ The version `curia install` installs is always the version of the lifecycle inte
 
 A reinstall keeps the installation ID, `config/`, `secrets/`, `state/`, and `work/`. It replaces `versions/` and rewrites `run/compose.env`, and it leaves `cache/` alone. Containers are recreated only where the bundle changed. Nothing you did through integration setup has to be repeated, and running work under `work/` resumes. The complete survival table is in [What survives](secrets.md#what-survives).
 
-The bootstrap always hands off `curia install`, even over a preserved root. `curia install` recognizes the installation record and reinstalls, so running the bootstrap again after `curia uninstall` restores the same installation. The one difference between the two commands is that `curia reinstall` refuses when there is nothing to reinstall.
+The bootstrap always hands off `curia install`, even over a preserved root. `curia install` recognizes the installation record and reinstalls, so running the bootstrap again after `curia uninstall` restores the same installation; see [Reinstall from the preserved root](uninstall.md#reinstall-from-the-preserved-root). The one difference between the two commands is that `curia reinstall` refuses when there is nothing to reinstall.
 
 To reinstall from the installed launcher, run:
 
@@ -58,7 +58,7 @@ Run the command that the failure message names. Every step checks what is alread
 - `start` rewrites `run/compose.env`, pulls only images that are missing, and recreates only containers whose definition changed.
 - `health` waits again.
 
-There is no saved progress record, no repair mode, and no automatic retry. The command doesn't retry a step on its own, and it doesn't undo a completed step. To start over from nothing, run `curia purge` and then the bootstrap.
+There is no saved progress record, no repair mode, and no automatic retry. The command doesn't retry a step on its own, and it doesn't undo a completed step. To remove the runnable system and keep the installation, run `curia uninstall`; see [Uninstall and reinstall from the preserved root](uninstall.md). To start over from nothing, run `curia purge` and then the bootstrap.
 
 Some failures and their corrective actions:
 
