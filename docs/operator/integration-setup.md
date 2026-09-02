@@ -33,21 +33,31 @@ The service converts the code itself. It writes the App id and the private key t
 
 ### Install the App
 
-After the App exists, the card lists every owner on the watch list with an **Install on &lt;owner&gt;** link. Install the App for each owner whose repositories Curia watches, and grant it the watched repositories. On GitHub, **Only select repositories** with the watched repositories is enough. Then select **Try again**.
+After the App exists, the card offers the installation. On a fresh installation nothing is watched yet, so the card shows one **Install the App on GitHub** link. Install the App on the account that owns your repositories and grant it the repositories Curia may work on. On GitHub, **Only select repositories** is enough. Then select **Try again**.
+
+Once a repository is on the watch list, the card lists every watched owner instead, each with this read's installation state and an **Install on &lt;owner&gt;** or **Manage installation** link. The state comes from the same verification that turns the card, so an owner the card calls installed is installed on this read.
+
+### Choose the repositories to watch
+
+After the App is installed, the card lists every repository the App's installations cover, each with a checkbox. On a fresh installation every repository is ticked. Untick the ones Curia shouldn't work on, then select **Watch these repositories**. The service writes the ticked repositories into `watch` in [`config/config.yaml`](configuration.md#the-watch-list-is-yours-alone) through the same validated save the settings screen uses, applies the list to the running service, and the card verifies again on the new list.
+
+A connected card keeps the same list under **Change the watched repositories**, with the watched repositories ticked. A watched repository that no installation covers stays on the list and is marked `not covered by an installation`; grant it on GitHub or untick it. A repository can't leave the list while an agent runs on it, and the card says so.
+
+Curia doesn't remember the choice anywhere else. The watch list in `config/config.yaml` is the choice.
 
 ### What verification proves
 
 Every read of the card runs the same verification:
 
-1. At least one repository is on the watch list.
-2. GitHub accepts the App's own credential and lists its installations.
-3. For each installed owner, Curia mints an installation token with the write permissions agents run on. The token is used for this verification and dropped. It reaches no file and no log.
-4. The installation grants at least one watched repository.
+1. GitHub accepts the App's own credential and lists its installations.
+2. For each installation, Curia mints an installation token with the write permissions agents run on and reads the repositories the installation grants. The token is used for this verification and dropped. It reaches no file and no log.
+3. At least one repository is on the watch list.
+4. At least one watched repository is covered by an installation.
 5. Curia reads the open tickets of the covered repositories with that token.
 
-The card connects when steps 1 to 5 pass. The footer shows a real discovered ticket, one that carries `ready-for-agent` and has no assignee, with its repository and the count of open tickets. When there is no such ticket, the footer names the covered repository, the count of open tickets (or `No open tickets`), and what the minted credential can do: `Issues, pull requests, and contents ready`. Curia never invents a ticket.
+The card connects when steps 1 to 5 pass. One covered watched repository is enough: a watched owner without an installation is shown as `missing access` in the owner rows and doesn't fail the card while another owner covers a watched repository. The footer shows a real discovered ticket, one that carries `ready-for-agent` and has no assignee, with its repository and the count of open tickets. When there is no such ticket, the footer names the covered repository, the count of open tickets (or `No open tickets`), and what the minted credential can do: `Issues, pull requests, and contents ready`. Curia never invents a ticket.
 
-A failed step names the failure and one action, for example `curia's GitHub App is not installed on alp82` with `Install the App on alp82 from the link in this panel and grant it alp82/curia, then try again.` Do what the action says and select **Try again**, which runs the whole verification again.
+A failed step names the failure and one action, for example `curia's GitHub App is not installed on alp82` with `Install the App on alp82 from the link in this panel and grant it alp82/curia, then try again.` The failure names only the owners this read found missing. Do what the action says and select **Try again**, which runs the whole verification again. The panel shows the result of the latest read only: a failure from an earlier read disappears when the new read connects the card.
 
 The card remembers only the App name (`progress.github.app_name`) for a reopen. The App id and key live in `secrets/github-app.json` and nowhere else.
 

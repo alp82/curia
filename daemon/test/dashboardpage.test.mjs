@@ -4890,6 +4890,117 @@ describe('integration setup (#874)', () => {
     assert.doesNotMatch(html, /issues\/861/)
   })
 
+  // The GitHub card after the rehearsal (#891). The owner rows are this
+  // read's fact, the failure banner is this read's alone, and a fresh
+  // installation chooses its watched repositories on the card.
+  const GITHUB_DETAIL = (over = {}) => ({
+    owners: [], covered: [], watched: [], available: [], install_url: 'https://github.com/apps/curia-box/installations/new', ...over,
+  })
+
+  test('the owner rows draw this read\'s installations, never the held overview\'s, so an installed owner is never drawn as missing beside its own verification', () => {
+    page.setup = SETUP({ cards: { github: {
+      state: 'failed', badge: 'Action required',
+      error: { failed: "The App installation on alp82 doesn't cover alp82/curia", action: 'Grant the App access to alp82/curia on the alp82 installation on GitHub, then try again.' },
+      detail: GITHUB_DETAIL({ owners: [{ owner: 'getalfredo', installed: false }, { owner: 'alp82', installed: true }], watched: ['getalfredo/landing-page', 'alp82/curia'] }),
+    } } })
+    const p = payload()
+    // The overview's own read is older: it has not seen the alp82 installation.
+    p.overview.github_app = APP({ owners: [
+      { owner: 'getalfredo', installed: true, install_url: 'https://github.com/apps/curia-box/installations/new/permissions?target_id=2002' },
+      { owner: 'alp82', installed: null, install_url: 'https://github.com/apps/curia-box/installations/new' },
+    ] })
+    const html = page.screenSetup(p)
+    assert.match(html, /getalfredo<\/span>\s*<span>missing access</)
+    assert.match(html, /alp82<\/span>\s*<span>installed</)
+    assert.match(html, />Manage installation</)
+    assert.match(html, /href="https:\/\/github.com\/apps\/curia-box\/installations\/new\/permissions\?target_id=2002"[^>]*>Install on getalfredo</, 'the overview lends the install link')
+    assert.doesNotMatch(text(html), /unknown \(not read yet\)/)
+  })
+
+  test('a fresh read that connects the card clears the previous read\'s failure from the panel and the rail', async () => {
+    page.setup = SETUP({ cards: { github: {
+      state: 'failed', badge: 'Action required',
+      error: { failed: "curia's GitHub App is not installed on alp82", action: 'Install the App on alp82 from the link in this panel and grant it alp82/curia, then try again.' },
+      detail: GITHUB_DETAIL({ owners: [{ owner: 'alp82', installed: false }], watched: ['alp82/curia'] }),
+    } } })
+    page.UI.act.said = { key: 'github-setup:watch', text: 'the sidecar answered 500', ok: false }
+    const p = payload()
+    p.overview.github_app = APP()
+    assert.match(text(page.screenSetup(p)), /not installed on alp82/)
+    page.fetch = async (url, init = {}) => ({ ok: true, json: async () => (init.method === 'POST' ? { ok: true } : SETUP({ cards: { github: {
+      ...ALL.github,
+      detail: GITHUB_DETAIL({ owners: [{ owner: 'alp82', installed: true }], covered: ['alp82/curia'], watched: ['alp82/curia'], available: ['alp82/curia'], open_tickets: 0, ticket: null }),
+    } } })) })
+    await page.retrySetup()
+    const html = page.screenSetup(p)
+    assert.doesNotMatch(html, /setup-problem/)
+    assert.doesNotMatch(text(html), /not installed on alp82/)
+    assert.doesNotMatch(html, /⚠️/)
+    assert.doesNotMatch(html, /class="said bad"/, 'a stale write refusal is not this read\'s result either')
+    assert.match(html, /class="setup-card github connected/)
+  })
+
+  test('with no watched repository the panel lists what the installations cover, every repository ticked, and one press watches them', async () => {
+    page.setup = SETUP({ cards: { github: {
+      state: 'failed', badge: 'Action required',
+      error: { failed: 'No repository is on the watch list, so there is nothing for the App installation to cover', action: 'Choose the repositories Curia watches in this panel, then select Watch these repositories.' },
+      detail: GITHUB_DETAIL({ available: ['alp82/curia', 'alp82/aistack', 'getalfredo/landing-page'] }),
+    } } })
+    const p = payload()
+    p.overview.github_app = APP({ owners: [] })
+    const html = page.screenSetup(p)
+    assert.match(html, /id="setup-github-repo-0" value="alp82\/curia" checked/)
+    assert.match(html, /id="setup-github-repo-1" value="alp82\/aistack" checked/)
+    assert.match(html, /id="setup-github-repo-2" value="getalfredo\/landing-page" checked/)
+    assert.match(html, /onclick="doSetupGitHubWatch\(\)">Watch these repositories</)
+    assert.doesNotMatch(text(html), /Add one under Settings/)
+    page.document.getElementById = (id) => ({ 'setup-github-repo-0': { checked: true }, 'setup-github-repo-1': { checked: false }, 'setup-github-repo-2': { checked: true } })[id] ?? null
+    calls = []
+    await page.doSetupGitHubWatch()
+    assert.deepEqual(calls.map((c) => [c.method, c.url]), [['POST', '/api/setup/github/watch'], ['GET', '/api/setup']])
+    assert.deepEqual(calls[0].body, { repos: ['alp82/curia', 'getalfredo/landing-page'] })
+  })
+
+  test('with no installation at all the panel offers the App\'s own install link, and no repository to tick', () => {
+    page.setup = SETUP({ cards: { github: {
+      state: 'failed', badge: 'Action required',
+      error: { failed: "curia's GitHub App is not installed on any account, so there is no repository to watch yet", action: 'Install the App on the account that owns your repositories from the link in this panel, then try again.' },
+      detail: GITHUB_DETAIL(),
+    } } })
+    const p = payload()
+    p.overview.github_app = APP({ owners: [] })
+    const html = page.screenSetup(p)
+    assert.match(html, /href="https:\/\/github.com\/apps\/curia-box\/installations\/new"[^>]*>Install the App on GitHub</)
+    assert.doesNotMatch(html, /doSetupGitHubWatch/)
+    assert.doesNotMatch(text(html), /Add one under Settings/)
+  })
+
+  test('a connected card keeps the choice behind a fold, with the watched repositories ticked and the rest not, and a refused write says the sentence', async () => {
+    page.setup = SETUP({ cards: { github: {
+      ...ALL.github,
+      detail: GITHUB_DETAIL({ owners: [{ owner: 'alp82', installed: true }], covered: ['alp82/curia'], watched: ['alp82/curia', 'other/uncovered'], available: ['alp82/curia', 'alp82/aistack'], open_tickets: 0, ticket: null }),
+    } } })
+    const p = payload()
+    p.overview.github_app = APP({ owners: [{ owner: 'alp82', installed: true, installation_id: 7, install_url: 'https://github.com/apps/curia-box/installations/new/permissions?target_id=1001' }] })
+    const html = page.screenSetup(p)
+    assert.match(html, /<summary>Change the watched repositories<\/summary>/)
+    assert.match(html, /id="setup-github-repo-0" value="alp82\/curia" checked/)
+    assert.match(html, /id="setup-github-repo-1" value="alp82\/aistack"(?! checked)/)
+    assert.match(html, /id="setup-github-repo-2" value="other\/uncovered" checked/, 'a watched repository no installation covers stays on the list')
+    assert.match(text(html), /other\/uncovered.*not covered by an installation/)
+    page.document.getElementById = (id) => ({ 'setup-github-repo-0': { checked: true }, 'setup-github-repo-1': { checked: true }, 'setup-github-repo-2': { checked: false } })[id] ?? null
+    page.fetch = async (url, init = {}) => {
+      calls.push({ url, method: init.method ?? 'GET', body: init.body ? JSON.parse(init.body) : null })
+      if (url === '/api/setup/github/watch') return { ok: false, status: 409, json: async () => ({ error: 'alp82/curia cannot leave the watch list while curia-7 runs on it' }) }
+      return { ok: true, json: async () => SETUP() }
+    }
+    calls = []
+    await page.doSetupGitHubWatch()
+    assert.deepEqual(calls.map((c) => [c.method, c.url]), [['POST', '/api/setup/github/watch']], 'a refused write takes no fresh read')
+    assert.deepEqual(calls[0].body, { repos: ['alp82/curia', 'alp82/aistack'] })
+    assert.match(text(page.screenSetup(p)), /cannot leave the watch list while curia-7 runs on it/)
+  })
+
   // The Discord card (#876). Before the token exists the panel guides the
   // operator to the application and the bot and offers the one form, the
   // token and the user ID. The token is read off its field, sent once, and

@@ -210,9 +210,17 @@ export function loadCuriaConfig(file, { checkPaths = true, localFile, env = proc
   // no longer the one running.
   const src = [file, layers.localFile, op ? operatorFile : null].filter(Boolean).join(' + ')
   if (!cfg || typeof cfg !== 'object') fail(src, 'not a mapping')
+  // UNDER A ROOT THE SHIPPED WATCH LIST IS NOT A DEFAULT (#891). The packaged
+  // image carries the source box's own `curia.yaml`, its watch list included,
+  // and a fresh installation that layered `config.yaml` over it watched the
+  // maintainer's repositories. The watch list is operator intent alone: under
+  // a root it comes from the root's `config/config.yaml` and nowhere else, and
+  // an installation that has not chosen a repository watches nothing until
+  // the operator chooses one (the GitHub card of Setup offers the choice).
+  if (installRoot) cfg.watch = []
   applyOperatorConfig(cfg, op)
 
-  if (!Array.isArray(cfg.watch) || !cfg.watch.length) fail(src, '`watch` must be a non-empty list')
+  if (!Array.isArray(cfg.watch) || (!installRoot && !cfg.watch.length)) fail(src, '`watch` must be a non-empty list')
   for (const entry of cfg.watch) {
     if (!entry || typeof entry.repo !== 'string' || !/^[\w.-]+\/[\w.-]+$/.test(entry.repo)) {
       fail(src, `watch entry needs a \`repo: owner/name\` (got ${JSON.stringify(entry)})`)
