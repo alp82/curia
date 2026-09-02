@@ -442,18 +442,6 @@ const githubAppSetup = new GitHubAppSetup({
   },
 })
 
-// A setup spans the trip through github.com, so its Action can outlive this
-// process. The setup record carries only the Action identity. The journal
-// still owns the evidence and the setup record still contains no credential.
-{
-  const setup = githubAppSetup.status()
-  const evidence = setup.action_id ? actions.get(setup.action_id) : null
-  if (evidence && !['confirmed', 'refused', 'failed'].includes(evidence.status)) {
-    if (setup.status === 'complete') reduction.recordAction({ ...evidence, status: 'confirmed' })
-    if (setup.status === 'expired') reduction.recordAction({ ...evidence, status: 'failed', reason: 'GitHub App setup expired after one hour' })
-  }
-}
-
 // #390: the DAEMON cuts over. Every `gh` child it spawns for a named repo now
 // carries that owner's minted write token, so the frontier reads, the claims,
 // the pull requests and the branch pushes all run as `curia-sh[bot]`.
@@ -483,6 +471,22 @@ log(`claims assign ${curiaConfig.dispatch.claim_login} (dispatch.claim_login) â€
 // so the conversion line reaches journalctl even from here.
 const reduction = new Reduction(DATA, { log })
 const actions = new ActionCoordinator(reduction, { log })
+
+// A GitHub App setup spans the trip through github.com, so its Action can
+// outlive this process. The setup record carries only the Action identity.
+// The journal still owns the evidence and the setup record still contains
+// no credential. This read runs here, after the coordinator exists: the
+// #891 rehearsal restarted the service in the middle of the GitHub card and
+// found the block above the `actions` declaration, which crashed every boot
+// on `state/github-app-setup.json` in a loop.
+{
+  const setup = githubAppSetup.status()
+  const evidence = setup.action_id ? actions.get(setup.action_id) : null
+  if (evidence && !['confirmed', 'refused', 'failed'].includes(evidence.status)) {
+    if (setup.status === 'complete') reduction.recordAction({ ...evidence, status: 'confirmed' })
+    if (setup.status === 'expired') reduction.recordAction({ ...evidence, status: 'failed', reason: 'GitHub App setup expired after one hour' })
+  }
+}
 
 // The boot line (#436). The journal is `node:sqlite`, which Node marks Stability
 // 1.2, so a patch update can change the API, the defaults and the bundled SQLite

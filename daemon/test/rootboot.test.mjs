@@ -309,4 +309,24 @@ describe('the daemon under an installation root (#867)', () => {
       if (child.exitCode === null) child.kill('SIGKILL')
     }
   })
+
+  // The #891 rehearsal: a restart in the middle of the GitHub card found
+  // `state/github-app-setup.json` with an Action identity and crashed on
+  // the resume before the Action coordinator existed, in a loop.
+  test('a pending GitHub App setup with an Action identity in state/ boots', async () => {
+    const setupFile = path.join(root, 'state', 'github-app-setup.json')
+    fs.writeFileSync(setupFile, `${JSON.stringify({ state: 'a'.repeat(64), expires_at: Date.now() + 3_600_000, status: 'pending', screen: 'setup', action_id: 'act-891' })}\n`, { mode: 0o600 })
+    const child = boot({})
+    const watch = watchDaemon(child)
+    try {
+      await waitForBoot(watch, () => /curia daemon listening/.test(watch.log()), 'its listening line')
+      assert.deepEqual(await (await fetch(`http://127.0.0.1:${ports[0]}/ping`)).json(), { curia: 'curia-side-channel', port: ports[0], version: APP_VERSION })
+      const overview = await (await fetch(`http://127.0.0.1:${ports[0]}/overview`)).json()
+      assert.equal(overview.github_app.status, 'pending', 'the setup in flight is still in flight')
+      assert.equal(overview.github_app.action_id, 'act-891')
+    } finally {
+      if (child.exitCode === null) child.kill('SIGKILL')
+      fs.rmSync(setupFile, { force: true })
+    }
+  })
 })
