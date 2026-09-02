@@ -40,7 +40,7 @@
      2. Null is not empty. An unreadable fleet is not an idle box, and a frontier
         nobody has computed is not an empty frontier. Every section that can fail
         on its own says which of the two it is. -->
-<meta name="curia-dashboard" content="proto=16">
+<meta name="curia-dashboard" content="proto=17">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark light">
 <title>Curia app</title>
@@ -634,6 +634,18 @@
     margin-top: 4px; padding: 14px 15px; border: 1px dashed var(--line); border-radius: 14px;
   }
   .setup-loop .dim-note { flex: 1 1 180px; }
+  /* The run (#882): the legs, one row each, and the links to the real
+     artifacts. Color marks attention only; every state is also a word. */
+  .setup-loop.run { flex-direction: column; align-items: stretch; border-style: solid; }
+  .setup-loop.run > div { display: flex; flex-direction: column; gap: 4px; }
+  .loop-legs { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 3px; }
+  .loop-leg { display: flex; gap: 8px; align-items: baseline; font-size: 13px; }
+  .loop-leg .loop-mark { width: 1.4em; text-align: center; flex: none; }
+  .loop-leg.pending { color: var(--ink-faint); }
+  .loop-leg.failed { color: var(--bad); }
+  .loop-leg .dim-note { margin-left: auto; }
+  .loop-links { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 8px; font-size: 13px; }
+  .loop-actions { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
   .setup-panel { border: 1px solid var(--line); border-radius: 14px; padding: 24px 26px; background: var(--bg-raise); max-width: 690px; }
   .setup-panel h2 { font-size: 19px; letter-spacing: -.02em; margin: 4px 0 10px; }
   .setup-panel p { margin: 0 0 10px; line-height: 1.5; }
@@ -900,7 +912,7 @@ var UI = {
   /* The setup frame's own state (#874): whether a read is in flight, and the
      one sentence the last press left behind. The selected card is not here —
      it is the record's `step`, kept by the service so a reopen restores it. */
-  setup: { busy: false, note: null, discord: null, discordBusy: null, tailscale: null, tailscaleBusy: null, openai: null, openaiBusy: null, openaiTimer: null, anthropic: null, anthropicBusy: null, anthropicTimer: null },
+  setup: { busy: false, note: null, loopBusy: false, loopTimer: null, discord: null, discordBusy: null, tailscale: null, tailscaleBusy: null, openai: null, openaiBusy: null, openaiTimer: null, anthropic: null, anthropicBusy: null, anthropicTimer: null },
   /* The drill-in frame's own state (#699), one entry per page that is a list
      of sections: which section is open, and whether the phone is on the list
      in front of it. */
@@ -4816,8 +4828,10 @@ function screenCredentials(p) {
    a close goes through `rememberSetupProgress`, never into browser storage.
    The Full loop's action enables on the service's gate alone (#880):
    `full_loop.ready` with the verified facts under `full_loop.facts`, which
-   the panel names. `runFullLoop` is the seam the loop's run (#882) fills;
-   this release enables the action and hands the facts on. */
+   the panel names. `runFullLoop` (#882) presses the run through the sidecar
+   and `setupLoopRun` draws the run the service reads off its journal: one
+   row per leg, the linked artifacts, the elapsed time, and on a failure the
+   leg, the cause, the action, and Try again. */
 
 const SETUP_ORDER = ["github", "discord", "tailscale", "model"];
 
@@ -5383,6 +5397,7 @@ const setupConnected = () => setupCards().filter((c) => c.state === "connected")
    verified facts behind them are still not a loop to run. */
 function setupFullLoop() {
   const gate = setup?.full_loop;
+  if (gate?.run && gate.run.state && gate.run.state !== "idle") return setupLoopRun(gate.run);
   const missing = gate?.missing ?? SETUP_ORDER.filter((k) => !setupConnected().includes(k));
   const ready = Boolean(gate?.ready);
   const why = ready ? "Every integration is connected and verified."
@@ -5412,12 +5427,83 @@ function setupLoopFacts(facts) {
   return bits.length ? `<div class="dim-note setup-loop-facts">${bits.join(" · ")}</div>` : "";
 }
 
-/* The seam the loop's run (#882) fills: one real request from Discord
-   through a model to a delivered result, on the verified facts the gate
-   supplied. This release enables the action at convergence and stops here. */
-function runFullLoop() {
-  UI.setup.note = "The Full loop is ready on this read's verified facts. This release doesn't run it yet.";
+/* The run (#882): the installation's acceptance. The press asks the service
+   to run one real Full loop on the ticket marked for the rehearsal; from then
+   on the panel draws the run the service reads off its journal, one row per
+   leg, with the real GitHub and Discord artifacts linked and the elapsed time.
+   A failure names the leg, one cause, and one action, and Try again reruns
+   that leg. Nothing here decides anything: the service's read is the run. */
+const LOOP_MARK = { complete: "✓", running: "…", failed: "✗", pending: "·" };
+function loopDur(ms) {
+  if (ms == null || !Number.isFinite(ms)) return "";
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s} s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m} min ${s % 60} s`;
+  return `${Math.floor(m / 60)} h ${m % 60} min`;
+}
+function setupLoopRun(run) {
+  const where = run.ticket ? `${esc(run.repo)}#${esc(run.ticket.number)}` : esc(run.repo ?? "");
+  const elapsed = loopDur(run.elapsed_ms);
+  const head = run.state === "complete" ? `<b>Full loop verified.</b><div class="dim-note">${where} · every leg completed in ${elapsed}.</div>`
+    : run.state === "failed" ? `<b>The Full loop did not complete.</b><div class="dim-note">${where} · stopped after ${elapsed}.</div>`
+      : `<b>Running the Full loop.</b><div class="dim-note">${where} · ${elapsed} so far. The page follows the service's read every 5 seconds.</div>`;
+  const legs = (run.legs ?? []).map((l) => `<li class="loop-leg ${esc(l.state)}"><span class="loop-mark" aria-hidden="true">${LOOP_MARK[l.state] ?? "·"}</span><span>${esc(l.title)} · ${esc(l.state)}</span>${l.link ? ` <a href="${esc(l.link)}" target="_blank" rel="noopener">open</a>` : ""}${l.ms != null ? `<span class="dim-note">${loopDur(l.ms)}</span>` : ""}</li>`).join("");
+  const links = run.links ?? {};
+  const names = { ticket: "Ticket", pull_request: "Pull request", map: "Map", thread: "Discord thread", channel: "Command channel" };
+  const linkRow = Object.keys(names).filter((k) => links[k]).map((k) => `<a href="${esc(links[k])}" target="_blank" rel="noopener">${names[k]} ↗</a>`).join("");
+  const problem = run.failed
+    ? `<div class="setup-problem"><b>${esc(run.failed.title)} failed: ${esc(run.failed.cause)}</b>${esc(run.failed.action)}</div>`
+    : "";
+  const busy = UI.setup.loopBusy;
+  const actions = run.state === "failed"
+    ? `<button class="btn primary" ${busy ? "disabled" : ""} onclick="retryFullLoop()">${busy ? "Retrying…" : "Try again"}</button>`
+    : run.state === "complete"
+      ? `<a class="btn primary" href="#home" onclick="goto('home');return false">Open Curia</a>`
+      : `<button class="btn primary" disabled>Running…</button>`;
+  return `<div class="setup-loop run"><div>${head}<ul class="loop-legs">${legs}</ul>${linkRow ? `<div class="loop-links">${linkRow}</div>` : ""}${problem}
+    <div class="loop-actions">${actions}${UI.setup.note ? `<span class="dim-note">${esc(UI.setup.note)}</span>` : ""}</div></div></div>`;
+}
+async function pressFullLoop(path) {
+  UI.setup.loopBusy = true;
+  UI.setup.note = null;
   render();
+  try {
+    const res = await fetch(path, {
+      method: "POST", headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify({}),
+    });
+    const out = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(out.error ?? `the sidecar answered ${res.status}`);
+    if (setup?.full_loop && out.run) setup.full_loop.run = out.run;
+  } catch (error) {
+    UI.setup.note = error.message;
+  }
+  UI.setup.loopBusy = false;
+  render();
+  ensureFullLoopRead();
+}
+function runFullLoop() { return pressFullLoop("/api/setup/full-loop"); }
+function retryFullLoop() { return pressFullLoop("/api/setup/full-loop/retry"); }
+/* While a run is live the panel follows the service's read; the timer stops
+   itself when the run ends or the operator leaves the screen. */
+function ensureFullLoopRead() {
+  const live = UI.screen === "setup" && setup?.full_loop?.run?.state === "running";
+  if (!live) {
+    if (UI.setup.loopTimer) { clearTimeout(UI.setup.loopTimer); UI.setup.loopTimer = null; }
+    return;
+  }
+  if (UI.setup.loopTimer) return;
+  UI.setup.loopTimer = setTimeout(async () => {
+    UI.setup.loopTimer = null;
+    try {
+      const res = await fetch("/api/setup/full-loop", { headers: { accept: "application/json" }, cache: "no-store" });
+      const run = await res.json();
+      if (setup?.full_loop && run?.state) setup.full_loop.run = run;
+    } catch { /* the next read asks again */ }
+    render();
+    ensureFullLoopRead();
+  }, 5000);
 }
 
 /* The panel: the selected card's own configuration, the error treatment
@@ -5433,9 +5519,13 @@ function setupPanel(card, p) {
     ? `<button class="btn primary" ${busy ? "disabled" : ""} onclick="retrySetup()">${busy ? "Verifying…" : "Try again"}</button>`
     : "";
   const allReady = setupConnected().length === SETUP_ORDER.length;
+  const run = setup?.full_loop?.run;
   const forward = card.state === "connected"
     ? (allReady
-      ? `<button class="btn primary" ${setup?.full_loop?.ready ? `onclick="runFullLoop()"` : "disabled"}>Run Full loop</button>`
+      ? (run?.state === "running" ? `<button class="btn primary" disabled>Running the Full loop…</button>`
+        : run?.state === "complete" ? `<a class="btn primary" href="#home" onclick="goto('home');return false">Open Curia</a>`
+          : run?.state === "failed" ? `<button class="btn primary" ${UI.setup.loopBusy ? "disabled" : ""} onclick="retryFullLoop()">Try again</button>`
+            : `<button class="btn primary" ${setup?.full_loop?.ready && !UI.setup.loopBusy ? `onclick="runFullLoop()"` : "disabled"}>Run Full loop</button>`)
       : `<button class="btn primary" onclick="continueSetup()">Continue setup</button>`)
     : "";
   return `<div class="setup-panel">
@@ -5502,6 +5592,7 @@ async function loadSetup() {
   ensureTailscaleSetupRead();
   ensureOpenAISetupRead();
   ensureAnthropicSetupRead();
+  ensureFullLoopRead();
 }
 /* Try again is a fresh verification of everything, which is the only kind of
    verification there is. */

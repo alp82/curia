@@ -320,4 +320,16 @@ describe('the integration setup frame (#874)', () => {
     assert.deepEqual(status.progress, { model: { provider: 'openai' } })
     assert.ok(!JSON.stringify(status).includes(TOKEN))
   })
+
+  // #882: the loop's run rides the same read as the gate, from the thunk the
+  // daemon wires, and is null before it is wired. It is never read off disk.
+  test('the Full loop\'s run rides the read beside the gate, and is null when nothing answers it', async () => {
+    const verifiers = { github: connected('a'), discord: connected('b'), tailscale: connected('c'), openai: connected('d'), anthropic: connected('e') }
+    const bare = new IntegrationSetup({ stateDir: tmp, verifiers, log: () => {} })
+    assert.equal((await bare.status()).full_loop.run, null)
+    const run = { state: 'running', repo: 'o/r', legs: [] }
+    const wired = new IntegrationSetup({ stateDir: tmp, verifiers, run: () => run, log: () => {} })
+    assert.deepEqual((await wired.status()).full_loop.run, run)
+    assert.ok(!fs.existsSync(setupPath(tmp)), 'the read writes nothing')
+  })
 })
