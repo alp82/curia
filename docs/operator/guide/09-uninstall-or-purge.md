@@ -105,7 +105,11 @@ When the launcher is gone, run the bootstrap's purge mode, which asks the same q
 curl -fsSLO https://github.com/alp82/curia/releases/latest/download/curia-install.sh && bash curia-install.sh --purge
 ```
 
-Add `--root <dir>` for a nondefault root, the same root the uninstall printed. With no `--root`, the default root is purged.
+Add `--root <dir>` for a nondefault root, the same root the uninstall printed. With no `--root`, the default root is purged. Without a terminal, add `--confirm <root>` here too: the bootstrap passes it to `curia purge`, and the value must be the root being purged.
+
+```sh
+bash curia-install.sh --purge --root /srv/curia --confirm /srv/curia
+```
 
 The bootstrap runs the interface the root already holds, under `versions/<active>/`, and verifies it before it runs it, so it downloads nothing. After a `curia uninstall`, which empties `versions/`, it acquires and verifies one instead: the stable release the index names, or the release you add with `--version <version>` when the index names none. See [Purge from the bootstrap](../purge.md#purge-from-the-bootstrap).
 

@@ -58,6 +58,8 @@ Curia is uninstalled. The installation at /home/you/.local/share/curia is preser
 
 Both commands are the bootstrap, because the launcher is gone. A nondefault root appears as `--root <dir>` on both lines.
 
+The purge line asks you to type the root on your terminal. Without one, add `--confirm <root>`, the same flag `curia purge` takes; see [The confirmation](purge.md#the-confirmation).
+
 The uninstall emptied `versions/`, so the purge line has no installed interface to run and acquires a verified one: it takes the stable release the index names, or the release you add with `--version <version>` when the index names none. A purge over an installed Curia runs the interface under `versions/` instead and downloads nothing. See [Purge from the bootstrap](purge.md#purge-from-the-bootstrap).
 
 When Curia holds identifiers of external resources, the command lists them under `External resources Curia never deletes`, with the page where you remove each one: the GitHub App ID, the Discord server and channel, and the Tailscale machine name. The list is a checklist for you. Curia looks nothing up and revokes nothing. The list never holds a token or a key.

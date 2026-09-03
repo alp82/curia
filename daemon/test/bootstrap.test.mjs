@@ -438,6 +438,48 @@ describe('the bootstrap script', () => {
     assert.match(r.err, /purge/)
   })
 
+  // The rehearsal's second defect (#891): the bootstrap is the only way to
+  // purge once `curia uninstall` has removed the launcher, and it took no
+  // `--confirm`, so the noninteractive half of the confirmation contract
+  // (#887) had no way in. The value is the purge's to judge, not this
+  // script's.
+  test('passes --confirm through to the purge, which needs no terminal for it', async () => {
+    catalogue()
+    const r = await run(['--purge', '--root', '/srv/curia', '--confirm', '/srv/curia'])
+    assert.equal(r.exit, 0, `${r.out}\n${r.err}`)
+    assert.deepEqual(r.handoff.argv, ['purge', '--confirm', '/srv/curia'])
+    assert.equal(r.handoff.root, '/srv/curia')
+    assert.match(r.out, /handing off to curia purge/)
+    assert.deepEqual(r.leftover, [])
+  })
+
+  test('leaves a --confirm that names another path to the purge to refuse', async () => {
+    catalogue()
+    const root = installedRoot()
+    const r = await run(['--purge', '--root', root, '--confirm', '/srv/elsewhere'])
+    assert.equal(r.exit, EXIT.refused, `${r.out}\n${r.err}`)
+    assert.match(r.out, /\[2\/6\] confirm/)
+    assert.match(r.err, new RegExp(`--confirm names /srv/elsewhere, not the installation root ${root}`))
+    assert.equal(fs.existsSync(path.join(root, 'state', 'installation.json')), true, 'nothing changed')
+    assert.deepEqual(r.leftover, [])
+  })
+
+  test('refuses --confirm without --purge, and --confirm without a value, as usage errors', async () => {
+    catalogue()
+    served.hits = []
+    const installing = await run(['--confirm', '/srv/curia'])
+    assert.equal(installing.exit, EXIT.usage, `${installing.out}\n${installing.err}`)
+    assert.match(installing.err, /--confirm is a purge option/)
+    assert.equal(installing.handoff, null)
+    const valueless = await run(['--purge', '--confirm'])
+    assert.equal(valueless.exit, EXIT.usage, `${valueless.out}\n${valueless.err}`)
+    assert.match(valueless.err, /--confirm needs the installation root/)
+    assert.equal(valueless.handoff, null)
+    assert.deepEqual(served.hits, [], 'nothing was downloaded')
+    const help = await run(['--help'])
+    assert.match(help.out, /--confirm <root>/)
+  })
+
   test('refuses an interrupted download and leaves nothing behind', async () => {
     catalogue()
     served.truncate = `/releases/download/v${STABLE}/${releaseAssets(STABLE).bundle}`
