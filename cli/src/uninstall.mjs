@@ -6,9 +6,11 @@ import { EXIT, Refusal } from './exit.mjs'
 import { dockerRunner } from './compose.mjs'
 import { launcherPath } from './launcher.mjs'
 import { lockPath, withLifecycleLock } from './lock.mjs'
+import { isReleaseVersion } from './manifest.mjs'
 import { removeInstallationResources } from './resources.mjs'
 import { installationRoot, openRoot } from './root.mjs'
 import { readSecret } from './secrets.mjs'
+import { isPrerelease } from './stable.mjs'
 import { namedSteps } from './steps.mjs'
 import { tailscaleRunner, withdrawServeRoutes } from './tailscale.mjs'
 
@@ -58,12 +60,16 @@ export async function runUninstall(
   { docker = dockerRunner, tailscale = tailscaleRunner } = {},
 ) {
   const launcher = launcherPath(env)
+  // The version the record names, known from the preflight step on. The
+  // reinstall and purge commands name it, so a failure after preflight sends
+  // the operator to the same release, not to whatever the index recommends.
+  let uninstalled = null
   const steps = namedSteps({
     steps: UNINSTALL_STEPS,
     stdout,
     rerun: (step) => (existsSync(launcher)
       ? `Run '${launcher} uninstall' to run ${step} again; the completed steps are kept.`
-      : `Fix the cause, then run 'curia uninstall' again from the bootstrap's reinstall (${reinstallCommand({ env, root })}), or remove the rest by hand: ${REMOVED_BOUNDARIES.map((b) => join(root, b)).join(', ')}.`),
+      : `Fix the cause, then run 'curia uninstall' again from the bootstrap's reinstall (${reinstallCommand({ env, root, version: uninstalled })}), or remove the rest by hand: ${REMOVED_BOUNDARIES.map((b) => join(root, b)).join(', ')}.`),
   })
   const say = (text) => stdout.write(`${text}\n`)
 
@@ -75,6 +81,7 @@ export async function runUninstall(
       throw new Refusal(`${root} holds no installation, so there is nothing to uninstall. Nothing changed.`)
     }
     const { installationId, activeVersion } = opened.record
+    uninstalled = activeVersion
     say(`uninstalling Curia ${activeVersion} from ${root} (installation ${installationId}); config/, secrets/, state/, and work/ are kept`)
 
     return await withLifecycleLock(root, async () => {
@@ -115,8 +122,14 @@ export async function runUninstall(
       say(`  kept:      ${PRESERVED_BOUNDARIES.map((b) => `${b}/`).join(', ')} (installation ${installationId}: configuration, secrets, history, and resumable work)`)
       say(`  removed:   the launcher, ${REMOVED_BOUNDARIES.map((b) => `${b}/`).join(', ')}, and the installation's containers, networks, volumes, and Serve routes`)
       say(`  images:    kept; 'curia purge' removes them`)
-      say(`  reinstall: ${reinstallCommand({ env, root })}`)
-      say(`  purge:     ${purgeCommand({ env, root })}`)
+      const named = versionOption(activeVersion) !== ''
+      say(`  reinstall: ${reinstallCommand({ env, root, version: activeVersion })}`)
+      if (named) say(`  stable:    ${reinstallCommand({ env, root })}`)
+      say(`  purge:     ${purgeCommand({ env, root, version: activeVersion })}`)
+      if (named) {
+        say(`  The reinstall and purge lines name version ${activeVersion}, the one uninstalled, so they work whether or not a stable release is named.`)
+        say(`  The stable line installs the current stable release instead, and refuses while the index names none.`)
+      }
       const external = externalChecklist(root, { uid })
       if (external.length > 0) {
         say('')
@@ -133,12 +146,30 @@ export async function runUninstall(
 // The bootstrap installs over a preserved root and recognizes the record, so
 // the reinstall command is the install command, with the root named when it
 // is not the default one.
-export function reinstallCommand({ env, root }) {
-  return `${BOOTSTRAP_COMMAND}${rootOption({ env, root })}`
+//
+// `version` is the version the installation record names (#891, from the live
+// rehearsal). Without it the bootstrap selects the stable release the signed
+// index names, and refuses when the index names none, which is every host
+// before the first stable promotion and every host after a withdrawal. That
+// refusal is right for an update and wrong for a printed reinstall: the
+// operator wants the release they just uninstalled, and `state/` still names
+// it. So the command names the version, and the caller prints the plain form
+// beside it as the way to move to the current stable release.
+export function reinstallCommand({ env, root, version = null }) {
+  return `${BOOTSTRAP_COMMAND}${versionOption(version)}${rootOption({ env, root })}`
 }
 
-export function purgeCommand({ env, root }) {
-  return `${BOOTSTRAP_COMMAND} --purge${rootOption({ env, root })}`
+export function purgeCommand({ env, root, version = null }) {
+  return `${BOOTSTRAP_COMMAND} --purge${versionOption(version)}${rootOption({ env, root })}`
+}
+
+// `--version <version>`, with `--prerelease` when the version carries a
+// suffix, because the bootstrap never selects a prerelease by accident. A
+// record that names nothing usable contributes no option, so the command
+// stays the plain form rather than one the bootstrap would refuse.
+function versionOption(version) {
+  if (!version || !isReleaseVersion(version)) return ''
+  return ` --version ${version}${isPrerelease(version) ? ' --prerelease' : ''}`
 }
 
 function rootOption({ env, root }) {

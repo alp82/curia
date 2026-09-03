@@ -173,5 +173,5 @@ A rejected review isn't a failure. The agent takes your feedback and asks for re
 | `no terminal to confirm on` | No TTY, for example from a script. | Run `curia purge --confirm <root>`. |
 | `docker failed`, `routes failed`, or `root failed` | A step stopped part way. | Rerun and confirm again. The rerun removes what is left. |
 | An image listed as kept under `[5/6] images` | A container still uses it, or Docker refused the removal. | Not a failure. Remove the container, then `docker image rm` the image by hand if you want it gone. |
-| The launcher is gone | An uninstall or a partial purge removed it. | Run the bootstrap's purge mode: `bash curia-install.sh --purge`, with `--root <dir>` for a nondefault root. |
+| The launcher is gone | An uninstall or a partial purge removed it. | Run the bootstrap's purge mode: `bash curia-install.sh --purge --version <version>`, the command the uninstall printed, with `--root <dir>` for a nondefault root. The version is the one the installation record names, and without it the bootstrap refuses while the index names no stable release. |
 | `preflight: ... holds no installation` after a rerun | The purge finished. | Nothing left to purge. |

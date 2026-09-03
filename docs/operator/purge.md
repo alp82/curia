@@ -114,21 +114,23 @@ A refusal (exit code `3`) names the step too. `preflight: ... holds no installat
 After `curia uninstall`, or on a host where the installed version can't run, the launcher is gone. Run the bootstrap's purge mode, which runs `curia purge` from a verified lifecycle interface:
 
 ```sh
-curl -fsSLO https://github.com/alp82/curia/releases/latest/download/curia-install.sh && bash curia-install.sh --purge
+curl -fsSLO https://github.com/alp82/curia/releases/latest/download/curia-install.sh && bash curia-install.sh --purge --version 1.2.3
 ```
+
+Name the version the uninstall printed, the way the uninstall's `purge` line does. After an uninstall the root holds no interface to run, and without `--version` the bootstrap acquires the stable release the signed index names, which refuses while the index names none. Over an installed Curia, drop `--version`: a named version is downloaded, and without one the bootstrap runs the interface the root holds and reads no index.
 
 Where the interface that runs the purge comes from depends on what the root still holds. A purge removes an installation and activates nothing, so it needs no release:
 
-1. **The installed interface.** When the root holds a complete active version, the bootstrap runs it: `versions/<active>/cli` on the runtime beside it at `versions/<active>/node`, the pair the launcher runs, so a missing launcher doesn't matter. It verifies that version first, from the artifacts retained beside it, the way `curia doctor` verifies an installed version, without the four checks that need an origin: the registry's integrity record and provenance, the release's copy of the manifest, and the image attestations. Nothing is downloaded, and the stable-release index isn't read.
-2. **The release `--version` names.** When the root holds no complete active version and you pass `--version <version>`, the bootstrap acquires and verifies that release exactly as an installation does, and runs `curia purge` from the stage.
+1. **The installed interface.** When you name no version and the root holds a complete active version, the bootstrap runs it: `versions/<active>/cli` on the runtime beside it at `versions/<active>/node`, the pair the launcher runs, so a missing launcher doesn't matter. It verifies that version first, from the artifacts retained beside it, the way `curia doctor` verifies an installed version, without the four checks that need an origin: the registry's integrity record and provenance, the release's copy of the manifest, and the image attestations. Nothing is downloaded, and the stable-release index isn't read.
+2. **The release `--version` names.** When you pass `--version <version>`, the bootstrap acquires and verifies that release exactly as an installation does, and runs `curia purge` from the stage. A named version comes before the installed interface, so this is the case whether or not the root holds one.
 3. **The stable release.** Otherwise the bootstrap reads the stable-release index and acquires the release it names, the same way. Only this case can refuse for want of a stable release, and that refusal names `--version`.
 
-`curia uninstall` empties `versions/`, so a purge after an uninstall takes case 2 or case 3, and a purge over an installed Curia takes case 1.
+`curia uninstall` empties `versions/`, so a purge after an uninstall takes case 2 or case 3, and a purge over an installed Curia that names no version takes case 1. The uninstall prints a purge command that names the version it uninstalled, so that command lands in case 2 and never waits for a stable release.
 
 Pass `--root <dir>` for a nondefault root, the same root the uninstall printed. The bootstrap hands the confirmation to `curia purge` and judges nothing itself. On a terminal, `curia purge` asks its question there, which is one reason the bootstrap refuses to run from a pipe. Without a terminal, add `--confirm <root>`:
 
 ```sh
-bash curia-install.sh --purge --root /srv/curia --confirm /srv/curia
+bash curia-install.sh --purge --version 1.2.3 --root /srv/curia --confirm /srv/curia
 ```
 
 The value must be the root being purged, and every rule of [The confirmation](#the-confirmation) still holds: another path is refused by `curia purge` with exit code `3` and nothing changed. `--confirm` without `--purge` is a usage error, exit code `2`. The root's `run/` directory may be gone by then, and purge creates it for the lock before it takes one. The bootstrap writes no launcher, creates no root, and removes its stage when the command returns; see [Purge mode](bootstrap.md#purge-mode).
