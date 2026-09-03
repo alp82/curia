@@ -28,7 +28,7 @@ Curia checks the file as a whole, not only key by key. For example, the sandbox 
 
 ### The watch list is yours alone
 
-In an installation, `watch` has no shipped default. The service image carries the source deployment's own `curia.yaml`, and its watch list applies only to that deployment. Under an installation root the service reads the watch list from `config/config.yaml` and nowhere else. A fresh installation leaves the key out and watches nothing until you choose a repository: the **GitHub** card of the [Setup screen](integration-setup.md#choose-the-repositories-to-watch) lists the repositories your App installations cover and writes the ones you tick into this file, and the settings screen edits the same list.
+In an installation, `watch` has no shipped default. The service image carries the source deployment's own `curia.yaml`, and its watch list applies only to that deployment. Under an installation root the service reads the watch list from `config/config.yaml` and nowhere else. A fresh installation leaves the key out and watches nothing until you choose a repository: the **GitHub** card of the [Setup screen](integration-setup.md#step-3-choose-repositories-and-continue) lists the repositories your App installations cover and writes the ones you tick into this file, and the settings screen edits the same list.
 
 ## The file
 

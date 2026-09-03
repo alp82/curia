@@ -51,11 +51,11 @@ function verifierOver(routes, { watch = [{ repo: 'alp82/curia' }], minter } = {}
 describe('the GitHub card (#875)', () => {
   test('with no App secret on disk the card is unconnected, and GitHub is not asked anything', async () => {
     const { verify, gh } = verifierOver({}, { minter: null })
-    assert.deepEqual(await verify({ progress: {} }), { ok: false, unconnected: true })
+    assert.deepEqual(await verify({ progress: {} }), { ok: false, unconnected: true, detail: { step: 'create' } })
     assert.equal(gh.calls.length, 0)
   })
 
-  test('with no watched repository there is nothing an installation could cover, and the action is the choice in the panel', async () => {
+  test('with no watched repository there is nothing an installation could cover: the card is plain at the watch step, not failed', async () => {
     const { verify } = verifierOver({
       '/app/installations?per_page=100': [200, installations],
       'POST /app/installations/7/access_tokens': tokenAnswer,
@@ -63,8 +63,9 @@ describe('the GitHub card (#875)', () => {
     }, { watch: [] })
     const answer = await verify({ progress: {} })
     assert.equal(answer.ok, false)
-    assert.match(answer.failed, /no repository is on the watch list/i)
-    assert.match(answer.action, /Watch these repositories/)
+    assert.equal(answer.unconnected, true)
+    assert.equal(answer.failed, undefined, 'an expected step is never a failure')
+    assert.equal(answer.detail.step, 'watch')
   })
 
   test('an App GitHub refuses is one failed verification naming the refusal, with the App and the clock as the action', async () => {
@@ -82,6 +83,7 @@ describe('the GitHub card (#875)', () => {
     assert.match(answer.failed, /not installed on alp82 or getalfredo/)
     assert.match(answer.action, /Install the App on alp82/)
     assert.deepEqual(answer.detail, {
+      step: 'install',
       owners: [{ owner: 'alp82', installed: false }, { owner: 'getalfredo', installed: false }],
       covered: [], watched: ['alp82/curia', 'getalfredo/landing-page'], available: [], install_url: 'https://github.com/settings/installations',
     })
@@ -248,8 +250,8 @@ describe('the GitHub card after the rehearsal (#891)', () => {
     }, { watch: [] })
     const answer = await verify({ progress: {} })
     assert.equal(answer.ok, false)
-    assert.match(answer.failed, /No repository is on the watch list/)
-    assert.match(answer.action, /Watch these repositories/)
+    assert.equal(answer.unconnected, true, 'the choice is a step of the guide, not a failure')
+    assert.equal(answer.detail.step, 'watch')
     assert.deepEqual(answer.detail.available, ['alp82/curia', 'alp82/aistack', 'getalfredo/landing-page'])
     assert.deepEqual(answer.detail.watched, [])
     assert.deepEqual(answer.detail.owners, [])
@@ -257,12 +259,13 @@ describe('the GitHub card after the rehearsal (#891)', () => {
     assert.ok(!JSON.stringify(answer).includes(TOKEN))
   })
 
-  test('with no watched repository and no installation, the action is the install link, not the Settings screen', async () => {
+  test('with no watched repository and no installation, the card is plain at the install step with the install link, not failed', async () => {
     const { verify } = verifierOver({ '/app': appFacts, '/app/installations?per_page=100': [200, []] }, { watch: [] })
     const answer = await verify({ progress: {} })
     assert.equal(answer.ok, false)
-    assert.match(answer.failed, /not installed on any account/)
-    assert.match(answer.action, /Install the App/)
+    assert.equal(answer.unconnected, true)
+    assert.equal(answer.failed, undefined)
+    assert.equal(answer.detail.step, 'install')
     assert.deepEqual(answer.detail.available, [])
     assert.equal(answer.detail.install_url, 'https://github.com/apps/curia-box/installations/new')
   })

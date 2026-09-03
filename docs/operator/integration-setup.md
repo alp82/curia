@@ -19,11 +19,15 @@ Every card has the same height in every state, so a verification never moves the
 
 The footer never shows a decorative number. Before a card verifies, it names the data that will appear. After, it shows what Curia found.
 
+The GitHub and Discord cards are guides of three steps. While such a card is on its way, its badge counts the step, for example **Step 2 of 3**, and its footer names what the step waits for. An expected state on the way, no App yet, no installation yet, nothing watched yet, the bot in no server yet, is a step with its next action, never the red **Action required** state. That state, and **Try again**, appear on a real failure only: GitHub refused the App, a token failed, a watched repository lost its coverage, Discord refused the token, or the bot lost a permission.
+
 ## Connect GitHub
 
 The GitHub card creates a dedicated GitHub App for this installation through GitHub's manifest flow, then verifies that the App can reach at least one watched repository. Curia never asks for your GitHub password, a personal access token, or anything from GitHub's consent page. You sign in and approve on GitHub.
 
-### Create the App
+The card is a guide of three steps, and the panel shows which one you're at: **1 Create the App**, **2 Install the App**, **3 Choose repositories and continue**. Each step has one action, and the card moves to the next step on its own when the action is done.
+
+### Step 1: Create the App
 
 1. On the **GitHub** card, keep the suggested App name or enter your own. GitHub slugifies the name, and Curia posts as `<slug>[bot]`, so the name is read as the author of every commit, pull request, and gate approval. The name must be free across all of GitHub.
 2. Select **Create GitHub App**. Curia prepares the manifest (the five repository permissions from [The curia GitHub App](../github-app.md#2-grant-the-permissions), no webhook, installable on any account) and the browser opens GitHub's own page with that manifest.
@@ -31,17 +35,17 @@ The GitHub card creates a dedicated GitHub App for this installation through Git
 
 The service converts the code itself. It writes the App id and the private key to `secrets/github-app.json` in the installation root, owner-only, mode `0600`, and adopts the App in the running service. The key is never shown, never logged, and never sent to the browser. If the conversion fails, the card says why, and **Create GitHub App** starts the flow again.
 
-### Install the App
+### Step 2: Install the App
 
-After the App exists, the card offers the installation. On a fresh installation nothing is watched yet, so the card shows one **Install the App on GitHub** link. Install the App on the account that owns your repositories and grant it the repositories Curia may work on. On GitHub, **Only select repositories** is enough. Then select **Try again**.
+After the App exists, the card is at step 2 and the badge reads **Step 2 of 3**. On a fresh installation nothing is watched yet, so the panel shows one **Install the App on GitHub** link. Install the App on the account that owns your repositories and grant it the repositories Curia may work on. On GitHub, **Only select repositories** is enough. There is nothing to press afterwards: the panel says `Waiting for an installation that covers a repository` and reads the installations again on the Setup page's refresh interval (`poll_interval_s`, 5 seconds by default), so the card moves to step 3 within seconds of the installation, with no reload and no press.
 
-Once a repository is on the watch list, the card lists every watched owner instead, each with this read's installation state and an **Install on &lt;owner&gt;** or **Manage installation** link. The state comes from the same verification that turns the card, so an owner the card calls installed is installed on this read.
+Once a repository is on the watch list, the panel lists every watched owner instead, each with this read's installation state and an **Install on &lt;owner&gt;** or **Manage installation** link. The state comes from the same verification that turns the card, so an owner the card calls installed is installed on this read.
 
-### Choose the repositories to watch
+### Step 3: Choose repositories and continue
 
-After the App is installed, the card lists every repository the App's installations cover, each with a checkbox. On a fresh installation every repository is ticked. Untick the ones Curia shouldn't work on, then select **Watch these repositories**. The service writes the ticked repositories into `watch` in [`config/config.yaml`](configuration.md#the-watch-list-is-yours-alone) through the same validated save the settings screen uses, applies the list to the running service, and the card verifies again on the new list.
+When an installation covers at least one repository, the card is at step 3 and the panel lists every repository the App's installations cover, each with a checkbox. On a fresh installation every repository is ticked. Untick the ones Curia shouldn't work on, then select **Watch these repositories and continue**. The service writes the ticked repositories into `watch` in [`config/config.yaml`](configuration.md#the-watch-list-is-yours-alone) through the same validated save the settings screen uses, applies the list to the running service, and the card verifies again on the new list. When that verification connects the card, setup continues to the next card that isn't connected, in rail order. That one press is the whole step.
 
-A connected card keeps the same list under **Change the watched repositories**, with the watched repositories ticked. A watched repository that no installation covers stays on the list and is marked `not covered by an installation`; grant it on GitHub or untick it. A repository can't leave the list while an agent runs on it, and the card says so.
+A connected card keeps the same list under **Change the watched repositories**, with the watched repositories ticked, and the press there is **Watch these repositories**, which verifies again and stays on the card. A watched repository that no installation covers stays on the list and is marked `not covered by an installation`; grant it on GitHub or untick it. A repository can't leave the list while an agent runs on it, and the card says so.
 
 Curia doesn't remember the choice anywhere else. The watch list in `config/config.yaml` is the choice.
 
@@ -51,13 +55,13 @@ Every read of the card runs the same verification:
 
 1. GitHub accepts the App's own credential and lists its installations.
 2. For each installation, Curia mints an installation token with the write permissions agents run on and reads the repositories the installation grants. The token is used for this verification and dropped. It reaches no file and no log.
-3. At least one repository is on the watch list.
+3. At least one repository is on the watch list. With none, the card is at step 2 while no installation covers a repository and at step 3 once one does. Neither is a failure.
 4. At least one watched repository is covered by an installation.
 5. Curia reads the open tickets of the covered repositories with that token.
 
 The card connects when steps 1 to 5 pass. One covered watched repository is enough: a watched owner without an installation is shown as `missing access` in the owner rows and doesn't fail the card while another owner covers a watched repository. The footer shows a real discovered ticket, one that carries `ready-for-agent` and has no assignee, with its repository and the count of open tickets. When there is no such ticket, the footer names the covered repository, the count of open tickets (or `No open tickets`), and what the minted credential can do: `Issues, pull requests, and contents ready`. Curia never invents a ticket.
 
-A failed step names the failure and one action, for example `curia's GitHub App is not installed on alp82` with `Install the App on alp82 from the link in this panel and grant it alp82/curia, then try again.` The failure names only the owners this read found missing. Do what the action says and select **Try again**, which runs the whole verification again. The panel shows the result of the latest read only: a failure from an earlier read disappears when the new read connects the card.
+A failed check is a real failure: GitHub refused the App's credential, a token failed to mint, an installation can't be read, or a watched repository lost its coverage, for example `curia's GitHub App is not installed on alp82` with `Install the App on alp82 from the link in this panel and grant it alp82/curia, then try again.` The failure names only the owners this read found missing. The panel keeps the guide at the step the failure belongs to, so the install link or the repository list stays at hand beside the failure. Do what the action says and select **Try again**, which runs the whole verification again. The panel shows the result of the latest read only: a failure from an earlier read disappears when the new read connects the card.
 
 The card remembers only the App name (`progress.github.app_name`) for a reopen. The App id and key live in `secrets/github-app.json` and nowhere else.
 
@@ -65,7 +69,7 @@ The card remembers only the App name (`progress.github.app_name`) for a reopen. 
 
 The Discord card connects a dedicated bot you create in Discord's developer portal, then finds or creates the command channel Curia speaks in. You paste the bot token once. Curia writes it to `secrets/discord-bot-token` in the installation root, owner-only, mode `0600`, and never shows it again.
 
-The flow has three parts, in this order: the token, a wait until the bot is in a server, and the channel. Nothing is created in Discord until you select **Connect channel**.
+The card is a guide of three steps, in this order: the token, a wait until the bot is in a server, and the channel. Nothing is created in Discord until you select **Connect channel**. Two presses connect the card, **Connect bot** and **Connect channel**. Each press verifies on its own, and the one press left after the card connects is **Continue**.
 
 ### Create the bot
 
@@ -79,7 +83,7 @@ The token goes to the service and straight into its secret file. The user ID goe
 
 ### Add the bot to a server
 
-Until the bot is in at least one server, the panel says `Waiting for the bot to join a server` and shows only the invite link. There is no server to select and no channel to name yet, so the panel offers neither field.
+Until the bot is in at least one server, the card is at step 2, the badge reads **Step 2 of 3**, and the panel says `Waiting for the bot to join a server` and shows only the invite link. There is no server to select and no channel to name yet, so the panel offers neither field. The wait is a step of the guide, not a failure: the card stays plain and offers no **Try again**.
 
 1. Select **Add the bot to a server**. The link opens Discord's own authorization page with the `bot` and `applications.commands` scopes and the permissions Curia uses: View Channel, Send Messages, Embed Links, Attach Files, Read Message History, Create Public Threads, Send Messages in Threads, Manage Threads, and Manage Channels.
 2. Approve it in Discord.
@@ -92,7 +96,9 @@ While the panel waits, it reads the bot's servers again on the Setup page's refr
 2. Enter the command channel's name. The field suggests `curia`, but any name works, and you can change it before anything exists.
 3. Select **Connect channel**.
 
-**Connect channel** writes the server and the channel name to `state/discord.json`, then reuses a top-level text channel of that name when there is one and creates one when there is none, and registers Curia's slash commands on that server once. This press is the only step that creates anything in Discord: a verification read, whether on arrival, on the refresh, or on **Try again**, never picks a server for you, never creates a channel, and never registers the commands. A channel of that name under a category isn't the one, because the bridge opens only top-level channels. When Discord refuses the creation, the panel says why under the button, keeps your choice, and names the fix: give the bot Manage Channels, or create the text channel yourself, then select **Connect channel** again.
+The card is at step 3 while a server is there and none is chosen; the badge reads **Step 3 of 3**.
+
+**Connect channel** writes the server and the channel name to `state/discord.json`, then reuses a top-level text channel of that name when there is one and creates one when there is none, and registers Curia's slash commands on that server once. The card verifies fresh as part of the same press and shows the result: the connected state with **Continue**, or the failure with its action. This press is the only step that creates anything in Discord: a verification read, whether on arrival, on the refresh, or on **Try again**, never picks a server for you, never creates a channel, and never registers the commands. A channel of that name under a category isn't the one, because the bridge opens only top-level channels. When Discord refuses the creation, the panel says why under the button, keeps your choice, and names the fix: give the bot Manage Channels, or create the text channel yourself, then select **Connect channel** again.
 
 ### What verification proves
 
@@ -114,7 +120,7 @@ The card connects when steps 1 to 9 pass. The footer shows the channel and the s
 
 Curia looks for its own earlier confirmation before posting another, so opening **Setup** doesn't fill the channel with repeated lines. To get a fresh confirmation, delete the earlier one and select **Try again**.
 
-A failed step names the failure and one action, for example `curia can't Send Messages in #curia` with `Allow Send Messages for the bot in #curia's permissions, then try again.` Do what the action says and select **Try again**. When Discord refuses the token, the panel puts the token form first so you can submit a new one. Before you select a server, the card reads `No server is selected for <bot>`, and the action is the server and the channel in this panel.
+A failed step names the failure and one action, for example `curia can't Send Messages in #curia` with `Allow Send Messages for the bot in #curia's permissions, then try again.` Do what the action says and select **Try again**. When Discord refuses the token, the panel puts the token form first so you can submit a new one. The bot in no server yet and no server chosen yet are steps 2 and 3 of the guide, not failures.
 
 When the registered commands differ from Curia's, for example after an update that added a command or when another tool replaced them, the card reads `The commands registered in <server> differ from curia's: /tickets is not registered`, and the panel offers **Register commands**. That press registers the current manifest on the selected server, replacing what's there, and verifies fresh. The invite link is the fix only when Discord refuses the registration itself, which means the bot was added without the `applications.commands` scope.
 
@@ -140,7 +146,7 @@ On a fresh installation, no operator is recorded, so the app admits the first ta
 
 1. Open the Curia app at the address `curia install` printed, `https://<node>:8445/`, through Tailscale. A request on loopback carries no identity and can't confirm anything.
 2. On the **Tailscale** card, check the identity the panel names. It is the login Tailscale stamped on your request, and the browser can't change it. The panel also names the node and its address as facts. The name was chosen at installation with `--name`, and the card doesn't change it. To change it, reinstall with another `--name`, or run `sudo tailscale set --hostname <name>` on the host and then select **Restart Curia** on the card; the app is served under the name the sidecar read when it started. See [The tailnet step](install.md#the-tailnet-step).
-3. Select **Confirm operator and verify**.
+3. Select **Confirm operator and verify**. That one press records the operator and verifies the card. The panel then shows the result, the connected state with **Continue** or the failure with its action, and asks for nothing else.
 
 Curia records the login, when it was confirmed, and the node's machine name, read from the node, in `state/tailscale.json` in the installation root, mode `0600`. From that moment the recorded login is the whole identity allowlist under an installation root, for the service and the app alike, with no restart. The `identity.allow` list in `curia.yaml` belongs to the source deployment and admits nobody under an installation root.
 
@@ -157,7 +163,7 @@ Every read of the card runs the same verification, in this order:
 
 The card connects when steps 1 to 6 pass. The footer shows the private MagicDNS name, then `<login> · admitted in <n> ms`. The panel shows the private address as a link, the operator and when you confirmed, the node's addresses and Tailscale version, the Serve route, and when the operator last arrived through Tailscale since the service started.
 
-A failed step names the failure and one action, for example `The tailnet issues no HTTPS certificate for this node, so Serve can't publish the Curia app` with `Enable HTTPS certificates under DNS in the Tailscale admin console at https://login.tailscale.com/admin/dns, then try again.` Do what the action says and select **Try again**. The following table lists the checks and their actions.
+A failed step names the failure and one action, for example `The tailnet issues no HTTPS certificate for this node, so Serve can't publish the Curia app` with `Enable HTTPS certificates under DNS in the Tailscale admin console at https://login.tailscale.com/admin/dns, then try again.` Do what the action says and select **Try again**. While you are the recorded operator, **Try again** is the one press on a failed card: confirming the same identity again would only repeat that read. When you open the card as another identity, the panel says who the recorded operator is and offers **Confirm &lt;login&gt; as the operator**, which is a real change. The following table lists the checks and their actions.
 
 | Failed check | Action |
 |---|---|
@@ -294,16 +300,19 @@ The rail's count, `n/4 verified`, and the Home pointer read the same fresh resul
 
 A failed card names the verification that failed and exactly one corrective action, on the card and in the configuration panel. Do what the action says, then select **Try again**. **Try again** runs the verification again for every card. There is no background retry.
 
+A card on its way through its steps isn't failed. The GitHub card waiting for an installation and the Discord card waiting for the bot to join a server re-read on their own and offer no **Try again**, because the read they'd take is the one the panel already takes.
+
 While Curia can't reach the service at all, **Setup** says so instead of showing four unconnected cards, and offers **Try again**.
 
 ## What you see while Curia works
 
-Every action on a card, **Confirm operator and verify**, **Connect bot**, **Connect channel**, **Sign in**, **Submit** for a code, **Watch these repositories**, **Restart Curia**, and **Try again**, switches the card and its panel to an in-progress state the moment you select it. The card's badge reads **Working**, its footer names what Curia is doing (`Verifying the operator`, `Registering commands and posting the confirmation`, `Completing one minimal model request and applying the routing preset`), and the panel shows the same sentence over a thin moving line. Nothing that stood before stays: not the sign-in steps and not a previous failure. The state lasts until the next read for that card lands. A read that fails shows the failure and its action. A read that connects shows the connected state. A write the service refuses shows the refusal beside the form.
+Every action on a card, **Confirm operator and verify**, **Connect bot**, **Connect channel**, **Sign in**, **Submit** for a code, **Watch these repositories and continue**, **Restart Curia**, and **Try again**, switches the card and its panel to an in-progress state the moment you select it. The card's badge reads **Working**, its footer names what Curia is doing (`Verifying the operator`, `Registering commands and posting the confirmation`, `Completing one minimal model request and applying the routing preset`), and the panel shows the same sentence over a thin moving line. Nothing that stood before stays: not the sign-in steps and not a previous failure. The state lasts until the next read for that card lands. A read that fails shows the failure and its action. A read that connects shows the connected state. A write the service refuses shows the refusal beside the form.
 
 ## Moving through setup
 
-- After a card connects, **Continue setup** opens the next card that isn't connected, in rail order.
-- When GitHub, Discord, Tailscale, and at least one model provider are connected on the current read, the action becomes **Run Full loop**. Nothing else turns it: not the count on the rail, and not a saved result.
+- Every write on a card verifies the card on its own. There is no separate check to press: after **Connect bot**, **Connect channel**, **Confirm operator and verify**, or **Watch these repositories and continue**, the panel shows the result of that verification.
+- A connected panel has one press, **Continue**. It opens the next card that isn't connected, in rail order. When every card is connected, **Continue** opens the Full loop panel. A connected card you reopen shows its facts and the same **Continue**.
+- When GitHub, Discord, Tailscale, and at least one model provider are connected on the current read, the action under the rail becomes **Run Full loop**. Nothing else turns it: not the count on the rail, and not a saved result.
 - **Close setup** returns to Home. Closing the tab does the same.
 
 ## The Full loop
