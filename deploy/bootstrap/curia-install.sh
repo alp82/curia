@@ -12,6 +12,10 @@
 #     bash curia-install.sh --purge               purge the default root
 #     bash curia-install.sh --purge --root DIR    purge an explicit root
 #
+# A purge is different: it removes what is installed, so it runs the
+# interface the installation already holds and downloads nothing. The
+# section "The purge path's interface" says why, and what it does otherwise.
+#
 # It runs as you, never as root. It downloads every artifact completely
 # before it runs anything: the package tarball of @curia-sh/cli from the npm
 # registry with the registry's own integrity record, the pinned Node.js
@@ -88,8 +92,10 @@ Options:
   --version <version>  Install an exact published version instead of the
                        stable release the signed index names.
   --prerelease         Allow --version to name a prerelease.
-  --purge              Acquire the verified lifecycle interface temporarily
-                       and run `curia purge` on the root. Installs nothing.
+  --purge              Run `curia purge` on the root. It uses the interface
+                       the root already holds, and acquires a verified one
+                       temporarily only when the root holds none. Installs
+                       nothing.
   --help               Print this text.
 
 Exit codes: 0 ok, 1 failed, 2 usage, 3 refused (nothing changed).
@@ -261,6 +267,98 @@ check_name() {
 }
 
 # ---------------------------------------------------------------------------
+# The purge path's interface.
+#
+# A purge removes an installation. It activates nothing, so it needs no
+# release, and choosing one from the signed stable index made it depend on a
+# promotion it has nothing to do with: before the first stable release, and
+# whenever a withdrawal clears `stable`, the index names none and the purge
+# was refused although the interface it needed was already on disk (#891).
+#
+# So `--purge` looks for the interface the installation holds, in this order:
+#
+#   1. The active version under the root. `versions/<active>/cli` is the
+#      lifecycle interface, and `versions/<active>/node` is the runtime the
+#      launcher runs it on, so the launcher may be gone and this still works.
+#      It is verified first, the way `curia doctor` verifies an installed
+#      version, from the retained artifacts beside it. Nothing is downloaded,
+#      and the index is not read.
+#   2. The release `--version` names, acquired and verified as an install is.
+#   3. The stable release the index names, acquired and verified the same way.
+#
+# Only case 3 can refuse for want of a stable release, and that refusal names
+# `--version`. Every other refusal and every verification the purge already
+# had are kept, the confirmation on the terminal among them: the interface,
+# not this script, owns the confirmation.
+
+INSTALLED_VERSION=''
+INSTALLED_NODE=''
+INSTALLED_CLI=''
+
+# The complete active version under $ROOT, read the way the launcher reads
+# it: the record names the version, and the runtime and the entry point are
+# both there. Sets INSTALLED_* and returns 0, or returns 1 when the root
+# holds no complete active version, which sends the purge to case 2 or 3.
+find_installed_interface() {
+  local record="$ROOT/state/installation.json" version dir
+  [ -r "$record" ] || return 1
+  version=$(sed -n 's/^[[:space:]]*"activeVersion"[[:space:]]*:[[:space:]]*"\([^"]*\)".*$/\1/p' "$record" | head -n 1)
+  [ -n "$version" ] || return 1
+  case "$version" in
+    *[!0-9A-Za-z.-]*|.|..) return 1 ;;
+  esac
+  dir="$ROOT/versions/$version"
+  [ -x "$dir/node/bin/node" ] || return 1
+  [ -f "$dir/cli/bin/curia.mjs" ] || return 1
+  INSTALLED_VERSION=$version
+  INSTALLED_NODE="$dir/node/bin/node"
+  INSTALLED_CLI="$dir/cli/bin/curia.mjs"
+  return 0
+}
+
+# The installed version proves itself with its own code, from the artifacts
+# retained beside it, through the same door `curia doctor` runs. The four
+# checks that ask an origin are left out: a purge reaches none, and it
+# removes the installation instead of activating it. What is left proves the
+# interface about to run is the one the release installed.
+verify_installed_interface() {
+  cat >"$STAGE/verify-installed.mjs" <<'EOF'
+import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
+
+const [root, version] = process.argv.slice(2)
+const load = (file) => import(pathToFileURL(join(root, 'versions', version, 'cli', 'src', file)).href)
+const { verifyInstalledRelease, renderVerification } = await load('manifest.mjs')
+
+const OFFLINE = new Set(['manifest', 'version', 'bundle checksum', 'image digests', 'installed files'])
+const report = await verifyInstalledRelease({ root, version, stdout: { write: () => true } }, {
+  packument: async () => ({ error: 'the registry is not read: a purge verifies the installation from its own files' }),
+  releaseManifest: async () => null,
+  attestation: async () => ({ ok: false, error: 'provenance is verified by curia doctor, not by a purge' }),
+})
+const checks = report.checks.filter((c) => OFFLINE.has(c.name))
+process.stdout.write(renderVerification({ checks }))
+const failed = checks.filter((c) => c.status === 'failed')
+if (failed.length > 0) {
+  process.stderr.write([
+    `curia-install: refused: the installed version ${version} did not verify, so it was not run:`,
+    ...failed.map((c) => `  - ${c.name}: ${c.observed} ${c.action}`),
+    `  Purge with a downloaded interface instead: add --version ${version}.`,
+    '',
+  ].join('\n'))
+  process.exit(3)
+}
+EOF
+  local status=0
+  "$INSTALLED_NODE" "$STAGE/verify-installed.mjs" "$ROOT" "$INSTALLED_VERSION" || status=$?
+  rm -f "$STAGE/verify-installed.mjs"
+  if [ "$status" -ne 0 ]; then
+    [ "$status" -eq "$EXIT_REFUSED" ] && exit "$EXIT_REFUSED"
+    fail "the installed lifecycle interface could not verify version $INSTALLED_VERSION (exit $status)."
+  fi
+}
+
+# ---------------------------------------------------------------------------
 # The stage: one temporary directory that holds every download and, once
 # proven, the unpacked runtime and package at the names an installed version
 # uses, so `curia install` can move them into versions/<version>/ as they are.
@@ -287,14 +385,26 @@ main() {
     say "origins overridden: package $NPM_REGISTRY, release $RELEASE_DOWNLOADS, runtime $NODE_DIST, index $STABLE_INDEX_URL"
   fi
 
+  local status=0
   say "bootstrap $CURIA_BOOTSTRAP_VERSION"
   if [ "$COMMAND" = 'purge' ]; then
-    say "purge of $ROOT: the lifecycle interface is acquired temporarily, asks for confirmation, and nothing is installed"
+    say "purge of $ROOT: it asks for confirmation, and nothing is installed"
   else
     say "installation root: $ROOT"
   fi
 
   make_stage
+
+  # 0. The purge's first case: the interface the installation already holds.
+  #    It runs the way the launcher runs it, on the runtime staged beside it.
+  if [ "$COMMAND" = 'purge' ] && [ -z "$REQUESTED" ] && find_installed_interface; then
+    say "the installed interface at $ROOT/versions/$INSTALLED_VERSION runs the purge; nothing is downloaded"
+    verify_installed_interface
+    export CURIA_ROOT="$ROOT"
+    say "handing off to curia purge ($PACKAGE@$INSTALLED_VERSION on the installed runtime)"
+    "$INSTALLED_NODE" "$INSTALLED_CLI" purge || status=$?
+    exit "$status"
+  fi
 
   # 1. The stable-release index, read here only to choose what to download.
   #    The staged package verifies its signature below.
@@ -306,6 +416,9 @@ main() {
   else
     version=$(json_string stable "$STAGE/stable.json")
     if [ -z "$version" ]; then
+      if [ "$COMMAND" = 'purge' ]; then
+        refuse "the stable-release index names no stable release, and $ROOT holds no complete active version to purge with. Wait for the next promotion, or name the release to acquire with --version."
+      fi
       refuse 'the stable-release index names no stable release. Wait for the next promotion, or install an exact version with --version.'
     fi
     selection='the stable release'
@@ -440,7 +553,7 @@ if (!report.ok) {
   process.exit(3)
 }
 EOF
-  local status=0
+  status=0
   "$node" "$STAGE/verify.mjs" "$STAGE" "$version" "$REQUESTED" "$PRERELEASE" || status=$?
   if [ "$status" -ne 0 ]; then
     [ "$status" -eq "$EXIT_REFUSED" ] && exit "$EXIT_REFUSED"
