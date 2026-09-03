@@ -14,6 +14,14 @@ defaults:
   research: {model: gpt, effort: high} # #13: spread quota on the bulk lane
   task: {model: opus, effort: high}
   untyped: {model: opus, effort: high}
+  # The Test run's two tickets (#891). The live rehearsal dispatched the
+  # acceptance on gpt-5.6-sol at high effort, and its cross-check on the same
+  # tier; the owner ruled that a line appended to a README proves the loop on
+  # the cheapest model there is. This row names the cheapest model of a
+  # provider at its lowest effort, and the AI logins card's preset keeps it on
+  # the cheapest tier when it moves the row to the other provider (`cheapest`
+  # below). The cross-check of the type is `review.test-run`.
+  test-run: {model: haiku, effort: low}
   # A map dispatch (#160): `start curia#<map>` on a `wayfinder:map` issue spawns
   # a CHARTING agent, which rewrites the map every later agent reads. #149
   # pinned it to the strongest claude-harness model, because no gate checks a
@@ -57,6 +65,12 @@ models:
   sonnet:
     provider: anthropic
     harness: claude
+  # The cheapest claude-harness model (#891), named by the CLI's own alias.
+  # Only the `test-run` row and its cross-check route here; no chain falls
+  # into it, so nothing else ever runs on it by accident.
+  haiku:
+    provider: anthropic
+    harness: claude
   # `gpt` is the label vocabulary (`model:gpt` on a ticket); `id` is what the
   # CLI is actually asked for, because `codex --model gpt` is not a model.
   # Since #179 `id` is also what a status line calls this agent, so a human
@@ -80,6 +94,27 @@ models:
     # where the config value is safe, because every token_count event the harness
     # writes carries the real window and overrides it within one turn.
     context_window: 258400
+  # The cheapest codex-capable model (#891): `luna` is the cheap fast one of
+  # the gpt-5.6 release, and the pinned codex binary names it. Low effort,
+  # stated for the same reason `gpt` states its own. Only the `test-run` row
+  # and its cross-check route here.
+  luna:
+    provider: openai
+    harness: codex
+    id: gpt-5.6-luna
+    reasoning_effort: low
+    context_window: 258400
+
+# The cheapest model of each provider (#891). The AI logins card's routing
+# preset moves a row that cannot run onto the connecting provider: onto the
+# provider's first model above, or, for a row that sits on a provider's
+# cheapest model, onto the cheapest model of the connecting provider. That is
+# what keeps the Test run's tickets and their cross-check on the cheap tier
+# whichever provider signs in first, without naming the type in code. Every
+# entry names a model of that provider.
+cheapest:
+  openai: luna
+  anthropic: haiku
 
 # The cross-check pairing (#164, ADR-0010): which model reads a builder's diff
 # when the operator asks for a second reading. Keyed by the BUILDER's provider,
@@ -101,6 +136,14 @@ models:
 review:
   anthropic: gpt
   openai: opus
+  # A row keyed by a TICKET TYPE holds that type's own pairing, keyed by the
+  # builder's provider like the two rows above (#891): a `test-run` ticket
+  # built on haiku is read on luna, and one built on luna is read on haiku,
+  # so the acceptance's cross-check costs what its agent costs. A type with
+  # no row here pairs by the provider rows.
+  test-run:
+    anthropic: luna
+    openai: haiku
 
 # Chains are explicit config, so two #13 rules stay STRUCTURAL rather than
 # remembered: cross-provider first (a cooling provider must not strand a
@@ -111,6 +154,10 @@ fallbacks:
   opus: [gpt, sonnet]
   sonnet: [gpt]
   gpt: [opus] # transitively reaches sonnet through opus
+  # The cheap tier (#891) falls across providers and never up: a cooling
+  # provider must not strand the Test run, and a cheap row must not climb.
+  haiku: [luna]
+  luna: [haiku]
 
 harnesses:
   # EVERY harness runs in its own container (#148, retired at #195). There is no

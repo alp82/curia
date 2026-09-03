@@ -165,6 +165,9 @@ export class FullLoop {
       channel_url: facts.discord?.channel?.url ?? null,
       provider: facts.model?.provider ?? null,
       model: facts.model?.model ?? null,
+      // The row the tickets dispatch on (#891), so the panel says what the
+      // run costs: the cheap model at low effort.
+      test_run: facts.model?.test_run ? { model: facts.model.test_run.model ?? null, id: facts.model.test_run.id ?? null, effort: facts.model.test_run.effort ?? null } : null,
       address: facts.tailscale?.address ?? null,
       app_url: facts.tailscale?.app_url ?? null,
     })
@@ -371,7 +374,7 @@ export class FullLoop {
 
   #idle() {
     return {
-      state: 'idle', repo: null, title: null, map: null, tickets: [], ticket: null, started_at: null, finished_at: null, elapsed_ms: null,
+      state: 'idle', repo: null, title: null, model: null, map: null, tickets: [], ticket: null, started_at: null, finished_at: null, elapsed_ms: null,
       legs: LEGS.map((l) => ({ key: l.key, title: l.title, state: 'pending', at: null, ms: null, link: null })),
       failed: null,
       links: { ticket: null, thread: null, channel: null, pull_request: null, map: null },
@@ -423,6 +426,12 @@ export class FullLoop {
     out.state = 'running'
     out.repo = started.ev.repo ?? null
     out.title = started.ev.title ?? null
+    // What the run dispatches on: the provider the gate led with and the
+    // test-run row as the press read it. A row from before #891 named no
+    // row, and the run says nothing rather than a guess.
+    out.model = started.ev.test_run
+      ? { provider: started.ev.provider ?? null, model: started.ev.test_run.model ?? null, id: started.ev.test_run.id ?? null, effort: started.ev.test_run.effort ?? null }
+      : null
     out.started_at = started.ts
     out.links.channel = started.ev.channel_url ?? null
     out.map = map ? { number: map.number, title: map.title, url: map.url } : null

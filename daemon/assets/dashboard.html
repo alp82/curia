@@ -6011,6 +6011,13 @@ function runWhere(run) {
   const n = run.ticket.index && run.ticket.of ? ` · ticket ${esc(run.ticket.index)} of ${esc(run.ticket.of)}` : "";
   return `${esc(run.repo)}#${esc(run.ticket.number)}${n}`;
 }
+/* The model and effort the run dispatches on (#891), as the service read
+   them at the press; nothing when the run's record names none. */
+function runOn(run) {
+  const m = run.model;
+  if (!m || !(m.id ?? m.model)) return "";
+  return ` · on ${esc(m.id ?? m.model)}${m.effort ? ` · ${esc(m.effort)} effort` : ""}`;
+}
 
 /* The run's panel in the main area (#891): what Curia is doing from the
    press until the service answers, then the run as the service reads it,
@@ -6054,7 +6061,11 @@ function setupLoopFacts(facts) {
   if (facts.tailscale?.address) bits.push(`🔒 ${esc(facts.tailscale.address)}`);
   if (facts.model?.provider) {
     const name = SETUP_PROVIDER_NAMES[facts.model.provider] ?? facts.model.provider;
-    bits.push(`${facts.model.provider === "anthropic" ? "🧠" : "⚡"} ${esc(name)} · ${esc(facts.model.model ?? "")}`);
+    /* The row the run's tickets dispatch on (#891): the cheap model at low
+       effort, when routing has the row; the preset's model otherwise. */
+    const row = facts.model.test_run;
+    const on = row ? `${esc(row.id ?? row.model ?? "")}${row.effort ? ` · ${esc(row.effort)} effort` : ""}` : esc(facts.model.model ?? "");
+    bits.push(`${facts.model.provider === "anthropic" ? "🧠" : "⚡"} ${esc(name)} · ${on}`);
   }
   return bits.length ? `<div class="dim-note setup-loop-facts">${bits.join(" · ")}</div>` : "";
 }
@@ -6132,7 +6143,7 @@ function loopTerminals(run) {
   return `<div class="loop-links loop-terminals"><span class="dim-note">Terminals</span>${sessions.map((s) => `<a href="${esc(s.terminal_url)}" target="_blank" rel="noopener">${esc(s.session)}</a>`).join("")}</div>`;
 }
 function setupLoopRun(run) {
-  const where = runWhere(run);
+  const where = runWhere(run) + runOn(run);
   const elapsed = loopDur(run.elapsed_ms);
   const head = run.state === "complete" ? `<b>Test run verified.</b><div class="dim-note">${where} · every leg completed in ${elapsed}.</div>`
     : run.state === "failed" ? `<b>The Test run did not complete.</b><div class="dim-note">${where} · stopped after ${elapsed}.</div>`

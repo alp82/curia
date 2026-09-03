@@ -266,6 +266,15 @@ describe('agentOnlyChainCount', () => {
     assert.equal(agentOnlyChainCount({ items, edges }), 2)
   })
 
+  test('the Test run\'s own type is agent-driven, like a task (#891)', () => {
+    const items = [
+      typed(mkIssue(1), 'test-run'),
+      typed(mkIssue(2, { blockedBy: 1 }), 'test-run'),
+    ]
+    const edges = { 2: [{ number: 1, state: 'open' }] }
+    assert.equal(agentOnlyChainCount({ items, edges }), 2)
+  })
+
   test('a HITL ticket breaks the chain behind it', () => {
     const items = [
       typed(mkIssue(1), 'grilling'),

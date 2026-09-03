@@ -290,7 +290,14 @@ export function resolveReviewer(routing, { builderModel, labels = [], cooling })
   if (labelled && !isActive(routing, labelled)) {
     throw new Error(`the ticket carries \`${REVIEW_MODEL_LABEL}${labelled}\`, and that model is \`active: false\` in routing.yaml — turn it back on in the dashboard's Routing section, or name another model`)
   }
-  const wanted = labelled ?? routing.review?.[builderProvider] ?? null
+  // The ticket type's own pairing beats the provider row (#891): the Test
+  // run's `review.test-run` reads a cheap builder on the other provider's
+  // cheap model. The type is the first `wayfinder:` label that has a row.
+  const typed = (labels ?? [])
+    .filter((l) => l.startsWith('wayfinder:'))
+    .map((l) => routing.review?.[l.slice('wayfinder:'.length)])
+    .find((row) => row && typeof row === 'object')
+  const wanted = labelled ?? typed?.[builderProvider] ?? routing.review?.[builderProvider] ?? null
   if (!wanted) {
     throw new Error(`routing.yaml states no cross-check pairing for provider "${builderProvider}" — add a \`review:\` row for it, or put a \`${REVIEW_MODEL_LABEL}<name>\` label on the ticket`)
   }

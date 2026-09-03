@@ -4637,6 +4637,12 @@ describe('integration setup (#874)', () => {
     assert.match(line, /🔒 curia\.tail1234\.ts\.net/)
     assert.match(line, /🧠 Anthropic · fable/)
     assert.match(html, /Every integration is connected and verified\./)
+    // The Test run's own row (#891): the line names the model and the effort
+    // the run's tickets dispatch on, not the preset's first model.
+    const cheap = { ...facts, model: { ...facts.model, test_run: { model: 'haiku', id: 'haiku', effort: 'low' } } }
+    page.setup = SETUP({ step: 'model', cards: ALL, full_loop: { ready: true, missing: [], reason: null, facts: cheap } })
+    assert.match(/setup-loop-facts">([^<]*)</.exec(page.screenSetup(payload()))[1], /🧠 Anthropic · haiku · low effort/)
+    page.setup = SETUP({ step: 'model', cards: ALL, full_loop: { ready: true, missing: [], reason: null, facts } })
     assert.match(html, /<button class="btn primary" onclick="runFullLoop\(\)">Start Test run<\/button>/)
     await page.runFullLoop()
     const press = calls.find((c) => c.method === 'POST')
@@ -4656,9 +4662,10 @@ describe('integration setup (#874)', () => {
   // and on a failure the leg, the cause, the action, and Try again.
   const LEG_KEYS = ['discovery', 'dispatch', 'escalation', 'pull_request', 'review', 'merge', 'resolution', 'map_update', 'map_closed']
   const LEG_TITLES = ['Frontier discovery', 'Dispatch', 'Escalation and answer', 'Pull request', 'Review', 'Merge', 'Ticket resolution', 'Map update', 'Map closed']
-  const RUN = (state, { legs = [], failed = null, elapsed = 61_000 } = {}) => ({
+  const RUN = (state, { legs = [], failed = null, elapsed = 61_000, model = { provider: 'openai', model: 'luna', id: 'gpt-5.6-luna', effort: 'low' } } = {}) => ({
     state,
     repo: 'alp82/curia',
+    model,
     title: 'Test run September 2, 2026',
     map: { number: 40, title: 'Test run September 2, 2026', url: 'https://github.com/alp82/curia/issues/40' },
     tickets: [
@@ -4681,7 +4688,12 @@ describe('integration setup (#874)', () => {
     const html = page.screenSetup(payload())
     const body = text(html)
     assert.match(body, /Running the Test run\./)
-    assert.match(body, /alp82\/curia#42 · ticket 1 of 2 · 1 min 1 s so far/)
+    assert.match(body, /alp82\/curia#42 · ticket 1 of 2 · on gpt-5\.6-luna · low effort · 1 min 1 s so far/)
+    // A run read from before the row said nothing about the model: the head
+    // says nothing either, rather than a placeholder.
+    page.setup = SETUP({ step: 'model', cards: ALL, full_loop: { ready: true, missing: [], reason: null, facts: RUN_FACTS, run: RUN('running', { legs: ['complete'], model: null }) } })
+    assert.match(text(page.screenSetup(payload())), /alp82\/curia#42 · ticket 1 of 2 · 1 min 1 s so far/)
+    page.setup = SETUP({ step: 'model', cards: ALL, full_loop: { ready: true, missing: [], reason: null, facts: RUN_FACTS, run } })
     assert.match(body, /Frontier discovery · complete/)
     assert.match(body, /Dispatch · complete/)
     assert.match(body, /Escalation and answer · running/)
@@ -4703,7 +4715,7 @@ describe('integration setup (#874)', () => {
     const html = page.screenSetup(payload())
     const body = text(html)
     assert.match(body, /Test run verified\./)
-    assert.match(body, /alp82\/curia#42 · ticket 1 of 2 · every leg completed in 12 min 34 s\./)
+    assert.match(body, /alp82\/curia#42 · ticket 1 of 2 · on gpt-5\.6-luna · low effort · every leg completed in 12 min 34 s\./)
     assert.match(body, /Map closed · complete/)
     for (const title of LEG_TITLES) assert.match(body, new RegExp(`${title} · complete`))
     assert.match(html, /href="https:\/\/github\.com\/alp82\/curia\/pull\/50"[^>]*>Pull request ↗/)
