@@ -27,7 +27,7 @@ import {
   AnthropicCredentialStore, PROVIDER_CREDENTIALS, CONSUMER_CREDENTIALS, CONSUMER_NAMES,
   consumerContractFault, providerContractFault, SETUP_TOKEN_SCOPES, CLAUDE_CREDENTIAL_FILE,
   DeviceLoginLane, SetupTokenLane, setupTokenRunCmd, joinWrapped,
-  scrapeAuthorizeUrl, scrapeSetupToken, checkAnthropicToken, ANTHROPIC_AUTHORIZE_HEAD,
+  scrapeAuthorizeUrl, scrapeSetupToken, scrapeCodePrompt, checkAnthropicToken, ANTHROPIC_AUTHORIZE_HEAD,
 } from '../src/credentials.mjs'
 // #660 checks that the token under test is the one on the wire, and it asks with
 // the headers `usage.mjs` owns.
@@ -496,6 +496,25 @@ Waiting for you to sign in...
     assert.deepEqual(scrapeDeviceAuth('open https://auth.openai.com/codex/device now'), {
       url: 'https://auth.openai.com/codex/device', code: null, codeLifeMs: null,
     })
+  })
+
+  // The same wrap the anthropic lane met on the packaged installation (#891):
+  // a device link longer than the pane is wide comes back in pieces, and the
+  // card must not offer the first piece as the link.
+  test('a device link wrapped by the pane comes back whole', () => {
+    const url = 'https://auth.openai.com/codex/device?user_code=83CC-A4ZTO&client_id=app_EMoamEEZ73f0CkXaXp7hrann'
+    const wrapped = `
+1. Open this link in your browser and sign in to your account
+   ${url.slice(0, 40)}
+${url.slice(40, 80)}
+${url.slice(80)}
+2. Enter this one-time code (expires in 15 minutes)
+   83CC-A4ZTO
+
+Waiting for you to sign in...
+`
+    assert.equal(scrapeDeviceAuth(wrapped).url, url)
+    assert.equal(scrapeDeviceAuth(wrapped).code, '83CC-A4ZTO')
   })
 })
 
@@ -1372,6 +1391,105 @@ describe('reading the anthropic login pane (#660)', () => {
 
   test('a frame with no `sk-ant-` line at all reads as not finished', () => {
     assert.equal(scrapeSetupToken('nothing here\n\nnor here\n'), null)
+  })
+})
+
+// ---- the packaged installation's pane (#891) --------------------------------
+//
+// Reproduced on the Debian rehearsal host, verbatim: `curia-auth-anthropic` on
+// Claude Code 2.1.220, the version the release's agent image pins, at 80
+// columns. The link is on its own lines, no blank line separates it from the
+// prompt, and the row stayed on "Waiting for the sign-in link" for the whole
+// thirty-minute window.
+const WAITING_80_220 = [
+  'Welcome to Claude Code v2.1.220',
+  " Browser didn't open? Use the url below to sign in (c to copy)",
+  'https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-88',
+  'ed-5944d1962f5e&response_type=code&redirect_uri=https%3A%2F%2Fplatform.claude.co',
+  'm%2Foauth%2Fcode%2Fcallback&scope=user%3Ainference&code_challenge=FEvEKjYwoCk8nO',
+  '20GF6lmVoGSvkEE4n9cza17QWnQYE&code_challenge_method=S256&state=WMLhzJWvH5uvyWo5c',
+  'CkPQ0xvVEqm1AzYkgZGEESBzf4',
+  ' Paste code here if prompted >',
+].join('\n')
+
+const URL_80_220 = 'https://claude.com/cai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e&response_type=code&redirect_uri=https%3A%2F%2Fplatform.claude.com%2Foauth%2Fcode%2Fcallback&scope=user%3Ainference&code_challenge=FEvEKjYwoCk8nO20GF6lmVoGSvkEE4n9cza17QWnQYE&code_challenge_method=S256&state=WMLhzJWvH5uvyWo5cCkPQ0xvVEqm1AzYkgZGEESBzf4'
+
+// The same 80-column frame captured off a pane the terminal re-wrapped at 60
+// columns without `-J`: the pieces are 60 and 20 wide by turns, so no rule
+// about piece widths can put it back together.
+const WAITING_80_ON_60 = WAITING_80_220.split('\n').flatMap((line) => {
+  if (!line.startsWith('https://') && !/^[A-Za-z0-9%&=._-]+$/.test(line)) return [line]
+  const pieces = []
+  for (let i = 0; i < line.length; i += 60) pieces.push(line.slice(i, i + 60))
+  return pieces
+}).join('\n')
+
+// The plain-stdout sign-in newer Claude Code versions print (read out of the
+// 2.1.259 bundle): the link shares its line with the sentence, the terminal
+// wraps it at the pane width, and the prompt follows with no gap.
+const WAITING_INLINE = [
+  'Opening browser to sign in…',
+  ...(`If the browser didn't open, visit: ${URL_80_220}`.match(/.{1,80}/g)),
+  'Paste code here if prompted > ',
+].join('\n')
+
+describe('reading the sign-in link off the packaged installation pane (#891)', () => {
+  test('the link comes back whole from the 2.1.220 frame at 80 columns', () => {
+    assert.equal(scrapeAuthorizeUrl(WAITING_80_220), URL_80_220)
+  })
+
+  test('the link comes back whole when the terminal re-wrapped it at another width', () => {
+    assert.equal(scrapeAuthorizeUrl(WAITING_80_ON_60), URL_80_220)
+  })
+
+  test('the link comes back whole when it shares a line with the sentence around it', () => {
+    assert.equal(scrapeAuthorizeUrl(WAITING_INLINE), URL_80_220)
+  })
+
+  test('the 60-column Ink frame still reads the same', () => {
+    assert.equal(new URL(scrapeAuthorizeUrl(WAITING_60)).searchParams.get('state'), '9oq-pmO4pEY1t4nD2prvbnqYYqlSkptF03z3EABHPaA')
+  })
+
+  // The prompt is what says the login waits on a typed code, and it is the
+  // same sentence in the Ink frame and the plain one.
+  test('the paste prompt is recognized in both frames, and absent from a refusal', () => {
+    assert.equal(scrapeCodePrompt(WAITING_80_220), 'Paste code here if prompted >')
+    assert.equal(scrapeCodePrompt(WAITING_INLINE), 'Paste code here if prompted >')
+    assert.equal(scrapeCodePrompt(WAITING_60), 'Paste code here if prompted >')
+    assert.equal(scrapeCodePrompt('Welcome to Claude Code v2.1.258\n\n OAuth error: Request failed with status code 400\n\n Press Enter to retry.'), null)
+    assert.equal(scrapeCodePrompt(''), null)
+  })
+
+  test('the lane hands the flow the link and the prompt', () => {
+    const { url, code, prompt } = new SetupTokenLane({ store: storeOn() }).scrape(WAITING_80_220)
+    assert.equal(url, URL_80_220)
+    assert.equal(code, null)
+    assert.equal(prompt, 'Paste code here if prompted >')
+  })
+
+  test('one poll of the 2.1.220 pane puts the link on the card and says the login is typed', async () => {
+    const now = () => Date.parse('2026-09-03T12:00:00Z')
+    const sessions = new Set()
+    const f = new ReauthFlow({
+      lanes: { anthropic: new SetupTokenLane({ store: storeOn(), check: async () => ({ ok: true, retry: false }) }) },
+      image: 'curia-agent:test',
+      agentUid: 1000,
+      cfgDirFor: (session) => path.join(dir, 'cfg', session),
+      newSession: async (opts) => { sessions.add(opts.name) },
+      capturePane: async () => WAITING_80_220,
+      killSession: async (name) => { sessions.delete(name) },
+      hasSession: async (name) => sessions.has(name),
+      stopContainer: async () => {},
+      now,
+      journal: () => {},
+    })
+    await f.start({ provider: 'anthropic' })
+    await f.poll()
+    const s = f.state()
+    assert.equal(s.state, 'waiting')
+    assert.equal(s.url, URL_80_220)
+    assert.equal(s.typed, true)
+    assert.equal(s.prompt, 'Paste code here if prompted >')
   })
 })
 

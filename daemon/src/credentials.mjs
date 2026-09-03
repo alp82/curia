@@ -611,7 +611,6 @@ export const DEVICE_CODE_LIFE_MS = 15 * 60 * 1000
 // operator round the loop a second time. Two observed samples were `83CC-A4ZTO`
 // and `85PT-A4E5M`; the range is widened a little either side of them, and the
 // anchor is what keeps that widening safe.
-export const DEVICE_URL_RE = /https:\/\/auth\.openai\.com\/codex\/device[^\s]*/
 export const DEVICE_CODE_RE = /one-time code[^\n]*\n\s*([A-Z0-9]{4}-[A-Z0-9]{4,8})/
 
 // THE CODE'S OWN CLOCK, off the line the code pattern already anchors on (#721):
@@ -624,11 +623,16 @@ export const DEVICE_CODE_RE = /one-time code[^\n]*\n\s*([A-Z0-9]{4}-[A-Z0-9]{4,8
 // state it reads `null`, and the lane's declared lifetime stands in.
 export const DEVICE_CODE_LIFE_RE = /one-time code[^\n]*?expires in (\d+) minutes?/
 
+export const DEVICE_URL_HEAD = 'https://auth.openai.com/codex/device'
+
 export function scrapeDeviceAuth(pane) {
   const text = String(pane ?? '')
   const minutes = Number(text.match(DEVICE_CODE_LIFE_RE)?.[1])
   return {
-    url: text.match(DEVICE_URL_RE)?.[0] ?? null,
+    // Through the same wrap-tolerant reader as the anthropic link (#891): the
+    // device link has been short enough to fit a pane so far, and a version
+    // that appends a query to it must not hand the card the first piece.
+    url: readWrappedUrl(text, DEVICE_URL_HEAD, (url) => Boolean(new URL(url))),
     code: text.match(DEVICE_CODE_RE)?.[1] ?? null,
     codeLifeMs: Number.isFinite(minutes) && minutes > 0 ? minutes * 60 * 1000 : null,
   }
@@ -789,7 +793,7 @@ export class ReauthFlow {
   // why `finish` returns an expiry and not a token.
   state() {
     if (!this.flow) return null
-    const { provider, session, state, url, code, typed, actionId, startedAt, deadline, delivered, refusal } = this.flow
+    const { provider, session, state, url, code, typed, prompt, actionId, startedAt, deadline, delivered, refusal } = this.flow
     return {
       provider,
       session,
@@ -804,6 +808,9 @@ export class ReauthFlow {
       // over the flow's own raw write, so the terminal is the fallback rather
       // than the only way through.
       typed,
+      // The prompt the login is waiting at, read off the pane (#891), or null
+      // until the pane shows one.
+      prompt: prompt ?? null,
       // When curia last typed a code into the pane, and the refusal the login
       // printed for it, if any (#891). Never the code itself.
       delivered_at: delivered ? new Date(delivered).toISOString() : null,
@@ -924,6 +931,8 @@ export class ReauthFlow {
       code: null,
       codeSeen: false,
       typed: Boolean(lane?.typed),
+      // The paste prompt the pane showed, once it has (#891).
+      prompt: null,
       // The last code delivery and the login's answer to it (#891).
       delivered: null,
       refusal: null,
@@ -1034,7 +1043,7 @@ export class ReauthFlow {
     } catch {
       return null
     }
-    const { url, code, codeLifeMs, refusal } = this.laneFor(this.flow.provider).scrape(pane)
+    const { url, code, codeLifeMs, refusal, prompt } = this.laneFor(this.flow.provider).scrape(pane)
     // The login refused the code curia typed (#891). Only a code curia
     // delivered can be refused: the same words on a pane nobody typed into are
     // the operator's own business in the terminal. Said once per delivery,
@@ -1058,6 +1067,7 @@ export class ReauthFlow {
     }
     if (url) this.flow.url = url
     if (code) this.flow.code = code
+    if (prompt) this.flow.prompt = prompt
     // The pane outranks the lane's declared number, because the pane is the
     // login speaking for itself. A frame that says nothing changes nothing.
     if (Number.isFinite(codeLifeMs)) this.flow.codeLifeMs = codeLifeMs
@@ -1618,6 +1628,52 @@ export function joinWrapped(lines, start, continues) {
 // strips the trailing ones.
 const paneLines = (pane) => String(pane ?? '').split('\n').map((l) => l.trim())
 
+// ---- a link wrapped by anybody (#891) ---------------------------------------
+//
+// `joinWrapped` above is for a value INK wrapped, and its width rule is what
+// keeps it from eating the paragraph underneath. The sign-in link is not that
+// value. On the packaged installation the reader missed the link Claude Code
+// 2.1.220 printed at 80 columns, and the row waited the whole thirty-minute
+// window for a link that was on the pane. The newer plain sign-in (read out of
+// the 2.1.259 bundle) prints the link on the sentence's own line, `If the
+// browser didn't open, visit: https://…`, and leaves the terminal to wrap it,
+// which `capture-pane -J` undoes and a resized pane can redo at any width. So
+// no rule about where the link starts or how wide its pieces are survives a
+// version change, and this reader keeps none:
+//
+//   1. The link starts wherever its head is, on its own line or after prose.
+//   2. Every following line that is nothing but URL characters is a piece of
+//      it. A blank line, the paste prompt, and any line with a space in it
+//      end the run, so the paragraph underneath is never joined.
+//   3. `accept` decides whether the joined text is the link. A run that took
+//      a stray word lands the junk in the last parameter, and the parse is
+//      what stops the card from offering a link that fails after the operator
+//      has opened it.
+//
+// A URL's own charset. Deliberately excludes the space, which is what makes
+// rule 2 hold.
+const URL_PIECE_RE = /^[A-Za-z0-9._~:/?#[\]@!$&'()*+,;=%-]+$/
+
+export function readWrappedUrl(pane, head, accept) {
+  const lines = paneLines(pane)
+  for (let i = 0; i < lines.length; i++) {
+    const at = lines[i].indexOf(head)
+    if (at < 0) continue
+    const rest = lines[i].slice(at)
+    const cut = rest.search(/\s/)
+    let url = cut < 0 ? rest : rest.slice(0, cut)
+    // Only a piece that ran to the end of its line can have been wrapped.
+    for (let j = i + 1; cut < 0 && j < lines.length; j++) {
+      if (!URL_PIECE_RE.test(lines[j])) break
+      url += lines[j]
+    }
+    try {
+      if (accept(url)) return url
+    } catch { /* not a URL is not the URL */ }
+  }
+  return null
+}
+
 // ---- the anthropic login's own pane ----------------------------------------
 
 // The authorize URL, for the card. `claude.com/cai/oauth/authorize`, captured on
@@ -1625,23 +1681,29 @@ const paneLines = (pane) => String(pane ?? '').split('\n').map((l) => l.trim())
 // still has to type the code back into the pane, so the card is a convenience
 // here where on the codex lane it is the whole interaction.
 export const ANTHROPIC_AUTHORIZE_HEAD = 'https://claude.com/cai/oauth/authorize?'
-// A URL's own charset. Deliberately excludes the space, which is what makes rule
-// 1 above hold for it.
-const URL_PIECE_RE = /^[A-Za-z0-9._~:/?#[\]@!$&'()*+,;=%-]+$/
 
 export function scrapeAuthorizeUrl(pane) {
-  const lines = paneLines(pane)
-  for (let i = 0; i < lines.length; i++) {
-    if (!lines[i].startsWith(ANTHROPIC_AUTHORIZE_HEAD)) continue
-    const url = joinWrapped(lines, i, (l) => URL_PIECE_RE.test(l))
-    // Parsed rather than pattern-matched, and checked for the two parameters a
-    // PKCE authorize URL cannot work without. A reassembly that ran long lands
-    // its junk in the last parameter, so this is what stops the card offering a
-    // link that fails after the operator has already opened it.
-    try {
-      const parsed = new URL(url)
-      if (parsed.searchParams.get('code_challenge') && parsed.searchParams.get('state')) return url
-    } catch { /* not a URL is not the URL */ }
+  // Parsed rather than pattern-matched, and checked for the two parameters a
+  // PKCE authorize URL cannot work without.
+  return readWrappedUrl(pane, ANTHROPIC_AUTHORIZE_HEAD, (url) => {
+    const parsed = new URL(url)
+    return Boolean(parsed.searchParams.get('code_challenge') && parsed.searchParams.get('state'))
+  })
+}
+
+// The prompt the login waits at for the code, which is what says the login is
+// the typed kind on this tick rather than by the lane's word alone. The same
+// sentence on every version measured: the Ink frame of 2.1.220 and 2.1.241
+// (`Paste code here if prompted >`, padded one column in) and the plain
+// sign-in of 2.1.258 and later (the same words, written to stdout with no
+// newline after them). Read tolerantly, so a version that drops the `if
+// prompted` still reads as a prompt.
+const CODE_PROMPT_RE = /^Paste (?:the )?code here[^>]*>?/
+
+export function scrapeCodePrompt(pane) {
+  for (const line of paneLines(pane)) {
+    const m = line.match(CODE_PROMPT_RE)
+    if (m) return m[0].trim()
   }
   return null
 }
@@ -1845,7 +1907,7 @@ export class SetupTokenLane {
   // nothing it would have to invent. What the pane can say about a code that
   // went in is the refusal (#891), which the flow attributes to its own
   // delivery or ignores.
-  scrape(pane) { return { url: scrapeAuthorizeUrl(pane), code: null, codeLifeMs: null, refusal: scrapeOAuthError(pane) } }
+  scrape(pane) { return { url: scrapeAuthorizeUrl(pane), code: null, codeLifeMs: null, refusal: scrapeOAuthError(pane), prompt: scrapeCodePrompt(pane) } }
 
   // THE PANE IS THE CREDENTIAL CHANNEL, which is what the whole slice turns on.
   //

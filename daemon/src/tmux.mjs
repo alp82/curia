@@ -120,8 +120,13 @@ export async function newSession({ name, cwd, env = {}, shellCmd, exitMarker = n
 // empty pane: READY_MARKER never matched (so `agent_ready` was never
 // journalled and every live agent got a false `agent_ready_timeout`), and
 // parseUsageLimit never saw pane text, so reactive cooling could never fire.
-export async function capturePane(name) {
-  const { stdout } = await tmux(['capture-pane', '-p', '-t', `=${name}:`])
+//
+// `join` asks tmux to rejoin the lines the TERMINAL wrapped (`-J`), which is
+// what the login panes need (#891): a link longer than the pane comes back as
+// one line instead of pieces. Application newlines are not touched by it, and
+// the default stays the raw frame every other reader was measured against.
+export async function capturePane(name, { join = false } = {}) {
+  const { stdout } = await tmux(['capture-pane', '-p', ...(join ? ['-J'] : []), '-t', `=${name}:`])
   return stdout
 }
 
