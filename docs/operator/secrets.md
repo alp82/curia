@@ -4,12 +4,13 @@ An installed Curia keeps every long-lived credential as one owner-only file unde
 
 ## The secret files
 
-Curia owns four long-lived credentials. Each one is a file in `secrets/`, owned by you, with mode `0600`. The following table lists them.
+Curia owns five long-lived credentials. Each one is a file in `secrets/`, owned by you, with mode `0600`. The following table lists them.
 
 | File | Holds | Who writes it |
 |---|---|---|
 | `secrets/discord-bot-token` | The Discord bot token, one line. | The Discord step of integration setup. |
-| `secrets/github-app.json` | The GitHub App: `{ "id": "<app id>", "pem": "<private key>" }`. | The GitHub step of integration setup, from GitHub's manifest conversion. |
+| `secrets/github-app.json` | The GitHub App: `{ "id": "<app id>", "pem": "<private key>", "client_id": "<client id>", "client_secret": "<client secret>" }`. | The GitHub step of integration setup, from GitHub's manifest conversion. |
+| `secrets/github-operator.json` | Your own GitHub authorization, granted when you installed the App: the user token, its refresh token, their expiry, and your login. Curia posts your review-gate approvals with it. | The GitHub step of integration setup, when GitHub sends you back from the installation, and the service when it refreshes the token before it expires. |
 | `secrets/anthropic.json` | The Anthropic subscription credential that Curia adopted, with the instant it was adopted. | The Anthropic row of the [model provider card](integration-setup.md#connect-anthropic), or `reauth anthropic`. Both run the same `claude setup-token` session, and Curia adopts the token only after Anthropic accepts it. |
 | `secrets/codex-auth.json` | The OpenAI Codex credential. | The OpenAI row of the [model provider card](integration-setup.md#connect-openai), or `reauth openai`. Both run the same `codex login --device-auth` session. Curia rewrites the file when it refreshes the credential. |
 

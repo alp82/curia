@@ -34,8 +34,8 @@ function refuses(fn, pattern) {
 }
 
 describe('the catalogue', () => {
-  test('names the four long-lived credentials Curia owns, one file each', () => {
-    assert.deepEqual([...SECRET_NAMES], ['discord-bot-token', 'github-app.json', 'anthropic.json', 'codex-auth.json'])
+  test('names the five long-lived credentials Curia owns, one file each', () => {
+    assert.deepEqual([...SECRET_NAMES], ['discord-bot-token', 'github-app.json', 'github-operator.json', 'anthropic.json', 'codex-auth.json'])
     for (const entry of SECRET_FILES) {
       assert.ok(entry.name && entry.holds && entry.writer, `${entry.name} is documented`)
     }

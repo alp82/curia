@@ -22,8 +22,11 @@ import {
   GitHubAppSetup,
   MANIFEST_PERMISSIONS,
   ROLES,
+  appConfigFromRoot,
+  appNameTaken,
   assertManifest,
   minterFrom,
+  suggestedAppName,
 } from '../src/githubapp.mjs'
 import { ensureLayout } from '../../cli/src/root.mjs'
 import { secretPath } from '../../cli/src/secrets.mjs'
@@ -49,7 +52,7 @@ const response = (body, status = 201) => ({
 })
 
 const converted = (over = {}) => ({
-  id: 42, slug: 'curia-alp', pem, permissions, events: [], client_secret: 'discard', webhook_secret: 'discard', ...over,
+  id: 42, slug: 'curia-alp', pem, permissions, events: [], client_id: 'Iv1.client', client_secret: 'sekrit', webhook_secret: 'discard', ...over,
 })
 
 const paths = (name) => {
@@ -106,8 +109,27 @@ describe('the manifest (#694)', () => {
     assert.deepEqual(setup.status(), { status: 'pending', expires_at: started.expires_at })
   })
 
+  // Installing the App is also the operator's authorization (#891, ADR-0031):
+  // the manifest asks GitHub to run the user authorization on install and
+  // on every update, and names the callback the code comes back to. No
+  // `setup_url`: GitHub sends the operator to the callback instead when the
+  // authorization is requested, and a manifest that names both is refused.
+  test('it asks for the operator authorization on install, on update, and names the callback (#891)', () => {
+    const setup = new GitHubAppSetup(paths('oauth'))
+    const started = setup.start({ name: 'curia.sh', redirectUrl: 'https://box.example/api/github-app/complete' })
+    assert.equal(started.manifest.request_oauth_on_install, true)
+    assert.equal(started.manifest.setup_on_update, true)
+    assert.deepEqual(started.manifest.callback_urls, ['https://box.example/api/github-app/authorize'])
+    assert.equal('setup_url' in started.manifest, false)
+    assert.throws(() => assertManifest({ ...started.manifest, callback_urls: [] }), /callback_urls/)
+    assert.throws(() => assertManifest({ ...started.manifest, request_oauth_on_install: false }), /request_oauth_on_install/)
+  })
+
   test('a manifest missing a URL GitHub requires is refused by name before any handoff (#891)', () => {
-    const good = { name: 'curia-alp', url: 'https://box.example', redirect_url: 'https://box.example/complete' }
+    const good = {
+      name: 'curia-alp', url: 'https://box.example', redirect_url: 'https://box.example/complete',
+      callback_urls: ['https://box.example/authorize'], request_oauth_on_install: true,
+    }
     assert.doesNotThrow(() => assertManifest(good))
     assert.throws(() => assertManifest({ ...good, url: '' }), /manifest carries no "url"/)
     assert.throws(() => assertManifest({ ...good, url: undefined }), /manifest carries no "url"/)
@@ -154,6 +176,7 @@ describe('the conversion (#694)', () => {
     const completed = await setup.complete({ code: 'temporary-code', state: started.state })
 
     assert.deepEqual(completed, { ok: true, app: { id: '42', slug: 'curia-alp' }, screen: 'settings' })
+    assert.doesNotMatch(fs.readFileSync(p.envFile, 'utf8'), /sekrit/, 'the source deployment keeps its host login and stores no client secret')
     assert.deepEqual(setup.status(), { status: 'complete', app: { id: '42', slug: 'curia-alp' } })
     assert.doesNotMatch(JSON.stringify(completed), /PRIVATE KEY|client_secret|webhook_secret/)
     assert.equal(calls.length, 1)
@@ -212,7 +235,10 @@ describe('the conversion (#694)', () => {
     assert.equal(completed.ok, true)
     const secret = secretPath(installRoot, APP_SECRET)
     assert.equal(fs.statSync(secret).mode & 0o777, 0o600)
-    assert.deepEqual(JSON.parse(fs.readFileSync(secret, 'utf8')), { id: '42', pem })
+    // The client id and secret ride beside the key (#891): the operator
+    // authorization is exchanged and refreshed with them.
+    assert.deepEqual(JSON.parse(fs.readFileSync(secret, 'utf8')), { id: '42', pem, client_id: 'Iv1.client', client_secret: 'sekrit' })
+    assert.deepEqual(appConfigFromRoot(installRoot).client, { id: 'Iv1.client', secret: 'sekrit' })
     assert.deepEqual(adopted, [{ appId: '42', keyFile: secret }])
     assert.equal(fs.existsSync(p.envFile), false, 'no env file is written under a root')
     assert.equal(fs.existsSync(p.keyFile), false)
@@ -332,5 +358,35 @@ describe('the conversion (#694)', () => {
     assert.equal(completed.ok, true)
     assert.equal(fetches, 1)
     assert.equal(stores, 2)
+  })
+})
+
+// The default name is `curia.sh` (#891), and an App name is unique across the
+// whole of GitHub. The taken name is read from GitHub before the handoff:
+// GitHub's consent page would say it after the operator has left curia, and
+// the card can then offer `curia.sh-<node>` prefilled.
+describe('the App name (#891)', () => {
+  const answer = (status, body) => async () => ({ ok: status < 300, status, text: async () => JSON.stringify(body) })
+
+  test('a name GitHub already knows is taken, and the answer names the App GitHub has', async () => {
+    const taken = await appNameTaken('curia.sh', { fetchImpl: answer(200, { slug: 'curia-sh', name: 'curia.sh', owner: { login: 'alp82' }, html_url: 'https://github.com/apps/curia-sh' }) })
+    assert.deepEqual(taken, { taken: true, slug: 'curia-sh', name: 'curia.sh', owner: 'alp82', url: 'https://github.com/apps/curia-sh' })
+  })
+
+  test('a name GitHub does not know is free, and a GitHub that does not answer is not a refusal', async () => {
+    assert.deepEqual(await appNameTaken('curia.sh-curia-ubuntu', { fetchImpl: answer(404, { message: 'Not Found' }) }), { taken: false })
+    assert.deepEqual(await appNameTaken('curia.sh', { fetchImpl: async () => { throw new Error('ECONNRESET') } }), { taken: false, unknown: 'ECONNRESET' })
+  })
+
+  test('the slug is asked for the way GitHub builds one', async () => {
+    const asked = []
+    await appNameTaken('Curia.sh  Box_1', { fetchImpl: async (url) => { asked.push(url); return answer(404, {})() } })
+    assert.deepEqual(asked, ['https://api.github.com/apps/curia-sh-box-1'])
+  })
+
+  test('the suggestion is the name with the node name, and stays within GitHub\'s 34 characters', () => {
+    assert.equal(suggestedAppName('curia.sh', 'curia-ubuntu'), 'curia.sh-curia-ubuntu')
+    assert.equal(suggestedAppName('curia.sh', null), 'curia.sh-2')
+    assert.equal(suggestedAppName('curia.sh', 'a-very-long-tailscale-node-name-indeed'), 'curia.sh-a-very-long-tailscale-nod')
   })
 })

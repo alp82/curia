@@ -58,7 +58,8 @@ import { OVERSEER_MCP_PATH } from './overseerturn.mjs'
 import { ConversationRuntime } from './conversationruntime.mjs'
 import { hasSession } from './tmux.mjs'
 import { retiredAgentTokenKeys } from './workspace.mjs'
-import { APP_ID_KEY, APP_KEY_FILE_KEY, APP_SECRET, GitHubAppSetup, installUrlFor, minterFrom } from './githubapp.mjs'
+import { APP_ID_KEY, APP_KEY_FILE_KEY, APP_SECRET, GitHubAppSetup, appNameTaken, installUrlFor, minterFrom, suggestedAppName } from './githubapp.mjs'
+import { OperatorAuthorization } from './githuboperator.mjs'
 import { CodexCredentialBroker, AnthropicCredentialStore } from './credentials.mjs'
 import { credentialsInEnvironment, readSecret, secretPath, secretsStatus } from '../../cli/src/secrets.mjs'
 import { readDiscordSettings, discordSettingsFromEnv, discordSettingsPath } from './discordsettings.mjs'
@@ -68,7 +69,7 @@ import {
 import { TOKEN_HEADER, AGENT_ROUTES, tokensDir, agentTokenMatches } from './agenttoken.mjs'
 import { gh, viewerLogin, ghJSONL, repoMaps, mapFrontier, blockedByOf, createIssue, addSubIssue, addBlockedBy, fetchIssue } from './github.mjs'
 import { MapSnapshot, readMapSnapshot } from './mapsnapshot.mjs'
-import { setDaemonTokenSource } from './daemongh.mjs'
+import { setDaemonTokenSource, setOperatorTokenSource } from './daemongh.mjs'
 import { TokenWatch } from './tokenwatch.mjs'
 import { JournalBackup } from './backup.mjs'
 import { AistackSync } from './aistack.mjs'
@@ -466,6 +467,20 @@ setDaemonTokenSource(async (owner) => {
   }
 })
 log(`claims assign ${curiaConfig.dispatch.claim_login} (dispatch.claim_login) — a GitHub App cannot be an issue assignee`)
+
+// The operator's own GitHub authorization (#891, ADR-0031). The gate approval
+// is the operator's judgment, and under an installation root it is posted on
+// the token GitHub handed the App when the operator installed it, kept in
+// `secrets/github-operator.json` and refreshed by the module. The source
+// deployment wires no source and keeps its host login for that one call.
+const operatorAuth = INSTALL_ROOT ? new OperatorAuthorization({ root: INSTALL_ROOT, log }) : null
+setOperatorTokenSource(operatorAuth ? () => operatorAuth.token() : null)
+if (operatorAuth) {
+  const auth = operatorAuth.status()
+  log(auth.authorized
+    ? `GitHub approvals post as ${auth.login ?? 'the operator'} (authorized ${auth.authorized_at ?? 'at an unknown time'})`
+    : 'no GitHub authorization for the operator yet — installing the App from the GitHub card of Setup authorizes curia as you, and no approval can be posted until it does')
+}
 
 // Opening this opens the journal, and on the first boot after #407 it converts
 // the journal file into the database. `log` is a hoisted function declaration,
@@ -1506,7 +1521,7 @@ const integrationSetup = new IntegrationSetup({
   fullLoop: fullLoopGate,
   run: () => fullLoop?.status() ?? null,
   verifiers: {
-    github: githubVerifier({ minter: () => appMinter, watch: () => curiaConfig.watch }),
+    github: githubVerifier({ minter: () => appMinter, watch: () => curiaConfig.watch, operator: () => operatorAuth }),
     discord: discordVerifyAndStart,
     tailscale: tailscaleSetup.verifier(),
     openai: openaiSetup.verifier(),
@@ -3463,7 +3478,7 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
   }
 
   if (url.pathname === '/github-app/start' && req.method === 'POST') {
-    const { name, redirect_url: redirectUrl, action_id: actionId, screen } = await readBody(req)
+    const { name, redirect_url: redirectUrl, action_id: actionId, screen, node } = await readBody(req)
     if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(String(actionId ?? ''))) {
       return json(400, { error: 'action_id is not a valid Action id' })
     }
@@ -3480,6 +3495,19 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
         status: 'refused', reason: 'another GitHub App setup is already in progress',
       }))
       return json(200, { action: refused })
+    }
+    // An App name is unique across the whole of GitHub (#891). GitHub's
+    // consent page says so only after the operator has left curia, so the
+    // name is read on GitHub first, and a taken one refuses the start with
+    // GitHub's own fact and a suggestion built from this node's name.
+    const taken = await appNameTaken(name)
+    if (taken.taken) {
+      const suggestion = suggestedAppName(name, /^[a-z0-9-]{1,63}$/i.test(String(node ?? '')) ? node : null)
+      const refused = reduction.recordAction({
+        ...action, status: 'refused',
+        reason: `GitHub already has an App named ${taken.name}${taken.owner ? ` (owned by ${taken.owner})` : ''}, and App names are unique across GitHub. Try ${suggestion}`,
+      })
+      return json(200, { action: refused, suggestion })
     }
     try {
       const started = githubAppSetup.start({ name, redirectUrl, actionId: action.action_id, ...(screen !== undefined ? { screen } : {}) })
@@ -3549,6 +3577,24 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
         reduction.recordAction({ ...current, status: 'failed', reason: e.message })
       }
       return json(400, { error: e.message })
+    }
+  }
+
+  // The operator authorization callback (#891, ADR-0031). GitHub sends the
+  // operator here after the install with a one-use code. The exchange, the
+  // `GET /user`, and the secret write all happen inside `authorize`; the
+  // answer carries the login and the screen to land on, never a token.
+  if (url.pathname === '/github-app/authorize' && req.method === 'GET') {
+    const screen = githubAppSetup.startedFrom()
+    if (!operatorAuth) return json(400, { error: 'this deployment posts approvals on its host gh login, and takes no operator authorization' })
+    const setupAction = String(url.searchParams.get('setup_action') ?? '').trim() || null
+    try {
+      const { login } = await operatorAuth.authorize({ code: url.searchParams.get('code'), setupAction })
+      reduction.journal('github_operator_authorized', { login, setup_action: setupAction })
+      return json(200, { ok: true, login, screen })
+    } catch (e) {
+      reduction.journal('github_operator_authorization_failed', { error: e.message, setup_action: setupAction })
+      return json(400, { error: e.message, screen })
     }
   }
 

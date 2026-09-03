@@ -29,6 +29,14 @@
 // `viewerLogin()` and `gh api user/repos`. Neither names a repo, both ask an
 // account-wide question, and an installation token answers neither. Every other
 // daemon call names a repo and takes a minted token.
+//
+// ONE CALL RUNS AS THE OPERATOR: the gate approval (#391). It is the
+// operator's judgment, and GitHub records it under their account or not at
+// all. Under an installation root that account is the operator's own
+// authorization, exchanged when they installed the App (#891, ADR-0031,
+// githuboperator.mjs), and it rides the one approval child the same way a
+// minted token does. On the source deployment there is no such source, and
+// the child inherits the host login as it always has.
 
 // A GitHub token as GitHub writes one — `ghs_…` for an installation token,
 // `github_pat_…` for the PAT this replaces. The 2026 installation tokens carry
@@ -83,5 +91,36 @@ export async function daemonGhToken(repo) {
 // the daemon's own process holds and nothing is added to it.
 export async function daemonGhEnv(repo, base = process.env) {
   const token = await daemonGhToken(repo)
+  return token ? { ...base, [TOKEN_ENV_KEY]: token } : base
+}
+
+// Where the operator's own token comes from (#891). index.mjs wires the
+// operator authorization in under a root; the default is no source, which is
+// the host login and is what the source deployment keeps.
+let operatorSource = null
+
+export function setOperatorTokenSource(fn) {
+  operatorSource = typeof fn === 'function' ? fn : null
+}
+
+// The operator's token, or null when no source is wired. A source that
+// REFUSES is not caught: under a root there is no host login behind the
+// refusal, and the gate has to read it as the approval it could not post,
+// with the reinstall as the sentence.
+export async function operatorGhToken() {
+  if (!operatorSource) return null
+  const token = await operatorSource()
+  if (token === null || token === undefined || token === '') return null
+  const value = String(token).trim()
+  if (!TOKEN_RE.test(value)) {
+    throw new Error('refusing to run the approval with that token: a GitHub token is letters, digits, underscore, dot and dash only')
+  }
+  return value
+}
+
+// The environment the approval child runs with: the operator's token as
+// `GH_TOKEN`, or the base unchanged when there is no source.
+export async function operatorGhEnv(base = process.env) {
+  const token = await operatorGhToken()
   return token ? { ...base, [TOKEN_ENV_KEY]: token } : base
 }
