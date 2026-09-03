@@ -173,8 +173,10 @@ describe('an uninstall over an installed root', () => {
     assert.match(r.out, new RegExp(`Curia is uninstalled\\. The installation at ${root} is preserved\\.`))
     assert.match(r.out, /kept:\s+config\/, secrets\/, state\/, work\//)
     assert.match(r.out, /images:\s+kept; 'curia purge' removes them/)
-    assert.match(r.out, new RegExp(`reinstall: ${escape(BOOTSTRAP_COMMAND)}\n`))
-    assert.match(r.out, new RegExp(`purge:\\s+${escape(BOOTSTRAP_COMMAND)} --purge\n`))
+    assert.match(r.out, new RegExp(`reinstall: ${escape(BOOTSTRAP_COMMAND)} --version ${escape(VERSION)}\n`), 'the reinstall command brings back the version that was uninstalled')
+    assert.match(r.out, new RegExp(`stable:\\s+${escape(BOOTSTRAP_COMMAND)}\n`), 'the plain form is offered as the stable-release path')
+    assert.match(r.out, new RegExp(`purge:\\s+${escape(BOOTSTRAP_COMMAND)} --purge --version ${escape(VERSION)}\n`), 'the purge acquires the same version as its interface')
+    assert.match(r.out, new RegExp(`name version ${escape(VERSION)}`), 'the block says which version the two lines name')
     assert.match(r.out, new RegExp(`GitHub App ${APP_ID}`))
     assert.match(r.out, /Discord bot, server 987, channel curia/)
     assert.match(r.out, /Tailscale node curia\.sh/)
@@ -188,10 +190,36 @@ describe('an uninstall over an installed root', () => {
     const { id } = await installed({ home, root })
     const r = await uninstall({ home, root, docker: dockerHostOf(id), tailscale: fakeTailscale({ serving: [APP_ROUTE] }) })
     assert.equal(r.exit, EXIT.ok, r.error?.stack)
-    assert.match(r.out, new RegExp(`reinstall: ${escape(BOOTSTRAP_COMMAND)} --root ${root}\n`))
-    assert.match(r.out, new RegExp(`purge:\\s+${escape(BOOTSTRAP_COMMAND)} --purge --root ${root}\n`))
+    assert.match(r.out, new RegExp(`reinstall: ${escape(BOOTSTRAP_COMMAND)} --version ${escape(VERSION)} --root ${root}\n`))
+    assert.match(r.out, new RegExp(`stable:\\s+${escape(BOOTSTRAP_COMMAND)} --root ${root}\n`))
+    assert.match(r.out, new RegExp(`purge:\\s+${escape(BOOTSTRAP_COMMAND)} --purge --version ${escape(VERSION)} --root ${root}\n`))
     assert.equal(reinstallCommand({ env: { HOME: home }, root }), `${BOOTSTRAP_COMMAND} --root ${root}`)
     assert.equal(purgeCommand({ env: { HOME: home }, root: join(home, '.local', 'share', 'curia') }), `${BOOTSTRAP_COMMAND} --purge`)
+  })
+
+  test('the reinstall and purge commands name the version, and a prerelease carries --prerelease', () => {
+    const home = '/home/you'
+    const root = join(home, '.local', 'share', 'curia')
+    assert.equal(reinstallCommand({ env: { HOME: home }, root, version: '1.2.3' }), `${BOOTSTRAP_COMMAND} --version 1.2.3`)
+    assert.equal(purgeCommand({ env: { HOME: home }, root, version: '1.2.3' }), `${BOOTSTRAP_COMMAND} --purge --version 1.2.3`)
+    assert.equal(reinstallCommand({ env: { HOME: home }, root, version: '1.3.0-rc.1' }), `${BOOTSTRAP_COMMAND} --version 1.3.0-rc.1 --prerelease`)
+    assert.equal(purgeCommand({ env: { HOME: home }, root, version: '1.3.0-rc.1' }), `${BOOTSTRAP_COMMAND} --purge --version 1.3.0-rc.1 --prerelease`)
+    assert.equal(reinstallCommand({ env: { HOME: home }, root: '/srv/curia', version: '1.2.3' }), `${BOOTSTRAP_COMMAND} --version 1.2.3 --root /srv/curia`)
+    for (const version of ['', 'latest', 'not a version']) {
+      assert.equal(reinstallCommand({ env: { HOME: home }, root, version }), BOOTSTRAP_COMMAND, `${JSON.stringify(version)} is no version to name`)
+      assert.equal(purgeCommand({ env: { HOME: home }, root, version }), `${BOOTSTRAP_COMMAND} --purge`)
+    }
+  })
+
+  test('a record without an active version falls back to the plain form alone', async () => {
+    const { home, root, id, record } = await installed()
+    writeFileSync(join(root, 'state', 'installation.json'), `${JSON.stringify({ ...record, activeVersion: '' }, null, 2)}\n`, { mode: 0o600 })
+    const r = await uninstall({ home, root, docker: dockerHostOf(id), tailscale: fakeTailscale({ serving: [APP_ROUTE] }) })
+    assert.equal(r.exit, EXIT.ok, r.error?.stack)
+    assert.match(r.out, new RegExp(`reinstall: ${escape(BOOTSTRAP_COMMAND)}\n`))
+    assert.match(r.out, new RegExp(`purge:\\s+${escape(BOOTSTRAP_COMMAND)} --purge\n`))
+    assert.doesNotMatch(r.out, /--version/, 'the record names no version to reinstall')
+    assert.doesNotMatch(r.out, /stable:/, 'with one form there is nothing to tell apart')
   })
 
   test('is quiet and changes nothing when repeated', async () => {

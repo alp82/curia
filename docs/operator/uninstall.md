@@ -39,7 +39,7 @@ The root stays, with its seven directories. Four keep their contents, and three 
 | `cache/` | Emptied. |
 | `run/` | Emptied. |
 
-The installation record keeps naming the version that was active. Nothing runs it, because the launcher and the versions are gone, and the next `curia install` replaces the version.
+The installation record keeps naming the version that was active. Nothing runs it, because the launcher and the versions are gone, and the next `curia install` replaces the version. The reinstall and purge commands the uninstall prints name that version, so they bring back the release you uninstalled; see [What the command prints](#what-the-command-prints).
 
 Deleting a local file never revokes anything outside the host. The GitHub App, its installations, the Discord bot and its channel, the Tailscale node, and the model-provider logins all stay as they are. See [What the command prints](#what-the-command-prints).
 
@@ -52,15 +52,22 @@ Curia is uninstalled. The installation at /home/you/.local/share/curia is preser
   kept:      config/, secrets/, state/, work/ (installation 3f9c...: configuration, secrets, history, and resumable work)
   removed:   the launcher, versions/, cache/, run/, and the installation's containers, networks, volumes, and Serve routes
   images:    kept; 'curia purge' removes them
-  reinstall: curl -fsSLO https://github.com/alp82/curia/releases/latest/download/curia-install.sh && bash curia-install.sh
-  purge:     curl -fsSLO https://github.com/alp82/curia/releases/latest/download/curia-install.sh && bash curia-install.sh --purge
+  reinstall: curl -fsSLO https://github.com/alp82/curia/releases/latest/download/curia-install.sh && bash curia-install.sh --version 1.2.3
+  stable:    curl -fsSLO https://github.com/alp82/curia/releases/latest/download/curia-install.sh && bash curia-install.sh
+  purge:     curl -fsSLO https://github.com/alp82/curia/releases/latest/download/curia-install.sh && bash curia-install.sh --purge --version 1.2.3
+  The reinstall and purge lines name version 1.2.3, the one uninstalled, so they work whether or not a stable release is named.
+  The stable line installs the current stable release instead, and refuses while the index names none.
 ```
 
-Both commands are the bootstrap, because the launcher is gone. A nondefault root appears as `--root <dir>` on both lines.
+All three commands are the bootstrap, because the launcher is gone. A nondefault root appears as `--root <dir>` on each line.
+
+The version on the `reinstall` and `purge` lines is `activeVersion` from `state/installation.json`, the installation record the uninstall keeps. Curia puts it on the command so the command works as printed. Without `--version`, the bootstrap takes the stable release the signed index names, and refuses when the index names none, which is the case before the first stable promotion and after a withdrawal. Naming the version also brings back the release you uninstalled instead of a later one. To move to the current stable release, run the `stable` line. When the version is a prerelease, the two lines carry `--prerelease` too, because the bootstrap never selects a prerelease by accident.
+
+A record that holds no version prints the plain form on the `reinstall` and `purge` lines alone, with no `stable` line. Every record Curia writes holds one, so you shouldn't see that.
 
 The purge line asks you to type the root on your terminal. Without one, add `--confirm <root>`, the same flag `curia purge` takes; see [The confirmation](purge.md#the-confirmation).
 
-The uninstall emptied `versions/`, so the purge line has no installed interface to run and acquires a verified one: it takes the stable release the index names, or the release you add with `--version <version>` when the index names none. A purge over an installed Curia runs the interface under `versions/` instead and downloads nothing. See [Purge from the bootstrap](purge.md#purge-from-the-bootstrap).
+The uninstall emptied `versions/`, so the purge line has no installed interface to run and acquires a verified one, the version it names. A purge over an installed Curia runs the interface under `versions/` instead and downloads nothing. See [Purge from the bootstrap](purge.md#purge-from-the-bootstrap).
 
 When Curia holds identifiers of external resources, the command lists them under `External resources Curia never deletes`, with the page where you remove each one: the GitHub App ID, the Discord server and channel, and the Tailscale machine name. The list is a checklist for you. Curia looks nothing up and revokes nothing. The list never holds a token or a key.
 
@@ -85,10 +92,12 @@ A refusal (exit code `3`) names the step too. `preflight: ... holds no installat
 To reinstall, run the bootstrap on the same host as the same user:
 
 ```sh
-curl -fsSLO https://github.com/alp82/curia/releases/latest/download/curia-install.sh && bash curia-install.sh
+curl -fsSLO https://github.com/alp82/curia/releases/latest/download/curia-install.sh && bash curia-install.sh --version 1.2.3
 ```
 
-The bootstrap hands off to `curia install`, which recognizes the installation record and reinstalls over the root, as [What `curia reinstall` does](install.md#what-curia-reinstall-does) describes. The installation ID, `config/`, `secrets/`, `state/`, and `work/` are the ones the uninstall left. The command stages the current stable release under `versions/`, writes the launcher again, writes `run/compose.env` with the same installation ID, creates the mount directories under `cache/` and `run/`, pulls the images, and starts the project. It ends with every service healthy and the app address.
+Name the version the uninstall printed, the one the installation record still holds. Without `--version` the bootstrap installs the current stable release, and refuses while the signed index names none.
+
+The bootstrap hands off to `curia install`, which recognizes the installation record and reinstalls over the root, as [What `curia reinstall` does](install.md#what-curia-reinstall-does) describes. The installation ID, `config/`, `secrets/`, `state/`, and `work/` are the ones the uninstall left. The command stages the version you named, or the current stable release when you named none, under `versions/`, writes the launcher again, writes `run/compose.env` with the same installation ID, creates the mount directories under `cache/` and `run/`, pulls the images, and starts the project. It ends with every service healthy and the app address.
 
 After the reinstall, nothing in integration setup has to be repeated. The service reads the same secret files and the same journal, admits the same operator, and creates its Serve route again when the Tailscale card is read. Sessions under `work/` resume the way they do after a restart. The rollback release is gone, because `versions/` was emptied, so `curia rollback` refuses until the next `curia update`.
 

@@ -47,9 +47,14 @@ Curia is uninstalled. The installation at /home/you/.local/share/curia is preser
   kept:      config/, secrets/, state/, work/ (installation 3f9c...: configuration, secrets, history, and resumable work)
   removed:   the launcher, versions/, cache/, run/, and the installation's containers, networks, volumes, and Serve routes
   images:    kept; 'curia purge' removes them
-  reinstall: curl -fsSLO https://github.com/alp82/curia/releases/latest/download/curia-install.sh && bash curia-install.sh
-  purge:     curl -fsSLO https://github.com/alp82/curia/releases/latest/download/curia-install.sh && bash curia-install.sh --purge
+  reinstall: curl -fsSLO https://github.com/alp82/curia/releases/latest/download/curia-install.sh && bash curia-install.sh --version 1.2.3
+  stable:    curl -fsSLO https://github.com/alp82/curia/releases/latest/download/curia-install.sh && bash curia-install.sh
+  purge:     curl -fsSLO https://github.com/alp82/curia/releases/latest/download/curia-install.sh && bash curia-install.sh --purge --version 1.2.3
+  The reinstall and purge lines name version 1.2.3, the one uninstalled, so they work whether or not a stable release is named.
+  The stable line installs the current stable release instead, and refuses while the index names none.
 ```
+
+The `reinstall` and `purge` lines name the version the installation record still holds, so they work as printed and bring back the release you uninstalled. Run the `stable` line instead to move to the current stable release. See [What the command prints](../uninstall.md#what-the-command-prints).
 
 Below it, `External resources Curia never deletes` lists the GitHub App ID, the Discord server and channel, and the Tailscale machine name, for you. `docker compose -p curia ps` lists nothing.
 
@@ -62,10 +67,10 @@ The message names the step and the rerun. Run `curia uninstall` again: every ste
 On the same host, as the same user, run the bootstrap again:
 
 ```sh
-curl -fsSLO https://github.com/alp82/curia/releases/latest/download/curia-install.sh && bash curia-install.sh
+curl -fsSLO https://github.com/alp82/curia/releases/latest/download/curia-install.sh && bash curia-install.sh --version 1.2.3
 ```
 
-Pass the same `--root <dir>` the uninstall printed for a nondefault root. `curia install` recognizes the installation record and reinstalls over it: the same installation ID, `config/`, `secrets/`, `state/`, and `work/`, the current stable release under `versions/`, the launcher, and the project started. It ends with every service healthy and the app address. Nothing in integration setup has to be repeated, and the service creates its Serve route again when the Tailscale card is next read. The rollback release is gone, so `curia rollback` refuses until the next `curia update`. Confirm with `curia doctor`.
+Name the version the uninstall printed to get the release you uninstalled back. Without `--version` the bootstrap takes the current stable release, and refuses while the signed index names none. Pass the same `--root <dir>` the uninstall printed for a nondefault root. `curia install` recognizes the installation record and reinstalls over it: the same installation ID, `config/`, `secrets/`, `state/`, and `work/`, the version you named under `versions/`, the launcher, and the project started. It ends with every service healthy and the app address. Nothing in integration setup has to be repeated, and the service creates its Serve route again when the Tailscale card is next read. The rollback release is gone, so `curia rollback` refuses until the next `curia update`. Confirm with `curia doctor`.
 
 ### Next
 
@@ -102,16 +107,16 @@ curia purge --confirm /home/you/.local/share/curia
 When the launcher is gone, run the bootstrap's purge mode, which asks the same question:
 
 ```sh
-curl -fsSLO https://github.com/alp82/curia/releases/latest/download/curia-install.sh && bash curia-install.sh --purge
+curl -fsSLO https://github.com/alp82/curia/releases/latest/download/curia-install.sh && bash curia-install.sh --purge --version 1.2.3
 ```
 
-Add `--root <dir>` for a nondefault root, the same root the uninstall printed. With no `--root`, the default root is purged. Without a terminal, add `--confirm <root>` here too: the bootstrap passes it to `curia purge`, and the value must be the root being purged.
+Name the version the uninstall printed, the way the uninstall's `purge` line does: the purge needs a lifecycle interface, and after an uninstall there is none under `versions/` to run. Without `--version` the bootstrap acquires the stable release the index names, and refuses while it names none. Add `--root <dir>` for a nondefault root, the same root the uninstall printed. With no `--root`, the default root is purged. Without a terminal, add `--confirm <root>` here too: the bootstrap passes it to `curia purge`, and the value must be the root being purged.
 
 ```sh
-bash curia-install.sh --purge --root /srv/curia --confirm /srv/curia
+bash curia-install.sh --purge --version 1.2.3 --root /srv/curia --confirm /srv/curia
 ```
 
-The bootstrap runs the interface the root already holds, under `versions/<active>/`, and verifies it before it runs it, so it downloads nothing. After a `curia uninstall`, which empties `versions/`, it acquires and verifies one instead: the stable release the index names, or the release you add with `--version <version>` when the index names none. See [Purge from the bootstrap](../purge.md#purge-from-the-bootstrap).
+The bootstrap runs the interface the root already holds, under `versions/<active>/`, and verifies it before it runs it, so it downloads nothing. After a `curia uninstall`, which empties `versions/`, it acquires and verifies one instead: the release `--version` names, or the stable release the index names when you name none. See [Purge from the bootstrap](../purge.md#purge-from-the-bootstrap).
 
 The command prints six named steps, `[1/6] preflight`, `[2/6] confirm`, `[3/6] docker`, `[4/6] routes`, `[5/6] images`, and `[6/6] root`. The root goes last. What each step removes is in [What `curia purge` does](../purge.md#what-curia-purge-does).
 
