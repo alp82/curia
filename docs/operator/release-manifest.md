@@ -82,7 +82,7 @@ After the checks pass, Curia keeps the verified artifacts as it downloaded them,
 | image provenance | Each of the five image digests in the manifest, the agent image's included, carries a build attestation signed by the release workflow of `alp82/curia` at the manifest's commit. Curia asks `gh attestation verify` for each digest. |
 | package provenance | The npm registry records publication provenance for `@curia-sh/cli@<version>`. |
 
-The image provenance check needs the GitHub CLI, `gh`, logged in to GitHub. When it isn't, the check fails and the message says so. Nothing else in Curia depends on that login.
+The image provenance check needs the GitHub CLI, `gh`, logged in to GitHub. The GitHub CLI is optional on a supported host: when it isn't installed, the check is a warning that names the images it didn't check, and `curia doctor` still exits `0` when everything else passes. When `gh` is installed and answers, an attestation that is missing or doesn't verify fails. The package provenance check reads the npm registry the same way: a registry that doesn't answer warns, and a registry that records no provenance for the version fails. Nothing else in Curia depends on the GitHub CLI or on that login.
 
 To run the same provenance checks by hand, use the following commands, with the values from the manifest of the active version:
 
@@ -109,5 +109,6 @@ A failed check names the condition and one corrective action. The following tabl
 | Mismatched | The manifest is for another version than the one requested, `package.json` names another version, or the release asset manifest differs from the package copy. | Ask for the version the artifacts belong to, or download the version you asked for. Two copies of one manifest that disagree mean the release and the package were published apart: don't install it, and report it. |
 | Drifted (doctor only) | An installed file differs from the retained artifact. | Run `curia reinstall` to restore the version from the release, or `curia update`. |
 | Unattested (doctor only) | An image digest carries no attestation from the release workflow, or the registry records no provenance for the package. | Run the `gh attestation verify` command the message prints to see the full answer. If `gh` isn't logged in, log in and run `curia doctor` again. An image or package without provenance is a release to report. |
+| Unverified (doctor only, a warning) | The GitHub CLI isn't installed, or the npm registry didn't answer, so a provenance check couldn't run. Nothing failed. | Install the [GitHub CLI](https://github.com/cli/cli#installation) and run `gh auth login`, or restore outbound access to `registry.npmjs.org`, then run `curia doctor` again. |
 
 Curia never prints a full digest, a full integrity value, or a manifest body in a report. The first twelve characters of a checksum are enough to compare with the file on the release page.

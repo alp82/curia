@@ -129,16 +129,38 @@ export async function startProject(project, { docker = dockerRunner, stdout }) {
 
 // `docker compose ps --format json` prints one object per line since Compose
 // 2.21 and one array before that. Both read into the same list.
-export function parseServiceStates(text) {
+function parseRows(text) {
   const trimmed = text.trim()
   if (trimmed === '') return []
-  const rows = trimmed.startsWith('[') ? JSON.parse(trimmed) : trimmed.split('\n').map((line) => JSON.parse(line))
-  return rows.map((row) => ({
+  return trimmed.startsWith('[') ? JSON.parse(trimmed) : trimmed.split('\n').map((line) => JSON.parse(line))
+}
+
+export function parseServiceStates(text) {
+  return parseRows(text).map((row) => ({
     service: row.Service,
     state: row.State ?? '',
     health: row.Health ?? '',
     exitCode: Number.isInteger(row.ExitCode) ? row.ExitCode : null,
   }))
+}
+
+// The host ports the project's containers publish, as [{ port, service }].
+// Compose reports one `Publishers` entry per mapping; an entry with no
+// `PublishedPort` binds nothing on the host.
+export function parsePublishedPorts(text) {
+  const seen = new Set()
+  const published = []
+  for (const row of parseRows(text)) {
+    for (const publisher of row.Publishers ?? []) {
+      const port = Number(publisher?.PublishedPort)
+      if (!Number.isInteger(port) || port <= 0) continue
+      const key = `${port}:${row.Service}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      published.push({ port, service: row.Service })
+    }
+  }
+  return published
 }
 
 export async function serviceStates(project, { docker = dockerRunner }) {

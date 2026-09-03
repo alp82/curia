@@ -313,6 +313,16 @@ describe('curia doctor and release provenance', () => {
     assert.equal(status(d.out, 'package integrity'), 'ok')
   })
 
+  test('a host without the GitHub CLI warns on image provenance and exits ok', async () => {
+    const i = await installed()
+    const d = await doctor(i, { release: { attestation: async () => ({ ok: false, unavailable: true, error: 'gh is not installed' }) } })
+    assert.equal(status(d.out, 'image provenance'), 'warning')
+    assert.match(d.out, /GitHub CLI is not installed/)
+    assert.match(d.out, /gh auth login/)
+    assert.doesNotMatch(d.out, /failed:/)
+    assert.equal(d.exit, EXIT.ok, d.out)
+  })
+
   test('a drifted installed file fails with reinstall as the action', async () => {
     const i = await installed()
     const compose = versionPaths(i.root, VERSION).bundle

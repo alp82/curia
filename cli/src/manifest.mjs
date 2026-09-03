@@ -220,7 +220,9 @@ export const PROVENANCE_CHECKS = Object.freeze([
 //   bundle           { archive, checksum, compose? }: the archive bytes, the
 //                    `.sha256` text, and (installed) the on-disk compose file
 //   installed        (installed only) { manifest, packageJson } texts on disk
-//   attestations     (installed only) { <service>: { ok, error } }
+//   attestations     (installed only) { <service>: { ok, unavailable, error } },
+//                    where `unavailable` says the GitHub CLI is absent, so
+//                    nothing was proved either way
 //
 // A fact that is null is a missing artifact and fails its check. The
 // provenance checks run when `installed` is present, so the doctor path
@@ -248,6 +250,7 @@ export function evaluateRelease(facts) {
 }
 
 const passed = (name, observed) => ({ name, status: 'passed', observed, action: null })
+const warning = (name, observed, action) => ({ name, status: 'warning', observed, action })
 const failed = (name, observed, action) => ({ name, status: 'failed', observed, action })
 
 const DOWNLOAD_AGAIN = 'Download the release again and run the command again. If it fails the same way, the release is damaged: do not install it, and report it at https://github.com/alp82/curia/issues.'
@@ -429,23 +432,41 @@ export function attestationCommand(reference, { commit }) {
   return `gh attestation verify oci://${reference} --repo ${RELEASE_REPOSITORY} --signer-workflow ${RELEASE_REPOSITORY}/${RELEASE_WORKFLOW} --source-digest ${commit}`
 }
 
+const GH_INSTALL = "Install the GitHub CLI from https://github.com/cli/cli#installation, run 'gh auth login', and run 'curia doctor' again."
+
+// Provenance is a doctor check, not a bootstrap dependency (#849), so the
+// GitHub CLI is optional on a supported host. A `gh` that isn't there proves
+// nothing about the images, which is a warning that names what went
+// unverified. A `gh` that answers and rejects an attestation is evidence
+// against the images, which still fails.
 function imageProvenanceCheck({ attestations }, opened) {
   if (!opened.manifest) return failed('image provenance', 'no manifest could be read, so no image can be attested.', DOWNLOAD_AGAIN)
   const bad = []
+  const unverified = []
   for (const [service, { digest }] of Object.entries(opened.manifest.images)) {
     const result = attestations?.[service]
-    if (!result || !result.ok) bad.push({ service, reference: imageReference(service, digest), error: firstLine(result?.error) || 'no answer' })
+    if (result?.ok) continue
+    const entry = { service, reference: imageReference(service, digest), error: firstLine(result?.error) || 'no answer' }
+    if (result?.unavailable) unverified.push(entry)
+    else bad.push(entry)
   }
   if (bad.length) {
     const first = bad[0]
     return failed('image provenance', `${bad.map((b) => `${b.service}: ${b.error}`).join('; ')}.`, `Run '${attestationCommand(first.reference, opened.manifest.source)}' to see the full answer. If gh is not logged in, run 'gh auth login' first.`)
   }
+  if (unverified.length) {
+    return warning('image provenance', `the build attestation of ${unverified.map((u) => u.service).join(', ')} was not checked, because the GitHub CLI is not installed on this host.`, GH_INSTALL)
+  }
   return passed('image provenance', `${Object.keys(opened.manifest.images).length} images attested by ${RELEASE_REPOSITORY} ${RELEASE_WORKFLOW} at ${opened.manifest.source.commit.slice(0, 7)}`)
 }
 
+// A registry that doesn't answer leaves the publication record unread, which
+// is a warning. It is not a hole in the install path: `package integrity`
+// reads the same answer and fails hard when it is missing, so a package can
+// never be activated on an unread registry.
 function packageProvenanceCheck({ version, package: pkg }) {
   if (!pkg || pkg.error) {
-    return failed('package provenance', `the npm registry did not answer for ${PACKAGE_NAME}: ${pkg?.error ?? 'no answer'}.`, 'Check outbound access to registry.npmjs.org and run the command again.')
+    return warning('package provenance', `the npm registry did not answer for ${PACKAGE_NAME}, so the publication record of ${version} was not read: ${pkg?.error ?? 'no answer'}.`, "Check outbound access to registry.npmjs.org and run 'curia doctor' again.")
   }
   if (pkg.attested !== true) {
     return failed('package provenance', `the registry records no provenance for ${PACKAGE_NAME}@${version}.`, `Run 'npm audit signatures' against an install of ${PACKAGE_NAME}@${version} to see the registry's answer, and report a stable release without provenance at https://github.com/alp82/curia/issues.`)
@@ -460,7 +481,7 @@ function firstLine(text) {
 // ---------------------------------------------------------------------------
 // Rendering.
 
-const STATUS_WORD = { passed: 'ok', failed: 'failed' }
+const STATUS_WORD = { passed: 'ok', warning: 'warning', failed: 'failed' }
 
 export function renderVerification(report) {
   const width = Math.max(...report.checks.map((c) => c.name.length))
@@ -469,9 +490,11 @@ export function renderVerification(report) {
     lines.push(`${STATUS_WORD[c.status].padEnd(8)} ${c.name.padEnd(width)}  ${c.observed}`)
     if (c.action) lines.push(`${''.padEnd(9 + width + 2)}${c.action}`)
   }
-  const failedCount = report.checks.filter((c) => c.status === 'failed').length
-  const passedCount = report.checks.length - failedCount
-  const summary = [`${passedCount} checks passed`]
+  const count = (status) => report.checks.filter((c) => c.status === status).length
+  const failedCount = count('failed')
+  const warningCount = count('warning')
+  const summary = [`${count('passed')} checks passed`]
+  if (warningCount > 0) summary.push(`${warningCount} warning${warningCount === 1 ? '' : 's'}`)
   if (failedCount > 0) summary.push(`failed: ${failedCount} condition${failedCount === 1 ? '' : 's'}`)
   lines.push(summary.join(', ') + '.')
   return lines.join('\n') + '\n'
@@ -506,7 +529,8 @@ export const releaseProbes = Object.freeze({
     const [, ...args] = attestationCommand(reference, { commit }).split(' ')
     execFile('gh', [...args, '--format', 'json'], { timeout: 60_000, maxBuffer: 4 * 1024 * 1024 }, (error, stdout, stderr) => {
       if (!error) return resolve({ ok: true })
-      resolve({ ok: false, error: error.code === 'ENOENT' ? 'gh is not installed' : (stderr || error.message) })
+      if (error.code === 'ENOENT') return resolve({ ok: false, unavailable: true, error: 'gh is not installed' })
+      resolve({ ok: false, error: stderr || error.message })
     })
   }),
 })

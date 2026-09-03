@@ -110,7 +110,9 @@ A rejected review isn't a failure. The agent takes your feedback and asks for re
 |---|---|---|
 | Exit `1` with `failed` or `refused` lines | A condition the doctor found. | Take the action under each line, then run `curia doctor` again. |
 | Exit `3` before any section | The installation root refused the command. | Fix the named path; see [When a lifecycle command refuses the root](../command-reference.md#when-a-lifecycle-command-refuses-the-root). |
-| `image provenance` failed with a `gh attestation verify` command | The GitHub CLI isn't logged in. | Run `gh auth login`, then `curia doctor` again. |
+| `image provenance` warned that the GitHub CLI isn't installed | The GitHub CLI is optional, so the attestations went unchecked. The exit code is still `0`. | To check them, install the [GitHub CLI](https://github.com/cli/cli#installation), run `gh auth login`, then `curia doctor` again. |
+| `image provenance` failed with a `gh attestation verify` command | The GitHub CLI answered and an attestation is missing or didn't verify. | Run the command the line prints to see the full answer. If `gh` isn't logged in, run `gh auth login`, then `curia doctor` again. |
+| `required ports` refused a port, and Curia is running | Another program holds a port Curia's own containers need. A port Curia's containers already hold passes and names the service. | Stop that program or move it to another port, then rerun. |
 | `installation` names a missing file under `versions/` | The active version is incomplete. | Run `curia reinstall`, or the bootstrap when the launcher is gone. |
 | `integrations` is skipped | The service didn't answer on `127.0.0.1:4271`. | Fix the `containers` or `service` line first. |
 
