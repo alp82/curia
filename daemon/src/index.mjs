@@ -31,6 +31,7 @@ import { z } from 'zod'
 import { Reduction, CONFIRM_KIND, noteDisposition } from './reduction.mjs'
 import { JOURNAL } from './journal.mjs'
 import { DiscordBridge } from './bridge.mjs'
+import { BridgeStarter } from './bridgestart.mjs'
 import { installCrashGuard } from './health.mjs'
 import { sayGoodbye, questionGoodbye, deathWasSilent, DAEMON_BOOT } from './goodbye.mjs'
 import { readable } from './logline.mjs'
@@ -51,7 +52,7 @@ import { ActionCoordinator } from './actions.mjs'
 import { SelfDeploy } from './deploy.mjs'
 import { APP_VERSION } from './appversion.mjs'
 import { OverseerClient, OverseerTurns, serveConversationMcp, serveVerbMcp } from './overseerclient.mjs'
-import { OverseerPaneHost } from './overseerpane.mjs'
+import { OverseerPaneHost, overseerPaneName } from './overseerpane.mjs'
 import { OVERSEER_CONVERSATION_PARAM, revokeConversationToken } from './overseeridentity.mjs'
 import { OVERSEER_MCP_PATH } from './overseerturn.mjs'
 import { ConversationRuntime } from './conversationruntime.mjs'
@@ -651,6 +652,8 @@ const pending = new Map()
 const renderRetries = new Map() // escalation id -> timeout handles — ephemeral, rebuilt on boot
 
 let bridge = null
+// The starter that owns it (#891), built where the bridge used to boot.
+let bridgeStarter = null
 
 // The credential watch (#380). It lives here rather than beside the probe
 // because it needs both the reduction, which remembers what was already said, and
@@ -1419,11 +1422,20 @@ const aistackReg = new AistackRegistration({
 //
 // The Discord card (#876) reads the token off its secret file and the facts
 // off `state/discord.json` on every call, so a token submitted through the
-// panel is seen by the next read. The bridge itself reads both at boot, and
-// the connected card says whether it is up.
+// panel is seen by the next read. The bridge starts from the same two files
+// through `bridgeStarter` (#891), and the connected card says whether it is
+// up, starting, or not running.
 const discordSetup = new DiscordSetup({
-  root: INSTALL_ROOT, stateDir: DATA, env: process.env, log, bridgeState: () => bridge?.health?.state ?? null,
+  root: INSTALL_ROOT, stateDir: DATA, env: process.env, log, bridgeState: () => bridgeStarter?.state() ?? null,
 })
+// Any Discord read that finds the token and no bridge starts one (#891):
+// the verifier runs on every Setup read, so the bridge follows the token
+// within one read of it landing, with no restart.
+const discordVerifier = discordSetup.verifier()
+const discordVerifyAndStart = async () => {
+  bridgeStarter?.ensure()
+  return discordVerifier()
+}
 // The identity allowlist every published surface admits by (#151, #168,
 // #263). ONE set object, created empty and filled in place, so the attach
 // proxy, the timeline, and the preview registry hold live references. The
@@ -1495,7 +1507,7 @@ const integrationSetup = new IntegrationSetup({
   run: () => fullLoop?.status() ?? null,
   verifiers: {
     github: githubVerifier({ minter: () => appMinter, watch: () => curiaConfig.watch }),
-    discord: discordSetup.verifier(),
+    discord: discordVerifyAndStart,
     tailscale: tailscaleSetup.verifier(),
     openai: openaiSetup.verifier(),
     anthropic: anthropicSetup.verifier(),
@@ -1721,6 +1733,10 @@ fullLoop = new FullLoop({
   journal: (type, data) => reduction.journal(type, data),
   lastRun: () => reduction.questions.fullLoopRun(),
   eventsSince: (id, keys) => reduction.questions.eventsSince(id, keys),
+  // The sessions the run panel links (#891): the ticket's agent while the
+  // dispatcher holds it, and every overseer pane with a turn in flight.
+  agentLive: (session) => dispatcher.agents.has(session),
+  overseerSessions: () => reduction.pendingOverseerTurns().map((t) => overseerPaneName(t.key)),
   log,
 })
 
@@ -3952,6 +3968,7 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
   // server; a read only compares what is registered (#891). No answer
   // carries the token.
   if (url.pathname === '/setup/discord' && req.method === 'GET') {
+    bridgeStarter?.ensure()
     return json(200, await discordSetup.overview())
   }
   if (url.pathname === '/setup/discord/token' && req.method === 'POST') {
@@ -3967,6 +3984,9 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
     const body = await readBody(req)
     try {
       const chosen = await discordSetup.chooseChannel({ guild_id: body.guild_id, channel: body.channel })
+      // The connect starts the bridge (#891) and waits for its login to
+      // settle, so the card that answers says the bridge runs.
+      if (bridgeStarter?.ensure().started) await bridgeStarter.settled()
       return json(200, { ok: true, ...chosen, card: await integrationSetup.verify('discord') })
     } catch (e) {
       if (!e.refusal) throw e
@@ -4527,100 +4547,85 @@ function onBridgeHealth(ev) {
 }
 
 // The bot token (#867): `secrets/discord-bot-token` under an installation root,
-// read once here and handed to the bridge and nothing else; the env key in the
-// source deployment. The allow list beside it is the whole auth gate.
-const discordToken = INSTALL_ROOT ? (readSecret(INSTALL_ROOT, 'discord-bot-token')?.trim() || null) : (process.env.DISCORD_BOT_TOKEN || null)
-if (discordToken) {
-  const allowed = discordSettings.allowed_users
-  if (!allowed.length) {
-    log(INSTALL_ROOT
-      ? `${discordSettingsPath(DATA)} names no allowed user — refusing to start the bridge without an auth gate`
-      : 'DISCORD_ALLOWED_USERS is empty — refusing to start the bridge without an auth gate')
-  } else {
-    // Set while a launch ladder is in flight, cleared only on success. The wedge
-    // watchdog reads it so a bridge that is already retrying does not collect a
-    // second, third and fourth retry ladder running against each other.
-    let bridgeLaunching = false
-    // A fresh instance per launch: the wedge watchdog below relaunches, and a
-    // destroyed discord.js Client does not log back in.
-    const launchBridge = (attempt = 1) => {
-      bridgeLaunching = true
-      const b = new DiscordBridge({
-        token: discordToken,
-        allowedUsers: allowed,
-        guildId: discordSettings.guild_id ?? undefined,
-        channelName: CHANNEL,
-        dataDir: DATA,
-        handlers: gate,
-        // the journalled ticket↔thread map (#93) — the bridge holds no state
-        bindings: {
-          get: (ticket, repo) => reduction.threadForTicket(ticket, repo),
-          bind: (ticket, threadId, repo) => reduction.bindTicketThread(ticket, threadId, repo),
-          // #197: an explicit dispatch typed in another thread moves the ticket
-          rebind: (ticket, threadId, reason, repo) => reduction.rebindTicketThread(ticket, threadId, reason, repo),
-          release: (ticket, reason, repo) => reduction.releaseTicketThread(ticket, reason, repo),
-          // the dispatch backstop (#140): the last binding, released or not
-          last: (ticket, repo) => reduction.lastThreadForTicket(ticket, repo),
-          // the same two, thread first (#257): who holds this thread now, and
-          // who held it last. The boot pass that settles an ending's name asks
-          // both — the second says the thread is curia's, the first says it is
-          // free to settle.
-          ticketOf: (threadId) => reduction.ticketForThread(threadId),
-          lastTicketOf: (threadId) => reduction.lastTicketForThread(threadId),
-          // the label's repo field (#235), read lazily off the journal
-          repoOf: (ticket) => reduction.repoForTicket(ticket),
-          // a lazy thread still opens with its tracker title (#690)
-          titleOf: (ticket, repo) => reduction.titleForTicket(ticket, repo),
-        },
-        log,
-        onHealth: onBridgeHealth,
-      })
-      return b.start().then(() => {
-        bridge = b
-        bridgeLaunching = false
-        // re-render any recovered escalation that has no message yet, and confirm
-        // recovered ones that do are still answerable (message ids in the record)
-        for (const r of reduction.openEscalations()) {
-          if (!r.discord) renderEscalation(r)
-        }
-        announceStart(b)
-        // #380 rule 4: a credential warning measured while there was no bridge
-        // is not said yet. Nothing is re-probed — the reduction already holds
-        // every reading this process took, so a bridge that flaps costs GitHub
-        // nothing. Never fails a start.
-        tokenWatch.flush().catch((e) => log(`the held credential warnings did not land: ${e.message}`))
-        // #257: a ✅ the last process owed but never sent. Never fails a start.
-        b.settleEndedThreads().catch((e) => log(`settling ended thread names failed: ${e.message}`))
-      }).catch((e) => {
-        if (!bridgeDownSince) bridgeDownSince = Date.now()
-        const delay = Math.min(60_000, 5_000 * attempt)
-        log(`bridge start attempt ${attempt} failed: ${e.message} — retrying in ${delay / 1000}s (escalations remain REST-answerable)`)
-        b.stop().catch(() => {})
-        setTimeout(() => launchBridge(attempt + 1), delay).unref()
-      })
+// the env key in the source deployment. The allow list beside it is the whole
+// auth gate. Both are read FRESH on every start (#891): the daemon boots before
+// the token exists on a fresh installation, and the bridge starts the moment
+// the Discord card lands the token, on the card's connect and on any Discord
+// read that finds the token and no bridge, never only at boot. `BridgeStarter`
+// owns the bridge and the retry ladder; `bridge` below mirrors its live
+// instance for the closures that read it per call.
+bridgeStarter = new BridgeStarter({
+  token: () => (INSTALL_ROOT ? (readSecret(INSTALL_ROOT, 'discord-bot-token')?.trim() || null) : (process.env.DISCORD_BOT_TOKEN || null)),
+  settings: () => (INSTALL_ROOT ? readDiscordSettings(DATA) : discordSettingsFromEnv(process.env)),
+  tokenSentence: () => (INSTALL_ROOT ? `no ${secretPath(INSTALL_ROOT, 'discord-bot-token')}` : 'no DISCORD_BOT_TOKEN'),
+  gateSentence: () => (INSTALL_ROOT ? `${discordSettingsPath(DATA)} names no allowed user` : 'DISCORD_ALLOWED_USERS is empty'),
+  log,
+  // A fresh instance per launch: the wedge watchdog below relaunches, and a
+  // destroyed discord.js Client does not log back in.
+  create: (token, settings) => new DiscordBridge({
+    token,
+    allowedUsers: settings.allowed_users,
+    guildId: settings.guild_id ?? undefined,
+    channelName: settings.channel ?? CHANNEL,
+    dataDir: DATA,
+    handlers: gate,
+    // the journalled ticket↔thread map (#93) — the bridge holds no state
+    bindings: {
+      get: (ticket, repo) => reduction.threadForTicket(ticket, repo),
+      bind: (ticket, threadId, repo) => reduction.bindTicketThread(ticket, threadId, repo),
+      // #197: an explicit dispatch typed in another thread moves the ticket
+      rebind: (ticket, threadId, reason, repo) => reduction.rebindTicketThread(ticket, threadId, reason, repo),
+      release: (ticket, reason, repo) => reduction.releaseTicketThread(ticket, reason, repo),
+      // the dispatch backstop (#140): the last binding, released or not
+      last: (ticket, repo) => reduction.lastThreadForTicket(ticket, repo),
+      // the same two, thread first (#257): who holds this thread now, and
+      // who held it last. The boot pass that settles an ending's name asks
+      // both — the second says the thread is curia's, the first says it is
+      // free to settle.
+      ticketOf: (threadId) => reduction.ticketForThread(threadId),
+      lastTicketOf: (threadId) => reduction.lastTicketForThread(threadId),
+      // the label's repo field (#235), read lazily off the journal
+      repoOf: (ticket) => reduction.repoForTicket(ticket),
+      // a lazy thread still opens with its tracker title (#690)
+      titleOf: (ticket, repo) => reduction.titleForTicket(ticket, repo),
+    },
+    log,
+    onHealth: onBridgeHealth,
+  }),
+  onStarted: (b) => {
+    bridge = b
+    // re-render any recovered escalation that has no message yet, and confirm
+    // recovered ones that do are still answerable (message ids in the record)
+    for (const r of reduction.openEscalations()) {
+      if (!r.discord) renderEscalation(r)
     }
-    launchBridge()
+    announceStart(b)
+    // #380 rule 4: a credential warning measured while there was no bridge
+    // is not said yet. Nothing is re-probed — the reduction already holds
+    // every reading this process took, so a bridge that flaps costs GitHub
+    // nothing. Never fails a start.
+    tokenWatch.flush().catch((e) => log(`the held credential warnings did not land: ${e.message}`))
+    // #257: a ✅ the last process owed but never sent. Never fails a start.
+    b.settleEndedThreads().catch((e) => log(`settling ended thread names failed: ${e.message}`))
+  },
+  // A failed attempt marks the bridge down for the watchdog below, as the
+  // boot's ladder always did.
+  onFailed: () => { if (!bridgeDownSince) bridgeDownSince = Date.now() },
+})
+bridgeStarter.ensure()
 
-    // Wedge watchdog (#56). Surviving the crash is only half the fix: a bridge
-    // that no longer dies but never reconnects is the silent failure this ticket
-    // calls the worse one. discord.js reconnects on its own, so this fires only
-    // when its own recovery did not — and then it rebuilds the bridge rather
-    // than leaving a live daemon with a dead phone.
-    const wedgeTimer = setInterval(() => {
-      if (!bridgeDownSince || bridgeLaunching) return
-      const downMs = Date.now() - bridgeDownSince
-      if (downMs < BRIDGE_WEDGE_MS) return
-      reduction.journal('bridge_wedged', { down_ms: downMs })
-      log(`[bridge] down for ${Math.round(downMs / 1000)}s with no recovery — rebuilding the bridge`)
-      const dead = bridge
-      bridge = null
-      dead?.stop().catch(() => {})
-      launchBridge()
-    }, 60_000)
-    wedgeTimer.unref()
-  }
-} else {
-  log(INSTALL_ROOT
-    ? `no ${secretPath(INSTALL_ROOT, 'discord-bot-token')} — running without the bridge (REST-only)`
-    : 'no DISCORD_BOT_TOKEN — running without the bridge (REST-only)')
-}
+// Wedge watchdog (#56). Surviving the crash is only half the fix: a bridge
+// that no longer dies but never reconnects is the silent failure this ticket
+// calls the worse one. discord.js reconnects on its own, so this fires only
+// when its own recovery did not — and then it rebuilds the bridge rather
+// than leaving a live daemon with a dead phone.
+const wedgeTimer = setInterval(() => {
+  if (!bridgeDownSince || bridgeStarter.launching || !bridge) return
+  const downMs = Date.now() - bridgeDownSince
+  if (downMs < BRIDGE_WEDGE_MS) return
+  reduction.journal('bridge_wedged', { down_ms: downMs })
+  log(`[bridge] down for ${Math.round(downMs / 1000)}s with no recovery — rebuilding the bridge`)
+  bridge = null
+  bridgeStarter.relaunch()
+}, 60_000)
+wedgeTimer.unref()

@@ -683,6 +683,8 @@
   .loop-leg.failed { color: var(--bad); }
   .loop-leg .dim-note { margin-left: auto; }
   .loop-links { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 8px; font-size: 13px; }
+  .loop-wait { margin-top: 12px; }
+  .loop-wait .att-item { margin: 0; }
   .loop-actions { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
   .setup-panel { border: 1px solid var(--line); border-radius: 14px; padding: 24px 26px; background: var(--bg-raise); max-width: 690px; }
   .setup-panel h2 { font-size: 19px; letter-spacing: -.02em; margin: 4px 0 10px; }
@@ -966,7 +968,7 @@ var UI = {
   /* The setup frame's own state (#874): whether a read is in flight, and the
      one sentence the last press left behind. The selected card is not here —
      it is the record's `step`, kept by the service so a reopen restores it. */
-  setup: { busy: false, note: null, working: null, panel: null, restartTimer: null, loopBusy: false, loopTimer: null, githubBusy: false, githubTimer: null, discord: null, discordBusy: null, discordTimer: null, tailscale: null, tailscaleBusy: null, openai: null, openaiBusy: null, openaiTimer: null, anthropic: null, anthropicBusy: null, anthropicTimer: null },
+  setup: { busy: false, note: null, working: null, panel: null, loopBusy: false, loopTimer: null, githubBusy: false, githubTimer: null, discord: null, discordBusy: null, discordTimer: null, tailscale: null, tailscaleBusy: null, openai: null, openaiBusy: null, openaiTimer: null, anthropic: null, anthropicBusy: null, anthropicTimer: null },
   /* The drill-in frame's own state (#699), one entry per page that is a list
      of sections: which section is open, and whether the phone is on the list
      in front of it. */
@@ -2431,6 +2433,7 @@ function screenHome(p) {
       <div class="track" aria-label="${closed} of ${total} walked"><i style="width:${pct}%"></i></div></div>`;
   }).join("") || `<div class="empty">No open map.</div>`;
   return `${head(p, "Home")}
+    ${runPointer()}
     ${setupPointer()}
     ${spentBanner(o)}
     ${holdBanner(o)}
@@ -5340,9 +5343,13 @@ function setupDiscord(card, progress) {
   const detail = card.detail ?? null;
   const stage = card.state === "connected" ? null : (detail?.stage ?? null);
   if (card.state === "connected" && detail) {
+    /* The bridge starts when the token lands (#891): on this connect, and on
+       any read that finds the token and no bridge. No restart is asked for. */
     const bridge = detail.bridge === "up"
       ? `<span class="dim-note">The bridge is running.</span>`
-      : `<span class="dim-note">The bridge reads the token when the service starts. <a href="#" onclick="doSetupRestart();return false">Restart Curia</a> to start it.</span>`;
+      : detail.bridge === "starting"
+        ? `<span class="dim-note">The bridge is starting.</span>`
+        : `<span class="dim-note">The bridge isn't running yet. Curia starts it on its own on the next read; if it stays down, read the service log.</span>`;
     return `<div class="rows">
       <div class="row"><span class="key grow">Channel</span><span><a href="${esc(detail.channel?.url)}" target="_blank" rel="noopener">#${esc(detail.channel?.name)}</a> in ${esc(detail.guild?.name)}${detail.channel?.created ? " · created by Curia" : ""}</span></div>
       <div class="row"><span class="key grow">Confirmation</span><span><a href="${esc(detail.confirmation?.url)}" target="_blank" rel="noopener">${detail.confirmation?.posted ? "Posted" : "Delivered"} ${esc(ago(detail.confirmation?.at))}</a></span></div>
@@ -5880,33 +5887,6 @@ async function doSetupAnthropicCode(code) {
   return UI.screen === "setup" ? loadAnthropicSetup() : tick();
 }
 
-/* Restart Curia from the Discord card (#891): the bridge reads the token
-   only when the service starts, and the press used to change nothing on
-   this screen. The card works until the restarted service answers the
-   frame read; a refusal settles it with the sentence. */
-async function doSetupRestart() {
-  setupWorking("discord", "restarting Curia so the bridge reads the token");
-  clearTimeout(UI.setup.restartTimer);
-  await doRestart();
-  const ordered = daemonRestartAction() || UI.set.phase === "restart-unknown";
-  if (UI.set.phase === "refused" || !ordered) {
-    /* Refused, or the operator cancelled the confirmation: nothing is in
-       flight, so the card goes back to what this read said. */
-    if (UI.set.phase === "refused") UI.setup.note = UI.set.error;
-    setupSettled("discord");
-    render();
-    return;
-  }
-  const until = Date.now() + 120_000;
-  const waitForService = () => {
-    UI.setup.restartTimer = null;
-    if (UI.screen !== "setup" || !setupWork("discord")) return;
-    if (UI.set.phase === "restarted" || UI.set.phase === "refused" || Date.now() >= until) { loadSetup(); return; }
-    UI.setup.restartTimer = setTimeout(waitForService, 1000);
-  };
-  UI.setup.restartTimer = setTimeout(waitForService, 1000);
-}
-
 function setupUnavailable(card) {
   if (card.state !== "unavailable") return "";
   return `<div class="setup-note">Connecting ${esc(card.title)} isn't available yet in this release. The card stays here, and this step lights up when it lands.</div>`;
@@ -6059,13 +6039,45 @@ function loopDur(ms) {
   if (m < 60) return `${m} min ${s % 60} s`;
   return `${Math.floor(m / 60)} h ${m % 60} min`;
 }
+/* What a running leg waits for (#891), so the wait is never mistaken for
+   a hang: the question the run carries, with the time since it opened, or
+   the agent's own work. */
+function loopWaitWords(run, key) {
+  const w = run.waiting;
+  if (w && w.leg === key) return w.review ? "waiting for your approval of the review gate" : "waiting for your answer";
+  if (key === "escalation") return "waiting for the agent's question";
+  return "waiting for the agent";
+}
+/* The question the run waits for, drawn with the same card and controls Home
+   draws for it, so the answer goes through the daemon's own answer route (the
+   one the Discord bridge uses) and the journal sees one `esc_answer` whichever
+   surface it came from. The Discord thread keeps working in parallel. The
+   overview's record leads when the poll has it (it carries the diff digest and
+   the option handles); the run's own copy stands in until then. */
+function loopWaitCard(run) {
+  const w = run.waiting;
+  if (!w) return "";
+  const known = [...(payload?.overview?.escalations ?? []), ...(payload?.overview?.review_gate ?? [])].find((r) => r.id === w.id);
+  const row = { ...w, options: w.options ?? null, pull_request: w.pull_request ?? run.links?.pull_request ?? null, ...(known ?? {}) };
+  return `<div class="loop-wait">${w.review ? gateCard(row) : escCard(row)}</div>`;
+}
+/* A terminal per live session (#891): the agent's while it lives and the
+   overseer's while it is in a turn, each at the link the service composed. */
+function loopTerminals(run) {
+  const sessions = run.sessions ?? [];
+  if (!sessions.length) return "";
+  return `<div class="loop-links loop-terminals"><span class="dim-note">Terminals</span>${sessions.map((s) => `<a href="${esc(s.terminal_url)}" target="_blank" rel="noopener">${esc(s.session)}</a>`).join("")}</div>`;
+}
 function setupLoopRun(run) {
   const where = run.ticket ? `${esc(run.repo)}#${esc(run.ticket.number)}` : esc(run.repo ?? "");
   const elapsed = loopDur(run.elapsed_ms);
   const head = run.state === "complete" ? `<b>Full loop verified.</b><div class="dim-note">${where} · every leg completed in ${elapsed}.</div>`
     : run.state === "failed" ? `<b>The Full loop did not complete.</b><div class="dim-note">${where} · stopped after ${elapsed}.</div>`
-      : `<b>Running the Full loop.</b><div class="dim-note">${where} · ${elapsed} so far. The page follows the service's read every 5 seconds.</div>`;
-  const legs = (run.legs ?? []).map((l) => `<li class="loop-leg ${esc(l.state)}"><span class="loop-mark" aria-hidden="true">${LOOP_MARK[l.state] ?? "·"}</span><span>${esc(l.title)} · ${esc(l.state)}</span>${l.link ? ` <a href="${esc(l.link)}" target="_blank" rel="noopener">open</a>` : ""}${l.ms != null ? `<span class="dim-note">${loopDur(l.ms)}</span>` : ""}</li>`).join("");
+      : `<b>Running the Full loop.</b><div class="dim-note">${where} · ${elapsed} so far. The page follows the service's read every 5 seconds. Closing Setup keeps the run going.</div>`;
+  const legs = (run.legs ?? []).map((l) => {
+    const wait = l.state === "running" ? ` · ${loopWaitWords(run, l.key)}${run.waiting?.leg === l.key ? ` · open ${esc(ago(run.waiting.opened_at))}` : ""}` : "";
+    return `<li class="loop-leg ${esc(l.state)}"><span class="loop-mark" aria-hidden="true">${LOOP_MARK[l.state] ?? "·"}</span><span>${esc(l.title)} · ${esc(l.state)}${wait}</span>${l.link ? ` <a href="${esc(l.link)}" target="_blank" rel="noopener">open</a>` : ""}${l.ms != null ? `<span class="dim-note">${loopDur(l.ms)}</span>` : ""}</li>`;
+  }).join("");
   const links = run.links ?? {};
   const names = { ticket: "Ticket", pull_request: "Pull request", map: "Map", thread: "Discord thread", channel: "Command channel" };
   const linkRow = Object.keys(names).filter((k) => links[k]).map((k) => `<a href="${esc(links[k])}" target="_blank" rel="noopener">${names[k]} ↗</a>`).join("");
@@ -6078,7 +6090,7 @@ function setupLoopRun(run) {
     : run.state === "complete"
       ? `<a class="btn primary" href="#home" onclick="goto('home');return false">Open Curia</a>`
       : `<button class="btn primary" disabled>Running…</button>`;
-  return `<div class="setup-run-body">${head}<ul class="loop-legs">${legs}</ul>${linkRow ? `<div class="loop-links">${linkRow}</div>` : ""}${problem}
+  return `<div class="setup-run-body">${head}<ul class="loop-legs">${legs}</ul>${run.state === "running" ? loopWaitCard(run) : ""}${linkRow ? `<div class="loop-links">${linkRow}</div>` : ""}${run.state === "running" ? loopTerminals(run) : ""}${problem}
     <div class="loop-actions">${actions}${UI.setup.note ? `<span class="dim-note">${esc(UI.setup.note)}</span>` : ""}</div></div>`;
 }
 /* The press (#891): the run becomes the selected panel at once, in progress,
@@ -6112,9 +6124,10 @@ function retryFullLoop() {
   return pressFullLoop("/api/setup/full-loop/retry", leg ? `retrying ${leg}` : "retrying the Full loop");
 }
 /* While a run is live the panel follows the service's read; the timer stops
-   itself when the run ends or the operator leaves the screen. */
+   itself when the run ends or the operator leaves for a screen that does not
+   show the run. Home shows it (#891), so closing Setup keeps following. */
 function ensureFullLoopRead() {
-  const live = UI.screen === "setup" && setup?.full_loop?.run?.state === "running";
+  const live = (UI.screen === "setup" || UI.screen === "home") && setup?.full_loop?.run?.state === "running";
   if (!live) {
     if (UI.setup.loopTimer) { clearTimeout(UI.setup.loopTimer); UI.setup.loopTimer = null; }
     return;
@@ -6191,6 +6204,23 @@ function screenSetup(p) {
   </div>`;
 }
 
+/* The Home pointer for a live Full loop (#891): closing Setup never cancels
+   or detaches the run, so Home says it runs, names the leg and what it waits
+   for, and Open returns to the run panel. */
+function runPointer() {
+  const run = setup?.full_loop?.run;
+  if (UI.screen === "setup" || run?.state !== "running") return "";
+  const where = run.ticket ? `${esc(run.repo)}#${esc(run.ticket.number)}` : esc(run.repo ?? "");
+  const leg = (run.legs ?? []).find((l) => l.state === "running");
+  const line = leg ? `${esc(leg.title)} · ${loopWaitWords(run, leg.key)}.` : "";
+  return `<div class="setup-pointer"><b>The Full loop is running on ${where}.</b>
+    <span class="dim-note">${line}</span>
+    <a href="#setup" onclick="openFullLoop();return false">Open →</a></div>`;
+}
+function openFullLoop() {
+  UI.setup.panel = "run";
+  goto("setup");
+}
 /* The Home pointer: on a fresh installation the one thing Home has to say is
    which integrations are not connected yet. It draws only from a read that
    answered, so a service that could not be asked points at nothing. */
@@ -6678,6 +6708,8 @@ function enter(k) {
   if (UI.screen === "chat" && k !== "chat") applyChatRoute([]);
   UI.screen = k;
   if (k === "settings" && !settings) loadSettings();
+  /* Reopening Setup during a run lands on the run (#891). */
+  if (k === "setup" && setup?.full_loop?.run?.state === "running") UI.setup.panel = "run";
   if (k === "setup") loadSetup();
   if (k === "chat") loadConversations();
   if (k === "feed") recordFeedVisit();

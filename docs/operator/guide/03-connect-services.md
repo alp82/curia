@@ -42,7 +42,7 @@ The card connects when it shows **Connected and verified** and the footer names 
 5. Select the server, keep the channel name `curia` or enter another, and select **Connect channel**. The card verifies as part of the same press and shows the result.
 6. Select **Continue**.
 
-The card connects when the footer shows the channel and the server, then `Confirmation delivered · <n> commands registered`, and Curia's confirmation message stands in the channel. The panel says whether the bridge is running. Until the service restarts once after the first connection, the card is verified and the bot doesn't answer yet: select **Restart Curia** in the panel. The details are in [Connect Discord](../integration-setup.md#connect-discord).
+The card connects when the footer shows the channel and the server, then `Confirmation delivered · <n> commands registered`, and Curia's confirmation message stands in the channel. The panel says whether the bridge is running: **Connect channel** starts it and waits for its login, and the service starts it on any later Discord read that finds the token and no bridge, so no restart is needed. The details are in [Connect Discord](../integration-setup.md#connect-discord).
 
 ## Connect Tailscale
 

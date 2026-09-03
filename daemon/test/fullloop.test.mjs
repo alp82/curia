@@ -426,6 +426,106 @@ describe('the Full loop as the installation acceptance (#882)', () => {
     assert.equal(s.legs[2].state, 'running')
   })
 
+  // #891: the rehearsal's agent raised its review gate while the daemon had
+  // no bridge, and the panel said `Escalation and answer · running` for an
+  // hour. The run now carries the question it waits for, so the panel can
+  // show it, take the answer, and say how long it has been open.
+  test('an open question rides the run as what it waits for, and its answer clears it and completes the leg', async () => {
+    await loop.start(gate())
+    await loop.settled()
+    assert.equal(loop.status().waiting, null, 'nothing is waited for before the agent asks')
+    j.write('esc_open', { id: 'esc-1', agent: AGENT, ticket: '42', kind: 'free-text', prompt: 'Which name?', options: null })
+    const opened = j.rows.at(-1).ts
+    // The fake clock ticks one second per write, so the open time is that
+    // second plus the wait.
+    j.clock.tick(90_000)
+    let s = loop.status()
+    assert.equal(s.state, 'running')
+    assert.deepEqual(s.waiting, {
+      id: 'esc-1', agent: AGENT, ticket: '42', kind: 'free-text', prompt: 'Which name?', options: null,
+      review: false, pull_request: null, opened_at: opened, open_ms: 91_000, leg: 'escalation',
+    })
+    j.write('esc_answer', { id: 'esc-1', answer: 'The second one', by: 'alp', via: 'dashboard' })
+    s = loop.status()
+    assert.equal(s.waiting, null, 'the answer, from any surface, clears the wait')
+    assert.equal(s.legs[2].state, 'complete')
+  })
+
+  test('a review gate open while the escalation leg still runs is said as the gate, so the wait is never mistaken for a hang', async () => {
+    await loop.start(gate())
+    await loop.settled()
+    j.write('pr_opened', { repo: 'o/r', ticket: '42', agent: AGENT, branch: 'curia/42', url: 'https://github.com/o/r/pull/50', commits: 2 })
+    j.write('esc_open', { id: 'esc-2', agent: AGENT, ticket: '42', kind: 'review-gate', prompt: 'Review?', options: null })
+    const opened = j.rows.at(-1).ts
+    j.clock.tick(3_600_000)
+    const s = loop.status()
+    assert.equal(s.state, 'running')
+    assert.equal(s.legs[2].state, 'running', 'the leg order is unchanged: the agent never asked')
+    assert.equal(s.waiting.id, 'esc-2')
+    assert.equal(s.waiting.review, true)
+    assert.equal(s.waiting.pull_request, 'https://github.com/o/r/pull/50', 'the gate names the pull request the leg walk has not reached')
+    assert.equal(s.waiting.opened_at, opened)
+    assert.equal(s.waiting.open_ms, 3_601_000)
+    assert.equal(s.waiting.leg, 'escalation', 'the wait is reported on the leg that runs')
+  })
+
+  test('a cancelled or superseded question is not waited for, and the last open one is', async () => {
+    await loop.start(gate())
+    await loop.settled()
+    j.write('esc_open', { id: 'esc-1', agent: AGENT, ticket: '42', kind: 'free-text', prompt: 'First?' })
+    j.write('esc_cancel', { id: 'esc-1' })
+    assert.equal(loop.status().waiting, null)
+    j.write('esc_open', { id: 'esc-2', agent: AGENT, ticket: '42', kind: 'choice', prompt: 'Second?', options: ['a', 'b'] })
+    j.write('esc_supersede', { id: 'esc-2', successor: 'esc-3' })
+    j.write('esc_open', { id: 'esc-3', agent: AGENT, ticket: '42', kind: 'choice', prompt: 'Third?', options: ['a', 'b'] })
+    const w = loop.status().waiting
+    assert.equal(w.id, 'esc-3')
+    assert.deepEqual(w.options, ['a', 'b'])
+    // Another session's question is not this run's.
+    j.write('esc_answer', { id: 'esc-3', answer: 'a', by: 'alp' })
+    j.write('esc_open', { id: 'esc-9', agent: 'curia-review-42', ticket: '42', kind: 'free-text', prompt: 'Not mine' })
+    assert.equal(loop.status().waiting, null)
+  })
+
+  test('the live sessions ride the run with a terminal link each: the agent while it lives, the overseer while it is in a turn', async () => {
+    const live = new Set()
+    let turns = []
+    loop = new FullLoop({
+      discover: async () => frontier(),
+      dispatch: async (repo, n) => { await null; spawnRows(j, { ticket: String(n), agent: `curia-${n}` }); live.add(`curia-${n}`); return 'ok' },
+      journal: j.journal, lastRun: j.lastRun, eventsSince: j.eventsSince, now: j.clock.now, log: () => {},
+      agentLive: (session) => live.has(session),
+      overseerSessions: () => turns,
+    })
+    assert.deepEqual(loop.status().sessions, [], 'no run, no session')
+    await loop.start(gate())
+    await loop.settled()
+    assert.deepEqual(loop.status().sessions, [
+      { session: 'curia-42', role: 'agent', terminal_url: 'https://curia.tail1234.ts.net:8445/terminal/?arg=curia-42' },
+    ])
+    turns = ['curia-overseer-1']
+    assert.deepEqual(loop.status().sessions.map((s) => s.session), ['curia-42', 'curia-overseer-1'])
+    assert.equal(loop.status().sessions[1].terminal_url, 'https://curia.tail1234.ts.net:8445/terminal/?arg=curia-overseer-1')
+    assert.equal(loop.status().sessions[1].role, 'overseer')
+    live.delete('curia-42')
+    assert.deepEqual(loop.status().sessions.map((s) => s.session), ['curia-overseer-1'], 'a session that ended is not linked')
+    cleanPass(j, { from: 'escalation' })
+    live.add('curia-42')
+    assert.deepEqual(loop.status().sessions, [], 'a run that ended links nothing')
+  })
+
+  test('without an app address the terminal link is the page\'s own path', async () => {
+    loop = new FullLoop({
+      discover: async () => frontier(),
+      dispatch: async (repo, n) => { await null; spawnRows(j, { ticket: String(n), agent: `curia-${n}` }); return 'ok' },
+      journal: j.journal, lastRun: j.lastRun, eventsSince: j.eventsSince, now: j.clock.now, log: () => {},
+      agentLive: () => true,
+    })
+    await loop.start(gate({ tailscale: { address: 'curia.tail1234.ts.net', app_url: null, operator: 'alp@example.com', admitted_ms: 12 } }))
+    await loop.settled()
+    assert.deepEqual(loop.status().sessions, [{ session: 'curia-42', role: 'agent', terminal_url: '/terminal/?arg=curia-42' }])
+  })
+
   test('Try again after a failed dispatch dispatches the same ticket again, and only rows after the retry count', async () => {
     let refuse = true
     loop = new FullLoop({
