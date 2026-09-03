@@ -15,7 +15,16 @@
 const MAP_LABEL = 'wayfinder:map'
 
 export const TEST_RUN_LABEL = 'rehearsal'
-export const TICKET_LABEL = 'wayfinder:task'
+
+// The tickets' own type (#891, the owner's decision on the rehearsal): the
+// live run dispatched the acceptance on the frontier model at high effort,
+// and its cross-check on the same tier. `test-run` is the routing row that
+// names the cheapest model at its lowest effort, for the agent and for the
+// cross-check alike (`defaults.test-run` and `review.test-run` in
+// `config/routing.yaml`). The type label is FIRST in the list, because the
+// router reads the first `wayfinder:` label.
+export const TEST_RUN_TYPE = 'test-run'
+export const TICKET_LABEL = `wayfinder:${TEST_RUN_TYPE}`
 
 // The date the map is named after, in the unambiguous long form the operator
 // guide uses (September 3, 2026).

@@ -20,7 +20,7 @@ The run creates one wayfinder map in the covered repository, **Test run &lt;date
 1. **Add a line to the README.** The agent appends one line to the bottom of `README.md`, creating the file if the repository has none. The line names the Test run and the date.
 2. **Remove the Test run line from the README.** Blocked by ticket 1 through GitHub's native dependency. The agent removes the line again, and deletes the file when ticket 1 created it.
 
-Both tickets carry the `rehearsal` label. Each agent claims its ticket, works in a clone under `work/`, opens a real pull request, and merges it into the default branch after your approval. When both tickets are closed, Curia asks whether the map is done, and closes it on your answer. Curia stores nothing but the journal rows the work already writes. The connected integrations aren't touched. You don't write a ticket: the run makes its own, and a second Test run makes a new map.
+Both tickets carry the `rehearsal` label and the `wayfinder:test-run` type, which routes them to the cheapest model of your provider at its lowest effort; the panel names the model and the effort. Each agent claims its ticket, works in a clone under `work/`, opens a real pull request, and merges it into the default branch after your approval. When both tickets are closed, Curia asks whether the map is done, and closes it on your answer. Curia stores nothing but the journal rows the work already writes. The connected integrations aren't touched. You don't write a ticket: the run makes its own, and a second Test run makes a new map.
 
 ## Do this
 

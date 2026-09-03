@@ -329,6 +329,14 @@ function checkPatch(patch) {
     // The review rows are the routing preset's to write (#891): the model
     // that reads a builder's diff, or `null` for no pairing.
     for (const [builder, model] of Object.entries(r.review ?? {})) {
+      // A row keyed by a ticket type holds that type's own pairing (#891),
+      // one model name or null per builder provider.
+      if (model && typeof model === 'object' && !Array.isArray(model)) {
+        for (const [provider, m] of Object.entries(model)) {
+          if (m !== null && typeof m !== 'string') refuse(`\`routing.review.${builder}.${provider}\` must be a model name or null`)
+        }
+        continue
+      }
       if (model !== null && typeof model !== 'string') refuse(`\`routing.review.${builder}\` must be a model name or null`)
     }
     for (const [type, route] of Object.entries(r.defaults ?? {})) {
@@ -436,6 +444,13 @@ function editRouting(doc, patch, base) {
   }
   for (const [builder, model] of Object.entries(patch.routing.review ?? {})) {
     if (base.review?.[builder] === undefined) refuse(`routing.yaml has no \`review.${builder}\` row — the preset moves or drops the rows that are there and adds none`)
+    if (model && typeof model === 'object') {
+      for (const [provider, m] of Object.entries(model)) {
+        if (base.review[builder]?.[provider] === undefined) refuse(`routing.yaml has no \`review.${builder}.${provider}\` row — the preset moves or drops the rows that are there and adds none`)
+        settle(doc, ['review', builder, provider], m, base.review[builder][provider])
+      }
+      continue
+    }
     settle(doc, ['review', builder], model, base.review[builder])
   }
 }

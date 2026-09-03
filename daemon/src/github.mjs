@@ -376,17 +376,17 @@ export function mapHeldComment(reasons) {
 
 // The HITL-free chain count (#81's tickets view): how many open tickets an
 // agent could work through with no human in the loop — takeable now, or
-// unblocked purely by chains of other HITL-free tickets. `research` and `task`
-// are counted as HITL-free (a task ticket CAN need a human, but the type says
-// the agent drives it alone where it can — optimistic by design); `grilling`
-// and `prototype` are human-in-the-loop; an untyped map child counts as HITL
-// (conservative). Blocker edges come from `edges[number]` as
+// unblocked purely by chains of other HITL-free tickets. `research`, `task`,
+// and the Test run's own `test-run` (#891) are counted as HITL-free (a task
+// ticket CAN need a human, but the type says the agent drives it alone where
+// it can — optimistic by design); `grilling` and `prototype` are
+// human-in-the-loop; an untyped map child counts as HITL (conservative). Blocker edges come from `edges[number]` as
 // [{ number, state }]; an open item whose summary says blocked_by > 0 but has
 // no edge entry is treated as blocked (an unreadable edge is not an open way).
 export function agentOnlyChainCount({ items = [], edges = {} } = {}) {
   const hitlFree = (i) => (i.labels ?? []).some((l) => {
     const name = typeof l === 'string' ? l : l.name
-    return name === 'wayfinder:research' || name === 'wayfinder:task'
+    return name === 'wayfinder:research' || name === 'wayfinder:task' || name === 'wayfinder:test-run'
   })
   const candidates = items.filter((i) =>
     i.state === 'open' && !i.pull_request && (i.assignees ?? []).length === 0 && hitlFree(i))

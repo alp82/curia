@@ -60,8 +60,9 @@ const tailscale = (over = {}) => async () => ({
 })
 
 const ROWS = [
-  { type: 'feature', model: 'fable', provider: 'anthropic', active: true, credentialed: true, ok: true },
-  { type: 'research', model: 'gpt', provider: 'openai', active: true, credentialed: true, ok: true },
+  { type: 'feature', model: 'fable', id: 'fable', effort: 'high', provider: 'anthropic', active: true, credentialed: true, ok: true },
+  { type: 'research', model: 'gpt', id: 'gpt-5.6-sol', effort: 'high', provider: 'openai', active: true, credentialed: true, ok: true },
+  { type: 'test-run', model: 'luna', id: 'gpt-5.6-luna', effort: 'low', provider: 'openai', active: true, credentialed: true, ok: true },
 ]
 
 const openai = (over = {}) => async () => ({
@@ -127,6 +128,9 @@ describe('the Full-loop gate', () => {
     assert.equal(facts.model.model, 'gpt')
     assert.equal(facts.model.request.model, 'gpt-5.6-sol')
     assert.deepEqual(facts.model.rows, ROWS)
+    // The row the Test run's tickets dispatch on (#891): the cheap model at
+    // low effort, named so the panel can say what the run costs.
+    assert.deepEqual(facts.model.test_run, { model: 'luna', id: 'gpt-5.6-luna', effort: 'low' })
     assert.deepEqual(facts.model.providers, { openai: 'connected', anthropic: 'unavailable' })
     assert.match(facts.verified_at, /^\d{4}-\d{2}-\d{2}T/)
   })
@@ -299,6 +303,9 @@ describe('the Full-loop gate', () => {
     assert.deepEqual(Object.keys(status.full_loop.facts.github), ['repo', 'covered', 'owners', 'open_tickets', 'ticket'])
     assert.deepEqual(Object.keys(status.full_loop.facts.discord), ['guild', 'channel', 'operator', 'commands', 'confirmation', 'bridge'])
     assert.deepEqual(Object.keys(status.full_loop.facts.tailscale), ['address', 'app_url', 'operator', 'admitted_ms'])
-    assert.deepEqual(Object.keys(status.full_loop.facts.model), ['provider', 'model', 'request', 'rows', 'providers'])
+    assert.deepEqual(Object.keys(status.full_loop.facts.model), ['provider', 'model', 'test_run', 'request', 'rows', 'providers'])
+    // A routing with no test-run row names nothing, rather than a guess.
+    const bare = await setupWith({ github: github(), discord: discord(), tailscale: tailscale(), openai: openai({ routing: { ready: true, model: 'gpt', rows: [] } }) }).status()
+    assert.equal(bare.full_loop.facts.model.test_run, null)
   })
 })

@@ -24,19 +24,30 @@ const BASE = [
   '  research: {model: gpt, effort: high}',
   '  map: {model: fable, effort: max}',
   '  untyped: {model: opus, effort: high}',
+  '  test-run: {model: haiku, effort: low}',
   'models:',
   '  fable: { provider: anthropic, harness: claude }',
   '  opus: { provider: anthropic, harness: claude }',
   '  sonnet: { provider: anthropic, harness: claude }',
+  '  haiku: { provider: anthropic, harness: claude }',
   '  gpt: { provider: openai, harness: codex, id: gpt-5.6-sol, reasoning_effort: high }',
+  '  luna: { provider: openai, harness: codex, id: gpt-5.6-luna, reasoning_effort: low }',
+  'cheapest:',
+  '  openai: luna',
+  '  anthropic: haiku',
   'fallbacks:',
   '  fable: [opus]',
   '  opus: [gpt, sonnet]',
   '  sonnet: [gpt]',
   '  gpt: [opus]',
+  '  haiku: [luna]',
+  '  luna: [haiku]',
   'review:',
   '  anthropic: gpt',
   '  openai: opus',
+  '  test-run:',
+  '    anthropic: luna',
+  '    openai: haiku',
   'harnesses:',
   '  claude:',
   '    template: claude --model {model} "$(cat {prompt_file})"',
@@ -77,8 +88,8 @@ describe('the routing preset (#878)', () => {
     const routing = live()
     const onlyOpenai = routingReadiness(routing, ['openai'])
     assert.equal(onlyOpenai.ready, false)
-    assert.deepEqual(onlyOpenai.missing, ['grilling', 'map', 'untyped', 'review.openai'])
-    assert.deepEqual(onlyOpenai.rows.find((r) => r.type === 'research'), { type: 'research', model: 'gpt', provider: 'openai', active: true, credentialed: true, ok: true })
+    assert.deepEqual(onlyOpenai.missing, ['grilling', 'map', 'untyped', 'test-run', 'review.openai', 'review.test-run.openai'])
+    assert.deepEqual(onlyOpenai.rows.find((r) => r.type === 'research'), { type: 'research', model: 'gpt', id: 'gpt-5.6-sol', effort: 'high', provider: 'openai', active: true, credentialed: true, ok: true })
     assert.equal(routingReadiness(routing, ['openai', 'anthropic']).ready, true)
     routing.models.gpt.active = false
     const off = routingReadiness(routing, ['openai', 'anthropic'])
@@ -87,8 +98,9 @@ describe('the routing preset (#878)', () => {
     // The connecting provider's own models must be on, whatever the rows say,
     // and a review row on the switched-off model is not ready either.
     routing.defaults.research = { model: 'opus', effort: 'high' }
-    assert.deepEqual(routingReadiness(routing, ['openai', 'anthropic']).missing, ['review.anthropic'])
-    assert.deepEqual(routingReadiness(routing, ['openai', 'anthropic'], { provider: 'openai' }).missing, ['models.gpt', 'review.anthropic'])
+    routing.models.luna.active = false
+    assert.deepEqual(routingReadiness(routing, ['openai', 'anthropic']).missing, ['review.anthropic', 'review.test-run.anthropic'])
+    assert.deepEqual(routingReadiness(routing, ['openai', 'anthropic'], { provider: 'openai' }).missing, ['models.gpt', 'models.luna', 'review.anthropic', 'review.test-run.anthropic'])
     routing.review = {}
     assert.equal(routingReadiness(routing, ['openai', 'anthropic']).ready, true)
   })
@@ -101,9 +113,10 @@ describe('the routing preset (#878)', () => {
         research: { model: 'gpt', effort: 'high' },
         map: { model: 'gpt', effort: 'max' },
         untyped: { model: 'gpt', effort: 'high' },
+        'test-run': { model: 'luna', effort: 'low' },
       },
-      models: { fable: { active: false }, opus: { active: false }, sonnet: { active: false }, gpt: { active: true } },
-      review: { anthropic: 'gpt', openai: null },
+      models: { fable: { active: false }, opus: { active: false }, sonnet: { active: false }, haiku: { active: false }, gpt: { active: true }, luna: { active: true } },
+      review: { anthropic: 'gpt', openai: null, 'test-run': { anthropic: 'luna', openai: null } },
     })
   })
 
@@ -165,35 +178,92 @@ describe('the routing preset (#878)', () => {
 
     test('with OpenAI alone the preset drops the row that would review OpenAI, keeps the other, and the result loads', () => {
       const patch = routingPreset(live(), { provider: 'openai', credentialed: ['openai'] })
-      assert.deepEqual(patch.review, { anthropic: 'gpt', openai: null })
+      assert.deepEqual(patch.review, { anthropic: 'gpt', openai: null, 'test-run': { anthropic: 'luna', openai: null } })
       const out = ensureRoutingPreset({ routingFile, localFile, provider: 'openai', credentialed: ['openai'], live: live(), apply: () => {}, log: () => {} })
       assert.equal(out.ready, true)
       assert.deepEqual(out.missing, [])
       const after = live()
-      assert.deepEqual(after.review, { anthropic: 'gpt' })
+      assert.deepEqual(after.review, { anthropic: 'gpt', 'test-run': { anthropic: 'luna' } })
       assert.equal(after.models.opus.active, false)
       assert.equal(fs.readFileSync(routingFile, 'utf8'), BASE, 'the tracked file is never edited')
     })
 
     test('with Anthropic alone the preset drops the row that would review Anthropic and keeps the other', () => {
       const patch = routingPreset(live(), { provider: 'anthropic', credentialed: ['anthropic'] })
-      assert.deepEqual(patch.review, { anthropic: null, openai: 'opus' })
+      assert.deepEqual(patch.review, { anthropic: null, openai: 'opus', 'test-run': { anthropic: null, openai: 'haiku' } })
       const out = ensureRoutingPreset({ routingFile, localFile, provider: 'anthropic', credentialed: ['anthropic'], live: live(), apply: () => {}, log: () => {} })
       assert.equal(out.ready, true)
       const after = live()
-      assert.deepEqual(after.review, { openai: 'opus' })
+      assert.deepEqual(after.review, { openai: 'opus', 'test-run': { openai: 'haiku' } })
       assert.equal(after.defaults.research.model, 'fable')
       assert.equal(after.models.gpt.active, false)
     })
 
     test('with both providers every review row stays, and the second provider restores the row the first preset dropped', () => {
       ensureRoutingPreset({ routingFile, localFile, provider: 'openai', credentialed: ['openai'], live: live(), apply: () => {}, log: () => {} })
-      assert.deepEqual(live().review, { anthropic: 'gpt' })
+      assert.deepEqual(live().review, { anthropic: 'gpt', 'test-run': { anthropic: 'luna' } })
       const out = ensureRoutingPreset({ routingFile, localFile, provider: 'anthropic', credentialed: ['openai', 'anthropic'], live: live(), apply: () => {}, log: () => {} })
       assert.equal(out.ready, true)
-      assert.deepEqual(live().review, { anthropic: 'gpt', openai: 'opus' })
+      assert.deepEqual(live().review, { anthropic: 'gpt', openai: 'opus', 'test-run': { anthropic: 'luna', openai: 'haiku' } })
       assert.doesNotMatch(fs.readFileSync(localFile, 'utf8'), /review/, 'both rows are back to the tracked answer, so neither is repeated')
-      assert.deepEqual(routingPreset(live(), { provider: 'anthropic', credentialed: ['openai', 'anthropic'] }).review, { anthropic: 'gpt', openai: 'opus' })
+      assert.deepEqual(routingPreset(live(), { provider: 'anthropic', credentialed: ['openai', 'anthropic'] }).review, { anthropic: 'gpt', openai: 'opus', 'test-run': { anthropic: 'luna', openai: 'haiku' } })
+    })
+  })
+
+  // The owner's decision on the rehearsal (#891): the Test run runs on the
+  // cheapest model at its lowest effort, whichever provider signs in. The
+  // row sits on a provider's cheapest model, so the preset moves it to the
+  // cheapest model of the connecting provider, not to the first one, and
+  // the type's own review row moves the same way.
+  describe('the cheap tier (#891)', () => {
+    test('with OpenAI alone the test-run row moves to luna at low effort, and its cross-check reads on luna', () => {
+      const patch = routingPreset(live(), { provider: 'openai', credentialed: ['openai'] })
+      assert.deepEqual(patch.defaults['test-run'], { model: 'luna', effort: 'low' })
+      assert.deepEqual(patch.review['test-run'], { anthropic: 'luna', openai: null })
+      const out = ensureRoutingPreset({ routingFile, localFile, provider: 'openai', credentialed: ['openai'], live: live(), apply: () => {}, log: () => {} })
+      assert.equal(out.ready, true)
+      assert.deepEqual(out.rows.find((r) => r.type === 'test-run'), { type: 'test-run', model: 'luna', id: 'gpt-5.6-luna', effort: 'low', provider: 'openai', active: true, credentialed: true, ok: true })
+      const after = live()
+      assert.deepEqual(after.defaults['test-run'], { model: 'luna', effort: 'low' })
+      assert.deepEqual(after.review['test-run'], { anthropic: 'luna' })
+      assert.match(fs.readFileSync(localFile, 'utf8'), /test-run:\n\s+model: luna\n\s+effort: low/)
+    })
+
+    test('with Anthropic alone the test-run row stays on haiku at low effort, and its cross-check reads on haiku', () => {
+      const patch = routingPreset(live(), { provider: 'anthropic', credentialed: ['anthropic'] })
+      assert.deepEqual(patch.defaults['test-run'], { model: 'haiku', effort: 'low' })
+      assert.deepEqual(patch.review['test-run'], { anthropic: null, openai: 'haiku' })
+      ensureRoutingPreset({ routingFile, localFile, provider: 'anthropic', credentialed: ['anthropic'], live: live(), apply: () => {}, log: () => {} })
+      const after = live()
+      assert.deepEqual(after.defaults['test-run'], { model: 'haiku', effort: 'low' })
+      assert.deepEqual(after.review['test-run'], { openai: 'haiku' })
+      assert.equal(routingReadiness(after, ['anthropic']).rows.find((r) => r.type === 'test-run').id, 'haiku')
+    })
+
+    test('with both providers the test-run row keeps the cheap model it has, and both cross-check rows stand', () => {
+      const patch = routingPreset(live(), { provider: 'openai', credentialed: ['openai', 'anthropic'] })
+      assert.deepEqual(patch.defaults['test-run'], { model: 'haiku', effort: 'low' })
+      assert.deepEqual(patch.review['test-run'], { anthropic: 'luna', openai: 'haiku' })
+      // OpenAI first, Anthropic second: the row moved to luna and stays there,
+      // because a ready row is left alone.
+      ensureRoutingPreset({ routingFile, localFile, provider: 'openai', credentialed: ['openai'], live: live(), apply: () => {}, log: () => {} })
+      ensureRoutingPreset({ routingFile, localFile, provider: 'anthropic', credentialed: ['openai', 'anthropic'], live: live(), apply: () => {}, log: () => {} })
+      const after = live()
+      assert.deepEqual(after.defaults['test-run'], { model: 'luna', effort: 'low' })
+      assert.deepEqual(after.review['test-run'], { anthropic: 'luna', openai: 'haiku' })
+    })
+
+    test('a routing the operator edited keeps their choice: a test-run row on a model that runs is not moved', () => {
+      fs.writeFileSync(localFile, ['defaults:', '  test-run: {model: sonnet, effort: medium}', ''].join('\n'))
+      const out = ensureRoutingPreset({ routingFile, localFile, provider: 'anthropic', credentialed: ['anthropic'], live: live(), apply: () => {}, log: () => {} })
+      assert.equal(out.ready, true)
+      assert.deepEqual(live().defaults['test-run'], { model: 'sonnet', effort: 'medium' })
+    })
+
+    test('a routing file with no `cheapest` moves a cheap row like any other, onto the first model', () => {
+      fs.writeFileSync(routingFile, BASE.replace(/cheapest:\n  openai: luna\n  anthropic: haiku\n/, ''))
+      const patch = routingPreset(live(), { provider: 'openai', credentialed: ['openai'] })
+      assert.deepEqual(patch.defaults['test-run'], { model: 'gpt', effort: 'low' })
     })
   })
 

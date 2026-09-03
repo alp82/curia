@@ -10,7 +10,9 @@
 //   FACTS   the non-secret record the loop's run (#882) receives: the
 //           repository and the discovered ticket, the channel and the
 //           confirmation, the address and the admitted operator, the leading
-//           provider and the model each ticket type routes to.
+//           provider and the model each ticket type routes to, and the row
+//           the run's own tickets dispatch on (#891: the `test-run` type,
+//           the cheapest model at low effort).
 //
 // THE GATE IS A FUNCTION OF THE CARDS. It reads no file, keeps no marker, and
 // remembers nothing between calls, so a restart, a reconnection, and a Try
@@ -28,6 +30,7 @@
 // `providers` so a second provider is shown honestly and stays optional.
 
 import { CARDS, CARD_TITLES, PROVIDERS, PROVIDER_TITLES } from './setup.mjs'
+import { TEST_RUN_TYPE } from './testrunmap.mjs'
 
 // The keys of `facts`, in order. A test holds the gate to this list, so a
 // fact the loop starts depending on is added here, where the rule that
@@ -69,6 +72,11 @@ export function fullLoopGate(cards, { progress = {}, now = () => new Date() } = 
   const provider = connected.includes(remembered) ? remembered : connected[0]
   const md = providers[provider].detail ?? {}
   if (!md.routing?.ready || !md.routing?.model) return incomplete(PROVIDER_TITLES[provider], 'a ready routing')
+  const rows = Array.isArray(md.routing.rows) ? md.routing.rows : []
+  // The row the Test run's tickets dispatch on, read off the preset's own
+  // rows: what the panel says the run costs. Null when routing has no row
+  // for the type, which a routing file from before the type may lack.
+  const testRun = rows.find((r) => r?.type === TEST_RUN_TYPE)
 
   return {
     ready: true,
@@ -99,8 +107,9 @@ export function fullLoopGate(cards, { progress = {}, now = () => new Date() } = 
       model: {
         provider,
         model: md.routing.model,
+        test_run: testRun ? { model: testRun.model ?? null, id: testRun.id ?? testRun.model ?? null, effort: testRun.effort ?? null } : null,
         request: md.request ? pick(md.request, ['model', 'id', 'at', 'ms']) : null,
-        rows: Array.isArray(md.routing.rows) ? md.routing.rows : [],
+        rows,
         providers: Object.fromEntries(PROVIDERS.map((p) => [p, providers[p]?.state ?? 'unavailable'])),
       },
     },

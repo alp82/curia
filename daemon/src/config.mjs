@@ -716,23 +716,58 @@ export function loadRoutingConfig(file, { localFile } = {}) {
   if (typeof cfg.review !== 'object' || Array.isArray(cfg.review)) {
     fail(src, '`review` must be a mapping of provider → model')
   }
+  const providers = new Set(Object.values(cfg.models).map((m) => m.provider))
   // A `null` row is NO PAIRING for that builder, which is how the override
   // file drops a tracked row it cannot delete (a layer merges key by key):
   // the routing preset writes `review.openai: null` when only OpenAI holds a
   // credential, because the row's model is switched off and a cross-check
   // cannot read the diff on the builder's own provider (#891).
-  cfg.review = Object.fromEntries(Object.entries(cfg.review).filter(([, model]) => model !== null))
-  const providers = new Set(Object.values(cfg.models).map((m) => m.provider))
-  for (const [provider, model] of Object.entries(cfg.review)) {
+  //
+  // A row keyed by a TICKET TYPE (`review.test-run`) is that type's own
+  // pairing, a mapping of provider → model like the section itself, judged
+  // by the same rules (#891). A type with no row pairs by the provider rows.
+  const checkPairing = (key, provider, model) => {
     if (!providers.has(provider)) {
-      fail(src, `review.${provider} names a provider no configured model runs on — configured providers: ${[...providers].join(', ')}`)
+      fail(src, `${key} names a provider no configured model runs on — configured providers: ${[...providers].join(', ')}`)
     }
-    if (!cfg.models[model]) fail(src, `review.${provider} names unknown model "${model}"`)
+    if (typeof model !== 'string' || !cfg.models[model]) fail(src, `${key} names unknown model "${model}"`)
     if (!cfg.models[model].active) {
-      fail(src, `review.${provider} names "${model}", which is \`active: false\` — a cross-check cannot run on a model that is switched off`)
+      fail(src, `${key} names "${model}", which is \`active: false\` — a cross-check cannot run on a model that is switched off`)
     }
     if (cfg.models[model].provider === provider) {
-      fail(src, `review.${provider} names "${model}", which runs on ${provider} itself — a cross-check reads the diff on the OTHER provider`)
+      fail(src, `${key} names "${model}", which runs on ${provider} itself — a cross-check reads the diff on the OTHER provider`)
+    }
+  }
+  const review = {}
+  for (const [key, value] of Object.entries(cfg.review)) {
+    if (value === null) continue
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      if (providers.has(key)) fail(src, `review.${key} is a provider row and must name one model, not a mapping`)
+      const rows = Object.fromEntries(Object.entries(value).filter(([, model]) => model !== null))
+      for (const [provider, model] of Object.entries(rows)) checkPairing(`review.${key}.${provider}`, provider, model)
+      if (Object.keys(rows).length) review[key] = rows
+      continue
+    }
+    checkPairing(`review.${key}`, key, value)
+    review[key] = value
+  }
+  cfg.review = review
+
+  // The cheapest model of each provider (#891): what the routing preset moves
+  // a row on a provider's cheapest model to when the row cannot run, so the
+  // Test run's tickets stay on the cheap tier whichever provider signs in.
+  // Optional, because a routing file from before the key routes as it did.
+  cfg.cheapest = cfg.cheapest ?? {}
+  if (typeof cfg.cheapest !== 'object' || Array.isArray(cfg.cheapest)) {
+    fail(src, '`cheapest` must be a mapping of provider → model')
+  }
+  for (const [provider, model] of Object.entries(cfg.cheapest)) {
+    if (!providers.has(provider)) {
+      fail(src, `cheapest.${provider} names a provider no configured model runs on — configured providers: ${[...providers].join(', ')}`)
+    }
+    if (typeof model !== 'string' || !cfg.models[model]) fail(src, `cheapest.${provider} names unknown model "${model}"`)
+    if (cfg.models[model].provider !== provider) {
+      fail(src, `cheapest.${provider} names "${model}", which runs on ${cfg.models[model].provider} — the cheapest model of a provider runs on that provider`)
     }
   }
 

@@ -41,7 +41,7 @@ const gate = (over = {}) => ({
       commands: ['start'], confirmation: { id: '900', at: '2026-09-02T09:00:00.000Z', posted: false, url: 'https://discord.com/channels/200/400/900' }, bridge: 'up',
     },
     tailscale: { address: 'curia.tail1234.ts.net', app_url: 'https://curia.tail1234.ts.net:8445/', operator: 'alp@example.com', admitted_ms: 12 },
-    model: { provider: 'anthropic', model: 'fable', request: null, rows: [], providers: { openai: 'unconnected', anthropic: 'connected' } },
+    model: { provider: 'anthropic', model: 'fable', test_run: { model: 'haiku', id: 'haiku', effort: 'low' }, request: null, rows: [], providers: { openai: 'unconnected', anthropic: 'connected' } },
     ...over,
   },
 })
@@ -198,6 +198,7 @@ describe('the Test run as the installation acceptance (#882, #891)', () => {
     const s = loop.status()
     assert.equal(s.state, 'idle')
     assert.equal(s.repo, null)
+    assert.equal(s.model, null)
     assert.equal(s.map, null)
     assert.deepEqual(s.tickets, [])
     assert.deepEqual(s.legs.map((l) => l.state), LEGS.map(() => 'pending'))
@@ -210,7 +211,7 @@ describe('the Test run as the installation acceptance (#882, #891)', () => {
     assert.deepEqual(tracker.calls, [])
   })
 
-  test('the press creates the map and its two tickets, blocked in order and marked rehearsal, then discovers and dispatches ticket 1 of 2', async () => {
+  test('the press creates the map and its two tickets, blocked in order, typed test-run and marked rehearsal, then discovers and dispatches ticket 1 of 2', async () => {
     const s = await loop.start(gate())
     assert.equal(s.state, 'running')
     assert.equal(s.repo, 'o/r')
@@ -224,7 +225,12 @@ describe('the Test run as the installation acceptance (#882, #891)', () => {
     assert.match(map.body, /## Not yet specified/)
     const t1 = tracker.issues.get(T1)
     assert.equal(t1.title, 'Add a line to the README')
-    assert.deepEqual(t1.labels, ['wayfinder:task', 'rehearsal'])
+    // The tickets carry a type of their own (#891): `test-run` is the row
+    // routing gives the cheapest model at its lowest effort, for the agent and
+    // for the cross-check alike, so the acceptance never spends the frontier
+    // model. The type label comes first, because the router reads the first
+    // `wayfinder:` label.
+    assert.deepEqual(t1.labels, ['wayfinder:test-run', 'rehearsal'])
     assert.match(t1.body, /Append one line to the bottom of `README\.md`/)
     assert.match(t1.body, /Create the file if it doesn't exist/)
     assert.match(t1.body, /Curia Test run, September 2, 2026\./)
@@ -233,6 +239,12 @@ describe('the Test run as the installation acceptance (#882, #891)', () => {
     assert.equal(t2.title, 'Remove the Test run line from the README')
     assert.match(t2.body, new RegExp(`Blocked by #${T1}`))
     assert.match(t2.body, /delete the file/)
+    assert.deepEqual(t2.labels, ['wayfinder:test-run', 'rehearsal'])
+    // The run says what it runs on (#891): the provider and the test-run
+    // row's model and effort, read off the press's own row.
+    assert.deepEqual(s.model, { provider: 'anthropic', model: 'haiku', id: 'haiku', effort: 'low' })
+    assert.deepEqual(j.rows[0].type, 'full_loop_started')
+    assert.deepEqual(JSON.parse(j.rows[0].body).test_run, { model: 'haiku', id: 'haiku', effort: 'low' })
     // The status names them, and the ticket in flight.
     assert.deepEqual(s.map, { number: MAP, title: 'Test run September 2, 2026', url: `https://github.com/o/r/issues/${MAP}` })
     assert.deepEqual(s.tickets.map((t) => [t.index, t.number, t.state]), [[1, T1, 'running'], [2, T2, 'pending']])
