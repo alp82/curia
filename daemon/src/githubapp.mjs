@@ -215,6 +215,65 @@ export function assertManifest(manifest) {
   if (manifest.hook_attributes !== undefined && !manifest.hook_attributes?.url) {
     throw new Error('the GitHub App manifest carries "hook_attributes" without "hook_attributes.url", which GitHub requires even for an inactive webhook')
   }
+  // The operator authorization (#891, ADR-0031) is what the install step
+  // produces. Without the request the callback never runs, and without the
+  // callback GitHub has nowhere to send the code.
+  if (manifest.request_oauth_on_install !== true) {
+    throw new Error('the GitHub App manifest does not set "request_oauth_on_install", so installing the App would not authorize curia for the operator')
+  }
+  if (!Array.isArray(manifest.callback_urls) || !manifest.callback_urls.length) {
+    throw new Error('the GitHub App manifest carries no "callback_urls", so GitHub would have nowhere to send the operator authorization code')
+  }
+}
+
+// The name GitHub writes as the App's slug: lowercase, every run of anything
+// but a letter or a digit as one dash, no dash at either end.
+export function appSlugOf(name) {
+  return String(name ?? '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+}
+
+// The default App name, and the fallback the card offers when GitHub has it
+// already (#891). An App name is unique across the whole of GitHub, so the
+// node name is what makes a second installation's name its own. GitHub caps
+// the name at 34 characters, and `start()` refuses a longer one.
+export const DEFAULT_APP_NAME = 'curia.sh'
+
+export function suggestedAppName(name, nodeName) {
+  const base = String(name ?? DEFAULT_APP_NAME).trim() || DEFAULT_APP_NAME
+  const node = String(nodeName ?? '').trim().toLowerCase() || '2'
+  return `${base}-${node}`.slice(0, 34)
+}
+
+// Whether GitHub already has an App of this name, read before the handoff.
+// GitHub's consent page says "Name has already been taken" only after the
+// operator has left curia, and nothing comes back to curia from that page.
+// `GET /apps/<slug>` answers the App GitHub has, unauthenticated, so the card
+// can refuse the start with GitHub's own fact and offer another name. A
+// GitHub that does not answer is not a refusal: the consent page still says
+// it, and the read is a courtesy rather than a gate.
+export async function appNameTaken(name, { fetchImpl = globalThis.fetch } = {}) {
+  const slug = appSlugOf(name)
+  if (!slug) return { taken: false }
+  let res
+  try {
+    res = await fetchImpl(`${API}/apps/${encodeURIComponent(slug)}`, {
+      headers: { accept: 'application/vnd.github+json', 'x-github-api-version': API_VERSION, 'user-agent': 'curia' },
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+    })
+  } catch (e) {
+    return { taken: false, unknown: e.message }
+  }
+  if (res.status === 404) return { taken: false }
+  if (!res.ok) return { taken: false, unknown: `GitHub answered HTTP ${res.status}` }
+  let app = null
+  try { app = JSON.parse(await res.text()) } catch { app = null }
+  return {
+    taken: true,
+    slug: app?.slug ?? slug,
+    name: app?.name ?? name,
+    owner: app?.owner?.login ?? null,
+    url: app?.html_url ?? `https://github.com/apps/${slug}`,
+  }
 }
 
 function atomicWrite(file, text, mode = 0o600) {
@@ -293,6 +352,19 @@ export class GitHubAppSetup {
     }
   }
 
+  // The screen the last setup started from (#891): where the authorization
+  // callback lands the browser, since an install follows the creation. With
+  // no record at all the Setup screen is the one place an install can have
+  // been started from.
+  startedFrom() {
+    try {
+      const record = this.#readState()
+      return APP_SETUP_SCREENS.includes(record.screen) ? record.screen : 'settings'
+    } catch {
+      return 'setup'
+    }
+  }
+
   status() {
     try {
       const record = this.#readState()
@@ -341,10 +413,22 @@ export class GitHubAppSetup {
     // rehearsal (#891) found GitHub refusing the manifest with
     // `"url" wasn't supplied` for exactly that. Curia polls and listens for no
     // webhook, so the block is absent rather than half-filled.
+    //
+    // The operator authorization rides the install (#891, ADR-0031):
+    // `request_oauth_on_install` makes GitHub run the user authorization the
+    // moment the operator installs the App, and `setup_on_update` repeats it
+    // on every later change to an installation, which is what makes a
+    // reinstall the cure for a lost authorization. The code comes back to
+    // `callback_urls`, the authorize route beside the conversion route. No
+    // `setup_url`: GitHub sends the operator to the callback instead when the
+    // authorization is requested.
     const manifest = {
       name: appName,
       url: redirect.origin,
       redirect_url: redirect.toString(),
+      callback_urls: [new URL('authorize', redirect).toString()],
+      request_oauth_on_install: true,
+      setup_on_update: true,
       public: true,
       default_permissions: { ...MANIFEST_PERMISSIONS },
       default_events: [],
@@ -386,7 +470,15 @@ export class GitHubAppSetup {
     if (!payload?.id || !payload?.slug || !payload?.pem) throw new Error('GitHub converted the App manifest without an id, slug, or private key, so there is nothing to store')
     if (!samePermissions(payload.permissions)) throw new Error('GitHub converted the App with permissions that differ from Curia\'s requested five')
     if (!Array.isArray(payload.events) || payload.events.length) throw new Error('GitHub converted the App with webhook events, but Curia requests none')
-    return { id: String(payload.id), slug: String(payload.slug), pem: String(payload.pem) }
+    // The client id and secret are what the operator authorization is
+    // exchanged and refreshed with (#891). An App converted without them
+    // could be installed and never authorized, so the conversion is refused
+    // rather than stored half.
+    if (!payload.client_id || !payload.client_secret) throw new Error('GitHub converted the App manifest without a client id or client secret, so the operator authorization could never be exchanged')
+    return {
+      id: String(payload.id), slug: String(payload.slug), pem: String(payload.pem),
+      client_id: String(payload.client_id), client_secret: String(payload.client_secret),
+    }
   }
 
   storeApp(payload) {
@@ -786,10 +878,14 @@ export class TokenMinter {
 }
 
 // The app under an installation root (#867): one owner-only secret file,
-// `secrets/github-app.json`, holding `{ "id": "<app id>", "pem": "<key>" }`.
-// The reader refuses a link, a foreign owner, or a broad mode before the
-// value is read, so a key that reaches past its owner never boots. Absent is
-// legal, as with the env keys: no app is a box that can watch and not dispatch.
+// `secrets/github-app.json`, holding `{ "id": "<app id>", "pem": "<key>" }`,
+// and since #891 the App's `client_id` and `client_secret` beside them, which
+// the operator authorization (githuboperator.mjs) is exchanged and refreshed
+// with. The reader refuses a link, a foreign owner, or a broad mode before
+// the value is read, so a key that reaches past its owner never boots. Absent
+// is legal, as with the env keys: no app is a box that can watch and not
+// dispatch. An App converted before #891 has no client secret, and `client`
+// is then null: the App still mints, and the card says what to do.
 export const APP_SECRET = 'github-app.json'
 
 export function appConfigFromRoot(root) {
@@ -817,11 +913,16 @@ export function appConfigFromRoot(root) {
   } catch (e) {
     throw new Error(`${file} does not hold a readable private key: ${e.message}`)
   }
-  return { appId, key, keyFile: file }
+  const clientId = String(data?.client_id ?? '').trim()
+  const clientSecret = String(data?.client_secret ?? '').trim()
+  const client = clientId && clientSecret ? { id: clientId, secret: clientSecret } : null
+  return { appId, key, keyFile: file, client }
 }
 
-export function appSecretJson({ id, pem }) {
-  return `${JSON.stringify({ id: String(id), pem: String(pem) }, null, 2)}\n`
+export function appSecretJson({ id, pem, client_id: clientId = null, client_secret: clientSecret = null }) {
+  const record = { id: String(id), pem: String(pem) }
+  if (clientId && clientSecret) Object.assign(record, { client_id: String(clientId), client_secret: String(clientSecret) })
+  return `${JSON.stringify(record, null, 2)}\n`
 }
 
 // The minter for this box, or null when no app is set up yet. One function so

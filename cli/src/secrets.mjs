@@ -28,6 +28,11 @@ export const SECRET_FILES = Object.freeze([
     writer: 'the GitHub integration step of setup, from the manifest conversion',
   }),
   Object.freeze({
+    name: 'github-operator.json',
+    holds: 'your own GitHub authorization, exchanged when you install the App: the user token, its refresh token, their expiry, and the login',
+    writer: 'the GitHub integration step of setup, when GitHub sends you back from the installation, and the service on refresh',
+  }),
+  Object.freeze({
     name: 'anthropic.json',
     holds: 'the Anthropic subscription credential the service adopted',
     writer: 'the Anthropic integration step of setup, or `reauth anthropic`',

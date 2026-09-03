@@ -4824,6 +4824,53 @@ describe('integration setup (#874)', () => {
     assert.doesNotMatch(html, /Try again/)
   })
 
+  // The name defaults to `curia.sh` (#891), and an App name is unique across
+  // GitHub: a start the daemon refuses because GitHub has the name already
+  // comes back with a suggestion, and the card prefills it with one sentence
+  // saying why.
+  test('the App name defaults to curia.sh, and a taken name is replaced by the suggested one with the reason', async () => {
+    page.setup = SETUP({ cards: { github: { state: 'unconnected', badge: 'Ready to connect' } } })
+    const p = payload()
+    p.overview.github_app = APP({ configured: false, status: 'unconfigured', app: null, owners: [] })
+    assert.match(page.screenSetup(p), /id="setup-github-app-name" value="curia\.sh"/)
+
+    page = loadPage({
+      fetchImpl: async (url, init = {}) => {
+        const body = init.body ? JSON.parse(init.body) : null
+        if (url === '/api/github-app/start') {
+          return { ok: true, json: async () => ({
+            action: { action_id: body.action_id, kind: 'github-app-setup', status: 'refused', reason: 'GitHub already has an App named curia.sh (owned by alp82), and App names are unique across GitHub. Try curia.sh-curia-ubuntu' },
+            suggestion: 'curia.sh-curia-ubuntu',
+          }) }
+        }
+        return { ok: true, json: async () => (init.method === 'POST' ? { ok: true } : SETUP()) }
+      },
+    })
+    page.UI.screen = 'setup'
+    page.setup = SETUP({ cards: { github: { state: 'unconnected', badge: 'Ready to connect' } } })
+    page.payload = p
+    page.document.getElementById = (id) => (id === 'setup-github-app-name' ? { value: 'curia.sh' } : null)
+    vm.runInContext('doSetupGitHubApp()', page)
+    for (let i = 0; i < 4; i += 1) await new Promise((resolve) => setImmediate(resolve))
+    assert.equal(page.setup.progress.github.app_name, 'curia.sh-curia-ubuntu')
+    const html = page.screenSetup(p)
+    assert.match(html, /id="setup-github-app-name" value="curia\.sh-curia-ubuntu"/)
+    assert.match(text(html), /App names are unique across GitHub/)
+    assert.doesNotMatch(html, /Try again/)
+  })
+
+  test('step 2 says the install authorizes curia as the operator, and a connected card names who approves', () => {
+    page.setup = SETUP({ cards: { github: { state: 'unconnected', badge: 'Step 2 of 3', detail: { step: 'install', owners: [], covered: [], watched: [], available: [], install_url: 'https://github.com/apps/curia-sh/installations/new' } } } })
+    const p = payload()
+    p.overview.github_app = APP({ owners: [] })
+    assert.match(text(page.screenSetup(p)), /Installing the App also authorizes Curia as you/)
+
+    page.setup = SETUP({ cards: { github: { ...ALL.github, detail: { step: 'done', owners: [{ owner: 'alp82', installed: true }], covered: ['alp82/curia'], watched: ['alp82/curia'], available: ['alp82/curia'], open_tickets: 0, ticket: null, operator: { login: 'alp' } } } } })
+    const html = page.screenSetup(p)
+    assert.match(text(html), /Approvals post as alp/)
+    assert.doesNotMatch(html, /ghu_/)
+  })
+
   test('Create GitHub App remembers the name as safe progress, then starts the manifest handoff from the Setup screen', async () => {
     page.setup = SETUP({ cards: { github: { state: 'unconnected', badge: 'Ready to connect' } } })
     page.payload = payload()

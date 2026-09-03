@@ -4603,9 +4603,11 @@ export class Dispatcher {
 
   // ---- the press, submitted to GitHub (#391, ADR-0018) -------------------------
 
-  // One approving review on the pull request the gate showed, posted under the
-  // OPERATOR's own `gh` login. `approvePullRequest` says why that login and no
-  // other. What this method owns is which pull request, and what a failure means.
+  // One approving review on the pull request the gate showed, posted as the
+  // OPERATOR: the host `gh` login on the source box, the operator's own
+  // authorization under an installation root (#891, ADR-0031).
+  // `approvePullRequest` says why that account and no other. What this method
+  // owns is which pull request, and what a failure means.
   //
   // THE PULL REQUEST IS RE-READ. The gate opened with one read, and a human takes
   // hours to answer — so the state at the press is the state that decides, not

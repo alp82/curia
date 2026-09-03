@@ -1,6 +1,6 @@
 # ADR-0018: The daemon is a GitHub App
 
-**Status**: accepted (2026-08). Built. The minting core shipped with this ADR, and every holder cut over on its own ticket: the agents on [#389](https://github.com/alp82/curia/issues/389), the daemon's own `gh` on [#390](https://github.com/alp82/curia/issues/390), the overseer on [#392](https://github.com/alp82/curia/issues/392). The gate approval and branch protection followed on [#391](https://github.com/alp82/curia/issues/391). The last PAT retired on [#466](https://github.com/alp82/curia/issues/466), which is where this ADR is fully built.
+**Status**: accepted (2026-08). Built. The host-login part of the gate approval is superseded for packaged installations by [ADR-0031](0031-the-operator-authorizes-curia-when-the-app-is-installed.md). The minting core shipped with this ADR, and every holder cut over on its own ticket: the agents on [#389](https://github.com/alp82/curia/issues/389), the daemon's own `gh` on [#390](https://github.com/alp82/curia/issues/390), the overseer on [#392](https://github.com/alp82/curia/issues/392). The gate approval and branch protection followed on [#391](https://github.com/alp82/curia/issues/391). The last PAT retired on [#466](https://github.com/alp82/curia/issues/466), which is where this ADR is fully built.
 **Provenance**: [A GitHub App replaces the PAT (#338)](https://github.com/alp82/curia/issues/338), [The daemon becomes a GitHub App: one key, minted tokens (#352)](https://github.com/alp82/curia/issues/352)
 
 ## Context
@@ -36,7 +36,7 @@ Five costs come out of that shape.
 
 - **The claim assigns the operator, not the bot.** A claim is an issue assignee, and GitHub does not let an App be one. `gh api user` also answers nothing under an installation token, which is where `viewerLogin()` reads the name today. So the daemon calls as `curia-sh[bot]` and assigns a login it reads from `dispatch.claim_login` in `config/curia.yaml`.
 
-- **The gate approval is the operator's own.** On the ✅ press the daemon submits a real GitHub approval with the host `gh` login. An app cannot approve for a human, and an app-minted approval on an app-authored pull request is a self-approval again. So the host login does not retreat whole. It keeps exactly one job on the daemon, beside dev sessions and the deploy sibling.
+- **The gate approval is the operator's own.** On the ✅ press the daemon submits a real GitHub approval with the host `gh` login. An app cannot approve for a human, and an app-minted approval on an app-authored pull request is a self-approval again. So the host login does not retreat whole. It keeps exactly one job on the daemon, beside dev sessions and the deploy sibling. Amended by [ADR-0031](0031-the-operator-authorizes-curia-when-the-app-is-installed.md): a packaged installation has no host login, so there the approval runs on the operator's own authorization, granted when the operator installs the App. The source deployment keeps the host login for this job.
 
 - **The agent keeps `gh pr merge`.** The merge is the one write to the remote an agent owns, in the standing orders, in the Stop hook and in [ADR-0008](0008-resolved-means-merged.md). Branch protection is satisfied by the operator's approval, so the bot's merge goes through and nothing about the ending changes.
 

@@ -3637,7 +3637,7 @@ function setConnections(p) {
       : `<p class="unread">No GitHub App is configured. Create one from the Curia app.</p>`;
   const setupAction = actionFor({ conflict_key: "github-app:setup" });
   const refreshAction = actionFor({ conflict_key: "github-app:installations" });
-  const create = app.configured ? "" : `<p><input id="github-app-name" value="curia-box" aria-label="GitHub App name">
+  const create = app.configured ? "" : `<p><input id="github-app-name" value="${esc(UI.githubAppName || "curia.sh")}" aria-label="GitHub App name">
     <button class="btn primary" ${setupAction ? "disabled" : ""} onclick="doGitHubAppSetup()">Create GitHub App</button></p>
     ${setupAction ? `<p class="qhint">${esc(setupAction.progress || "Starting GitHub App setup")}</p>` : ""}
     ${said("github-app")}`;
@@ -4714,7 +4714,11 @@ async function doSetupGitHubApp() {
 /* The manifest handoff (#694). The service prepares the manifest and the
    state; the browser posts the manifest to GitHub's own page, where the
    operator reviews it and presses once. Nothing about the account crosses
-   here. `screen` is where GitHub's redirect lands afterwards. */
+   here. `screen` is where GitHub's redirect lands afterwards.
+
+   A name GitHub has already (#891) comes back as a refused start with a
+   suggestion, `curia.sh-<node name>`, which the card prefills: App names are
+   unique across GitHub, and the refusal's own sentence says so. */
 async function startGitHubApp(name, screen) {
   const actionId = `app-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}`;
   const action = beginAction({
@@ -4725,6 +4729,12 @@ async function startGitHubApp(name, screen) {
   UI.act.said = null;
   render();
   const out = await githubAppAction("github-app", "/api/github-app/start", actionId, { name, screen });
+  if (out?.suggestion) {
+    UI.githubAppName = out.suggestion;
+    if (screen === "setup") await rememberSetupProgress("github", { app_name: out.suggestion });
+    render();
+    return;
+  }
   const setup = out?.setup;
   if (!setup?.action || !setup?.manifest) return;
   const form = document.createElement("form");
@@ -5236,7 +5246,9 @@ function setupGitHub(card, progress, p) {
         <span class="dim-note">${esc(detail.open_tickets)} open ticket${detail.open_tickets === 1 ? "" : "s"} in ${esc((detail.covered ?? []).join(", "))}.</span></div>`
       : `<div class="setup-note">No open ticket is ready for an agent in ${esc((detail.covered ?? []).join(", "))}. Curia starts work when one carries <code>ready-for-agent</code>.</div>`;
     const owners = setupGitHubOwners(detail, app);
-    return `${identity}${owners ? `<div class="rows">${owners}</div>` : ""}${found}${setupGitHubRepos(card, detail)}`;
+    const approver = detail?.operator?.login
+      ? `<div class="rows"><div class="row"><span class="key grow">Approvals post as</span><span>${esc(detail.operator.login)}</span></div></div>` : "";
+    return `${identity}${approver}${owners ? `<div class="rows">${owners}</div>` : ""}${found}${setupGitHubRepos(card, detail)}`;
   }
   const guide = setupStepper(card);
   const step = setupStepAt(card)?.n ?? 1;
@@ -5244,11 +5256,11 @@ function setupGitHub(card, progress, p) {
     const action = actionFor({ conflict_key: "github-app:setup" });
     const pending = app?.status === "pending"
       ? `<p class="qhint">A GitHub App setup is pending until ${esc(ago(app.expires_at))}. Finish it on GitHub, or start again with a new name.</p>` : "";
-    return `${guide}<p><input id="setup-github-app-name" value="${esc(progress?.app_name || "curia-box")}" aria-label="GitHub App name">
+    return `${guide}<p><input id="setup-github-app-name" value="${esc(progress?.app_name || UI.githubAppName || "curia.sh")}" aria-label="GitHub App name">
       <button class="btn primary" ${action ? "disabled" : ""} onclick="doSetupGitHubApp()">Create GitHub App</button></p>
       ${action ? `<p class="qhint">${esc(action.progress || "Starting GitHub App setup")}</p>` : ""}
       ${pending}${said("github-app")}
-      <p class="qhint">GitHub slugifies the name, and Curia posts as <code>&lt;slug&gt;[bot]</code>. The name must be free across GitHub.</p>`;
+      <p class="qhint">GitHub slugifies the name, and Curia posts as <code>&lt;slug&gt;[bot]</code>. App names are unique across GitHub, so a taken name is replaced here by <code>curia.sh-&lt;node name&gt;</code>.</p>`;
   }
   if (step === 2) return `${guide}${identity}${setupGitHubInstall(card, detail, app)}`;
   return `${guide}${identity}${setupGitHubRepos(card, detail)}`;
@@ -5274,9 +5286,10 @@ function setupGitHubInstall(card, detail, app) {
   const wait = card.state === "unconnected"
     ? `<p class="qhint">Waiting for an installation that covers a repository. Curia checks again every ${esc(every)} seconds while this panel is open, and the repositories appear here on their own.</p>`
     : "";
+  const authorizes = `<p class="qhint">Installing the App also authorizes Curia as you, once, on GitHub's own page. Curia posts your review-gate approvals under that authorization and never asks you to sign in by hand.</p>`;
   const then = card.state === "failed" ? " Then select <b>Try again</b>." : "";
-  if (owners) return `<p>Install the App for each owner you watch, and grant it the watched repositories.${then}</p><div class="rows">${owners}</div>${wait}`;
-  return `<p>Install the App on the account that owns your repositories: <a href="${esc(installUrl)}" target="_blank" rel="noopener">Install the App on GitHub</a>. On GitHub, <b>Only select repositories</b> is enough.${then}</p>${wait}`;
+  if (owners) return `<p>Install the App for each owner you watch, and grant it the watched repositories.${then}</p><div class="rows">${owners}</div>${authorizes}${wait}`;
+  return `<p>Install the App on the account that owns your repositories: <a href="${esc(installUrl)}" target="_blank" rel="noopener">Install the App on GitHub</a>. On GitHub, <b>Only select repositories</b> is enough.${then}</p>${authorizes}${wait}`;
 }
 function githubSetupWaiting() {
   const card = setupCardOf("github");
@@ -5405,7 +5418,7 @@ function setupDiscord(card, progress) {
 
 function setupDiscordGuide() {
   return `<ol class="setup-steps">
-    <li>Open the <a href="https://discord.com/developers/applications" target="_blank" rel="noopener">Discord developer portal</a> and select <b>New Application</b>. Name it for this installation, for example <code>curia-box</code>.</li>
+    <li>Open the <a href="https://discord.com/developers/applications" target="_blank" rel="noopener">Discord developer portal</a> and select <b>New Application</b>. Name it for this installation, for example <code>curia.sh</code>.</li>
     <li>Under <b>Bot</b>, turn on <b>Message Content Intent</b>, then select <b>Reset Token</b> and copy the token. Discord shows it once.</li>
     <li>In Discord, turn on <b>Developer Mode</b> under <b>Settings</b> &gt; <b>Advanced</b>, then copy your user ID from your profile menu.</li>
   </ol>`;

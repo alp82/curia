@@ -62,6 +62,8 @@ The Setup screen. A failed card reads **Action required** with the failed check 
 | **Setup** says it can't reach the service | The `daemon` container is down. | Run `curia doctor`, then read `docker compose -p curia logs daemon`. |
 | GitHub: `curia's GitHub App is not installed on <owner>` | The App exists but isn't installed for a watched owner. | Install it from the panel's link and grant the watched repositories. |
 | GitHub: the conversion failed | GitHub's one-hour code expired or the round trip broke. | Select **Create GitHub App** again. |
+| GitHub: `GitHub already has an App named curia.sh` | App names are unique across GitHub. | Keep the prefilled `curia.sh-<node name>` and select **Create GitHub App** again. |
+| GitHub: the card says curia holds no GitHub authorization for you, or that GitHub refused it | The authorization GitHub asks for when you install the App didn't land, expired, or was revoked. | Reinstall the App from the panel's link, which asks for the authorization again. |
 | Discord: Discord refuses the token | A reset or mistyped token. | Paste a fresh token from the developer portal; the panel puts the form first. |
 | Discord: `The bot is not in the selected server` | The bot wasn't added. | Select **Add the bot to a server** and approve it in Discord. |
 | Discord: `curia can't Send Messages in #curia`, or another permission | The channel's permissions block the bot. | Allow the named permission for the bot in that channel. |
@@ -70,6 +72,7 @@ The Setup screen. A failed card reads **Action required** with the failed check 
 | Discord: verified, but the bot doesn't answer | The bridge's login failed or is still starting; the panel says `The bridge isn't running yet` or `The bridge is starting`. | Select **Try again** on the card, which starts the bridge when the token is on disk, and read the service log for a login Discord refused. |
 | Tailscale: no certificate, node offline, or Serve refused | The tailnet's HTTPS certificates were turned off, the node was logged out, or the operator permission was removed since the install. | Enable HTTPS certificates under **DNS** in the admin console, run `curia install` (or `sudo tailscale up`) to log the node in again, or run `sudo tailscale set --operator=$USER`. |
 | AI logins: the link or code doesn't show | The sign-in session hasn't started, or the agent image is still being prepared on a fresh installation. | Wait a minute, then select **Open the terminal instead** to watch the session. |
+| The terminal page is blank while the rest of the app works | The browser's WebSocket is blocked, which a browser VPN or a proxying extension does (Vivaldi's VPN was one case). | Open the link in another browser, or with the VPN or extension off. |
 | AI logins: `refused the credential (HTTP 401` or `403)` | The credential expired or was revoked. | Sign in again from the panel. |
 | AI logins: HTTP 429 | The subscription's usage window is spent. | Wait for it to reset, or sign in with another subscription. |
 | AI logins: can't be reached | No outbound access to the provider. | Run `curia doctor`; check [Network](../supported-hosts.md#network). |

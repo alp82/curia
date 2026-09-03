@@ -321,7 +321,7 @@ const WATCH_REPO_RE = /^[\w.-]+\/[\w.-]+$/
 // offline and the GitHub card answering 403 with a narrower window. The
 // terminal, the chat, and every verb stay refused until an operator is
 // confirmed.
-const FIRST_OPERATOR_PATHS = /^\/(?:$|index\.html$|favicon\.ico$|api\/overview$|api\/setup(?:\/|$)|api\/github-app\/(?:start|complete)$)/
+const FIRST_OPERATOR_PATHS = /^\/(?:$|index\.html$|favicon\.ico$|api\/overview$|api\/setup(?:\/|$)|api\/github-app\/(?:start|complete|authorize)$)/
 // How the app keeps asking the daemon for its allowlist at boot (#891):
 // every 2 s, for up to a minute, until the daemon has answered once.
 const IDENTITY_RETRY_MS = 2_000
@@ -1184,9 +1184,13 @@ export class DashboardSurface {
           // redirect would be a way to send that code somewhere else. The
           // `Host` header is whatever the caller wrote; `link()` is what
           // tailscale says this box is.
-          const redirectUrl = new URL('api/github-app/complete', await this.link()).toString()
+          const link = await this.link()
+          const redirectUrl = new URL('api/github-app/complete', link).toString()
+          // The node name, for the name the card suggests when GitHub has
+          // this one already (#891): the first label of curia's own address.
+          const node = new URL(link).hostname.split('.')[0]
           return this.#daemon({
-            method: 'POST', path: '/github-app/start', body: { name, redirect_url: redirectUrl, action_id: actionId, screen }, accept: [200, 400],
+            method: 'POST', path: '/github-app/start', body: { name, redirect_url: redirectUrl, action_id: actionId, screen, node }, accept: [200, 400],
           })
         })
       }
@@ -1528,6 +1532,24 @@ export class DashboardSurface {
         (out) => {
           if (out.error) return this.#json(res, 400, out)
           res.writeHead(303, { location: out.screen === 'setup' ? '/#setup' : '/#settings' })
+          res.end()
+        },
+        (e) => this.#json(res, 500, { error: e.message }),
+      )
+    }
+    // The operator authorization callback (#891, ADR-0031). GitHub sends the
+    // operator here after they install the App, with a one-use code, and the
+    // exchange stays inside the daemon: this surface forwards the three query
+    // fields and lands the browser on the screen the daemon names.
+    if (url.pathname === '/api/github-app/authorize') {
+      const q = new URLSearchParams()
+      q.set('code', String(url.searchParams.get('code') ?? ''))
+      q.set('installation_id', String(url.searchParams.get('installation_id') ?? ''))
+      q.set('setup_action', String(url.searchParams.get('setup_action') ?? ''))
+      return this.#daemon({ path: `/github-app/authorize?${q}`, accept: [200, 400] }).then(
+        (out) => {
+          if (out.error) return this.#json(res, 400, out)
+          res.writeHead(303, { location: out.screen === 'settings' ? '/#settings' : '/#setup' })
           res.end()
         },
         (e) => this.#json(res, 500, { error: e.message }),

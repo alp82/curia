@@ -44,6 +44,16 @@
 // card. An owner on the watch list with no installation is a fact the detail
 // carries (`owners[].installed`), and it is called missing only when no
 // watched owner is installed at all.
+//
+// THE OPERATOR'S OWN AUTHORIZATION IS PROVED HERE TOO (#891, ADR-0031). The
+// gate approval is posted as the operator, on the token GitHub handed the
+// App when the operator installed it (githuboperator.mjs). So once an
+// installation exists the card asks that token who it stands for, reports
+// the login as a fact (`detail.operator.login`), and fails, at the install
+// step, when curia holds none or GitHub refuses it: the cure is to reinstall
+// the App from the panel's link, which repeats the authorization. The source
+// deployment wires no operator and keeps its host login, so the card says
+// nothing about it there.
 
 import { api, WRITE_PERMISSIONS, installUrlFor, listInstallationRepos, mintInstallationToken } from './githubapp.mjs'
 
@@ -81,7 +91,7 @@ async function readTickets(repo, { token, fetchImpl }) {
 // `minter` and `watch` are read on every call rather than held: the App is
 // adopted in process when the manifest flow completes, and the watch list
 // changes on a settings save, and the card has to see both without a restart.
-export function githubVerifier({ minter, watch, fetchImpl = globalThis.fetch }) {
+export function githubVerifier({ minter, watch, operator = () => null, fetchImpl = globalThis.fetch }) {
   return async function verifyGitHub() {
     const app = minter()
     if (!app) return { ok: false, unconnected: true, detail: { step: 'create' } }
@@ -155,6 +165,24 @@ export function githubVerifier({ minter, watch, fetchImpl = globalThis.fetch }) 
       tokens.set(owner.toLowerCase(), minted)
     }
 
+    // The operator's authorization, once an installation exists to have
+    // produced it. Asked before the watch step so a callback that never
+    // landed is met right after the install, and before the tickets so a
+    // token GitHub refuses reads nothing.
+    const auth = installs.length ? operator() : null
+    if (auth) {
+      try {
+        detail.operator = await auth.verify()
+      } catch (e) {
+        return {
+          ok: false,
+          failed: e.message,
+          action: 'Reinstall the App from the link in this panel, which authorizes curia as you again, then try again.',
+          detail,
+        }
+      }
+    }
+
     if (detail.available.length) detail.step = 'watch'
     // Nothing watched yet is the fresh installation on its way: the install
     // step until an installation covers a repository, the choice after.
@@ -201,7 +229,7 @@ export function githubVerifier({ minter, watch, fetchImpl = globalThis.fetch }) 
     }
     const first = tokens.get(ownerOf(detail.covered[0]).toLowerCase())
     const capabilities = Object.keys(CAPABILITY_NAMES).filter((k) => first.permissions?.[k]).map((k) => CAPABILITY_NAMES[k])
-    const ready = `${list(capabilities, 'and')} ready`
+    const ready = `${list(capabilities, 'and')} ready${detail.operator?.login ? ` · approvals as ${detail.operator.login}` : ''}`
     const tickets = `${open} open ticket${open === 1 ? '' : 's'}`
     const repoLine = detail.covered.length > 1 ? `${detail.covered[0]} + ${detail.covered.length - 1} more` : detail.covered[0]
     Object.assign(detail, { step: 'done', open_tickets: open, ticket })

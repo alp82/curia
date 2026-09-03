@@ -1029,6 +1029,8 @@ describe('the operator verbs (#266)', () => {
       '/github-app/complete?code=one-use&state=expected': [200, { ok: true, app: { id: '42', slug: 'curia-box' }, screen: 'settings' }],
       '/github-app/complete?code=from-setup&state=expected': [200, { ok: true, app: { id: '42', slug: 'curia-box' }, screen: 'setup' }],
       '/github-app/installations': [200, { ok: true, reply: 'Read 1 installation: alp82', installations: { state: 'read' } }],
+      '/github-app/authorize?code=after-install&installation_id=7&setup_action=install': [200, { ok: true, login: 'alp', screen: 'setup' }],
+      '/github-app/authorize?code=stale&installation_id=&setup_action=': [400, { error: 'GitHub refused the authorization code' }],
     }
     daemon = http.createServer((r, res) => {
       let buf = ''
@@ -1119,6 +1121,9 @@ describe('the operator verbs (#266)', () => {
       redirect_url: 'https://box.tail1234.ts.net:8445/api/github-app/complete',
       action_id: actionId,
       screen: 'settings',
+      // The node name rides along for the taken-name suggestion (#891),
+      // read off curia's own address and never off the caller.
+      node: 'box',
     })
 
     const completed = await req(surface.port, '/api/github-app/complete?code=one-use&state=expected', { headers: served() })
@@ -1141,6 +1146,21 @@ describe('the operator verbs (#266)', () => {
     const bad = await press('/api/github-app/start', { name: 'curia-box', action_id: 'app-github-app-setup3', screen: 'https://evil.example/' })
     assert.equal(bad.status, 409)
     assert.equal(sent('/github-app/start'), undefined)
+  })
+
+  // The operator authorization (#891, ADR-0031): GitHub sends the operator
+  // back here after the install with a one-use code, and the exchange stays
+  // inside the daemon. The browser lands on the screen the daemon names, and
+  // sees no token.
+  test('the authorization callback keeps the exchange inside the daemon and lands on the Setup screen', async () => {
+    const done = await req(surface.port, '/api/github-app/authorize?code=after-install&installation_id=7&setup_action=install', { headers: served() })
+    assert.equal(done.status, 303)
+    assert.equal(done.headers.location, '/#setup')
+    assert.deepEqual(sent('/github-app/authorize?code=after-install&installation_id=7&setup_action=install').method, 'GET')
+    assert.equal(done.text.includes('ghu_'), false)
+    const refused = await req(surface.port, '/api/github-app/authorize?code=stale', { headers: served() })
+    assert.equal(refused.status, 400)
+    assert.match(refused.text, /refused the authorization code/)
   })
 
   // A browser-named redirect is not a field this surface forwards, and a name

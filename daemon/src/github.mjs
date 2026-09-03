@@ -15,20 +15,23 @@
 // NO repo gets no token and keeps the host login. There are three of those. Two
 // are account-wide questions an installation token cannot answer: `viewerLogin`
 // and the settings screen's `user/repos` read. The third is the gate approval
-// (#391), which names a repo and keeps the host login anyway, because the
-// approval is the OPERATOR's and an app cannot post one for them. See
-// daemongh.mjs and `approvePullRequest`.
+// (#391), which names a repo and never takes the bot's token, because the
+// approval is the OPERATOR's and an app cannot post one for them. It runs as
+// the operator's own authorization under a root and as the host login on the
+// source deployment (#891). See daemongh.mjs and `approvePullRequest`.
 
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { execFileP } from './exec.mjs'
-import { daemonGhEnv } from './daemongh.mjs'
+import { daemonGhEnv, operatorGhEnv } from './daemongh.mjs'
 
-export async function gh(args, { repo = null } = {}) {
+// `repo` routes the owner's minted token into the child. `operator` routes the
+// operator's own token instead (#891), and the two are never both.
+export async function gh(args, { repo = null, operator = false } = {}) {
   const { stdout } = await execFileP('gh', args, {
     maxBuffer: 32 * 1024 * 1024,
-    env: await daemonGhEnv(repo),
+    env: operator ? await operatorGhEnv() : await daemonGhEnv(repo),
   })
   return stdout
 }
@@ -203,8 +206,8 @@ export async function createPullRequest(repo, { head, base, title, body }) {
 
 // The gate press, as a real GitHub approval (#391, ADR-0018).
 //
-// THE ONE `gh` CALL THAT KEEPS THE HOST LOGIN ON PURPOSE, and the reason the
-// host login did not retreat whole with #390. Two facts make it that way:
+// THE ONE `gh` CALL THAT NEVER TAKES THE BOT'S TOKEN, and the reason the host
+// login did not retreat whole with #390. Two facts make it that way:
 //
 //   - An app cannot approve for a human. A review submitted under a minted
 //     token is `curia-sh[bot]`'s, and the pull request is `curia-sh[bot]`'s
@@ -212,15 +215,19 @@ export async function createPullRequest(repo, { head, base, title, body }) {
 //   - The operator IS the reviewer. The ✅ press is their judgement, and the
 //     approval that records it must carry their own account.
 //
-// So `repo` is deliberately NOT passed to `gh()`. The `--repo` flag names the
-// repository for the CLI, and the option object is what routes a token — see
-// daemongh.mjs, where a call with no repo gets no token and inherits the
-// operator's `~/.config/gh`.
+// So `repo` is deliberately NOT passed to `gh()`, and `operator` is. The
+// `--repo` flag names the repository for the CLI, and the option object is
+// what routes a token — see daemongh.mjs. Under an installation root the
+// operator's own authorization rides the child (#891, ADR-0031): the token
+// GitHub handed the App when the operator installed it. On the source
+// deployment no operator source is wired, and the child inherits the
+// operator's `~/.config/gh` as before.
 //
 // It throws on every failure, and the gate reads the throw as "not approved"
-// rather than as an approval it could not post.
+// rather than as an approval it could not post. A root with no authorization
+// throws here too, naming the reinstall, before any `gh` runs.
 export function approvePullRequest(repo, n) {
-  return gh(['pr', 'review', String(n), '--repo', repo, '--approve'])
+  return gh(['pr', 'review', String(n), '--repo', repo, '--approve'], { operator: true })
 }
 
 // Replace an open PR's body in place — the rejection loop opens one pull request

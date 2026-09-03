@@ -23,21 +23,23 @@ The GitHub and Discord cards are guides of three steps. While such a card is on 
 
 ## Connect GitHub
 
-The GitHub card creates a dedicated GitHub App for this installation through GitHub's manifest flow, then verifies that the App can reach at least one watched repository. Curia never asks for your GitHub password, a personal access token, or anything from GitHub's consent page. You sign in and approve on GitHub.
+The GitHub card creates a dedicated GitHub App for this installation through GitHub's manifest flow, then verifies that the App can reach at least one watched repository and that Curia is authorized as you. Curia never asks for your GitHub password, a personal access token, or anything from GitHub's consent page, and you never run `gh auth login`. You sign in and approve on GitHub.
 
 The card is a guide of three steps, and the panel shows which one you're at: **1 Create the App**, **2 Install the App**, **3 Choose repositories and continue**. Each step has one action, and the card moves to the next step on its own when the action is done.
 
 ### Step 1: Create the App
 
-1. On the **GitHub** card, keep the suggested App name or enter your own. GitHub slugifies the name, and Curia posts as `<slug>[bot]`, so the name is read as the author of every commit, pull request, and gate approval. The name must be free across all of GitHub.
-2. Select **Create GitHub App**. Curia prepares the manifest (the five repository permissions from [The curia GitHub App](../github-app.md#2-grant-the-permissions), no webhook, installable on any account) and the browser opens GitHub's own page with that manifest.
+1. On the **GitHub** card, keep the suggested App name, `curia.sh`, or enter your own. GitHub slugifies the name, and Curia posts as `<slug>[bot]`, so the name is read as the author of every commit and pull request. App names are unique across all of GitHub. When GitHub already has an App of that name, the card says so, with the App GitHub has, and prefills `curia.sh-<node name>`, the name of this Tailscale node, so the next press is the create.
+2. Select **Create GitHub App**. Curia prepares the manifest (the five repository permissions from [The curia GitHub App](../github-app.md#2-grant-the-permissions), no webhook, installable on any account, and the request that installing the App also authorizes it as you) and the browser opens GitHub's own page with that manifest.
 3. On GitHub, review the App and select **Create GitHub App for &lt;you&gt;**. GitHub sends the browser back to the Curia app with a one-hour conversion code.
 
-The service converts the code itself. It writes the App id and the private key to `secrets/github-app.json` in the installation root, owner-only, mode `0600`, and adopts the App in the running service. The key is never shown, never logged, and never sent to the browser. If the conversion fails, the card says why, and **Create GitHub App** starts the flow again.
+The service converts the code itself. It writes the App id, the private key, and the App's client id and client secret to `secrets/github-app.json` in the installation root, owner-only, mode `0600`, and adopts the App in the running service. The key and the client secret are never shown, never logged, and never sent to the browser. If the conversion fails, the card says why, and **Create GitHub App** starts the flow again.
 
 ### Step 2: Install the App
 
-After the App exists, the card is at step 2 and the badge reads **Step 2 of 3**. On a fresh installation nothing is watched yet, so the panel shows one **Install the App on GitHub** link. Install the App on the account that owns your repositories and grant it the repositories Curia may work on. On GitHub, **Only select repositories** is enough. There is nothing to press afterwards: the panel says `Waiting for an installation that covers a repository` and reads the installations again on the Setup page's refresh interval (`poll_interval_s`, 5 seconds by default), so the card moves to step 3 within seconds of the installation, with no reload and no press.
+After the App exists, the card is at step 2 and the badge reads **Step 2 of 3**. On a fresh installation nothing is watched yet, so the panel shows one **Install the App on GitHub** link. Install the App on the account that owns your repositories and grant it the repositories Curia may work on. On GitHub, **Only select repositories** is enough. GitHub then asks you, once, to authorize the App as you, on its own page, and sends the browser back to the Setup screen. That authorization is what Curia posts your review-gate approvals with: the approval is your judgment, and GitHub records it under your account or not at all. There is nothing to press afterwards: the panel says `Waiting for an installation that covers a repository` and reads the installations again on the Setup page's refresh interval (`poll_interval_s`, 5 seconds by default), so the card moves to step 3 within seconds of the installation, with no reload and no press.
+
+The service exchanges GitHub's one-use code for a user token itself and writes the token, its refresh token, and your login to `secrets/github-operator.json`, owner-only, mode `0600`. It refreshes the token before it expires. The token is never shown, never logged, and never sent to the browser. See [Secrets, mounts, and what survives](secrets.md#the-secret-files).
 
 Once a repository is on the watch list, the panel lists every watched owner instead, each with this read's installation state and an **Install on &lt;owner&gt;** or **Manage installation** link. The state comes from the same verification that turns the card, so an owner the card calls installed is installed on this read.
 
@@ -56,14 +58,17 @@ Every read of the card runs the same verification:
 1. GitHub accepts the App's own credential and lists its installations.
 2. For each installation, Curia mints an installation token with the write permissions agents run on and reads the repositories the installation grants. The token is used for this verification and dropped. It reaches no file and no log.
 3. At least one repository is on the watch list. With none, the card is at step 2 while no installation covers a repository and at step 3 once one does. Neither is a failure.
-4. At least one watched repository is covered by an installation.
-5. Curia reads the open tickets of the covered repositories with that token.
+4. Once an installation exists, Curia asks GitHub who your authorization stands for (`GET /user` on the operator token, refreshed first when it is near its end) and records the login only.
+5. At least one watched repository is covered by an installation.
+6. Curia reads the open tickets of the covered repositories with that token.
 
-The card connects when steps 1 to 5 pass. One covered watched repository is enough: a watched owner without an installation is shown as `missing access` in the owner rows and doesn't fail the card while another owner covers a watched repository. The footer shows a real discovered ticket, one that carries `ready-for-agent` and has no assignee, with its repository and the count of open tickets. When there is no such ticket, the footer names the covered repository, the count of open tickets (or `No open tickets`), and what the minted credential can do: `Issues, pull requests, and contents ready`. Curia never invents a ticket.
+The card connects when steps 1 to 6 pass. A connected panel shows `Approvals post as <login>`, and the footer ends with `approvals as <login>`. One covered watched repository is enough: a watched owner without an installation is shown as `missing access` in the owner rows and doesn't fail the card while another owner covers a watched repository. The footer shows a real discovered ticket, one that carries `ready-for-agent` and has no assignee, with its repository and the count of open tickets. When there is no such ticket, the footer names the covered repository, the count of open tickets (or `No open tickets`), and what the minted credential can do: `Issues, pull requests, and contents ready`. Curia never invents a ticket.
 
-A failed check is a real failure: GitHub refused the App's credential, a token failed to mint, an installation can't be read, or a watched repository lost its coverage, for example `curia's GitHub App is not installed on alp82` with `Install the App on alp82 from the link in this panel and grant it alp82/curia, then try again.` The failure names only the owners this read found missing. The panel keeps the guide at the step the failure belongs to, so the install link or the repository list stays at hand beside the failure. Do what the action says and select **Try again**, which runs the whole verification again. The panel shows the result of the latest read only: a failure from an earlier read disappears when the new read connects the card.
+A failed check is a real failure: GitHub refused the App's credential, a token failed to mint, an installation can't be read, your authorization is missing or GitHub refuses it and Curia can't refresh it, or a watched repository lost its coverage, for example `curia's GitHub App is not installed on alp82` with `Install the App on alp82 from the link in this panel and grant it alp82/curia, then try again.` The failure names only the owners this read found missing. The panel keeps the guide at the step the failure belongs to, so the install link or the repository list stays at hand beside the failure. Do what the action says and select **Try again**, which runs the whole verification again. The panel shows the result of the latest read only: a failure from an earlier read disappears when the new read connects the card.
 
-The card remembers only the App name (`progress.github.app_name`) for a reopen. The App id and key live in `secrets/github-app.json` and nowhere else.
+A missing or refused authorization reads "curia holds no GitHub authorization for you" (or the refusal GitHub gave) with `Reinstall the App from the link in this panel, which authorizes curia as you again, then try again.` The panel keeps the install link at hand. Installing the App again on GitHub, or changing its installation, repeats the authorization, and the card connects on the next read.
+
+The card remembers only the App name (`progress.github.app_name`) for a reopen. The App id, key, and client secret live in `secrets/github-app.json`, your authorization in `secrets/github-operator.json`, and nowhere else.
 
 ## Connect Discord
 
@@ -73,7 +78,7 @@ The card is a guide of three steps, in this order: the token, a wait until the b
 
 ### Create the bot
 
-1. Open the [Discord developer portal](https://discord.com/developers/applications) and select **New Application**. Name it for this installation, for example `curia-box`.
+1. Open the [Discord developer portal](https://discord.com/developers/applications) and select **New Application**. Name it for this installation, for example `curia.sh`.
 2. Under **Bot**, turn on **Message Content Intent**. The bridge reads the messages you type in the command channel, and Discord withholds their text without this intent.
 3. Select **Reset Token** and copy the token. Discord shows it once.
 4. In Discord, turn on **Developer Mode** under **Settings** > **Advanced**, then copy your user ID from your profile menu.

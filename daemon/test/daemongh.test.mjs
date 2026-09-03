@@ -16,9 +16,15 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { ownerOf, daemonGhToken, daemonGhEnv, setDaemonTokenSource, TOKEN_ENV_KEY } from '../src/daemongh.mjs'
+import {
+  ownerOf, daemonGhToken, daemonGhEnv, setDaemonTokenSource, TOKEN_ENV_KEY,
+  operatorGhEnv, setOperatorTokenSource,
+} from '../src/daemongh.mjs'
 
-afterEach(() => setDaemonTokenSource(null))
+afterEach(() => {
+  setDaemonTokenSource(null)
+  setOperatorTokenSource(null)
+})
 
 describe('ownerOf', () => {
   test('takes the owner off a repo', () => {
@@ -87,6 +93,38 @@ describe('the token source', () => {
   })
 })
 
+// The gate approval is the OPERATOR's (#391), and under a root it runs on the
+// operator's own authorization (#891, ADR-0031) rather than on a host login
+// the packaged daemon does not have. Without a source, the source deployment,
+// the child inherits the host login exactly as before.
+describe('the operator source', () => {
+  test('a box with no operator source keeps the host login: the child environment is untouched', async () => {
+    assert.deepEqual(await operatorGhEnv({ PATH: '/usr/bin' }), { PATH: '/usr/bin' })
+  })
+
+  test('the operator token rides the approval child as GH_TOKEN, and the minted source is not asked', async () => {
+    let minted = 0
+    setDaemonTokenSource(async () => { minted += 1; return 'ghs_minted' })
+    setOperatorTokenSource(async () => 'ghu_operator')
+    const env = await operatorGhEnv({ PATH: '/usr/bin' })
+    assert.equal(env[TOKEN_ENV_KEY], 'ghu_operator')
+    assert.equal(env.PATH, '/usr/bin')
+    assert.equal(minted, 0)
+  })
+
+  // A root with no authorization has no host login to fall back to, so the
+  // source's refusal is the approval's failure, and the gate reads it.
+  test('a source that refuses is the refusal, never a silent fallback', async () => {
+    setOperatorTokenSource(async () => { throw new Error('curia holds no GitHub authorization for you') })
+    await assert.rejects(() => operatorGhEnv({}), /no GitHub authorization/)
+  })
+
+  test('an ill-shaped operator token refuses', async () => {
+    setOperatorTokenSource(async () => 'ghu_abc\nGH_HOST=evil.example')
+    await assert.rejects(() => operatorGhEnv({}), /letters, digits/)
+  })
+})
+
 describe('every repo-named call in github.mjs carries its repo', () => {
   const SRC = fs.readFileSync(
     path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'src', 'github.mjs'),
@@ -119,17 +157,19 @@ describe('every repo-named call in github.mjs carries its repo', () => {
 
   // TWO unrouted calls since #391, and they are unrouted for different reasons.
   // `viewerLogin` asks an account-wide question an installation token cannot
-  // answer. The gate approval names a repo and keeps the host login anyway: the
+  // answer. The gate approval names a repo and never takes the bot's token: the
   // approval is the OPERATOR's judgement, an app cannot post one for them, and
   // an app-minted approval on an app-authored pull request is the self-approval
-  // GitHub refuses. Every other repo-named call routes.
-  test('the two unrouted calls are the host login by design, and nothing else joins them', () => {
+  // GitHub refuses. Since #891 it runs as the operator's own authorization
+  // under a root, and as the host login on the source deployment, which is
+  // what `{ operator: true }` says. Every other repo-named call routes.
+  test('the two unrouted calls are the operator by design, and nothing else joins them', () => {
     const unrouted = callsIn(SRC).filter((c) => !c.includes('{ repo }'))
     assert.deepEqual(
       unrouted,
       [
         "gh(['api', 'user', '--jq', '.login'])",
-        "gh(['pr', 'review', String(n), '--repo', repo, '--approve'])",
+        "gh(['pr', 'review', String(n), '--repo', repo, '--approve'], { operator: true })",
       ],
       'a gh call that names a repo and does not pass it runs as the operator, not as the bot',
     )

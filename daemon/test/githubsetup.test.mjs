@@ -284,3 +284,64 @@ describe('the GitHub card after the rehearsal (#891)', () => {
     assert.deepEqual(answer.detail.watched, ['alp82/curia'])
   })
 })
+
+// The approval is posted as the operator (#891, ADR-0031), so the card proves
+// the operator's own authorization is present and GitHub accepts it, and
+// reports the login as a fact. A missing one, or one GitHub refuses and curia
+// cannot refresh, is a real failure whose action is the reinstall. The source
+// deployment wires no operator and keeps its host login, so the card says
+// nothing about it there.
+describe('the operator authorization on the GitHub card (#891)', () => {
+  const routes = () => ({
+    '/app/installations?per_page=100': [200, installations],
+    'POST /app/installations/7/access_tokens': tokenAnswer,
+    '/installation/repositories?per_page=100&page=1': [200, { repositories: [{ full_name: 'alp82/curia' }] }],
+    '/repos/alp82/curia/issues?state=open&per_page=100': [200, []],
+  })
+
+  test('a present, accepted authorization is a fact on the connected card: the login, never the token', async () => {
+    const gh = github(routes())
+    const m = new TokenMinter({ appId: '42', key, fetchImpl: gh.fetchImpl })
+    const operator = { verify: async () => ({ login: 'alp' }) }
+    const verify = githubVerifier({ minter: () => m, watch: () => [{ repo: 'alp82/curia' }], operator: () => operator, fetchImpl: gh.fetchImpl })
+    const answer = await verify({ progress: {} })
+    assert.equal(answer.ok, true, JSON.stringify(answer))
+    assert.deepEqual(answer.detail.operator, { login: 'alp' })
+    assert.equal(answer.secondary, 'No open tickets · Issues, pull requests, and contents ready · approvals as alp')
+  })
+
+  test('a missing or refused authorization fails the card at the install step, with the reinstall as the action', async () => {
+    const gh = github(routes())
+    const m = new TokenMinter({ appId: '42', key, fetchImpl: gh.fetchImpl })
+    const operator = { verify: async () => { throw new Error('curia holds no GitHub authorization for you, so it cannot post the approval as you. Reinstall the App from the GitHub card of Setup, which authorizes curia as you again') } }
+    const verify = githubVerifier({ minter: () => m, watch: () => [{ repo: 'alp82/curia' }], operator: () => operator, fetchImpl: gh.fetchImpl })
+    const answer = await verify({ progress: {} })
+    assert.equal(answer.ok, false)
+    assert.equal(answer.unconnected, undefined, 'a lost authorization is a real failure')
+    assert.match(answer.failed, /holds no GitHub authorization for you/)
+    assert.match(answer.action, /Reinstall the App from the link in this panel/)
+    assert.equal(answer.detail.step, 'install')
+    assert.equal(answer.detail.install_url, 'https://github.com/settings/installations')
+    assert.equal(gh.calls.some((c) => c.route.startsWith('/repos/')), false, 'the tickets are not read past a failed authorization')
+  })
+
+  test('with no installation yet the authorization is not asked for: the install is what produces it', async () => {
+    const gh = github({ '/app/installations?per_page=100': [200, []] })
+    const m = new TokenMinter({ appId: '42', key, fetchImpl: gh.fetchImpl })
+    let asked = 0
+    const operator = { verify: async () => { asked += 1; throw new Error('none') } }
+    const verify = githubVerifier({ minter: () => m, watch: () => [], operator: () => operator, fetchImpl: gh.fetchImpl })
+    const answer = await verify({ progress: {} })
+    assert.equal(answer.unconnected, true)
+    assert.equal(answer.detail.step, 'install')
+    assert.equal(asked, 0)
+  })
+
+  test('the source deployment wires no operator, and the card says nothing about one', async () => {
+    const { verify } = verifierOver(routes())
+    const answer = await verify({ progress: {} })
+    assert.equal(answer.ok, true)
+    assert.equal('operator' in answer.detail, false)
+    assert.equal(answer.secondary, 'No open tickets · Issues, pull requests, and contents ready')
+  })
+})
