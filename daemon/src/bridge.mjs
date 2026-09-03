@@ -318,6 +318,45 @@ export function interruptedReceipt(content, { by, session, graceMs }) {
 // interpretation. `tickets` renames `frontier` on the command surface.
 // Exported for the Discord card of integration setup (#876), which registers
 // the same manifest over REST before the bridge has started.
+// Every permission the bridge and the agents use in the command channel and
+// its threads, by Discord's bit and with the reason. One list (#891): the
+// Setup card's invite link asks for these, the card's verification checks
+// them in the channel, and `probePermissions` checks them at start, so the
+// three cannot drift. `scope: 'server'` marks a permission the bridge needs
+// once on the server, to create the channel, and not in the channel.
+const bit = (n) => 1n << BigInt(n)
+export const BOT_PERMISSIONS = Object.freeze([
+  { name: 'View Channel', bit: bit(10), why: 'read the command channel' },
+  { name: 'Send Messages', bit: bit(11), why: 'post in the command channel' },
+  { name: 'Send Messages in Threads', bit: bit(38), why: 'post in ticket threads' },
+  { name: 'Create Public Threads', bit: bit(35), why: 'open a thread per ticket' },
+  { name: 'Manage Threads', bit: bit(34), why: 'rename, archive, and delete ticket threads' },
+  { name: 'Embed Links', bit: bit(14), why: 'post escalation embeds and links' },
+  { name: 'Attach Files', bit: bit(15), why: 'attach files and images' },
+  { name: 'Read Message History', bit: bit(16), why: 'find earlier messages and its own confirmation' },
+  { name: 'Add Reactions', bit: bit(6), why: 'mark a message as read or refused' },
+  { name: 'Use Application Commands', bit: bit(31), why: 'serve the slash commands' },
+  { name: 'Manage Webhooks', bit: bit(29), why: 'speaker identity: agent prose posts under the curia name' },
+  { name: 'Manage Channels', bit: bit(4), why: 'create the command channel when it does not exist', scope: 'server' },
+].map(Object.freeze))
+
+// The permissions the bot must hold in the channel itself.
+export const CHANNEL_PERMISSIONS = Object.freeze(BOT_PERMISSIONS.filter((p) => p.scope !== 'server'))
+
+const listNames = (items, word = 'and') => {
+  if (items.length <= 1) return items.join('')
+  if (items.length === 2) return `${items[0]} ${word} ${items[1]}`
+  return `${items.slice(0, -1).join(', ')}, ${word} ${items[items.length - 1]}`
+}
+
+// One sentence per missing permission that has a reason worth naming, and
+// the grant. Shared by the card's verification and the bridge's start.
+export function permissionsAction(missing, channelName) {
+  const reasons = CHANNEL_PERMISSIONS.filter((p) => missing.includes(p.name) && p.name === 'Manage Webhooks')
+    .map((p) => `${p.name} is for ${p.why}.`)
+  return `Allow ${listNames(missing)} for the bot in #${channelName}'s permissions, then try again.${reasons.length ? ` ${reasons.join(' ')}` : ''}`
+}
+
 export const SLASH_MANIFEST = [
   new SlashCommandBuilder().setName('tickets').setDescription('List takeable tickets')
     .addStringOption((o) => o.setName('repo').setDescription('Limit to one repo (any unambiguous part of the name)')),
@@ -521,6 +560,7 @@ export class DiscordBridge {
     // Agent prose transport: `ok` is null until the start probe answers.
     this.speakers = { ok: null, reason: null }
     this.speakerNoticed = false
+    this.permissions = { ok: null, missing: [] }
     this.client = new Client({
       intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
     })
@@ -563,8 +603,9 @@ export class DiscordBridge {
     this.#watchGateway()
     this.#setHealth('up', { reason: 'ready' })
     this.log(`[bridge] ready: guild=${this.guild.name} channel=#${this.channel.name}`)
-    // Last, and after health is up: the probe announces in the channel, which
-    // needs a bridge that works. It never fails a start.
+    // Last, and after health is up: the probes announce in the channel, which
+    // needs a bridge that works. They never fail a start.
+    await this.probePermissions()
     await this.probeSpeakers()
   }
 
@@ -621,6 +662,7 @@ export class DiscordBridge {
       last_error: this.health.last_error,
       // #143: the channel says it once, `/state` says it whenever asked.
       speakers: this.speakers,
+      permissions: this.permissions,
     }
   }
 
@@ -1323,6 +1365,33 @@ export class DiscordBridge {
     } catch (e) {
       await this.#speakerFault(e)
     }
+  }
+
+  // The whole list at start (#891), from the channel's own view of the bot.
+  // A missing permission is named with the grant; Manage Webhooks among them
+  // also latches the speaker notice, so the speaker probe that follows does
+  // not say it a second time. A channel that cannot be asked is unknown, not
+  // a failure. Public because `start()` needs a live gateway and the tests
+  // do not.
+  static PERMISSIONS = BOT_PERMISSIONS
+
+  async probePermissions() {
+    const held = this.channel?.permissionsFor?.(this.client?.user)
+    if (!held) {
+      this.permissions = { ok: null, missing: [] }
+      return
+    }
+    const missing = CHANNEL_PERMISSIONS.filter((p) => !held.has(p.bit)).map((p) => p.name)
+    this.permissions = { ok: missing.length === 0, missing }
+    if (!missing.length) return
+    const notice = DiscordBridge.permissionsNotice(missing, this.channel.name)
+    this.log(`[bridge] ${notice}`)
+    if (missing.includes('Manage Webhooks')) this.speakerNoticed = true
+    await this.announce(notice).catch((err) => this.log(`permission notice failed: ${err.message}`))
+  }
+
+  static permissionsNotice(missing, channelName) {
+    return `⚠️ curia lacks ${listNames(missing)} in #${channelName}. ${permissionsAction(missing, channelName)}`
   }
 
   // One notice per bridge instance, either way. The probe carries the usual

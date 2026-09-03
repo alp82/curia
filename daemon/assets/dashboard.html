@@ -5452,7 +5452,7 @@ function setupDiscordCommandsForm() {
 function setupDiscordWait(d, detail) {
   const invite = d?.invite_url || detail?.invite_url;
   const every = payload?.poll_interval_s ?? 5;
-  return `<p class="qhint">Waiting for the bot to join a server. ${invite ? `<a href="${esc(invite)}" target="_blank" rel="noopener">Add the bot to your server</a> and approve it in Discord.` : ""}
+  return `<p class="qhint">Waiting for the bot to join a server. ${invite ? `<a href="${esc(invite)}" target="_blank" rel="noopener">Add the bot to your server</a> and approve it in Discord. The link asks for every permission Curia uses in the command channel, Manage Webhooks among them, which is what speaker identity needs. Approve them all.` : ""}
     Curia checks again every ${esc(every)} seconds while this panel is open, and the server appears here on its own.</p>`;
 }
 

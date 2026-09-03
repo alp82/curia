@@ -85,8 +85,25 @@ The token goes to the service and straight into its secret file. The user ID goe
 
 Until the bot is in at least one server, the card is at step 2, the badge reads **Step 2 of 3**, and the panel says `Waiting for the bot to join a server` and shows only the invite link. There is no server to select and no channel to name yet, so the panel offers neither field. The wait is a step of the guide, not a failure: the card stays plain and offers no **Try again**.
 
-1. Select **Add the bot to a server**. The link opens Discord's own authorization page with the `bot` and `applications.commands` scopes and the permissions Curia uses: View Channel, Send Messages, Embed Links, Attach Files, Read Message History, Create Public Threads, Send Messages in Threads, Manage Threads, and Manage Channels.
-2. Approve it in Discord.
+1. Select **Add the bot to a server**. The link opens Discord's own authorization page with the `bot` and `applications.commands` scopes and every permission Curia uses.
+2. Approve it in Discord, with all of the permissions. The following table names each one and why the bot needs it.
+
+| Permission | Why the bot needs it |
+| --- | --- |
+| View Channel | Read the command channel. |
+| Send Messages | Post in the command channel. |
+| Send Messages in Threads | Post in ticket threads. |
+| Create Public Threads | Open a thread per ticket. |
+| Manage Threads | Rename, archive, and delete ticket threads. |
+| Embed Links | Post escalation embeds and links. |
+| Attach Files | Attach files and images. |
+| Read Message History | Find earlier messages and its own confirmation. |
+| Add Reactions | Mark a message as read or refused. |
+| Use Application Commands | Serve the slash commands. |
+| Manage Webhooks | Speaker identity: agent prose posts under the curia name through a channel webhook. Without it, the bridge posts `Speaker identity is off` and agent prose uses the bot identity. |
+| Manage Channels | Create the command channel when it does not exist. Needed on the server, not in the channel. |
+
+The invite link, the card's channel verification, and the bridge's own check at start read one list, `BOT_PERMISSIONS` in `daemon/src/bridge.mjs`, so a permission the bridge starts to use is asked for by the invite and checked by the card in the same change. The #891 rehearsal found an invite that omitted Manage Webhooks: the card connected, and the first word of the gap was the bridge's notice in the channel.
 
 While the panel waits, it reads the bot's servers again on the Setup page's refresh interval (`poll_interval_s`, 5 seconds by default), so the server appears within seconds of the approval, with no reload and no press. The moment a server is there, the card verifies fresh and the panel shows the server select and the channel field.
 
@@ -110,7 +127,7 @@ Every read of the card runs the same verification, in this order:
 4. The bot is in at least one server, and you selected one of them.
 5. Your user ID is a member of that server.
 6. The command channel exists top-level as a text channel. Verification never creates it; **Connect channel** does.
-7. In that channel, the bot holds every permission the bridge uses.
+7. In that channel, the bot holds every permission the bridge uses: the table under [Add the bot to a server](#add-the-bot-to-a-server), Manage Channels aside.
 8. The slash commands registered on that server match Curia's, by name and description. Verification reads them and never registers them; **Connect channel** and the bridge's start do, and **Register commands** does it again.
 9. A confirmation message from Curia stands in the channel. Curia posts one when none is there.
 
@@ -120,7 +137,7 @@ The card connects when steps 1 to 9 pass. The footer shows the channel and the s
 
 Curia looks for its own earlier confirmation before posting another, so opening **Setup** doesn't fill the channel with repeated lines. To get a fresh confirmation, delete the earlier one and select **Try again**.
 
-A failed step names the failure and one action, for example `curia can't Send Messages in #curia` with `Allow Send Messages for the bot in #curia's permissions, then try again.` Do what the action says and select **Try again**. When Discord refuses the token, the panel puts the token form first so you can submit a new one. The bot in no server yet and no server chosen yet are steps 2 and 3 of the guide, not failures.
+A failed step names the failure and one action, for example `curia can't Send Messages in #curia` with `Allow Send Messages for the bot in #curia's permissions, then try again.` When Manage Webhooks is what's missing, the action says that it is for speaker identity. Do what the action says and select **Try again**. The bridge runs the same check when it starts and posts the same words in the channel when a permission was withdrawn after the card connected. When Discord refuses the token, the panel puts the token form first so you can submit a new one. The bot in no server yet and no server chosen yet are steps 2 and 3 of the guide, not failures.
 
 When the registered commands differ from Curia's, for example after an update that added a command or when another tool replaced them, the card reads `The commands registered in <server> differ from curia's: /tickets is not registered`, and the panel offers **Register commands**. That press registers the current manifest on the selected server, replacing what's there, and verifies fresh. The invite link is the fix only when Discord refuses the registration itself, which means the bot was added without the `applications.commands` scope.
 

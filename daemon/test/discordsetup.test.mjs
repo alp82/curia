@@ -19,7 +19,9 @@ import path from 'node:path'
 
 import { writeSecret, readSecret } from '../../cli/src/secrets.mjs'
 import { writeDiscordSettings, readDiscordSettings } from '../src/discordsettings.mjs'
-import { DiscordSetup, CONFIRMATION_MARK, CHANNEL_PERMISSIONS, channelPermissions } from '../src/discordsetup.mjs'
+import { DiscordSetup, CONFIRMATION_MARK, BOT_PERMISSIONS, CHANNEL_PERMISSIONS, INVITE_PERMISSIONS, inviteUrl, channelPermissions } from '../src/discordsetup.mjs'
+import { DiscordBridge } from '../src/bridge.mjs'
+import { lintReply } from '../src/messaging.mjs'
 import { SLASH_MANIFEST } from '../src/bridge.mjs'
 
 const TOKEN = 'MTIzNDU2Nzg5MDEyMzQ1Njc4.GaBcDe.this-token-must-never-be-shown-anywhere-1234'
@@ -47,8 +49,8 @@ function discord(routes) {
 }
 
 // Guild-level permissions the bot holds in the fake server: everything the
-// channel needs plus Manage Channels, as the invite link asks for.
-const ALL = String(CHANNEL_PERMISSIONS.reduce((bits, p) => bits | p.bit, 0n) | (1n << 4n))
+// invite link asks for.
+const ALL = String(INVITE_PERMISSIONS)
 
 const guildRow = (over = {}) => ({ id: GUILD, name: 'Alp\'s workshop', permissions: ALL, ...over })
 const textChannel = (over = {}) => ({ id: CHANNEL, type: 0, name: 'curia', parent_id: null, permission_overwrites: [], ...over })
@@ -482,6 +484,41 @@ describe('the Discord card (#876)', () => {
   })
 
   describe('channel authority', () => {
+    // The bits are Discord's own, from its permissions table. The invite link
+    // asks for every one of them, so the bot added through the card holds
+    // what the bridge and the agents use in the channel and its threads.
+    test('the invite link asks for every permission the bot needs, in one bitfield (#891)', () => {
+      assert.deepEqual(BOT_PERMISSIONS.map((p) => p.name), [
+        'View Channel', 'Send Messages', 'Send Messages in Threads', 'Create Public Threads', 'Manage Threads',
+        'Embed Links', 'Attach Files', 'Read Message History', 'Add Reactions', 'Use Application Commands',
+        'Manage Webhooks', 'Manage Channels',
+      ])
+      assert.equal(INVITE_PERMISSIONS, 329101986896n)
+      assert.equal(inviteUrl(APP), `https://discord.com/oauth2/authorize?client_id=${APP}&scope=bot%20applications.commands&permissions=329101986896`)
+      for (const p of BOT_PERMISSIONS) assert.ok(INVITE_PERMISSIONS & p.bit, `${p.name} is in the invite`)
+    })
+
+    test('the list the card verifies is the list the bridge checks at start', () => {
+      assert.equal(BOT_PERMISSIONS, DiscordBridge.PERMISSIONS)
+      const channelNames = CHANNEL_PERMISSIONS.map((p) => p.name)
+      assert.ok(channelNames.includes('Manage Webhooks'))
+      assert.ok(!channelNames.includes('Manage Channels'), 'creating the channel is the server-level need, not a channel one')
+    })
+
+    test('a channel that denies Manage Webhooks fails on authority, with speaker identity as the reason and the grant as the action (#891)', async () => {
+      connected()
+      const { verify } = setupOver(happy({
+        [`/guilds/${GUILD}/channels`]: [200, [textChannel({ permission_overwrites: [{ id: GUILD, type: 0, allow: '0', deny: String(1n << 29n) }] })]],
+      }))
+      const answer = await verify({ progress: {} })
+      assert.equal(answer.ok, false)
+      assert.equal(answer.detail.stage, 'authority')
+      assert.match(answer.failed, /can't Manage Webhooks in #curia/)
+      assert.match(answer.action, /Allow Manage Webhooks for the bot in #curia's permissions/)
+      assert.match(answer.action, /Manage Webhooks .*speaker identity/i)
+      assert.deepEqual(lintReply(answer.action), [])
+    })
+
     test('is computed the way Discord computes it: base, then @everyone, then roles, then the member, and Administrator is everything', () => {
       const send = 1n << 11n
       const view = 1n << 10n

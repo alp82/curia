@@ -127,6 +127,49 @@ describe('speaker-identity degradation (#143)', () => {
     assert.match(announced[2], /Speaker identity is off/)
   })
 
+  // #891: the bot added through the Setup card's own invite link lacked
+  // Manage Webhooks, and the first word of it was the speaker notice. The
+  // bridge now checks the whole list at start, names every missing
+  // permission with the action, and the speaker probe does not say the
+  // same thing twice.
+  describe('the startup permission check (#891)', () => {
+    const grant = (...missing) => {
+      const denied = new Set(missing)
+      bridge.channel.name = 'curia'
+      bridge.channel.permissionsFor = () => ({ has: (bit) => !DiscordBridge.PERMISSIONS.some((p) => p.bit === bit && denied.has(p.name)) })
+    }
+
+    test('names every missing permission once, with the grant as the action, and the speaker probe does not repeat it', async () => {
+      grant('Manage Webhooks', 'Add Reactions')
+      webhookFault = missingPermissions()
+      await bridge.probePermissions()
+      await bridge.probeSpeakers()
+
+      assert.equal(announced.length, 1)
+      assert.match(announced[0], /lacks Add Reactions and Manage Webhooks in #curia/)
+      assert.match(announced[0], /Manage Webhooks .*speaker identity/i)
+      assert.match(announced[0], /Allow Add Reactions and Manage Webhooks for the bot in #curia/)
+      assert.deepEqual(lintReply(announced[0]), [])
+      assert.deepEqual(bridge.status().permissions, { ok: false, missing: ['Add Reactions', 'Manage Webhooks'] })
+      assert.equal(bridge.status().speakers.ok, false)
+    })
+
+    test('a bot that holds everything announces nothing', async () => {
+      grant()
+      await bridge.probePermissions()
+      await bridge.probeSpeakers()
+      assert.deepEqual(announced, [])
+      assert.deepEqual(bridge.status().permissions, { ok: true, missing: [] })
+    })
+
+    test('a channel that cannot be asked is not a failure', async () => {
+      bridge.channel.permissionsFor = () => null
+      await bridge.probePermissions()
+      assert.deepEqual(announced, [])
+      assert.deepEqual(bridge.status().permissions, { ok: null, missing: [] })
+    })
+  })
+
   test('a webhook that fails for another reason is announced with its own words', async () => {
     webhookFault = new Error('503 Service Unavailable')
     await bridge.probeSpeakers()
