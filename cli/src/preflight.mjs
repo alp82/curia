@@ -6,6 +6,7 @@ import { createServer } from 'node:net'
 import { arch as osArch, cpus as osCpus, tmpdir, totalmem } from 'node:os'
 import { dirname, join } from 'node:path'
 
+import { INSTALLATION_LABEL } from './bundle.mjs'
 import { composeProject, parsePublishedPorts } from './compose.mjs'
 import { Refusal } from './exit.mjs'
 import { readInstallationRecord } from './root.mjs'
@@ -95,6 +96,10 @@ export const CLOCK_SKEW_LIMIT_SECONDS = 300
 
 const DOCKER_SOCKET = '/var/run/docker.sock'
 const PROBE_IMAGE = 'busybox:stable'
+
+// The label Compose puts on every container it starts, which is where a
+// container of the bundle carries the name of the service it runs.
+const COMPOSE_SERVICE_LABEL = 'com.docker.compose.service'
 const PROBE_TIMEOUT_MS = 60_000
 
 // The checks, in the order the report prints them. `severity` says what a
@@ -206,12 +211,12 @@ function holderName(port) {
 // update` and `curia rollback` run this same preflight, so a port Curia
 // binds must read as healthy, not as a conflict (#885).
 //
-// A busy port carries `service` when Compose listed it among the published
-// ports of this root's own project. That is the only honest test: the holder
-// is Curia's because Curia's Compose project says it publishes that port.
-// The process name `ss` reports is not evidence, because a published port is
-// held by a proxy in the container's namespace, whose name is whatever the
-// image called its main thread.
+// A busy port carries `service` when the port is this root's own: either
+// Compose listed it among the published ports of the root's project, or the
+// process that holds it runs in one of the installation's own containers.
+// The process name `ss` reports is never evidence, because the holder of a
+// published port is a proxy in the container's namespace, whose name is
+// whatever the image called its main thread.
 function portsCheck({ ports }) {
   const needed = SANDBOX_PORTS.perAgent * SANDBOX_PORTS.agents
   const total = SANDBOX_PORTS.to - SANDBOX_PORTS.from + 1
@@ -568,13 +573,13 @@ async function portFactsOf(ports, sandbox, root, probes) {
   const portFree = probes.portFree ?? hostProbes.portFree
   const busy = []
   for (const { port } of ports) {
-    if (!(await portFree(port))) busy.push({ port, process: await holderOf(port, probes) })
+    if (!(await portFree(port))) busy.push({ port, ...(await holderOf(port, probes)) })
   }
   if (busy.length > 0) {
-    const published = await publishedPortsOf(root, probes)
+    const claims = await installationClaims(root, probes)
     for (const entry of busy) {
-      const mine = published?.find((p) => p.port === entry.port)
-      if (mine) entry.service = mine.service
+      const service = claims && (claims.published.find((p) => p.port === entry.port)?.service ?? serviceHolding(entry, claims.containers, probes))
+      if (service) entry.service = service
     }
   }
   let sandboxFree = 0
@@ -592,11 +597,12 @@ function portFree(port) {
   })
 }
 
-// The host ports the root's own Compose project publishes, or null when this
-// root holds no installation, Compose cannot be asked, or its answer is not
-// readable. Null means "nothing here claims a port", which is the fresh-host
-// case `curia install` checks: a busy port is then someone else's.
-async function publishedPortsOf(root, probes) {
+// What this root's installation claims of the host's ports: the host ports
+// its Compose project publishes, and its own running containers. Null when
+// this root holds no installation, which is the fresh-host case `curia
+// install` checks: nothing here claims a port, so a busy port is someone
+// else's, and Docker is never asked.
+async function installationClaims(root, probes) {
   if (!root) return null
   let record = null
   try {
@@ -605,20 +611,66 @@ async function publishedPortsOf(root, probes) {
     return null
   }
   if (!record?.activeVersion) return null
-  const project = composeProject({ root, version: record.activeVersion })
-  const out = await probes.exec('docker', project.args('ps', '--format', 'json'))
-  if (!out.ok) return null
-  try {
-    return parsePublishedPorts(out.stdout)
-  } catch {
-    return null
+  return {
+    published: await publishedPortsOf(root, record.activeVersion, probes),
+    containers: await runningContainers(record.installationId, probes),
   }
 }
 
+// The host ports the root's own Compose project publishes. Empty when Compose
+// cannot be asked or its answer is not readable.
+async function publishedPortsOf(root, version, probes) {
+  const project = composeProject({ root, version })
+  const out = await probes.exec('docker', project.args('ps', '--format', 'json'))
+  if (!out.ok) return []
+  try {
+    return parsePublishedPorts(out.stdout)
+  } catch {
+    return []
+  }
+}
+
+// The installation's running containers, each with the process id Docker gave
+// its main process, found by the installation label and by nothing else, the
+// way `installationResources` finds them. `docker inspect` is the only place
+// that main process id is available.
+async function runningContainers(installationId, probes) {
+  if (!installationId) return []
+  const listed = await probes.exec('docker', ['ps', '--no-trunc', '--filter', `label=${INSTALLATION_LABEL}=${installationId}`, '--format', '{{.ID}}'])
+  if (!listed.ok) return []
+  const ids = listed.stdout.split('\n').map((line) => line.trim()).filter(Boolean)
+  if (ids.length === 0) return []
+  const format = `{{.Id}}\t{{.State.Pid}}\t{{index .Config.Labels "${COMPOSE_SERVICE_LABEL}"}}`
+  const inspected = await probes.exec('docker', ['inspect', '--format', format, ...ids])
+  if (!inspected.ok) return []
+  return inspected.stdout.split('\n').map((line) => {
+    const [id, pid, service] = line.split('\t')
+    return { id, pid: Number(pid), service: service?.trim() || 'Curia' }
+  }).filter((c) => c.id && Number.isInteger(c.pid))
+}
+
+// The service of the installation whose container holds the port, or null
+// when nothing of this installation holds it. This test is needed beside the
+// published ports because a host-network service publishes nothing: it binds
+// the host's port from inside its container, so Compose reports no publisher
+// for it and cannot see the port it holds. What identifies it instead is the
+// holder process. A service's own listener runs as the container's main
+// process, and a process it started shares the container's cgroup, which
+// names the container.
+function serviceHolding(entry, containers, probes) {
+  if (!entry.pid || containers.length === 0) return null
+  const own = containers.find((c) => c.pid === entry.pid)
+  if (own) return own.service
+  const cgroup = probes.readFile(`/proc/${entry.pid}/cgroup`) ?? ''
+  return containers.find((c) => cgroup.includes(c.id))?.service ?? null
+}
+
+// The holder of a busy port as `ss` sees it: the process name for the report
+// and its process id, which is what the container test matches on.
 async function holderOf(port, probes) {
   const out = await probes.exec('ss', ['-H', '-ltnp', `sport = :${port}`])
   const m = out.ok ? out.stdout.match(/users:\(\("([^"]+)",pid=(\d+)/) : null
-  return m ? `${m[1]} (pid ${m[2]})` : null
+  return m ? { process: `${m[1]} (pid ${m[2]})`, pid: Number(m[2]) } : { process: null, pid: null }
 }
 
 function firstLine(text) {

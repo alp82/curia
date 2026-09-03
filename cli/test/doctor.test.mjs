@@ -10,7 +10,7 @@ import { runCli } from '../src/cli.mjs'
 import { packageVersion } from '../src/commands.mjs'
 import { EXIT } from '../src/exit.mjs'
 import { operatorConfigPath } from '../src/config.mjs'
-import { versionPaths } from '../src/root.mjs'
+import { readInstallationRecord, versionPaths } from '../src/root.mjs'
 import { fakeDocker, fakeTailscale, healthy, hostProbes, release as releaseIn, releaseProbesFor, stageOf as stageIn } from './fixtures/install.mjs'
 
 const VERSION = packageVersion
@@ -158,6 +158,27 @@ describe('curia doctor on a healthy installation', () => {
     assert.deepEqual([...new Set(first.docker.verbs())], ['ps'])
     const second = await doctor(i)
     assert.equal(second.out, first.out)
+  })
+
+  test('a port held by a host-network service of this installation passes and the exit stays ok', async () => {
+    const i = await installed()
+    const installationId = readInstallationRecord(i.root).installationId
+    const container = 'dd8f8b89761d0683687e763957a46a074c14aa1aadfc6efe028cfbdc2a884ec7'
+    const base = hostProbes()
+    const d = await doctor(i, {
+      host: {
+        portFree: async (port) => port !== 4272,
+        exec: async (file, args) => {
+          if (file === 'ss') return { ok: true, stdout: 'LISTEN 0 511 127.0.0.1:4272 0.0.0.0:* users:(("MainThread",pid=458794,fd=18))\n' }
+          if (file === 'docker' && args[0] === 'ps' && args.includes(`label=sh.curia.installation=${installationId}`)) return { ok: true, stdout: `${container}\n` }
+          if (file === 'docker' && args[0] === 'inspect') return { ok: true, stdout: `${container}\t458794\tdaemon\n` }
+          return base.exec(file, args)
+        },
+      },
+    })
+    assert.equal(status(d.out, 'required ports'), 'ok')
+    assert.match(line(d.out, 'required ports'), /4272 \(the timeline\) is held by this installation's daemon service/)
+    assert.equal(d.exit, EXIT.ok, d.out)
   })
 
   test('the command table routes doctor through the root boundary', async () => {
