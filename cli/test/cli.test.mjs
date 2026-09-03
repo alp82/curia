@@ -4,8 +4,11 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { readFileSync } from 'node:fs'
+import { EventEmitter } from 'node:events'
+import { spawn, spawnSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 
-import { runCli } from '../src/cli.mjs'
+import { endQuietlyOnClosedOutput, runCli } from '../src/cli.mjs'
 import { EXIT } from '../src/exit.mjs'
 
 const packageVersion = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version
@@ -152,5 +155,85 @@ describe('exit behavior', () => {
     })
     assert.equal(exit, EXIT.failed)
     assert.match(io.err(), /^curia doctor: the socket vanished\n$/)
+  })
+})
+
+// The interface owns its streams, so a reader that closes early is its problem
+// to handle. `curia version | head -1` is an ordinary thing for an operator or
+// a script to run, and it has to end the way a Unix tool does.
+describe('a reader that closes the output', () => {
+  const binary = fileURLToPath(new URL('../bin/curia.mjs', import.meta.url))
+
+  // Runs the real binary with the read end of its stdout already closed, which
+  // is what `head` leaves behind once it has the line it wanted.
+  function runWithClosedOutput(args, env) {
+    return new Promise((resolve, reject) => {
+      const child = spawn(process.execPath, [binary, ...args], { stdio: ['ignore', 'pipe', 'pipe'], env })
+      let err = ''
+      child.stderr.setEncoding('utf8')
+      child.stderr.on('data', (s) => { err += s })
+      child.stdout.destroy()
+      child.on('error', reject)
+      child.on('close', (code, signal) => resolve({ code, signal, err }))
+    })
+  }
+
+  // The same command with a reader that stays, for the exit code a closed
+  // reader must not change.
+  function runWithOpenOutput(args, env) {
+    return spawnSync(process.execPath, [binary, ...args], { encoding: 'utf8', env }).status
+  }
+
+  // `version` writes a line at a time and `help` writes one long block, so
+  // between them they cover both shapes of output. `doctor` is not here
+  // because it refuses a scratch root before it writes anything to stdout.
+  for (const command of ['version', 'help']) {
+    test(`${command} ends quietly and keeps the exit code it would have had`, async () => {
+      const root = tempRoot()
+      try {
+        const env = { PATH: process.env.PATH, CURIA_ROOT: root }
+        const r = await runWithClosedOutput([command], env)
+        assert.doesNotMatch(r.err, /EPIPE/)
+        assert.doesNotMatch(r.err, /^\s+at /m)
+        assert.doesNotMatch(r.err, /Unhandled 'error' event/)
+        assert.equal(r.signal, null)
+        assert.equal(r.code, runWithOpenOutput([command], env))
+      } finally {
+        rmSync(root, { recursive: true, force: true })
+      }
+    })
+  }
+
+  test('a closed pipe after the command returns exits with the code the command chose', () => {
+    const stdout = new EventEmitter()
+    const exits = []
+    endQuietlyOnClosedOutput({ stdout, stderr: new EventEmitter(), status: () => EXIT.ok, exit: (c) => exits.push(c) })
+    stdout.emit('error', Object.assign(new Error('write EPIPE'), { code: 'EPIPE' }))
+    assert.deepEqual(exits, [EXIT.ok])
+  })
+
+  test('a closed pipe while the command is still working exits failed', () => {
+    const stdout = new EventEmitter()
+    const exits = []
+    endQuietlyOnClosedOutput({ stdout, stderr: new EventEmitter(), status: () => EXIT.failed, exit: (c) => exits.push(c) })
+    stdout.emit('error', Object.assign(new Error('write EPIPE'), { code: 'EPIPE' }))
+    assert.deepEqual(exits, [EXIT.failed])
+  })
+
+  test('a closed stderr ends quietly too', () => {
+    const stderr = new EventEmitter()
+    const exits = []
+    endQuietlyOnClosedOutput({ stdout: new EventEmitter(), stderr, status: () => EXIT.ok, exit: (c) => exits.push(c) })
+    stderr.emit('error', Object.assign(new Error('write EPIPE'), { code: 'EPIPE' }))
+    assert.deepEqual(exits, [EXIT.ok])
+  })
+
+  test('a write error that is not a closed pipe stays unhandled', () => {
+    const stdout = new EventEmitter()
+    const exits = []
+    endQuietlyOnClosedOutput({ stdout, stderr: new EventEmitter(), status: () => EXIT.ok, exit: (c) => exits.push(c) })
+    const full = Object.assign(new Error('no space left on device'), { code: 'ENOSPC' })
+    assert.throws(() => stdout.emit('error', full), /no space left on device/)
+    assert.deepEqual(exits, [])
   })
 })
