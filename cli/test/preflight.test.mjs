@@ -438,7 +438,7 @@ describe('gatherHostFacts', () => {
       },
     })
     const facts = await gatherHostFacts({ uid: 1001, root: '/home/operator/.local/share/curia', ports: [{ port, holder: 'a test' }], sandbox: { from: port + 1, to: port + 3 } }, probes)
-    assert.deepEqual(facts.ports.busy, [{ port, process: 'node (pid 4242)' }])
+    assert.deepEqual(facts.ports.busy, [{ port, process: 'node (pid 4242)', pid: 4242 }])
     assert.equal(facts.ports.sandboxFree, 3)
     holder.close()
     // The probe listened on the sandbox ports and let them go: we can take one.
@@ -455,32 +455,133 @@ describe('gatherHostFacts', () => {
     const probes = fakeProbes()
     try {
       const facts = await gatherHostFacts({ uid: 1001, root, ports: [{ port, holder: 'a test' }], sandbox: { from: port + 1, to: port + 3 } }, probes)
-      assert.deepEqual(facts.ports.busy, [{ port, process: null }])
-      assert.ok(!probes.calls.some((c) => c.includes('ps')), 'no installation, so Compose is never asked which ports it publishes')
+      assert.deepEqual(facts.ports.busy, [{ port, process: null, pid: null }])
+      assert.ok(!probes.calls.some((c) => c.includes('ps')), 'no installation, so Docker is never asked which ports or containers are Curia\'s')
+      assert.ok(!probes.calls.some((c) => c.includes('inspect')), 'no installation, so no container is inspected')
     } finally {
       holder.close()
       rmSync(root, { recursive: true, force: true })
     }
   })
 
-  test('a running installation names the service that publishes the busy port', async () => {
+  // A running installation, the way the rehearsal host of #891 has one: a
+  // record in `state/`, an active version, and containers that carry the
+  // installation label.
+  function runningInstallation() {
+    const root = mkdtempSync(join(tmpdir(), 'curia-running-'))
+    mkdirSync(join(root, 'state'), { recursive: true })
+    const record = createInstallationRecord('0.11.0')
+    writeFileSync(recordPath(root), JSON.stringify(record))
+    return { root, record }
+  }
+
+  const DAEMON_CONTAINER = 'dd8f8b89761d0683687e763957a46a074c14aa1aadfc6efe028cfbdc2a884ec7'
+  const DASHBOARD_CONTAINER = 'deffa3bf5c7f0683687e763957a46a074c14aa1aadfc6efe028cfbdc2a884ec7'
+
+  // Probes for a running installation: what its Compose project publishes,
+  // which containers carry its label and with which main process, what `ss`
+  // says about the busy port, and what `/proc/<pid>/cgroup` holds.
+  function installationProbes({ record, published = [], containers = [], ss = '', cgroup = {} }) {
+    const base = fakeProbes()
+    const asked = []
+    const probes = fakeProbes({
+      exec: async (file, args) => {
+        asked.push([file, ...args].join(' '))
+        if (file === 'docker' && args[0] === 'compose') return { ok: true, stdout: published.map((row) => JSON.stringify(row)).join('\n'), stderr: '', code: 0 }
+        if (file === 'docker' && args[0] === 'ps') {
+          assert.ok(args.includes(`label=sh.curia.installation=${record.installationId}`), `the container list is filtered by the installation label: ${args.join(' ')}`)
+          return { ok: true, stdout: containers.map((c) => c.id).join('\n'), stderr: '', code: 0 }
+        }
+        if (file === 'docker' && args[0] === 'inspect') return { ok: true, stdout: containers.map((c) => `${c.id}\t${c.pid}\t${c.service}`).join('\n'), stderr: '', code: 0 }
+        if (file === 'ss') return { ok: true, stdout: ss }
+        return base.exec(file, args)
+      },
+      readFile: (path) => cgroup[path] ?? base.readFile(path),
+    })
+    probes.asked = asked
+    return probes
+  }
+
+  async function busyPortFacts(probes, root, port) {
+    return gatherHostFacts({ uid: 1001, root, ports: [{ port, holder: 'a test' }], sandbox: { from: port + 1, to: port + 3 } }, probes)
+  }
+
+  test('a published port names the service Compose says publishes it', async () => {
     const holder = createServer()
     await new Promise((r) => holder.listen(0, '127.0.0.1', r))
     const port = holder.address().port
-    const root = mkdtempSync(join(tmpdir(), 'curia-running-'))
-    mkdirSync(join(root, 'state'), { recursive: true })
-    writeFileSync(recordPath(root), JSON.stringify(createInstallationRecord('0.11.0')))
-    const ps = JSON.stringify({ Service: 'tmux', State: 'running', Publishers: [{ URL: '127.0.0.1', TargetPort: 7681, PublishedPort: port, Protocol: 'tcp' }] })
-    const probes = fakeProbes({
-      exec: async (file, args) => {
-        if (file === 'docker' && args[0] === 'compose') return { ok: true, stdout: `${ps}\n`, stderr: '', code: 0 }
-        if (file === 'ss') return { ok: true, stdout: '' }
-        return fakeProbes().exec(file, args)
-      },
+    const { root, record } = runningInstallation()
+    const probes = installationProbes({
+      record,
+      published: [{ Service: 'overseer', State: 'running', Publishers: [{ URL: '127.0.0.1', TargetPort: 4274, PublishedPort: port, Protocol: 'tcp' }] }],
+      containers: [{ id: DAEMON_CONTAINER, pid: 458794, service: 'daemon' }],
+      ss: `LISTEN 0 4096 127.0.0.1:${port} 0.0.0.0:* users:(("docker-proxy",pid=459001,fd=4))\n`,
     })
     try {
-      const facts = await gatherHostFacts({ uid: 1001, root, ports: [{ port, holder: 'a test' }], sandbox: { from: port + 1, to: port + 3 } }, probes)
-      assert.deepEqual(facts.ports.busy, [{ port, process: null, service: 'tmux' }])
+      const facts = await busyPortFacts(probes, root, port)
+      assert.deepEqual(facts.ports.busy, [{ port, process: 'docker-proxy (pid 459001)', pid: 459001, service: 'overseer' }])
+    } finally {
+      holder.close()
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test('a host-network service is recognized by the container it runs as', async () => {
+    const holder = createServer()
+    await new Promise((r) => holder.listen(0, '127.0.0.1', r))
+    const port = holder.address().port
+    const { root, record } = runningInstallation()
+    const probes = installationProbes({
+      record,
+      published: [{ Service: 'dashboard', State: 'running', Publishers: [] }],
+      containers: [{ id: DASHBOARD_CONTAINER, pid: 458570, service: 'dashboard' }],
+      ss: `LISTEN 0 511 127.0.0.1:${port} 0.0.0.0:* users:(("MainThread",pid=458570,fd=18))\n`,
+    })
+    try {
+      const facts = await busyPortFacts(probes, root, port)
+      assert.deepEqual(facts.ports.busy, [{ port, process: 'MainThread (pid 458570)', pid: 458570, service: 'dashboard' }])
+    } finally {
+      holder.close()
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test('a child of a host-network container is recognized by its cgroup', async () => {
+    const holder = createServer()
+    await new Promise((r) => holder.listen(0, '127.0.0.1', r))
+    const port = holder.address().port
+    const { root, record } = runningInstallation()
+    const probes = installationProbes({
+      record,
+      containers: [{ id: DAEMON_CONTAINER, pid: 458794, service: 'daemon' }],
+      ss: `LISTEN 0 511 127.0.0.1:${port} 0.0.0.0:* users:(("ttyd",pid=459200,fd=7))\n`,
+      cgroup: { '/proc/459200/cgroup': `0::/system.slice/docker-${DAEMON_CONTAINER}.scope\n` },
+    })
+    try {
+      const facts = await busyPortFacts(probes, root, port)
+      assert.equal(facts.ports.busy[0].service, 'daemon')
+    } finally {
+      holder.close()
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test('a foreign holder on a running installation stays foreign', async () => {
+    const holder = createServer()
+    await new Promise((r) => holder.listen(0, '127.0.0.1', r))
+    const port = holder.address().port
+    const { root, record } = runningInstallation()
+    const probes = installationProbes({
+      record,
+      containers: [{ id: DAEMON_CONTAINER, pid: 458794, service: 'daemon' }],
+      ss: `LISTEN 0 511 127.0.0.1:${port} 0.0.0.0:* users:(("nginx",pid=4242,fd=6))\n`,
+    })
+    try {
+      const facts = await busyPortFacts(probes, root, port)
+      assert.deepEqual(facts.ports.busy, [{ port, process: 'nginx (pid 4242)', pid: 4242 }])
+      const report = evaluateHostFacts(ubuntu({ ports: { busy: facts.ports.busy, sandboxFree: 300 } }))
+      assert.equal(report.ok, false)
+      assert.match(check(report, 'required ports').observed, /nginx \(pid 4242\)/)
     } finally {
       holder.close()
       rmSync(root, { recursive: true, force: true })

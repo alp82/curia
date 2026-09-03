@@ -77,7 +77,7 @@ The following table lists every check, what it can do, the condition it reports,
 | architecture | Refuse | The processor is not x86-64. | Install Curia on an x86-64 host. |
 | host capacity | Warn | CPU, memory, or free disk is below the minimum or the recommended profile. | Give the host the named profile. |
 | required ports | Refuse | One of the five loopback ports is held by another program, named when `ss` can see it. | Stop that program or move it to another port. |
-| required ports | Pass | A loopback port is held by a container of this installation's own Compose project, which is the healthy state on a running host. The line names the service that publishes it. `curia update` and `curia rollback` run this check on a running installation, so it has to tell Curia's containers from a foreign program. | Nothing. |
+| required ports | Pass | A loopback port is held by a container of this installation, which is the healthy state on a running host. The line names the service that holds it. `curia update` and `curia rollback` run this check on a running installation, so it has to tell Curia's containers from a foreign program. See [How Curia recognizes a port of its own](#how-curia-recognizes-a-port-of-its-own). | Nothing. |
 | required ports | Refuse | Fewer than 12 ports are free in `9000` to `9299`. | Free at least 12 ports in that range. |
 | Docker Engine | Refuse | Docker is not installed. | Install Docker Engine 24.0 or later from the [Docker Engine install page](https://docs.docker.com/engine/install/). |
 | Docker Engine | Refuse | Your user can't open `/var/run/docker.sock`. | Run `sudo usermod -aG docker $USER`, then log out and in. |
@@ -100,6 +100,15 @@ The following table lists every check, what it can do, the condition it reports,
 The node's login, the Tailscale operator permission, and the tailnet's HTTPS certificate are not preflight checks. They belong to the `tailnet` step of `curia install`, which logs the node in when it isn't and refuses on the other two with the exact command or setting; `curia reinstall`, `curia update`, and `curia rollback` inspect the same three facts in their `preflight` step and refuse without logging in. See [The tailnet step](install.md#the-tailnet-step).
 
 The unsupported categories that the specification names, such as Windows Subsystem for Linux, nested containers, immutable hosts, hosts without systemd, and rootless Docker, are not refused by name. When every functional check passes, installation continues, with a warning where the check can tell.
+
+### How Curia recognizes a port of its own
+
+On a host that holds no installation, every busy required port is another program's, and Curia asks Docker nothing. When the root holds an installation, Curia has to tell its own containers from a foreign program, because `curia update` and `curia rollback` run this check while the installation runs. The services hold their ports in two different shapes, and each has its own test:
+
+- **A published port.** The `overseer` service publishes `127.0.0.1:4274` through Docker, so `docker compose ps --format json` lists the port under the service's publishers. A busy port that the root's own project publishes passes, and the line names that service.
+- **A port a host-network service holds.** The `daemon`, `dashboard`, and `ttyd` services run with `network_mode: host` and bind the host's port from inside the container, so they publish nothing and Compose reports no publisher for them. Curia lists the installation's running containers by the `sh.curia.installation` label and reads each one's main process id. A busy port passes when the process that holds it is a container's main process, or when `/proc/<pid>/cgroup` names one of those containers, which covers a process the service started.
+
+The process name that `ss` prints is never the evidence. It's whatever the image called its main thread, which is why a healthy host reports holders such as `MainThread` and `ttyd`. A holder that matches neither test is foreign, and the check still refuses.
 
 ## What preflight doesn't check
 

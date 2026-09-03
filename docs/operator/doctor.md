@@ -99,6 +99,10 @@ A script can run `curia doctor` and branch on `0` against the rest. A warning ne
 
 When a credential key such as `GH_TOKEN` is set in your shell, the `environment` check names the key and never its value.
 
+## The required ports on a running installation
+
+On a running installation, Curia's own containers hold the loopback ports, and that's the healthy state. The `required ports` check reports `ok` and names the service that holds each one, such as `4272 (the timeline) is held by this installation's daemon service`. It recognizes two shapes: a port the installation's Compose project publishes, and a port a host-network service binds from inside its container, which publishes nothing and is recognized by the container's process id and cgroup instead. A port held by anything else is `refused`, and the action is to stop that program or move it to another port. See [How Curia recognizes a port of its own](supported-hosts.md#how-curia-recognizes-a-port-of-its-own).
+
 ## Provenance and the GitHub CLI
 
 The `image provenance` check asks `gh attestation verify` for each of the five image digests, the agent image's included. The GitHub CLI is optional on a supported host, and it isn't a prerequisite of the bootstrap.
