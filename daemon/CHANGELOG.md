@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.11.0](https://github.com/alp82/curia/compare/v0.10.0...v0.11.0) (2026-09-03)
+
+
+### Features
+
+* authorize the operator when the GitHub App is installed and approve as them ([#970](https://github.com/alp82/curia/issues/970)) ([ac3c1d5](https://github.com/alp82/curia/commit/ac3c1d5ee96f537e56bfd90babfdf099e2d7aac1))
+* run the Test run on the cheapest model at low effort ([#969](https://github.com/alp82/curia/issues/969)) ([7af61ce](https://github.com/alp82/curia/commit/7af61ce6cdff9434e618138fa26dc4c1caa5bcf5))
+
+
+### Bug Fixes
+
+* ask for every permission the Discord bot needs in one invite ([#963](https://github.com/alp82/curia/issues/963)) ([2335088](https://github.com/alp82/curia/commit/233508840dd7ddea33a055482507832cafd90daa))
+
 ## [0.10.0](https://github.com/alp82/curia/compare/v0.9.1...v0.10.0) (2026-09-03)
 
 
