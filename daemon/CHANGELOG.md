@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.11.1](https://github.com/alp82/curia/compare/v0.11.0...v0.11.1) (2026-09-03)
+
+
+### Bug Fixes
+
+* pass the purge confirmation through the bootstrap ([#978](https://github.com/alp82/curia/issues/978)) ([dd134a7](https://github.com/alp82/curia/commit/dd134a77bfbc239e325955850290822bb9533f2b))
+* purge with the installed interface instead of the stable index ([#977](https://github.com/alp82/curia/issues/977)) ([6195417](https://github.com/alp82/curia/commit/6195417de545578d34138f83a8d022cda17f3b26))
+
 ## [0.11.0](https://github.com/alp82/curia/compare/v0.10.0...v0.11.0) (2026-09-03)
 
 
