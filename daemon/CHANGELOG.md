@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.10.0](https://github.com/alp82/curia/compare/v0.9.1...v0.10.0) (2026-09-03)
+
+
+### Features
+
+* guide GitHub setup in three steps and verify Discord and Tailscale implicitly ([#958](https://github.com/alp82/curia/issues/958)) ([dfaa159](https://github.com/alp82/curia/commit/dfaa1590c7de1862134eaa76e11d92211f4a20b4))
+* make the Test run create its own two-ticket map and show human steps as Discord embeds ([#960](https://github.com/alp82/curia/issues/960)) ([37ccff1](https://github.com/alp82/curia/commit/37ccff11544a3e9153ca1f4fb5ebac14f5a60ded))
+* start the Discord bridge on connect and answer the run's escalation from the page ([#959](https://github.com/alp82/curia/issues/959)) ([98d75f7](https://github.com/alp82/curia/commit/98d75f769ac2a04d8c0843554efdc80902fb65ad))
+
+
+### Bug Fixes
+
+* boot with a pending GitHub App setup and withdraw Serve routes idempotently ([#954](https://github.com/alp82/curia/issues/954)) ([7fa10a7](https://github.com/alp82/curia/commit/7fa10a7282de92d46a334e2e39f0d74a52a91209))
+* proxy the terminal WebSocket through the app's served address ([#957](https://github.com/alp82/curia/issues/957)) ([b351ee4](https://github.com/alp82/curia/commit/b351ee4cf543e178ae7e7b3e8099ec9a294bc22a))
+* read the Anthropic sign-in link off a wrapped pane on every Claude Code version ([#956](https://github.com/alp82/curia/issues/956)) ([d2b1e64](https://github.com/alp82/curia/commit/d2b1e644a035f5de7ecd8149d65638747f7cd9b4))
+
 ## [0.9.1](https://github.com/alp82/curia/compare/v0.9.0...v0.9.1) (2026-09-02)
 
 
