@@ -1,12 +1,12 @@
 # Integration setup
 
-Integration setup is the **Setup** screen of the Curia app. It connects one installation to the four resources the Full loop needs: GitHub, Discord, Tailscale, and one model provider. This page is the reference for the setup frame: what the four cards show, how you move between them, what a reopen restores, and what Curia keeps on disk. The GitHub card's own steps are in [Connect GitHub](#connect-github), the Discord card's in [Connect Discord](#connect-discord), the Tailscale card's in [Connect Tailscale](#connect-tailscale), and the model provider card's OpenAI steps in [Connect OpenAI](#connect-openai) and Anthropic steps in [Connect Anthropic](#connect-anthropic). When setup is ready and what the Full loop runs on is in [The Full loop](#the-full-loop). The operator guide walks the same screen in [3. Connect services](guide/03-connect-services.md) and [4. Run your first Full loop](guide/04-run-your-first-full-loop.md); this page is the reference behind those topics.
+Integration setup is the **Setup** screen of the Curia app. It connects one installation to the four resources the Full loop needs: GitHub, Discord, Tailscale, and one AI login. This page is the reference for the setup frame: what the four cards show, how you move between them, what a reopen restores, and what Curia keeps on disk. The GitHub card's own steps are in [Connect GitHub](#connect-github), the Discord card's in [Connect Discord](#connect-discord), the Tailscale card's in [Connect Tailscale](#connect-tailscale), and the model provider card's OpenAI steps in [Connect OpenAI](#connect-openai) and Anthropic steps in [Connect Anthropic](#connect-anthropic). When setup is ready and what the Test run runs on is in [The Test run](#the-test-run). The operator guide walks the same screen in [3. Connect services](guide/03-connect-services.md) and [4. Run the Test run](guide/04-run-the-test-run.md); this page is the reference behind those topics.
 
 After `curia install` finishes, open the address it printed, `https://<your node's MagicDNS name>:8445/`, and open **Setup**. Home also points at **Setup** while an integration isn't connected.
 
 ## The four cards
 
-The rail on the left holds one card per integration, in this order: **GitHub**, **Discord**, **Tailscale**, **Model provider**. Select any card to open its configuration on the right. You can connect the four in any order.
+The rail on the left holds one card per integration, in this order: **GitHub**, **Discord**, **Tailscale**, **AI logins**. Select any card to open its configuration on the right. You can connect the four in any order.
 
 Every card has the same height in every state, so a verification never moves the rail. Each card has a header with the service's logo, its name, and a state badge, and a footer with the card's data. The following table lists the states.
 
@@ -179,11 +179,11 @@ The card has no field, so it remembers nothing for a reopen. The recorded operat
 
 ## Connect OpenAI
 
-The **Model provider** card holds one row per provider, OpenAI and Anthropic. One verified provider is required, and you can add the second one later from the same card. This section is the OpenAI row; [Connect Anthropic](#connect-anthropic) is the other. It connects the ChatGPT subscription Curia's codex agents run on, through the sign-in Curia already uses, and verifies it with one minimal model request. There is no API-key path: the row has no key field, and Curia holds no API key.
+The **AI logins** card holds one row per provider, OpenAI and Anthropic. One verified login is required, and you can add the second one later from the same card. This section is the OpenAI row; [Connect Anthropic](#connect-anthropic) is the other. It connects the ChatGPT subscription Curia's codex agents run on, through the sign-in Curia already uses, and verifies it with one minimal model request. There is no API-key path: the row has no key field, and Curia holds no API key.
 
 ### Sign in
 
-1. On the **Model provider** card, select **Sign in to OpenAI**. Curia opens a sign-in session on this host (`codex login --device-auth` in a session the service drives) and the row shows a link and a one-time code within a few seconds. The session runs in the agent image the release ships, which `curia install` pulled; nothing is built. Opening the row prepares that image, so the press has nothing left to pull.
+1. On the **AI logins** card, select **Sign in to OpenAI**. Curia opens a sign-in session on this host (`codex login --device-auth` in a session the service drives) and the row shows a link and a one-time code within a few seconds. The session runs in the agent image the release ships, which `curia install` pulled; nothing is built. Opening the row prepares that image, so the press has nothing left to pull.
 2. Open the link on any device, sign in to your ChatGPT account, and enter the code. Each of the link and the code has a **Copy** button. Nothing is pasted back. The code lives fifteen minutes.
 3. Wait for the row to verify. Curia watches for the credential, adopts it the moment it lands, and runs the verification.
 
@@ -239,11 +239,11 @@ The card remembers only the provider you last signed in (`progress.model.provide
 
 ## Connect Anthropic
 
-This section is the Anthropic row of the **Model provider** card. It connects the Claude subscription Curia's claude agents and the overseer run on, through the sign-in Curia already uses (`claude setup-token`), and verifies it with one minimal model request. There is no API-key path: the row has no key field, and Curia holds no API key. You can connect Anthropic alone, or beside OpenAI.
+This section is the Anthropic row of the **AI logins** card. It connects the Claude subscription Curia's claude agents and the overseer run on, through the sign-in Curia already uses (`claude setup-token`), and verifies it with one minimal model request. There is no API-key path: the row has no key field, and Curia holds no API key. You can connect Anthropic alone, or beside OpenAI.
 
 ### Sign in
 
-1. On the **Model provider** card, select **Sign in to Anthropic**. Curia opens a sign-in session on this host (`claude setup-token` in a session the service drives) and the row shows a link within a few seconds. The session runs in the agent image the release ships, which `curia install` pulled; nothing is built. Opening the row prepares that image.
+1. On the **AI logins** card, select **Sign in to Anthropic**. Curia opens a sign-in session on this host (`claude setup-token` in a session the service drives) and the row shows a link within a few seconds. The session runs in the agent image the release ships, which `curia install` pulled; nothing is built. Opening the row prepares that image.
 2. Open the link, sign in to your Claude subscription, and approve the request. The browser shows a code. The link has a **Copy** button.
 3. Paste the code into the **Code** field on the row and select **Submit**. Curia types it into the sign-in session for you. The row says `Code delivered` when it lands.
 4. Wait for the row to verify. The session prints the token once, Curia reads it off the session, asks Anthropic whether it authenticates, adopts it on a yes, and runs the verification.
@@ -311,13 +311,13 @@ Every action on a card, **Confirm operator and verify**, **Connect bot**, **Conn
 ## Moving through setup
 
 - Every write on a card verifies the card on its own. There is no separate check to press: after **Connect bot**, **Connect channel**, **Confirm operator and verify**, or **Watch these repositories and continue**, the panel shows the result of that verification.
-- A connected panel has one press, **Continue**. It opens the next card that isn't connected, in rail order. When every card is connected, **Continue** opens the Full loop panel. A connected card you reopen shows its facts and the same **Continue**.
-- When GitHub, Discord, Tailscale, and at least one model provider are connected on the current read, the action under the rail becomes **Run Full loop**. Nothing else turns it: not the count on the rail, and not a saved result.
-- **Close setup** returns to Home. Closing the tab does the same.
+- A connected panel has one press, **Continue**. It opens the next card that isn't connected, in rail order. When every card is connected, **Continue** opens the Test run panel. A connected card you reopen shows its facts and the same **Continue**.
+- When GitHub, Discord, Tailscale, and at least one AI login are connected on the current read, the action under the rail becomes **Start Test run**. Nothing else turns it: not the count on the rail, and not a saved result.
+- There is no close button. To leave Setup, select **Home** or any other screen; a running Test run keeps going.
 
-## The Full loop
+## The Test run
 
-The Full loop is the one dependent step. Under the rail, the **Full loop** panel names what it's waiting for or, when setup is ready, what the loop runs on.
+The Test run is the one dependent step. Under the rail, the **Test run** card names what it's waiting for or, when setup is ready, what the run runs on. A Test run runs one Full loop, the eight-leg cycle, on each of two tickets it creates for itself.
 
 ### When setup is ready
 
@@ -326,75 +326,75 @@ Setup is ready when all of the following hold on the current read:
 - The GitHub card is connected and names a covered watched repository.
 - The Discord card is connected and names the server and the command channel.
 - The Tailscale card is connected and names the private address the app answers on.
-- At least one model provider is connected and its routing preset is ready.
+- At least one AI login is connected and its routing preset is ready.
 
 Curia computes readiness from those verifications every time the service is asked: when you open **Setup**, when you select **Try again**, and after a service restart or a reconnection. Curia keeps no "ready" marker and no workflow state, so there is nothing to resume and nothing to reset. A card that verified on the last read and fails on this one, for example because the GitHub App was uninstalled or a model credential expired, closes the gate on this read. The card names the failure and the one action. Fix it, select **Try again**, and the next read that passes opens the gate again. A connected card that hands no fact the loop needs is named the same way, for example `GitHub verified without a covered repository. Select Try again.`
 
-### One provider is enough
+### One login is enough
 
-OpenAI and Anthropic are both supported. One verified provider is sufficient, and the second stays optional. When both are connected, the model card says **Two providers verified**, and the leading provider is the one you last signed in from this card, when it verified, or the first connected provider in card order. A second provider that fails verification is shown as failed on its row and blocks nothing while the other provider is connected.
+OpenAI and Anthropic are both supported. One verified login is sufficient, and the second stays optional. When both are connected, the AI logins card says **Two providers verified**, and the leading provider is the one you last signed in from this card, when it verified, or the first connected provider in card order. A second login that fails verification is shown as failed on its row and blocks nothing while the other is connected.
 
 ### What the panel shows
 
-When setup is ready, the panel says `Every integration is connected and verified.` and names the facts the loop runs on: the discovered ticket or the covered repository, the command channel, the private address, and the leading provider with the model its preset routes to. Those facts come from the current read's verifications and from nothing stored. The service hands the same facts to the Full loop: the repository and the ticket, the server, the channel, the confirmation message, and whether the Discord bridge runs, the address and the admitted operator, and the provider with its routing rows. None of them is a secret.
+When setup is ready, the panel says `Every integration is connected and verified.` and names the facts the run runs on: the covered repository, the command channel, the private address, and the leading provider with the model its preset routes to. Those facts come from the current read's verifications and from nothing stored. The service hands the same facts to the Test run: the repository, the server, the channel, the confirmation message, and whether the Discord bridge runs, the address and the admitted operator, and the provider with its routing rows. None of them is a secret.
 
-### Run Full loop
+### Start Test run
 
-**Run Full loop** enables only when setup is ready. Selecting it runs one real Full loop, and that run is the installation's acceptance: setup succeeds when every leg of the loop completes in one pass, and not before. There is no separate evidence report. The completion state links the GitHub and Discord artifacts the run produced and reports the elapsed time.
+**Start Test run** enables only when setup is ready. Selecting it runs the Test run, and that run is the installation's acceptance: setup succeeds when every leg completes in one pass on both tickets and the map is closed, and not before. There is no separate evidence report. The completion state links the GitHub and Discord artifacts the run produced and reports the elapsed time.
 
-#### Prepare the rehearsal ticket
+#### The map and the tickets the run makes
 
-Before you select **Run Full loop**, mark one ticket of the covered repository for the rehearsal:
+You don't prepare a ticket. When you select **Start Test run**, Curia creates a wayfinder map in the covered repository, **Test run &lt;date&gt;**, with two child tickets:
 
-1. Create or pick an open ticket that Curia can take: unassigned, unblocked, and either a child of an open map or labelled `ready-for-agent` when the repository has no open map.
-2. Add the `rehearsal` label to that ticket. Curia runs the Full loop only on a ticket that carries this label, so the run never spends a ticket you didn't choose.
-3. Write the ticket so that the agent has to ask you one question it can't answer from the repository. The escalation leg needs a real question and a real answer.
-4. Keep the ticket small. The run holds a review gate that you approve from Discord, and the merge is a real merge into the repository's default branch.
+1. **Add a line to the README.** Append one line to the bottom of `README.md`, creating the file if the repository has none. The line names the Test run and the date.
+2. **Remove the Test run line from the README.** Blocked by ticket 1 through GitHub's native issue dependency. Remove the line again, and delete the file when ticket 1 created it.
 
-When the covered repository has several marked tickets, Curia takes the first one on its frontier. To choose another, name its number when you press the button from the API, or leave only one ticket marked.
+Both tickets carry the `rehearsal` label, and each asks the agent to confirm the line's wording with you, so the escalation leg has a real question and a real answer. The writes are real GitHub issues under the App's token, and Curia journals each one as it lands, so **Try again** after a failed creation creates only what is missing on the same map. A second Test run creates a new map. The repository is left as it was: the line is added and removed, both pull requests are merged, and the map and its tickets are closed.
 
 #### What the run covers
 
-The run walks the eight legs of the Full loop in order. Each leg is observed through the record Curia already keeps while an agent works, never through a marker the run writes for itself. The following table lists the legs and what completes each one.
+The run walks the eight legs of the Full loop on ticket 1, then the same eight on ticket 2, then one last leg for the map. Each leg is observed through the record Curia already keeps while an agent works, never through a marker the run writes for itself. The following table lists the legs and what completes each one.
 
 | Leg | What completes it |
 |---|---|
-| Frontier discovery | The dispatcher's own frontier read of the repository lists the marked ticket as takeable. |
+| Frontier discovery | The dispatcher's own frontier read of the repository lists the ticket as takeable. Ticket 2 is takeable once ticket 1 is closed. |
 | Dispatch | The dispatcher claims the ticket and spawns the agent session (`agent_spawned`). |
 | Escalation and answer | The agent asks a question through Discord and your answer reaches it. The review gate doesn't count as this leg. |
 | Pull request | The agent's `open_pull_request` opens or updates the pull request. |
 | Review | You approve the review gate in the ticket's thread. A rejection sends the agent back and completes nothing. |
 | Merge | The resolution receipt finds the pull request merged. |
 | Ticket resolution | The receipt finds the resolution comment and the closed ticket. |
-| Map update | The receipt finds the pointer line on the parent map's **Decisions so far**. |
+| Map update | The receipt finds the pointer line on the Test run map's **Decisions so far**. |
+| Map closed | Curia asked what to do with the empty map, you answered **Clear fog and close**, and Curia closed it. |
 
-Selecting **Run Full loop** or **Try again** makes the run the selected panel, in the main area where a card's panel renders, and scrolls it into view. The panel first says `Starting the Full loop` (or `Retrying <leg>`), then, from the service's answer on, one row per leg with its state as a word, the elapsed time, and the links as they appear. The rail's **Full loop** card shows the run's state and brings the panel back after you select a card. The page follows the service's read every 5 seconds. Everything but the two answers is the agent's and the daemon's.
+Selecting **Start Test run** or **Try again** makes the run the selected panel, in the main area where a card's panel renders, and scrolls it into view. The panel first says `Starting the Test run` (or `Retrying <leg>`), then, from the service's answer on, the map, the ticket in flight (`ticket 1 of 2`, then `ticket 2 of 2`), one row per leg with its state as a word, the elapsed time, and the links as they appear. The rail's **Test run** card shows the run's state and brings the panel back after you select a card. The page follows the service's read every 5 seconds. Everything but your answers is the agents' and the daemon's.
 
-#### Your part: the question and the review gate
+#### Your part: the questions, the review gates, and the map
 
-The running leg says what it waits for, so a wait is never mistaken for a hang: `waiting for the agent's question`, `waiting for your answer · open 3m ago`, or `waiting for your approval of the review gate · open 12m ago`. The time is since the question opened.
+The running leg says what it waits for, so a wait is never mistaken for a hang: `waiting for the agent's question`, `waiting for your answer · open 3m ago`, `waiting for your approval of the review gate · open 12m ago`, `waiting for Curia's question about the empty map`, or `waiting for your verdict on the map · open 1m ago`. The time is since the question opened.
 
-When the agent asks a question or opens the review gate, the panel shows it under the legs with the same controls Home draws: the question with an answer field or its option buttons, or the review gate with **Approve · merge**, **Cross-check**, and **Reject** with a field for your words. The answer goes through the service's own answer route, the one the Discord bridge uses, so the ticket's thread in Discord keeps working in parallel and whichever surface answers first wins. The journal records one answer either way.
+Whenever the run reaches a step that waits for you, the panel shows the message Curia posted in Discord, drawn the way Discord draws it: the bot's name and avatar, then the embed with its title, its description, its fields, and its footer. It is the same message, built from the same text the bridge sent, so what you read on the panel is what your phone shows. Under it are this page's answer controls: the question with an answer field or its option buttons, the review gate with **Approve · merge**, **Cross-check**, and **Reject** with a field for your words, or the map question with **Clear fog and close** and **Keep map open**. The answer goes through the service's own answer route, the one the Discord bridge uses, so the ticket's thread in Discord keeps working in parallel and whichever surface answers first wins. The journal records one answer either way.
 
 #### Follow the sessions
 
 While the run lives, the panel lists a terminal per live session under **Terminals**: the agent's session (`curia-<ticket>`) while it runs, and the overseer's session while it is in a turn. Each opens the app's own `/terminal/` page for that session in a new tab, behind the same Tailscale identity check as the page.
 
-#### Closing Setup during a run
+#### Leaving Setup during a run
 
-Closing Setup never cancels or detaches the run. The service drives the run and judges it from its journal, and the page only reads it. Home shows the running acceptance with its current leg and what it waits for, and **Open** returns to the run panel. Reopening Setup any other way lands on the run panel while the run lives. The panel says so: `Closing Setup keeps the run going`.
+Leaving Setup never cancels or detaches the run. The service drives the run and judges it from its journal, and the page only reads it. Home shows the running acceptance with its current leg and what it waits for, and **Open** returns to the run panel. Reopening Setup any other way lands on the run panel while the run lives. The panel says so: `Leaving Setup keeps the run going`. There is no close button; select any other screen.
 
 #### When the run completes
 
-The panel says **Full loop verified** and names the repository, the ticket, and the total elapsed time from the press to the last leg. It links the ticket, the pull request, the parent map, the Discord thread, and the command channel. Select **Open Curia** to leave setup. The run's start and completion are also on the Feed as journal events, which is the only record Curia keeps of it. `curia doctor` keeps reporting the gate, not the run: a completed run is not a readiness marker, and the next `Setup` read verifies the four cards fresh, as always.
+The panel says **Test run verified** and names the repository, the last ticket, and the total elapsed time from the press to the map's close. It links the ticket, the pull request, the map, the Discord thread, and the command channel. Select **Open Curia** to leave setup. The run's start and completion are also on the Feed as journal events, which is the only record Curia keeps of it. `curia doctor` keeps reporting the gate, not the run: a completed run is not a readiness marker, and the next `Setup` read verifies the four cards fresh, as always.
 
 #### When a leg fails
 
-A run fails when the agent ends with a leg outstanding, when the dispatcher refuses the dispatch, or when no marked ticket is on the frontier. The panel names the failed leg, one cause, and one corrective action, and offers **Try again**. The completed legs and every connected integration stay as they are.
+A run fails when a write to GitHub fails while the map is made, when the ticket isn't on the frontier, when the dispatcher refuses the dispatch, when the agent ends with a leg outstanding, or when the map is kept open. The panel names the failed leg, one cause, and one corrective action, and offers **Try again**. The completed legs, the map, the tickets, and every connected integration stay as they are.
 
-- **Frontier discovery** fails when the repository has no takeable ticket marked `rehearsal`, or when the frontier can't be read. Label a ticket, or fix the GitHub card, then select **Try again**. The retry reads the frontier again.
+- **Frontier discovery** fails when Curia couldn't create the map or a ticket, when the frontier can't be read, or when the ticket isn't listed as takeable. Check the GitHub card and the repository, then select **Try again**. The retry creates what is missing on the same map and reads the frontier again.
 - **Dispatch** fails when the dispatcher refuses the ticket, for example over a clone an earlier agent left on disk, or a missing model credential. The cause is the dispatcher's own sentence. Fix what it names, then select **Try again**. The retry dispatches the same ticket again.
-- **Every later leg** fails when the agent ends before that leg: it exited, died, or was cancelled. Read the ticket's thread in the command channel, fix what stopped the agent, then select **Try again**. The retry dispatches the same ticket again, and only the new dispatch's legs count.
+- **Every later ticket leg** fails when the agent ends before that leg: it exited, died, or was cancelled. Read the ticket's thread in the command channel, fix what stopped the agent, then select **Try again**. The retry dispatches the same ticket again, and only the new dispatch's legs count.
+- **Map closed** fails when you answer **Keep map open**. Close the map on GitHub, then select **Try again**. The retry reads the map again.
 
 A rejected review is not a failure. The agent takes your feedback, commits again, and asks for review again on the same pull request.
 

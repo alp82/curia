@@ -1849,23 +1849,24 @@ describe('the Discord card routes (#876)', () => {
     daemon?.close()
   })
 
-  // #882: the Full loop's run rides the sidecar the way the cards do. The
-  // press names at most a repository and a ticket number, shaped here; the
-  // daemon's refusal is the sentence the page shows; the read is unedited.
-  test('the Full loop press crosses as the repository and the ticket number only, and the daemon\'s refusal is the page\'s sentence', async () => {
+  // #882, #891: the Test run rides the sidecar the way the cards do. The
+  // press names at most a repository, shaped here (the run makes its own
+  // tickets, so no ticket crosses); the daemon's refusal is the sentence the
+  // page shows; the read is unedited.
+  test('the Test run press crosses as the repository only, and the daemon\'s refusal is the page\'s sentence', async () => {
     const run = { state: 'running', repo: 'o/r', ticket: { number: 42, title: 'T', url: 'https://github.com/o/r/issues/42', map: 40 }, legs: [], links: {}, failed: null, elapsed_ms: 1 }
     reply['/setup/full-loop'] = [200, { ok: true, run }]
     reply['/setup/full-loop/retry'] = [200, { ok: true, run }]
     const res = await press('/api/setup/full-loop', { repo: 'o/r', ticket: '42', token: TOKEN, extra: 'dropped' })
     assert.equal(res.status, 200)
-    assert.deepEqual(sent('/setup/full-loop').body, { repo: 'o/r', ticket: 42 })
+    assert.deepEqual(sent('/setup/full-loop').body, { repo: 'o/r' }, 'the ticket the caller named is dropped: the run makes its own')
     assert.deepEqual(JSON.parse(res.text).run, run)
     assert.ok(!res.text.includes(TOKEN))
     calls = []
     const bare = await press('/api/setup/full-loop', {})
     assert.equal(bare.status, 200)
     assert.deepEqual(sent('/setup/full-loop').body, {})
-    for (const bad of [{ repo: 'not a repo' }, { ticket: 'x' }, { ticket: 0 }]) {
+    for (const bad of [{ repo: 'not a repo' }, { repo: 'a b/c' }]) {
       const r = await press('/api/setup/full-loop', bad)
       assert.equal(r.status, 409, JSON.stringify(bad))
     }
@@ -1873,13 +1874,13 @@ describe('the Discord card routes (#876)', () => {
     const retry = await press('/api/setup/full-loop/retry', { repo: 'x/y', ticket: 7 })
     assert.equal(retry.status, 200)
     assert.deepEqual(sent('/setup/full-loop/retry').body, {}, 'the retry names nothing')
-    reply['/setup/full-loop'] = [400, { ok: false, error: "The Full loop isn't ready: Waiting for Discord." }]
+    reply['/setup/full-loop'] = [400, { ok: false, error: "The Test run isn't ready: Waiting for Discord." }]
     const refused = await press('/api/setup/full-loop', {})
     assert.equal(refused.status, 409)
-    assert.equal(JSON.parse(refused.text).error, "The Full loop isn't ready: Waiting for Discord.")
+    assert.equal(JSON.parse(refused.text).error, "The Test run isn't ready: Waiting for Discord.")
   })
 
-  test('the Full loop read comes from the daemon unedited, and a daemon that cannot be asked answers a null state with the reason', async () => {
+  test('the Test run read comes from the daemon unedited, and a daemon that cannot be asked answers a null state with the reason', async () => {
     reply['/setup/full-loop'] = [200, { state: 'idle', repo: null, legs: [] }]
     const res = await req(surface.port, '/api/setup/full-loop', { headers: served() })
     assert.equal(res.status, 200)

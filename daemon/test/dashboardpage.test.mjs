@@ -4433,7 +4433,7 @@ describe('the Credentials screen (#661)', () => {
 // not any integration: four fixed-height cards in the accepted order, a
 // selection in any order that the service keeps for a reopen, a connected
 // state that comes from this read and never from stored progress, the error
-// treatment with one action and Try again, and a Full loop action that stays
+// treatment with one action and Try again, and a Test run action that stays
 // unavailable until the gate says otherwise.
 describe('integration setup (#874)', () => {
   const card = (key, title, over = {}) => ({
@@ -4442,11 +4442,11 @@ describe('integration setup (#874)', () => {
   })
   const CARDS = (over = {}) => [
     card('github', 'GitHub', over.github), card('discord', 'Discord', over.discord),
-    card('tailscale', 'Tailscale', over.tailscale), card('model', 'Model provider', over.model),
+    card('tailscale', 'Tailscale', over.tailscale), card('model', 'AI logins', over.model),
   ]
   const SETUP = (over = {}) => ({
     step: 'github', progress: {}, cards: CARDS(over.cards ?? {}),
-    full_loop: { ready: false, missing: ['github', 'discord', 'tailscale', 'model'], reason: 'Waiting for GitHub, Discord, Tailscale, Model provider.', facts: null },
+    full_loop: { ready: false, missing: ['github', 'discord', 'tailscale', 'model'], reason: 'Waiting for GitHub, Discord, Tailscale, AI logins.', facts: null },
     ...Object.fromEntries(Object.entries(over).filter(([k]) => k !== 'cards')),
   })
   const connected = (primary, secondary, emoji = '✅') => ({ state: 'connected', badge: 'Connected and verified', footer: { primary, secondary, emoji } })
@@ -4481,7 +4481,7 @@ describe('integration setup (#874)', () => {
     const html = page.screenSetup(payload())
     const keys = [...html.matchAll(/class="setup-card (\w+) /g)].map((m) => m[1])
     assert.deepEqual(keys, ['github', 'discord', 'tailscale', 'model'])
-    for (const title of ['GitHub', 'Discord', 'Tailscale', 'Model provider']) {
+    for (const title of ['GitHub', 'Discord', 'Tailscale', 'AI logins']) {
       assert.match(html, new RegExp(`<span class="setup-title">${title}</span><span class="setup-badge">Not available</span>`))
     }
     assert.match(text(html), /0\/4 verified/)
@@ -4593,21 +4593,21 @@ describe('integration setup (#874)', () => {
     assert.equal(page.setup.step, 'tailscale', 'no card is selected over the run')
   })
 
-  test('the Full loop action stays unavailable with four connected cards until the gate supplies its facts', () => {
+  test('the Test run action stays unavailable with four connected cards until the gate supplies its facts', () => {
     page.setup = SETUP({
       step: 'model', cards: ALL,
-      full_loop: { ready: false, missing: [], reason: 'The Full loop is not available yet in this release.', facts: null },
+      full_loop: { ready: false, missing: [], reason: 'The Test run is not available yet in this release.', facts: null },
     })
     const html = page.screenSetup(payload())
     assert.match(text(html), /4\/4 verified/)
     const loop = /setup-loop[\s\S]*?<\/div><\/div>/.exec(html)[0]
-    assert.match(loop, /The Full loop is not available yet in this release\./)
-    assert.match(html, /<button class="btn primary" disabled>Run Full loop<\/button>/)
+    assert.match(loop, /The Test run is not available yet in this release\./)
+    assert.match(html, /<button class="btn primary" disabled>Start Test run<\/button>/)
     assert.doesNotMatch(html, /onclick="runFullLoop\(\)"/)
     assert.doesNotMatch(html, /Continue setup/)
   })
 
-  test('a missing card is named as what the Full loop waits for', () => {
+  test('a missing card is named as what the Test run waits for', () => {
     page.setup = SETUP({ cards: { github: ALL.github, discord: ALL.discord, model: ALL.model }, full_loop: { ready: false, missing: ['tailscale'], reason: 'Waiting for Tailscale.', facts: null } })
     assert.match(page.screenSetup(payload()), /Waiting for Tailscale\./)
   })
@@ -4615,13 +4615,13 @@ describe('integration setup (#874)', () => {
   test('the gate opens the action, and nothing on the page opens it otherwise', () => {
     page.setup = SETUP({ step: 'model', cards: ALL, full_loop: { ready: true, missing: [], reason: null, facts: { channel: '#curia' } } })
     const html = page.screenSetup(payload())
-    assert.match(html, /<button class="btn primary" onclick="runFullLoop\(\)">Run Full loop<\/button>/)
+    assert.match(html, /<button class="btn primary" onclick="runFullLoop\(\)">Start Test run<\/button>/)
   })
 
   // #880: at convergence the panel names what the loop would run on, from
   // this read's gate. #882: the press runs it through the sidecar and draws
   // the run the service answers.
-  test('at convergence the Full loop panel names the gate\'s facts, and the press runs the loop through the sidecar', async () => {
+  test('at convergence the Test run panel names the gate\'s facts, and the press runs the loop through the sidecar', async () => {
     const facts = {
       verified_at: '2026-09-02T10:00:00.000Z',
       github: { repo: 'alp82/curia', covered: ['alp82/curia'], owners: [], open_tickets: 3, ticket: { repo: 'alp82/curia', number: 861, title: 'Chart backup', url: 'https://github.com/alp82/curia/issues/861' } },
@@ -4637,7 +4637,7 @@ describe('integration setup (#874)', () => {
     assert.match(line, /🔒 curia\.tail1234\.ts\.net/)
     assert.match(line, /🧠 Anthropic · fable/)
     assert.match(html, /Every integration is connected and verified\./)
-    assert.match(html, /<button class="btn primary" onclick="runFullLoop\(\)">Run Full loop<\/button>/)
+    assert.match(html, /<button class="btn primary" onclick="runFullLoop\(\)">Start Test run<\/button>/)
     await page.runFullLoop()
     const press = calls.find((c) => c.method === 'POST')
     assert.equal(press.url, '/api/setup/full-loop')
@@ -4654,12 +4654,18 @@ describe('integration setup (#874)', () => {
   // #882: the run, as the service reads it off its journal. The panel draws
   // exactly that: one row per leg, the artifacts linked, the elapsed time,
   // and on a failure the leg, the cause, the action, and Try again.
-  const LEG_KEYS = ['discovery', 'dispatch', 'escalation', 'pull_request', 'review', 'merge', 'resolution', 'map_update']
-  const LEG_TITLES = ['Frontier discovery', 'Dispatch', 'Escalation and answer', 'Pull request', 'Review', 'Merge', 'Ticket resolution', 'Map update']
+  const LEG_KEYS = ['discovery', 'dispatch', 'escalation', 'pull_request', 'review', 'merge', 'resolution', 'map_update', 'map_closed']
+  const LEG_TITLES = ['Frontier discovery', 'Dispatch', 'Escalation and answer', 'Pull request', 'Review', 'Merge', 'Ticket resolution', 'Map update', 'Map closed']
   const RUN = (state, { legs = [], failed = null, elapsed = 61_000 } = {}) => ({
     state,
     repo: 'alp82/curia',
-    ticket: { number: 42, title: 'The rehearsal ticket', url: 'https://github.com/alp82/curia/issues/42', map: 40 },
+    title: 'Test run September 2, 2026',
+    map: { number: 40, title: 'Test run September 2, 2026', url: 'https://github.com/alp82/curia/issues/40' },
+    tickets: [
+      { index: 1, number: 42, title: 'Add a line to the README', url: 'https://github.com/alp82/curia/issues/42', state: state === 'complete' ? 'complete' : 'running' },
+      { index: 2, number: 43, title: 'Remove the Test run line from the README', url: 'https://github.com/alp82/curia/issues/43', state: state === 'complete' ? 'complete' : 'pending' },
+    ],
+    ticket: { number: 42, title: 'Add a line to the README', url: 'https://github.com/alp82/curia/issues/42', map: 40, index: 1, of: 2 },
     started_at: '2026-09-02T10:00:00.000Z',
     finished_at: state === 'running' ? null : '2026-09-02T10:01:01.000Z',
     elapsed_ms: elapsed,
@@ -4669,13 +4675,13 @@ describe('integration setup (#874)', () => {
   })
   const RUN_FACTS = { github: { repo: 'alp82/curia', covered: ['alp82/curia'], ticket: null }, discord: { channel: { name: 'curia' } }, tailscale: { address: 'a.ts.net' }, model: { provider: 'anthropic', model: 'fable' } }
 
-  test('a running Full loop draws one row per leg with its state as a word, the elapsed time, and no press', () => {
+  test('a running Test run draws one row per leg with its state as a word, the ticket in flight, the elapsed time, and no press', () => {
     const run = RUN('running', { legs: ['complete', 'complete', 'running'] })
     page.setup = SETUP({ step: 'model', cards: ALL, full_loop: { ready: true, missing: [], reason: null, facts: RUN_FACTS, run } })
     const html = page.screenSetup(payload())
     const body = text(html)
-    assert.match(body, /Running the Full loop\./)
-    assert.match(body, /alp82\/curia#42 · 1 min 1 s so far/)
+    assert.match(body, /Running the Test run\./)
+    assert.match(body, /alp82\/curia#42 · ticket 1 of 2 · 1 min 1 s so far/)
     assert.match(body, /Frontier discovery · complete/)
     assert.match(body, /Dispatch · complete/)
     assert.match(body, /Escalation and answer · running/)
@@ -4690,14 +4696,15 @@ describe('integration setup (#874)', () => {
     assert.doesNotMatch(html, /setup-loop-facts/, 'the gate\'s facts line gives way to the run')
   })
 
-  test('a complete Full loop is the verified state: every leg, every artifact linked, the total elapsed time, and Open Curia', () => {
+  test('a complete Test run is the verified state: every leg, every artifact linked, the total elapsed time, and Open Curia', () => {
     const run = RUN('complete', { legs: LEG_KEYS.map(() => 'complete'), elapsed: 754_000 })
     run.legs[3].link = 'https://github.com/alp82/curia/pull/50'
     page.setup = SETUP({ step: 'model', cards: ALL, full_loop: { ready: true, missing: [], reason: null, facts: RUN_FACTS, run } })
     const html = page.screenSetup(payload())
     const body = text(html)
-    assert.match(body, /Full loop verified\./)
-    assert.match(body, /alp82\/curia#42 · every leg completed in 12 min 34 s\./)
+    assert.match(body, /Test run verified\./)
+    assert.match(body, /alp82\/curia#42 · ticket 1 of 2 · every leg completed in 12 min 34 s\./)
+    assert.match(body, /Map closed · complete/)
     for (const title of LEG_TITLES) assert.match(body, new RegExp(`${title} · complete`))
     assert.match(html, /href="https:\/\/github\.com\/alp82\/curia\/pull\/50"[^>]*>Pull request ↗/)
     assert.match(html, /href="https:\/\/github\.com\/alp82\/curia\/issues\/40"[^>]*>Map ↗/)
@@ -4708,13 +4715,13 @@ describe('integration setup (#874)', () => {
     assert.doesNotMatch(html, /Try again/)
   })
 
-  test('a failed Full loop names the leg, the cause, and the action, keeps the completed legs, and Try again retries the same step', async () => {
+  test('a failed Test run names the leg, the cause, and the action, keeps the completed legs, and Try again retries the same step', async () => {
     const failed = { leg: 'review', title: 'Review', cause: 'The agent ended before Review: the agent exited.', action: 'Read the thread of alp82/curia#42 in #curia and fix what stopped the agent, then select Try again to dispatch alp82/curia#42 again.' }
     const run = RUN('failed', { legs: ['complete', 'complete', 'complete', 'complete', 'failed'], failed })
     page.setup = SETUP({ step: 'model', cards: ALL, full_loop: { ready: true, missing: [], reason: null, facts: RUN_FACTS, run } })
     const html = page.screenSetup(payload())
     const body = text(html)
-    assert.match(body, /The Full loop did not complete\./)
+    assert.match(body, /The Test run did not complete\./)
     assert.match(body, /Review failed: The agent ended before Review: the agent exited\./)
     assert.match(body, /Read the thread of alp82\/curia#42 in #curia and fix what stopped the agent, then select Try again/)
     assert.match(body, /Pull request · complete/)
@@ -4736,20 +4743,20 @@ describe('integration setup (#874)', () => {
     })
     p2.UI.screen = 'setup'
     p2.setup = SETUP({ step: 'model', cards: ALL, full_loop: { ready: true, missing: [], reason: null, facts: RUN_FACTS, run: { state: 'idle', legs: [] } } })
-    assert.match(p2.screenSetup(payload()), /onclick="runFullLoop\(\)">Run Full loop</, 'an idle run leaves the press')
+    assert.match(p2.screenSetup(payload()), /onclick="runFullLoop\(\)">Start Test run</, 'an idle run leaves the press')
     await p2.runFullLoop()
     assert.equal(p2.setup.full_loop.run, running)
-    assert.match(text(p2.screenSetup(payload())), /Running the Full loop\./)
+    assert.match(text(p2.screenSetup(payload())), /Running the Test run\./)
     assert.ok(p2.UI.setup.loopTimer, 'a live run is followed')
     clearTimeout(p2.UI.setup.loopTimer)
     p2.UI.setup.loopTimer = null
 
     p2.setup.full_loop.run = { state: 'idle', legs: [] }
-    answer = { error: "The Full loop isn't ready: Waiting for Discord." }
+    answer = { error: "The Test run isn't ready: Waiting for Discord." }
     status = 409
     await p2.runFullLoop()
     assert.equal(p2.setup.full_loop.run.state, 'idle', 'a refused press changes no run')
-    assert.match(text(p2.screenSetup(payload())), /The Full loop isn't ready: Waiting for Discord\./)
+    assert.match(text(p2.screenSetup(payload())), /The Test run isn't ready: Waiting for Discord\./)
     assert.equal(p2.UI.setup.loopTimer, null)
   })
 
@@ -4758,7 +4765,7 @@ describe('integration setup (#874)', () => {
     const html = page.screenSetup(payload())
     assert.doesNotMatch(html, /setup-loop-facts/)
     assert.match(html, /GitHub verified without a covered repository\. Select Try again\./)
-    assert.match(html, /<button class="btn primary" disabled>Run Full loop<\/button>/)
+    assert.match(html, /<button class="btn primary" disabled>Start Test run<\/button>/)
   })
 
   test('a service that could not be asked is not four unconnected cards', () => {
@@ -4772,7 +4779,7 @@ describe('integration setup (#874)', () => {
   test('Home points at setup while an integration is not connected, and stops when all four are', () => {
     page.UI.screen = 'home'
     page.setup = SETUP({ cards: { github: ALL.github } })
-    assert.match(text(page.screenHome(payload())), /Integration setup isn't finished\. Not connected yet: Discord, Tailscale, Model provider\./)
+    assert.match(text(page.screenHome(payload())), /Integration setup isn't finished\. Not connected yet: Discord, Tailscale, AI logins\./)
     page.setup = SETUP({ cards: ALL })
     assert.doesNotMatch(page.screenHome(payload()), /setup-pointer/)
     page.setup = null
@@ -5987,7 +5994,7 @@ describe('integration setup (#874)', () => {
     assert.match(text(html), /Provider verified/)
   })
 
-  test('Run Full loop selects the run panel in the main area with the eight legs, marks the rail card running, and scrolls the run into view', async () => {
+  test('Start Test run selects the run panel in the main area with the nine legs, marks the rail card running, and scrolls the run into view', async () => {
     const press = deferred()
     const scrolled = []
     page.document.getElementById = (id) => (id === 'setup-run' ? { scrollIntoView: (opts) => scrolled.push(opts) } : null)
@@ -5998,12 +6005,12 @@ describe('integration setup (#874)', () => {
       return { ok: true, json: async () => running }
     }
     let html = page.screenSetup(payload())
-    assert.match(html, /<h2>Model provider<\/h2>/, 'the selected card is the panel before the press')
+    assert.match(html, /<h2>AI logins<\/h2>/, 'the selected card is the panel before the press')
     const pressed = page.runFullLoop()
     html = page.screenSetup(payload())
     assert.match(html, /id="setup-run"/, 'the run is the selected panel from the press')
-    assert.doesNotMatch(html, /<h2>Model provider<\/h2>/)
-    assert.match(text(html), /Starting the Full loop…/)
+    assert.doesNotMatch(html, /<h2>AI logins<\/h2>/)
+    assert.match(text(html), /Starting the Test run…/)
     assert.doesNotMatch(html, /onclick="runFullLoop\(\)"/, 'no second press')
     assert.match(html, /class="setup-loop working on"/, 'the rail card shows the press')
     assert.equal(scrolled.length, 1, 'the page scrolls the run into view on the press')
@@ -6012,13 +6019,13 @@ describe('integration setup (#874)', () => {
     html = page.screenSetup(payload())
     const main = /<section>([\s\S]*)<\/section>/.exec(html)[1]
     assert.match(main, /id="setup-run"/)
-    assert.match(text(main), /Running the Full loop\./)
+    assert.match(text(main), /Running the Test run\./)
     for (const title of LEG_TITLES) assert.match(text(main), new RegExp(`${title} · (complete|running|pending)`))
     assert.match(html, /class="setup-loop run running on"/, 'the rail card shows the running state')
     assert.doesNotMatch(/<aside[\s\S]*<\/aside>/.exec(html)[0], /loop-legs/, 'the legs live in the main area, not below the fold in the rail')
     page.clearTimeout(page.UI.setup.loopTimer)
     page.UI.setup.loopTimer = null
-    // Selecting a card brings its panel back; the rail's Full loop card brings the run back.
+    // Selecting a card brings its panel back; the rail's Test run card brings the run back.
     await page.selectSetupCard('github')
     assert.match(page.screenSetup(payload()), /<h2>GitHub<\/h2>/)
     page.selectSetupRun()
@@ -6088,7 +6095,7 @@ describe('integration setup (#874)', () => {
     assert.match(html, /onclick="rejectGate\('esc-9','rej-esc-9'\)">Reject</)
     assert.match(html, /href="https:\/\/github\.com\/alp82\/curia\/pull\/50"/, 'the gate names the pull request the run opened')
     assert.match(html, /pull\/50\/files">GitHub still has it/, 'the run\'s copy of the gate carries no digest, and says where the diff is')
-    assert.match(body, /Closing Setup keeps the run going\./)
+    assert.match(body, /Leaving Setup keeps the run going\./)
     await page.answerEsc('esc-9', 'approve')
     const press = calls.find((c) => c.url === '/api/answer')
     assert.ok(press, 'the answer is the daemon\'s own answer route, the one the Discord bridge uses')
@@ -6137,7 +6144,7 @@ describe('integration setup (#874)', () => {
     assert.equal(page.setup.full_loop.run.state, 'running', 'closing Setup cancels nothing')
     assert.deepEqual(calls.filter((c) => c.method === 'POST'), [], 'and writes nothing')
     let html = page.screenHome(payload())
-    assert.match(text(html), /The Full loop is running on alp82\/curia#42\. Escalation and answer · waiting for your approval of the review gate\./)
+    assert.match(text(html), /The Test run is running on alp82\/curia#42 · ticket 1 of 2\. Escalation and answer · waiting for your approval of the review gate\./)
     assert.match(html, /onclick="openFullLoop\(\);return false">Open/)
     assert.doesNotMatch(text(html), /Integration setup isn't finished/)
     page.ensureFullLoopRead()
@@ -6164,6 +6171,88 @@ describe('integration setup (#874)', () => {
     // A run that ended leaves Home alone.
     run.state = 'complete'
     page.UI.screen = 'home'
-    assert.doesNotMatch(page.screenHome(payload()), /The Full loop is running/)
+    assert.doesNotMatch(page.screenHome(payload()), /The Test run is running/)
+  })
+
+  // The owner's decisions from the live rehearsal (#891): no Close button
+  // (leaving is the same thing, and the run keeps going), and a human step
+  // shows the message the bridge posted as Discord shows it.
+  test('the Setup screen has no Close setup: not on a card panel, not on a working panel, not on the run panel', () => {
+    const run = { ...RUN('running', { legs: ['complete', 'complete', 'running'] }), waiting: null, sessions: [] }
+    page.setup = SETUP({ step: 'github', cards: ALL, full_loop: { ready: true, missing: [], reason: null, facts: RUN_FACTS, run } })
+    page.UI.setup.panel = 'card'
+    assert.doesNotMatch(page.screenSetup(payload()), /Close setup/)
+    page.setupWorking('github', 'verifying GitHub again')
+    assert.doesNotMatch(page.screenSetup(payload()), /Close setup/)
+    page.setupSettled()
+    page.UI.setup.panel = 'run'
+    assert.doesNotMatch(page.screenSetup(payload()), /Close setup/)
+  })
+
+  const MESSAGE = (over = {}) => ({
+    id: 'esc-1', kind: 'free-text', author: 'curia', title: 'Question · #42',
+    description: '❓ **Which wording?**\n\n**1.** The line to append.\n↳ `Curia Test run, September 2, 2026.`',
+    fields: [{ name: 'How to answer', value: '✅ takes every recommendation above. Reply in this thread to name exceptions.' }],
+    footer: 'A reply here may carry files. They land under `/data/attachments/esc-1/` and reach the agent as paths.\nesc-1',
+    text: 'the text the bridge sent', ...over,
+  })
+
+  test('a human step shows the message the bridge posted as a Discord embed, the bot name, title, description, fields, and footer, with the answer controls under it', () => {
+    const run = { ...RUN('running', { legs: ['complete', 'complete', 'running'] }), waiting: RUN_WAIT({ id: 'esc-1', kind: 'free-text', prompt: 'Which wording?', review: false, message: MESSAGE() }), sessions: [] }
+    page.setup = SETUP({ step: 'model', cards: ALL, full_loop: { ready: true, missing: [], reason: null, facts: RUN_FACTS, run } })
+    const html = page.screenSetup(payload())
+    const wait = /<div class="loop-wait">([\s\S]*?)<div class="loop-answer">([\s\S]*?)<\/div><\/div>/.exec(html)
+    assert.ok(wait, 'the wait carries the preview and the controls')
+    const [, preview, controls] = wait
+    assert.match(preview, /class="dc-msg"/)
+    assert.match(preview, /<span class="dc-name">curia<\/span><span class="dc-bot">APP<\/span>/)
+    assert.match(preview, /<div class="dc-title">Question · #42<\/div>/)
+    assert.match(preview, /<div class="dc-desc">❓ <b>Which wording\?<\/b>\n\n<b>1\.<\/b> The line to append\.\n↳ <code>Curia Test run, September 2, 2026\.<\/code><\/div>/, 'the description keeps the bridge\'s markdown as Discord draws it')
+    assert.match(preview, /<div class="dc-field-name">How to answer<\/div><div class="dc-field-value">✅ takes every recommendation above\. Reply in this thread to name exceptions\.<\/div>/)
+    assert.match(preview, /<div class="dc-footer">A reply here may carry files\. They land under <code>\/data\/attachments\/esc-1\/<\/code> and reach the agent as paths\.\nesc-1<\/div>/)
+    assert.doesNotMatch(preview, /the text the bridge sent/, 'the text is the bridge\'s; the preview draws its parts')
+    assert.match(controls, /id="ans-esc-1"/, 'the answer field is under the message')
+    assert.match(controls, /onclick="answerTyped\('esc-1','ans-esc-1',escRecord\('esc-1'\)\)">Answer</)
+    assert.doesNotMatch(html, /class="att-item">/, 'no second copy of the question as a plain card')
+    // The text is escaped before the marks are drawn.
+    run.waiting.message = MESSAGE({ description: '<script>alert(1)</script> **bold**' })
+    const again = page.screenSetup(payload())
+    assert.doesNotMatch(again, /<script>alert/)
+    assert.match(again, /&lt;script&gt;alert\(1\)&lt;\/script&gt; <b>bold<\/b>/)
+  })
+
+  test('the review gate\'s message is the embed too, with Approve · merge, Cross-check, and Reject under it', async () => {
+    const message = MESSAGE({ id: 'esc-9', kind: 'review-gate', title: 'Review gate · #42', description: '🔍 review alp82/curia#42\nsummary', fields: [{ name: 'How to answer', value: '✅ Approve to merge and resolve.\n🔎 Cross-check answers neither.' }], footer: 'esc-9' })
+    const run = { ...RUN('running', { legs: ['complete', 'complete', 'running'] }), waiting: RUN_WAIT({ message }), sessions: [] }
+    page.setup = SETUP({ step: 'model', cards: ALL, full_loop: { ready: true, missing: [], reason: null, facts: RUN_FACTS, run } })
+    const html = page.screenSetup(payload())
+    assert.match(html, /<div class="dc-title">Review gate · #42<\/div>/)
+    assert.match(html, /onclick="answerEsc\('esc-9','approve'\)">✅ Approve · merge</)
+    assert.match(html, /onclick="answerEsc\('esc-9','cross-check'\)">🔎 Cross-check</)
+    assert.match(html, /onclick="rejectGate\('esc-9','rej-esc-9'\)">Reject</)
+    assert.match(html, /href="https:\/\/github\.com\/alp82\/curia\/pull\/50"/, 'the gate names the pull request')
+    await page.answerEsc('esc-9', 'approve')
+    assert.equal(calls.find((c) => c.url === '/api/answer').body.id, 'esc-9')
+  })
+
+  test('the last leg waits for Curia\'s question about the empty map, then for the operator\'s verdict, drawn as the embed with the two choices', () => {
+    const legs = [...Array(8).fill('complete'), 'running']
+    const run = { ...RUN('running', { legs }), ticket: { number: 43, title: 'Remove the Test run line from the README', url: 'https://github.com/alp82/curia/issues/43', map: 40, index: 2, of: 2 }, waiting: null, sessions: [] }
+    run.tickets[0].state = 'complete'
+    run.tickets[1].state = 'complete'
+    page.setup = SETUP({ step: 'model', cards: ALL, full_loop: { ready: true, missing: [], reason: null, facts: RUN_FACTS, run } })
+    let html = page.screenSetup(payload())
+    assert.match(text(html), /alp82\/curia#43 · ticket 2 of 2/)
+    assert.match(text(html), /Map closed · running · waiting for Curia's question about the empty map/)
+    run.waiting = RUN_WAIT({
+      id: 'esc-m', agent: 'overseer', ticket: '40', kind: 'choice', prompt: 'Map alp82/curia#40 has no open tickets. What should Curia do?', options: ['Clear fog and close', 'Keep map open'], typed: true,
+      review: false, pull_request: null, leg: 'map_closed',
+      message: MESSAGE({ id: 'esc-m', kind: 'choice', title: 'Choice · #40', description: '❓ Map alp82/curia#40 has no open tickets. What should Curia do?', fields: [], footer: 'esc-m' }),
+    })
+    html = page.screenSetup(payload())
+    assert.match(text(html), /Map closed · running · waiting for your verdict on the map · open 12m ago/)
+    assert.match(html, /<div class="dc-title">Choice · #40<\/div>/)
+    assert.match(html, /onclick="answerIndex\('esc-m',0\)">A · Clear fog and close</)
+    assert.match(html, /onclick="answerIndex\('esc-m',1\)">B · Keep map open</)
   })
 })

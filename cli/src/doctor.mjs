@@ -27,7 +27,7 @@ import { SECRET_NAMES, credentialsInEnvironment, secretsStatus } from './secrets
 //                  environment by key
 //   containers     the state and health of the five services from Compose
 //   service        the service answers on loopback
-//   integrations   the four cards and the Full-loop gate, as the running
+//   integrations   the four cards and the Test run's gate, as the running
 //                  service verifies them on this read, and the operator it
 //                  admits
 //   app            the Curia app answers on loopback, and its tailnet address
@@ -61,7 +61,7 @@ const READ_TIMEOUT_MS = 10_000
 const BOOTSTRAP = BOOTSTRAP_COMMAND
 const AGAIN = 'run curia doctor again'
 
-const CARD_NAMES = Object.freeze({ github: 'GitHub', discord: 'Discord', tailscale: 'Tailscale', model: 'model provider' })
+const CARD_NAMES = Object.freeze({ github: 'GitHub', discord: 'Discord', tailscale: 'Tailscale', model: 'AI logins' })
 
 export async function runDoctor(
   { env, stdout, uid, root },
@@ -247,12 +247,12 @@ function integrationChecks(setup) {
     } else if (card.state === 'unavailable') {
       checks.push(warning(name, 'not available in this release.', 'Update Curia when a release adds it.'))
     } else {
-      checks.push(warning(name, 'not connected yet.', `Open the Curia app, select Setup, and connect ${key === 'model' ? 'a model provider' : name}.`))
+      checks.push(warning(name, 'not connected yet.', `Open the Curia app, select Setup, and connect ${name}.`))
     }
   }
   const loop = body.full_loop ?? {}
-  if (loop.ready) checks.push(passed('Full loop', 'ready on this read: every card verified and handed its fact'))
-  else checks.push(warning('Full loop', String(loop.reason ?? 'not ready.'), 'Finish setup in the Curia app; Run Full loop enables when every card is connected on one read.'))
+  if (loop.ready) checks.push(passed('Test run', 'ready on this read: every card verified and handed its fact'))
+  else checks.push(warning('Test run', String(loop.reason ?? 'not ready.'), 'Finish setup in the Curia app; Start Test run enables when every card is connected on one read.'))
   return { checks, address }
 }
 

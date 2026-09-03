@@ -2,7 +2,7 @@
 
 Operator guide · [Index](../README.md)
 
-- **Get Curia running:** [1. Check prerequisites](01-check-prerequisites.md) · [2. Install Curia](02-install-curia.md) · [3. Connect services](03-connect-services.md) · [4. Run your first Full loop](04-run-your-first-full-loop.md)
+- **Get Curia running:** [1. Check prerequisites](01-check-prerequisites.md) · [2. Install Curia](02-install-curia.md) · [3. Connect services](03-connect-services.md) · [4. Run the Test run](04-run-the-test-run.md)
 - **Run Curia:** [5. Daily operation](05-daily-operation.md) · [6. Check the installation](06-check-the-installation.md)
 - **Change the installation:** [7. Update or roll back](07-update-or-roll-back.md) · [8. Migrate the current deployment](08-migrate-the-current-deployment.md) · [9. Uninstall or purge](09-uninstall-or-purge.md)
 - **When something fails:** **Troubleshooting (this topic)**
@@ -69,22 +69,23 @@ The Setup screen. A failed card reads **Action required** with the failed check 
 | Discord: `Discord is rate limiting this bot; it answers again in <n> s` | Discord's rate limit on the bot. The card keeps its last state. | Wait the named seconds, then select **Try again**. Don't add the bot again. |
 | Discord: verified, but the bot doesn't answer | The bridge's login failed or is still starting; the panel says `The bridge isn't running yet` or `The bridge is starting`. | Select **Try again** on the card, which starts the bridge when the token is on disk, and read the service log for a login Discord refused. |
 | Tailscale: no certificate, node offline, or Serve refused | The tailnet's HTTPS certificates were turned off, the node was logged out, or the operator permission was removed since the install. | Enable HTTPS certificates under **DNS** in the admin console, run `curia install` (or `sudo tailscale up`) to log the node in again, or run `sudo tailscale set --operator=$USER`. |
-| Model provider: the link or code doesn't show | The sign-in session hasn't started, or the agent image is still being prepared on a fresh installation. | Wait a minute, then select **Open the terminal instead** to watch the session. |
-| Model provider: `refused the credential (HTTP 401` or `403)` | The credential expired or was revoked. | Sign in again from the panel. |
-| Model provider: HTTP 429 | The subscription's usage window is spent. | Wait for it to reset, or sign in with another subscription. |
-| Model provider: can't be reached | No outbound access to the provider. | Run `curia doctor`; check [Network](../supported-hosts.md#network). |
+| AI logins: the link or code doesn't show | The sign-in session hasn't started, or the agent image is still being prepared on a fresh installation. | Wait a minute, then select **Open the terminal instead** to watch the session. |
+| AI logins: `refused the credential (HTTP 401` or `403)` | The credential expired or was revoked. | Sign in again from the panel. |
+| AI logins: HTTP 429 | The subscription's usage window is spent. | Wait for it to reset, or sign in with another subscription. |
+| AI logins: can't be reached | No outbound access to the provider. | Run `curia doctor`; check [Network](../supported-hosts.md#network). |
 
 The full check lists per card are in [Integration setup](../integration-setup.md).
 
-## Full loop
+## Test run
 
-The **Full loop** panel names the failed leg, one cause, and one action. **Try again** reruns the failed leg.
+The **Test run** panel names the failed leg, one cause, and one action. **Try again** reruns the failed leg on the same map and ticket.
 
 | Failed leg | Cause | Action, then Try again |
 |---|---|---|
-| Frontier discovery | No takeable ticket carries the `rehearsal` label, or the frontier can't be read. | Label a takeable ticket in the covered repository, or fix the GitHub card. |
+| Frontier discovery | Curia couldn't create the map or a ticket, the frontier can't be read, or the ticket isn't listed as takeable. | Check the GitHub card and the repository. The retry creates what is missing and reads the frontier again. |
 | Dispatch | The dispatcher refused the ticket: a clone an earlier agent left, an assigned or blocked ticket, or a missing model credential. | The cause is the dispatcher's own sentence. Fix what it names. |
-| Any later leg | The agent ended before that leg: it exited, died, or was cancelled. | Read the ticket's thread in the command channel and fix what stopped the agent. The retry dispatches the same ticket again. |
+| Escalation and answer through Map update | The agent ended before that leg: it exited, died, or was cancelled. | Read the ticket's thread in the command channel and fix what stopped the agent. The retry dispatches the same ticket again. |
+| Map closed | You answered **Keep map open**, or the map is still open. | Close the map on GitHub. The retry reads the map again. |
 
 A rejected review isn't a failure. The agent takes your feedback and asks for review again on the same pull request.
 

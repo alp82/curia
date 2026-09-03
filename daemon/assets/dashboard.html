@@ -685,6 +685,29 @@
   .loop-links { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 8px; font-size: 13px; }
   .loop-wait { margin-top: 12px; }
   .loop-wait .att-item { margin: 0; }
+  /* The human step (#891): the message the bridge posted, drawn the way
+     Discord draws an embed in its dark theme, so the operator recognizes it
+     from the phone. Discord's own colors on purpose, in both page themes:
+     this is a preview of another surface, not a card of this one. */
+  .dc-msg { display: flex; gap: 12px; padding: 12px 14px; border-radius: 8px; background: #313338; color: #dbdee1; font-size: 14px; line-height: 1.375; }
+  .dc-avatar { flex: none; width: 40px; height: 40px; border-radius: 50%; background: #5865f2; color: #fff; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+  .dc-body { min-width: 0; flex: 1; }
+  .dc-head { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+  .dc-name { color: #f2f3f5; font-weight: 600; }
+  .dc-bot { font-size: 10px; font-weight: 600; letter-spacing: .02em; padding: 1px 4px; border-radius: 3px; background: #5865f2; color: #fff; }
+  .dc-embed { max-width: 520px; border-left: 4px solid #5865f2; border-radius: 4px; background: #2b2d31; padding: 10px 14px 12px; }
+  .dc-title { color: #f2f3f5; font-weight: 600; margin-bottom: 6px; }
+  .dc-desc, .dc-field-value { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .dc-field { margin-top: 8px; }
+  .dc-field-name { color: #f2f3f5; font-weight: 600; font-size: 13px; margin-bottom: 2px; }
+  .dc-footer { margin-top: 8px; font-size: 12px; color: #949ba4; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .dc-small { font-size: 12px; color: #949ba4; }
+  .dc-embed code, .dc-embed .dc-code { background: #1e1f22; color: #dbdee1; border-radius: 4px; padding: 1px 4px; font-size: 13px; }
+  .dc-embed .dc-code { display: block; padding: 8px; margin: 4px 0; white-space: pre-wrap; }
+  .dc-spoiler { background: #1e1f22; color: #1e1f22; border-radius: 3px; padding: 0 2px; }
+  .dc-spoiler:hover { color: #dbdee1; }
+  .loop-answer { margin-top: 10px; }
+  .loop-wait > .dim-note { margin-bottom: 6px; }
   .loop-actions { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
   .setup-panel { border: 1px solid var(--line); border-radius: 14px; padding: 24px 26px; background: var(--bg-raise); max-width: 690px; }
   .setup-panel h2 { font-size: 19px; letter-spacing: -.02em; margin: 4px 0 10px; }
@@ -1985,11 +2008,17 @@ const RANK_RULE = "source first, then tests, then docs, generated and lock files
    the diff, with the builder parked where it stands; a rejection carries the
    operator's words back to the builder. */
 function gateCard(r) {
-  const id = "rej-" + r.id;
   return `<div class="att-item gate">
     <span class="who">${esc(r.agent)}</span>review gate — ${esc(ticketName(null, r.ticket))} · open ${esc(ago(r.opened_at))}
     <div class="dim">${esc(snip(r.prompt, 220))}</div>
-    ${r.pull_request ? `<div class="opts"><a href="${esc(r.pull_request)}">${esc(r.pull_request)}</a></div>` : `<div class="opts">no pull request on this gate</div>`}
+    ${gateControls(r)}</div>`;
+}
+/* The gate's answer surface, on Home's card and under the Test run's
+   preview of the gate (#891): the pull request, the digest, and the three
+   answers. */
+function gateControls(r) {
+  const id = "rej-" + r.id;
+  return `${r.pull_request ? `<div class="opts"><a href="${esc(r.pull_request)}">${esc(r.pull_request)}</a></div>` : `<div class="opts">no pull request on this gate</div>`}
     ${r.preview_url ? `<div class="opts"><a href="${esc(r.preview_url)}">the preview</a></div>` : ""}
     ${diffCard("esc:" + r.id, r.diff ?? null, r.diff_error ?? null, gateDiffQuery(r.id), r.pull_request)}
     ${answerProjection(r.id)}
@@ -2001,7 +2030,7 @@ function gateCard(r) {
       <input type="text" id="${esc(id)}" placeholder="what to change — a rejection carries your words…" ${busy("answer:" + r.id) ? "disabled" : ""}>
       <button class="btn sm danger" ${busy("answer:" + r.id) ? "disabled" : ""} onclick="rejectGate('${js(r.id)}','${js(id)}')">Reject</button>
     </div>
-    ${said("esc:" + r.id)}</div>`;
+    ${said("esc:" + r.id)}`;
 }
 
 /* A credential warning (#380). It sits above the spent windows because it is
@@ -5960,20 +5989,27 @@ function setupFullLoop() {
   const run = setupRun();
   if (work || run) {
     const state = work ? "Working" : LOOP_STATE_WORDS[run.state] ?? run.state;
-    const where = run?.ticket ? `${esc(run.repo)}#${esc(run.ticket.number)}` : esc(run?.repo ?? "");
+    const where = run ? runWhere(run) : "";
     const done = (run?.legs ?? []).filter((l) => l.state === "complete").length;
     const line = work ? `<span class="setup-pulse" aria-hidden="true"></span> ${esc(sentence(work.what))}…`
       : `${where} · ${done} of ${(run.legs ?? []).length} legs · ${loopDur(run.elapsed_ms)}${run.state === "running" ? " so far" : ""}`;
     return `<button class="setup-loop ${work ? "working" : `run ${esc(run.state)}`}${on ? " on" : ""}" aria-pressed="${on ? "true" : "false"}" onclick="selectSetupRun()">
-      <div><div class="setup-loop-head"><b>Full loop</b><span class="setup-badge">${esc(state)}</span></div><div class="dim-note">${line}</div></div></button>`;
+      <div><div class="setup-loop-head"><b>Test run</b><span class="setup-badge">${esc(state)}</span></div><div class="dim-note">${line}</div></div></button>`;
   }
   const missing = gate?.missing ?? SETUP_ORDER.filter((k) => !setupConnected().includes(k));
   const ready = Boolean(gate?.ready);
   const why = ready ? "Every integration is connected and verified."
     : missing.length ? `Waiting for ${missing.map((k) => esc(setupCardOf(k)?.title ?? k)).join(", ")}.`
-      : esc(gate?.reason ?? "The Full loop isn't available yet in this release.");
-  return `<div class="setup-loop${on ? " on" : ""}"><div><b>Full loop</b><div class="dim-note">${why}</div>${ready ? setupLoopFacts(gate?.facts) : ""}</div>
-    <button class="btn primary" ${ready && !UI.setup.loopBusy ? `onclick="runFullLoop()"` : "disabled"}>Run Full loop</button></div>`;
+      : esc(gate?.reason ?? "The Test run isn't available yet in this release.");
+  return `<div class="setup-loop${on ? " on" : ""}"><div><b>Test run</b><div class="dim-note">${why}</div>${ready ? setupLoopFacts(gate?.facts) : ""}</div>
+    <button class="btn primary" ${ready && !UI.setup.loopBusy ? `onclick="runFullLoop()"` : "disabled"}>Start Test run</button></div>`;
+}
+/* Where the run is (#891): the repository and the ticket in flight, named
+   as 1 of 2 or 2 of 2, because the run makes two tickets of its own. */
+function runWhere(run) {
+  if (!run.ticket) return esc(run.repo ?? "");
+  const n = run.ticket.index && run.ticket.of ? ` · ticket ${esc(run.ticket.index)} of ${esc(run.ticket.of)}` : "";
+  return `${esc(run.repo)}#${esc(run.ticket.number)}${n}`;
 }
 
 /* The run's panel in the main area (#891): what Curia is doing from the
@@ -5990,17 +6026,16 @@ function setupRunPanel() {
   else {
     const ready = Boolean(gate?.ready);
     const missing = gate?.missing ?? SETUP_ORDER.filter((k) => !setupConnected().includes(k));
-    const why = ready ? "Every integration is connected and verified. The run takes the ticket marked <code>rehearsal</code> on the covered repository through every leg."
+    const why = ready ? "Every integration is connected and verified. The Test run creates a small map with two tickets in the covered repository, one that adds a line to the README and one that removes it, and takes each through every leg of the Full loop. The map closes on your verdict, and the repository is left as it was."
       : missing.length ? `Waiting for ${missing.map((k) => esc(setupCardOf(k)?.title ?? k)).join(", ")}.`
-        : esc(gate?.reason ?? "The Full loop isn't available yet in this release.");
+        : esc(gate?.reason ?? "The Test run isn't available yet in this release.");
     body = `<p>${why}</p>${ready ? setupLoopFacts(gate?.facts) : ""}
-      <div class="loop-actions"><button class="btn primary" ${ready && !UI.setup.loopBusy ? `onclick="runFullLoop()"` : "disabled"}>Run Full loop</button>${UI.setup.note ? `<span class="dim-note">${esc(UI.setup.note)}</span>` : ""}</div>`;
+      <div class="loop-actions"><button class="btn primary" ${ready && !UI.setup.loopBusy ? `onclick="runFullLoop()"` : "disabled"}>Start Test run</button>${UI.setup.note ? `<span class="dim-note">${esc(UI.setup.note)}</span>` : ""}</div>`;
   }
   return `<div class="setup-panel${work ? " working" : ""}" id="setup-run">
     <div class="eyebrow">Installation acceptance · ${esc(state)}</div>
-    <h2>Full loop</h2>
+    <h2>Test run</h2>
     ${body}
-    <div class="setup-actions"><a href="#home" onclick="goto('home');return false">Close setup</a></div>
   </div>`;
 }
 
@@ -6024,10 +6059,11 @@ function setupLoopFacts(facts) {
   return bits.length ? `<div class="dim-note setup-loop-facts">${bits.join(" · ")}</div>` : "";
 }
 
-/* The run (#882): the installation's acceptance. The press asks the service
-   to run one real Full loop on the ticket marked for the rehearsal; from then
-   on the panel draws the run the service reads off its journal, one row per
-   leg, with the real GitHub and Discord artifacts linked and the elapsed time.
+/* The run (#882, #891): the installation's acceptance. The press asks the
+   service to create the Test run's map and two tickets and drive each through
+   one real Full loop; from then on the panel draws the run the service reads
+   off its journal, one row per leg, with the real GitHub and Discord
+   artifacts linked and the elapsed time.
    A failure names the leg, one cause, and one action, and Try again reruns
    that leg. Nothing here decides anything: the service's read is the run. */
 const LOOP_MARK = { complete: "✓", running: "…", failed: "✗", pending: "·" };
@@ -6044,7 +6080,8 @@ function loopDur(ms) {
    the agent's own work. */
 function loopWaitWords(run, key) {
   const w = run.waiting;
-  if (w && w.leg === key) return w.review ? "waiting for your approval of the review gate" : "waiting for your answer";
+  if (w && w.leg === key) return w.review ? "waiting for your approval of the review gate" : key === "map_closed" ? "waiting for your verdict on the map" : "waiting for your answer";
+  if (key === "map_closed") return "waiting for Curia's question about the empty map";
   if (key === "escalation") return "waiting for the agent's question";
   return "waiting for the agent";
 }
@@ -6059,7 +6096,33 @@ function loopWaitCard(run) {
   if (!w) return "";
   const known = [...(payload?.overview?.escalations ?? []), ...(payload?.overview?.review_gate ?? [])].find((r) => r.id === w.id);
   const row = { ...w, options: w.options ?? null, pull_request: w.pull_request ?? run.links?.pull_request ?? null, ...(known ?? {}) };
-  return `<div class="loop-wait">${w.review ? gateCard(row) : escCard(row)}</div>`;
+  /* The human step is unmistakable (#891): the message the bridge posted,
+     as Discord shows it, with this page's answer controls under it. A run
+     read that carries no message draws the plain card. */
+  if (!w.message) return `<div class="loop-wait">${w.review ? gateCard(row) : escCard(row)}</div>`;
+  const controls = w.review ? gateControls(row) : `${answerProjection(row.id)}${answerButtons(row)}${answerField(row)}${said("esc:" + row.id)}`;
+  return `<div class="loop-wait"><div class="dim-note">Your turn. Curia posted this in Discord; answer there or here.</div>
+    ${discordEmbed(w.message)}<div class="loop-answer">${controls}</div></div>`;
+}
+/* Discord's message markdown, the subset the bridge writes: bold, italics,
+   inline code, fences, spoilers, and small print. The text is escaped first;
+   the marks are added to the escaped text and nothing else is. */
+function mdLite(text) {
+  let h = esc(String(text ?? ""));
+  h = h.replace(/```[^\n]*\n?([\s\S]*?)```/g, (_, code) => `<span class="dc-code">${code}</span>`);
+  h = h.replace(/\|\|([^|]+)\|\|/g, '<span class="dc-spoiler">$1</span>');
+  h = h.replace(/`([^`\n]+)`/g, "<code>$1</code>");
+  h = h.replace(/\*\*([^*\n]+)\*\*/g, "<b>$1</b>");
+  h = h.replace(/(^|[^\w])_([^_\n]+)_(?!\w)/g, "$1<i>$2</i>");
+  h = h.replace(/^-# (.*)$/gm, '<span class="dc-small">$1</span>');
+  return h;
+}
+function discordEmbed(m) {
+  const fields = (m.fields ?? []).map((f) => `<div class="dc-field"><div class="dc-field-name">${esc(f.name)}</div><div class="dc-field-value">${mdLite(f.value)}</div></div>`).join("");
+  return `<div class="dc-msg" aria-label="The message Curia posted in Discord">
+    <div class="dc-avatar" aria-hidden="true">C</div>
+    <div class="dc-body"><div class="dc-head"><span class="dc-name">${esc(m.author ?? "curia")}</span><span class="dc-bot">APP</span></div>
+      <div class="dc-embed">${m.title ? `<div class="dc-title">${esc(m.title)}</div>` : ""}<div class="dc-desc">${mdLite(m.description)}</div>${fields}${m.footer ? `<div class="dc-footer">${mdLite(m.footer)}</div>` : ""}</div></div></div>`;
 }
 /* A terminal per live session (#891): the agent's while it lives and the
    overseer's while it is in a turn, each at the link the service composed. */
@@ -6069,11 +6132,11 @@ function loopTerminals(run) {
   return `<div class="loop-links loop-terminals"><span class="dim-note">Terminals</span>${sessions.map((s) => `<a href="${esc(s.terminal_url)}" target="_blank" rel="noopener">${esc(s.session)}</a>`).join("")}</div>`;
 }
 function setupLoopRun(run) {
-  const where = run.ticket ? `${esc(run.repo)}#${esc(run.ticket.number)}` : esc(run.repo ?? "");
+  const where = runWhere(run);
   const elapsed = loopDur(run.elapsed_ms);
-  const head = run.state === "complete" ? `<b>Full loop verified.</b><div class="dim-note">${where} · every leg completed in ${elapsed}.</div>`
-    : run.state === "failed" ? `<b>The Full loop did not complete.</b><div class="dim-note">${where} · stopped after ${elapsed}.</div>`
-      : `<b>Running the Full loop.</b><div class="dim-note">${where} · ${elapsed} so far. The page follows the service's read every 5 seconds. Closing Setup keeps the run going.</div>`;
+  const head = run.state === "complete" ? `<b>Test run verified.</b><div class="dim-note">${where} · every leg completed in ${elapsed}.</div>`
+    : run.state === "failed" ? `<b>The Test run did not complete.</b><div class="dim-note">${where} · stopped after ${elapsed}.</div>`
+      : `<b>Running the Test run.</b><div class="dim-note">${where} · ${elapsed} so far. The page follows the service's read every 5 seconds. Leaving Setup keeps the run going.</div>`;
   const legs = (run.legs ?? []).map((l) => {
     const wait = l.state === "running" ? ` · ${loopWaitWords(run, l.key)}${run.waiting?.leg === l.key ? ` · open ${esc(ago(run.waiting.opened_at))}` : ""}` : "";
     return `<li class="loop-leg ${esc(l.state)}"><span class="loop-mark" aria-hidden="true">${LOOP_MARK[l.state] ?? "·"}</span><span>${esc(l.title)} · ${esc(l.state)}${wait}</span>${l.link ? ` <a href="${esc(l.link)}" target="_blank" rel="noopener">open</a>` : ""}${l.ms != null ? `<span class="dim-note">${loopDur(l.ms)}</span>` : ""}</li>`;
@@ -6118,10 +6181,10 @@ async function pressFullLoop(path, what) {
   render();
   ensureFullLoopRead();
 }
-function runFullLoop() { return pressFullLoop("/api/setup/full-loop", "starting the Full loop"); }
+function runFullLoop() { return pressFullLoop("/api/setup/full-loop", "starting the Test run"); }
 function retryFullLoop() {
   const leg = setupRun()?.failed?.title;
-  return pressFullLoop("/api/setup/full-loop/retry", leg ? `retrying ${leg}` : "retrying the Full loop");
+  return pressFullLoop("/api/setup/full-loop/retry", leg ? `retrying ${leg}` : "retrying the Test run");
 }
 /* While a run is live the panel follows the service's read; the timer stops
    itself when the run ends or the operator leaves for a screen that does not
@@ -6154,7 +6217,6 @@ function setupPanel(card, p) {
     <div class="eyebrow">Independent connection · Working</div>
     <h2>${esc(card.title)}</h2>
     ${setupProgress(work)}
-    <div class="setup-actions"><a href="#home" onclick="goto('home');return false">Close setup</a></div>
   </div>`;
   }
   const slot = SETUP_CONTENT[card.key];
@@ -6175,8 +6237,7 @@ function setupPanel(card, p) {
     <h2>${esc(card.title)}</h2>
     ${slot ? slot.content(card, progress, p) : ""}
     ${problem}
-    <div class="setup-actions">${tryAgain}${forward}
-      <a href="#home" onclick="goto('home');return false">Close setup</a></div>
+    <div class="setup-actions">${tryAgain}${forward}</div>
     ${UI.setup.note ? `<div class="dim-note" style="margin-top:10px">${esc(UI.setup.note)}</div>` : ""}
   </div>`;
 }
@@ -6204,16 +6265,16 @@ function screenSetup(p) {
   </div>`;
 }
 
-/* The Home pointer for a live Full loop (#891): closing Setup never cancels
+/* The Home pointer for a live Test run (#891): leaving Setup never cancels
    or detaches the run, so Home says it runs, names the leg and what it waits
    for, and Open returns to the run panel. */
 function runPointer() {
   const run = setup?.full_loop?.run;
   if (UI.screen === "setup" || run?.state !== "running") return "";
-  const where = run.ticket ? `${esc(run.repo)}#${esc(run.ticket.number)}` : esc(run.repo ?? "");
+  const where = runWhere(run);
   const leg = (run.legs ?? []).find((l) => l.state === "running");
   const line = leg ? `${esc(leg.title)} · ${loopWaitWords(run, leg.key)}.` : "";
-  return `<div class="setup-pointer"><b>The Full loop is running on ${where}.</b>
+  return `<div class="setup-pointer"><b>The Test run is running on ${where}.</b>
     <span class="dim-note">${line}</span>
     <a href="#setup" onclick="openFullLoop();return false">Open →</a></div>`;
 }

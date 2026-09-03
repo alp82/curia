@@ -30,8 +30,8 @@ The output has nine sections in the order the following table lists. Every check
 | `secrets` | `environment` | No credential key is set in your shell. | A warning that names the key, such as `GH_TOKEN`, and the secret file to use instead. |
 | `containers` | `containers` | The five services are `healthy` in `docker compose ps`. | A service that exited, is unhealthy, or is missing from the project fails, with the `docker compose ... logs <service>` command as the action. A service still starting is a warning. |
 | `service` | `service` | The service answers `GET /ping` on `127.0.0.1:4271`. | The service doesn't answer. The integrations section is then skipped, and says so. |
-| `integrations` | `GitHub`, `Discord`, `Tailscale`, `model provider` | The card is connected on this read, as the service verified it. The line carries the card's own summary. | A failed verification carries the card's failed check and its action, the same text the Setup screen shows. A card that isn't connected yet is a warning that points at **Setup**. |
-| `integrations` | `Full loop` | The [Full-loop gate](integration-setup.md#when-setup-is-ready) is ready on this read. A completed [Full-loop run](integration-setup.md#run-full-loop) is a journal record, not a marker, so this line never reads it. | A warning with the gate's reason, such as `Waiting for Discord.` |
+| `integrations` | `GitHub`, `Discord`, `Tailscale`, `AI logins` | The card is connected on this read, as the service verified it. The line carries the card's own summary. | A failed verification carries the card's failed check and its action, the same text the Setup screen shows. A card that isn't connected yet is a warning that points at **Setup**. |
+| `integrations` | `Test run` | The [Test run's gate](integration-setup.md#when-setup-is-ready) is ready on this read. A completed [Test run](integration-setup.md#start-test-run) is a journal record, not a marker, so this line never reads it. | A warning with the gate's reason, such as `Waiting for Discord.` |
 | `integrations` | `admitted operator` | The login the service admits, from `state/tailscale.json`. | A warning while no operator is confirmed, because the app then admits the first tailnet identity to **Setup** only. |
 | `app` | `Curia app` | The app answers on `127.0.0.1:4273`. The line names the address on your tailnet, `https://<your node's MagicDNS name>:8445/`. | The app doesn't answer, with the `logs dashboard` command as the action. |
 
@@ -58,9 +58,9 @@ ok       GitHub             🎫 #12 · Add the thing · ready-for-agent · exam
 failed   Discord            The bot is not in the selected server.
                             Add the bot to the server with the invite link on the Discord card, then select Try again.
 ok       Tailscale          🔒 curia.tail1234.ts.net · you@example.com · admitted in 12 ms
-ok       model provider     OpenAI · Routing ready · verification request completed in 2 s
-warning  Full loop          Waiting for Discord.
-                            Finish setup in the Curia app; Run Full loop enables when every card is connected on one read.
+ok       AI logins          OpenAI · Routing ready · verification request completed in 2 s
+warning  Test run           Waiting for Discord.
+                            Finish setup in the Curia app; Start Test run enables when every card is connected on one read.
 ok       admitted operator  you@example.com
 
 app

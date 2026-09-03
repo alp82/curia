@@ -211,11 +211,11 @@ The last check is the hard one: nothing runs during the window. The runbook does
    - **GitHub** proves the existing App's installations cover the watched repositories on a fresh token. Nothing to type.
    - **Discord** proves the migrated token, the operator's membership, and the command channel `curia`. Press nothing on this card before the source is confirmed stopped, which Step B did.
    - **Tailscale** detects the target's node. Confirm the operator login that was `identity.allow` on the source, and the target node's machine name. This records `state/tailscale.json` and creates the target's Serve route. The source route on `coinmatica` stays until cleanup.
-   - **Model provider** proves `secrets/anthropic.json` and `secrets/codex-auth.json` with one minimal request each. Repeat a provider's sign-in only when the card proves the imported credential unusable.
+   - **AI logins** proves `secrets/anthropic.json` and `secrets/codex-auth.json` with one minimal request each. Repeat a provider's sign-in only when the card proves the imported credential unusable.
 
 4. Open Settings. The values that were in `curia.local.yaml` are there: `max_concurrent` 10 and the six watched repositories, plus the routing override.
 
-5. Run one Full loop as in [4. Run your first Full loop](guide/04-run-your-first-full-loop.md). **Full loop verified** is the acceptance, and it ends rollback support. Until it reads that, the source is the deployment of record and the target is an attempt.
+5. Run the Test run as in [4. Run the Test run](guide/04-run-the-test-run.md). **Test run verified** is the acceptance, and it ends rollback support. Until it reads that, the source is the deployment of record and the target is an attempt.
 
 ## Rollback and retry
 

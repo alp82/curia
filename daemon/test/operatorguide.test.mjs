@@ -38,7 +38,7 @@ const RAIL = [
     ['01-check-prerequisites.md', '1. Check prerequisites'],
     ['02-install-curia.md', '2. Install Curia'],
     ['03-connect-services.md', '3. Connect services'],
-    ['04-run-your-first-full-loop.md', '4. Run your first Full loop'],
+    ['04-run-the-test-run.md', '4. Run the Test run'],
   ] },
   { group: 'Run Curia', topics: [
     ['05-daily-operation.md', '5. Daily operation'],

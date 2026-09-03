@@ -1321,23 +1321,17 @@ export class DashboardSurface {
           return out
         })
       }
-      // The Full loop's press and retry (#882). The press names at most a
-      // covered repository and a ticket number, both shaped here; the daemon
-      // reads its own gate and refuses a closed one. The answer is the run.
+      // The Test run's press and retry (#882, #891). The press names at most
+      // a covered repository, shaped here; the daemon reads its own gate and
+      // refuses a closed one, and makes the run's own tickets. The answer is
+      // the run.
       if (url.pathname === '/api/setup/full-loop' || url.pathname === '/api/setup/full-loop/retry') {
         return this.#write(res, async () => {
           const b = await this.#body(req)
           const body = {}
-          if (!url.pathname.endsWith('/retry')) {
-            if (typeof b.repo === 'string' && b.repo) {
-              if (!/^[\w.-]+\/[\w.-]+$/.test(b.repo)) throw refuse(`"${b.repo.slice(0, 60)}" is not a repository`)
-              body.repo = b.repo
-            }
-            if (b.ticket !== undefined && b.ticket !== null && b.ticket !== '') {
-              const n = Number(b.ticket)
-              if (!Number.isInteger(n) || n <= 0) throw refuse(`"${String(b.ticket).slice(0, 40)}" is not a ticket number`)
-              body.ticket = n
-            }
+          if (!url.pathname.endsWith('/retry') && typeof b.repo === 'string' && b.repo) {
+            if (!/^[\w.-]+\/[\w.-]+$/.test(b.repo)) throw refuse(`"${b.repo.slice(0, 60)}" is not a repository`)
+            body.repo = b.repo
           }
           const out = await this.#daemon({ method: 'POST', path: url.pathname.replace('/api', ''), body, accept: [200, 400], timeout: SETUP_TIMEOUT_MS })
           if (out.ok === false) throw refuse(out.error)
@@ -1609,7 +1603,7 @@ export class DashboardSurface {
         (e) => this.#json(res, 200, { step: null, progress: null, cards: null, full_loop: null, error: e.message }),
       )
     }
-    // The Full loop's run (#882), as the daemon reads it off the journal. A
+    // The Test run (#882), as the daemon reads it off the journal. A
     // daemon that cannot be asked answers a null state with the reason.
     if (url.pathname === '/api/setup/full-loop') {
       return this.#daemon({ path: '/setup/full-loop', timeout: SETUP_TIMEOUT_MS }).then(

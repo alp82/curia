@@ -194,7 +194,7 @@ describe('the Full-loop gate', () => {
     const status = await setupWith({ github: github(), discord: discord(), tailscale: tailscale(), openai: unconnected, anthropic: unconnected }).status()
     assert.equal(status.full_loop.ready, false)
     assert.deepEqual(status.full_loop.missing, ['model'])
-    assert.equal(status.full_loop.reason, 'Waiting for Model provider.')
+    assert.equal(status.full_loop.reason, 'Waiting for AI logins.')
     assert.equal(status.full_loop.facts, null)
   })
 

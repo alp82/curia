@@ -29,8 +29,8 @@ import { safeLeaf } from './attachments.mjs'
 import { readInboundText } from './inbound.mjs'
 import { REVIEW_KIND, CROSS_CHECK_ANSWER, ALL_AS_RECOMMENDED } from './lifecycle.mjs'
 import { CONFIRM_KIND } from './reduction.mjs'
-import { MAP_CLOSE_VERB } from './github.mjs'
 import { chunkMessage, smallPrint, elapsedLabel } from './messaging.mjs'
+import { escalationEmbed, MAX_BUTTON_OPTIONS, MAX_SELECT_OPTIONS, SELECT_LABEL, SELECT_DESC, selectFits, selectClips } from './escalationembed.mjs'
 import { ThreadRenamer } from './threadname.mjs'
 
 // The `choice` surface, in three bands (#431, on the #413 map).
@@ -51,22 +51,9 @@ import { ThreadRenamer } from './threadname.mjs'
 //    list has stopped being a choice a human makes by reading it;
 //  - past 25 the numbered list stays. It is the surface of last resort, and it
 //    loses nothing, which a menu that silently dropped option 26 would.
-const MAX_BUTTON_OPTIONS = 4
-export const MAX_SELECT_OPTIONS = 25
-
-// One select option shows a 100-char label and a 100-char description under it.
-// An option longer than the label spills its tail into the description, so 200
-// chars ride the menu whole. Past that the menu clips, and the body keeps the
-// numbered list beside it. An option never loses its words to this component.
-const SELECT_LABEL = 100
-const SELECT_DESC = 100
-
-// Whether the menu can carry this list at all, and whether it can carry it
-// unclipped. Two separate questions: the first picks the component, the second
-// picks whether the numbered list stays under it.
-export const selectFits = (options) => options.length > MAX_BUTTON_OPTIONS
-  && options.length <= MAX_SELECT_OPTIONS
-export const selectClips = (options) => options.some((o) => String(o).length > SELECT_LABEL + SELECT_DESC)
+// The option bands live with the message they shape (escalationembed.mjs);
+// the names stay exported here for the callers that learned them.
+export { MAX_SELECT_OPTIONS, selectFits, selectClips }
 
 // The option payload. `value` is the index into `record.options`, the same key
 // the `idx` buttons use, so every answer path resolves a pick the one way.
@@ -1277,99 +1264,10 @@ export class DiscordBridge {
     return rows
   }
 
-  // The path a reply file lands in, as one small-print line (#712).
-  #replyFilesLine(record) {
-    return smallPrint(`A reply here may carry files. They land under \`${path.join(this.dataDir, 'attachments', record.id)}/\` and reach the agent as paths.`)
-  }
-
+  // The message, composed once (#891): `escalationEmbed` owns the text, and
+  // the Test run's panel draws the same shape as a preview.
   #escalationBody(record, files = []) {
-    if (record.kind === CONFIRM_KIND) {
-      // Every confirm but one is about a live agent and lapses with it. The
-      // empty-map verdict (#698) is about a map, so it lapses with nothing and
-      // waits — including across a restart — and its footer must not promise
-      // an expiry it does not have.
-      const footer = record.action?.verb === MAP_CLOSE_VERB
-        ? '-# ✅ closes the map, and ❌ leaves it open. This question waits until you answer it.'
-        : '-# ✅ executes, and ❌ declines. This confirm lapses when its agent exits.'
-      return [
-        `❓ ${record.prompt}`,
-        footer,
-        `-# ${record.id}`,
-      ].join('\n')
-    }
-    // The review gate (#54) is the one kind whose prompt is a multi-line block
-    // the daemon composed — summary, proposed charting, the links to look at. A
-    // blockquote would mark only its first line, so it is printed as it stands.
-    if (record.kind === REVIEW_KIND) {
-      return [
-        record.prompt,
-        '',
-        '_✅ Approve to merge and resolve. A reply is a rejection, and I take your words as the change list._',
-        '_🔎 Cross-check answers neither. It starts a reviewer on the other provider, and I wait for its verdict._',
-        this.#replyFilesLine(record),
-        `-# ${record.id}`,
-      ].join('\n')
-    }
-    // No blockquote (#95's markdown standard) — the prompt stands on its own line.
-    //
-    // A TYPED card (#418) puts a blank line under the head instead, because its
-    // prompt is the composed card-4 body: a bold headline, the options with
-    // their consequences, an optional visual and an optional spoiler. The
-    // daemon composed that text with card.mjs and stored it on the record, so
-    // this prints it as it stands. The bridge renders and never interprets
-    // (ADR-0002), and the parts below are the ANSWER surface, not the question.
-    const typed = Boolean(record.payload)
-    const prompt = /^\s*❓/.test(record.prompt) ? record.prompt : `❓ ${record.prompt}`
-    const parts = [prompt]
-    if (files.length) {
-      parts.push(smallPrint(`Attached files: ${files.map((file) => `\`${file.attachment}\``).join(', ')}. Reply files return to this conversation as readable paths.`))
-    }
-    if (record.kind === 'choice' && typed) {
-      // The typed body already carries every option with its cost, so the
-      // numbered list would say the whole card twice. Only the instruction is
-      // owed, and which one depends on what component the list earns (#431).
-      const labels = record.options ?? []
-      if (!selectFits(labels) && labels.length > MAX_BUTTON_OPTIONS) parts.push('_Reply in this thread with a letter or a number._')
-      else if (selectFits(labels) && selectClips(labels)) parts.push('_Pick from the menu below, or reply with a letter._')
-      else if (selectFits(labels)) parts.push('_Pick from the menu below._')
-    } else if (record.kind === 'choice' && (record.options ?? []).length > MAX_BUTTON_OPTIONS) {
-      // The numbered list is now the FALLBACK, not the surface (#431). It is
-      // printed in the two cases the menu cannot serve: a list past the menu's
-      // reach, and a list whose options are too long for the menu to show
-      // whole. Otherwise the menu carries every option and the list would say
-      // the same thing twice, which is what makes this card scroll on a phone.
-      const numbered = record.options.map((o, i) => `**${i + 1}.** ${o}`).join('\n')
-      if (!selectFits(record.options)) {
-        parts.push(numbered, '_Reply in this thread with a number._')
-      } else if (selectClips(record.options)) {
-        parts.push(numbered, '_Pick from the menu below, or reply with a number._')
-      } else {
-        parts.push('_Pick from the menu below._')
-      }
-    } else if (record.kind === 'free-text') {
-      // A round says what the tap means and what a partial reply does (#285).
-      // The second sentence is the load-bearing one: a question you do not
-      // answer is NOT taken as recommended, it comes back in the next round.
-      parts.push(record.recommended
-        ? '_✅ takes every recommendation above. Reply in this thread to name exceptions. Unanswered questions return in the next round._'
-        : '_Reply in this thread to answer._')
-    } else if (record.kind === 'preview-review') {
-      parts.push(`Preview: ${record.preview_url}`, '_Approve/Reject, or reply in this thread with comments._')
-    }
-    // Every card names the file path (#712, ADR-0025): one small-print line
-    // says a reply may carry files, and where they land. The directory is the
-    // one `#downloadAttachments` writes and the one a browser reply writes, so
-    // the agent reads one shape whichever surface answered.
-    parts.push(this.#replyFilesLine(record))
-    // A flagged send (#416, ADR-0005): the agent used up its three rejections
-    // and curia sent the text as it stands. The operator sees which rule it
-    // broke, beside the text that broke it — a flagged question still reaches
-    // them, so this is a mark on the card and never a failure to ask.
-    if (record.lint_flags?.length) {
-      parts.push(smallPrint([`⚠️ curia sent this after ${record.lint_flags.length} lint fault(s) the agent did not fix:`, ...record.lint_flags].join('\n')))
-    }
-    parts.push(smallPrint(record.id))
-    return parts.join('\n')
+    return escalationEmbed(record, { files, dataDir: this.dataDir }).text
   }
 
   // Where a record renders (#218). The rule is WHO the record is addressed to,

@@ -2,16 +2,16 @@
 
 Operator guide · [Index](../README.md)
 
-- **Get Curia running:** [1. Check prerequisites](01-check-prerequisites.md) · [2. Install Curia](02-install-curia.md) · **3. Connect services (this topic)** · [4. Run your first Full loop](04-run-your-first-full-loop.md)
+- **Get Curia running:** [1. Check prerequisites](01-check-prerequisites.md) · [2. Install Curia](02-install-curia.md) · **3. Connect services (this topic)** · [4. Run the Test run](04-run-the-test-run.md)
 - **Run Curia:** [5. Daily operation](05-daily-operation.md) · [6. Check the installation](06-check-the-installation.md)
 - **Change the installation:** [7. Update or roll back](07-update-or-roll-back.md) · [8. Migrate the current deployment](08-migrate-the-current-deployment.md) · [9. Uninstall or purge](09-uninstall-or-purge.md)
 - **When something fails:** [Troubleshooting](troubleshooting.md)
 
-**Outcome:** GitHub, Discord, Tailscale, and one model provider connected and verified on the Setup screen, and **Run Full loop** enabled.
+**Outcome:** GitHub, Discord, Tailscale, and one AI login connected and verified on the Setup screen, and **Start Test run** enabled.
 
 **Starting state:** Curia installed and healthy from [2. Install Curia](02-install-curia.md). A browser on a device that is on your tailnet. The four accounts from [1. Check prerequisites](01-check-prerequisites.md).
 
-**Active operator time:** About 15 minutes across the four cards. The GitHub App creation and the model provider's sign-in are the longest.
+**Active operator time:** About 15 minutes across the four cards. The GitHub App creation and the AI login are the longest.
 
 ## What setup changes
 
@@ -21,7 +21,7 @@ Each card writes one credential to an owner-only file under `secrets/` in the in
 
 From a device on your tailnet, open the address `curia install` printed, `https://<your node's MagicDNS name>:8445/`. Open it through Tailscale: a request on the host's loopback carries no identity and can't confirm an operator. On a fresh installation the app admits the first tailnet identity that arrives, and only to **Setup**. Select **Setup** if the app doesn't open on it.
 
-The rail on the left holds four cards, **GitHub**, **Discord**, **Tailscale**, and **Model provider**. Connect them in any order. Every write on a card verifies the card on its own, and a connected card has one press, **Continue**, which opens the next card that isn't connected. The frame, the card states, and what a reopen restores are in [Integration setup](../integration-setup.md).
+The rail on the left holds four cards, **GitHub**, **Discord**, **Tailscale**, and **AI logins**. Connect them in any order. Every write on a card verifies the card on its own, and a connected card has one press, **Continue**, which opens the next card that isn't connected. The frame, the card states, and what a reopen restores are in [Integration setup](../integration-setup.md).
 
 ## Connect GitHub
 
@@ -52,9 +52,9 @@ The card connects when the footer shows the channel and the server, then `Confir
 
 From that moment the recorded login is the only identity the app and every published surface admit. The card connects when the footer shows the node's MagicDNS name, then `<login> · admitted in <n> ms`. The details are in [Connect Tailscale](../integration-setup.md#connect-tailscale).
 
-## Connect a model provider
+## Connect AI logins
 
-The **Model provider** card holds one row per provider. One verified provider is enough. Add the second later from the same card.
+The **AI logins** card holds one row per provider, OpenAI and Anthropic. One verified login is enough. Add the second later from the same card.
 
 - **OpenAI.** Select **Sign in to OpenAI**. The row shows a link and a one-time code. Open the link on any device, sign in to your ChatGPT account, and enter the code. The code lives fifteen minutes. See [Connect OpenAI](../integration-setup.md#connect-openai).
 - **Anthropic.** Select **Sign in to Anthropic**. The row shows a link. Open it, sign in to your Claude subscription, approve, and copy the code the browser shows. Paste the code into the **Code** field on the row and select **Submit**; Curia types it into the sign-in for you and reads the token from there. **Open the terminal instead** stays on the row as the fallback: it opens the same sign-in session in a terminal, under the app's own address. See [Connect Anthropic](../integration-setup.md#connect-anthropic).
@@ -63,7 +63,7 @@ The first press on a fresh installation can take a minute, because the service p
 
 ## What you should see
 
-The rail reads `4/4 verified` (or `3/4` with one provider row unconnected, which is fine), the action under the rail reads **Run Full loop**, and the **Full loop** panel says `Every integration is connected and verified.` and names the ticket or repository, the command channel, the private address, and the leading provider.
+The rail reads `4/4 verified` (or `3/4` with one provider row unconnected, which is fine), the action under the rail reads **Start Test run**, and the **Test run** panel says `Every integration is connected and verified.` and names the repository, the command channel, the private address, and the leading provider.
 
 To see the same facts on one terminal screen, run `curia doctor`; its `integrations` section carries every card's own result.
 
@@ -73,4 +73,4 @@ A failed card reads **Action required**, names the check that failed, and gives 
 
 ## Next
 
-[4. Run your first Full loop](04-run-your-first-full-loop.md).
+[4. Run the Test run](04-run-the-test-run.md).

@@ -293,5 +293,5 @@ Logs are the service's output. Under compose: `docker compose -f deploy/compose.
 - `docs/landing-page/` — the brief, the build notes and the hosting record for <https://curia.sh>.
 - `daemon/README.md` and `docs/deploy.md` — the operator's own box, not yours.
 - `docs/operator/README.md` — the operator guide for an installed Curia: the packaged lifecycle from a
-  supported host to a verified Full loop, daily operation, update and rollback, uninstall and purge.
+  supported host to a verified Test run, daily operation, update and rollback, uninstall and purge.
   The setup in this file is the source deployment, which is contributor territory.

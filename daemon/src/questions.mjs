@@ -241,11 +241,13 @@ select e.body as body, e.type as type,
  order by e.ticket`.trim(),
 }
 
-// The Full loop's run (#882), two questions. The last start row, and the
-// rows after an id that can belong to that run: the ticket's, the session's,
-// the escalation answers (which carry neither key, and are matched to their
-// question by the loop), and the loop's own rows. The loop judges which of
-// them count; this only bounds what it reads.
+// The Test run (#882, #891), two questions. The last start row, and the
+// rows after an id that can belong to that run: its tickets' and its map's,
+// its sessions', the escalation answers (which carry neither key, and are
+// matched to their question by the loop), the map lifecycle's own rows, and
+// the loop's own. The loop judges which of them count; this only bounds what
+// it reads. A run has at most two tickets and one map, and one session per
+// ticket, so the keys are fixed slots.
 const FULL_LOOP_SQL = {
   fullLoopRun: `
 select id, ts, type, ticket, agent, body from events
@@ -254,7 +256,9 @@ select id, ts, type, ticket, agent, body from events
   eventsSince: `
 select id, ts, type, ticket, agent, body from events
  where id > :since
-   and (ticket = :t or agent = :a or type in ('esc_answer', 'esc_cancel') or type like 'full\\_loop\\_%' escape '\\')
+   and (ticket in (:t1, :t2, :t3) or agent in (:a1, :a2)
+        or type in ('esc_answer', 'esc_cancel', 'map_fog_closed', 'map_verdict_answered', 'map_fog_verdict_posted')
+        or type like 'full\\_loop\\_%' escape '\\')
  order by id`.trim(),
 }
 
@@ -274,10 +278,17 @@ export class Questions {
     return this.#one('fullLoopRun')
   }
 
-  // The rows after `since` that can belong to a Full loop run on `ticket`
-  // and `agent`: theirs, the escalation answers, and the loop's own rows.
-  eventsSince(since, { ticket = null, agent = null } = {}) {
-    return this.#ask('eventsSince', { since: Number(since) || 0, t: ticket == null ? null : String(ticket), a: agent ?? null })
+  // The rows after `since` that can belong to a Test run on `tickets` (its
+  // two tickets and its map, up to three) and `agents` (up to two): theirs,
+  // the escalation answers, the map lifecycle's rows, and the loop's own.
+  eventsSince(since, { tickets = [], agents = [], ticket = null, agent = null } = {}) {
+    const t = [...tickets, ...(ticket == null ? [] : [ticket])].map(String)
+    const a = [...agents, ...(agent == null ? [] : [agent])]
+    return this.#ask('eventsSince', {
+      since: Number(since) || 0,
+      t1: t[0] ?? null, t2: t[1] ?? null, t3: t[2] ?? null,
+      a1: a[0] ?? null, a2: a[1] ?? null,
+    })
   }
 
   // Every question runs through here, so an UNREADABLE journal is never an

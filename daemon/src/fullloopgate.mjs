@@ -64,7 +64,7 @@ export function fullLoopGate(cards, { progress = {}, now = () => new Date() } = 
   // The model card: the leading provider and the routing its preset left.
   const providers = byKey.model.providers ?? {}
   const connected = PROVIDERS.filter((p) => providers[p]?.state === 'connected')
-  if (!connected.length) return incomplete('The model provider', 'a verified provider')
+  if (!connected.length) return incomplete('AI logins', 'a verified provider')
   const remembered = progress?.model?.provider
   const provider = connected.includes(remembered) ? remembered : connected[0]
   const md = providers[provider].detail ?? {}
