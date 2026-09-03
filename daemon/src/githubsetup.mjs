@@ -23,11 +23,17 @@
 // the repository, the count of open tickets, and what the minted credential
 // grants — never a fabricated ticket.
 //
-// Before the App exists the card is plain, not failed: `{ unconnected }`,
-// which the frame draws as "Ready to connect". Everything after is one
-// failed verification with one corrective action, in the order the operator
-// meets it: the App, the install, the mint, the grant, the watch list, the
-// tickets.
+// THE EXPECTED STATES ARE STEPS, NOT FAILURES (#891). The card is a guide
+// of three steps, and `detail.step` names the one the operator is at:
+// `create` (no App yet), `install` (the App exists and no installation
+// covers a repository yet), `watch` (installations cover repositories and
+// nothing is watched yet). Each of those is `{ unconnected }` with the
+// detail, which the frame draws plain, because on a fresh installation they
+// are what the operator meets on the way and none of them is wrong. A
+// failed verification is a real failure only: GitHub refused the App, a
+// mint failed, the installation can't be read, or a watched repository lost
+// its coverage. The rehearsal pressed Try again on the expected states and
+// read a red card every time; the guide replaces that.
 //
 // THE OPERATOR CHOOSES WHAT TO WATCH HERE (#891). A fresh installation has no
 // watched repository (#866 writes none, and the shipped watch list stays with
@@ -78,7 +84,7 @@ async function readTickets(repo, { token, fetchImpl }) {
 export function githubVerifier({ minter, watch, fetchImpl = globalThis.fetch }) {
   return async function verifyGitHub() {
     const app = minter()
-    if (!app) return { ok: false, unconnected: true }
+    if (!app) return { ok: false, unconnected: true, detail: { step: 'create' } }
 
     const watched = watch().map((w) => w.repo)
     const owners = [...new Set(watched.map(ownerOf))]
@@ -106,7 +112,7 @@ export function githubVerifier({ minter, watch, fetchImpl = globalThis.fetch }) 
     }
     const installedOn = new Set(installs.map((i) => String(i.owner ?? '').toLowerCase()))
     const ownerRows = owners.map((owner) => ({ owner, installed: installedOn.has(owner.toLowerCase()) }))
-    const detail = { owners: ownerRows, covered: [], watched, available: [], install_url }
+    const detail = { step: 'install', owners: ownerRows, covered: [], watched, available: [], install_url }
     const watchedOwners = new Set(owners.map((o) => o.toLowerCase()))
 
     // One real mint per installation, then that installation's own grant. A
@@ -149,22 +155,10 @@ export function githubVerifier({ minter, watch, fetchImpl = globalThis.fetch }) 
       tokens.set(owner.toLowerCase(), minted)
     }
 
-    if (!watched.length) {
-      if (!installs.length) {
-        return {
-          ok: false,
-          failed: 'curia\'s GitHub App is not installed on any account, so there is no repository to watch yet',
-          action: 'Install the App on the account that owns your repositories from the link in this panel, then try again.',
-          detail,
-        }
-      }
-      return {
-        ok: false,
-        failed: 'No repository is on the watch list, so there is nothing for the App installation to cover',
-        action: 'Choose the repositories Curia watches in this panel, then select Watch these repositories.',
-        detail,
-      }
-    }
+    if (detail.available.length) detail.step = 'watch'
+    // Nothing watched yet is the fresh installation on its way: the install
+    // step until an installation covers a repository, the choice after.
+    if (!watched.length) return { ok: false, unconnected: true, detail }
     const missing = ownerRows.filter((o) => !o.installed).map((o) => o.owner)
     if (missing.length === owners.length) {
       return {
@@ -210,7 +204,7 @@ export function githubVerifier({ minter, watch, fetchImpl = globalThis.fetch }) 
     const ready = `${list(capabilities, 'and')} ready`
     const tickets = `${open} open ticket${open === 1 ? '' : 's'}`
     const repoLine = detail.covered.length > 1 ? `${detail.covered[0]} + ${detail.covered.length - 1} more` : detail.covered[0]
-    Object.assign(detail, { open_tickets: open, ticket })
+    Object.assign(detail, { step: 'done', open_tickets: open, ticket })
     if (ticket) {
       return { ok: true, emoji: '🎫', primary: `#${ticket.number} · ${ticket.title}`, secondary: `${READY_LABEL} · ${ticket.repo} · ${tickets}`, detail }
     }

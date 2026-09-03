@@ -4573,11 +4573,24 @@ describe('integration setup (#874)', () => {
     assert.equal(page.setup.cards.find((c) => c.key === 'tailscale').state, 'unavailable', 'the card is what the read said')
   })
 
-  test('a connected card offers Continue setup to the next unconnected card, in rail order', async () => {
+  test('a connected card offers Continue to the next unconnected card, in rail order', async () => {
     page.setup = SETUP({ step: 'tailscale', cards: { tailscale: ALL.tailscale, github: ALL.github } })
-    assert.match(page.screenSetup(payload()), /onclick="continueSetup\(\)">Continue setup</)
+    assert.match(page.screenSetup(payload()), /onclick="continueSetup\(\)">Continue</)
     await page.continueSetup()
     assert.equal(page.setup.step, 'discord')
+  })
+
+  test('Continue on a connected panel with every card connected opens the run panel, and the panel offers no second press', async () => {
+    page.setup = SETUP({ step: 'tailscale', cards: ALL, full_loop: { ready: true, missing: [], reason: null, facts: { channel: '#curia' } } })
+    page.UI.setup.panel = 'card'
+    const html = page.screenSetup(payload())
+    const panel = /<section>([\s\S]*)<\/section>/.exec(html)[1]
+    assert.match(panel, /<button class="btn primary" onclick="continueSetup\(\)">Continue<\/button>/)
+    assert.doesNotMatch(panel, /runFullLoop|Try again/)
+    assert.equal((panel.match(/class="btn primary"/g) ?? []).length, 1, 'one Continue per connected panel')
+    await page.continueSetup()
+    assert.equal(page.UI.setup.panel, 'run')
+    assert.equal(page.setup.step, 'tailscale', 'no card is selected over the run')
   })
 
   test('the Full loop action stays unavailable with four connected cards until the gate supplies its facts', () => {
@@ -4670,7 +4683,7 @@ describe('integration setup (#874)', () => {
     assert.doesNotMatch(html, /onclick="runFullLoop\(\)"/, 'no second press while a run is live')
     assert.match(html, /<section><div class="setup-panel" id="setup-run">/, 'a live run is the selected panel (#891)')
     page.UI.setup.panel = 'card'
-    assert.match(page.screenSetup(payload()), /<button class="btn primary" disabled>Running the Full loop…<\/button>/, 'the card panel names the run as the forward action')
+    assert.match(page.screenSetup(payload()), /<button class="btn primary" onclick="continueSetup\(\)">Continue<\/button>/, 'the card panel continues to the run')
     assert.match(html, /href="https:\/\/github\.com\/alp82\/curia\/issues\/42"[^>]*>Ticket/)
     assert.match(html, /href="https:\/\/discord\.com\/channels\/2\/777"[^>]*>Discord thread/)
     assert.doesNotMatch(html, /Pull request ↗/, 'a link the run has not produced is not drawn')
@@ -4882,7 +4895,7 @@ describe('integration setup (#874)', () => {
     let html = page.screenSetup(p)
     assert.match(html, /href="https:\/\/github.com\/alp82\/curia\/issues\/861"[^>]*>#861 · Chart backup</)
     assert.match(html, />Manage installation</)
-    assert.match(html, /Continue setup/)
+    assert.match(html, />Continue</)
     page.setup = SETUP({ cards: { github: {
       ...ALL.github,
       detail: { owners: [{ owner: 'alp82', installed: true }], covered: ['alp82/curia'], open_tickets: 0, ticket: null },
@@ -4944,9 +4957,8 @@ describe('integration setup (#874)', () => {
 
   test('with no watched repository the panel lists what the installations cover, every repository ticked, and one press watches them', async () => {
     page.setup = SETUP({ cards: { github: {
-      state: 'failed', badge: 'Action required',
-      error: { failed: 'No repository is on the watch list, so there is nothing for the App installation to cover', action: 'Choose the repositories Curia watches in this panel, then select Watch these repositories.' },
-      detail: GITHUB_DETAIL({ available: ['alp82/curia', 'alp82/aistack', 'getalfredo/landing-page'] }),
+      state: 'unconnected', badge: 'Ready to connect',
+      detail: GITHUB_DETAIL({ step: 'watch', available: ['alp82/curia', 'alp82/aistack', 'getalfredo/landing-page'] }),
     } } })
     const p = payload()
     p.overview.github_app = APP({ owners: [] })
@@ -4954,7 +4966,7 @@ describe('integration setup (#874)', () => {
     assert.match(html, /id="setup-github-repo-0" value="alp82\/curia" checked/)
     assert.match(html, /id="setup-github-repo-1" value="alp82\/aistack" checked/)
     assert.match(html, /id="setup-github-repo-2" value="getalfredo\/landing-page" checked/)
-    assert.match(html, /onclick="doSetupGitHubWatch\(\)">Watch these repositories</)
+    assert.match(html, /onclick="doSetupGitHubWatch\(\)">Watch these repositories and continue</)
     assert.doesNotMatch(text(html), /Add one under Settings/)
     page.document.getElementById = (id) => ({ 'setup-github-repo-0': { checked: true }, 'setup-github-repo-1': { checked: false }, 'setup-github-repo-2': { checked: true } })[id] ?? null
     calls = []
@@ -4964,11 +4976,7 @@ describe('integration setup (#874)', () => {
   })
 
   test('with no installation at all the panel offers the App\'s own install link, and no repository to tick', () => {
-    page.setup = SETUP({ cards: { github: {
-      state: 'failed', badge: 'Action required',
-      error: { failed: "curia's GitHub App is not installed on any account, so there is no repository to watch yet", action: 'Install the App on the account that owns your repositories from the link in this panel, then try again.' },
-      detail: GITHUB_DETAIL(),
-    } } })
+    page.setup = SETUP({ cards: { github: { state: 'unconnected', badge: 'Ready to connect', detail: GITHUB_DETAIL({ step: 'install' }) } } })
     const p = payload()
     p.overview.github_app = APP({ owners: [] })
     const html = page.screenSetup(p)
@@ -5001,6 +5009,118 @@ describe('integration setup (#874)', () => {
     assert.deepEqual(calls.map((c) => [c.method, c.url]), [['POST', '/api/setup/github/watch']], 'a refused write takes no fresh read')
     assert.deepEqual(calls[0].body, { repos: ['alp82/curia', 'alp82/aistack'] })
     assert.match(text(page.screenSetup(p)), /cannot leave the watch list while curia-7 runs on it/)
+  })
+
+  // The GitHub card after the second rehearsal (#891): a three-step guide.
+  // "It should be 3 guided steps: 1. create the app 2. install the app
+  // 3. continue setup." An expected intermediate state, no App yet, no
+  // installation yet, nothing watched yet, is a step with the next action
+  // and never the red failure state; Try again exists on a real failure only.
+  const GITHUB_STEP = (step, detail = {}) => ({ state: 'unconnected', badge: 'Ready to connect', detail: GITHUB_DETAIL({ step, ...detail }) })
+  const stepper = (html) => /<ol class="setup-stepper"[\s\S]*?<\/ol>/.exec(html)?.[0] ?? ''
+
+  test('step 1 of the GitHub guide: with no App the card is plain, Create the App is the current step, and nothing on the card is a failure', () => {
+    page.setup = SETUP({ cards: { github: GITHUB_STEP('create') } })
+    const p = payload()
+    p.overview.github_app = APP({ configured: false, status: 'unconfigured', app: null, owners: [] })
+    const html = page.screenSetup(p)
+    const steps = stepper(html)
+    assert.match(steps, /<li class="current"[^>]*>[\s\S]*?Create the App/)
+    assert.match(steps, /<li class="todo"[^>]*>[\s\S]*?Install the App/)
+    assert.match(steps, /<li class="todo"[^>]*>[\s\S]*?Choose repositories and continue/)
+    assert.match(html, /onclick="doSetupGitHubApp\(\)">Create GitHub App</)
+    assert.match(html, /class="setup-card github unconnected on"/)
+    assert.doesNotMatch(html, /setup-problem|Try again|⚠️/)
+  })
+
+  test('step 2 of the GitHub guide: the App exists and no installation covers a repository, so the card names the step, offers the install link, and re-reads on the interval until one does', async () => {
+    page.setup = SETUP({ cards: { github: GITHUB_STEP('install') } })
+    page.payload = payload()
+    page.payload.overview.github_app = APP({ owners: [] })
+    let html = page.screenSetup(page.payload)
+    const steps = stepper(html)
+    assert.match(steps, /<li class="done"[^>]*>[\s\S]*?Create the App/)
+    assert.match(steps, /<li class="current"[^>]*>[\s\S]*?Install the App/)
+    assert.match(html, /class="setup-card github unconnected on"/, 'an expected step is never the red state')
+    assert.match(html, /<span class="setup-badge">Step 2 of 3<\/span>/)
+    assert.match(html, /href="https:\/\/github.com\/apps\/curia-box\/installations\/new"[^>]*>Install the App on GitHub</)
+    assert.match(text(html), /Curia checks again every 5 seconds while this panel is open/)
+    assert.doesNotMatch(html, /setup-problem|Try again|⚠️|doSetupGitHubWatch|doSetupGitHubApp/)
+
+    // The wait: the frame re-reads on the page's refresh interval, with no
+    // press, and stops itself the moment an installation covers a repository.
+    const timers = []
+    page.setTimeout = (callback, ms) => { timers.push({ callback, ms }); return timers.length }
+    page.clearTimeout = () => {}
+    let installed = false
+    page.fetch = async (url, init = {}) => {
+      calls.push({ url, method: init.method ?? 'GET', body: init.body ? JSON.parse(init.body) : null })
+      return { ok: true, json: async () => (init.method === 'POST' ? { ok: true } : SETUP({ cards: { github: installed ? GITHUB_STEP('watch', { available: ['alp82/curia', 'alp82/aistack'] }) : GITHUB_STEP('install') } })) }
+    }
+    calls = []
+    await page.loadSetup()
+    assert.equal(timers.length, 1, 'one wait is armed')
+    assert.equal(timers[0].ms, 5000, 'on the page\'s own refresh interval')
+    await timers[0].callback()
+    assert.equal(calls.filter((c) => c.url === '/api/setup' && c.method === 'GET').length, 2, 'the wait re-reads the frame')
+    assert.equal(timers.length, 2, 'and arms the next wait while nothing is covered')
+    installed = true
+    await timers[1].callback()
+    assert.equal(timers.length, 2, 'the wait ends once an installation covers a repository')
+    assert.equal(calls.filter((c) => c.method === 'POST').length, 0, 'the wait writes nothing')
+    html = page.screenSetup(page.payload)
+    assert.match(stepper(html), /<li class="current"[^>]*>[\s\S]*?Choose repositories and continue/)
+    assert.match(html, /id="setup-github-repo-0" value="alp82\/curia" checked/)
+  })
+
+  test('step 3 of the GitHub guide: every covered repository is ticked, and the one press writes the watch list, verifies, and continues to the next unconnected card', async () => {
+    page.setup = SETUP({ cards: { github: GITHUB_STEP('watch', { available: ['alp82/curia', 'alp82/aistack'] }) } })
+    page.payload = payload()
+    page.payload.overview.github_app = APP({ owners: [] })
+    let html = page.screenSetup(page.payload)
+    assert.match(html, /<span class="setup-badge">Step 3 of 3<\/span>/)
+    assert.match(html, /id="setup-github-repo-0" value="alp82\/curia" checked/)
+    assert.match(html, /id="setup-github-repo-1" value="alp82\/aistack" checked/)
+    assert.match(html, /onclick="doSetupGitHubWatch\(\)">Watch these repositories and continue</)
+    assert.doesNotMatch(html, /setup-problem|Try again|⚠️/)
+    assert.doesNotMatch(html, /Watch these repositories<\/button>/, 'one press, not two')
+    page.document.getElementById = (id) => ({ 'setup-github-repo-0': { checked: true }, 'setup-github-repo-1': { checked: true } })[id] ?? null
+    page.fetch = async (url, init = {}) => {
+      calls.push({ url, method: init.method ?? 'GET', body: init.body ? JSON.parse(init.body) : null })
+      return { ok: true, json: async () => (init.method === 'POST' ? { ok: true } : SETUP({ cards: { github: { ...ALL.github, detail: GITHUB_DETAIL({ covered: ['alp82/curia', 'alp82/aistack'], watched: ['alp82/curia', 'alp82/aistack'], available: ['alp82/curia', 'alp82/aistack'], open_tickets: 0, ticket: null }) } } })) }
+    }
+    calls = []
+    await page.doSetupGitHubWatch()
+    assert.deepEqual(calls.map((c) => [c.method, c.url]), [['POST', '/api/setup/github/watch'], ['GET', '/api/setup'], ['POST', '/api/setup']])
+    assert.deepEqual(calls[0].body, { repos: ['alp82/curia', 'alp82/aistack'] })
+    assert.deepEqual(calls[2].body, { step: 'discord' }, 'the connected read continues setup to the next unconnected card')
+    assert.equal(page.setup.step, 'discord')
+  })
+
+  test('a real GitHub failure keeps the red state and Try again: a watched repository lost its coverage', () => {
+    page.setup = SETUP({ cards: { github: {
+      state: 'failed', badge: 'Action required',
+      error: { failed: "The App installation on alp82 doesn't cover alp82/curia", action: 'Grant the App access to alp82/curia on the alp82 installation on GitHub, then try again.' },
+      detail: GITHUB_DETAIL({ step: 'watch', owners: [{ owner: 'alp82', installed: true }], watched: ['alp82/curia'], available: ['alp82/aistack'] }),
+    } } })
+    const p = payload()
+    p.overview.github_app = APP()
+    const html = page.screenSetup(p)
+    assert.match(html, /class="setup-card github failed on"/)
+    assert.match(html, /setup-problem/)
+    assert.match(html, /onclick="retrySetup\(\)">Try again</)
+    assert.match(stepper(html), /<li class="current"[^>]*>[\s\S]*?Choose repositories and continue/)
+    assert.match(html, /id="setup-github-repo-1" value="alp82\/curia" checked/, 'the step keeps its action beside the failure')
+  })
+
+  test('a connected GitHub card the operator reopens shows its facts and one press, Continue', () => {
+    page.setup = SETUP({ step: 'github', cards: { github: { ...ALL.github, detail: GITHUB_DETAIL({ owners: [{ owner: 'alp82', installed: true }], covered: ['alp82/curia'], watched: ['alp82/curia'], available: ['alp82/curia'], open_tickets: 0, ticket: null }) } } })
+    const p = payload()
+    p.overview.github_app = APP()
+    const html = page.screenSetup(p)
+    assert.match(html, /<button class="btn primary" onclick="continueSetup\(\)">Continue<\/button>/)
+    assert.doesNotMatch(html, /Try again|setup-stepper/)
+    assert.match(html, /<summary>Change the watched repositories<\/summary>/)
   })
 
   // The Discord card (#876). Before the token exists the panel guides the
@@ -5252,7 +5372,7 @@ describe('integration setup (#874)', () => {
     assert.match(html, /onclick="doSetupRestart\(\);return false">Restart Curia</)
     assert.match(html, /<div class="setup-secondary">Confirmation delivered · 6 commands registered<\/div>/)
     assert.doesNotMatch(html, /type="password"/, 'no token form on a connected card')
-    assert.match(html, /Continue setup/)
+    assert.match(html, />Continue</)
   })
 
   test('arriving at Setup takes its own read, and the read is a fresh verification every time', async () => {
@@ -5260,6 +5380,40 @@ describe('integration setup (#874)', () => {
     page.enter('setup')
     await new Promise((resolve) => setImmediate(resolve))
     assert.deepEqual(calls.map((c) => [c.method, c.url]), [['GET', '/api/setup'], ['GET', '/api/setup']])
+  })
+
+  // The second rehearsal (#891): "check could be implicit and then just
+  // needs a continue click". The wait for a server is an expected step, not
+  // a failure, and a write verifies on its own: the one press left after it
+  // is Continue.
+  test('the wait for a server is an expected step of the Discord card: plain, named as a step, with the invite link and no Try again', () => {
+    page.setup = SETUP({ step: 'discord', cards: { discord: { state: 'unconnected', badge: 'Ready to connect', detail: { stage: 'server', guilds: [], bot: { id: '2', username: 'curia-box' }, invite_url: 'https://discord.com/oauth2/authorize?client_id=5' } } } })
+    page.UI.setup.discord = DISCORD_OVERVIEW({ guilds: [], invite_url: 'https://discord.com/oauth2/authorize?client_id=5' })
+    const html = page.screenSetup(payload())
+    assert.match(html, /class="setup-card discord unconnected on"/)
+    assert.match(html, /<span class="setup-badge">Step 2 of 3<\/span>/)
+    assert.match(html, /href="https:\/\/discord\.com\/oauth2\/authorize\?client_id=5"/)
+    assert.match(text(html), /Waiting for the bot to join a server/)
+    assert.doesNotMatch(html, /setup-problem|Try again|⚠️|setup-discord-guild/)
+  })
+
+  test('Connect channel verifies on its own, and the connected Discord card leaves one press, Continue', async () => {
+    page.setup = SETUP({ step: 'discord', cards: { discord: { state: 'unconnected', badge: 'Ready to connect', detail: { stage: 'server', guilds: DISCORD_OVERVIEW().guilds } } } })
+    page.UI.setup.discord = DISCORD_OVERVIEW()
+    page.payload = payload()
+    page.document.getElementById = (id) => ({ 'setup-discord-guild': { value: '333333333333333333' }, 'setup-discord-channel': { value: 'curia' } })[id] ?? null
+    page.fetch = async (url, init = {}) => {
+      calls.push({ url, method: init.method ?? 'GET', body: init.body ? JSON.parse(init.body) : null })
+      if (url === '/api/setup/discord/channel') return { ok: true, json: async () => ({ ok: true, card: { key: 'discord', state: 'connected' } }) }
+      return { ok: true, json: async () => (init.method === 'POST' ? { ok: true } : SETUP({ step: 'discord', cards: { discord: { ...ALL.discord, detail: { guild: { id: '333333333333333333', name: "Alp's workshop" }, channel: { id: '4', name: 'curia', created: false, url: 'https://discord.com/channels/3/4' }, operator: { id: '1', username: 'alp', name: 'Alp' }, commands: ['next'], confirmation: { id: '7', at: new Date().toISOString(), posted: true, url: 'https://discord.com/channels/3/4/7' }, bridge: 'up' } } } })) }
+    }
+    calls = []
+    await page.doSetupDiscordChannel()
+    assert.deepEqual(calls.map((c) => [c.method, c.url]), [['POST', '/api/setup'], ['POST', '/api/setup/discord/channel'], ['GET', '/api/setup']], 'the write is followed by the verification, with no press between')
+    const html = page.screenSetup(page.payload)
+    assert.match(html, /class="setup-card discord connected on"/)
+    assert.match(html, /<button class="btn primary" onclick="continueSetup\(\)">Continue<\/button>/)
+    assert.doesNotMatch(html, /Try again|Verify|Check/)
   })
 
   // The Tailscale card (#877; the machine-name field dropped after #891).
@@ -5319,7 +5473,7 @@ describe('integration setup (#874)', () => {
     assert.deepEqual(calls[0].body, {}, 'neither a login nor a machine name is a field the page sends')
   })
 
-  test('a failed Tailscale card names the failure and the action, and keeps the confirmation so the operator can confirm again', () => {
+  test('a failed Tailscale card names the failure and the action, with Try again as the one press for the same identity', () => {
     page.setup = SETUP({ step: 'tailscale', cards: { tailscale: {
       state: 'failed', badge: 'Action required',
       error: { failed: 'The tailnet issues no HTTPS certificate for this node, so Serve can\'t publish the Curia app', action: 'Enable HTTPS certificates under DNS in the Tailscale admin console at https://login.tailscale.com/admin/dns, then try again.' },
@@ -5330,8 +5484,36 @@ describe('integration setup (#874)', () => {
     assert.match(html, /class="setup-card tailscale failed on"/)
     assert.match(text(html), /The tailnet issues no HTTPS certificate for this node/)
     assert.doesNotMatch(html, /<input/)
-    assert.match(html, /onclick="doSetupTailscaleOperator\(\)">Confirm again and verify</)
     assert.match(html, /onclick="retrySetup\(\)">Try again</)
+    assert.doesNotMatch(html, /doSetupTailscaleOperator/, 'confirming the same identity again would only repeat the read Try again takes')
+    assert.equal((/<section>([\s\S]*)<\/section>/.exec(html)[1].match(/class="btn primary"/g) ?? []).length, 1, 'Try again is the one press on the panel')
+    // Another identity at the same failed card is a real write, so the confirmation stays.
+    page.UI.setup.tailscale = TAILSCALE_OVERVIEW({ requester: 'other@example.com', operator: { login: 'alp@example.com', confirmed_at: '2026-09-02T10:00:00.000Z' }, first_operator: false })
+    assert.match(page.screenSetup(payload()), /onclick="doSetupTailscaleOperator\(\)">Confirm other@example\.com as the operator</)
+  })
+
+  test('the confirmation verifies on its own, and the connected Tailscale card leaves one press, Continue', async () => {
+    page.setup = SETUP({ step: 'tailscale', cards: { tailscale: { state: 'unconnected', badge: 'Ready to connect' } } })
+    page.UI.setup.tailscale = TAILSCALE_OVERVIEW()
+    page.payload = payload()
+    page.fetch = async (url, init = {}) => {
+      calls.push({ url, method: init.method ?? 'GET', body: init.body ? JSON.parse(init.body) : null })
+      if (url === '/api/setup/tailscale/operator') return { ok: true, json: async () => ({ ok: true, card: { key: 'tailscale', state: 'connected' } }) }
+      return { ok: true, json: async () => (init.method === 'POST' ? { ok: true } : SETUP({ step: 'tailscale', cards: { tailscale: { ...ALL.tailscale, detail: {
+        operator: { login: 'alp@example.com', confirmed_at: new Date().toISOString(), last_seen_at: null },
+        node: { installed: true, online: true, backend_state: 'Running', dns_name: 'curia.tail1234.ts.net', ips: ['100.98.118.33'], version: '1.98.10' },
+        address: 'curia.tail1234.ts.net', app_url: 'https://curia.tail1234.ts.net:8445/', machine_name: 'curia',
+        serve: { url: 'https://curia.tail1234.ts.net:8445/', route: { https: 8445, target: 'http://127.0.0.1:4273' }, created: false, error: null },
+        app: { status: 200, ms: 38, error: null }, verified_at: new Date().toISOString(),
+      } } } })) }
+    }
+    calls = []
+    await page.doSetupTailscaleOperator()
+    assert.deepEqual(calls.map((c) => [c.method, c.url]), [['POST', '/api/setup/tailscale/operator'], ['GET', '/api/setup']], 'the write is followed by the verification, with no press between')
+    const html = page.screenSetup(page.payload)
+    assert.match(html, /class="setup-card tailscale connected on"/)
+    assert.match(html, /<button class="btn primary" onclick="continueSetup\(\)">Continue<\/button>/)
+    assert.doesNotMatch(html, /Try again|Confirm again|doSetupTailscaleOperator/)
   })
 
   test('a connected Tailscale card draws the private address, the operator, the node, the Serve route, and the timed admission', () => {
@@ -5353,7 +5535,7 @@ describe('integration setup (#874)', () => {
     assert.match(text(html), /:8445 → http:\/\/127\.0\.0\.1:4273 · created by Curia/)
     assert.match(text(html), /Admitted alp@example\.com in 38 ms · Arrived through Tailscale/)
     assert.doesNotMatch(html, /Change the machine name/, 'the name is the tailnet\'s fact; nothing here changes it')
-    assert.match(html, /Continue setup/)
+    assert.match(html, />Continue</)
     assert.doesNotMatch(html, /Try again/)
   })
 
@@ -5584,7 +5766,7 @@ describe('integration setup (#874)', () => {
     assert.match(text(html), /Anthropic Ready to connect/)
     assert.match(html, /onclick="doSetupAnthropicLogin\(\)">Sign in to Anthropic</)
     assert.match(html, /<details><summary>Sign in to OpenAI again<\/summary>/)
-    assert.match(html, /Continue setup/)
+    assert.match(html, />Continue</)
     assert.doesNotMatch(html, /Try again/)
   })
 
@@ -5857,21 +6039,22 @@ describe('integration setup (#874)', () => {
 
   test('Watch these repositories and Restart Curia show their work the same way', async () => {
     const write = deferred()
-    page.setup = SETUP({ step: 'github', cards: { github: { state: 'failed', badge: 'Action required', error: { failed: 'No watched repository is covered', action: 'Choose the repositories.' }, detail: { available: ['alp82/curia'], watched: [], owners: [] } } } })
+    page.setup = SETUP({ step: 'github', cards: { github: { state: 'unconnected', badge: 'Ready to connect', detail: { step: 'watch', available: ['alp82/curia'], watched: [], owners: [] } } } })
     page.document.getElementById = (id) => (id === 'setup-github-repo-0' ? { checked: true } : null)
-    page.fetch = async (url) => {
+    page.fetch = async (url, init = {}) => {
       if (url === '/api/setup/github/watch') { await write.promise; return { ok: true, json: async () => ({ ok: true }) } }
-      return { ok: true, json: async () => SETUP({ step: 'github', cards: { github: ALL.github } }) }
+      return { ok: true, json: async () => (init.method === 'POST' ? { ok: true } : SETUP({ step: 'github', cards: { github: ALL.github } })) }
     }
     const pressed = page.doSetupGitHubWatch()
     let html = page.screenSetup(payload())
     assert.match(text(html), /Saving the watch list and verifying the repositories…/)
-    assert.doesNotMatch(html, /No watched repository is covered|Watch these repositories/)
+    assert.doesNotMatch(html, /Choose the repositories to watch|Watch these repositories/)
     write.resolve()
     await pressed
     html = page.screenSetup(payload())
     assert.doesNotMatch(html, /working/)
-    assert.match(html, /class="setup-card github connected on"/)
+    assert.match(html, /class="setup-card github connected"/)
+    assert.match(html, /class="setup-card discord unavailable on"/, 'the connecting read continues setup to the next card (#891)')
 
     page.setup = SETUP({ step: 'discord', cards: { discord: { ...ALL.discord, detail: { bridge: 'down', channel: { name: 'curia', url: 'https://discord.com/channels/2/4' }, guild: { name: 'g' }, confirmation: { posted: true, at: at(5), url: 'https://discord.com/channels/2/4/9' }, operator: { id: '1', name: 'alp' }, commands: ['start'] } } } })
     page.document.getElementById = () => null

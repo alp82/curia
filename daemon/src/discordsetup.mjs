@@ -440,11 +440,12 @@ export class DiscordSetup {
 
     const rows = await api('GET', '/users/@me/guilds')
     const guilds = rows.map((g) => ({ id: String(g.id), name: String(g.name ?? '') }))
-    if (!guilds.length) {
-      return fail('server', `${bot.username || 'The bot'} is in no server`, 'Add the bot to your server with the invite link in this panel, then try again.', { ...invite, guilds })
-    }
-    if (!settings.guild_id) {
-      return fail('server', `No server is selected for ${bot.username || 'the bot'}`, 'Select the server and the channel name in this panel, then select Connect channel.', { ...invite, guilds })
+    // The bot in no server yet, and no server chosen yet, are the steps
+    // between the token and the channel (#891): the card is plain with the
+    // stage, never failed, because the panel waits for the first and asks
+    // for the second on its own.
+    if (!guilds.length || !settings.guild_id) {
+      return { ok: false, unconnected: true, detail: { stage: 'server', ...invite, guilds } }
     }
     const row = rows.find((g) => String(g.id) === settings.guild_id)
     if (!row) {

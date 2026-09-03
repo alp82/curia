@@ -21,31 +21,34 @@ Each card writes one credential to an owner-only file under `secrets/` in the in
 
 From a device on your tailnet, open the address `curia install` printed, `https://<your node's MagicDNS name>:8445/`. Open it through Tailscale: a request on the host's loopback carries no identity and can't confirm an operator. On a fresh installation the app admits the first tailnet identity that arrives, and only to **Setup**. Select **Setup** if the app doesn't open on it.
 
-The rail on the left holds four cards, **GitHub**, **Discord**, **Tailscale**, and **Model provider**. Connect them in any order. After a card connects, **Continue setup** opens the next card that isn't connected. The frame, the card states, and what a reopen restores are in [Integration setup](../integration-setup.md).
+The rail on the left holds four cards, **GitHub**, **Discord**, **Tailscale**, and **Model provider**. Connect them in any order. Every write on a card verifies the card on its own, and a connected card has one press, **Continue**, which opens the next card that isn't connected. The frame, the card states, and what a reopen restores are in [Integration setup](../integration-setup.md).
 
 ## Connect GitHub
 
-1. On the **GitHub** card, keep the suggested App name or enter your own, then select **Create GitHub App**. The browser opens GitHub's own page with the App's manifest.
-2. On GitHub, select **Create GitHub App for &lt;you&gt;**. GitHub sends the browser back to the Setup screen, and the service converts the code into the App's key.
-3. Select **Install the App on GitHub**. On GitHub, install the App on the account that owns your repositories and grant it the repositories Curia may work on, then return and select **Try again**.
-4. The card lists every repository the installation covers, all ticked. Untick any Curia shouldn't work on, then select **Watch these repositories**. Curia writes the list into `config/config.yaml` and verifies again.
+The card guides you through three steps and shows which one you're at.
 
-The card connects when it shows **Connected and verified** and the footer names a real ticket that carries `ready-for-agent` and no assignee, or the covered repository with its open-ticket count. A fresh installation watches nothing until you choose here; the shipped `curia.yaml` watch list belongs to the source deployment and never applies to an installation. What the verification proves is in [Connect GitHub](../integration-setup.md#connect-github).
+1. **Create the App.** On the **GitHub** card, keep the suggested App name or enter your own, then select **Create GitHub App**. The browser opens GitHub's own page with the App's manifest. On GitHub, select **Create GitHub App for &lt;you&gt;**. GitHub sends the browser back to the Setup screen, and the service converts the code into the App's key.
+2. **Install the App.** The card reads **Step 2 of 3**. Select **Install the App on GitHub**. On GitHub, install the App on the account that owns your repositories and grant it the repositories Curia may work on, then return to the Setup screen. The panel waits and checks again on the page's refresh interval, so the repositories appear on their own within seconds. There is nothing to press.
+3. **Choose repositories and continue.** The card reads **Step 3 of 3** and lists every repository the installation covers, all ticked. Untick any Curia shouldn't work on, then select **Watch these repositories and continue**. Curia writes the list into `config/config.yaml`, verifies again, and opens the next card.
+
+The card connects when it shows **Connected and verified** and the footer names a real ticket that carries `ready-for-agent` and no assignee, or the covered repository with its open-ticket count. None of the steps is a failure: the red **Action required** state and **Try again** appear only when GitHub refuses the App, a token fails, or a watched repository loses its coverage. A fresh installation watches nothing until you choose here; the shipped `curia.yaml` watch list belongs to the source deployment and never applies to an installation. What the verification proves is in [Connect GitHub](../integration-setup.md#connect-github).
 
 ## Connect Discord
 
 1. In the [Discord developer portal](https://discord.com/developers/applications), select **New Application** and name it. Under **Bot**, turn on **Message Content Intent**, select **Reset Token**, and copy the token. Discord shows it once.
 2. In Discord, turn on **Developer Mode** under **Settings** > **Advanced**, then copy your user ID from your profile menu.
 3. On the **Discord** card, paste the token, enter your user ID, and select **Connect bot**.
-4. Select **Add the bot to a server** and approve it in Discord. The panel waits and checks again on the page's refresh interval, so the server appears on its own within seconds. Until then there is no server to select and no channel field.
-5. Select the server, keep the channel name `curia` or enter another, and select **Connect channel**.
+4. Select **Add the bot to a server** and approve it in Discord. The card reads **Step 2 of 3** while it waits and checks again on the page's refresh interval, so the server appears on its own within seconds. Until then there is no server to select and no channel field, and the wait is a step, not a failure.
+5. Select the server, keep the channel name `curia` or enter another, and select **Connect channel**. The card verifies as part of the same press and shows the result.
+6. Select **Continue**.
 
 The card connects when the footer shows the channel and the server, then `Confirmation delivered · <n> commands registered`, and Curia's confirmation message stands in the channel. The panel says whether the bridge is running. Until the service restarts once after the first connection, the card is verified and the bot doesn't answer yet: select **Restart Curia** in the panel. The details are in [Connect Discord](../integration-setup.md#connect-discord).
 
 ## Connect Tailscale
 
 1. On the **Tailscale** card, read the identity the panel names, `You opened Curia as <login> through Tailscale`. It's the login Tailscale stamped on your request. The panel also names the node and its address, the name `curia install` joined the tailnet under. There is nothing to type: the name was chosen at installation with `--name`, and the card doesn't change it. To change it, reinstall with another `--name`, or run `sudo tailscale set --hostname <name>` on the host and then select **Restart Curia** on the card.
-2. Select **Confirm operator and verify**.
+2. Select **Confirm operator and verify**. The press records the operator and verifies the card in one go, and the panel shows the result.
+3. Select **Continue**.
 
 From that moment the recorded login is the only identity the app and every published surface admit. The card connects when the footer shows the node's MagicDNS name, then `<login> · admitted in <n> ms`. The details are in [Connect Tailscale](../integration-setup.md#connect-tailscale).
 
@@ -66,7 +69,7 @@ To see the same facts on one terminal screen, run `curia doctor`; its `integrati
 
 ## If a card fails
 
-A failed card reads **Action required**, names the check that failed, and gives one corrective action, for example `curia's GitHub App is not installed on alp82` with the install link. Do what the action says, then select **Try again**, which runs every card's verification again. There is no background retry. The failed checks and their actions, card by card, are under [Connect services](troubleshooting.md#connect-services) in Troubleshooting.
+A failed card reads **Action required**, names the check that failed, and gives one corrective action, for example `curia's GitHub App is not installed on alp82` with the install link. Do what the action says, then select **Try again**, which runs every card's verification again. There is no background retry. A card on its way through its steps, GitHub waiting for an installation or Discord waiting for the bot to join a server, isn't failed: it re-reads on its own and offers no **Try again**. The failed checks and their actions, card by card, are under [Connect services](troubleshooting.md#connect-services) in Troubleshooting.
 
 ## Next
 

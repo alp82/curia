@@ -182,14 +182,14 @@ describe('the Discord card (#876)', () => {
       assert.ok(!JSON.stringify(out).includes(TOKEN))
     })
 
-    test('a bot in no server fails on the server, and the action is the invite link', async () => {
+    test('a bot in no server is the server step, plain and not failed, with the invite link in the detail', async () => {
       writeSecret(root, 'discord-bot-token', TOKEN)
       writeDiscordSettings(stateDir, { allowed_users: [OPERATOR] })
       const { verify } = setupOver(happy({ '/users/@me/guilds': [200, []] }))
       const answer = await verify({ progress: {} })
       assert.equal(answer.ok, false)
-      assert.match(answer.failed, /is in no server/)
-      assert.match(answer.action, /invite link/i)
+      assert.equal(answer.unconnected, true, 'waiting for the bot to join is a step, not a failure (#891)')
+      assert.equal(answer.failed, undefined)
       assert.equal(answer.detail.stage, 'server')
       assert.match(answer.detail.invite_url, /discord\.com\/oauth2\/authorize/)
     })
@@ -241,9 +241,8 @@ describe('the Discord card (#876)', () => {
       const { verify, d } = setupOver(happy({ [`/guilds/${GUILD}/channels`]: [200, []], [`POST /guilds/${GUILD}/channels`]: [201, textChannel({ id: '888' })] }))
       const answer = await verify({ progress: {} })
       assert.equal(answer.ok, false)
+      assert.equal(answer.unconnected, true, 'no server chosen yet is a step, not a failure (#891)')
       assert.equal(answer.detail.stage, 'server')
-      assert.match(answer.failed, /No server is selected/)
-      assert.match(answer.action, /Connect channel/)
       assert.deepEqual(answer.detail.guilds, [{ id: GUILD, name: 'Alp\'s workshop' }])
       assert.equal(d.calls.some((c) => c.method === 'POST'), false, 'a verification read creates nothing and posts nothing')
     })
