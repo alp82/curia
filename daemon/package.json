@@ -1,6 +1,6 @@
 {
   "name": "curia-daemon",
-  "version": "0.14.0",
+  "version": "0.15.0",
   "private": true,
   "type": "module",
   "description": "Curia service: agent-facing MCP surface + Discord bridge + durable escalation record",
