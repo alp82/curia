@@ -611,7 +611,8 @@ export class Dispatcher {
       agentUid: config.sandbox?.agent_uid ?? 1000,
       cfgDirFor: (session) => cfgDirFor(this.root, session),
       newSession: realSpawn,
-      capturePane: (name) => this.deps.capturePane(name),
+      // Joined (#891): the login pane is the one whose wrapped link matters.
+      capturePane: (name) => this.deps.capturePane(name, { join: true }),
       killSession: realKill,
       hasSession: (name) => this.deps.hasSession(name),
       stopContainer: (name) => this.deps.stopContainer(name),
