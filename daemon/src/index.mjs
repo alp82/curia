@@ -66,7 +66,7 @@ import {
   OVERSEER_ENV_FILE, overseerEnvPath, loadOverseerEnv, daemonOnlyKeys, retiredTokenKeys,
 } from './overseertoken.mjs'
 import { TOKEN_HEADER, AGENT_ROUTES, tokensDir, agentTokenMatches } from './agenttoken.mjs'
-import { gh, viewerLogin, ghJSONL, repoMaps, mapFrontier, blockedByOf } from './github.mjs'
+import { gh, viewerLogin, ghJSONL, repoMaps, mapFrontier, blockedByOf, createIssue, addSubIssue, addBlockedBy, fetchIssue } from './github.mjs'
 import { MapSnapshot, readMapSnapshot } from './mapsnapshot.mjs'
 import { setDaemonTokenSource } from './daemongh.mjs'
 import { TokenWatch } from './tokenwatch.mjs'
@@ -1723,13 +1723,17 @@ const dispatcher = new Dispatcher({
 // whole cross-check verdict.
 reduction.onNotesExpired = (ev) => dispatcher.announceExpiredNotes(ev)
 
-// The Full loop as the installation acceptance (#882). The press runs the
-// dispatcher's own frontier read and `start` on the ticket marked for the
-// rehearsal, and the run is judged from the journal rows the daemon writes
-// while the agent works. Nothing is stored but those rows.
+// The Test run as the installation acceptance (#882, #891). The press creates
+// the run's own map and two tickets, then runs the dispatcher's own frontier
+// read and `start` on each in turn; the run is judged from the journal rows
+// the daemon writes while the agents work. Nothing is stored but those rows.
 fullLoop = new FullLoop({
   discover: async (repo) => (await dispatcher.frontier(repo))[0] ?? { repo, error: `${repo} is not a watched repository` },
   dispatch: (repo, n) => dispatcher.start(n, { repo, by: 'setup' }),
+  // The Test run's own map and tickets (#891), written as the daemon writes
+  // every other issue, under the App's token for the owner.
+  tracker: { createIssue, addSubIssue, addBlockedBy, fetchIssue },
+  dataDir: DATA,
   journal: (type, data) => reduction.journal(type, data),
   lastRun: () => reduction.questions.fullLoopRun(),
   eventsSince: (id, keys) => reduction.questions.eventsSince(id, keys),
@@ -3938,10 +3942,10 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
       return json(400, { ok: false, error: e.message })
     }
   }
-  // The Full loop's run (#882). The read is the run as the journal tells it.
-  // The press takes this read's gate, so a closed gate runs nothing, and
-  // selects the covered repository and the ticket marked for the rehearsal;
-  // the retry reruns the failed leg. Both answer the run.
+  // The Test run (#882, #891). The read is the run as the journal tells it.
+  // The press takes this read's gate, so a closed gate runs nothing, creates
+  // the run's map and tickets in the covered repository, and dispatches the
+  // first; the retry reruns the failed leg. Both answer the run.
   if (url.pathname === '/setup/full-loop' && req.method === 'GET') {
     return json(200, fullLoop.status())
   }
@@ -3950,7 +3954,7 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
     try {
       const run = url.pathname.endsWith('/retry')
         ? await fullLoop.retry()
-        : await fullLoop.start((await integrationSetup.status()).full_loop, { repo: body.repo ?? null, ticket: body.ticket ?? null })
+        : await fullLoop.start((await integrationSetup.status()).full_loop, { repo: body.repo ?? null })
       return json(200, { ok: true, run })
     } catch (e) {
       if (!e.refusal) throw e

@@ -2,14 +2,14 @@
 
 Operator guide · [Index](../README.md)
 
-- **Get Curia running:** [1. Check prerequisites](01-check-prerequisites.md) · [2. Install Curia](02-install-curia.md) · [3. Connect services](03-connect-services.md) · [4. Run your first Full loop](04-run-your-first-full-loop.md)
+- **Get Curia running:** [1. Check prerequisites](01-check-prerequisites.md) · [2. Install Curia](02-install-curia.md) · [3. Connect services](03-connect-services.md) · [4. Run the Test run](04-run-the-test-run.md)
 - **Run Curia:** **5. Daily operation (this topic)** · [6. Check the installation](06-check-the-installation.md)
 - **Change the installation:** [7. Update or roll back](07-update-or-roll-back.md) · [8. Migrate the current deployment](08-migrate-the-current-deployment.md) · [9. Uninstall or purge](09-uninstall-or-purge.md)
 - **When something fails:** [Troubleshooting](troubleshooting.md)
 
 **Outcome:** You send agents at tickets, answer them, approve their work, and adjust Curia from Discord and the Curia app, with the terminal only for a restart or a log.
 
-**Starting state:** A verified installation from [4. Run your first Full loop](04-run-your-first-full-loop.md), or any installation whose four cards are connected.
+**Starting state:** A verified installation from [4. Run the Test run](04-run-the-test-run.md), or any installation whose four cards are connected.
 
 **Active operator time:** As long as your tickets need. Each action on this page takes under a minute.
 

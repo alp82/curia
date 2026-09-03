@@ -136,6 +136,22 @@ export function createIssue(repo, { title, body, labels = undefined }) {
   ], { repo })))
 }
 
+// The Test run's map (#891): a child joins a map as a GitHub sub-issue, and
+// a ticket is blocked by another through the native dependency edge the
+// tracker doc describes. Both take the other issue's numeric database id,
+// not its number.
+export function addSubIssue(repo, parent, childId) {
+  return withBodyFile(JSON.stringify({ sub_issue_id: childId }), (f) => gh([
+    'api', '--method', 'POST', `repos/${repo}/issues/${parent}/sub_issues`, '--input', f,
+  ], { repo }))
+}
+
+export function addBlockedBy(repo, n, blockerId) {
+  return withBodyFile(JSON.stringify({ issue_id: blockerId }), (f) => gh([
+    'api', '--method', 'POST', `repos/${repo}/issues/${n}/dependencies/blocked_by`, '--input', f,
+  ], { repo }))
+}
+
 // The open issues blocking one ticket — number and state per blocker, the
 // same native-dependency edge the tracker doc writes with POST. Only called
 // for tickets whose summary says blocked_by > 0.

@@ -244,18 +244,18 @@ describe('the daemon under an installation root (#867)', () => {
       assert.ok(!refusal.includes(TOKEN))
       assert.ok(!fs.readFileSync(path.join(root, 'state', 'setup.json'), 'utf8').includes(TOKEN))
       assert.equal((await (await fetch(`http://127.0.0.1:${ports[0]}/setup`)).json()).step, 'tailscale')
-      // The Full loop's run (#882) under a root: nothing has run, the read
+      // The Test run (#882) under a root: nothing has run, the read
       // says so from the journal, and the press refuses the closed gate by
       // its reason without dispatching anything.
       const run = await (await fetch(`http://127.0.0.1:${ports[0]}/setup/full-loop`)).json()
       assert.equal(run.state, 'idle')
-      assert.equal(run.legs.length, 8)
+      assert.equal(run.legs.length, 9, "the eight legs of the Full loop and the map closed")
       assert.equal((await (await fetch(`http://127.0.0.1:${ports[0]}/setup`)).json()).full_loop.run.state, 'idle')
       const pressed = await fetch(`http://127.0.0.1:${ports[0]}/setup/full-loop`, {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({}),
       })
       assert.equal(pressed.status, 400)
-      assert.match((await pressed.json()).error, /The Full loop isn't ready: Waiting for/)
+      assert.match((await pressed.json()).error, /The Test run isn't ready: Waiting for/)
       const retried = await fetch(`http://127.0.0.1:${ports[0]}/setup/full-loop/retry`, {
         method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({}),
       })

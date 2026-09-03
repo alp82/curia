@@ -65,7 +65,7 @@ function setupReady(overrides = {}) {
       card('github', 'GitHub', 'connected', { footer: { primary: '🎫 #12 · Add the thing', secondary: 'ready-for-agent · example/app · 3 open tickets', emoji: '🎫' } }),
       card('discord', 'Discord', 'connected', { footer: { primary: '💬 #curia · Example', secondary: 'Confirmation delivered · 5 commands registered', emoji: '💬' } }),
       card('tailscale', 'Tailscale', 'connected', { footer: { primary: `🔒 ${ADDRESS}`, secondary: `${OPERATOR} · admitted in 12 ms`, emoji: '🔒' }, detail: { address: ADDRESS, app_url: `https://${ADDRESS}:8445/` } }),
-      card('model', 'Model provider', 'connected', {
+      card('model', 'AI logins', 'connected', {
         badge: 'Provider verified',
         footer: { primary: 'OpenAI', secondary: 'Routing ready · verification request completed in 2 s', emoji: '⚡' },
         providers: { openai: { title: 'OpenAI', state: 'connected' }, anthropic: { title: 'Anthropic', state: 'unconnected' } },
@@ -141,8 +141,8 @@ describe('curia doctor on a healthy installation', () => {
     assert.equal(status(d.out, 'GitHub'), 'ok')
     assert.equal(status(d.out, 'Discord'), 'ok')
     assert.equal(status(d.out, 'Tailscale'), 'ok')
-    assert.equal(status(d.out, 'model provider'), 'ok')
-    assert.equal(status(d.out, 'Full loop'), 'ok')
+    assert.equal(status(d.out, 'AI logins'), 'ok')
+    assert.equal(status(d.out, 'Test run'), 'ok')
     assert.equal(status(d.out, 'admitted operator'), 'ok')
     assert.equal(status(d.out, 'Curia app'), 'ok')
     assert.ok(d.out.includes(`https://${ADDRESS}:8445/`), d.out)
@@ -253,7 +253,7 @@ describe('curia doctor on an invalid configuration', () => {
 })
 
 describe('curia doctor on a lost integration', () => {
-  test('the failed card names the failed verification and its action, and the Full loop is not ready', async () => {
+  test('the failed card names the failed verification and its action, and the Test run is not ready', async () => {
     const i = await installed()
     const setup = setupReady({ full_loop: { ready: false, missing: ['github'], reason: 'Waiting for GitHub.', facts: null } })
     setup.cards[0] = card('github', 'GitHub', 'failed', { badge: 'Action required', error: { failed: 'The App is installed on no watched owner.', action: 'Install the App on example, then select Try again.' } })
@@ -262,8 +262,8 @@ describe('curia doctor on a lost integration', () => {
     assert.equal(status(d.out, 'GitHub'), 'failed')
     assert.match(line(d.out, 'GitHub'), /The App is installed on no watched owner\./)
     assert.match(d.out, /Install the App on example, then select Try again\./)
-    assert.equal(status(d.out, 'Full loop'), 'warning')
-    assert.match(line(d.out, 'Full loop'), /Waiting for GitHub\./)
+    assert.equal(status(d.out, 'Test run'), 'warning')
+    assert.match(line(d.out, 'Test run'), /Waiting for GitHub\./)
   })
 
   test('an unconnected card is a warning that points at the Setup screen', async () => {

@@ -340,10 +340,10 @@ describe('an unreadable journal is not an empty one', () => {
   })
 })
 
-// The Full loop's two questions (#882). The loop rebuilds its run from the
-// last start row and the rows after it; what it reads is bounded here, and
-// what it accepts is pinned in fullloop.test.mjs.
-describe('the Full loop run questions', () => {
+// The Test run's two questions (#882, #891). The loop rebuilds its run from
+// the last start row and the rows after it; what it reads is bounded here,
+// and what it accepts is pinned in fullloop.test.mjs.
+describe('the Test run questions', () => {
   test('the last start row comes back whole, and null when no loop was ever pressed', () => {
     assert.equal(ask([]).fullLoopRun(), null)
     const q = ask([
@@ -356,7 +356,7 @@ describe('the Full loop run questions', () => {
     assert.equal(JSON.parse(row.body).repo, 'o/other')
   })
 
-  test('the rows after an id are the ticket\'s, the session\'s, the escalation answers, and the loop\'s own, in write order', () => {
+  test('the rows after an id are the tickets\', the map\'s, the sessions\', the escalation answers, the map lifecycle\'s, and the loop\'s own, in write order', () => {
     const q = ask([
       spawn('42', 'curia-42'),                                                  // 1, before the run
       { type: 'full_loop_started', repo: 'o/r' },                               // 2
@@ -371,11 +371,16 @@ describe('the Full loop run questions', () => {
       { type: 'full_loop_retry', repo: 'o/r', ticket: 42, leg: 'dispatch' },     // 11
       { type: 'daemon_boot' },                                                   // 12, nobody's
       { type: 'not_a_full_loop_row', ticket: '9' },                              // 13
+      { type: 'esc_open', id: 'e2', agent: 'overseer', ticket: '40', kind: 'choice' }, // 14, the map's verdict question
+      { type: 'map_fog_verdict_posted', id: 'e2', repo: 'o/r', map: 40, answer: 'Clear fog and close' }, // 15, no key at all
+      { type: 'map_fog_closed', id: 'e2', repo: 'o/r', map: 40 },                // 16
+      { type: 'agent_spawned', ticket: '44', agent: 'curia-44', repo: 'o/r' },   // 17, the second ticket
     ])
     const ids = (rows) => rows.map((r) => r.id)
-    assert.deepEqual(ids(q.eventsSince(2, { ticket: '42', agent: 'curia-42' })), [3, 4, 5, 6, 7, 8, 11])
-    assert.deepEqual(ids(q.eventsSince(2)), [3, 6, 7, 11], 'with no key, only the answers and the loop\'s own rows')
-    assert.deepEqual(ids(q.eventsSince(8, { ticket: '42', agent: 'curia-42' })), [11])
+    assert.deepEqual(ids(q.eventsSince(2, { tickets: ['42', '44', '40'], agents: ['curia-42', 'curia-44'] })), [3, 4, 5, 6, 7, 8, 11, 14, 15, 16, 17])
+    assert.deepEqual(ids(q.eventsSince(2, { ticket: '42', agent: 'curia-42' })), [3, 4, 5, 6, 7, 8, 11, 15, 16], 'one ticket and one session, the older shape')
+    assert.deepEqual(ids(q.eventsSince(2)), [3, 6, 7, 11, 15, 16], 'with no key, only the answers, the map lifecycle\'s rows, and the loop\'s own')
+    assert.deepEqual(ids(q.eventsSince(8, { ticket: '42', agent: 'curia-42' })), [11, 15, 16])
     const row = q.eventsSince(4, { ticket: '42', agent: 'curia-42' })[0]
     assert.deepEqual(Object.keys(row).sort(), ['agent', 'body', 'id', 'ticket', 'ts', 'type'])
     assert.equal(row.agent, 'curia-42')

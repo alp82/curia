@@ -1,6 +1,8 @@
 # Full-loop rehearsal script
 
 > **Status**: rehearsal record of the PoC map. The run is complete. This file is history, not a live procedure.
+>
+> The **Test run** on the Setup screen is the acceptance form of this loop: it creates its own two-ticket map and drives each ticket through the same eight legs, then closes the map. See [Run the Test run](operator/guide/04-run-the-test-run.md).
 
 The scripted end-to-end demo for map [#1](https://github.com/alp82/curia/issues/1), ticket
 [#35](https://github.com/alp82/curia/issues/35). One pass proves the destination: phone → Discord →

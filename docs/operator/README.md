@@ -6,7 +6,7 @@ Every topic opens the same way: the outcome, the starting state, and the active 
 
 ## New to Curia
 
-Start at [1. Check prerequisites](guide/01-check-prerequisites.md) and follow the route through [4. Run your first Full loop](guide/04-run-your-first-full-loop.md). The four topics under **Get Curia running** end at one real Full loop, which is the installation's acceptance, and they add up to about 30 minutes of active operator work on a host that already meets the prerequisites. Downloads and the agent's own run are waits, not work, and the topics say where they fall.
+Start at [1. Check prerequisites](guide/01-check-prerequisites.md) and follow the route through [4. Run the Test run](guide/04-run-the-test-run.md). The four topics under **Get Curia running** end at the Test run, one real Full loop on two tickets Curia creates, which is the installation's acceptance, and they add up to about 30 minutes of active operator work on a host that already meets the prerequisites. Downloads and the agent's own run are waits, not work, and the topics say where they fall.
 
 ## Returning to an installation
 
@@ -28,8 +28,8 @@ Open the topic for the operation you need. Each of these entries is direct:
 1. **Get Curia running**
    1. [Check prerequisites](guide/01-check-prerequisites.md). A supported host with Docker Engine, Docker Compose, and Tailscale, and the four accounts.
    2. [Install Curia](guide/02-install-curia.md). One bootstrap command, seven named steps with one link to approve, five healthy services.
-   3. [Connect services](guide/03-connect-services.md). GitHub, Discord, Tailscale, and one model provider, verified on the Setup screen.
-   4. [Run your first Full loop](guide/04-run-your-first-full-loop.md). One real ticket through all eight legs. This is the acceptance.
+   3. [Connect services](guide/03-connect-services.md). GitHub, Discord, Tailscale, and one AI login, verified on the Setup screen.
+   4. [Run the Test run](guide/04-run-the-test-run.md). Two tickets Curia creates, each through all eight legs, and the map closed. This is the acceptance.
 2. **Run Curia**
    5. [Daily operation](guide/05-daily-operation.md). Discord and the Curia app, with no terminal.
    6. [Check the installation](guide/06-check-the-installation.md). `curia doctor`, read-only, one action per problem.
@@ -48,7 +48,7 @@ The lifecycle topics link to these pages at the point of use. Read them for what
 - [Supported hosts and preflight checks](supported-hosts.md): the supported systems, the host profile, the prerequisites, the network, and every host check.
 - [The bootstrap](bootstrap.md): what `curia-install.sh` downloads, proves, and hands off, and its purge mode.
 - [Install and reinstall](install.md): the six steps of `curia install` and `curia reinstall`.
-- [Integration setup](integration-setup.md): the Setup screen, the four cards, and the Full loop.
+- [Integration setup](integration-setup.md): the Setup screen, the four cards, and the Test run.
 - [Diagnostics with `curia doctor`](doctor.md): the checks, the output, and what it never prints.
 - [Operator configuration](configuration.md): `config/config.yaml`, its keys, and how a change lands.
 - [Secrets, mounts, and what survives](secrets.md): the secret files, what each container sees, and what every operation keeps.

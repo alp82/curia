@@ -2,7 +2,7 @@
 
 Operator guide · [Index](../README.md)
 
-- **Get Curia running:** **1. Check prerequisites (this topic)** · [2. Install Curia](02-install-curia.md) · [3. Connect services](03-connect-services.md) · [4. Run your first Full loop](04-run-your-first-full-loop.md)
+- **Get Curia running:** **1. Check prerequisites (this topic)** · [2. Install Curia](02-install-curia.md) · [3. Connect services](03-connect-services.md) · [4. Run the Test run](04-run-the-test-run.md)
 - **Run Curia:** [5. Daily operation](05-daily-operation.md) · [6. Check the installation](06-check-the-installation.md)
 - **Change the installation:** [7. Update or roll back](07-update-or-roll-back.md) · [8. Migrate the current deployment](08-migrate-the-current-deployment.md) · [9. Uninstall or purge](09-uninstall-or-purge.md)
 - **When something fails:** [Troubleshooting](troubleshooting.md)
@@ -67,7 +67,7 @@ Curia connects four services after installation, in the browser. Have an account
 | GitHub | Create a GitHub App, and install it on every owner whose repositories Curia watches. |
 | Discord | Create an application in the developer portal, and add its bot to the server you choose. |
 | Tailscale | Enroll this host in your tailnet, use Tailscale Serve, and issue HTTPS certificates. |
-| Model provider | Sign in to a ChatGPT subscription (for codex agents) or a Claude subscription (for claude agents and the overseer). One is required. Both are recommended, for fallback and independent review. |
+| AI logins | Sign in to a ChatGPT subscription (for codex agents) or a Claude subscription (for claude agents and the overseer). One is required. Both are recommended, for fallback and independent review. |
 
 Curia holds no API key. Each provider row signs in through the provider's own device or browser flow, and the credential lands in a file only the service reads.
 

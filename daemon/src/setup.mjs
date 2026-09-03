@@ -61,7 +61,7 @@ export const CARDS = Object.freeze(['github', 'discord', 'tailscale', 'model'])
 export const PROVIDERS = Object.freeze(['openai', 'anthropic'])
 
 export const CARD_TITLES = Object.freeze({
-  github: 'GitHub', discord: 'Discord', tailscale: 'Tailscale', model: 'Model provider',
+  github: 'GitHub', discord: 'Discord', tailscale: 'Tailscale', model: 'AI logins',
 })
 export const PROVIDER_TITLES = Object.freeze({ openai: 'OpenAI', anthropic: 'Anthropic' })
 
@@ -260,7 +260,7 @@ export class IntegrationSetup {
     if (missing.length) {
       full_loop.reason = `Waiting for ${missing.map((k) => CARD_TITLES[k]).join(', ')}.`
     } else if (!this.fullLoop) {
-      full_loop.reason = 'The Full loop is not available yet in this release.'
+      full_loop.reason = 'The Test run is not available yet in this release.'
     } else {
       try {
         const gate = await this.fullLoop(cards, { progress: record.progress })

@@ -175,7 +175,7 @@ export async function runInstall(
       say(`  node name:         ${node.name}`)
       say(`  Curia app:         ${app}`)
       say('')
-      say(`Next: open the Curia app at ${app} from a device on your tailnet and start integration setup. It connects GitHub, Discord, Tailscale, and one model provider, then runs the Full loop.`)
+      say(`Next: open the Curia app at ${app} from a device on your tailnet and start integration setup. It connects GitHub, Discord, Tailscale, and one AI login, then starts the Test run.`)
       return EXIT.ok
     })
   } catch (e) {
