@@ -295,4 +295,3 @@ Logs are the service's output. Under compose: `docker compose -f deploy/compose.
 - `docs/operator/README.md` — the operator guide for an installed Curia: the packaged lifecycle from a
   supported host to a verified Test run, daily operation, update and rollback, uninstall and purge.
   The setup in this file is the source deployment, which is contributor territory.
-Curia Test run, September 3, 2026.
