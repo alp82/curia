@@ -31,8 +31,20 @@
 // `full_loop_started` row and the rows after it on every read, so a restart
 // mid-run reads the same run, and `curia doctor` (#881) keeps reading the
 // gate: a finished run is a record on the feed, never a readiness marker.
+//
+// WHAT THE RUN WAITS FOR (#891). The live rehearsal's agent raised its review
+// gate while no bridge ran, and the panel said `Escalation and answer ·
+// running` for an hour. The run now carries `waiting`: the last `esc_open`
+// of the session with no answer, cancel, or supersede after it, with its
+// kind, prompt, options, and how long it has been open, so the page shows
+// the question, takes the answer through the daemon's own `/answer`, and
+// says the wait. It also carries `sessions`: the agent's session while it
+// lives and the overseer's while it is in a turn, each with the terminal
+// link the app serves (`<app_url>/terminal/?arg=<session>`, as #943
+// composes it), so the operator can follow the work.
 
 import { REVIEW_KIND } from './lifecycle.mjs'
+import { TERMINAL_PAGE } from './dashboard.mjs'
 
 export const REHEARSAL_LABEL = 'rehearsal'
 
@@ -72,6 +84,12 @@ const parse = (row) => {
 }
 const issueUrl = (repo, n) => `https://github.com/${repo}/issues/${n}`
 const threadUrl = (guild, thread) => (guild && thread ? `https://discord.com/channels/${guild}/${thread}` : null)
+const terminalUrl = (appUrl, session) => {
+  const page = `${TERMINAL_PAGE}?arg=${encodeURIComponent(session)}`
+  if (!appUrl) return page
+  try { return new URL(page, appUrl).toString() } catch { return page }
+}
+const ESC_CLOSING = new Set(['esc_answer', 'esc_cancel', 'esc_supersede'])
 const ms = (a, b) => Math.max(0, Date.parse(b) - Date.parse(a))
 
 export class FullLoop {
@@ -80,7 +98,10 @@ export class FullLoop {
   // a row, `lastRun()` answers the last `full_loop_started` row, and
   // `eventsSince(id, { ticket, agent })` the rows after it. Every one of
   // these is a seam a test fills without a network.
-  constructor({ discover, dispatch, journal, lastRun, eventsSince, now = () => new Date(), log = () => {} }) {
+  // `agentLive(session)` says whether the ticket's session runs now, and
+  // `overseerSessions()` names the overseer panes in a turn; both are read
+  // per status and feed the terminal links (#891).
+  constructor({ discover, dispatch, journal, lastRun, eventsSince, now = () => new Date(), log = () => {}, agentLive = () => false, overseerSessions = () => [] }) {
     this.discover = discover
     this.dispatch = dispatch
     this.journal = journal
@@ -88,6 +109,8 @@ export class FullLoop {
     this.eventsSince = eventsSince
     this.now = now
     this.log = log
+    this.agentLive = agentLive
+    this.overseerSessions = overseerSessions
     this.pending = null
   }
 
@@ -117,6 +140,7 @@ export class FullLoop {
       provider: facts.model?.provider ?? null,
       model: facts.model?.model ?? null,
       address: facts.tailscale?.address ?? null,
+      app_url: facts.tailscale?.app_url ?? null,
     })
     const found = await this.#discover(chosen, requested)
     if (found) this.#launch(chosen, found.number)
@@ -217,7 +241,7 @@ export class FullLoop {
     if (ticket) {
       rows = this.eventsSince(started.id, { ticket, agent }).map(parse).filter((r) =>
         own(r)
-        || r.type === 'esc_answer' || r.type === 'esc_cancel'
+        || ESC_CLOSING.has(r.type)
         || ((r.ticket != null || r.agent != null)
           && (r.ticket == null || r.ticket === ticket)
           && (r.agent == null || r.agent === agent)))
@@ -231,7 +255,38 @@ export class FullLoop {
       legs: LEGS.map((l) => ({ key: l.key, title: l.title, state: 'pending', at: null, ms: null, link: null })),
       failed: null,
       links: { ticket: null, thread: null, channel: null, pull_request: null, map: null },
+      waiting: null,
+      sessions: [],
     }
+  }
+
+  // The question the run waits for: the session's last `esc_open` after
+  // the spawn with nothing closing it. `leg` is the leg that runs while it
+  // is open, which is not always the escalation leg: a review gate can
+  // stand while the agent never asked (#891).
+  #waiting(rows, epoch, agent, ticket, leg) {
+    const closed = new Set(rows.filter((r) => ESC_CLOSING.has(r.type)).map((r) => String(r.ev.id)))
+    const open = rows.filter((r) => r.id > epoch && r.type === 'esc_open' && r.agent === agent && !closed.has(String(r.ev.id))).at(-1)
+    if (!open) return null
+    const review = open.ev.kind === REVIEW_KIND
+    // The gate is about a pull request the leg walk may not have reached
+    // yet (the agent never asked its question), so the gate names it itself.
+    const pr = review ? rows.find((r) => r.id > epoch && PR_TYPES.has(r.type) && r.ev.url) : null
+    return {
+      id: String(open.ev.id), agent, ticket, kind: open.ev.kind ?? null, prompt: open.ev.prompt ?? '',
+      options: Array.isArray(open.ev.options) ? open.ev.options : null,
+      review, pull_request: pr?.ev.url ?? null, opened_at: open.ts,
+      open_ms: Math.max(0, this.now().getTime() - Date.parse(open.ts)), leg,
+    }
+  }
+
+  // The sessions the operator can follow while the run lives.
+  #sessions(started, agent) {
+    const link = (session, role) => ({ session, role, terminal_url: terminalUrl(started.ev.app_url ?? null, session) })
+    const out = []
+    if (agent && this.agentLive(agent)) out.push(link(agent, 'agent'))
+    for (const session of this.overseerSessions() ?? []) out.push(link(session, 'overseer'))
+    return out
   }
 
   status() {
@@ -350,6 +405,8 @@ export class FullLoop {
           fail(key, `The agent ended before ${TITLE[key]}: ${why}.`, `Read the thread of ${out.repo}#${ticket} in ${channel} and fix what stopped the agent, then select Try again to dispatch ${out.repo}#${ticket} again.`, closing.ts)
         } else {
           legs[key].state = 'running'
+          out.waiting = this.#waiting(rows, epoch, agent, ticket, key)
+          out.sessions = this.#sessions(started, agent)
         }
         return this.#finish(out, started)
       }

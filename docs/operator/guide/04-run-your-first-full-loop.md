@@ -28,12 +28,14 @@ When several tickets carry the label, Curia takes the first one on its frontier.
 
 ## Do this
 
-On the Setup screen, select **Run Full loop**. The **Full loop** panel shows one row per leg and the elapsed time, and follows the service every 5 seconds.
+On the Setup screen, select **Run Full loop**. The **Full loop** panel shows one row per leg and the elapsed time, and follows the service every 5 seconds. The running leg says what it waits for and, when a question is open, how long it has been open.
 
-Your part happens in Discord, in the ticket's thread in the command channel:
+Your part is two answers. Give them on the run panel, or in the ticket's thread in the command channel; both reach the same place, and the first valid answer wins:
 
-1. When the agent asks its question, answer it in the thread.
-2. When the agent asks for review, read the pull request and approve at the review gate. A rejection sends the agent back to work on the same pull request and completes nothing.
+1. When the agent asks its question, the panel shows it under the legs with an answer field or its options. Answer there, or in the thread.
+2. When the agent asks for review, the panel shows the review gate with a link to the pull request. Read the pull request, then select **Approve · merge**, or in the thread. A rejection sends the agent back to work on the same pull request and completes nothing.
+
+To watch the agent work, open a terminal from the **Terminals** row: one per live session, in a new tab. You can close Setup at any time; the run keeps going, Home shows it with its current leg, and **Open** brings you back to the panel.
 
 Everything else is the agent's and the service's. The following table lists the legs and what completes each one.
 

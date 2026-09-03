@@ -5369,7 +5369,14 @@ describe('integration setup (#874)', () => {
     assert.match(html, /href="https:\/\/discord\.com\/channels\/333333333333333333\/444444444444444444\/777"[^>]*>Posted /)
     assert.match(html, /<code>\/tickets<\/code> <code>\/next<\/code> <code>\/status<\/code>/)
     assert.match(text(html), /Alp 111111111111111111/)
-    assert.match(html, /onclick="doSetupRestart\(\);return false">Restart Curia</)
+    // #891: the bridge starts when the token lands, so the card never sends
+    // the operator to a restart.
+    assert.doesNotMatch(html, /Restart Curia/)
+    assert.match(text(html), /The bridge isn't running yet\. Curia starts it on its own on the next read; if it stays down, read the service log\./)
+    page.setup.cards[1].detail.bridge = 'starting'
+    assert.match(text(page.screenSetup(payload())), /The bridge is starting\./)
+    page.setup.cards[1].detail.bridge = 'up'
+    assert.match(text(page.screenSetup(payload())), /The bridge is running\./)
     assert.match(html, /<div class="setup-secondary">Confirmation delivered · 6 commands registered<\/div>/)
     assert.doesNotMatch(html, /type="password"/, 'no token form on a connected card')
     assert.match(html, />Continue</)
@@ -6037,7 +6044,7 @@ describe('integration setup (#874)', () => {
     page.UI.setup.loopTimer = null
   })
 
-  test('Watch these repositories and Restart Curia show their work the same way', async () => {
+  test('Watch these repositories shows its work the same way', async () => {
     const write = deferred()
     page.setup = SETUP({ step: 'github', cards: { github: { state: 'unconnected', badge: 'Ready to connect', detail: { step: 'watch', available: ['alp82/curia'], watched: [], owners: [] } } } })
     page.document.getElementById = (id) => (id === 'setup-github-repo-0' ? { checked: true } : null)
@@ -6055,16 +6062,108 @@ describe('integration setup (#874)', () => {
     assert.doesNotMatch(html, /working/)
     assert.match(html, /class="setup-card github connected"/)
     assert.match(html, /class="setup-card discord unavailable on"/, 'the connecting read continues setup to the next card (#891)')
+  })
 
-    page.setup = SETUP({ step: 'discord', cards: { discord: { ...ALL.discord, detail: { bridge: 'down', channel: { name: 'curia', url: 'https://discord.com/channels/2/4' }, guild: { name: 'g' }, confirmation: { posted: true, at: at(5), url: 'https://discord.com/channels/2/4/9' }, operator: { id: '1', name: 'alp' }, commands: ['start'] } } } })
-    page.document.getElementById = () => null
-    page.fetch = () => new Promise(() => {})
-    assert.match(page.screenSetup(payload()), /onclick="doSetupRestart\(\);return false">Restart Curia</)
-    page.doSetupRestart()
+  // #891, the live rehearsal: the agent's review gate opened while no bridge
+  // ran, and the run sat on `Escalation and answer · running` for an hour.
+  // The run panel now carries the question the run waits for, with the
+  // same controls Home draws for it, and says the wait on the leg.
+  const RUN_WAIT = (over = {}) => ({
+    id: 'esc-9', agent: 'curia-42', ticket: '42', kind: 'review-gate', prompt: 'is this done?', options: null,
+    review: true, pull_request: 'https://github.com/alp82/curia/pull/50', opened_at: at(720), open_ms: 720_000, leg: 'escalation', ...over,
+  })
+  const SESSIONS = [
+    { session: 'curia-42', role: 'agent', terminal_url: 'https://curia.tail1234.ts.net:8445/terminal/?arg=curia-42' },
+    { session: 'curia-overseer-1', role: 'overseer', terminal_url: 'https://curia.tail1234.ts.net:8445/terminal/?arg=curia-overseer-1' },
+  ]
+
+  test('a run waiting on the review gate shows the gate on the run panel with approve and reject, says the wait on the leg, and the answer goes through /api/answer', async () => {
+    const run = { ...RUN('running', { legs: ['complete', 'complete', 'running'] }), waiting: RUN_WAIT(), sessions: SESSIONS }
+    page.setup = SETUP({ step: 'model', cards: ALL, full_loop: { ready: true, missing: [], reason: null, facts: RUN_FACTS, run } })
+    const html = page.screenSetup(payload())
+    const body = text(html)
+    assert.match(body, /Escalation and answer · running · waiting for your approval of the review gate · open 12m ago/)
+    assert.match(body, /is this done\?/)
+    assert.match(html, /onclick="answerEsc\('esc-9','approve'\)">✅ Approve · merge</)
+    assert.match(html, /onclick="rejectGate\('esc-9','rej-esc-9'\)">Reject</)
+    assert.match(html, /href="https:\/\/github\.com\/alp82\/curia\/pull\/50"/, 'the gate names the pull request the run opened')
+    assert.match(html, /pull\/50\/files">GitHub still has it/, 'the run\'s copy of the gate carries no digest, and says where the diff is')
+    assert.match(body, /Closing Setup keeps the run going\./)
+    await page.answerEsc('esc-9', 'approve')
+    const press = calls.find((c) => c.url === '/api/answer')
+    assert.ok(press, 'the answer is the daemon\'s own answer route, the one the Discord bridge uses')
+    assert.equal(press.body.id, 'esc-9')
+    assert.equal(press.body.answer, 'approve')
+  })
+
+  test('a run waiting on a question shows the question with an answer field, and a run waiting on nothing says what it waits for', () => {
+    const run = { ...RUN('running', { legs: ['complete', 'complete', 'running'] }), waiting: RUN_WAIT({ id: 'esc-1', kind: 'free-text', prompt: 'Which name?', review: false }), sessions: SESSIONS }
+    page.setup = SETUP({ step: 'model', cards: ALL, full_loop: { ready: true, missing: [], reason: null, facts: RUN_FACTS, run } })
+    let html = page.screenSetup(payload())
+    assert.match(text(html), /Escalation and answer · running · waiting for your answer · open 12m ago/)
+    assert.match(text(html), /Which name\?/)
+    assert.match(html, /id="ans-esc-1"/)
+    assert.match(html, /onclick="answerTyped\('esc-1','ans-esc-1',escRecord\('esc-1'\)\)">Answer</)
+    assert.doesNotMatch(html, /Approve · merge/)
+
+    run.waiting = null
     html = page.screenSetup(payload())
-    assert.match(text(html), /Restarting Curia so the bridge reads the token…/)
-    assert.doesNotMatch(html, /The bridge reads the token when the service starts/)
-    assert.match(html, /class="setup-card discord connected working on"/)
-    page.clearTimeout(page.UI.setup.restartTimer)
+    assert.match(text(html), /Escalation and answer · running · waiting for the agent's question/)
+    assert.doesNotMatch(html, /id="ans-esc-1"/)
+    run.legs[2].state = 'complete'
+    run.legs[3].state = 'running'
+    html = page.screenSetup(payload())
+    assert.match(text(html), /Pull request · running · waiting for the agent/)
+  })
+
+  test('the run panel links a terminal per live session, labelled with the session, and none when no session lives', () => {
+    const run = { ...RUN('running', { legs: ['complete', 'complete', 'running'] }), waiting: null, sessions: SESSIONS }
+    page.setup = SETUP({ step: 'model', cards: ALL, full_loop: { ready: true, missing: [], reason: null, facts: RUN_FACTS, run } })
+    let html = page.screenSetup(payload())
+    assert.match(html, /<a href="https:\/\/curia\.tail1234\.ts\.net:8445\/terminal\/\?arg=curia-42" target="_blank" rel="noopener">curia-42<\/a>/)
+    assert.match(html, /<a href="https:\/\/curia\.tail1234\.ts\.net:8445\/terminal\/\?arg=curia-overseer-1" target="_blank" rel="noopener">curia-overseer-1<\/a>/)
+    assert.match(text(html), /Terminals/)
+    run.sessions = []
+    html = page.screenSetup(payload())
+    assert.doesNotMatch(html, /Terminals|\/terminal\//)
+  })
+
+  test('closing Setup keeps the run going: Home shows the run with its leg and Open returns to the run panel, and reopening Setup lands on it', () => {
+    const run = { ...RUN('running', { legs: ['complete', 'complete', 'running'] }), waiting: RUN_WAIT(), sessions: SESSIONS }
+    page.setup = SETUP({ step: 'github', cards: ALL, full_loop: { ready: true, missing: [], reason: null, facts: RUN_FACTS, run } })
+    page.UI.setup.panel = 'card'
+    page.goto('home')
+    assert.equal(page.UI.screen, 'home')
+    assert.equal(page.setup.full_loop.run.state, 'running', 'closing Setup cancels nothing')
+    assert.deepEqual(calls.filter((c) => c.method === 'POST'), [], 'and writes nothing')
+    let html = page.screenHome(payload())
+    assert.match(text(html), /The Full loop is running on alp82\/curia#42\. Escalation and answer · waiting for your approval of the review gate\./)
+    assert.match(html, /onclick="openFullLoop\(\);return false">Open/)
+    assert.doesNotMatch(text(html), /Integration setup isn't finished/)
+    page.ensureFullLoopRead()
+    assert.ok(page.UI.setup.loopTimer, 'Home follows the live run')
+    page.clearTimeout(page.UI.setup.loopTimer)
+    page.UI.setup.loopTimer = null
+
+    page.openFullLoop()
+    assert.equal(page.UI.screen, 'setup')
+    assert.equal(page.location.hash, 'setup')
+    html = page.screenSetup(payload())
+    assert.match(html, /id="setup-run"/, 'Open lands on the run panel')
+    page.clearTimeout(page.UI.setup.loopTimer)
+    page.UI.setup.loopTimer = null
+
+    // Reopening Setup any other way lands on the run too while it runs.
+    page.UI.setup.panel = 'card'
+    page.goto('home')
+    page.goto('setup')
+    assert.match(page.screenSetup(payload()), /id="setup-run"/)
+    page.clearTimeout(page.UI.setup.loopTimer)
+    page.UI.setup.loopTimer = null
+
+    // A run that ended leaves Home alone.
+    run.state = 'complete'
+    page.UI.screen = 'home'
+    assert.doesNotMatch(page.screenHome(payload()), /The Full loop is running/)
   })
 })

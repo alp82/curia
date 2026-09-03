@@ -128,7 +128,7 @@ When Discord rate limits the bot, on any call, the card doesn't fail. It reports
 
 ### After the card connects
 
-The bridge, the part of the service that logs in to Discord, reads the token and `state/discord.json` when the service starts. After the card connects for the first time, the panel says whether the bridge is running and offers **Restart Curia** when it isn't. Until the bridge runs, the card is verified but the bot doesn't answer in the channel.
+The bridge, the part of the service that logs in to Discord, starts on its own when the token is on disk. **Connect channel** starts it and waits for its login before the card answers, so the connected panel says `The bridge is running`. The service also starts the bridge on any Discord read that finds the token and no bridge, so a token that landed while the bridge was down is picked up by the next read, with no restart. If the panel says the bridge isn't running, the service log names the cause; a login Discord refuses is retried on a growing ladder, up to once a minute.
 
 The card remembers the server id and the channel name (`progress.discord.guild_id` and `progress.discord.channel`) for a reopen. The token lives in `secrets/discord-bot-token` and nowhere else. The token never appears in a log line, a diagnostic, or a browser response, and a refused paste is described by shape rather than echoed.
 
@@ -306,7 +306,7 @@ While Curia can't reach the service at all, **Setup** says so instead of showing
 
 ## What you see while Curia works
 
-Every action on a card, **Confirm operator and verify**, **Connect bot**, **Connect channel**, **Sign in**, **Submit** for a code, **Watch these repositories and continue**, **Restart Curia**, and **Try again**, switches the card and its panel to an in-progress state the moment you select it. The card's badge reads **Working**, its footer names what Curia is doing (`Verifying the operator`, `Registering commands and posting the confirmation`, `Completing one minimal model request and applying the routing preset`), and the panel shows the same sentence over a thin moving line. Nothing that stood before stays: not the sign-in steps and not a previous failure. The state lasts until the next read for that card lands. A read that fails shows the failure and its action. A read that connects shows the connected state. A write the service refuses shows the refusal beside the form.
+Every action on a card, **Confirm operator and verify**, **Connect bot**, **Connect channel**, **Sign in**, **Submit** for a code, **Watch these repositories and continue**, and **Try again**, switches the card and its panel to an in-progress state the moment you select it. The card's badge reads **Working**, its footer names what Curia is doing (`Verifying the operator`, `Registering commands and posting the confirmation`, `Completing one minimal model request and applying the routing preset`), and the panel shows the same sentence over a thin moving line. Nothing that stood before stays: not the sign-in steps and not a previous failure. The state lasts until the next read for that card lands. A read that fails shows the failure and its action. A read that connects shows the connected state. A write the service refuses shows the refusal beside the form.
 
 ## Moving through setup
 
@@ -368,7 +368,21 @@ The run walks the eight legs of the Full loop in order. Each leg is observed thr
 | Ticket resolution | The receipt finds the resolution comment and the closed ticket. |
 | Map update | The receipt finds the pointer line on the parent map's **Decisions so far**. |
 
-Selecting **Run Full loop** or **Try again** makes the run the selected panel, in the main area where a card's panel renders, and scrolls it into view. The panel first says `Starting the Full loop` (or `Retrying <leg>`), then, from the service's answer on, one row per leg with its state as a word, the elapsed time, and the links as they appear. The rail's **Full loop** card shows the run's state and brings the panel back after you select a card. The page follows the service's read every 5 seconds. Your part of the run happens in Discord: answer the agent's question in the ticket's thread, then approve at the review gate. Everything else is the agent's and the daemon's.
+Selecting **Run Full loop** or **Try again** makes the run the selected panel, in the main area where a card's panel renders, and scrolls it into view. The panel first says `Starting the Full loop` (or `Retrying <leg>`), then, from the service's answer on, one row per leg with its state as a word, the elapsed time, and the links as they appear. The rail's **Full loop** card shows the run's state and brings the panel back after you select a card. The page follows the service's read every 5 seconds. Everything but the two answers is the agent's and the daemon's.
+
+#### Your part: the question and the review gate
+
+The running leg says what it waits for, so a wait is never mistaken for a hang: `waiting for the agent's question`, `waiting for your answer · open 3m ago`, or `waiting for your approval of the review gate · open 12m ago`. The time is since the question opened.
+
+When the agent asks a question or opens the review gate, the panel shows it under the legs with the same controls Home draws: the question with an answer field or its option buttons, or the review gate with **Approve · merge**, **Cross-check**, and **Reject** with a field for your words. The answer goes through the service's own answer route, the one the Discord bridge uses, so the ticket's thread in Discord keeps working in parallel and whichever surface answers first wins. The journal records one answer either way.
+
+#### Follow the sessions
+
+While the run lives, the panel lists a terminal per live session under **Terminals**: the agent's session (`curia-<ticket>`) while it runs, and the overseer's session while it is in a turn. Each opens the app's own `/terminal/` page for that session in a new tab, behind the same Tailscale identity check as the page.
+
+#### Closing Setup during a run
+
+Closing Setup never cancels or detaches the run. The service drives the run and judges it from its journal, and the page only reads it. Home shows the running acceptance with its current leg and what it waits for, and **Open** returns to the run panel. Reopening Setup any other way lands on the run panel while the run lives. The panel says so: `Closing Setup keeps the run going`.
 
 #### When the run completes
 
