@@ -494,6 +494,35 @@ describe('verifying an installed release', () => {
     assert.match(check(report, 'image provenance').action, /--signer-workflow alp82\/curia\/\.github\/workflows\/release\.yml/)
   })
 
+  test('a host without the GitHub CLI warns on image provenance and still verifies', async () => {
+    const r = release()
+    const root = install(r)
+    const stdout = sink()
+    const report = await verifyInstalledRelease({ root, version: VERSION, stdout }, probesFor(r, {
+      attestation: async () => ({ ok: false, unavailable: true, error: 'gh is not installed' }),
+    }))
+    assert.equal(report.ok, true, stdout.text())
+    assert.equal(report.refusal, null)
+    const c = check(report, 'image provenance')
+    assert.equal(c.status, 'warning')
+    assert.match(c.observed, /GitHub CLI is not installed/)
+    assert.match(c.observed, /daemon, tmux, dashboard, overseer, agent/)
+    assert.match(c.action, /gh auth login/)
+    assert.match(c.action, /curia doctor/)
+    assert.match(stdout.text(), /^warning\s+image provenance\s+/m)
+    assert.match(stdout.text(), /8 checks passed, 1 warning\.$/m)
+  })
+
+  test('a registry that does not answer warns on package provenance, and the integrity check still fails', async () => {
+    const r = release()
+    const root = install(r)
+    const report = await verifyInstalledRelease({ root, version: VERSION, stdout: sink() }, probesFor(r, { packument: async () => ({ error: 'getaddrinfo ENOTFOUND registry.npmjs.org' }) }))
+    failedOnly(report, 'package integrity')
+    const c = check(report, 'package provenance')
+    assert.equal(c.status, 'warning')
+    assert.match(c.observed, /did not answer/)
+  })
+
   test('a package the registry does not record provenance for fails the package provenance check', async () => {
     const r = release()
     const root = install(r)

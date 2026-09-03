@@ -6,7 +6,9 @@ import { createServer } from 'node:net'
 import { arch as osArch, cpus as osCpus, tmpdir, totalmem } from 'node:os'
 import { dirname, join } from 'node:path'
 
+import { composeProject, parsePublishedPorts } from './compose.mjs'
 import { Refusal } from './exit.mjs'
+import { readInstallationRecord } from './root.mjs'
 
 // The supported-host preflight (#868, implementing #850 and the direct-check
 // constraints of #857).
@@ -103,7 +105,7 @@ export const CHECKS = Object.freeze([
   Object.freeze({ name: 'operating system', severity: 'blocking', summary: 'The release is Ubuntu 24.04 LTS or Debian 13.' }),
   Object.freeze({ name: 'architecture', severity: 'blocking', summary: 'The processor is x86-64.' }),
   Object.freeze({ name: 'host capacity', severity: 'warning', summary: 'CPU, memory, and free disk meet the minimum and recommended profiles.' }),
-  Object.freeze({ name: 'required ports', severity: 'blocking', summary: 'The five loopback ports are free and the sandbox range can hold four agents.' }),
+  Object.freeze({ name: 'required ports', severity: 'blocking', summary: 'The five loopback ports are free, or held by this installation, and the sandbox range can hold four agents.' }),
   Object.freeze({ name: 'Docker Engine', severity: 'mixed', summary: 'A running Docker Engine the operator can reach, in the tested range.' }),
   Object.freeze({ name: 'Docker capabilities', severity: 'blocking', summary: 'A probe container reads a bind mount and reaches the host network.' }),
   Object.freeze({ name: 'Docker Compose', severity: 'mixed', summary: 'The Compose v2 plugin, in the tested range.' }),
@@ -195,20 +197,40 @@ function capacityCheck({ cpus, memoryBytes, disk }) {
   return passed('host capacity', seen)
 }
 
+function holderName(port) {
+  return REQUIRED_PORTS.find((p) => p.port === port)?.holder ?? 'Curia'
+}
+
+// The check proves the five ports are available to this installation, which
+// on a running host means Curia's own containers already hold them. `curia
+// update` and `curia rollback` run this same preflight, so a port Curia
+// binds must read as healthy, not as a conflict (#885).
+//
+// A busy port carries `service` when Compose listed it among the published
+// ports of this root's own project. That is the only honest test: the holder
+// is Curia's because Curia's Compose project says it publishes that port.
+// The process name `ss` reports is not evidence, because a published port is
+// held by a proxy in the container's namespace, whose name is whatever the
+// image called its main thread.
 function portsCheck({ ports }) {
   const needed = SANDBOX_PORTS.perAgent * SANDBOX_PORTS.agents
   const total = SANDBOX_PORTS.to - SANDBOX_PORTS.from + 1
-  if (ports.busy.length > 0) {
-    const list = ports.busy.map((b) => {
-      const holder = REQUIRED_PORTS.find((p) => p.port === b.port)?.holder ?? 'Curia'
-      return `${b.port} (${holder}) is held by ${b.process ?? 'another program'}`
-    }).join('; ')
+  const foreign = ports.busy.filter((b) => !b.service)
+  if (foreign.length > 0) {
+    const list = foreign.map((b) => `${b.port} (${holderName(b.port)}) is held by ${b.process ?? 'another program'}`).join('; ')
     return refused('required ports', `port ${list}.`, 'Stop the program that listens on that port, or move it to another port, and run the command again.')
   }
   if (ports.sandboxFree < needed) {
     return refused('required ports', `only ${ports.sandboxFree} of the ${total} ports from ${SANDBOX_PORTS.from} to ${SANDBOX_PORTS.to} are free, and four agents need ${needed}.`, `Free at least ${needed} ports in that range and run the command again.`)
   }
-  return passed('required ports', `${REQUIRED_PORTS.map((p) => p.port).join(', ')} free; ${ports.sandboxFree} of ${total} sandbox ports free`)
+  const mine = ports.busy.map((b) => `${b.port} (${holderName(b.port)}) is held by this installation's ${b.service} service`)
+  const free = REQUIRED_PORTS.filter((p) => !ports.busy.some((b) => b.port === p.port)).map((p) => p.port)
+  const observed = [
+    ...mine,
+    free.length > 0 ? `${free.join(', ')} free` : null,
+    `${ports.sandboxFree} of ${total} sandbox ports free`,
+  ].filter(Boolean).join('; ')
+  return passed('required ports', observed)
 }
 
 // Compares dotted versions numerically, ignoring a suffix such as `-ce`.
@@ -401,7 +423,7 @@ export async function gatherHostFacts({ uid, root, ports = REQUIRED_PORTS, sandb
     dockerFacts(probes),
     composeFacts(probes),
     tailscaleFacts(probes),
-    portFactsOf(ports, sandbox, probes),
+    portFactsOf(ports, sandbox, root, probes),
     Promise.all(RELEASE_ORIGINS.map((origin) => probes.fetchOrigin(origin))),
   ])
   return {
@@ -542,11 +564,18 @@ async function tailscaleFacts(probes) {
 // A port is free when the operator can listen on it on every interface. The
 // listener is closed before the answer is returned. The holder of a busy
 // port comes from `ss`, when it is present and may name the process.
-async function portFactsOf(ports, sandbox, probes) {
+async function portFactsOf(ports, sandbox, root, probes) {
   const portFree = probes.portFree ?? hostProbes.portFree
   const busy = []
   for (const { port } of ports) {
     if (!(await portFree(port))) busy.push({ port, process: await holderOf(port, probes) })
+  }
+  if (busy.length > 0) {
+    const published = await publishedPortsOf(root, probes)
+    for (const entry of busy) {
+      const mine = published?.find((p) => p.port === entry.port)
+      if (mine) entry.service = mine.service
+    }
   }
   let sandboxFree = 0
   for (let port = sandbox.from; port <= sandbox.to; port += 1) {
@@ -561,6 +590,29 @@ function portFree(port) {
     server.once('error', () => resolve(false))
     server.listen({ port, host: '0.0.0.0', exclusive: true }, () => server.close(() => resolve(true)))
   })
+}
+
+// The host ports the root's own Compose project publishes, or null when this
+// root holds no installation, Compose cannot be asked, or its answer is not
+// readable. Null means "nothing here claims a port", which is the fresh-host
+// case `curia install` checks: a busy port is then someone else's.
+async function publishedPortsOf(root, probes) {
+  if (!root) return null
+  let record = null
+  try {
+    record = readInstallationRecord(root)
+  } catch {
+    return null
+  }
+  if (!record?.activeVersion) return null
+  const project = composeProject({ root, version: record.activeVersion })
+  const out = await probes.exec('docker', project.args('ps', '--format', 'json'))
+  if (!out.ok) return null
+  try {
+    return parsePublishedPorts(out.stdout)
+  } catch {
+    return null
+  }
 }
 
 async function holderOf(port, probes) {

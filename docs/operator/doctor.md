@@ -25,7 +25,7 @@ The output has nine sections in the order the following table lists. Every check
 | `host` | The twelve preflight checks of [Supported hosts and preflight checks](supported-hosts.md#the-checks). | The host carries Curia. | The same conditions preflight refuses or warns about. A refused condition is reported as `refused`; the doctor doesn't stop on it. |
 | `installation` | `installation` | The root holds an installation record, `versions/<active version>/` is complete, and the launcher exists. | No installation (the action is the bootstrap command), an incomplete version (`curia reinstall`), or a missing launcher (a warning). |
 | `configuration` | `operator configuration` | `config/config.yaml` passes the [operator configuration](configuration.md) contract. The line lists the keys it sets. | The contract's exact message: the path, the line, the key, and the rule. An absent file is a warning, because the shipped defaults apply. |
-| `release` | The nine checks of [What `curia doctor` verifies](release-manifest.md#what-curia-doctor-verifies). | The retained artifacts verify, the installed files match them, every image is attested, and the registry records provenance for the package. | A missing, malformed, substituted, mismatched, drifted, or unattested artifact. |
+| `release` | The nine checks of [What `curia doctor` verifies](release-manifest.md#what-curia-doctor-verifies). | The retained artifacts verify, the installed files match them, every image is attested, and the registry records provenance for the package. | A missing, malformed, substituted, mismatched, drifted, or unattested artifact. A provenance check that couldn't run, because the GitHub CLI is absent or the registry didn't answer, is a warning: see [Provenance and the GitHub CLI](#provenance-and-the-github-cli). |
 | `secrets` | `secret files` | Each of the four [secret files](secrets.md#the-secret-files) is reported as present or absent. | A file that is a symbolic link, that another user owns, or that other users can read. The line names the `chmod` to run. |
 | `secrets` | `environment` | No credential key is set in your shell. | A warning that names the key, such as `GH_TOKEN`, and the secret file to use instead. |
 | `containers` | `containers` | The five services are `healthy` in `docker compose ps`. | A service that exited, is unhealthy, or is missing from the project fails, with the `docker compose ... logs <service>` command as the action. A service still starting is a warning. |
@@ -101,7 +101,14 @@ When a credential key such as `GH_TOKEN` is set in your shell, the `environment`
 
 ## Provenance and the GitHub CLI
 
-The `image provenance` check asks `gh attestation verify` for each of the five image digests, the agent image's included, and needs the GitHub CLI logged in to GitHub. When it isn't, the check fails and its action prints the exact command to run once `gh auth login` is done. Nothing else in Curia depends on that login, and `curia install` and `curia update` don't run this check: the doctor is where publication provenance is verified without weakening the verification that runs before activation. The manual commands are in [The release manifest and release verification](release-manifest.md#what-curia-doctor-verifies).
+The `image provenance` check asks `gh attestation verify` for each of the five image digests, the agent image's included. The GitHub CLI is optional on a supported host, and it isn't a prerequisite of the bootstrap.
+
+- When `gh` isn't installed, the check is a **warning**. It names the images it didn't check and tells you to install the GitHub CLI, run `gh auth login`, and run `curia doctor` again. The exit code stays `0` when every other check passes.
+- When `gh` is installed and answers, the check reports what it answered. A missing or rejected attestation **fails**, and the action prints the exact command to run. If `gh` isn't logged in, run `gh auth login` first.
+
+The `package provenance` check reads the npm registry's publication record the same way: a registry that doesn't answer is a warning, and a registry that answers and records no provenance for the version fails. A registry that can't be reached never lets a package through unverified, because the `package integrity` check reads the same answer and fails hard without it.
+
+Nothing else in Curia depends on the GitHub CLI, and `curia install` and `curia update` don't run these checks: the doctor is where publication provenance is verified without weakening the verification that runs before activation. The manual commands are in [The release manifest and release verification](release-manifest.md#what-curia-doctor-verifies).
 
 ## When to run it
 

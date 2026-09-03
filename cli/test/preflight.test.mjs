@@ -1,7 +1,7 @@
 import { test, describe } from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:net'
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -11,6 +11,7 @@ import {
   evaluateHostFacts, gatherHostFacts, renderPreflight, preflight,
 } from '../src/preflight.mjs'
 import { Refusal } from '../src/exit.mjs'
+import { createInstallationRecord, recordPath } from '../src/root.mjs'
 
 const GiB = 1024 ** 3
 
@@ -133,6 +134,23 @@ describe('a supported host passes', () => {
     assert.equal(check(report, 'Docker Compose').status, 'passed')
   })
 
+  test('a running installation holding its own ports passes, naming the services', () => {
+    const busy = [
+      { port: 4272, service: 'daemon' },
+      { port: 4273, service: 'dashboard' },
+      { port: 4274, service: 'overseer' },
+      { port: 7681, service: 'tmux' },
+    ]
+    const report = evaluateHostFacts(ubuntu({ ports: { busy, sandboxFree: 288 } }))
+    assert.equal(report.ok, true)
+    const ports = check(report, 'required ports')
+    assert.equal(ports.status, 'passed')
+    assert.match(ports.observed, /4272 \(the timeline\) is held by this installation's daemon service/)
+    assert.match(ports.observed, /7681 \(the attach surface\) is held by this installation's tmux service/)
+    assert.match(ports.observed, /7682 .* free/)
+    assert.doesNotMatch(ports.observed, /pid/, 'the service is named, not a process id')
+  })
+
   test('the operating-system check reports the release it saw', () => {
     assert.match(check(evaluateHostFacts(debian()), 'operating system').observed, /Debian GNU\/Linux 13/)
   })
@@ -164,6 +182,17 @@ describe('refused conditions stop the operation', () => {
   test('a required port in use', () => {
     const facts = ubuntu({ ports: { busy: [{ port: 7681, process: 'ttyd (pid 4242)' }], sandboxFree: 300 } })
     refusedOn(evaluateHostFacts(facts), 'required ports', /7681.*ttyd \(pid 4242\)/, /Stop the program/)
+  })
+
+  test('a foreign holder still refuses on a running installation', () => {
+    const busy = [
+      { port: 4272, service: 'daemon' },
+      { port: 4274, process: 'another program' },
+    ]
+    const facts = ubuntu({ ports: { busy, sandboxFree: 288 } })
+    const report = evaluateHostFacts(facts)
+    refusedOn(report, 'required ports', /4274 \(the overseer\) is held by another program/, /Stop the program/)
+    assert.doesNotMatch(check(report, 'required ports').observed, /4272/, 'a port this installation holds is not named as a conflict')
   })
 
   test('too few free sandbox ports for the default concurrency', () => {
@@ -416,6 +445,46 @@ describe('gatherHostFacts', () => {
     const again = createServer()
     await new Promise((resolve, reject) => again.once('error', reject).listen(port + 1, '0.0.0.0', resolve))
     again.close()
+  })
+
+  test('a fresh host asks Compose nothing and reports the busy port as foreign', async () => {
+    const holder = createServer()
+    await new Promise((r) => holder.listen(0, '127.0.0.1', r))
+    const port = holder.address().port
+    const root = mkdtempSync(join(tmpdir(), 'curia-fresh-'))
+    const probes = fakeProbes()
+    try {
+      const facts = await gatherHostFacts({ uid: 1001, root, ports: [{ port, holder: 'a test' }], sandbox: { from: port + 1, to: port + 3 } }, probes)
+      assert.deepEqual(facts.ports.busy, [{ port, process: null }])
+      assert.ok(!probes.calls.some((c) => c.includes('ps')), 'no installation, so Compose is never asked which ports it publishes')
+    } finally {
+      holder.close()
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  test('a running installation names the service that publishes the busy port', async () => {
+    const holder = createServer()
+    await new Promise((r) => holder.listen(0, '127.0.0.1', r))
+    const port = holder.address().port
+    const root = mkdtempSync(join(tmpdir(), 'curia-running-'))
+    mkdirSync(join(root, 'state'), { recursive: true })
+    writeFileSync(recordPath(root), JSON.stringify(createInstallationRecord('0.11.0')))
+    const ps = JSON.stringify({ Service: 'tmux', State: 'running', Publishers: [{ URL: '127.0.0.1', TargetPort: 7681, PublishedPort: port, Protocol: 'tcp' }] })
+    const probes = fakeProbes({
+      exec: async (file, args) => {
+        if (file === 'docker' && args[0] === 'compose') return { ok: true, stdout: `${ps}\n`, stderr: '', code: 0 }
+        if (file === 'ss') return { ok: true, stdout: '' }
+        return fakeProbes().exec(file, args)
+      },
+    })
+    try {
+      const facts = await gatherHostFacts({ uid: 1001, root, ports: [{ port, holder: 'a test' }], sandbox: { from: port + 1, to: port + 3 } }, probes)
+      assert.deepEqual(facts.ports.busy, [{ port, process: null, service: 'tmux' }])
+    } finally {
+      holder.close()
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 
   test('a host without Docker, Compose, or Tailscale reports each as absent', async () => {

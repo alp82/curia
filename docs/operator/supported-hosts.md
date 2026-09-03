@@ -32,6 +32,10 @@ Curia detects and verifies these three, and never installs or reconfigures them:
 
 A version newer than the tested range produces a warning, not a refusal. A supported host also needs `bash`, `curl`, `tar`, `gzip`, the coreutils checksum tools (`sha256sum`, `sha512sum`, `base64`, `od`), and CA certificates for [the bootstrap](bootstrap.md), and `ss` from `iproute2` for the port check to name a process. All of these ship with both supported systems.
 
+### The GitHub CLI is optional
+
+The [GitHub CLI](https://github.com/cli/cli#installation) (`gh`) is not a prerequisite. Nothing in the installation, the update, or the running system needs it. What it buys you is one check: with `gh` installed and logged in (`gh auth login`), `curia doctor` asks `gh attestation verify` whether each of the five image digests carries a build attestation from Curia's release workflow, and reports the answer. Without it, that check is a warning that names the images it didn't verify, and `curia doctor` still exits `0` when everything else passes. See [Provenance and the GitHub CLI](doctor.md#provenance-and-the-github-cli).
+
 You run every lifecycle command as your own user, never as root. Curia never escalates privileges.
 
 ## Network
@@ -73,6 +77,7 @@ The following table lists every check, what it can do, the condition it reports,
 | architecture | Refuse | The processor is not x86-64. | Install Curia on an x86-64 host. |
 | host capacity | Warn | CPU, memory, or free disk is below the minimum or the recommended profile. | Give the host the named profile. |
 | required ports | Refuse | One of the five loopback ports is held by another program, named when `ss` can see it. | Stop that program or move it to another port. |
+| required ports | Pass | A loopback port is held by a container of this installation's own Compose project, which is the healthy state on a running host. The line names the service that publishes it. `curia update` and `curia rollback` run this check on a running installation, so it has to tell Curia's containers from a foreign program. | Nothing. |
 | required ports | Refuse | Fewer than 12 ports are free in `9000` to `9299`. | Free at least 12 ports in that range. |
 | Docker Engine | Refuse | Docker is not installed. | Install Docker Engine 24.0 or later from the [Docker Engine install page](https://docs.docker.com/engine/install/). |
 | Docker Engine | Refuse | Your user can't open `/var/run/docker.sock`. | Run `sudo usermod -aG docker $USER`, then log out and in. |

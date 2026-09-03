@@ -35,7 +35,7 @@ The line under a `failed` or `refused` check is the one corrective action. Take 
 
 Two checks need a note:
 
-- `image provenance` asks `gh attestation verify` and needs the GitHub CLI logged in. When it isn't, the action prints the command to run after `gh auth login`. Nothing else in Curia depends on that login.
+- `image provenance` asks `gh attestation verify`, which needs the [GitHub CLI](https://github.com/cli/cli#installation) installed and logged in. The GitHub CLI is optional: without it the check is a `warning` that names the images it didn't verify, and the exit code stays `0`. With it installed, an attestation that is missing or doesn't verify is a `failed` check, and the action prints the command to run after `gh auth login`. Nothing else in Curia depends on that login.
 - Exit code `3` means the installation root itself refused the command before any check ran, for example a directory another user owns. The message names the path and the fix; see [When a lifecycle command refuses the root](../command-reference.md#when-a-lifecycle-command-refuses-the-root).
 
 The failures by message are under [Check the installation](troubleshooting.md#check-the-installation) in Troubleshooting.
