@@ -14,11 +14,15 @@ import http from 'node:http'
 import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
+import vm from 'node:vm'
+import { WebSocket, WebSocketServer } from 'ws'
 
 import {
   DashboardSurface, DEFAULT_DASHBOARD, DEFAULT_DASHBOARD_INDEX, DASHBOARD_PROTO,
   loadDashboardConfig, pageRefusal, readDashboard, daemonPort, ANSWER_REFUSAL, CHAT_PAGE, TERMINAL_PAGE,
+  terminalUpstreamPath,
 } from '../src/dashboard.mjs'
+import { DEFAULT_INDEX as ATTACH_INDEX } from '../src/attach.mjs'
 import { APP_VERSION } from '../src/appversion.mjs'
 import { loadCuriaConfig } from '../src/config.mjs'
 import { serveHosts, LOGIN_HEADER, FUNNEL_HEADER } from '../src/identity.mjs'
@@ -1702,6 +1706,86 @@ describe('the embedded terminal (#714)', () => {
   test('an unknown operator cannot reach the terminal or its WebSocket', async () => {
     assert.equal((await req(surface.port, TERMINAL_PAGE, { headers: { host: 'box.tail1234.ts.net:8445' } })).status, 403)
     assert.equal(seen.length, 0)
+  })
+
+  // The rehearsal of the packaged lifecycle (#891) reported the terminal page
+  // rendering empty on 0.9.1, with a probe of the WebSocket path answering 404.
+  // The three cases below pin the whole path a browser walks: the socket URL
+  // the attach page computes from its own address, the proxy carrying a real
+  // WebSocket handshake and frames both ways to ttyd's `/ws`, and the answer a
+  // request gets when it reaches the socket path without an upgrade.
+  test('the attach page computes its socket URL from the served path, and the proxy maps it onto ttyd', () => {
+    // ttyd's client builds the socket address from `window.location`. The
+    // expression is lifted out of the built bundle and evaluated against the
+    // address the app serves the page on, so a ttyd upgrade that changes how
+    // the client derives its socket fails here and not in a browser.
+    const bundle = fs.readFileSync(ATTACH_INDEX, 'utf8')
+    const match = bundle.match(/"https:"===window\.location\.protocol\?"wss:":"ws:",\w+=window\.location\.pathname\.replace\([^)]*\),\w+=\[[^\]]*"\/ws"[^\]]*\]\.join\(""\)/)
+    assert.ok(match, 'the attach index no longer derives its WebSocket address the way this test reads it; rebuild and update the test together')
+    const [, protocol, trimmed, socket] = match[0].match(/^(.*?),\w+=(.*?),\w+=(.*)$/)
+    const sandbox = { window: { location: new URL('https://box.tail1234.ts.net:8445/terminal/?arg=curia-929') } }
+    const socketUrl = vm.runInNewContext(`const n=${protocol};const o=${trimmed};${socket}`, sandbox)
+    assert.equal(socketUrl, 'wss://box.tail1234.ts.net:8445/terminal/ws?arg=curia-929')
+    assert.equal(terminalUpstreamPath(new URL(socketUrl)), '/ws?arg=curia-929')
+    assert.equal(terminalUpstreamPath(new URL('https://box.tail1234.ts.net:8445/terminal/token')), '/token')
+    assert.equal(terminalUpstreamPath(new URL('https://box.tail1234.ts.net:8445/terminal/?arg=curia-929')), '/?arg=curia-929')
+    assert.equal(terminalUpstreamPath(new URL('https://box.tail1234.ts.net:8445/terminal')), '/')
+  })
+
+  test('a real WebSocket handshake reaches ttyd through the proxy and carries frames both ways', async () => {
+    // A fake ttyd: a WebSocket server on `/ws` that echoes, the way ttyd's
+    // `tty` protocol answers what the client sends.
+    terminal.close()
+    terminal = http.createServer((req, res) => { seen.push({ type: 'http', url: req.url }); res.end() })
+    const wss = new WebSocketServer({ server: terminal, path: '/ws', handleProtocols: (set) => (set.has('tty') ? 'tty' : false) })
+    wss.on('connection', (ws, req) => {
+      seen.push({ type: 'upgrade', url: req.url, headers: req.headers })
+      ws.on('message', (data) => ws.send(`echo:${data}`))
+    })
+    await new Promise((done) => terminal.listen(0, '127.0.0.1', done))
+    surface.stop()
+    surface = new DashboardSurface({
+      port: 0, servePort: 8445, index: DEFAULT_DASHBOARD_INDEX,
+      allow: ['alp@example.com'], terminalPort: terminal.address().port,
+      pollIntervalS: 5, log: () => {},
+      deps: {
+        fetchOverview: async () => ({}), assertServe: async () => {}, serveOff: async () => {},
+        tailnetSelf: async () => ({ dnsName: 'box.tail1234.ts.net', ips: [] }),
+      },
+    })
+    await surface.start()
+    await surface.resolveHosts()
+
+    const ws = new WebSocket(`ws://127.0.0.1:${surface.port}/terminal/ws?arg=curia-929`, ['tty'], {
+      headers: served({ origin: 'https://box.tail1234.ts.net:8445' }),
+    })
+    const echoed = await new Promise((resolve, reject) => {
+      ws.on('open', () => ws.send('hello'))
+      ws.on('message', (data) => resolve(String(data)))
+      ws.on('error', reject)
+      ws.on('unexpected-response', (_, res) => reject(new Error(`the proxy answered ${res.statusCode} instead of an upgrade`)))
+    })
+    assert.equal(echoed, 'echo:hello')
+    assert.equal(ws.protocol, 'tty')
+    ws.close()
+    await new Promise((done) => wss.close(done))
+    assert.equal(seen.at(-1).type, 'upgrade')
+    assert.equal(seen.at(-1).url, '/ws?arg=curia-929')
+    assert.equal(seen.at(-1).headers.origin, `http://127.0.0.1:${terminal.address().port}`)
+    assert.equal(seen.filter((s) => s.type === 'http').length, 0)
+  })
+
+  test('a request that reaches the socket path without an upgrade is told so, instead of relaying ttyd\'s 404', async () => {
+    // Tailscale Serve speaks HTTP/2 to the browser, and an HTTP/2 request
+    // cannot carry `Connection: Upgrade`: the hop drops the header and forwards
+    // a plain GET. ttyd answers 404 to any plain path but its index and token,
+    // which reads as a missing route. The sidecar names the cause instead.
+    const response = await req(surface.port, '/terminal/ws?arg=curia-929', { headers: served() })
+    assert.equal(response.status, 426)
+    assert.equal(response.headers.upgrade, 'websocket')
+    assert.match(response.text, /HTTP\/1\.1/)
+    assert.match(response.text, /Upgrade/)
+    assert.equal(seen.length, 0, 'the plain request must not reach ttyd')
   })
 })
 
