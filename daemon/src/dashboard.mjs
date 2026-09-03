@@ -407,6 +407,20 @@ export const CHAT_PAGE = '/chat'
 const CHAT_ROUTES = new Set(['/events', '/send', '/draft', '/key', '/take-back', '/dialog-answer'])
 export const TERMINAL_PAGE = '/terminal/'
 
+// ttyd's WebSocket, under the app's terminal path. The attach page derives its
+// socket from `window.location` (`<pathname without trailing slash>/ws` plus
+// the query), so the proxied page at `/terminal/` opens `/terminal/ws?arg=`.
+export const TERMINAL_SOCKET = `${TERMINAL_PAGE}ws`
+
+// The path ttyd sees for a request under the app's terminal path: the prefix
+// comes off and the query stays, so `/terminal/ws?arg=curia-1` reaches ttyd as
+// `/ws?arg=curia-1`, `/terminal/token` as `/token`, and the page as `/`. One
+// mapping for the page and the upgrade, so the two cannot drift apart.
+export function terminalUpstreamPath(url) {
+  if (url.pathname === '/terminal') return `/${url.search}`
+  return `/${url.pathname.slice(TERMINAL_PAGE.length)}${url.search}`
+}
+
 export class DashboardSurface {
   constructor({
     port, servePort, index, allow, daemonPort: dPort = daemonPort(),
@@ -1003,14 +1017,13 @@ export class DashboardSurface {
       socket.end(`HTTP/1.1 ${status}\r\nConnection: close\r\n\r\n`)
       return
     }
-    const upstreamPath = `/${url.pathname.slice(TERMINAL_PAGE.length)}${url.search}`
     const headers = {
       ...req.headers,
       host: `127.0.0.1:${this.terminalPort}`,
       origin: `http://127.0.0.1:${this.terminalPort}`,
     }
     const up = http.request({
-      host: '127.0.0.1', port: this.terminalPort, method: 'GET', path: upstreamPath, headers,
+      host: '127.0.0.1', port: this.terminalPort, method: 'GET', path: terminalUpstreamPath(url), headers,
     })
     up.on('upgrade', (upRes, upSocket, upHead) => {
       const lines = [`HTTP/1.1 ${upRes.statusCode} ${upRes.statusMessage}`]
@@ -1054,10 +1067,19 @@ export class DashboardSurface {
     const url = new URL(req.url, `http://127.0.0.1:${this.port}`)
 
     if (req.method === 'GET' && (url.pathname === '/terminal' || url.pathname.startsWith(TERMINAL_PAGE))) {
-      const upstreamPath = url.pathname === '/terminal'
-        ? '/'
-        : `/${url.pathname.slice(TERMINAL_PAGE.length)}${url.search}`
-      return this.#terminal(req, res, upstreamPath)
+      // A request on the socket path that arrives here, and not on the
+      // server's `upgrade` event, carries no `Upgrade: websocket`. Tailscale
+      // Serve speaks HTTP/2 to its clients, and HTTP/2 has no `Connection`
+      // header: a probe over HTTP/2 loses its upgrade at that hop and lands
+      // here as a plain GET (#891). Relayed to ttyd, that answers ttyd's 404
+      // for any plain path but its index and token, which reads as a route
+      // the sidecar never had. Name the cause instead, and keep ttyd out of it.
+      // A browser opens its WebSocket over HTTP/1.1 and never lands here.
+      if (url.pathname === TERMINAL_SOCKET) {
+        res.writeHead(426, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store', upgrade: 'websocket', connection: 'close' })
+        return res.end(`${TERMINAL_SOCKET} is the terminal's WebSocket: open it with an HTTP/1.1 upgrade (Connection: Upgrade, Upgrade: websocket). A request over HTTP/2 cannot carry the upgrade, and the served address drops it.\n`)
+      }
+      return this.#terminal(req, res, terminalUpstreamPath(url))
     }
 
     if (req.method === 'POST') {
