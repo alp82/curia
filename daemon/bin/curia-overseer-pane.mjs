@@ -13,6 +13,7 @@ import { modelCredentialEnv, overseerConfigDirFor, overseerHomeFor, overseerProc
 import { buildSystemPrompt, checkoutReport, toolsFor } from '../src/overseerprompt.mjs'
 import { installCredentialConfig } from '../src/overseercreds.mjs'
 import { agentEnv, seedConfigDir } from '../src/workspace.mjs'
+import { conversationHomeFor } from '../src/overseeridentity.mjs'
 
 const DIR = path.dirname(fileURLToPath(import.meta.url))
 const CONFIG = process.env.CURIA_CONFIG ?? path.resolve(DIR, '..', '..', 'config', 'curia.yaml')
@@ -61,6 +62,10 @@ const prompt = [
 const { allowed, disallowed } = toolsFor({ shell: true })
 const args = [
   run.resume ? '--resume' : '--session-id', run.session,
+  // `overseerpane.mjs` waits for `⏵⏵|bypass permissions` in the pane before it
+  // types anything. Without this flag the harness sits in manual mode, that
+  // marker never appears, and every conversation dies at the 30 s timeout.
+  '--permission-mode', 'bypassPermissions',
   '--model', OVERSEER_CONTAINER_MODEL,
   '--append-system-prompt', prompt,
   '--allowed-tools', allowed.join(','),
@@ -72,5 +77,11 @@ const env = {
   ...agentEnv(configDir, 'claude', { sandboxed: true }),
   ...credential.env,
 }
-const child = spawn(claudeBinary(), args, { cwd: home, env, stdio: 'inherit' })
+// #701 gave each conversation its own directory: the daemon writes this one's
+// `.mcp.json` there, and reads its transcript from the project slug that
+// directory produces. The pane has to run in it, or the harness connects no
+// curia server and the Chat screen finds no transcript.
+const paneCwd = conversationHomeFor(home, run.session)
+fs.mkdirSync(paneCwd, { recursive: true })
+const child = spawn(claudeBinary(), args, { cwd: paneCwd, env, stdio: 'inherit' })
 process.exitCode = await wait(child)
