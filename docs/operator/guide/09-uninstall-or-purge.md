@@ -99,13 +99,15 @@ The command prints the exact root with the warning, then asks `Type the installa
 curia purge --confirm /home/you/.local/share/curia
 ```
 
-When the launcher is gone, run the bootstrap's purge mode, which acquires and verifies the lifecycle interface temporarily and asks the same question:
+When the launcher is gone, run the bootstrap's purge mode, which asks the same question:
 
 ```sh
 curl -fsSLO https://github.com/alp82/curia/releases/latest/download/curia-install.sh && bash curia-install.sh --purge
 ```
 
 Add `--root <dir>` for a nondefault root, the same root the uninstall printed. With no `--root`, the default root is purged.
+
+The bootstrap runs the interface the root already holds, under `versions/<active>/`, and verifies it before it runs it, so it downloads nothing. After a `curia uninstall`, which empties `versions/`, it acquires and verifies one instead: the stable release the index names, or the release you add with `--version <version>` when the index names none. See [Purge from the bootstrap](../purge.md#purge-from-the-bootstrap).
 
 The command prints six named steps, `[1/6] preflight`, `[2/6] confirm`, `[3/6] docker`, `[4/6] routes`, `[5/6] images`, and `[6/6] root`. The root goes last. What each step removes is in [What `curia purge` does](../purge.md#what-curia-purge-does).
 

@@ -20,6 +20,7 @@ import { PACKAGE_NAME, createManifest, renderManifest, releaseAssets } from '../
 import { renderBundle } from '../../cli/src/bundle.mjs'
 import { createStableIndex, generateStableIndexKeys, signStableIndex } from '../../cli/src/stable.mjs'
 import { EXIT } from '../../cli/src/exit.mjs'
+import { BOUNDARIES, RECORD_FORMAT } from '../../cli/src/root.mjs'
 import { releasePins } from '../../deploy/bundle/pins.mjs'
 import { BOOTSTRAP_SOURCE, BOOTSTRAP_END, renderBootstrap } from '../../deploy/bootstrap/render.mjs'
 
@@ -190,6 +191,38 @@ function catalogue(overrides = {}) {
   return { stable, exact }
 }
 
+// A root as `curia install` leaves one, for the purge that needs no release:
+// the seven boundaries, the record naming the active version, the unpacked
+// package and its pinned runtime under versions/<version>/, the retained
+// artifacts beside them, and the unpacked bundle. `complete: false` removes
+// the entry point the launcher runs, which is the incomplete active version.
+function installedRoot({ version = STABLE, complete = true } = {}) {
+  const tarball = releaseOf({ version, publicKey: keys.publicKey }).tarball
+  const root = fs.mkdtempSync(path.join(scratch, 'installed-'))
+  fs.chmodSync(root, 0o700)
+  for (const name of BOUNDARIES) fs.mkdirSync(path.join(root, name), { mode: 0o700 })
+  const record = { format: RECORD_FORMAT, installationId: 'a'.repeat(32), activeVersion: version }
+  fs.writeFileSync(path.join(root, 'state', 'installation.json'), `${JSON.stringify(record, null, 2)}\n`, { mode: 0o600 })
+
+  const dir = path.join(root, 'versions', version)
+  fs.mkdirSync(path.join(dir, 'cli'), { recursive: true })
+  const retained = path.join(dir, 'cli.tgz')
+  fs.writeFileSync(retained, tarball)
+  const untar = spawnSync('tar', ['-xzf', retained, '-C', path.join(dir, 'cli'), '--strip-components=1'])
+  assert.equal(untar.status, 0, String(untar.stderr))
+  if (!complete) fs.rmSync(path.join(dir, 'cli', 'bin', 'curia.mjs'))
+
+  fs.mkdirSync(path.join(dir, 'node', 'bin'), { recursive: true })
+  fs.writeFileSync(path.join(dir, 'node', 'bin', 'node'), `#!/bin/sh\nexec '${process.execPath}' "$@"\n`, { mode: 0o755 })
+
+  const assets = releaseAssets(version)
+  fs.writeFileSync(path.join(dir, 'bundle.tar.gz'), served.files[`/releases/download/v${version}/${assets.bundle}`])
+  fs.writeFileSync(path.join(dir, 'bundle.tar.gz.sha256'), served.files[`/releases/download/v${version}/${assets.checksum}`])
+  fs.mkdirSync(path.join(dir, 'bundle'), { recursive: true })
+  fs.writeFileSync(path.join(dir, 'bundle', 'compose.yaml'), renderBundle(TEMPLATE, DIGESTS))
+  return root
+}
+
 // The server answers from this process, so the script runs asynchronously.
 async function run(args, { env = {}, stdin, script = SCRIPT, path: extraPath } = {}) {
   const home = fs.mkdtempSync(path.join(scratch, 'home-'))
@@ -356,6 +389,53 @@ describe('the bootstrap script', () => {
     assert.match(r.out, /handing off to curia purge/)
     assert.deepEqual(r.leftover, [], 'the temporary interface is removed')
     assert.equal(fs.existsSync(path.join(r.home, '.local', 'bin', 'curia')), false, 'no launcher is written')
+  })
+
+  // The rehearsal's defect (#891): the purge chose a release from the stable
+  // index before it had a verifier, so it refused on every host whose index
+  // named no stable release, although the interface it needed was installed.
+  test('purges with the installed interface, reading no index and downloading nothing, when the index names no stable release', async () => {
+    catalogue()
+    served.files['/stable.json'] = signedIndex({ stable: null, withdrawn: [] })
+    const root = installedRoot()
+    served.hits = []
+    const r = await run(['--purge', '--root', root])
+    assert.deepEqual(served.hits, [], 'no origin is reached, not even the index')
+    assert.match(r.out, new RegExp(`the installed interface at ${root}/versions/${STABLE}`))
+    assert.match(r.out, /installed files/, 'the installed version verifies itself')
+    assert.match(r.out, /handing off to curia purge/)
+    assert.equal(r.exit, EXIT.refused, `${r.out}\n${r.err}`)
+    assert.match(r.out, /\[1\/6\] preflight/)
+    assert.match(r.out, new RegExp(`This purges the Curia installation at ${root}`))
+    assert.match(r.out, /\[2\/6\] confirm/)
+    assert.match(r.err, /Run 'curia purge --confirm/, 'it reached the confirmation')
+    assert.equal(r.handoff, null, 'no acquired interface ran')
+    assert.doesNotMatch(r.err, /no stable release/)
+    assert.equal(fs.existsSync(path.join(root, 'state', 'installation.json')), true, 'nothing changed')
+    assert.deepEqual(r.leftover, [])
+  })
+
+  test('purges an incomplete active version with the release --version names', async () => {
+    catalogue()
+    served.files['/stable.json'] = signedIndex({ stable: null, withdrawn: [] })
+    const root = installedRoot({ complete: false })
+    served.hits = []
+    const r = await run(['--purge', '--root', root, '--version', STABLE])
+    assert.equal(r.exit, 0, `${r.out}\n${r.err}`)
+    assert.deepEqual(r.handoff.argv, ['purge'])
+    assert.equal(r.handoff.root, root)
+    assert.equal(r.handoff.stage, undefined, 'a purge stages nothing for the interface to keep')
+    assert.match(r.out, new RegExp(`selected ${STABLE}, the exact version`))
+    assert.ok(served.hits.includes(`/npm/${PACKAGE_NAME}/-/cli-${STABLE}.tgz`), 'it acquired the interface')
+    assert.deepEqual(r.leftover, [])
+  })
+
+  test('refuses a purge with no installed interface and no stable release, naming --version', async () => {
+    catalogue()
+    served.files['/stable.json'] = signedIndex({ stable: null, withdrawn: [] })
+    const r = await run(['--purge', '--root', path.join(scratch, 'no-such-root')])
+    refused(r, /names no stable release.*--version/s)
+    assert.match(r.err, /purge/)
   })
 
   test('refuses an interrupted download and leaves nothing behind', async () => {
