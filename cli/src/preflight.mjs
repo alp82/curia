@@ -58,8 +58,8 @@ export const RECOMMENDED_PROFILE = Object.freeze({ cpus: 4, memoryBytes: 8 * GiB
 // `newestMajor` warns. `oldest` is the version the supported systems ship or
 // the official repository offered when the range was set.
 export const TESTED_VERSIONS = Object.freeze({
-  docker: Object.freeze({ incompatible: '20.10', oldest: '24.0', newestMajor: 28, name: 'Docker Engine' }),
-  compose: Object.freeze({ incompatible: '2.0', oldest: '2.20', newestMajor: 2, name: 'Docker Compose' }),
+  docker: Object.freeze({ incompatible: '20.10', oldest: '24.0', newestMajor: 29, name: 'Docker Engine' }),
+  compose: Object.freeze({ incompatible: '2.0', oldest: '2.20', newestMajor: 5, name: 'Docker Compose' }),
   tailscale: Object.freeze({ incompatible: '1.50', oldest: '1.80', newestMajor: 1, name: 'Tailscale' }),
 })
 

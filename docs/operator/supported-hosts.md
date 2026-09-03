@@ -80,10 +80,10 @@ The following table lists every check, what it can do, the condition it reports,
 | Docker Engine | Refuse | Docker Engine is older than 20.10. | Install Docker Engine 24.0 or later. |
 | Docker Engine | Warn | Docker runs rootless. | For a supported host, use rootful Docker Engine. |
 | Docker Engine | Warn | The `docker` service is not enabled at boot, so Curia doesn't return after a reboot. | Run `sudo systemctl enable docker`. |
-| Docker Engine | Warn | Docker Engine is older than 24.0 or newer than major version 28. | Update to the tested range, or watch for behavior changes. |
+| Docker Engine | Warn | Docker Engine is older than 24.0 or newer than major version 29. | Update to the tested range, or watch for behavior changes. |
 | Docker capabilities | Refuse | A probe container couldn't read a bind mount from the host, or couldn't reach a listener on the host network. | Fix the Docker Engine installation. |
 | Docker Compose | Refuse | `docker compose` is not available, or is Compose v1. | Install the Compose v2 plugin, 2.20 or later. |
-| Docker Compose | Warn | Compose is older than 2.20 or newer than major version 2. | Update to the tested range, or watch for behavior changes. |
+| Docker Compose | Warn | Compose is older than 2.20 or newer than major version 5. | Update to the tested range, or watch for behavior changes. |
 | Tailscale | Refuse | Tailscale is not installed. | Install Tailscale from the [Tailscale Linux download page](https://tailscale.com/download/linux). |
 | Tailscale | Refuse | `tailscaled` is not running. | Run `sudo systemctl start tailscaled`. |
 | Tailscale | Warn | Tailscale is older than 1.80 or newer than major version 1. | Update to the tested range, or watch for behavior changes. |

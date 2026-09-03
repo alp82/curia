@@ -122,6 +122,17 @@ describe('a supported host passes', () => {
     assert.deepEqual(report.checks.filter((c) => c.status !== 'passed'), [])
   })
 
+  test('Docker Engine 29 passes without a version warning', () => {
+    const docker = { ...ubuntu().docker, server: { ...ubuntu().docker.server, version: '29.7.0' } }
+    const report = evaluateHostFacts(ubuntu({ docker }))
+    assert.equal(check(report, 'Docker Engine').status, 'passed')
+  })
+
+  test('Docker Compose 5 passes without a version warning', () => {
+    const report = evaluateHostFacts(ubuntu({ compose: { version: '5.5.0' } }))
+    assert.equal(check(report, 'Docker Compose').status, 'passed')
+  })
+
   test('the operating-system check reports the release it saw', () => {
     assert.match(check(evaluateHostFacts(debian()), 'operating system').observed, /Debian GNU\/Linux 13/)
   })
@@ -266,10 +277,10 @@ describe('warnings are nonblocking facts', () => {
   })
 
   test('tools newer than the tested range', () => {
-    const docker = { ...ubuntu().docker, server: { ...ubuntu().docker.server, version: '99.0.0' } }
-    const report = evaluateHostFacts(ubuntu({ docker, compose: { version: '3.0.0' }, tailscale: { ...ubuntu().tailscale, version: '2.0.0' } }))
-    warnedOn(report, 'Docker Engine', /99\.0\.0.*newer than the tested/, /watch/i)
-    warnedOn(report, 'Docker Compose', /3\.0\.0.*newer than the tested/, /watch/i)
+    const docker = { ...ubuntu().docker, server: { ...ubuntu().docker.server, version: '30.0.0' } }
+    const report = evaluateHostFacts(ubuntu({ docker, compose: { version: '6.0.0' }, tailscale: { ...ubuntu().tailscale, version: '2.0.0' } }))
+    warnedOn(report, 'Docker Engine', /30\.0\.0.*newer than the tested/, /watch/i)
+    warnedOn(report, 'Docker Compose', /6\.0\.0.*newer than the tested/, /watch/i)
     warnedOn(report, 'Tailscale', /2\.0\.0.*newer than the tested/, /watch/i)
   })
 
