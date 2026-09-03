@@ -56,7 +56,7 @@ import { readSecret, writeSecret, secretPath, redact, SecretError } from '../../
 import {
   readDiscordSettings, writeDiscordSettings, discordSettingsFromEnv, discordSettingsPath, DEFAULT_CHANNEL,
 } from './discordsettings.mjs'
-import { SLASH_MANIFEST } from './bridge.mjs'
+import { SLASH_MANIFEST, BOT_PERMISSIONS, CHANNEL_PERMISSIONS, permissionsAction } from './bridge.mjs'
 
 export const DISCORD_API = 'https://discord.com/api/v10'
 
@@ -71,23 +71,12 @@ const TOKEN_RE = /^[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]{20,}$/
 const SNOWFLAKE = /^[0-9]{5,25}$/
 const CHANNEL_NAME = /^[a-z0-9][a-z0-9_-]{0,99}$/
 
-// The permissions the bridge uses in the command channel, by Discord's bit.
-// The invite link asks for these plus Manage Channels, which is what
-// creating the channel takes when it does not exist.
-const bit = (n) => 1n << BigInt(n)
-export const CHANNEL_PERMISSIONS = Object.freeze([
-  Object.freeze({ name: 'View Channel', bit: bit(10) }),
-  Object.freeze({ name: 'Send Messages', bit: bit(11) }),
-  Object.freeze({ name: 'Embed Links', bit: bit(14) }),
-  Object.freeze({ name: 'Attach Files', bit: bit(15) }),
-  Object.freeze({ name: 'Read Message History', bit: bit(16) }),
-  Object.freeze({ name: 'Manage Threads', bit: bit(34) }),
-  Object.freeze({ name: 'Create Public Threads', bit: bit(35) }),
-  Object.freeze({ name: 'Send Messages in Threads', bit: bit(38) }),
-])
-const MANAGE_CHANNELS = bit(4)
-const ADMINISTRATOR = bit(3)
-export const INVITE_PERMISSIONS = CHANNEL_PERMISSIONS.reduce((bits, p) => bits | p.bit, 0n) | MANAGE_CHANNELS
+// The permissions the bot needs, by Discord's bit: the bridge's own list
+// (#891), so the invite link, this card's verification, and the bridge's
+// start check one set. The invite link asks for every one of them.
+export { BOT_PERMISSIONS, CHANNEL_PERMISSIONS }
+const ADMINISTRATOR = 1n << 3n
+export const INVITE_PERMISSIONS = BOT_PERMISSIONS.reduce((bits, p) => bits | p.bit, 0n)
 export const inviteUrl = (appId) => `https://discord.com/oauth2/authorize?client_id=${appId}&scope=bot%20applications.commands&permissions=${INVITE_PERMISSIONS}`
 
 const GUILD_TEXT = 0
@@ -489,7 +478,7 @@ export class DiscordSetup {
     const held = channelPermissions({ base: row.permissions, overwrites: channel.permission_overwrites ?? [], roles, botId: bot.id, guildId: guild.id })
     const missing = CHANNEL_PERMISSIONS.filter((p) => !(held & p.bit)).map((p) => p.name)
     if (missing.length) {
-      return fail('authority', `curia can't ${list(missing, 'or')} in #${channelFacts.name}`, `Allow ${list(missing)} for the bot in #${channelFacts.name}'s permissions, then try again.`, facts)
+      return fail('authority', `curia can't ${list(missing, 'or')} in #${channelFacts.name}`, permissionsAction(missing, channelFacts.name), facts)
     }
 
     // The commands: read, never registered here (#891). Connect channel and

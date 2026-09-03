@@ -38,7 +38,7 @@ The card connects when it shows **Connected and verified** and the footer names 
 1. In the [Discord developer portal](https://discord.com/developers/applications), select **New Application** and name it. Under **Bot**, turn on **Message Content Intent**, select **Reset Token**, and copy the token. Discord shows it once.
 2. In Discord, turn on **Developer Mode** under **Settings** > **Advanced**, then copy your user ID from your profile menu.
 3. On the **Discord** card, paste the token, enter your user ID, and select **Connect bot**.
-4. Select **Add the bot to a server** and approve it in Discord. The card reads **Step 2 of 3** while it waits and checks again on the page's refresh interval, so the server appears on its own within seconds. Until then there is no server to select and no channel field, and the wait is a step, not a failure.
+4. Select **Add the bot to a server** and approve it in Discord with every permission the link asks for. They are the ones Curia uses in the command channel and its threads: posting, threads, embeds, files, history, reactions, slash commands, Manage Webhooks for speaker identity (agent prose under the curia name), and Manage Channels to create the channel. The full table is under [Add the bot to a server](../integration-setup.md#add-the-bot-to-a-server). The card reads **Step 2 of 3** while it waits and checks again on the page's refresh interval, so the server appears on its own within seconds. Until then there is no server to select and no channel field, and the wait is a step, not a failure.
 5. Select the server, keep the channel name `curia` or enter another, and select **Connect channel**. The card verifies as part of the same press and shows the result.
 6. Select **Continue**.
 
