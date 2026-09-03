@@ -51,6 +51,40 @@ export async function runCli({ argv, env, stdout, stderr, uid = process.getuid()
   }
 }
 
+// Ends the process quietly when the reader on the other end of stdout or
+// stderr goes away. `curia version | head -1`, `curia doctor | head`, and
+// `curia doctor | grep -m1 ...` are ordinary things an operator or a script
+// runs, and the reader closes the pipe as soon as it has what it wanted. Node
+// reports that as an `EPIPE` write error on the stream, and with nobody
+// listening it becomes an unhandled 'error' event: a stack trace on a run that
+// did nothing wrong. A closed output is not a Curia failure, so the interface
+// ends the way a Unix tool does, with no trace and no report.
+//
+// THE EXIT STATUS COMES FROM `status()`, which the caller answers from where
+// the run got to:
+//
+//   - The command already returned. It did its work and wrote everything it
+//     had; only the reader left. That run succeeded, so the process exits with
+//     the code the command chose.
+//   - The command is still running. A write it will never complete cuts it off
+//     mid-operation, and its outcome is unknown, so the process exits `failed`.
+//     The message that normally says what to do next has nowhere to go.
+//
+// EVERY OTHER WRITE ERROR KEEPS ITS CURRENT BEHAVIOR. A full disk or a
+// vanished terminal is a real failure, and rethrowing from here leaves it an
+// uncaught exception with its stack, exactly as before.
+//
+// This is the one place the interface handles its own streams. Commands write
+// and never think about the reader.
+export function endQuietlyOnClosedOutput({ stdout, stderr, status, exit = (code) => process.exit(code) }) {
+  const onError = (e) => {
+    if (e?.code !== 'EPIPE') throw e
+    exit(status())
+  }
+  stdout.on('error', onError)
+  stderr.on('error', onError)
+}
+
 export function usage(commands = lifecycleCommands) {
   const width = Math.max(...Object.keys(commands).map((n) => n.length))
   const lines = Object.entries(commands).map(([n, c]) => `  ${n.padEnd(width)}  ${c.summary}`)

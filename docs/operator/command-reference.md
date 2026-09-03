@@ -108,6 +108,8 @@ Every command and the launcher use the same four exit codes, so a script can bra
 
 A refusal is not a failure. It means Curia checked a precondition, such as a missing runtime file or an unsupported host, and stopped before touching anything. The host preconditions are in [Supported hosts and preflight checks](supported-hosts.md).
 
+You can pipe any command into a reader that stops early, such as `curia version | head -1` or `curia doctor | grep -m1 refused`. A closed pipe is not a Curia failure. The command ends quietly, with no error and no stack trace, and keeps the exit code it had already earned. A reader that closes while an operation is still running ends the command mid-work, and that exits `1`, because the operation did not finish.
+
 ## Environment
 
 `CURIA_ROOT` names the installation root. The launcher sets it for you. Set it yourself only when you run the lifecycle interface without the launcher, such as from a development checkout. The value must be an absolute path.
