@@ -10,7 +10,7 @@ Download the script to a file, then run it as the user that will own the install
 curl -fsSLO https://github.com/alp82/curia/releases/latest/download/curia-install.sh && bash curia-install.sh
 ```
 
-That's the whole installation command. Don't pipe `curl` into `bash`: the script refuses to run from a pipe, because it can't check that a piped copy downloaded completely. Downloading it to a file first is what lets it check, and it's also what lets `curia purge` ask you for confirmation on your terminal.
+That's the whole installation command. Don't pipe `curl` into `bash`: the script refuses to run from a pipe, because it can't check that a piped copy downloaded completely. Downloading it to a file first is what lets it check, and it's also what lets `curia purge` ask you for confirmation on your terminal. Without a terminal, `--purge --confirm <root>` answers the question instead.
 
 The script takes the following options.
 
@@ -21,6 +21,7 @@ The script takes the following options.
 | `--version <version>` | Installs an exact published version instead of the stable release the signed index names. A withdrawn version is refused. |
 | `--prerelease` | Allows `--version` to name a prerelease, which is never selected otherwise. |
 | `--purge` | Purge mode. See [Purge mode](#purge-mode). |
+| `--confirm <root>` | Confirms the purge without a terminal. The script passes the value to `curia purge`, which requires it to be the exact root being purged; see [The confirmation](purge.md#the-confirmation). Purge only: with no `--purge`, it's a usage error (exit code `2`) before any download. |
 | `--help` | Prints the options and exit codes. |
 
 The script is published with every release, under its one fixed name, so `releases/latest/download/curia-install.sh` is always the current one. It doesn't pin a Curia version: which version it installs comes from the stable-release index, as [How a version is selected](command-reference.md#how-a-version-is-selected) describes. Its own version is stamped inside, and it prints it first, so a support question can name the bootstrap that ran.
@@ -34,7 +35,7 @@ The script runs one linear sequence and prints each step. Nothing runs until eve
 3. **Downloads everything into one temporary stage.** From the npm registry: the registry's record of `@curia-sh/cli@<version>` and the package tarball, at the registry's fixed tarball address, never at an address read from a download. From nodejs.org: `SHASUMS256.txt` for the Node.js version the package pins and the Linux x64 tarball. From the GitHub release: the Compose bundle, its `.sha256` file, and the release manifest. Each file lands under a temporary name and is renamed only when `curl` reports a complete transfer, so a partial file is never read as a whole one. The stage lives under `$TMPDIR` (`/tmp` by default) and is removed when the script exits, whatever happens.
 4. **Proves the downloads in the shell.** The tarball's SHA-512 must equal the integrity value the registry records. The package's `package.json` must name the selected version. The Node.js tarball's SHA-256 must equal the one `SHASUMS256.txt` lists for it. The bundle's SHA-256 must equal both its `.sha256` file and the checksum the release manifest binds, and the manifest must be for the selected version. Then the runtime is unpacked, and `node --version` must report the pinned version.
 5. **Has the staged lifecycle interface prove the rest.** On the staged runtime, the staged package's own code verifies the stable-release index against the key the package ships, selects the version again and requires it to be the one staged, and runs every check in [What Curia verifies before activation](release-manifest.md#what-curia-verifies-before-activation): the manifest, the version, the package integrity, the bundle checksum, the image digests, and the release copy of the manifest. It reads the files already on disk and reaches no network.
-6. **Hands off.** It runs `curia install` (with `--name` when you passed one) or `curia purge` from the stage, on the staged runtime, with `CURIA_ROOT` set to the root and, for an installation, `CURIA_STAGE` set to the stage. The lifecycle interface owns the root, the record, the launcher, and every confirmation from there. The script exits with the interface's own exit code. What `curia install` does from the hand-off to a running Curia is in [Install and reinstall](install.md).
+6. **Hands off.** It runs `curia install` (with `--name` when you passed one) or `curia purge` (with `--confirm` when you passed one) from the stage, on the staged runtime, with `CURIA_ROOT` set to the root and, for an installation, `CURIA_STAGE` set to the stage. The lifecycle interface owns the root, the record, the launcher, and every confirmation from there. The script exits with the interface's own exit code. What `curia install` does from the hand-off to a running Curia is in [Install and reinstall](install.md).
 
 The stage holds the unpacked runtime at `node/` and the unpacked package at `cli/`, plus the retained `cli.tgz`, `bundle.tar.gz`, and `bundle.tar.gz.sha256`, the same names an installed version keeps under `versions/<version>/`, so `curia doctor` can re-verify them later.
 
@@ -70,7 +71,13 @@ A purge removes an installation and activates nothing, so it needs no release, a
 2. **The release `--version` names**, acquired and proven exactly as an installation does, in a temporary stage.
 3. **The stable release the index names**, acquired and proven the same way. Only this case can refuse for want of a stable release, and that refusal names `--version` too.
 
-The script then runs `curia purge` with `CURIA_ROOT` set to the root. `curia purge` shows the root, asks you to type it as the one confirmation, and removes the installation's Docker resources, its Serve routes, the unused release images, and last the root, as [Purge and external cleanup](purge.md) describes. The script hands off only the root, so the confirmation is the question on your terminal, which is one more reason the script refuses a pipe. The script writes no launcher, creates no root, and removes the stage when the interface returns. A nondefault root stays explicit in the command: with no `--root`, the default root is purged.
+The script then runs `curia purge` with `CURIA_ROOT` set to the root. `curia purge` shows the root, takes the one confirmation, and removes the installation's Docker resources, its Serve routes, the unused release images, and last the root, as [Purge and external cleanup](purge.md) describes. On a terminal the confirmation is the question `curia purge` asks there, which is one more reason the script refuses a pipe. Without a terminal, `--confirm <root>` is the answer:
+
+```sh
+bash curia-install.sh --purge --root /srv/curia --confirm /srv/curia
+```
+
+The script passes the value through unread. The value must be the root being purged, so another path is refused by `curia purge` with exit code `3` and nothing changed, and `--confirm` without `--purge` is a usage error, exit code `2`. The script writes no launcher, creates no root, and removes the stage when the interface returns. A nondefault root stays explicit in the command: with no `--root`, the default root is purged.
 
 ## Origins
 

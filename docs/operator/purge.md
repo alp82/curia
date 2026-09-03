@@ -57,6 +57,8 @@ One confirmation authorizes the whole deletion, and the confirmation is the exac
 
   `--confirm` with any value other than the installation root is refused with exit code `3` and nothing changed. `--confirm=<root>` is the same flag. On a terminal, `--confirm <root>` skips the question.
 
+  The bootstrap's purge mode takes the same flag and passes the value through: `bash curia-install.sh --purge --confirm <root>`. That's the form to use after `curia uninstall`, when the launcher is gone and the host has no terminal; see [Purge from the bootstrap](#purge-from-the-bootstrap).
+
 The two forms say the same thing: you named the exact directory that goes. A script that purges several installations names each root once.
 
 ## Which images go
@@ -123,7 +125,13 @@ Where the interface that runs the purge comes from depends on what the root stil
 
 `curia uninstall` empties `versions/`, so a purge after an uninstall takes case 2 or case 3, and a purge over an installed Curia takes case 1.
 
-Pass `--root <dir>` for a nondefault root, the same root the uninstall printed. The bootstrap hands off only the root, so the confirmation is the question on your terminal; the bootstrap refuses to run from a pipe for that reason. The root's `run/` directory may be gone by then, and purge creates it for the lock before it takes one. The bootstrap writes no launcher, creates no root, and removes its stage when the command returns; see [Purge mode](bootstrap.md#purge-mode).
+Pass `--root <dir>` for a nondefault root, the same root the uninstall printed. The bootstrap hands the confirmation to `curia purge` and judges nothing itself. On a terminal, `curia purge` asks its question there, which is one reason the bootstrap refuses to run from a pipe. Without a terminal, add `--confirm <root>`:
+
+```sh
+bash curia-install.sh --purge --root /srv/curia --confirm /srv/curia
+```
+
+The value must be the root being purged, and every rule of [The confirmation](#the-confirmation) still holds: another path is refused by `curia purge` with exit code `3` and nothing changed. `--confirm` without `--purge` is a usage error, exit code `2`. The root's `run/` directory may be gone by then, and purge creates it for the lock before it takes one. The bootstrap writes no launcher, creates no root, and removes its stage when the command returns; see [Purge mode](bootstrap.md#purge-mode).
 
 ## After a purge
 

@@ -11,6 +11,7 @@
 #     bash curia-install.sh --version 1.2.4       an exact published version
 #     bash curia-install.sh --purge               purge the default root
 #     bash curia-install.sh --purge --root DIR    purge an explicit root
+#     bash curia-install.sh --purge --confirm DIR confirm without a terminal
 #
 # A purge is different: it removes what is installed, so it runs the
 # interface the installation already holds and downloads nothing. The
@@ -32,7 +33,8 @@
 # stage is removed when it returns.
 #
 # Exit codes are the lifecycle interface's: 0 ok, 1 failed, 2 usage, 3
-# refused (nothing changed). A hand-off exits with the interface's own code.
+# refused (nothing changed). A hand-off exits with the interface's own code,
+# so a `--confirm` that names another path is the purge's own refusal, 3.
 #
 # The four origins can be pointed at a local artifact server, which is how
 # the test suite runs this script without a network. Every check still
@@ -81,7 +83,7 @@ check_self
 usage() {
   cat <<'EOF'
 usage: bash curia-install.sh [--root <dir>] [--name <machine-name>] [--version <version> [--prerelease]]
-       bash curia-install.sh --purge [--root <dir>] [--version <version> [--prerelease]]
+       bash curia-install.sh --purge [--root <dir>] [--confirm <root>] [--version <version> [--prerelease]]
 
 Options:
   --root <dir>         The installation root. Default: CURIA_ROOT, else
@@ -96,9 +98,15 @@ Options:
                        the root already holds, and acquires a verified one
                        temporarily only when the root holds none. Installs
                        nothing.
+  --confirm <root>     Confirm the purge without a terminal, the way `curia
+                       purge --confirm <root>` does. The value must be the
+                       exact root being purged. On a terminal, leave it out
+                       and type the root when the purge asks. Purge only.
   --help               Print this text.
 
-Exit codes: 0 ok, 1 failed, 2 usage, 3 refused (nothing changed).
+Exit codes: 0 ok, 1 failed, 2 usage, 3 refused (nothing changed). The purge
+judges --confirm itself: a value that is not the root being purged is its
+refusal, exit 3, with nothing changed.
 EOF
 }
 
@@ -190,6 +198,8 @@ sri_to_hex() {
 
 ROOT=''
 NAME=''
+CONFIRM=''
+CONFIRMED='false'
 REQUESTED=''
 PRERELEASE='false'
 COMMAND='install'
@@ -210,6 +220,12 @@ parse_args() {
       --version)
         [ "$#" -ge 2 ] || { printf 'curia-install: --version needs a version\n' >&2; exit "$EXIT_USAGE"; }
         REQUESTED=$2
+        shift 2
+        ;;
+      --confirm)
+        [ "$#" -ge 2 ] || { printf 'curia-install: --confirm needs the installation root as its value\n' >&2; exit "$EXIT_USAGE"; }
+        CONFIRM=$2
+        CONFIRMED='true'
         shift 2
         ;;
       --prerelease) PRERELEASE='true'; shift ;;
@@ -252,6 +268,10 @@ check_name() {
     printf 'curia-install: --name is an installation option; a purge takes none\n' >&2
     exit "$EXIT_USAGE"
   fi
+  if [ "$CONFIRMED" = 'true' ] && [ "$COMMAND" != 'purge' ]; then
+    printf 'curia-install: --confirm is a purge option; an installation takes none\n' >&2
+    exit "$EXIT_USAGE"
+  fi
   if [ -n "$NAME" ]; then
     case "$NAME" in
       *[!a-z0-9-]*|-*|*-|'')
@@ -288,8 +308,10 @@ check_name() {
 #
 # Only case 3 can refuse for want of a stable release, and that refusal names
 # `--version`. Every other refusal and every verification the purge already
-# had are kept, the confirmation on the terminal among them: the interface,
-# not this script, owns the confirmation.
+# had are kept, the confirmation among them: the interface, not this script,
+# owns the confirmation. On a terminal the purge asks for the root; without
+# one, `--confirm <root>` is the answer, and this script passes the value
+# through unread, so a value that is not the root is the purge's refusal.
 
 INSTALLED_VERSION=''
 INSTALLED_NODE=''
@@ -385,9 +407,22 @@ main() {
     say "origins overridden: package $NPM_REGISTRY, release $RELEASE_DOWNLOADS, runtime $NODE_DIST, index $STABLE_INDEX_URL"
   fi
 
+  # What the hand-off adds to the command. `--name` is the installation's,
+  # `--confirm` the purge's: the value is passed through untouched, because
+  # the purge, not this script, decides whether it names the root.
+  local -a passed=()
+  if [ -n "$NAME" ]; then
+    passed+=(--name "$NAME")
+  fi
+  if [ "$CONFIRMED" = 'true' ]; then
+    passed+=(--confirm "$CONFIRM")
+  fi
+
   local status=0
   say "bootstrap $CURIA_BOOTSTRAP_VERSION"
-  if [ "$COMMAND" = 'purge' ]; then
+  if [ "$COMMAND" = 'purge' ] && [ "$CONFIRMED" = 'true' ]; then
+    say "purge of $ROOT: --confirm answers the confirmation, and nothing is installed"
+  elif [ "$COMMAND" = 'purge' ]; then
     say "purge of $ROOT: it asks for confirmation, and nothing is installed"
   else
     say "installation root: $ROOT"
@@ -402,7 +437,7 @@ main() {
     verify_installed_interface
     export CURIA_ROOT="$ROOT"
     say "handing off to curia purge ($PACKAGE@$INSTALLED_VERSION on the installed runtime)"
-    "$INSTALLED_NODE" "$INSTALLED_CLI" purge || status=$?
+    "$INSTALLED_NODE" "$INSTALLED_CLI" purge ${passed[@]+"${passed[@]}"} || status=$?
     exit "$status"
   fi
 
@@ -569,11 +604,7 @@ EOF
   fi
   say "handing off to curia $COMMAND ($PACKAGE@$version on Node.js $reported)"
   status=0
-  if [ -n "$NAME" ]; then
-    "$node" "$STAGE/cli/bin/curia.mjs" "$COMMAND" --name "$NAME" || status=$?
-  else
-    "$node" "$STAGE/cli/bin/curia.mjs" "$COMMAND" || status=$?
-  fi
+  "$node" "$STAGE/cli/bin/curia.mjs" "$COMMAND" ${passed[@]+"${passed[@]}"} || status=$?
   exit "$status"
 }
 
