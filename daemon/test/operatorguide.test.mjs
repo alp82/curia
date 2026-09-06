@@ -183,7 +183,7 @@ test('every bootstrap option in the operator pages is one the script parses', ()
     const snippets = [...codeSpans(text), ...fences(text).flatMap((f) => f.split('\n'))]
     for (const snippet of snippets) {
       for (const m of snippet.matchAll(/curia-install\.sh((?:\s+\S+)*)/g)) {
-        for (const flag of (m[1] ?? '').split(/\s+/).filter((t) => t !== '--' && t.startsWith('--')).map((t) => t.split('=')[0])) {
+        for (const flag of (m[1] ?? '').split(/\s+/).filter((t) => t.startsWith('--')).map((t) => t.split('=')[0])) {
           if (!parsed.has(flag)) problems.push(`${rel(page)}: curia-install.sh ${flag} is not an option the script parses`)
         }
       }
