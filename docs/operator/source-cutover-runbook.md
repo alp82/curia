@@ -7,7 +7,7 @@ Runbook version 1, written September 2, 2026. This runbook moves one deployment,
 | Accepted source commit | `2be76653451ee4f5f4dd63c7b84d46735d79c293` (`feat: create and start tickets from chats`, daemon `0.4.1`) |
 | Source host | `coinmatica` (Ubuntu 20.04.6, x86-64), operator `alp`, uid 1000, gid 1000, in the `docker` group (gid 998) |
 | Target host | A separate Ubuntu 24.04 host on x86-64, prepared as in [1. Check prerequisites](guide/01-check-prerequisites.md), with SSH from the source |
-| Target release | `TARGET_VERSION`: the first stable release, the version [Promote the rehearsed candidate as Curia's first stable release](https://github.com/alp82/curia/issues/893) names. Replace the placeholder in every command before you run it. |
+| Target release | `0.14.0`, the release named by [Promote the rehearsed candidate as Curia's first stable release](https://github.com/alp82/curia/issues/893) |
 | Target root | `~/.local/share/curia` on the target, the default the bootstrap chooses |
 | Script | `deploy/cutover/cutover.mjs`, run from a checkout of this repository at or after the commit this runbook merged in |
 
@@ -22,9 +22,9 @@ Runbook version 1, written September 2, 2026. This runbook moves one deployment,
 | Verb | Runs on | What it does | Changes |
 |---|---|---|---|
 | `admit` | Source | Checks the commit, the clean tree, the layout, the env file's keys, the override file's keys, that automatic dispatch is off, and that no agent container or live session exists. | Nothing. |
-| `inventory` | Source, stopped | Refuses while any `curia-*` container runs. Records the source identity, the journal's integrity and row bounds, the SHA-256 of every preserved file, and the four credentials by name, size, and mode. | Writes the manifest file you name, mode `0600`. |
-| `transform` | Target, stopped | Refuses a running target, an existing journal or secret file in the root, and an override key with no place in `config/config.yaml`. Then writes the operator configuration, the four secret files, `state/discord.json`, the checkpointed journal, the data, the native sessions, and the migration marker. | The root's `config/`, `secrets/`, `state/`, `work/`. |
-| `validate` | Target | Compares the root against the manifest: boundaries, configuration, secrets, Discord facts, journal, every file hash, the marker, the absence of source-layout files inside the root, and the absence of the source paths you name. | Nothing. |
+| `inventory` | Source, stopped | Refuses while any `curia-*` container runs. Records the source identity, the journal's integrity, row bounds, and logical SHA-256, the SHA-256 of every preserved file, and the four credentials by name, size, and mode. | Writes the manifest file you name, mode `0600`. |
+| `transform` | Target, stopped | Refuses a running target, operator data in the target journal, an existing secret file, and an override key with no place in `config/config.yaml`. It may replace only the lifecycle-only journal written by a fresh installation. Then it writes the operator configuration, the four secret files, `state/discord.json`, the checkpointed journal, the data, the native sessions, and the migration marker. | The root's `config/`, `secrets/`, `state/`, `work/`. |
+| `validate` | Target | Compares the root against the manifest: boundaries, configuration, secrets, Discord facts, the unchanged migrated journal prefix, every preserved file hash, the marker, the absence of source-layout files inside the root, and the absence of the source paths you name. Later target lifecycle rows and target-generated runtime files are expected. | Nothing. |
 
 Exit codes are the lifecycle interface's: `0` ok, `1` failed, `2` usage, `3` refused with nothing changed. No verb prints a credential. The manifest carries hashes of non-secret files only; a secret is listed by name, size, and mode.
 
@@ -68,12 +68,20 @@ Facts not verified on September 2: whether `DISCORD_ALLOWED_USERS` names one use
 
 ## Before the window
 
-1. Install the target as in [2. Install Curia](guide/02-install-curia.md), with the target release: `bash curia-install.sh --version TARGET_VERSION`. Don't connect any service on the Setup screen: the cutover brings the credentials, and a Discord card connected here would put the bot token in a second running service.
-2. On the target, run `curia doctor`. The host preflight and installation sections must read `ok`; the integration cards read as unconnected, which is right at this point.
-3. Put a checkout of this repository on each host for the script, outside the source checkout: `git clone https://github.com/alp82/curia ~/curia-cutover/src` on both hosts, at or after the commit this runbook merged in. Make the directory owner-only first: `mkdir -m 0700 ~/curia-cutover`.
-4. On the source, confirm the host Node.js can open the journal: `node -e "import('node:sqlite').then(() => console.log('ok'))"` must print `ok` (the box's `/usr/local/bin/node` is 22.17.1, and `node:sqlite` needs 22.13 or later). On the target, use the installed runtime: `NODE=~/.local/share/curia/versions/TARGET_VERSION/node/bin/node`.
-5. On the source, delete the retired keys from `daemon/.env.daemon` and `daemon/.env.overseer`, and delete `.env.overseer` once it is empty, as [Deployment: the Hetzner box](../deploy.md#the-env-file-daemonenvdaemon) says. Revoke each deleted token where it was issued. Admission refuses while any retired key remains.
-6. Confirm automatic dispatch is off on the source's Settings screen. It shipped off, and the override on September 2 didn't turn it on.
+1. On the target, give the installation owner permission to manage Tailscale Serve, even when the node is already logged in:
+
+   ```sh
+   sudo tailscale set --operator=$USER
+   ```
+
+   Run `tailscale serve status` as that user and confirm that it doesn't report `Access denied`. Without this delegation, the dashboard restarts while trying to create its HTTPS route, and installation waits for dashboard health. If that happens, run the command in another terminal; the dashboard restarts and the waiting installation continues.
+2. Install the target as in [2. Install Curia](guide/02-install-curia.md), with the target release: `curl -fsSL https://github.com/alp82/curia/releases/latest/download/curia-install.sh | bash -s -- --version 0.14.0`. Don't connect any service on the Setup screen: the cutover brings the credentials, and a Discord card connected here would put the bot token in a second running service.
+3. On the target, install the GitHub CLI and run `gh auth login` as the installation owner. This login is only for `curia doctor` to verify image attestations; the Setup screen separately authorizes the GitHub App after the cutover.
+4. On the target, run `curia doctor`. The host preflight and installation sections must read `ok`; the integration cards read as unconnected, which is right at this point.
+5. Put a checkout of this repository on each host for the script, outside the source checkout: `git clone https://github.com/alp82/curia ~/curia-cutover/src` on both hosts, at or after the commit this runbook merged in. Make the directory owner-only first: `mkdir -m 0700 ~/curia-cutover`.
+6. On the source, confirm the host Node.js can open the journal: `node -e "import('node:sqlite').then(() => console.log('ok'))"` must print `ok` (the box's `/usr/local/bin/node` is 22.17.1, and `node:sqlite` needs 22.13 or later). On the target, use the installed runtime: `NODE=~/.local/share/curia/versions/0.14.0/node/bin/node`.
+7. On the source, delete the retired keys from `daemon/.env.daemon` and `daemon/.env.overseer`, and delete `.env.overseer` once it is empty, as [Deployment: the Hetzner box](../deploy.md#the-env-file-daemonenvdaemon) says. Revoke each deleted token where it was issued. Admission refuses while any retired key remains.
+8. Confirm automatic dispatch is off on the source's Settings screen. It shipped off, and the override on September 2 didn't turn it on.
 
 ## Step A: admission, on the source
 
@@ -151,15 +159,24 @@ The last check is the hard one: nothing runs during the window. The runbook does
 
    ```sh
    cd ~/curia-cutover/src
-   NODE=~/.local/share/curia/versions/TARGET_VERSION/node/bin/node
+   NODE=~/.local/share/curia/versions/0.14.0/node/bin/node
    printf 'export const containers = async () => []\nexport const head = async () => "2be76653451ee4f5f4dd63c7b84d46735d79c293"\n' > ~/curia-cutover/staged-probes.mjs
    CURIA_CUTOVER_PROBES=~/curia-cutover/staged-probes.mjs $NODE deploy/cutover/cutover.mjs inventory \
      --checkout ~/curia-cutover/stage/curia --workspace ~/curia-cutover/stage/curia-work \
      --host coinmatica --out ~/curia-cutover/manifest-staged.json
-   diff <(jq 'del(.source)' ~/curia-cutover/manifest.json) <(jq 'del(.source)' ~/curia-cutover/manifest-staged.json) && echo copy-proven
+   diff \
+     <(jq 'del(.source) | walk(if type == "object" then del(.mode) else . end)' ~/curia-cutover/manifest.json) \
+     <(jq 'del(.source) | walk(if type == "object" then del(.mode) else . end)' ~/curia-cutover/manifest-staged.json) \
+     && echo content-proven
+   if find ~/curia-cutover/stage -perm /077 -print -quit | grep -q .; then
+     echo 'copy has group- or world-accessible paths' >&2
+     false
+   else
+     echo permissions-proven
+   fi
    ```
 
-   `copy-proven` means every preserved file arrived with its hash and the journal reads the same bounds. Anything else means the copy is incomplete: run the `rsync` commands again, they are idempotent, and prove it again.
+   `content-proven` means every preserved file arrived with its hash and the journal has the same logical digest and bounds. Modes are deliberately omitted from that comparison because the copy tightens every path to owner-only. `permissions-proven` separately proves that tightening. Anything else means the copy is incomplete or exposed: correct it, run the `rsync` commands again if needed, and prove both properties again.
 
 ## Step C: stop the target and transform
 
@@ -181,7 +198,7 @@ The last check is the hard one: nothing runs during the window. The runbook does
 
    **What you should see:** one `wrote <path>` line per item, ending with `transformed into <root>`. The verb writes, in order: `config/config.yaml` (from the override's `max_concurrent` and `watch`), `secrets/discord-bot-token`, `secrets/github-app.json`, `secrets/anthropic.json`, `secrets/codex-auth.json`, `state/discord.json`, `state/events.db` (checkpointed, then checked against the manifest's bounds), `state/attachments/`, `state/results/`, `state/backups/`, `state/verdicts/`, `state/routing.local.yaml`, `work/cfg/`, `work/repos/`, `work/archive/`, and `state/migration.json` (source host, checkout, workspace, commit, target host, the time, and the manifest's identity). The installation ID stays the one `curia install` created: the source had none.
 
-   **When it refuses**, nothing was written. `the target is running` means stop it. `state/events.db exists` or `secrets/<name> exists` means this root already went through a transformation or a setup: this is a retry, see [Rollback and retry](#rollback-and-retry). `holds keys with no place` is the same override refusal as admission and has the same fix, applied to the staged `config/curia.local.yaml`.
+   **When it refuses**, nothing was written. `the target is running` means stop it. A fresh installation's lifecycle-only `state/events.db` is replaced automatically; a refusal that it contains operator work means this root has been used and must not be overwritten. `secrets/<name> exists` likewise means this root already went through a transformation or setup. In either case, see [Rollback and retry](#rollback-and-retry). `holds keys with no place` is the same override refusal as admission and has the same fix, applied to the staged `config/curia.local.yaml`.
 
 3. Start the target and watch it come up:
 
@@ -208,7 +225,7 @@ The last check is the hard one: nothing runs during the window. The runbook does
 2. Run `curia doctor`. Every section must read `ok`, including the installed release with provenance and the secret files by presence. See [6. Check the installation](guide/06-check-the-installation.md).
 
 3. Open the Setup screen and let every card verify fresh, as in [3. Connect services](guide/03-connect-services.md). Nothing is re-registered:
-   - **GitHub** proves the existing App's installations cover the watched repositories on a fresh token. Nothing to type.
+   - **GitHub** reauthorizes the existing App as the operator, then proves its installations cover the watched repositories on a fresh token. Follow the authorization link; the host's `gh auth login` does not replace this step.
    - **Discord** proves the migrated token, the operator's membership, and the command channel `curia`. Press nothing on this card before the source is confirmed stopped, which Step B did.
    - **Tailscale** detects the target's node. Confirm the operator login that was `identity.allow` on the source, and the target node's machine name. This records `state/tailscale.json` and creates the target's Serve route. The source route on `coinmatica` stays until cleanup.
    - **AI logins** proves `secrets/anthropic.json` and `secrets/codex-auth.json` with one minimal request each. Repeat a provider's sign-in only when the card proves the imported credential unusable.
@@ -228,7 +245,7 @@ docker compose -f /home/alp/curia/deploy/compose.yaml start       # on the sourc
 
 The source was never transformed, so nothing is reversed. Validation-only events the target wrote (its journal rows, its Serve route) are discarded with the attempt. Two things must not stand at once: never start the source while the target's service runs, because both would hold the Discord bot token.
 
-To retry, the target needs a root without the first attempt's journal and secrets, because `transform` never overwrites either. The attempt held nothing of value, so remove it whole and reinstall: `curia purge` (type the root when asked), then `bash curia-install.sh --version TARGET_VERSION`, then Step C again from the staged copy, which is still in `~/curia-cutover/stage`. The manifest stays valid as long as the source stays stopped and unchanged.
+To retry, the target needs a root without the first attempt's operator journal and secrets, because `transform` never overwrites either. The attempt held nothing of value, so remove it whole and reinstall: `curia purge` (type the root when asked), then run the one-line install command from Before the window. If the source stayed stopped and unchanged, continue at Step C with the existing staged copy and manifest. If rollback restarted the source, repeat Step B in full: startup appended lifecycle rows, so the old manifest and staged journal no longer describe the source.
 
 ## After acceptance: cleanup
 
@@ -274,7 +291,7 @@ Do this only after **Full loop verified** on the target.
 
 - the source commit admission accepted and the target release installed;
 - the `inventory` lines: journal integrity, row count and bounds, first and last timestamps, file and byte counts, config directory count, and the manifest identity;
-- `copy-proven` from Step B;
+- `content-proven` and `permissions-proven` from Step B;
 - the `transform` output and the `validate` output before the loop and after it;
 - the four cards' verification facts and the `curia doctor` result;
 - the Full loop's ticket, pull request, map, Discord thread, and elapsed time;

@@ -62,7 +62,7 @@ function buildSource(dir) {
     `DISCORD_BOT_TOKEN=${DISCORD_TOKEN}`,
     'DISCORD_ALLOWED_USERS=123456789012345678,234567890123456789',
     'CURIA_GH_APP_ID=1234567',
-    `CURIA_GH_APP_KEY_FILE=${path.join(checkout, 'daemon/.curia-app.pem')}`,
+    'CURIA_GH_APP_KEY_FILE=.curia-app.pem',
     '',
   ].join('\n'), 0o600)
   write(path.join(checkout, 'daemon/.curia-app.pem'), PEM, 0o600)
@@ -204,7 +204,8 @@ describe('evidence', () => {
     assert.equal(manifest.source.host, 'coinmatica')
     assert.equal(manifest.source.commit, commit)
     assert.equal(manifest.source.stopped, true)
-    assert.deepEqual(manifest.journal, { integrity: 'ok', count: 3, minId: 1, maxId: 3, firstTs: '2026-08-01T10:00:00Z', lastTs: '2026-09-01T02:57:00Z' })
+    assert.deepEqual({ ...manifest.journal, sha256: undefined }, { integrity: 'ok', count: 3, minId: 1, maxId: 3, firstTs: '2026-08-01T10:00:00Z', lastTs: '2026-09-01T02:57:00Z', sha256: undefined })
+    assert.match(manifest.journal.sha256, /^[0-9a-f]{64}$/)
     const paths = manifest.files.map((f) => f.path)
     assert.ok(paths.includes('state/attachments/esc-28/screen.png'))
     assert.ok(paths.includes('state/results/curia-1.json'))
@@ -288,6 +289,35 @@ describe('transformation', () => {
     assert.equal(fs.readFileSync(path.join(root, 'config/config.yaml'), 'utf8'), 'max_concurrent: 4\n')
   })
 
+  test('a fresh installation journal is replaced, but a journal with operator work is refused', async () => {
+    const dir = fresh('transform-fresh-journal')
+    const { checkout, workspace, commit } = buildSource(dir)
+    const manifest = await inventory({ checkout, workspace, host: 'coinmatica' }, { ...idleProbes(commit), containers: async () => [] })
+    const root = buildTarget(dir)
+    const freshJournal = openJournal(path.join(root, 'state'))
+    for (const type of ['journal_opened', 'daemon_boot', 'journal_backup', 'reconcile', 'timeline_serve_retired', 'pane_sweep', 'daemon_goodbye']) {
+      freshJournal.append(JSON.stringify({ ts: '2026-09-02T08:30:00Z', type }))
+    }
+    freshJournal.close()
+
+    const replaced = await transform({ checkout, workspace, root, manifest, host: 't' }, { targetContainers: async () => [] })
+    assert.deepEqual(replaced.refusals, [])
+    const migrated = new DatabaseSync(path.join(root, 'state/events.db'), { readOnly: true })
+    assert.deepEqual({ ...migrated.prepare('select min(id) lo, max(id) hi, count(*) n from events').get() }, { lo: 1, hi: 3, n: 3 })
+    migrated.close()
+
+    const occupiedDir = fresh('transform-occupied-journal')
+    const occupied = buildTarget(occupiedDir)
+    const occupiedJournal = openJournal(path.join(occupied, 'state'))
+    occupiedJournal.append(JSON.stringify({ ts: '2026-09-02T08:30:00Z', type: 'agent_spawned', agent: 'curia-1', ticket: '1', repo: 'alp82/curia' }))
+    occupiedJournal.close()
+    const refused = await transform({ checkout, workspace, root: occupied, manifest, host: 't' }, { targetContainers: async () => [] })
+    assert.match(refused.refusals.join('\n'), /journal.*operator work|operator work.*journal/)
+    const kept = new DatabaseSync(path.join(occupied, 'state/events.db'), { readOnly: true })
+    assert.equal(kept.prepare('select count(*) n from events').get().n, 1)
+    kept.close()
+  })
+
   test('an override key with no place in the operator configuration is refused by name', async () => {
     const dir = fresh('transform-key')
     const { checkout, workspace, commit } = buildSource(dir)
@@ -315,14 +345,28 @@ describe('validation', () => {
     assert.deepEqual(ok.checks.filter((c) => c.status !== 'passed'), [])
     assert.deepEqual(ok.checks.map((c) => c.name), ['boundaries', 'configuration', 'secrets', 'discord', 'journal', 'files', 'migration', 'source-layout', 'source-paths'])
 
+    const liveJournal = openJournal(path.join(root, 'state'))
+    liveJournal.append(JSON.stringify({ ts: '2026-09-02T09:01:00Z', type: 'daemon_boot' }))
+    liveJournal.append(JSON.stringify({ ts: '2026-09-02T09:02:00Z', type: 'reconcile' }))
+    liveJournal.close()
+    write(path.join(root, 'state/tokens/github.json'), '{}', 0o600)
+    write(path.join(root, 'state/previews.json'), '{}', 0o600)
+    write(path.join(root, 'work/cfg/curia-overseer/.credentials.json'), '{}', 0o600)
+    const started = await validate({ root, manifest, sourcePaths: [path.join(dir, 'absent-checkout')] })
+    assert.deepEqual(started.checks.filter((c) => c.status !== 'passed'), [])
+
     fs.appendFileSync(path.join(root, 'state/results/curia-1.json'), 'x')
     fs.chmodSync(path.join(root, 'secrets/anthropic.json'), 0o644)
-    write(path.join(root, 'work/cfg/curia-1/.credentials.json'), '{}')
+    write(path.join(root, 'daemon/.env.daemon'), 'DISCORD_BOT_TOKEN=nope\n')
+    const changedJournal = new DatabaseSync(path.join(root, 'state/events.db'))
+    changedJournal.prepare('update events set body = ? where id = 1').run('{"changed":true}')
+    changedJournal.close()
     const bad = await validate({ root, manifest, sourcePaths })
     const failed = Object.fromEntries(bad.checks.filter((c) => c.status === 'failed').map((c) => [c.name, c.observed]))
     assert.match(failed.files, /state\/results\/curia-1\.json/)
     assert.match(failed.secrets, /anthropic\.json.*0644/)
-    assert.match(failed['source-layout'], /\.credentials\.json/)
+    assert.match(failed.journal, /prefix|sha256/)
+    assert.match(failed['source-layout'], /daemon/)
     assert.match(failed['source-paths'], new RegExp(checkout.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')))
   })
 })

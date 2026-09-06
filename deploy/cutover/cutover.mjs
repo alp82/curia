@@ -96,6 +96,10 @@ const KEEP_INSIDE = { home: 'work/cfg/curia-overseer' }
 
 const SECRET_MODE = 0o600
 const BOUNDARIES = ['config', 'secrets', 'state', 'work']
+const FRESH_TARGET_EVENTS = new Set([
+  'journal_opened', 'daemon_boot', 'journal_backup', 'reconcile',
+  'timeline_serve_retired', 'pane_sweep', 'daemon_goodbye',
+])
 
 export class CutoverError extends Error {
   constructor(message, exit = 1) {
@@ -136,6 +140,11 @@ function readEnvFile(file) {
 }
 
 const envKeysOf = (file) => (lstatOrNull(file) ? readEnvFile(file).keys : null)
+
+function envFilePath(envFile, value) {
+  if (!value) return null
+  return path.isAbsolute(value) ? value : path.resolve(path.dirname(envFile), value)
+}
 
 // Every regular file under `dir`, relative, sorted, with the exclusions
 // applied per segment. `keepInside` lets one excluded name survive under one
@@ -204,16 +213,41 @@ function readOverride(file) {
   return { data, unplaced }
 }
 
-// The journal, opened read-only in place: integrity, count, and bounds. A
-// `-wal` beside a stopped daemon's journal is read through by SQLite.
-function inspectJournal(file) {
+// The journal, opened read-only in place: integrity, count, bounds, and a
+// deterministic digest of its logical rows. A `-wal` beside a stopped
+// daemon's journal is read through by SQLite. `throughId` verifies a migrated
+// prefix after the target has legitimately appended its own lifecycle rows.
+function inspectJournal(file, { throughId = null } = {}) {
   const db = new DatabaseSync(file, { readOnly: true })
   try {
     const integrity = db.prepare('pragma integrity_check').all().map((r) => Object.values(r)[0]).join('; ')
-    const bounds = db.prepare('select min(id) lo, max(id) hi, count(*) n from events').get()
-    const first = db.prepare('select ts from events order by id asc limit 1').get()
-    const last = db.prepare('select ts from events order by id desc limit 1').get()
-    return { integrity, count: bounds.n, minId: bounds.lo, maxId: bounds.hi, firstTs: first?.ts ?? null, lastTs: last?.ts ?? null }
+    const where = throughId === null ? '' : ' where id <= ?'
+    const args = throughId === null ? [] : [throughId]
+    const rows = db.prepare(`select id, ts, type, ticket, agent, repo, epoch, body from events${where} order by id`).all(...args)
+    const digest = createHash('sha256')
+    for (const row of rows) digest.update(`${JSON.stringify([row.id, row.ts, row.type, row.ticket, row.agent, row.repo, row.epoch, row.body])}\n`)
+    return {
+      integrity,
+      count: rows.length,
+      minId: rows[0]?.id ?? null,
+      maxId: rows.at(-1)?.id ?? null,
+      firstTs: rows[0]?.ts ?? null,
+      lastTs: rows.at(-1)?.ts ?? null,
+      sha256: digest.digest('hex'),
+    }
+  } finally {
+    db.close()
+  }
+}
+
+function isFreshTargetJournal(file) {
+  const db = new DatabaseSync(file, { readOnly: true })
+  try {
+    const integrity = db.prepare('pragma integrity_check').all().map((r) => Object.values(r)[0]).join('; ')
+    if (integrity !== 'ok') return false
+    const rows = db.prepare('select type, ticket, agent, repo from events').all()
+    return rows.length <= FRESH_TARGET_EVENTS.size && rows.every((row) =>
+      FRESH_TARGET_EVENTS.has(row.type) && row.ticket === null && row.agent === null && row.repo === null)
   } finally {
     db.close()
   }
@@ -350,8 +384,9 @@ export async function inventory({ checkout, workspace, host, now = () => new Dat
       files.push({ path: path.join(item.to, rel), size: s.size, mode: modeOf(s), sha256: sha256(file) })
     }
   }
-  const env = readEnvFile(path.join(checkout, 'daemon/.env.daemon'))
-  const pem = env.values.CURIA_GH_APP_KEY_FILE
+  const envFile = path.join(checkout, 'daemon/.env.daemon')
+  const env = readEnvFile(envFile)
+  const pem = envFilePath(envFile, env.values.CURIA_GH_APP_KEY_FILE)
   const secrets = [
     { name: 'discord-bot-token', source: 'daemon/.env.daemon DISCORD_BOT_TOKEN', size: Buffer.byteLength(env.values.DISCORD_BOT_TOKEN ?? '') + 1, mode: '0600' },
     { name: 'github-app.json', source: 'daemon/.env.daemon CURIA_GH_APP_ID + daemon/.curia-app.pem', size: null, mode: '0600' },
@@ -397,15 +432,21 @@ export async function transform({ checkout, workspace, root, manifest, host, now
   for (const b of BOUNDARIES) { const s = lstatOrNull(path.join(root, b)); if (!s || !s.isDirectory()) refusals.push(`${path.join(root, b)} is missing`) }
   const running = curiaContainers(await p.targetContainers()).map((c) => c.name)
   if (running.length) refusals.push(`the target is running: ${running.join(', ')}. Stop the Compose project before the transformation.`)
-  if (lstatOrNull(path.join(root, 'state/events.db'))) refusals.push(`${root}/state/events.db exists. The transformation never overwrites a journal.`)
+  const targetJournal = path.join(root, 'state/events.db')
+  let replaceFreshJournal = false
+  if (lstatOrNull(targetJournal)) {
+    try { replaceFreshJournal = isFreshTargetJournal(targetJournal) } catch { replaceFreshJournal = false }
+    if (!replaceFreshJournal) refusals.push(`${targetJournal} contains operator work or is not a fresh installation journal. The transformation never overwrites it.`)
+  }
   for (const s of manifest?.secrets ?? []) if (lstatOrNull(path.join(root, 'secrets', s.name))) refusals.push(`${root}/secrets/${s.name} exists. The transformation never overwrites a secret, and two live copies of one credential are refused.`)
   const override = lstatOrNull(path.join(checkout, 'config/curia.local.yaml')) ? readOverride(path.join(checkout, 'config/curia.local.yaml')) : { data: {}, unplaced: ['config/curia.local.yaml is missing'] }
   if (override.unplaced.length) refusals.push(`config/curia.local.yaml holds keys with no place in config/config.yaml: ${override.unplaced.join(', ')}`)
   let operator
   try { operator = validateOperatorConfig(override.data) } catch (e) { refusals.push(`the operator configuration is invalid: ${e.message}`) }
-  const env = readEnvFile(path.join(checkout, 'daemon/.env.daemon'))
+  const envFile = path.join(checkout, 'daemon/.env.daemon')
+  const env = readEnvFile(envFile)
   for (const key of REQUIRED_ENV_KEYS) if (!env.values[key]) refusals.push(`daemon/.env.daemon lacks ${key}`)
-  const pemFile = env.values.CURIA_GH_APP_KEY_FILE
+  const pemFile = envFilePath(envFile, env.values.CURIA_GH_APP_KEY_FILE)
   if (pemFile && !lstatOrNull(pemFile)) refusals.push(`CURIA_GH_APP_KEY_FILE names ${pemFile}, which is not there`)
   for (const item of CARRIED) if (!item.optional && !lstatOrNull(at(checkout, workspace, item.from))) refusals.push(`${at(checkout, workspace, item.from)} is missing`)
   if (!lstatOrNull(path.join(workspace, 'credentials/anthropic.json'))) refusals.push(`${workspace}/credentials/anthropic.json is missing`)
@@ -413,6 +454,10 @@ export async function transform({ checkout, workspace, root, manifest, host, now
 
   const written = []
   const put = (rel, text, mode = SECRET_MODE) => { writeAtomically(path.join(root, rel), text, { mode }); written.push(rel) }
+
+  if (replaceFreshJournal) {
+    for (const suffix of ['', '-wal', '-shm']) fs.rmSync(targetJournal + suffix, { force: true })
+  }
 
   // operator intent
   put('config/config.yaml', renderOperatorConfig(operator))
@@ -438,7 +483,7 @@ export async function transform({ checkout, workspace, root, manifest, host, now
   for (const side of ['-wal', '-shm']) if (lstatOrNull(journalTo + side)) fs.rmSync(journalTo + side)
   written.push('state/events.db')
   const journal = inspectJournal(journalTo)
-  if (journal.integrity !== 'ok' || journal.count !== manifest.journal.count || journal.minId !== manifest.journal.minId || journal.maxId !== manifest.journal.maxId) {
+  if (['integrity', 'count', 'minId', 'maxId', 'firstTs', 'lastTs', 'sha256'].some((key) => journal[key] !== manifest.journal[key])) {
     throw new CutoverError(`the copied journal does not match the manifest: ${JSON.stringify(journal)} against ${JSON.stringify(manifest.journal)}`)
   }
   // data, results, attachments, native sessions
@@ -467,7 +512,7 @@ const check = (name, failures, observedOk) => ({ name, status: failures.length ?
 // Every source-to-target comparison the cutover adds on top of `curia doctor`:
 // the boundaries and their modes, the configuration through the contract's
 // reader, secret placement and modes, the Discord facts, the journal against
-// the manifest's bounds, every preserved file's hash, the marker, the absence
+// the manifest's unchanged logical prefix, every preserved file's hash, the marker, the absence
 // of source-layout files inside the root, and the absence of the source paths
 // on this host.
 export async function validate({ root, manifest, sourcePaths = [] }) {
@@ -511,12 +556,14 @@ export async function validate({ root, manifest, sourcePaths = [] }) {
   const journalFailures = []
   let journal = null
   try {
-    journal = inspectJournal(path.join(root, 'state/events.db'))
-    for (const key of ['integrity', 'count', 'minId', 'maxId', 'firstTs', 'lastTs']) {
+    const liveJournal = inspectJournal(path.join(root, 'state/events.db'))
+    journal = inspectJournal(path.join(root, 'state/events.db'), { throughId: manifest.journal.maxId })
+    for (const key of ['integrity', 'count', 'minId', 'maxId', 'firstTs', 'lastTs', 'sha256']) {
       if (journal[key] !== manifest.journal[key]) journalFailures.push(`journal ${key} is ${journal[key]}, the manifest says ${manifest.journal[key]}`)
     }
+    if (liveJournal.maxId < manifest.journal.maxId) journalFailures.push(`journal ends at ${liveJournal.maxId}, before the migrated prefix ends at ${manifest.journal.maxId}`)
   } catch (e) { journalFailures.push(`state/events.db: ${e.message}`) }
-  checks.push(check('journal', journalFailures, journal ? `integrity ${journal.integrity}, ${journal.count} rows, ids ${journal.minId} to ${journal.maxId}` : ''))
+  checks.push(check('journal', journalFailures, journal ? `migrated prefix unchanged: ${journal.count} rows, ids ${journal.minId} to ${journal.maxId}` : ''))
 
   const files = []
   for (const f of manifest.files) {
@@ -536,15 +583,8 @@ export async function validate({ root, manifest, sourcePaths = [] }) {
   checks.push(check('migration', marker, `state/${MIGRATION_FILE} names ${manifest.source.host} at ${manifest.source.commit.slice(0, 7)}`))
 
   const layout = []
-  for (const rel of ['daemon', 'deploy', 'config/curia.local.yaml', 'config/curia.yaml', 'work/credentials', 'work/home', 'work/overseer', 'state/tokens', 'state/previews.json', 'state/deploy.log']) {
+  for (const rel of ['daemon', 'deploy', 'config/curia.local.yaml', 'config/curia.yaml', 'work/credentials', 'work/home', 'work/overseer', 'state/deploy.log']) {
     if (lstatOrNull(path.join(root, rel))) layout.push(`${rel} is a source-layout path inside the root`)
-  }
-  const workCfg = path.join(root, 'work/cfg')
-  if (lstatOrNull(workCfg)) {
-    for (const rel of walkAll(workCfg)) {
-      const base = path.basename(rel)
-      if (base === '.credentials.json' || rel.split(path.sep).includes('gh')) layout.push(`work/cfg/${rel} is a runtime credential copy`)
-    }
   }
   checks.push(check('source-layout', layout, 'no source-layout path inside the root'))
 
@@ -552,16 +592,6 @@ export async function validate({ root, manifest, sourcePaths = [] }) {
   checks.push(check('source-paths', present.map((p) => `${p} exists on this host`), sourcePaths.length ? `${sourcePaths.join(', ')} absent` : 'no source path named'))
 
   return { checks, ok: checks.every((c) => c.status === 'passed') }
-}
-
-function walkAll(dir, base = dir) {
-  const out = []
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    const full = path.join(dir, entry.name)
-    if (entry.isDirectory()) out.push(...walkAll(full, base))
-    else out.push(path.relative(base, full))
-  }
-  return out
 }
 
 // ---------------------------------------------------------------------------
