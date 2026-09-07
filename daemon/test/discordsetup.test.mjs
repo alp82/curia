@@ -484,6 +484,23 @@ describe('the Discord card (#876)', () => {
   })
 
   describe('channel authority', () => {
+    test('missing server permissions offer authorization for the same bot and server with every required permission', async () => {
+      connected()
+      const { verify } = setupOver(happy({
+        '/users/@me/guilds': [200, [guildRow({ permissions: String(INVITE_PERMISSIONS & ~(1n << 34n)) })]],
+      }))
+      const answer = await verify({ progress: {} })
+      assert.equal(answer.ok, false)
+      assert.match(answer.failed, /Manage Threads/)
+      assert.match(answer.action, /Update bot permissions/)
+      const url = new URL(answer.detail.permission_repair_url)
+      assert.equal(url.origin, 'https://discord.com')
+      assert.equal(url.searchParams.get('client_id'), APP)
+      assert.equal(url.searchParams.get('guild_id'), GUILD)
+      assert.equal(url.searchParams.get('disable_guild_select'), 'true')
+      assert.equal(url.searchParams.get('permissions'), String(INVITE_PERMISSIONS))
+      assert.equal(url.searchParams.get('scope'), 'bot applications.commands')
+    })
     // The bits are Discord's own, from its permissions table. The invite link
     // asks for every one of them, so the bot added through the card holds
     // what the bridge and the agents use in the channel and its threads.
@@ -514,6 +531,7 @@ describe('the Discord card (#876)', () => {
       assert.equal(answer.ok, false)
       assert.equal(answer.detail.stage, 'authority')
       assert.match(answer.failed, /can't Manage Webhooks in #curia/)
+      assert.equal(answer.detail.permission_repair_url, undefined, 'a channel denial is not fixed by server authorization')
       assert.match(answer.action, /Allow Manage Webhooks for the bot in #curia's permissions/)
       assert.match(answer.action, /Manage Webhooks .*speaker identity/i)
       assert.deepEqual(lintReply(answer.action), [])

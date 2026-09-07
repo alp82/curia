@@ -478,6 +478,13 @@ export class DiscordSetup {
     const held = channelPermissions({ base: row.permissions, overwrites: channel.permission_overwrites ?? [], roles, botId: bot.id, guildId: guild.id })
     const missing = CHANNEL_PERMISSIONS.filter((p) => !(held & p.bit)).map((p) => p.name)
     if (missing.length) {
+      const base = BigInt(row.permissions ?? 0)
+      const serverMissing = CHANNEL_PERMISSIONS.filter((p) => missing.includes(p.name) && !(base & ADMINISTRATOR) && !(base & p.bit)).map((p) => p.name)
+      if (serverMissing.length) {
+        facts.permission_repair_url = `${inviteUrl(appId)}&guild_id=${guild.id}&disable_guild_select=true`
+        return fail('authority', `curia can't ${list(missing, 'or')} in #${channelFacts.name}`,
+          'Select Update bot permissions and approve the requested permissions in Discord, then try again. You don’t need to remove the bot. Channel overrides may still need a separate change.', facts)
+      }
       return fail('authority', `curia can't ${list(missing, 'or')} in #${channelFacts.name}`, permissionsAction(missing, channelFacts.name), facts)
     }
 

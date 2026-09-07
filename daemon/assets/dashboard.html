@@ -5458,6 +5458,7 @@ function setupDiscord(card, progress) {
   const bot = d.bot ? `<div class="rows"><div class="row"><span class="key grow">Bot</span><span>${esc(d.bot.username)}${d.invite_url ? ` · <a href="${esc(d.invite_url)}" target="_blank" rel="noopener">Add the bot to a server</a>` : ""}</span></div></div>` : "";
   const problem = d.error && (!stage || stage === "rate_limit") ? `<p class="qhint">${esc(d.error)}</p>` : "";
   return `${bot}${problem}
+    ${stage === "authority" && detail?.permission_repair_url ? `<p><a class="btn primary" href="${esc(detail.permission_repair_url)}" target="_blank" rel="noopener">Update bot permissions</a></p><p class="qhint">Approve Curia’s required permissions in Discord, then return here and select Try again. You don’t need to remove the bot or replace its token.</p>` : ""}
     ${tokenFirst ? setupDiscordTokenForm(d, true) : ""}
     ${stage === "commands" ? setupDiscordCommandsForm() : ""}
     ${setupDiscordChannelForm(d, progress, detail)}
