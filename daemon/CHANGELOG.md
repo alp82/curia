@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.15.0](https://github.com/alp82/curia/compare/v0.14.0...v0.15.0) (2026-09-07)
+
+
+### Features
+
+* reconnect existing GitHub Apps from setup ([#999](https://github.com/alp82/curia/issues/999)) ([11ad893](https://github.com/alp82/curia/commit/11ad893b23cd6fcbb3b1c9ce914b0a2da496a145))
+
+
+### Bug Fixes
+
+* harden the live cutover retry ([#998](https://github.com/alp82/curia/issues/998)) ([b46ce92](https://github.com/alp82/curia/commit/b46ce928484df6a4e0fd049586a868502e1ffa10))
+
 ## [0.14.0](https://github.com/alp82/curia/compare/v0.13.0...v0.14.0) (2026-09-03)
 
 
