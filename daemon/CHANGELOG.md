@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.1](https://github.com/alp82/curia/compare/v0.15.0...v0.15.1) (2026-09-07)
+
+
+### Bug Fixes
+
+* offer Discord permission recovery from setup ([#1001](https://github.com/alp82/curia/issues/1001)) ([ae5835a](https://github.com/alp82/curia/commit/ae5835ad6c60677e19eb0f61af1f3799bf0e0b76))
+
 ## [0.15.0](https://github.com/alp82/curia/compare/v0.14.0...v0.15.0) (2026-09-07)
 
 
