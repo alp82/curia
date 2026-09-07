@@ -52,6 +52,33 @@ function loadPage({ fetchImpl = () => new Promise(() => {}), confirmImpl = undef
   return ctx
 }
 
+test('existing GitHub App recovery shows a secret form only when needed and submits without saving the secret in page state', async () => {
+  const calls = []
+  const ctx = loadPage({ fetchImpl: async (url, init) => {
+    calls.push({ url, body: JSON.parse(init.body) })
+    return { ok: true, json: async () => ({ url: 'https://github.com/login/oauth/authorize?state=fixture' }) }
+  } })
+  ctx.URL = URL
+  ctx.location.origin = 'https://box.example:8445'
+  ctx.location.assign = (url) => { ctx.destination = url }
+  const card = { state: 'failed', detail: { authorization: { credentials_required: true } } }
+  const html = ctx.setupGitHubInstall(card, card.detail, null)
+  assert.match(html, /Connect existing App/)
+  assert.match(html, /type="password"/)
+  assert.match(html, /https:\/\/box.example:8445\/api\/github-app\/authorize/)
+  assert.doesNotMatch(html, /Manage installation|Reinstall/)
+  const ready = ctx.setupGitHubInstall(card, { authorization: { credentials_required: false } }, null)
+  assert.match(ready, /onclick="doGitHubAuthorize\(false\)">Authorize GitHub/)
+  const secret = { value: 'fixture-secret' }
+  ctx.document.getElementById = (id) => id === 'setup-github-client-secret' ? secret
+    : id === 'setup-github-client-id' ? { value: 'Iv1.fixture' } : null
+  await ctx.doGitHubAuthorize(true)
+  assert.deepEqual(calls, [{ url: '/api/setup/github/authorize', body: { client_id: 'Iv1.fixture', client_secret: 'fixture-secret' } }])
+  assert.equal(secret.value, '')
+  assert.equal(JSON.stringify(ctx.UI).includes('fixture-secret'), false)
+  assert.equal(ctx.destination, 'https://github.com/login/oauth/authorize?state=fixture')
+})
+
 function loadPollingPage({ visibilityState = 'visible', mount = false } = {}) {
   const listeners = new Map()
   const timers = new Map()

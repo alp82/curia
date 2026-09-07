@@ -66,7 +66,13 @@ The card connects when steps 1 to 6 pass. A connected panel shows `Approvals pos
 
 A failed check is a real failure: GitHub refused the App's credential, a token failed to mint, an installation can't be read, your authorization is missing or GitHub refuses it and Curia can't refresh it, or a watched repository lost its coverage, for example `curia's GitHub App is not installed on alp82` with `Install the App on alp82 from the link in this panel and grant it alp82/curia, then try again.` The failure names only the owners this read found missing. The panel keeps the guide at the step the failure belongs to, so the install link or the repository list stays at hand beside the failure. Do what the action says and select **Try again**, which runs the whole verification again. The panel shows the result of the latest read only: a failure from an earlier read disappears when the new read connects the card.
 
-A missing or refused authorization reads "curia holds no GitHub authorization for you" (or the refusal GitHub gave) with `Reinstall the App from the link in this panel, which authorizes curia as you again, then try again.` The panel keeps the install link at hand. Installing the App again on GitHub, or changing its installation, repeats the authorization, and the card connects on the next read.
+A missing or refused authorization offers **Authorize GitHub**. Select it, approve access on GitHub, and return to Setup. Your App and repository installations stay in place.
+
+### Connect an existing App after migration
+
+If the migrated App lacks OAuth credentials, the GitHub card shows **Connect existing App**. Open the linked GitHub App settings and select your App. Add the Redirect URI shown in Curia and save. Copy the Client ID, generate a client secret, and enter both in Curia. Select **Save and authorize GitHub**, then approve access on GitHub. Curia stores the credentials with owner-only permissions and keeps the App's existing private key. No terminal command or manual file edit is needed.
+
+If the saved credentials or callback need correcting, expand **Update App credentials or callback**. The client secret is never returned by the service or saved in browser storage. The authorization link expires after ten minutes and is bound to the tailnet identity that opened it. An expired link requires a new **Authorize GitHub** press.
 
 The card remembers only the App name (`progress.github.app_name`) for a reopen. The App id, key, and client secret live in `secrets/github-app.json`, your authorization in `secrets/github-operator.json`, and nowhere else.
 

@@ -140,13 +140,15 @@ export class OperatorAuthorization {
   // with a one-use code. The code is exchanged for the token, the token is
   // asked who it stands for, and both facts land in the secret file. A
   // failure anywhere stores nothing.
-  async authorize({ code, setupAction = null } = {}) {
+  async authorize({ code, setupAction = null, codeVerifier = null, redirectUri = null } = {}) {
     const value = String(code ?? '').trim()
     if (!AUTHORIZATION_CODE_RE.test(value)) throw new Error('GitHub sent no usable authorization code back. Reinstall the App from the GitHub card of Setup')
     const client = this.#client()
     let payload
     try {
-      payload = await tokenCall({ client_id: client.id, client_secret: client.secret, code: value }, { fetchImpl: this.fetchImpl })
+      payload = await tokenCall({ client_id: client.id, client_secret: client.secret, code: value,
+        ...(codeVerifier ? { code_verifier: codeVerifier, redirect_uri: redirectUri } : {}),
+      }, { fetchImpl: this.fetchImpl })
     } catch (e) {
       throw new Error(`GitHub refused the authorization code (${e.message}). Reinstall the App from the GitHub card of Setup`)
     }
@@ -156,6 +158,11 @@ export class OperatorAuthorization {
     this.#write(record)
     this.log(`GitHub authorized curia as ${login}${setupAction ? ` (${setupAction})` : ''}${record.expires_at ? `, token good until ${record.expires_at}` : ''}`)
     return { login }
+  }
+
+  recoveryStatus() {
+    const app = JSON.parse(readSecret(this.root, APP_SECRET) ?? 'null')
+    return { credentials_required: !app?.client_id || !app?.client_secret }
   }
 
   async #whoIs(token) {

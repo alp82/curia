@@ -1132,6 +1132,29 @@ describe('the operator verbs (#266)', () => {
     assert.equal(completed.text.includes('PRIVATE KEY'), false)
   })
 
+  test('existing App authorization binds the callback and operator and never echoes invalid secrets', async () => {
+    reply['/github-app/reconnect'] = [200, { url: 'https://github.com/login/oauth/authorize?state=fixture' }]
+    const result = await press('/api/setup/github/authorize', {
+      client_id: 'Iv1.fixture', client_secret: 'fixture-secret', redirect_uri: 'https://evil.example/', operator: 'other@example.com',
+    })
+    assert.equal(result.status, 200)
+    assert.deepEqual(sent('/github-app/reconnect').body, { client_id: 'Iv1.fixture', client_secret: 'fixture-secret',
+      redirect_uri: `${ORIGIN}/api/github-app/authorize`, operator: 'alp@example.com' })
+    calls = []
+    const invalid = await press('/api/setup/github/authorize', { client_id: 'Iv1.fixture', client_secret: 'secret with spaces' })
+    assert.equal(invalid.status, 409)
+    assert.equal(invalid.text.includes('secret with spaces'), false)
+    assert.equal(calls.length, 0)
+    const denied = await press('/api/setup/github/authorize', {}, { origin: 'https://evil.example' })
+    assert.equal(denied.status, 403)
+    const callback = '/github-app/authorize?code=reconnect&installation_id=&setup_action=&state=fixture&operator=alp%40example.com'
+    reply[callback] = [200, { ok: true, login: 'alp', screen: 'setup' }]
+    const completed = await req(surface.port, '/api/github-app/authorize?code=reconnect&state=fixture&operator=other', { headers: served() })
+    assert.equal(completed.status, 303)
+    assert.equal(completed.headers.location, '/#setup')
+    assert.equal(sent(callback).method, 'GET')
+  })
+
   // The Setup screen (#875) starts the same flow, and GitHub's redirect lands
   // back on the screen that started it. The screen is a named field of this
   // surface, never a caller-composed location.

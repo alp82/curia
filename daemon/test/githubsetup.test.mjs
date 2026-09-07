@@ -310,7 +310,7 @@ describe('the operator authorization on the GitHub card (#891)', () => {
     assert.equal(answer.secondary, 'No open tickets · Issues, pull requests, and contents ready · approvals as alp')
   })
 
-  test('a missing or refused authorization fails the card at the install step, with the reinstall as the action', async () => {
+  test('a missing authorization offers direct authorization, and migrated credentials offer the recovery form', async () => {
     const gh = github(routes())
     const m = new TokenMinter({ appId: '42', key, fetchImpl: gh.fetchImpl })
     const operator = { verify: async () => { throw new Error('curia holds no GitHub authorization for you, so it cannot post the approval as you. Reinstall the App from the GitHub card of Setup, which authorizes curia as you again') } }
@@ -318,11 +318,16 @@ describe('the operator authorization on the GitHub card (#891)', () => {
     const answer = await verify({ progress: {} })
     assert.equal(answer.ok, false)
     assert.equal(answer.unconnected, undefined, 'a lost authorization is a real failure')
-    assert.match(answer.failed, /holds no GitHub authorization for you/)
-    assert.match(answer.action, /Reinstall the App from the link in this panel/)
+    assert.match(answer.failed, /Authorize Curia/)
+    assert.match(answer.action, /Select Authorize GitHub/)
     assert.equal(answer.detail.step, 'install')
     assert.equal(answer.detail.install_url, 'https://github.com/settings/installations')
     assert.equal(gh.calls.some((c) => c.route.startsWith('/repos/')), false, 'the tickets are not read past a failed authorization')
+    operator.recoveryStatus = () => ({ credentials_required: true })
+    const migrated = await verify({ progress: {} })
+    assert.equal(migrated.detail.authorization.credentials_required, true)
+    assert.match(migrated.action, /Connect your existing App/)
+    assert.doesNotMatch(migrated.failed + migrated.action, /[Rr]einstall/)
   })
 
   test('with no installation yet the authorization is not asked for: the install is what produces it', async () => {
