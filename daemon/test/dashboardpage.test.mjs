@@ -5406,6 +5406,17 @@ describe('integration setup (#874)', () => {
   // #891: a read never registers the commands. A card that failed on them
   // offers one press, Register commands, and never the invite link as the
   // fix; the press lands on the sidecar with no field and re-reads the frame.
+  test('missing server permissions show a repair link, but channel overrides do not', () => {
+    const detail = { stage: 'authority', permission_repair_url: 'https://discord.com/oauth2/authorize?client_id=555&permissions=329101986896&guild_id=333&disable_guild_select=true' }
+    page.UI.setup.discord = DISCORD_OVERVIEW()
+    const card = { state: 'failed', detail }
+    const html = page.setupDiscord(card, {})
+    assert.match(html, /href="https:\/\/discord.com\/oauth2\/authorize\?client_id=555&amp;permissions=329101986896&amp;guild_id=333&amp;disable_guild_select=true"[^>]*>Update bot permissions</)
+    assert.match(text(html), /You don’t need to remove the bot or replace its token/)
+    delete detail.permission_repair_url
+    assert.doesNotMatch(page.setupDiscord(card, {}), /Update bot permissions/)
+  })
+
   test('a Discord card that failed on the commands offers Register commands, and the press registers once, then verifies fresh', async () => {
     page.setup = SETUP({ step: 'discord', cards: { discord: {
       state: 'failed', badge: 'Action required',

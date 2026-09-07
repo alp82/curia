@@ -120,6 +120,8 @@ While the panel waits, it reads the bot's servers again on the Setup page's refr
 
 ### Choose the channel
 
+If verification finds missing server permissions, select **Update bot permissions**. The link opens Discord authorization for the existing bot and selected server, requesting the full permission set. Approve the permissions, return to Setup, and select **Try again**. You don't need to remove the bot or replace its token. A channel override can still deny a permission after authorization; in that case, Setup names the channel permission to change.
+
 1. Select the server.
 2. Enter the command channel's name. The field suggests `curia`, but any name works, and you can change it before anything exists.
 3. Select **Connect channel**.
