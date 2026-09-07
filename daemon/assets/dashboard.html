@@ -4704,6 +4704,38 @@ async function doGitHubAppSetup() {
 /* The GitHub card's one press (#875): the name is the card's safe checkpoint
    for a reopen, and the handoff is the same manifest flow the Settings
    section runs, told to land back on Setup. */
+async function doGitHubAuthorize(withCredentials) {
+  if (UI.setup.githubAuthorizing) return;
+  const body = {};
+  if (withCredentials) {
+    const secret = document.getElementById("setup-github-client-secret");
+    body.client_id = document.getElementById("setup-github-client-id")?.value?.trim() || "";
+    body.client_secret = secret?.value?.trim() || "";
+    if (!body.client_id || !body.client_secret) return refuse("github-authorize", "Enter the Client ID and client secret from your App settings.");
+    if (secret) secret.value = "";
+  }
+  UI.setup.githubAuthorizing = true;
+  UI.act.said = null;
+  render();
+  try {
+    const response = await fetch("/api/setup/github/authorize", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+    });
+    delete body.client_secret;
+    const out = await response.json();
+    if (!response.ok || out.error) throw new Error(out.error || "Could not start GitHub authorization.");
+    const destination = new URL(out.url);
+    if (destination.origin !== "https://github.com" || destination.pathname !== "/login/oauth/authorize") throw new Error("Curia returned an invalid GitHub authorization address.");
+    location.assign(destination.toString());
+  } catch (error) {
+    UI.act.said = { key: "github-authorize", ok: false, text: error.message };
+  } finally {
+    delete body.client_secret;
+    UI.setup.githubAuthorizing = false;
+    render();
+  }
+}
+
 async function doSetupGitHubApp() {
   const name = document.getElementById("setup-github-app-name")?.value?.trim();
   if (!name) return refuse("github-app", "Enter a GitHub App name.");
@@ -5191,7 +5223,7 @@ function setupCardPending(card) {
    form. */
 var SETUP_CONTENT = {
   github: {
-    content: (card, progress, p) => `<p>Curia creates a dedicated GitHub App. You review and approve it on GitHub, then install it for at least one repository owner.</p>
+    content: (card, progress, p) => `<p>${card.detail?.authorization ? "Your GitHub App is installed. Connect it to your account to finish setup." : "Curia creates a dedicated GitHub App. You review and approve it on GitHub, then install it for at least one repository owner."}</p>
       <div class="setup-note">You sign in and grant access on GitHub. Curia never sees your password or browser session.</div>
       ${card.state === "unavailable" ? setupUnavailable(card) : setupGitHub(card, progress, p)}`,
   },
@@ -5250,6 +5282,7 @@ function setupGitHub(card, progress, p) {
       ? `<div class="rows"><div class="row"><span class="key grow">Approvals post as</span><span>${esc(detail.operator.login)}</span></div></div>` : "";
     return `${identity}${approver}${owners ? `<div class="rows">${owners}</div>` : ""}${found}${setupGitHubRepos(card, detail)}`;
   }
+  if (detail?.authorization) return `${identity}${setupGitHubInstall(card, detail, app)}`;
   const guide = setupStepper(card);
   const step = setupStepAt(card)?.n ?? 1;
   if (step === 1) {
@@ -5280,6 +5313,21 @@ function setupGitHubOwners(detail, app) {
     <span><a href="${esc(links.get(owner.owner) || installUrl)}" target="_blank" rel="noopener">${owner.installed ? "Manage installation" : `Install on ${esc(owner.owner)}`}</a></span></div>`).join("");
 }
 function setupGitHubInstall(card, detail, app) {
+  if (detail?.authorization) {
+    const settings = "https://github.com/settings/apps";
+    const callback = new URL("/api/github-app/authorize", location.origin).toString();
+    const form = `<p>Open your <a href="${esc(settings)}" target="_blank" rel="noopener">GitHub App settings</a> and select ${esc(app?.app?.name || app?.app?.slug || "your existing App")}. Add this Redirect URI and save:</p>
+      <p><input type="text" readonly aria-label="GitHub redirect URI" value="${esc(callback)}" onclick="this.select()" style="width:100%"></p>
+      <p>Copy the Client ID, generate a client secret, and enter them here. Keep your existing App and repository installations.</p>
+      <p><label for="setup-github-client-id">Client ID</label><br><input id="setup-github-client-id" type="text" autocomplete="off" style="width:100%"></p>
+      <p><label for="setup-github-client-secret">Client secret</label><br><input id="setup-github-client-secret" type="password" autocomplete="off" style="width:100%"></p>
+      <button class="btn primary" onclick="doGitHubAuthorize(true)">Save and authorize GitHub</button>`;
+    const busy = UI.setup.githubAuthorizing;
+    return `<h3>Connect existing App</h3><p>Authorize Curia to post review approvals as your GitHub account.</p>
+      ${busy ? `<p role="status">Opening GitHub authorization…</p>` : detail.authorization.credentials_required ? form :
+        `<button class="btn primary" onclick="doGitHubAuthorize(false)">Authorize GitHub</button><details ${UI.setup.githubCredentialEdit ? "open" : ""} ontoggle="UI.setup.githubCredentialEdit=this.open"><summary>Update App credentials or callback</summary>${form}</details>`}
+      ${said("github-authorize")}`;
+  }
   const installUrl = detail?.install_url || "https://github.com/settings/installations";
   const owners = setupGitHubOwners(detail, app);
   const every = payload?.poll_interval_s ?? 5;
@@ -6245,11 +6293,12 @@ function setupPanel(card, p) {
   }
   const slot = SETUP_CONTENT[card.key];
   const progress = setup?.progress?.[card.key] ?? {};
-  const problem = card.state === "failed"
+  const recoveringGitHub = card.key === "github" && card.detail?.authorization;
+  const problem = card.state === "failed" && !recoveringGitHub
     ? `<div class="setup-problem"><b>${esc(card.error?.failed)}</b>${esc(card.error?.action)}</div>`
     : "";
   const busy = UI.setup.busy;
-  const tryAgain = card.state === "failed"
+  const tryAgain = card.state === "failed" && !recoveringGitHub
     ? `<button class="btn primary" ${busy ? "disabled" : ""} onclick="retrySetup()">${busy ? "Verifying…" : "Try again"}</button>`
     : "";
   /* One Continue per connected panel (#891): it selects the next card that

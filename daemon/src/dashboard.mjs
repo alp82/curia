@@ -1172,6 +1172,22 @@ export class DashboardSurface {
           return out
         })
       }
+      if (url.pathname === '/api/setup/github/authorize') {
+        return this.#verb(res, async () => {
+          const b = await this.#body(req)
+          const credentials = {}
+          if (b.client_id !== undefined || b.client_secret !== undefined) {
+            if (typeof b.client_id !== 'string' || !/^[A-Za-z0-9_.-]{1,128}$/.test(b.client_id) ||
+                typeof b.client_secret !== 'string' || !/^[A-Za-z0-9_-]{1,255}$/.test(b.client_secret)) {
+              throw refuse('Enter the Client ID and client secret from your GitHub App settings.')
+            }
+            Object.assign(credentials, { client_id: b.client_id, client_secret: b.client_secret })
+          }
+          const redirect_uri = new URL('api/github-app/authorize', await this.link()).toString()
+          return this.#daemon({ method: 'POST', path: '/github-app/reconnect',
+            body: { ...credentials, redirect_uri, operator: String(req.headers[LOGIN_HEADER] ?? '').toLowerCase() }, accept: [200, 400] })
+        })
+      }
       if (url.pathname === '/api/github-app/start') {
         return this.#verb(res, async () => {
           const b = await this.#body(req)
@@ -1546,6 +1562,10 @@ export class DashboardSurface {
       q.set('code', String(url.searchParams.get('code') ?? ''))
       q.set('installation_id', String(url.searchParams.get('installation_id') ?? ''))
       q.set('setup_action', String(url.searchParams.get('setup_action') ?? ''))
+      if (url.searchParams.has('state')) {
+        q.set('state', String(url.searchParams.get('state') ?? ''))
+        q.set('operator', String(req.headers[LOGIN_HEADER] ?? '').toLowerCase())
+      }
       return this.#daemon({ path: `/github-app/authorize?${q}`, accept: [200, 400] }).then(
         (out) => {
           if (out.error) return this.#json(res, 400, out)

@@ -60,6 +60,7 @@ import { hasSession } from './tmux.mjs'
 import { retiredAgentTokenKeys } from './workspace.mjs'
 import { APP_ID_KEY, APP_KEY_FILE_KEY, APP_SECRET, GitHubAppSetup, appNameTaken, installUrlFor, minterFrom, suggestedAppName } from './githubapp.mjs'
 import { OperatorAuthorization } from './githuboperator.mjs'
+import { GitHubReconnect } from './githubreconnect.mjs'
 import { CodexCredentialBroker, AnthropicCredentialStore } from './credentials.mjs'
 import { credentialsInEnvironment, readSecret, secretPath, secretsStatus } from '../../cli/src/secrets.mjs'
 import { readDiscordSettings, discordSettingsFromEnv, discordSettingsPath } from './discordsettings.mjs'
@@ -474,6 +475,7 @@ log(`claims assign ${curiaConfig.dispatch.claim_login} (dispatch.claim_login) â€
 // `secrets/github-operator.json` and refreshed by the module. The source
 // deployment wires no source and keeps its host login for that one call.
 const operatorAuth = INSTALL_ROOT ? new OperatorAuthorization({ root: INSTALL_ROOT, log }) : null
+const githubReconnect = INSTALL_ROOT ? new GitHubReconnect({ root: INSTALL_ROOT, authorization: operatorAuth }) : null
 setOperatorTokenSource(operatorAuth ? () => operatorAuth.token() : null)
 if (operatorAuth) {
   const auth = operatorAuth.status()
@@ -3477,6 +3479,16 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
     }
   }
 
+  if (url.pathname === '/github-app/reconnect' && req.method === 'POST') {
+    try {
+      if (!githubReconnect) throw new Error('GitHub authorization recovery requires an installed Curia root.')
+      const { client_id, client_secret, redirect_uri, operator } = await readBody(req)
+      return json(200, githubReconnect.start({ client_id, client_secret, redirect_uri, operator }))
+    } catch {
+      return json(400, { error: 'Could not start authorization. Check the Client ID and client secret in your GitHub App settings, then try again.' })
+    }
+  }
+
   if (url.pathname === '/github-app/start' && req.method === 'POST') {
     const { name, redirect_url: redirectUrl, action_id: actionId, screen, node } = await readBody(req)
     if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/.test(String(actionId ?? ''))) {
@@ -3589,9 +3601,11 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
     if (!operatorAuth) return json(400, { error: 'this deployment posts approvals on its host gh login, and takes no operator authorization' })
     const setupAction = String(url.searchParams.get('setup_action') ?? '').trim() || null
     try {
-      const { login } = await operatorAuth.authorize({ code: url.searchParams.get('code'), setupAction })
+      const { login } = url.searchParams.has('state')
+        ? await githubReconnect.complete({ code: url.searchParams.get('code'), state: url.searchParams.get('state'), operator: url.searchParams.get('operator') })
+        : await operatorAuth.authorize({ code: url.searchParams.get('code'), setupAction })
       reduction.journal('github_operator_authorized', { login, setup_action: setupAction })
-      return json(200, { ok: true, login, screen })
+      return json(200, { ok: true, login, screen: url.searchParams.has('state') ? 'setup' : screen })
     } catch (e) {
       reduction.journal('github_operator_authorization_failed', { error: e.message, setup_action: setupAction })
       return json(400, { error: e.message, screen })

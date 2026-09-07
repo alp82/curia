@@ -174,10 +174,15 @@ export function githubVerifier({ minter, watch, operator = () => null, fetchImpl
       try {
         detail.operator = await auth.verify()
       } catch (e) {
+        detail.authorization = auth.recoveryStatus?.() ?? { credentials_required: false }
         return {
           ok: false,
-          failed: e.message,
-          action: 'Reinstall the App from the link in this panel, which authorizes curia as you again, then try again.',
+          failed: detail.authorization.credentials_required
+            ? 'Your existing App needs its OAuth credentials to authorize your account.'
+            : 'Authorize Curia to post review approvals as your GitHub account.',
+          action: detail.authorization.credentials_required
+            ? 'Connect your existing App using the form in this panel. Your installations stay in place.'
+            : 'Select Authorize GitHub in this panel to grant access to your account.',
           detail,
         }
       }
