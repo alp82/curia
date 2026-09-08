@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.2](https://github.com/alp82/curia/compare/v0.15.1...v0.15.2) (2026-09-08)
+
+
+### Bug Fixes
+
+* recover Test run map updates without redispatch ([#1003](https://github.com/alp82/curia/issues/1003)) ([592bac8](https://github.com/alp82/curia/commit/592bac841ec390c6e323d75cef321b879d9d1e40))
+
 ## [0.15.1](https://github.com/alp82/curia/compare/v0.15.0...v0.15.1) (2026-09-07)
 
 
