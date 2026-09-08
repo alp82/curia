@@ -95,6 +95,30 @@ async function waitFor(cond, timeoutMs = 10_000) {
   throw new Error('timed out waiting for a condition')
 }
 
+test('map-only recovery refuses open or reparented tickets and repairs a closed ticket without dispatching it', async () => {
+  let state = 'open'
+  let parent = 147
+  let body = '## Decisions so far\n\n## Not yet specified\n'
+  let writes = 0
+  const d = makeDispatcher({
+    fetchIssue: async (_, n) => Number(n) === 42
+      ? { number: 42, title: 'Done', state, parent_issue_url: `https://api.github.com/repos/o/r/issues/${parent}` }
+      : { number: n, labels: [{ name: 'wayfinder:map' }], body },
+    setIssueBody: async (_, n, next) => { assert.equal(n, 147); body = next; writes++ },
+  })
+  const request = { repo: 'o/r', ticket: 42, map: 147, summary: 'Merged' }
+  await assert.rejects(d.repairTicketMap(request), /closed ticket/)
+  state = 'closed'
+  parent = 148
+  await assert.rejects(d.repairTicketMap(request), /no longer belongs/)
+  assert.equal(writes, 0)
+  parent = 147
+  assert.equal((await d.repairTicketMap(request)).state, 'appended')
+  assert.equal((await d.repairTicketMap(request)).state, 'present')
+  assert.equal(writes, 1)
+  assert.deepEqual(calls, [], 'no claim, comment, close, or dispatch work')
+})
+
 function makeDispatcher(deps = {}, { issue = MAP_ISSUE, routing = ROUTING } = {}) {
   const root = path.join(tmp, 'work')
   const dataDir = path.join(tmp, 'data')

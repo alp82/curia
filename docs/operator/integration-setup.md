@@ -432,7 +432,8 @@ A run fails when a write to GitHub fails while the map is made, when the ticket 
 
 - **Frontier discovery** fails when Curia couldn't create the map or a ticket, when the frontier can't be read, or when the ticket isn't listed as takeable. Check the GitHub card and the repository, then select **Try again**. The retry creates what is missing on the same map and reads the frontier again.
 - **Dispatch** fails when the dispatcher refuses the ticket, for example over a clone an earlier agent left on disk, or a missing model credential. The cause is the dispatcher's own sentence. Fix what it names, then select **Try again**. The retry dispatches the same ticket again.
-- **Every later ticket leg** fails when the agent ends before that leg: it exited, died, or was cancelled. Read the ticket's thread in the command channel, fix what stopped the agent, then select **Try again**. The retry dispatches the same ticket again, and only the new dispatch's legs count.
+- **Escalation through ticket resolution** fails when the agent ends before that leg: it exited, died, or was cancelled. Read the ticket's thread in the command channel, fix what stopped the agent, then select **Try again**. The retry dispatches the same ticket again, and only the new dispatch's legs count.
+- **Map update** can fail after the ticket was merged and closed. Select **Try again** to repair only the map pointer. Curia checks that the closed ticket still belongs to this map, appends the pointer if missing, and verifies it before advancing. The completed ticket isn't reopened or dispatched again. A failed repair names its error and leaves the run failed; retrying doesn't duplicate a pointer already written.
 - **Map closed** fails when you answer **Keep map open**. Close the map on GitHub, then select **Try again**. The retry reads the map again.
 
 A rejected review is not a failure. The agent takes your feedback, commits again, and asks for review again on the same pull request.

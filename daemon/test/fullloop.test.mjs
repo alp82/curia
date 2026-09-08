@@ -194,6 +194,72 @@ describe('the Test run as the installation acceptance (#882, #891)', () => {
     assert.equal(REHEARSAL_LABEL, 'rehearsal')
   })
 
+  test('a completed ticket with no map receipt repairs the map without redispatch and survives a restart', async () => {
+    const repairs = []
+    const repairMap = async (request) => { repairs.push(request); return { state: 'appended', number: MAP } }
+    loop = build({ repairMap })
+    await loop.start(gate())
+    await loop.settled()
+    cleanPass(j, tracker)
+    const receipt = j.rows.find((r) => r.type === 'ticket_resolved')
+    receipt.body = JSON.stringify({ ...JSON.parse(receipt.body), map: 'none' })
+    const before = loop.status()
+    assert.equal(before.failed.leg, 'map_update')
+    assert.match(before.failed.cause, /map.*none/i)
+    assert.doesNotMatch(before.failed.cause, /agent ended/)
+    await loop.retry()
+    await loop.settled()
+    assert.equal(repairs.length, 1)
+    assert.equal(repairs[0].ticket, T1)
+    assert.equal(repairs[0].map, MAP)
+    assert.equal(dispatched.filter((t) => t === `o/r#${T1}`).length, 1)
+    const restarted = build({ repairMap })
+    assert.equal(restarted.status().tickets[0].state, 'complete')
+    assert.equal(tracker.issues.get(T1).state, 'closed')
+  })
+
+  test('an unsuccessful map repair stays failed, and concurrent retries share one verified repair', async () => {
+    let calls = 0
+    let release
+    let fail = true
+    const repairMap = async () => {
+      calls++
+      if (fail) return { state: 'append-unverified', number: MAP }
+      await new Promise((resolve) => { release = resolve })
+      return { state: 'present', number: MAP }
+    }
+    loop = build({ repairMap })
+    await loop.start(gate())
+    await loop.settled()
+    cleanPass(j, tracker)
+    const receipt = j.rows.find((r) => r.type === 'ticket_resolved')
+    receipt.body = JSON.stringify({ ...JSON.parse(receipt.body), map: 'none' })
+    const failed = await loop.retry()
+    assert.equal(failed.failed.leg, 'map_update')
+    assert.match(failed.failed.cause, /append-unverified/)
+    assert.equal(j.rows.filter((r) => r.type === 'full_loop_map_repaired').length, 0)
+    fail = false
+    const a = loop.retry()
+    const b = loop.retry()
+    release()
+    await Promise.all([a, b])
+    await loop.settled()
+    assert.equal(calls, 2, 'one failed repair and one shared retry')
+    assert.equal(j.rows.filter((r) => r.type === 'full_loop_map_repaired').length, 1)
+    assert.equal(dispatched.filter((t) => t === `o/r#${T1}`).length, 1)
+  })
+
+  test('a map repair receipt for another ticket or resolution cannot satisfy this run', async () => {
+    await loop.start(gate())
+    await loop.settled()
+    cleanPass(j, tracker)
+    const receipt = j.rows.find((r) => r.type === 'ticket_resolved')
+    receipt.body = JSON.stringify({ ...JSON.parse(receipt.body), map: 'none' })
+    j.write('full_loop_map_repaired', { repo: 'o/r', ticket: T1, map: MAP, receipt_id: receipt.id - 1, state: 'appended' })
+    j.write('full_loop_map_repaired', { repo: 'o/r', ticket: T2, map: MAP, receipt_id: receipt.id, state: 'appended' })
+    assert.equal(loop.status().failed.leg, 'map_update')
+  })
+
   test('with no run there is nothing to report, and nothing is read from anywhere but the journal', () => {
     const s = loop.status()
     assert.equal(s.state, 'idle')

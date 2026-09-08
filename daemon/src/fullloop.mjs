@@ -122,9 +122,11 @@ export class FullLoop {
   // and `overseerSessions()` names the overseer panes in a turn. `dataDir`
   // is where reply files land, which the escalation message names. Every one
   // of these is a seam a test fills without a network.
-  constructor({ discover, dispatch, tracker = {}, journal, lastRun, eventsSince, now = () => new Date(), wait = sleep, log = () => {}, agentLive = () => false, overseerSessions = () => [], dataDir = null }) {
+  constructor({ discover, dispatch, repairMap = null, tracker = {}, journal, lastRun, eventsSince, now = () => new Date(), wait = sleep, log = () => {}, agentLive = () => false, overseerSessions = () => [], dataDir = null }) {
     this.discover = discover
     this.dispatch = dispatch
+    this.repairMap = repairMap
+    this.repairingMap = null
     this.tracker = tracker
     this.journal = journal
     this.lastRun = lastRun
@@ -176,13 +178,19 @@ export class FullLoop {
   }
 
   // Same-step retry. Creation and discovery rerun their reads and writes on
-  // the same map; every later ticket leg is a fresh dispatch of the same
+  // the same map; map-update recovery preserves the completed ticket receipt.
+  // Other later ticket legs are a fresh dispatch of the same
   // ticket, because the agent that would have walked it is gone (that is
   // what failed the leg); the map close re-reads the map.
   async retry() {
+    if (this.repairingMap) return this.repairingMap
     const current = this.status()
     if (current.state === 'running') throw refuse(`A Test run is running on ${current.repo}${current.ticket ? `#${current.ticket.number}` : ''}; there is nothing to retry yet.`)
     if (current.state !== 'failed') throw refuse('There is nothing to retry.')
+    if (current.failed.leg === 'map_update') {
+      this.repairingMap = this.#repairMap(current).finally(() => { this.repairingMap = null })
+      return this.repairingMap
+    }
     this.journal('full_loop_retry', { repo: current.repo, ticket: current.ticket?.number ?? null, map: current.map?.number ?? null, leg: current.failed.leg })
     if (current.failed.leg === 'map_closed') {
       await this.#readMapClosed(current.repo, current.map.number)
@@ -190,6 +198,26 @@ export class FullLoop {
       await this.#advance()
     } else {
       this.#launch(current.repo, current.ticket.number)
+    }
+    return this.status()
+  }
+
+  async #repairMap(current) {
+    const { rows } = this.#load()
+    const ticket = current.ticket.number
+    const spawn = rows.filter((r) => r.type === 'agent_spawned' && r.agent === `curia-${ticket}`).at(-1)
+    const receipt = rows.find((r) => r.id > (spawn?.id ?? Infinity) && r.type === 'ticket_resolved' && r.ticket === String(ticket))
+    const repo = current.repo
+    try {
+      if (!receipt || receipt.ev.land !== 'merged' || !RESOLVED.has(receipt.ev.close) || !RESOLVED.has(receipt.ev.comment)) {
+        throw new Error('No completed merge and ticket-resolution receipt is available. No map was changed.')
+      }
+      if (!this.repairMap) throw new Error('Map recovery is unavailable in this service.')
+      const result = await this.repairMap({ repo, ticket, map: current.map.number, summary: receipt.ev.summary ?? current.ticket.title })
+      if (!MAP_DONE.has(result?.state) || result.number !== current.map.number) throw new Error(`Map verification returned ${result?.state ?? 'no result'}.`)
+      this.journal('full_loop_map_repaired', { repo, ticket, map: current.map.number, receipt_id: receipt.id, state: result.state })
+    } catch (e) {
+      this.journal('full_loop_failed', { repo, ticket, leg: 'map_update', cause: `Map recovery failed: ${e.message}`, action: 'Fix the map recovery error, then select Try again. The completed ticket will not be dispatched again.' })
     }
     return this.status()
   }
@@ -562,15 +590,28 @@ export class FullLoop {
         }],
         ['map_update', () => {
           const done = after(at, (r) => r.type === 'ticket_resolved' && r.ticket === ticket)
-          if (!done || !MAP_DONE.has(done.ev.map)) return null
+          if (!done) return null
+          const repaired = after(done.id, (r) => r.type === 'full_loop_map_repaired' && r.ticket === ticket && r.ev.receipt_id === done.id && r.ev.map === map.number && MAP_DONE.has(r.ev.state))
+          const accepted = MAP_DONE.has(done.ev.map) ? done : repaired
+          if (!accepted) return null
           resolvedRow = done
-          return [done, out.links.map]
+          return [accepted, out.links.map]
         }],
       ]
       let stopped = false
       for (const [key, judge] of walk) {
         const found = judge()
         if (!found) {
+          if (key === 'map_update') {
+            const done = after(at, (r) => r.type === 'ticket_resolved' && r.ticket === ticket)
+            if (done) {
+              const lost = failedRow('map_update', done.id, t.number)
+              shown.state = 'failed'
+              fail(key, lost?.ev.cause ?? `The ticket was merged and closed, but its map update was not verified (map: ${done.ev.map ?? 'missing'}).`,
+                lost?.ev.action ?? 'Select Try again to repair and verify the map update. The completed ticket will not be dispatched again.', lost?.ts ?? done.ts)
+              return this.#finish(out, started)
+            }
+          }
           if (closing) {
             shown.state = 'failed'
             const why = closing.ev.reason ?? closing.ev.error ?? CLOSING[closing.type]

@@ -11,7 +11,7 @@ import { test, describe, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   sectionBounds, pointerLine, mapPointerFor, insertMapPointer,
-  fallbackResolutionComment, nonCleanComment, reportProse, prBody, resolveAndLand, summariseOutcome,
+  fallbackResolutionComment, nonCleanComment, reportProse, prBody, resolveAndLand, repairMapPointer, summariseOutcome,
   landBranch, prLinkComment, DECISIONS_HEADING, MACHINE_MARKER,
 } from '../src/resolve.mjs'
 
@@ -221,6 +221,24 @@ const TICKET = { number: 42, title: 'a ticket', state: 'closed', html_url: 'http
 const MAP_ISSUE = { number: 1, title: 'the map', state: 'open', labels: [{ name: 'wayfinder:map' }], body: MAP_BODY }
 
 beforeEach(() => { journalled = []; calls = [] })
+
+test('map-only repair verifies the expected parent and appends once without touching the ticket or PR', async () => {
+  const issue = { ...TICKET, parent_issue_url: 'https://api.github.com/repos/o/r/issues/1' }
+  let body = MAP_BODY
+  let writes = 0
+  const args = { repo: 'o/r', ticket: 42, issue, expectedMap: 1, result: { summary: 'done' },
+    deps: {
+      fetchIssue: async () => ({ ...MAP_ISSUE, body }),
+      setIssueBody: async (_, n, next) => { assert.equal(n, 1); body = next; writes++ },
+    },
+    journal: () => {}, withMapLock: async (key, fn) => { assert.equal(key, 'o/r#1'); return fn() },
+  }
+  await assert.rejects(repairMapPointer({ ...args, expectedMap: 2 }), /no longer belongs/)
+  assert.equal(writes, 0)
+  assert.equal((await repairMapPointer(args)).state, 'appended')
+  assert.equal((await repairMapPointer(args)).state, 'present')
+  assert.equal(writes, 1)
+})
 
 describe('resolveAndLand: the agent did everything right', () => {
   test('nothing is repaired; the branch is pushed, a PR opened, and the ticket gets the link', async () => {

@@ -1747,6 +1747,7 @@ reduction.onNotesExpired = (ev) => dispatcher.announceExpiredNotes(ev)
 fullLoop = new FullLoop({
   discover: async (repo) => (await dispatcher.frontier(repo))[0] ?? { repo, error: `${repo} is not a watched repository` },
   dispatch: (repo, n) => dispatcher.start(n, { repo, by: 'setup' }),
+  repairMap: (request) => dispatcher.repairTicketMap(request),
   // The Test run's own map and tickets (#891), written as the daemon writes
   // every other issue, under the App's token for the owner.
   tracker: { createIssue, addSubIssue, addBlockedBy, fetchIssue },
