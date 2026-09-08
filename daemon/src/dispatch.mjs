@@ -70,7 +70,7 @@ import {
   writeEnvFile,
 } from './sandbox.mjs'
 import {
-  resolveAndLand, summariseOutcome, nonCleanComment, landBranch, prLinkComment, chartingComment,
+  resolveAndLand, repairMapPointer, summariseOutcome, nonCleanComment, landBranch, prLinkComment, chartingComment,
   verdictComment, judgementComment, verdictNote, verdictCarrier,
 } from './resolve.mjs'
 import { smallPrint } from './messaging.mjs'
@@ -5487,6 +5487,16 @@ export class Dispatcher {
   // that nothing on disk points back to.
   #epochSpawn(session) {
     return this.reduction.questions.epochSpawn(session)
+  }
+
+  async repairTicketMap({ repo, ticket, map, summary }) {
+    const issue = await this.deps.fetchIssue(repo, ticket)
+    if (issue.state !== 'closed') throw new Error('The ticket is open. Map-only recovery requires a closed ticket.')
+    return repairMapPointer({ repo, ticket, issue, result: { summary }, expectedMap: map,
+      deps: this.deps,
+      journal: (type, data) => this.reduction.journal(type, data),
+      withMapLock: (key, fn) => this.#withMapLock(key, fn),
+    })
   }
 
   async #resolveTicket(agentName, repo, ticket, result, w) {

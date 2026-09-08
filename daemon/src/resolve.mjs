@@ -370,6 +370,34 @@ export async function landBranch({
 // same body in another window — GitHub offers no conditional issue update — so
 // the write is bracketed by a fresh read and a verifying re-read, and the line
 // itself is journalled.
+export async function repairMapPointer({ repo, ticket, issue, result, deps, journal, withMapLock, expectedMap = null }) {
+  const parent = parentNumberOf(issue)
+  if (expectedMap !== null && parent !== expectedMap) throw new Error('The ticket no longer belongs to the Test run map. No map was changed.')
+  if (!parent) return { state: 'none' }
+  const parentIssue = await deps.fetchIssue(repo, parent)
+  if (!hasLabel(parentIssue, 'wayfinder:map')) return { state: 'parent-not-a-map', number: parent }
+  return withMapLock(`${repo}#${parent}`, async () => {
+    const fresh = await deps.fetchIssue(repo, parent)
+    const existing = mapPointerFor(fresh.body, repo, ticket)
+    if (existing) {
+      journal('map_pointer_present', { repo, map: parent, ticket, line: existing })
+      return { state: 'present', number: parent }
+    }
+    const line = pointerLine({ title: issue.title ?? `#${ticket}`, url: issue.html_url ?? `https://github.com/${repo}/issues/${ticket}`, gist: result.headline || result.summary })
+    const next = insertMapPointer(fresh.body, line)
+    if (!next) {
+      journal('map_pointer_failed', { repo, map: parent, ticket, line, reason: 'no "## Decisions so far" section' })
+      return { state: 'no-section', number: parent, line }
+    }
+    await deps.setIssueBody(repo, parent, next)
+    journal('map_pointer_appended', { repo, map: parent, ticket, line })
+    const check = await deps.fetchIssue(repo, parent)
+    const verified = Boolean(mapPointerFor(check.body, repo, ticket))
+    if (!verified) journal('map_pointer_unverified', { repo, map: parent, ticket, line })
+    return { state: verified ? 'appended' : 'append-unverified', number: parent, line }
+  })
+}
+
 export async function resolveAndLand({
   repo, ticket, agent, result, wtPath, branch, epochTs, login, model,
   deps, journal, withMapLock, log = () => {},
@@ -427,48 +455,13 @@ export async function resolveAndLand({
 
   // --- 3. map pointer --------------------------------------------------------
   const parent = parentNumberOf(issue)
-  if (parent) {
-    try {
-      const parentIssue = await deps.fetchIssue(repo, parent)
-      if (!hasLabel(parentIssue, 'wayfinder:map')) {
-        out.map = { state: 'parent-not-a-map', number: parent }
-      } else {
-        out.map = await withMapLock(`${repo}#${parent}`, async () => {
-          // read INSIDE the lock: the body this write is derived from must be
-          // the newest one this daemon can see
-          const fresh = await deps.fetchIssue(repo, parent)
-          const existing = mapPointerFor(fresh.body, repo, ticket)
-          if (existing) {
-            journal('map_pointer_present', { repo, map: parent, ticket, line: existing })
-            return { state: 'present', number: parent }
-          }
-          // The HEADLINE is the gist when the report carries one (#419). The
-          // map's Decisions-so-far is an index — one line per closed ticket —
-          // and a headline is that line already. Without one the summary is
-          // flattened to one line, which is what this did before the field
-          // existed.
-          const line = pointerLine({ title, url, gist: result.headline || result.summary })
-          const next = insertMapPointer(fresh.body, line)
-          if (!next) {
-            journal('map_pointer_failed', { repo, map: parent, ticket, line, reason: 'no "## Decisions so far" section' })
-            return { state: 'no-section', number: parent, line }
-          }
-          await deps.setIssueBody(repo, parent, next)
-          // journal the line whatever the verification says: this is what makes
-          // a lost update replayable
-          journal('map_pointer_appended', { repo, map: parent, ticket, line })
-          const check = await deps.fetchIssue(repo, parent)
-          const verified = Boolean(mapPointerFor(check.body, repo, ticket))
-          if (!verified) journal('map_pointer_unverified', { repo, map: parent, ticket, line })
-          return { state: verified ? 'appended' : 'append-unverified', number: parent, line }
-        })
-        if (out.map.state === 'appended') out.repaired.push(`map pointer on #${parent}`)
-      }
-    } catch (e) {
-      out.map = { state: 'error', number: parent, error: e.message }
-      out.warnings.push(`the map pointer on #${parent} could not be written (${e.message})`)
-      journal('map_pointer_failed', { repo, map: parent, ticket, reason: e.message })
-    }
+  try {
+    out.map = await repairMapPointer({ repo, ticket, issue, result, deps, journal, withMapLock })
+    if (out.map.state === 'appended') out.repaired.push(`map pointer on #${parent}`)
+  } catch (e) {
+    out.map = { state: 'error', number: parent, error: e.message }
+    out.warnings.push(`the map pointer on #${parent} could not be written (${e.message})`)
+    journal('map_pointer_failed', { repo, map: parent, ticket, reason: e.message })
   }
 
   // --- 4. is the code IN? ----------------------------------------------------

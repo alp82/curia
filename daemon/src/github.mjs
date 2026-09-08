@@ -76,8 +76,21 @@ export function flatFrontier(repo) {
 }
 
 // Lazy full issue (body included) at dispatch time.
-export async function fetchIssue(repo, n) {
-  return JSON.parse(await gh(['api', `repos/${repo}/issues/${n}`], { repo }))
+export async function fetchIssue(repo, n, { request = gh } = {}) {
+  const issue = JSON.parse(await request(['api', `repos/${repo}/issues/${n}`], { repo }))
+  // Installation-token responses can omit parent_issue_url even for a child.
+  // Only a 404 from the parent endpoint means no parent; other read failures
+  // must not silently turn a map ticket into an unrelated ticket.
+  if (!parentNumberOf(issue) && !issue.pull_request) {
+    try {
+      const parent = JSON.parse(await request(['api', `repos/${repo}/issues/${n}/parent`], { repo }))
+      if (!Number.isSafeInteger(parent?.number) || parent.number <= 0) throw new Error('GitHub returned an invalid parent issue')
+      issue.parent_issue_url = `https://api.github.com/repos/${repo}/issues/${parent.number}`
+    } catch (e) {
+      if (!/\bHTTP 404\b/.test(e.message)) throw e
+    }
+  }
+  return issue
 }
 
 // The login assigned here is the operator's, not the caller's (#390). The daemon
@@ -162,9 +175,7 @@ export function blockedByOf(repo, n) {
   return ghJSONL(['api', '--paginate', `repos/${repo}/issues/${n}/dependencies/blocked_by`, '--jq', '.[]'], { repo })
 }
 
-// The sub-issue parent, straight off the issue payload — `parent_issue_url` is
-// present on children and absent on everything else (verified live). One read,
-// instead of scanning every map's sub_issues for this number.
+// Parse the parent normalized by fetchIssue, not an unverified raw response.
 export function parentNumberOf(issue) {
   const m = String(issue?.parent_issue_url ?? '').match(/\/issues\/(\d+)$/)
   return m ? Number(m[1]) : null
