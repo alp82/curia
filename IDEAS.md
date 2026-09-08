@@ -1,14 +1,7 @@
-landing page
-============
-* better agent display
-* hero: mess are simple prompts, not tickets. show themselves on hover. curia transforms them into tickets
-* continuous scrolling/storytelling
-* name and show harnesses earlier and add "reuse existing subs"
-* show model routing
-
-
 improvements
 ============
+* onboarding super slow
+* cli like doctor needs proper formatting and coloring
 * aistack -> AI Stack (logo)
     * machine name: curia.sh
     * last sync: sync now button
@@ -21,11 +14,39 @@ improvements
 * https://labs.cuvii.dev/volume/motion
 
 
+rewrite
+=======
+mobile
+    https://github.com/maddada/ghostex-mobile/
+    https://github.com/Martin-Zokov-Org/ship-happens
+
+chats-first
+    sideshow for HITL before and after
+
+
+landing page
+============
+* better agent display
+* hero: mess are simple prompts, not tickets. show themselves on hover. curia transforms them into tickets
+* continuous scrolling/storytelling
+* name and show harnesses earlier and add "reuse existing subs"
+* show model routing
+
+
 behavior toggles
 ================
 prompt preview with toggles
 
 developer voice
+
+roadmap
+    wayfinder as big picture management
+
+automatic research
+    start subagents to ask informed questions
+
+automatic qa
+    code review at the end (forge/crossover)
 
 use subagents
 
@@ -62,11 +83,13 @@ for:curia
     https://crit.md
     https://sideshow.sh
     https://plannotator.ai
+    https://somethingbig.ai/gauntlet-loop
     https://github.com/coldteadotai/pr-lens
     https://x.com/dexhorthy/status/2087569590268391897
     https://academy.techpresso.co/blog/human-in-the-loop-automation
 
 like:curia
+    https://director.sh
     https://box.ascii.dev
     https://repoprompt.com
     https://www.tryatlas.cc

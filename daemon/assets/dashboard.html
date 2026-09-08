@@ -541,6 +541,13 @@
   .needs-badge { border: 1px solid color-mix(in srgb, var(--warn) 40%, var(--line)); border-radius: 999px; padding: 2px 7px; color: var(--warn); background: color-mix(in srgb, var(--warn) 10%, var(--bg)); font: 700 9px ui-monospace, Menlo, monospace; text-transform: uppercase; }
   @keyframes map-online { 70%, 100% { box-shadow: 0 0 0 6px transparent; } }
   .map-stage.walked { opacity: .72; }
+  .map-stage.walked > summary { cursor: pointer; justify-content: flex-start; }
+  .map-stage.walked > summary::before { content: "▸"; color: var(--stage); }
+  .map-stage.walked[open] > summary::before { content: "▾"; }
+  .map-stage.walked > summary::-webkit-details-marker { display: none; }
+  .map-done-toggle { margin-left: auto; color: var(--ink-dim); font-size: 11px; }
+  .map-stage.walked .collapse-label, .map-stage.walked[open] .expand-label { display: none; }
+  .map-stage.walked[open] .collapse-label { display: inline; }
   .map-stage.takeable { margin: 2px 0 24px; padding: 13px 14px 15px 18px; border: 1px solid color-mix(in srgb, var(--accent) 34%, transparent); border-radius: 8px; background: color-mix(in srgb, var(--accent) 7%, transparent); }
   .map-stage.takeable::before { left: -28px; }
   .map-detail-list { padding-left: 0; }
@@ -2867,6 +2874,13 @@ function mapDetail(o, map) {
       const needs = group === "in_flight" && mapNeeds(o, map);
       const working = group === "in_flight" && (map.in_flight ?? []).some((item) => item.action ?? item.agent ?? agentOn(o, map.repo, item.number));
       const count = Number(map.counts?.[group] ?? 0);
+      if (group === "walked") {
+        const expanded = UI.maps.doneExpanded?.[`${map.repo}#${map.number}`] ?? false;
+        return `<details class="map-stage walked" style="--stage:var(--map-done-ink)"${expanded ? " open" : ""}
+          ontoggle="mapDoneToggle('${js(map.repo)}','${js(map.number)}',this.open)">
+          <summary class="map-stage-head"><b>${esc(count)} done</b><span class="map-done-toggle"><span class="expand-label">Expand</span><span class="collapse-label">Collapse</span></span></summary>
+          <div class="map-detail-list walked">${mapDetailRows(o, map, group)}</div></details>`;
+      }
       return `<section class="map-stage ${group.replace("_", "-")}${needs ? " needs" : ""}" style="--stage:${
         group === "walked" ? "var(--map-done-ink)" : group === "in_flight" ? "var(--map-run-line)" : group === "takeable" ? "var(--accent)" : group === "blocked" ? "color-mix(in srgb, var(--bad) 72%, var(--ink-dim))" : "var(--ink-dim)"}">
         <header class="map-stage-head"><b>${esc(word)}</b><span class="map-stage-status">${
@@ -2880,6 +2894,11 @@ function mapDetail(o, map) {
    counting it would move the denominator every time the fog was written. */
 const mapTotal = (map) => map.counts?.total ?? ["walked", "in_flight", "takeable", "blocked"]
   .reduce((sum, key) => sum + Number(map.counts?.[key] ?? 0), 0);
+
+function mapDoneToggle(repo, map, expanded) {
+  UI.maps.doneExpanded ??= {};
+  UI.maps.doneExpanded[`${repo}#${map}`] = expanded;
+}
 
 function screenMaps(p) {
   const o = p?.overview;
