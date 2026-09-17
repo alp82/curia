@@ -854,6 +854,11 @@ describe('the settings write and the restart (#265)', () => {
     assert.deepEqual(daemonCalls, [{ method: 'GET', url: '/repos', origin: null }])
   })
 
+  test('repository retry forwards cache bypass to the daemon', async () => {
+    await req(surface.port, '/api/repos?refresh=1', { headers: served() })
+    assert.deepEqual(daemonCalls, [{ method: 'GET', url: '/repos?refresh=1', origin: null }])
+  })
+
   test('a daemon that cannot be asked answers null repos and a reason, never an empty list', async () => {
     await new Promise((done) => daemon.close(done))
     daemon = null

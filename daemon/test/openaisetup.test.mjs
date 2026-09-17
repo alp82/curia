@@ -252,9 +252,10 @@ describe('the OpenAI card (#878)', () => {
   })
 
   test('the connected answer is the provider, the timed request, and the safe facts: account id, plan, expiry, model, response id, usage, routing', async () => {
-    const text = authJson({ exp: Date.parse('2026-09-11T10:00:00Z') })
+    const clock = new Date('2026-09-10T10:00:00Z')
+    const text = authJson({ iat: clock.getTime() - DAY, exp: Date.parse('2026-09-11T10:00:00Z') })
     writeSecret(root, 'codex-auth.json', text)
-    const { s } = setup()
+    const { s } = setup({ over: { now: () => clock } })
     const answer = await s.verifier()({ progress: {} })
     assert.equal(answer.ok, true)
     assert.equal(answer.primary, 'OpenAI')

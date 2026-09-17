@@ -1845,11 +1845,12 @@ describe('the settings screen (#265)', () => {
 
   // Null is not empty, the rule that runs through every screen (#264).
   test('a repo list curia could not read says so, and is not an account with no repos', () => {
-    page.repos = { login: null, repos: null, error: 'gh api failed: HTTP 502' }
+    page.repos = { source: 'installation', repos: ['o/stale'], error: 'GitHub is temporarily unavailable. Try again.', recovery: 'retry', stale: true }
     const t = text(screen('projects'))
-    assert.match(t, /could not read your repos/)
-    assert.match(t, /HTTP 502/)
-    assert.match(t, /Type a repo below instead/)
+    assert.match(t, /GitHub is temporarily unavailable/)
+    assert.match(t, /Retry now/)
+    assert.match(t, /last successful repository list/)
+    assert.match(screen('projects'), /<option>o\/stale<\/option>/)
   })
 
   // ---- dispatch ------------------------------------------------------------
@@ -6352,4 +6353,27 @@ describe('integration setup (#874)', () => {
     assert.match(html, /onclick="answerIndex\('esc-m',0\)">A · Clear fog and close</)
     assert.match(html, /onclick="answerIndex\('esc-m',1\)">B · Keep map open</)
   })
+})
+
+test('repository retry forces a fresh service read without replacing unsaved settings', async () => {
+  const calls = []
+  const page = loadPage({ fetchImpl: async (url) => { calls.push(url); return { ok: true, json: async () => ({ source: 'installation', repos: ['o/r'], error: null }) } } })
+  page.draft = { watch: [{ repo: 'o/unsaved' }] }
+  const draft = page.draft
+  await page.loadRepos(true)
+  assert.deepEqual(calls, ['/api/repos?refresh=1'])
+  assert.equal(page.draft, draft)
+  assert.equal(page.reposLoading, false)
+  assert.deepEqual(Array.from(page.repos.repos), ['o/r'])
+})
+
+test('the installation picker reports access and offers setup for missing credentials', () => {
+  const page = loadPage()
+  page.draft = { watch: [{ repo: 'o/watched', mode: 'auto' }] }
+  page.repos = { source: 'installation', repos: ['o/r'], error: null }
+  assert.match(page.setProjects(), /repositories accessible to Curia/)
+  assert.doesNotMatch(page.setProjects(), /GitHub connected as/)
+  page.repos = { repos: null, error: 'Connect the GitHub App to load repositories.', recovery: 'setup' }
+  assert.match(page.setProjects(), /onclick="openRepoSetup\(\)">Open GitHub setup/)
+  assert.match(page.setProjects(), /Manage repository access/)
 })
