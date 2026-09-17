@@ -3247,7 +3247,7 @@ const SET_SECTIONS = [
     patch: patchWatch, count: countWatch,
     /* The repo list costs the service a GitHub call, so it is taken when this
        section is opened and not before. */
-    enter: () => { if (repos === null) loadRepos(); },
+    enter: () => { loadRepos(true); },
   },
   {
     key: "dispatch", title: "Dispatch", gist: gistDispatch, body: setDispatch,
@@ -3544,22 +3544,23 @@ function gistProjects() { return esc(`${draft.watch.length} repo${draft.watch.le
 /* Projects. The repo list comes from the service, which holds the GitHub login;
    this page holds no credential at all. */
 function setProjects() {
-  const watched = draft.watch.map((w) => w.repo);
+  const watched = draft.watch.map((w) => w.repo.toLowerCase());
   const rows = draft.watch.map((w, i) => `<div class="row"><span class="key grow">${esc(w.repo)}</span>
     <span class="dim-note">${esc(w.mode)}</span>
     <button class="btn sm" ${draft.watch.length < 2 ? "disabled" : ""} onclick="removeRepo(${i})">remove</button></div>`).join("");
   let connect;
-  if (repos === null) connect = `<div class="gh-connect"><span class="dot off"></span>reading the GitHub login\u2026</div>`;
+  if (repos === null) connect = `<div class="gh-connect" role="status">Reading GitHub repository access…</div>`;
   else if (repos.error) {
-    /* Null is not empty: curia could not ask, which is a different fact from
-       an account with no repos. The typed field below still works. */
-    connect = `<div class="unread">curia could not read your repos from GitHub \u2014 ${esc(repos.error)}. Type a repo below instead.</div>`;
+    connect = `<div class="unread" role="status">${esc(repos.error)}${repos.stale ? " Showing the last successful repository list." : ""}
+      ${repos.recovery === "setup" ? `<button class="btn sm" onclick="openRepoSetup()">Open GitHub setup</button>` : ""}</div>`;
+  } else if (repos.source === "installation") {
+    connect = `<div class="gh-connect">${esc(repos.repos?.length ?? 0)} repositories accessible to Curia's GitHub App.</div>`;
   } else {
-    connect = `<div class="gh-connect"><span class="dot"></span>GitHub connected as
-      <b class="mono">${esc(repos.login ?? "?")}</b>
-      <span class="dim-note">the ${esc(repos.repos?.length ?? 0)} most recently pushed repos it can reach</span></div>`;
+    connect = `<div class="gh-connect">GitHub connected as <b class="mono">${esc(repos.login ?? "?")}</b></div>`;
   }
-  const choices = (repos?.repos ?? []).filter((r) => !watched.includes(r));
+  connect += `<p><button class="btn sm" ${reposLoading ? "disabled" : ""} onclick="loadRepos(true)">${reposLoading ? "Checking…" : repos?.error ? "Retry now" : "Refresh repositories"}</button>
+    <a href="https://github.com/settings/installations" target="_blank" rel="noopener">Manage repository access</a></p>`;
+  const choices = (repos?.repos ?? []).filter((r) => !watched.includes(r.toLowerCase()));
   const picker = choices.length
     ? `<select id="set-repo-pick" onchange="addRepo(this.value); this.value=''">
         <option value="">add a repo\u2026</option>${choices.map((r) => `<option>${esc(r)}</option>`).join("")}</select>`
@@ -6528,17 +6529,31 @@ async function loadSettings() {
   render();
 }
 
-async function loadRepos() {
-  repos = null;
+var reposLoading = false;
+async function loadRepos(refresh = false) {
+  if (reposLoading) return;
+  reposLoading = true;
+  render();
   try {
-    const res = await fetch("/api/repos", { headers: { accept: "application/json" }, cache: "no-store" });
-    if (!res.ok) throw new Error("the sidecar answered " + res.status);
+    const res = await fetch("/api/repos" + (refresh ? "?refresh=1" : ""), { headers: { accept: "application/json" }, cache: "no-store" });
+    if (!res.ok) throw new Error("The Curia service is unavailable. Try again.");
     repos = await res.json();
   } catch (e) {
-    repos = { login: null, repos: null, error: e.message };
+    repos = { ...repos, error: "The Curia service is unavailable. Try again.", stale: Boolean(repos?.repos) };
+  } finally {
+    reposLoading = false;
   }
   render();
 }
+
+async function openRepoSetup() {
+  await goto("setup");
+  await selectSetupCard("github");
+}
+
+window.addEventListener("focus", () => {
+  if (UI.screen === "settings" && UI.drill.settings?.open === "projects") loadRepos(true);
+});
 
 /* The browser conversations (#333). Taken on arrival at the Chat screen and
    after a press that changes the list, never on the poll: a row costs the
@@ -6843,9 +6858,10 @@ function enter(k) {
   if (UI.screen === "chat" && k !== "chat") applyChatRoute([]);
   UI.screen = k;
   if (k === "settings" && !settings) loadSettings();
+  if (k === "settings" && UI.drill.settings?.open === "projects") loadRepos(true);
   /* Reopening Setup during a run lands on the run (#891). */
   if (k === "setup" && setup?.full_loop?.run?.state === "running") UI.setup.panel = "run";
-  if (k === "setup") loadSetup();
+  if (k === "setup") return loadSetup();
   if (k === "chat") loadConversations();
   if (k === "feed") recordFeedVisit();
 }
@@ -6900,13 +6916,14 @@ function reconcileFeedReadActions() {
    its own, so a tab press that did not name one must not land on the last one
    the operator happened to open. */
 function goto(k) {
-  enter(k);
+  const arrival = enter(k);
   if (routeName(k) === "maps") UI.maps.open = false;
   if (k === "agents") UI.agents.open = false;
   /* The tab press is the picker (#711): a room is a route of its own. */
   if (k === "chat") applyChatRoute([]);
   location.hash = k;
   render();
+  return arrival;
 }
 window.addEventListener("hashchange", () => {
   const parts = routeParts();

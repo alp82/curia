@@ -1711,11 +1711,11 @@ export class DashboardSurface {
     }
     // The repos the operator could watch. The sidecar holds no GitHub
     // credential — that is what #263 means by secret-free — so the list comes
-    // from the daemon, which already holds the `gh` login every dispatch uses.
+    // from the daemon, which holds the GitHub App credentials.
     if (url.pathname === '/api/repos') {
-      return this.#daemon({ path: '/repos' }).then(
+      return this.#daemon({ path: url.searchParams.get('refresh') === '1' ? '/repos?refresh=1' : '/repos' }).then(
         (r) => this.#json(res, 200, r),
-        (e) => this.#json(res, 200, { login: null, repos: null, error: e.message }),
+        (e) => this.#json(res, 200, { login: null, repos: null, error: 'The Curia service is unavailable. Try again.', recovery: 'retry' }),
       )
     }
     if (url.pathname === '/' || url.pathname === '/index.html') {

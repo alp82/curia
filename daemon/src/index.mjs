@@ -70,6 +70,7 @@ import {
 import { TOKEN_HEADER, AGENT_ROUTES, tokensDir, agentTokenMatches } from './agenttoken.mjs'
 import { gh, viewerLogin, ghJSONL, repoMaps, mapFrontier, blockedByOf, createIssue, addSubIssue, addBlockedBy, fetchIssue } from './github.mjs'
 import { MapSnapshot, readMapSnapshot } from './mapsnapshot.mjs'
+import { WatchableRepos } from './watchablerepos.mjs'
 import { setDaemonTokenSource, setOperatorTokenSource } from './daemongh.mjs'
 import { TokenWatch } from './tokenwatch.mjs'
 import { JournalBackup } from './backup.mjs'
@@ -3020,32 +3021,17 @@ const RESTART_DELAY_MS = 50
 // before this one sent. Bounded, because it is written into the journal.
 const named = (by) => (typeof by === 'string' && by.trim() ? by.trim().slice(0, 120) : 'rest')
 
-// The watchable repos, cached. `gh repo list` names only what the login OWNS,
-// and the watch list already carries a repo under another owner, so this asks
-// for everything the login can reach instead.
-const REPOS_TTL_MS = 10 * 60_000
-const REPOS_LIMIT = 100
-let reposCache = null
-
-async function watchableRepos() {
-  if (reposCache && Date.now() - reposCache.at < REPOS_TTL_MS) return reposCache.value
-  const value = { login: null, repos: null, limit: REPOS_LIMIT, error: null, read_at: new Date().toISOString() }
-  try {
-    value.login = await viewerLogin()
-    const rows = await ghJSONL([
-      'api', `user/repos?per_page=${REPOS_LIMIT}&sort=pushed&affiliation=owner,collaborator,organization_member`,
+// Installation grants determine which repositories Curia can watch.
+const repositoryDiscovery = new WatchableRepos({
+  minter: () => appMinter,
+  legacy: INSTALL_ROOT ? null : async () => ({
+    login: await viewerLogin(),
+    repos: (await ghJSONL([
+      'api', 'user/repos?per_page=100&sort=pushed&affiliation=owner,collaborator,organization_member',
       '--jq', '.[] | {full_name}',
-    ])
-    value.repos = rows.map((r) => r.full_name).filter(Boolean)
-  } catch (e) {
-    // Null, never an empty list: "the operator has no repos" and "curia could
-    // not ask" are opposite facts, and the page draws them differently.
-    value.error = e.message
-    log(`the repo list for the settings screen failed (${e.message})`)
-  }
-  reposCache = { at: Date.now(), value }
-  return value
-}
+    ])).map((row) => row.full_name).filter(Boolean),
+  }),
+})
 
 // Everything the console shell draws, in one read (#262, per the where-it-lives
 // decision #249). The sidecar holds no secret, no GitHub token and no journal
@@ -3950,17 +3936,10 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
     return json(200, { ok: true })
   }
 
-  // The repos the settings screen offers (#265). The dashboard sidecar holds no
-  // GitHub credential — that is what #263's mount list buys — so the one process
-  // that does answers this. Cached, because a settings screen re-drawn on every
-  // keystroke must not be a `gh` call each time, and the set of repos a person
-  // can watch changes about as often as they create one.
-  //
-  // Deliberately NOT the whole list: the 100 most recently pushed, which is the
-  // selector's useful length, and the page says so and takes a typed
-  // `owner/name` for anything outside it.
+  // The sidecar holds no GitHub credential. Discovery returns installation
+  // grants, with an explicit cache bypass for recovery and access changes.
   if (url.pathname === '/repos' && req.method === 'GET') {
-    return json(200, await watchableRepos())
+    return json(200, await repositoryDiscovery.read({ refresh: url.searchParams.get('refresh') === '1' }))
   }
 
   // The reload (#362, building the hot-reload decision #347). The save applies:
