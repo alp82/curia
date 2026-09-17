@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.2](https://github.com/alp82/curia/compare/v0.16.1...v0.16.2) (2026-09-17)
+
+
+### Bug Fixes
+
+* show why an update did not start, at its own severity ([#1011](https://github.com/alp82/curia/issues/1011)) ([fe58cb6](https://github.com/alp82/curia/commit/fe58cb6664e225f7130864e0f9f262e4b888fec0))
+
 ## [0.16.1](https://github.com/alp82/curia/compare/v0.16.0...v0.16.1) (2026-09-17)
 
 
