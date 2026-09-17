@@ -11,7 +11,7 @@ import { releaseProbes } from './manifest.mjs'
 import { hostProbes, preflight } from './preflight.mjs'
 import { joinTailnet } from './tailnet.mjs'
 import { tailscaleRunner } from './tailscale.mjs'
-import { openRoot, versionPaths } from './root.mjs'
+import { openRoot, readInstallationRecord, versionPaths } from './root.mjs'
 import { StableIndexError, fetchStableIndex, pinnedPublicKey, releaseNotesUrl, renderSelection, selectRelease, selectionFromArgs, stableProbes } from './stable.mjs'
 import { IncompatibleRelease, isCompleteStage, placeVersion, validateWithRelease, verifyRetained } from './stage.mjs'
 import { namedSteps } from './steps.mjs'
@@ -121,6 +121,10 @@ export async function runUpdate(
     return await withLifecycleLock(root, async () => {
       // 3. acquire
       steps.begin('acquire')
+      const current = readInstallationRecord(root)
+      if (current?.installationId !== record.installationId || current?.activeVersion !== active) {
+        throw new Refusal('the installation changed while checking for updates. Check the installed version and retry; nothing was downloaded or switched.')
+      }
       const paths = versionPaths(root, target)
       let stage = null
       if (isCompleteStage(paths.dir)) {
