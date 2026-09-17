@@ -57,3 +57,5 @@ One file per standing decision. A decision earns an ADR when it still constrains
 
 - [ADR-0009](0009-timeline-beside-the-pty.md): The grid-free timeline is the everyday driving surface. The PTY stays for the raw TUI and native dialogs.
 - [ADR-0011](0011-tailscale-identity-in-front-of-every-attach-surface.md): Tailscale identity gates every attach surface, reads included. Tailnet membership is no longer the control.
+
+- [ADR-0032](0032-the-app-orders-updates-through-a-detached-runner.md): Settings starts an operator-approved update in a detached sibling using the existing CLI lifecycle. Progress survives service replacement.

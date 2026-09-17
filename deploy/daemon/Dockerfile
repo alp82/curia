@@ -50,7 +50,7 @@ RUN npm install -g --no-fund --no-audit "npm@${NPM_VERSION}"
 # table. Debian 12 packages 3.40, which can. Unpinned, like the rest of this apt
 # set.
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends git tmux bash curl ca-certificates sqlite3 \
+  && apt-get install -y --no-install-recommends git tmux bash curl ca-certificates sqlite3 iproute2 \
   && rm -rf /var/lib/apt/lists/*
 
 # Debian ships a 2023 gh; pinned from the upstream release instead (same

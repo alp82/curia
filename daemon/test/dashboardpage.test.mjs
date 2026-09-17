@@ -1705,7 +1705,7 @@ describe('the settings screen (#265)', () => {
   // The section reads the daily check's record and says what it found. What is
   // pinned: the installed and recommended versions, availability, the two
   // release-notes links, the withdrawal warning, a failed check said as one,
-  // and that there is no button, because there is no automatic update.
+  // and explicit check and install controls. No update starts automatically.
 
   const UPDATE = (over = {}) => ({
     managed: true, installed: '1.3.0', recommended: '1.4.0', update_available: true,
@@ -1715,17 +1715,18 @@ describe('the settings screen (#265)', () => {
     command: 'curia update', reason: null, ...over,
   })
 
-  test('an available update names both versions, links both release notes, and states the command', () => {
+  test('an available update names both versions, links both release notes, and offers installation', () => {
     page.curiaUpdate = UPDATE()
     const html = screen('update')
     const t = text(html)
     assert.match(t, /Update 1\.4\.0 available/, 'the list row says it')
-    assert.match(t, /Curia 1\.4\.0 is available\. On the box, run curia update/)
+    assert.match(t, /Curia 1\.4\.0 is available\./)
     assert.match(t, /installed 1\.3\.0 release notes for 1\.3\.0/)
     assert.match(t, /recommended 1\.4\.0 release notes for 1\.4\.0/)
     assert.match(html, /href="https:\/\/github\.com\/alp82\/curia\/releases\/tag\/v1\.4\.0"/)
     assert.match(t, /Checked 1h ago; the next check is in 23h\. Curia checks once a day and never updates on its own\./)
-    assert.ok(!/<button|onclick=/.test(page.setUpdate()), 'nothing in the section starts an update')
+    assert.match(page.setUpdate(), /onclick="installUpdate\(\)">Update to 1\.4\.0/)
+    assert.match(page.setUpdate(), /Check for updates/)
   })
 
   test('no update: the installed version is the recommended one', () => {
@@ -6376,4 +6377,26 @@ test('the installation picker reports access and offers setup for missing creden
   page.repos = { repos: null, error: 'Connect the GitHub App to load repositories.', recovery: 'setup' }
   assert.match(page.setProjects(), /onclick="openRepoSetup\(\)">Open GitHub setup/)
   assert.match(page.setProjects(), /Manage repository access/)
+})
+
+test('update requests name the displayed version and reconnect without discarding progress', async () => {
+  const calls = []
+  let offline = false
+  const page = loadPage({ fetchImpl: async (url, init) => {
+    if (offline) throw new Error('disconnected')
+    calls.push({ url, body: init?.body ? JSON.parse(init.body) : null })
+    return { ok: true, json: async () => ({ managed: true, installed: '1.0.0', recommended: '1.1.0', ok: true,
+      run: { status: 'running', from: '1.0.0', to: '1.1.0', step: 'switch' } }) }
+  } })
+  page.curiaUpdate = { managed: true, installed: '1.0.0', recommended: '1.1.0', ok: true, update_available: true }
+  await page.installUpdate()
+  assert.equal(calls[0].url, '/api/update/install')
+  assert.equal(calls[0].body.version, '1.1.0')
+  assert.match(calls[0].body.request_id, /^update-/)
+  offline = true
+  await page.loadUpdate()
+  assert.equal(page.curiaUpdate.run.step, 'switch')
+  assert.match(page.setUpdate(), /Reconnecting to Curia/)
+  await page.installUpdate()
+  assert.equal(calls.length, 1, 'a second click cannot start another update')
 })

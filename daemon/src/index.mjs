@@ -41,6 +41,7 @@ import { loadCuriaConfig, loadRoutingConfig, localConfigFile, operatorConfigFile
 import { operatorConfigPath, readOperatorConfig } from '../../cli/src/config.mjs'
 import { readInstallationRecord, versionPaths } from '../../cli/src/root.mjs'
 import { STABLE_INDEX_KEY_FILE, pinnedPublicKey } from '../../cli/src/stable.mjs'
+import { AppUpdate } from './appupdate.mjs'
 import { UpdateCheck, indexProbes, unmanagedStatus } from './updatecheck.mjs'
 import { PROBE_MARK, PROBE_PATH, GUEST_DAEMON_HOST, GUEST_WT, dockerGateway, probeSideChannel } from './sandbox.mjs'
 import { Cooling, providerOf } from './routing.mjs'
@@ -1558,6 +1559,8 @@ const updateCheck = INSTALL_ROOT
     log,
   })
   : null
+
+const appUpdate = INSTALL_ROOT ? new AppUpdate({ root: INSTALL_ROOT, check: updateCheck }) : null
 
 // The one shape the Settings section reads (#706): the registration, plus what
 // the recurring sync did last. Composed here rather than in either module,
@@ -4109,9 +4112,24 @@ async function handleRequest(req, res, { fromContainer = false } = {}) {
   }
   // The update panel's read (#883): the installed and recommended versions,
   // whether an update is available, the release-notes links, a withdrawal
-  // warning, and what the last daily check found. Nothing here starts one.
+  // warning, and the latest check. Writes explicitly check or install; reads
+  // observe progress without starting another update.
+  if (url.pathname === '/update/check' && req.method === 'POST') {
+    if (!updateCheck) return json(400, { error: 'This source deployment is updated outside the app.' })
+    await updateCheck.check()
+    return json(200, { ...updateCheck.status(), run: await appUpdate.status() })
+  }
+  if (url.pathname === '/update/install' && req.method === 'POST') {
+    if (!appUpdate) return json(400, { error: 'This source deployment is updated outside the app.' })
+    try {
+      const body = await readBody(req)
+      await appUpdate.status()
+      const run = await appUpdate.start({ version: body.version, request_id: body.request_id, by: named(body.by) })
+      return json(202, { ...updateCheck.status(), run })
+    } catch (error) { return json(400, { error: error.message }) }
+  }
   if (url.pathname === '/update' && req.method === 'GET') {
-    return json(200, updateCheck ? updateCheck.status() : unmanagedStatus(APP_VERSION))
+    return json(200, updateCheck ? { ...updateCheck.status(), run: await appUpdate.status() } : unmanagedStatus(APP_VERSION))
   }
   if (url.pathname === '/aistack/register' && req.method === 'POST') {
     const { action_id: actionId } = await readBody(req).catch(() => ({}))

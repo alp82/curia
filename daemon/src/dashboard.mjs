@@ -101,7 +101,8 @@ export const daemonPort = () => Number(process.env.PORT ?? DEFAULT_DAEMON_PORT)
 // Bumped to 18 by #883: the Settings screen carries an Update section that
 // reads `/api/update`. A proto-17 sidecar answers 404, and a panel that can
 // never say which version is installed is not a panel.
-export const DASHBOARD_PROTO = 18
+// Proto 19 adds operator-triggered release checks and installation.
+export const DASHBOARD_PROTO = 19
 
 // The Credentials screen's own hash (#661). It is here rather than in the
 // daemon that links to it, because the page's screen names are this file's half
@@ -1087,6 +1088,17 @@ export class DashboardSurface {
       if (crossSite) {
         this.log(`dashboard: REFUSED ${req.method} ${req.url} — ${crossSite}`)
         return this.#json(res, 403, { error: crossSite })
+      }
+      if (['/api/update/check', '/api/update/install'].includes(url.pathname)) {
+        return this.#write(res, async () => {
+          const body = await this.#body(req)
+          const out = await this.#daemon({ path: url.pathname.slice(4), method: 'POST', accept: [200, 202, 400], timeout: 45_000, body: {
+            version: body.version, request_id: body.request_id,
+            by: String(req.headers[LOGIN_HEADER] ?? '') || 'dashboard',
+          } })
+          if (out.error && out.managed === undefined) throw Object.assign(new Error(out.error), { refusal: true })
+          return out
+        })
       }
       // The chat's writes include the composer, shared draft, pane key, and
       // message take back. They pass the cross-site check here. The timeline

@@ -40,7 +40,7 @@
      2. Null is not empty. An unreadable fleet is not an idle box, and a frontier
         nobody has computed is not an empty frontier. Every section that can fail
         on its own says which of the two it is. -->
-<meta name="curia-dashboard" content="proto=18">
+<meta name="curia-dashboard" content="proto=19">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark light">
 <title>Curia app</title>
@@ -3716,23 +3716,8 @@ function setMaintenance(p) {
   </div>`;
 }
 
-/* ---- Update (#883) ----------------------------------------------------------
-
-   The section that says which Curia is installed and which the stable-release
-   index recommends. Three facts shape it, and each is a thing this section does
-   NOT do.
-
-   1. IT STARTS NO CHECK. The service checks the index at startup when the last
-      successful check is older than a day, then once a day, and keeps the
-      result in state/. This section reads that record on arrival and shows
-      it with its age; a press here would be a second schedule.
-   2. IT STARTS NO UPDATE. The operator runs `curia update` on the box. The
-      section states the command and links the release notes, and that is the
-      whole of its help. There is no automatic update and no Discord message.
-   3. IT NEVER SAYS "UP TO DATE" ON A GUESS. A failed check is said as a failed
-      check beside what the last good read found and when. A service that
-      cannot be asked is unknown. */
-
+/* Updates use the signed stable recommendation. An explicit press starts a
+   detached updater; polling reconnects after the service replaces itself. */
 /* How far ahead an instant is, in the words `ago` uses for the past. */
 function inWords(iso) {
   const s = Math.max(0, Math.round((new Date(iso).getTime() - Date.now()) / 1000));
@@ -3741,15 +3726,62 @@ function inWords(iso) {
   return Math.round(s / 3600) + "h";
 }
 
+var updateBusy = false;
+var updateTimer = null;
+var updateNotice = null;
+var updateDisconnected = false;
+const updateInProgress = () => ["starting", "running"].includes(curiaUpdate?.run?.status);
+function scheduleUpdateRead() {
+  clearTimeout(updateTimer);
+  if (document.visibilityState === "hidden") return;
+  if (UI.screen === "settings" && UI.drill.settings?.open === "update") {
+    updateTimer = setTimeout(loadUpdate, updateInProgress() || updateDisconnected ? 2000 : 15000);
+  }
+}
 async function loadUpdate() {
   try {
     const res = await fetch("/api/update", { headers: { accept: "application/json" }, cache: "no-store" });
-    if (!res.ok) throw new Error("the sidecar answered " + res.status);
-    curiaUpdate = await res.json();
+    if (!res.ok) throw new Error("The service is not answering.");
+    const next = await res.json();
+    if (next.managed === null) throw new Error(next.error);
+    curiaUpdate = next;
+    updateDisconnected = false;
   } catch (e) {
-    curiaUpdate = { managed: null, installed: null, error: e.message };
+    updateDisconnected = true;
+    if (!curiaUpdate) curiaUpdate = { managed: null, installed: null, error: "The service is not answering. Retrying…" };
   }
   render();
+  scheduleUpdateRead();
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && UI.screen === "settings" && UI.drill.settings?.open === "update") loadUpdate();
+});
+async function checkForUpdates() {
+  return updateRequest("check", {});
+}
+async function installUpdate() {
+  if (!curiaUpdate?.ok || !curiaUpdate.update_available || updateInProgress()) return;
+  return updateRequest("install", { version: curiaUpdate.recommended,
+    request_id: `update-${Date.now().toString(36)}-${(++localActionSequence).toString(36)}` });
+}
+async function updateRequest(action, body) {
+  if (updateBusy) return;
+  updateBusy = true;
+  updateNotice = null;
+  render();
+  try {
+    const res = await fetch(`/api/update/${action}`, { method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" }, body: JSON.stringify(body) });
+    const out = await res.json();
+    if (!res.ok) throw new Error(out.error || "The request could not be completed.");
+    curiaUpdate = out;
+    updateDisconnected = false;
+  } catch (e) {
+    updateNotice = action === "install" ? "Could not confirm the update request. Checking its status before you retry." : e.message;
+    await loadUpdate();
+  } finally { updateBusy = false; }
+  render();
+  scheduleUpdateRead();
 }
 
 function gistUpdate() {
@@ -3759,7 +3791,7 @@ function gistUpdate() {
   if (u.managed === false) return `<span class="dim-note">${esc(u.installed)} · source checkout</span>`;
   if (u.installed_withdrawn) return `<span style="color:var(--warn)">${esc(u.installed)} withdrawn</span>`;
   if (u.update_available) return `<span style="color:var(--warn)">${esc(u.recommended)} available</span>`;
-  if (u.ok === false && !u.succeeded_at) return `<span class="dim-note">${esc(u.installed)} · check failed</span>`;
+  if (u.ok === false) return `<span class="dim-note">${esc(u.installed)} · check failed</span>`;
   if (!u.checked_at) return `<span class="dim-note">${esc(u.installed)} · not checked yet</span>`;
   return `<span style="color:var(--ok)">${esc(u.installed)} · up to date</span>`;
 }
@@ -3788,10 +3820,12 @@ function setUpdate() {
     : "";
   let verdict;
   if (u.update_available) {
-    verdict = `<p class="unread">Curia ${esc(u.recommended)} is available. On the box, run <span class="mono">${esc(u.command ?? "curia update")}</span>.
+    verdict = `<p class="unread">Curia ${esc(u.recommended)} is available.
       It stages and verifies the release before anything switches, and running agents keep working through the switch.</p>`;
-  } else if (u.recommended) {
+  } else if (u.ok && u.recommended === u.installed) {
     verdict = `<p class="qhint">${esc(u.installed)} is the recommended stable release. Nothing to update.</p>`;
+  } else if (u.recommended) {
+    verdict = `<p class="qhint">No newer stable release was found in the last successful check.</p>`;
   } else if (u.succeeded_at) {
     verdict = `<p class="qhint">No stable release is recommended right now.</p>`;
   } else {
@@ -3804,7 +3838,19 @@ function setUpdate() {
     : u.checked_at
       ? `<p class="qhint">Checked ${esc(ago(u.checked_at))}${u.next_check_at ? `; the next check is in ${esc(inWords(u.next_check_at))}` : ""}. Curia checks once a day and never updates on its own.</p>`
       : `<p class="qhint">The service has not checked yet. It checks at startup and once a day, and never updates on its own.</p>`;
-  return `${withdrawn}${verdict}<div class="rows">
+  const running = updateInProgress();
+  const run = u.run;
+  const steps = { preflight: "Checking the installation", select: "Checking the release", acquire: "Downloading the release",
+    stage: "Preparing the release", validate: "Checking settings", switch: "Restarting Curia" };
+  const progress = run ? `<div role="status" class="${run.status === "failed" ? "unread" : "qhint"}">${
+    running ? `Updating ${esc(run.from)} to ${esc(run.to)}: ${esc(steps[run.step] || "Starting")}…${run.observation_error ? " " + esc(run.observation_error) : ""}${updateDisconnected ? " Reconnecting to Curia…" : ""}`
+    : run.status === "succeeded" ? `Updated to ${esc(run.to)}. <button class="btn sm" onclick="location.reload()">Reload app</button>`
+    : esc(run.error || "The update failed. Check for updates to retry.")}</div>` : "";
+  const controls = `<p><button class="btn sm" ${updateBusy || running ? "disabled" : ""} onclick="checkForUpdates()">${updateBusy ? "Working…" : "Check for updates"}</button>
+    ${u.update_available ? `<button class="btn primary" ${updateBusy || running || !u.ok || updateDisconnected ? "disabled" : ""} onclick="installUpdate()">Update to ${esc(u.recommended)}</button>` : ""}</p>
+    ${updateNotice ? `<p role="status" class="unread">${esc(updateNotice)}</p>` : ""}
+    ${updateDisconnected && !running ? `<p role="status">Reconnecting to Curia…</p>` : ""}`;
+  return `${withdrawn}${verdict}${progress}${controls}<div class="rows">
     <div class="row"><span class="key">installed</span><span class="grow mono">${esc(u.installed)}</span><span>${notes(u.installed, u.release_notes?.installed)}</span></div>
     <div class="row"><span class="key">recommended</span><span class="grow mono">${esc(u.recommended ?? "none")}</span><span>${notes(u.recommended, u.release_notes?.recommended)}</span></div>
     ${u.withdrawn?.length ? `<div class="row"><span class="key">withdrawn</span><span class="grow mono">${u.withdrawn.map(esc).join(", ")}</span></div>` : ""}

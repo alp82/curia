@@ -8,7 +8,7 @@ The service checks the stable-release index once a day. At startup, when the las
 
 Each check downloads `release/stable.json`, verifies the signature with the key the installed version's package carries (`versions/<version>/cli/stable-index.pub`), and records the result in `state/update-check.json`. The record holds when the check ran, whether the index verified, the reason when it didn't, and the index's own fields: sequence, timestamp, recommended stable release, and withdrawn versions. It holds nothing else. A check that fails keeps the last verified index beside the failure. An index with a sequence lower than the one already verified is refused, so a replayed old file can't un-withdraw a version.
 
-A check downloads no release, changes nothing under `versions/`, restarts nothing, and sends no Discord message. A failed check is one line in the service log and one field in the record. The running installation is not affected. Curia never updates on its own: you start every update with `curia update`.
+A check downloads no release, changes nothing under `versions/`, restarts nothing, and sends no Discord message. A failed check is one line in the service log and one field in the record. The running installation is not affected. Curia never updates on its own: you start every update from Settings or with `curia update`.
 
 ## What the Curia app shows
 
@@ -20,7 +20,11 @@ The **Update** section of the Settings screen reads the last check's record and 
 - A warning when the installed version was withdrawn, before anything else.
 - When the last check ran, when the next one is due, and, for a failed check, the reason and the age of the last successful check.
 
-The section has no button. It starts no check and no update.
+Select **Check for updates** to verify the latest stable recommendation immediately. When a newer version is available, select **Update to <version>**. Curia verifies the recommendation again before accepting it.
+
+The panel shows the current step and reconnects while the service and app restart. The update runs as the installation owner in a separate process, so closing the browser does not stop it. On success, select **Reload app**. On failure, the panel names the failed step and installed version. Diagnostics are in `state/update.log`; check them before retrying. The existing CLI verification and rollback rules apply.
+
+An installation that predates these controls needs one CLI update to receive them.
 
 For a Curia that runs from a source checkout instead of an installation root, the section shows the version and says that the deploy updates it.
 
