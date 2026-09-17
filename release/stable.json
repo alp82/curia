@@ -1,9 +1,9 @@
 {
   "index": {
     "format": 1,
-    "sequence": 4,
-    "updated": "2026-09-17T22:00:58Z",
-    "stable": "0.16.0",
+    "sequence": 5,
+    "updated": "2026-09-17T22:23:04Z",
+    "stable": "0.16.1",
     "withdrawn": [
       "0.6.0"
     ]
@@ -11,6 +11,6 @@
   "signature": {
     "algorithm": "ed25519",
     "key": "51fed796b5398de8",
-    "value": "4NwZEBWGl/gM3niq85FCBAtNa7EIjuWPssPMOrUKjnyd0TFl4iHoIIf+SbuED5AfJF0LxTH2P9o/iR1Lsn17BQ=="
+    "value": "/XRHlYZTVNU/d/42fK8W4+bIbJeUjtEIaB2UXaDdw1Ihpd8f+bV3qNqU3HjDR8AlPbrXQVRtGmbTQcqKvRjRBg=="
   }
 }
