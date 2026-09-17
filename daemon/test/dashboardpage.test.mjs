@@ -6432,3 +6432,22 @@ test('update requests name the displayed version and reconnect without discardin
   await page.installUpdate()
   assert.equal(calls.length, 1, 'a second click cannot start another update')
 })
+
+test('the update panel marks news, a refusal, and an unconfirmed request at their own severity', async () => {
+  const status = { managed: true, installed: '1.0.0', recommended: '1.1.0', ok: true, update_available: true }
+  let answer
+  const page = loadPage({ fetchImpl: async (url, init) => (init?.method === 'POST' ? answer() : { ok: true, json: async () => status }) })
+  page.curiaUpdate = status
+  assert.match(page.setUpdate(), /<p class="unread news">Curia 1\.1\.0 is available\./, 'an available update is news, not a warning')
+
+  answer = () => ({ ok: false, json: async () => ({ error: 'Curia updates must run as the non-root installation owner.', refused: true }) })
+  await page.installUpdate()
+  assert.match(page.setUpdate(), /class="unread failed">The update did not start: Curia updates must run as the non-root installation owner\./)
+
+  answer = () => { throw new Error('disconnected') }
+  await page.installUpdate()
+  assert.match(page.setUpdate(), /class="unread">Could not confirm the update request\./)
+
+  page.curiaUpdate = { ...status, run: { status: 'failed', from: '1.0.0', to: '1.1.0', error: 'Update failed during stage.' } }
+  assert.match(page.setUpdate(), /class="unread failed">Update failed during stage\./)
+})

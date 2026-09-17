@@ -229,6 +229,10 @@
     border-left: 3px solid var(--warn); background: var(--chip-warn-bg); color: var(--warn);
     border-radius: 0 8px 8px 0; padding: 8px 12px; font-size: 13px; margin-bottom: 10px;
   }
+  /* The same box at the two other severities. News asks for nothing and reports
+     no fault. Failed is an action that did not happen. */
+  .unread.news { border-left-color: var(--accent); background: color-mix(in srgb, var(--accent) 8%, transparent); color: var(--ink); }
+  .unread.failed { border-left-color: var(--bad); background: color-mix(in srgb, var(--bad) 10%, transparent); color: var(--bad); }
   .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--idle); flex: none; display: inline-block; }
   .dot.attn { background: var(--warn); }
   .dot.off { background: var(--ink-faint); }
@@ -3773,11 +3777,14 @@ async function updateRequest(action, body) {
     const res = await fetch(`/api/update/${action}`, { method: "POST",
       headers: { "content-type": "application/json", accept: "application/json" }, body: JSON.stringify(body) });
     const out = await res.json();
-    if (!res.ok) throw new Error(out.error || "The request could not be completed.");
+    if (!res.ok) throw Object.assign(new Error(out.error || "The request could not be completed."), { refused: out.refused === true });
     curiaUpdate = out;
     updateDisconnected = false;
   } catch (e) {
-    updateNotice = action === "install" ? "Could not confirm the update request. Checking its status before you retry." : e.message;
+    /* A refusal is an answer: the service did not start the update, and its
+       reason is the thing to show. Anything else leaves the request unknown. */
+    updateNotice = e.refused ? { failed: true, text: action === "install" ? `The update did not start: ${e.message}` : e.message }
+      : { failed: false, text: action === "install" ? "Could not confirm the update request. Checking its status before you retry." : e.message };
     await loadUpdate();
   } finally { updateBusy = false; }
   render();
@@ -3820,7 +3827,7 @@ function setUpdate() {
     : "";
   let verdict;
   if (u.update_available) {
-    verdict = `<p class="unread">Curia ${esc(u.recommended)} is available.
+    verdict = `<p class="unread news">Curia ${esc(u.recommended)} is available.
       It stages and verifies the release before anything switches, and running agents keep working through the switch.</p>`;
   } else if (u.ok && u.recommended === u.installed) {
     verdict = `<p class="qhint">${esc(u.installed)} is the recommended stable release. Nothing to update.</p>`;
@@ -3842,13 +3849,13 @@ function setUpdate() {
   const run = u.run;
   const steps = { preflight: "Checking the installation", select: "Checking the release", acquire: "Downloading the release",
     stage: "Preparing the release", validate: "Checking settings", switch: "Restarting Curia" };
-  const progress = run ? `<div role="status" class="${run.status === "failed" ? "unread" : "qhint"}">${
+  const progress = run ? `<div role="status" class="${run.status === "failed" ? "unread failed" : "qhint"}">${
     running ? `Updating ${esc(run.from)} to ${esc(run.to)}: ${esc(steps[run.step] || "Starting")}…${run.observation_error ? " " + esc(run.observation_error) : ""}${updateDisconnected ? " Reconnecting to Curia…" : ""}`
     : run.status === "succeeded" ? `Updated to ${esc(run.to)}. <button class="btn sm" onclick="location.reload()">Reload app</button>`
     : esc(run.error || "The update failed. Check for updates to retry.")}</div>` : "";
   const controls = `<p><button class="btn sm" ${updateBusy || running ? "disabled" : ""} onclick="checkForUpdates()">${updateBusy ? "Working…" : "Check for updates"}</button>
     ${u.update_available ? `<button class="btn primary" ${updateBusy || running || !u.ok || updateDisconnected ? "disabled" : ""} onclick="installUpdate()">Update to ${esc(u.recommended)}</button>` : ""}</p>
-    ${updateNotice ? `<p role="status" class="unread">${esc(updateNotice)}</p>` : ""}
+    ${updateNotice ? `<p role="status" class="unread${updateNotice.failed ? " failed" : ""}">${esc(updateNotice.text)}</p>` : ""}
     ${updateDisconnected && !running ? `<p role="status">Reconnecting to Curia…</p>` : ""}`;
   return `${withdrawn}${verdict}${progress}${controls}<div class="rows">
     <div class="row"><span class="key">installed</span><span class="grow mono">${esc(u.installed)}</span><span>${notes(u.installed, u.release_notes?.installed)}</span></div>
