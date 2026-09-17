@@ -98,3 +98,11 @@ test('helper refuses a changed installation and a no-op is not a successful upgr
   writeUpdateRun(root, { ...readUpdateRun(root), status: 'starting' })
   assert.equal((await runAppUpdate({ root, execute: async () => {} })).status, 'failed')
 })
+
+test('status and handoff bound Docker waits independently from long-running CLI updates', async () => {
+  const waits = []
+  controller.docker = async (args, options) => { waits.push(options.timeoutMs); return { ok: true, stdout: args[0] === 'inspect' ? 'true' : 'container' } }
+  await controller.start(request)
+  await controller.status()
+  assert.deepEqual(waits, [30_000, 5000])
+})

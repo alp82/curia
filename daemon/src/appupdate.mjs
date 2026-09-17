@@ -48,7 +48,7 @@ export class AppUpdate {
   async status() {
     const run = readUpdateRun(this.root)
     if (!updateRunning(run) || this.starting) return run
-    const result = await this.docker(['inspect', '--format', '{{.State.Running}}', updateContainer(run.installation_id)])
+    const result = await this.docker(['inspect', '--format', '{{.State.Running}}', updateContainer(run.installation_id)], { timeoutMs: 5000 })
     if (result.ok && result.stdout.trim() === 'true') return readUpdateRun(this.root)
     // The daemon can restart between recording the request and docker run.
     if (this.now() - Date.parse(run.started_at) < 60_000) return run
@@ -89,10 +89,10 @@ export class AppUpdate {
     const run = { id: randomUUID(), request_id, installation_id: record.installationId, from: record.activeVersion,
       to: version, by: String(by ?? '').slice(0, 120), status: 'starting', step: null, started_at: new Date(this.now()).toISOString(), error: null }
     writeUpdateRun(this.root, run)
-    const launched = await this.docker(args)
+    const launched = await this.docker(args, { timeoutMs: 30_000 })
     if (!launched.ok) {
       // An uncertain launch is resolved by status(), never by starting twice.
-      const inspected = await this.docker(['inspect', '--format', '{{.State.Running}}', updateContainer(record.installationId)])
+      const inspected = await this.docker(['inspect', '--format', '{{.State.Running}}', updateContainer(record.installationId)], { timeoutMs: 5000 })
       if (inspected.ok && inspected.stdout.trim() === 'true') return readUpdateRun(this.root)
       if (!inspected.ok && !/No such (object|container)/i.test(inspected.stderr ?? '')) return readUpdateRun(this.root)
       const latest = readUpdateRun(this.root)
