@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.1](https://github.com/alp82/curia/compare/v0.16.0...v0.16.1) (2026-09-17)
+
+
+### Bug Fixes
+
+* keep an open chooser through the dashboard poll ([#1008](https://github.com/alp82/curia/issues/1008)) ([d843e87](https://github.com/alp82/curia/commit/d843e8783fc05dc894c8e94ed1326bc2391b2af9))
+
 ## [0.16.0](https://github.com/alp82/curia/compare/v0.15.3...v0.16.0) (2026-09-17)
 
 
