@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.15.3](https://github.com/alp82/curia/compare/v0.15.2...v0.15.3) (2026-09-17)
+
+
+### Bug Fixes
+
+* recover GitHub repository discovery through App installations ([#1005](https://github.com/alp82/curia/issues/1005)) ([ad8d95b](https://github.com/alp82/curia/commit/ad8d95b90f21a3c7ef67646e07b52f6c4bda8db7))
+
 ## [0.15.2](https://github.com/alp82/curia/compare/v0.15.1...v0.15.2) (2026-09-08)
 
 
