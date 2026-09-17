@@ -7021,8 +7021,38 @@ async function tick() {
        exactly when the box is worst. */
     reachable = false;
   }
-  render();
+  /* An open chooser does not survive its element being rewritten, so the poll
+     holds its render until the chooser closes. The payload is already taken, and
+     any other render draws it. */
+  if (pickerOpen()) picker.skipped = true; else render();
   schedule();
+}
+
+/* A native select reports no open state. A press or a key on one opens it; a
+   change, a blur, or Escape closes it. A chooser dismissed by a click outside
+   keeps the focus and says nothing, so the hold also ends on its own. */
+const PICKER_HOLD_MS = 30_000;
+const picker = { since: 0, skipped: false };
+function pickerOpen() { return picker.since > 0 && Date.now() - picker.since < PICKER_HOLD_MS; }
+function pickerOpened(event) {
+  if (event?.target?.tagName !== "SELECT") return;
+  if (event.type === "keydown" && (event.key === "Escape" || event.key === "Tab")) return pickerClosed(event);
+  picker.since = Date.now();
+}
+function pickerClosed(event) {
+  if (event?.target?.tagName !== "SELECT") return;
+  picker.since = 0;
+  const skipped = picker.skipped;
+  picker.skipped = false;
+  /* A change belongs to the select's own handler, which draws what it changed.
+     Drawing here first would replace the element under that handler. */
+  if (skipped && event.type !== "change") render();
+}
+if (typeof document !== "undefined") {
+  document.addEventListener("pointerdown", pickerOpened, true);
+  document.addEventListener("keydown", pickerOpened, true);
+  document.addEventListener("change", pickerClosed, true);
+  document.addEventListener("focusout", pickerClosed, true);
 }
 
 function schedule() {

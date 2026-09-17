@@ -83,12 +83,13 @@ function loadPollingPage({ visibilityState = 'visible', mount = false } = {}) {
   const listeners = new Map()
   const timers = new Map()
   const reads = []
+  const renders = []
   let timerId = 0
   const document = {
     title: '',
     visibilityState,
     activeElement: null,
-    getElementById: (id) => (mount && id === 'app' ? { set innerHTML(_value) {} } : null),
+    getElementById: (id) => (mount && id === 'app' ? { set innerHTML(value) { renders.push(value) } } : null),
     addEventListener: (name, listener) => listeners.set(name, listener),
   }
   const ctx = vm.createContext({
@@ -108,7 +109,7 @@ function loadPollingPage({ visibilityState = 'visible', mount = false } = {}) {
     console,
   })
   vm.runInContext(pageScript(), ctx)
-  return { page: ctx, document, listeners, timers, reads }
+  return { page: ctx, document, listeners, timers, reads, renders }
 }
 
 // The wire shape of `GET /overview` (#262), with the ctx meter #264 joins onto
@@ -396,6 +397,37 @@ describe('the Curia app frame (#686)', () => {
     await new Promise((resolve) => setImmediate(resolve))
     assert.equal(browser.reads.length, 2)
     assert.equal(browser.timers.size, 1)
+  })
+
+  test('the poll holds its render while a chooser is open, and draws once it closes', async () => {
+    const browser = loadPollingPage({ visibilityState: 'hidden', mount: true })
+    const select = { tagName: 'SELECT' }
+    await browser.page.tick()
+    await new Promise((resolve) => setImmediate(resolve))
+    const drawn = browser.renders.length
+
+    browser.listeners.get('pointerdown')({ type: 'pointerdown', target: select })
+    await browser.page.tick()
+    assert.equal(browser.renders.length, drawn, 'an open chooser is not rewritten under the operator')
+
+    browser.listeners.get('focusout')({ type: 'focusout', target: select })
+    assert.equal(browser.renders.length, drawn + 1, 'the held payload is drawn when the chooser closes')
+
+    await browser.page.tick()
+    assert.equal(browser.renders.length, drawn + 2, 'and the poll draws again after that')
+  })
+
+  test('a change leaves the drawing to the handler of the select', async () => {
+    const browser = loadPollingPage({ visibilityState: 'hidden', mount: true })
+    const select = { tagName: 'SELECT' }
+    await new Promise((resolve) => setImmediate(resolve))
+    browser.listeners.get('keydown')({ type: 'keydown', key: 'ArrowDown', target: select })
+    await browser.page.tick()
+    const drawn = browser.renders.length
+    browser.listeners.get('change')({ type: 'change', target: select })
+    assert.equal(browser.renders.length, drawn)
+    await browser.page.tick()
+    assert.equal(browser.renders.length, drawn + 1)
   })
 
   test('a page that boots hidden takes no overview read', () => {
