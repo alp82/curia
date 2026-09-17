@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.0](https://github.com/alp82/curia/compare/v0.15.3...v0.16.0) (2026-09-17)
+
+
+### Features
+
+* install verified Curia updates from Settings ([#1007](https://github.com/alp82/curia/issues/1007)) ([d23be8b](https://github.com/alp82/curia/commit/d23be8bc417555cd9533c5a3872e888db057debb))
+
 ## [0.15.3](https://github.com/alp82/curia/compare/v0.15.2...v0.15.3) (2026-09-17)
 
 
