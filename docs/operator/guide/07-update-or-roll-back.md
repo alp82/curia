@@ -7,13 +7,13 @@ Operator guide · [Index](../README.md)
 - **Change the installation:** **7. Update or roll back (this topic)** · [8. Migrate the current deployment](08-migrate-the-current-deployment.md) · [9. Uninstall or purge](09-uninstall-or-purge.md)
 - **When something fails:** [Troubleshooting](troubleshooting.md)
 
-Curia never updates on its own. The **Update** section of the Settings screen tells you when the signed stable-release index recommends a newer release, and you run the update from the host. An update keeps the release you came from as the one rollback release, and a rollback is the same switch in the other direction. Both run while your agents keep working.
+Curia never updates on its own. The **Update** section of the Settings screen tells you when the signed stable-release index recommends a newer release, and you can start the update there or from the host. An update keeps the release you came from as the one rollback release, and a rollback is the same switch in the other direction. Both run while your agents keep working.
 
 ## Update
 
 **Outcome:** The installation runs the recommended stable release, or the exact version you name, with the release you updated from retained for a rollback.
 
-**Starting state:** An installed, healthy Curia, and a terminal on the host as the owning user. The Settings screen or `curia doctor` shows the installed version. Agents may be running.
+**Starting state:** An installed, healthy Curia, with access to the app or a terminal on the host as the owning user. The Settings screen or `curia doctor` shows the installed version. Agents may be running.
 
 **Active operator time:** About 2 minutes. The download and the switch wait 3 to 10 minutes. Requests to the Curia app fail for the few seconds the switch takes to recreate three containers.
 
@@ -30,6 +30,10 @@ Before you run it, know what the command touches and what it doesn't:
 The full table is in [What keeps running](../update.md#what-keeps-running).
 
 ### Do this
+
+In **Settings → Update**, select **Check for updates**, then **Update to <version>**. Keep the panel open to follow progress. It reconnects during the switch; closing it does not stop the update. Select **Reload app** when the target version is active.
+
+If your installed version has no update button yet, or you prefer the terminal, run as the installation owner:
 
 ```sh
 curia update

@@ -11,7 +11,7 @@ import { runCli } from '../src/cli.mjs'
 import { commands, packageVersion } from '../src/commands.mjs'
 import { EXIT, Refusal } from '../src/exit.mjs'
 import { launcherPath } from '../src/launcher.mjs'
-import { readInstallationRecord, versionPaths } from '../src/root.mjs'
+import { readInstallationRecord, writeInstallationRecord, versionPaths } from '../src/root.mjs'
 import { createStableIndex, generateStableIndexKeys, signStableIndex } from '../src/stable.mjs'
 import { isCompleteStage } from '../src/stage.mjs'
 import { CORE_SERVICES, READOPTION_TIMEOUT_MS } from '../src/switch.mjs'
@@ -544,4 +544,18 @@ describe('refusals and usage through the command line', () => {
     assert.ok(tailscale.calls.every((c) => c[0] === 'status'), 'only reads')
     assert.ok(!a.out.includes('stable-release index'))
   })
+})
+
+test('a concurrent lifecycle change during selection refuses after taking the lock and before downloading', async () => {
+  const { env, root } = await installed()
+  const next = { ...readInstallationRecord(root), activeVersion: '1.5.0' }
+  const a = await attempt({ env, root, probes: { deps: { stableProbes: { stableIndex: async () => {
+    writeInstallationRecord(root, next)
+    return signed(indexOf({ stable: '1.4.0' }))
+  } } } } })
+  assert.equal(a.exit, EXIT.refused)
+  assert.match(a.error.message, /installation changed/)
+  assert.deepEqual(a.downloads, [])
+  assert.deepEqual(readInstallationRecord(root), next)
+  assert.equal(a.docker.calls.length, 0)
 })

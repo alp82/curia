@@ -435,6 +435,8 @@ describe('the settings write and the restart (#265)', () => {
   let cfgDir
   let reloadAnswer
   let aistackAnswer
+  let updateWriteBody
+  let updatePostStatus = 202
   let updateAnswer
   let aistackRequestBody
   let setupAnswer
@@ -479,6 +481,8 @@ describe('the settings write and the restart (#265)', () => {
     // What it answers on the aistack routes (#706). The daemon is the process
     // that holds the credential, so this side never composes one of these.
     aistackAnswer = { ok: true, registered: false, flow: { phase: 'unregistered' }, sync: { last: null, alarm: null } }
+    updateWriteBody = null
+    updatePostStatus = 202
     updateAnswer = { managed: true, installed: '1.3.0', recommended: '1.4.0', update_available: true, installed_withdrawn: false, withdrawn: [], ok: true, error: null }
     aistackRequestBody = null
     // What it answers on the setup routes (#874). The daemon verifies and
@@ -490,6 +494,15 @@ describe('the settings write and the restart (#265)', () => {
     overviewAnswer = async () => ({ daemon: { port: 4271, uptime_s: 90 }, agents: [] })
     daemon = http.createServer((r, res) => {
       daemonCalls.push({ method: r.method, url: r.url, origin: r.headers.origin ?? null })
+      if (['/update/check', '/update/install'].includes(r.url) && r.method === 'POST') {
+        let raw = ''
+        r.on('data', (chunk) => { raw += chunk })
+        return r.on('end', () => {
+          updateWriteBody = JSON.parse(raw)
+          res.writeHead(updatePostStatus, { 'content-type': 'application/json' })
+          res.end(JSON.stringify(updatePostStatus === 400 ? { error: 'Check for updates again.' } : updateAnswer))
+        })
+      }
       // The setup write (#874) answers its own status, so it sits before the
       // shared 200 below.
       if (r.url === '/setup' && r.method === 'POST') {
@@ -946,6 +959,28 @@ describe('the settings write and the restart (#265)', () => {
   // The daemon keeps the daily check and its record; the sidecar relays the
   // read and adds nothing. A daemon that cannot be asked is unknown, never
   // "up to date".
+
+  test('update installation accepts a durable 202 receipt and stamps the verified operator', async () => {
+    const res = await req(surface.port, '/api/update/install', { method: 'POST', headers: writes(),
+      body: { version: '1.4.0', request_id: 'request-1234', by: 'forged' } })
+    assert.equal(res.status, 200)
+    assert.equal(updateWriteBody.version, '1.4.0')
+    assert.equal(updateWriteBody.request_id, 'request-1234')
+    assert.notEqual(updateWriteBody.by, 'forged')
+    assert.deepEqual(JSON.parse(res.text), updateAnswer)
+  })
+
+  test('update writes require same-origin requests and preserve server refusals', async () => {
+    const denied = await req(surface.port, '/api/update/install', { method: 'POST', headers: served(), body: {} })
+    assert.equal(denied.status, 403)
+    assert.equal(updateWriteBody, null)
+    updatePostStatus = 400
+    const refused = await req(surface.port, '/api/update/install', { method: 'POST', headers: writes(), body: {} })
+    assert.equal(refused.status, 409)
+    assert.equal(JSON.parse(refused.text).error, 'Check for updates again.')
+    updatePostStatus = 200
+    assert.equal((await req(surface.port, '/api/update/check', { method: 'POST', headers: writes(), body: {} })).status, 200)
+  })
 
   test('the update read comes from the daemon, unedited', async () => {
     const res = await req(surface.port, '/api/update', { headers: served() })

@@ -9,8 +9,8 @@
 //
 //   - WHEN. At service startup when the last successful check is older than
 //     24 hours (or there never was one), then once every 24 hours. Nothing
-//     else triggers it: not a request, not a reload, not the app opening
-//     the panel. The panel shows what the last check found and when.
+//     else schedules it. The operator can also request a check from Settings.
+//     The panel shows what the last check found and when.
 //   - WHAT IS KEPT. `state/update-check.json` holds the result of the last
 //     check and nothing else: when it ran, whether it verified, the reason
 //     when it did not, and the index's own fields (sequence, updated,
@@ -21,7 +21,7 @@
 //   - WHAT IT NEVER DOES. It downloads no release, switches nothing, restarts
 //     nothing, and posts nothing to Discord. A failed check is a fact in the
 //     file and a log line; the running installation is not affected. The
-//     operator starts an update with `curia update`.
+//     operator starts an update from Settings or with `curia update`.
 //   - OLDER INDEX. The sequence of the last verified index is remembered, and
 //     an index with a lower sequence is refused as a failed check: a
 //     replayed old file cannot un-withdraw a version.
