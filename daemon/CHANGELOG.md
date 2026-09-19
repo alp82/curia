@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.3](https://github.com/alp82/curia/compare/v0.16.2...v0.16.3) (2026-09-19)
+
+
+### Bug Fixes
+
+* read the installation owner from state for in-app updates ([#1013](https://github.com/alp82/curia/issues/1013)) ([e2f4c65](https://github.com/alp82/curia/commit/e2f4c652ee42ff82a6f8efc403603731676b384a))
+
 ## [0.16.2](https://github.com/alp82/curia/compare/v0.16.1...v0.16.2) (2026-09-17)
 
 
