@@ -39,8 +39,16 @@ export function updateHelperArgs({ root, record, image, uid, gid, dockerGid }) {
     '--entrypoint', 'node', image, '/opt/curia/daemon/bin/curia-update.mjs']
 }
 
+// The daemon mounts the root's directories and never the root itself, so the
+// root path inside its container is a directory Docker made, owned by uid 0.
+// `state/` is always mounted and carries the operator's ownership.
+export function installationOwner(root, stat = fs.statSync) {
+  const { uid, gid } = stat(path.join(root, 'state'))
+  return { uid, gid, dockerGid: stat('/var/run/docker.sock').gid }
+}
+
 export class AppUpdate {
-  constructor({ root, check, docker = dockerRunner, now = Date.now, identity = () => ({ ...fs.statSync(root), dockerGid: fs.statSync('/var/run/docker.sock').gid }) }) {
+  constructor({ root, check, docker = dockerRunner, now = Date.now, identity = () => installationOwner(root) }) {
     Object.assign(this, { root, check, docker, now, identity })
     this.starting = null
   }

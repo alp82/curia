@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { AppUpdate, readUpdateRun, writeUpdateRun } from '../src/appupdate.mjs'
+import { AppUpdate, installationOwner, readUpdateRun, writeUpdateRun } from '../src/appupdate.mjs'
 import { runAppUpdate } from '../bin/curia-update.mjs'
 import { writeInstallationRecord, ensureLayout, versionPaths } from '../../cli/src/root.mjs'
 import { createManifest } from '../../cli/src/manifest.mjs'
@@ -105,4 +105,18 @@ test('status and handoff bound Docker waits independently from long-running CLI 
   await controller.start(request)
   await controller.status()
   assert.deepEqual(waits, [30_000, 5000])
+})
+
+test('the owner is read from state/, because the daemon container sees the root itself as uid 0', async () => {
+  // The narrow mounts as the daemon sees them: Docker made the root path, the operator owns state/.
+  const stat = (file) => file === root ? { uid: 0, gid: 0 }
+    : file === path.join(root, 'state') ? { uid: 1000, gid: 1001 }
+      : file === '/var/run/docker.sock' ? { uid: 0, gid: 998 } : assert.fail(`unexpected stat of ${file}`)
+  assert.deepEqual(installationOwner(root, stat), { uid: 1000, gid: 1001, dockerGid: 998 })
+
+  controller = new AppUpdate({ root, check, docker, identity: () => installationOwner(root, stat) })
+  const run = await controller.start(request)
+  assert.equal(run.status, 'starting')
+  const launch = calls.find((args) => args[0] === 'run')
+  assert.equal(launch[launch.indexOf('--user') + 1], '1000:1001')
 })
