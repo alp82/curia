@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.4](https://github.com/alp82/curia/compare/v0.16.3...v0.16.4) (2026-09-21)
+
+
+### Bug Fixes
+
+* start overseer panes with their conversation settings ([#1015](https://github.com/alp82/curia/issues/1015)) ([26cd6af](https://github.com/alp82/curia/commit/26cd6afd6b336d3ac36ecc9aa23d9e26766e1ef7))
+
 ## [0.16.3](https://github.com/alp82/curia/compare/v0.16.2...v0.16.3) (2026-09-19)
 
 
