@@ -13,6 +13,7 @@ import { modelCredentialEnv, overseerConfigDirFor, overseerHomeFor, overseerProc
 import { buildSystemPrompt, checkoutReport, toolsFor } from '../src/overseerprompt.mjs'
 import { installCredentialConfig } from '../src/overseercreds.mjs'
 import { agentEnv, seedConfigDir } from '../src/workspace.mjs'
+import { conversationHomeFor } from '../src/overseeridentity.mjs'
 
 const DIR = path.dirname(fileURLToPath(import.meta.url))
 const CONFIG = process.env.CURIA_CONFIG ?? path.resolve(DIR, '..', '..', 'config', 'curia.yaml')
@@ -47,7 +48,8 @@ const cfg = loadCuriaConfig(CONFIG, { checkPaths: false })
 const root = cfg.dispatch.workspace_root
 const repos = cfg.watch.map((entry) => entry.repo)
 const configDir = overseerConfigDirFor(root)
-const home = overseerHomeFor(root)
+// The daemon arms this directory with the conversation's connection and token.
+const home = conversationHomeFor(overseerHomeFor(root), run.session)
 fs.mkdirSync(home, { recursive: true })
 const credential = modelCredentialEnv(configDir)
 seedConfigDir(configDir, home, null, 'claude', { apiKey: credential.env.ANTHROPIC_API_KEY, sweep: false })
@@ -61,6 +63,7 @@ const prompt = [
 const { allowed, disallowed } = toolsFor({ shell: true })
 const args = [
   run.resume ? '--resume' : '--session-id', run.session,
+  '--permission-mode', 'bypassPermissions',
   '--model', OVERSEER_CONTAINER_MODEL,
   '--append-system-prompt', prompt,
   '--allowed-tools', allowed.join(','),
