@@ -589,6 +589,10 @@ _Avoid_: strict lint, soft lint.
 A message format of a composite send, and since #640 that is all the word names. Three fields carry the forms #414 measured, on any message and on the `visual` format alike: `picture` for an image the reader looks at in place, `table` for a code-block table, and `diagram` for an ASCII drawing. A table and a diagram run to at most 42 columns by 20 lines, which is the phone limit from #414, and that sits under `CODE_BLOCK_LIMIT` so the block cap the lint already ships passes (#432). curia writes the fence, never the agent. A visual earns its space by removing prose (#415). The old single `visual` field is retired: one field could not check that a table's columns line up, because a diagram has no columns.
 _Avoid_: figure, chart, the `visual` field.
 
+**Agent artifact**:
+A file, page, or preview an agent produced for the operator to look at: a picture, a report, a table, a diagram, an attachment, or a running preview. Distinct from the journal and from release artifacts. An agent artifact outlives its ticket only when it lands on the repository's main branch; a preview ends with the session that serves it.
+_Avoid_: artifact (alone), output, deliverable.
+
 **Attachments**:
 The files an agent hands the operator to download, as workspace paths (`attachments`, renamed from `images` at #640, because the field has accepted `.patch`, `.diff`, `.md`, `.txt` and `.log` since it shipped). A file rides the message it belongs to, and the `files` format is the message for an artifact that stands alone. An attachment is what a reader downloads. A `picture` is what a reader looks at in place.
 _Avoid_: images, uploads.
