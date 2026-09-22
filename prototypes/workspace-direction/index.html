@@ -1,0 +1,576 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>#1021 Workspace direction — prototype</title>
+<!--
+  THROWAWAY PROTOTYPE — alp82/curia#1021 "Choose between conversation-led and attention-led Curia workspaces".
+  Three variants of the whole app shell, switchable via ?variant=A|B|C, device via ?device=desktop|phone,
+  scenario via ?s=1..7 and step via ?step=n. Static mock data, in-memory state, no persistence.
+    A — Threads   (conversation-led: the chat is the page; everything else hangs off it)
+    B — Desk      (attention-led: the board of what needs you is the page; chats open over it)
+    C — Atlas     (map-led: the plan is the page; chats dock beside their ticket)
+-->
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+html,body { background:#191c22; }
+body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color:#e6e9ef; }
+button { font:inherit; color:inherit; background:none; border:0; cursor:pointer; }
+a { color:inherit; }
+
+/* ===== shell (not part of any design) ===== */
+.proto-head { position:sticky; top:0; z-index:40; background:#0e1013; color:#8b94a3;
+  font:11px/1.4 ui-monospace,"SF Mono",Menlo,Consolas,monospace; padding:8px 12px; border-bottom:1px solid #23272f; display:flex; gap:16px; align-items:center; flex-wrap:wrap; }
+.proto-head b { color:#cdd5e0; font-weight:600; }
+.layout { display:grid; grid-template-columns: 1fr 340px; gap:0; min-height:calc(100vh - 34px); }
+@media (max-width: 1100px) { .layout { grid-template-columns:1fr; } .guide { position:static !important; height:auto !important; } }
+.stage { padding:16px 8px 120px; display:flex; justify-content:center; align-items:flex-start; overflow:auto; }
+.frame { box-shadow:0 8px 40px rgba(0,0,0,.5); border-radius:14px; overflow:hidden; position:relative; background:var(--bg); color:var(--ink); }
+.frame.desktop { width:1280px; height:800px; }
+.frame.phone { width:390px; height:780px; border-radius:36px; border:6px solid #2a2f38; }
+.guide { position:sticky; top:34px; height:calc(100vh - 34px); overflow:auto; background:#0e1013; border-left:1px solid #23272f; padding:14px; font-size:13px; color:#cdd5e0; }
+.guide h3 { font-size:12px; text-transform:uppercase; letter-spacing:.08em; color:#8b94a3; margin:14px 0 6px; }
+.guide .tabs { display:flex; flex-wrap:wrap; gap:4px; }
+.guide .tabs button { padding:5px 8px; border-radius:6px; background:#161a21; font-size:12px; }
+.guide .tabs button.on { background:#273043; color:#fff; }
+.guide ol { padding-left:0; list-style:none; display:flex; flex-direction:column; gap:4px; }
+.guide li button { display:block; width:100%; text-align:left; padding:7px 9px; border-radius:6px; background:#12151b; line-height:1.4; }
+.guide li button.on { background:#1f3a2f; outline:1px solid #2f7a5a; }
+.guide li button .k { color:#8b94a3; font-size:11px; display:block; }
+.guide .stmt { background:#12151b; border-radius:8px; padding:10px; line-height:1.45; margin-bottom:8px; }
+.guide .stmt b { color:#9fd1ff; }
+.guide .free { display:flex; flex-wrap:wrap; gap:4px; }
+.guide .free button { padding:4px 8px; border-radius:6px; background:#161a21; font-size:11px; }
+.bar { position:fixed; left:calc((100vw - 340px)/2); bottom:14px; transform:translateX(-50%); z-index:50; display:flex; align-items:center; gap:4px; padding:6px;
+  background:#0e1013; border:1px solid #2c313b; border-radius:999px; box-shadow:0 6px 24px rgba(0,0,0,.55); font:12px/1 ui-monospace,Menlo,monospace; color:#cdd5e0; white-space:nowrap; }
+@media (max-width:1100px) { .bar { left:50%; } }
+.bar button { min-width:40px; min-height:40px; border-radius:999px; padding:0 10px; }
+.bar button:hover { background:#1c212a; }
+.bar .name { min-width:190px; text-align:center; font-weight:600; }
+.bar .sep { width:1px; height:22px; background:#2c313b; }
+.bar .tog.on { background:#273043; color:#fff; }
+
+/* ===== app tokens (shared, from dashboard.html) ===== */
+.frame { --bg:#0b0c10; --raise:#13161d; --inset:#08090c; --line:#232833; --ink:#e6e9ef; --dim:#8b94a3; --accent:#5ec8e5; --accent-ink:#08090c;
+  --warn:#f2c14e; --bad:#ff6b6b; --good:#5ad38a; --run:#9d8cff; font-size:13px; line-height:1.45; }
+.mono { font-family: ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace; }
+.dim { color:var(--dim); }
+.pill { display:inline-block; font-size:11px; padding:1px 7px; border-radius:999px; border:1px solid var(--line); color:var(--dim); white-space:nowrap; }
+.pill.wait { color:var(--warn); border-color:var(--warn); }
+.pill.run { color:var(--run); border-color:var(--run); }
+.pill.done { color:var(--good); border-color:var(--good); }
+.pill.fail { color:var(--bad); border-color:var(--bad); }
+.pill.review { color:var(--accent); border-color:var(--accent); }
+.dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--dim); vertical-align:middle; margin-right:6px; }
+.dot.wait { background:var(--warn); } .dot.run { background:var(--run); box-shadow:0 0 0 3px rgba(157,140,255,.2);} .dot.done { background:var(--good);} .dot.fail { background:var(--bad);} .dot.review { background:var(--accent);}
+.btn { display:inline-flex; align-items:center; gap:6px; padding:6px 11px; border-radius:8px; border:1px solid var(--line); background:var(--raise); font-size:12px; }
+.btn.primary { background:var(--accent); color:var(--accent-ink); border-color:var(--accent); font-weight:600; }
+.btn.small { padding:3px 8px; font-size:11px; }
+.badge { display:inline-flex; min-width:18px; height:18px; padding:0 5px; border-radius:9px; background:var(--warn); color:#000; font-size:11px; font-weight:700; align-items:center; justify-content:center; }
+.card { background:var(--raise); border:1px solid var(--line); border-radius:10px; padding:10px 12px; }
+.h { font-weight:600; }
+.sel { outline:2px solid var(--accent); outline-offset:-2px; }
+.sec { font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--dim); margin:12px 0 6px; }
+
+/* ===== message rendering (shared across variants: the parity requirement) ===== */
+.msgs { display:flex; flex-direction:column; gap:12px; }
+.msg { max-width:720px; }
+.msg .who { font-size:11px; color:var(--dim); margin-bottom:3px; }
+.msg .body { background:var(--raise); border:1px solid var(--line); border-radius:10px; padding:9px 12px; }
+.msg.me .body { background:#182631; border-color:#25404f; }
+.msg.sys .body { background:transparent; border-style:dashed; color:var(--dim); font-size:12px; }
+.msg table { border-collapse:collapse; margin:6px 0; font-size:12px; }
+.msg th,.msg td { border:1px solid var(--line); padding:3px 8px; text-align:left; }
+.msg .pic { margin:6px 0; border-radius:8px; overflow:hidden; border:1px solid var(--line); background:#1a1f28; max-width:420px; }
+.msg .pic svg { display:block; width:100%; }
+.msg .cap { font-size:11px; color:var(--dim); padding:4px 8px; }
+.msg .att { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
+.msg .att a { display:inline-flex; gap:6px; align-items:center; padding:5px 9px; border:1px solid var(--line); border-radius:8px; font-size:12px; background:var(--bg); }
+.msg .diag { font-size:11.5px; white-space:pre; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:8px 10px; margin:6px 0; overflow:auto; }
+.msg .q { border-left:3px solid var(--warn); }
+.msg .q .opts { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+.msg .q .opts .btn.chosen { background:var(--good); color:#000; border-color:var(--good); }
+.composer { display:flex; gap:8px; align-items:center; padding:10px; border-top:1px solid var(--line); background:var(--bg); }
+.composer .in { flex:1; background:var(--raise); border:1px solid var(--line); border-radius:10px; padding:9px 12px; color:var(--dim); }
+.ctl { display:flex; gap:6px; flex-wrap:wrap; }
+.report { font-size:12.5px; }
+.report h4 { font-size:13px; margin:8px 0 4px; }
+.report ul { padding-left:18px; }
+.toast { position:absolute; left:50%; transform:translateX(-50%); z-index:30; background:#1b2230; border:1px solid #2f3a4f; border-radius:10px; padding:10px 14px; box-shadow:0 8px 30px rgba(0,0,0,.5); display:flex; gap:10px; align-items:center; max-width:520px; }
+.toast .btn { flex-shrink:0; }
+.md h4 { margin:6px 0 2px; font-size:13px; }
+.md p { margin:4px 0; }
+
+/* ===================== A — THREADS ===================== */
+.A { display:grid; grid-template-columns:280px 1fr 300px; height:100%; }
+.A .rail { background:var(--inset); border-right:1px solid var(--line); display:flex; flex-direction:column; overflow:hidden; }
+.A .rail .top { padding:12px 12px 8px; display:flex; gap:8px; align-items:center; }
+.A .rail .list { overflow:auto; flex:1; padding:0 8px 8px; }
+.A .thread { display:block; width:100%; text-align:left; padding:8px 8px; border-radius:8px; margin-bottom:2px; }
+.A .thread:hover { background:var(--raise); }
+.A .thread.on { background:var(--raise); }
+.A .thread .t { display:flex; justify-content:space-between; gap:6px; align-items:center; }
+.A .thread .t .h { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:12.5px; }
+.A .thread .m { font-size:11.5px; color:var(--dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.A .main { display:flex; flex-direction:column; overflow:hidden; min-width:0; }
+.A .obj { padding:12px 18px; border-bottom:1px solid var(--line); background:var(--raise); }
+.A .obj .row { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
+.A .obj .title { font-size:15px; font-weight:600; }
+.A .obj .crumbs { font-size:11.5px; color:var(--dim); margin-bottom:4px; }
+.A .obj .crumbs b { color:var(--ink); font-weight:500; }
+.A .scroll { flex:1; overflow:auto; padding:16px 18px; }
+.A .ctx { background:var(--inset); border-left:1px solid var(--line); overflow:auto; padding:12px; font-size:12.5px; }
+.A .ctx .card { margin-bottom:8px; }
+.A .mini { display:flex; flex-direction:column; gap:3px; margin-top:6px; }
+.A .mini .r { display:flex; gap:6px; align-items:center; font-size:11.5px; }
+.A .mini .r.me { color:var(--accent); font-weight:600; }
+.A .filters { display:flex; gap:4px; padding:0 12px 8px; flex-wrap:wrap; }
+.A .filters button { font-size:11px; padding:3px 8px; border-radius:999px; border:1px solid var(--line); color:var(--dim); }
+.A .filters button.on { color:var(--ink); background:var(--raise); }
+.A .overlay { position:absolute; inset:0; background:var(--bg); z-index:20; display:flex; flex-direction:column; }
+.A .overlay .hd { display:flex; justify-content:space-between; align-items:center; padding:12px 18px; border-bottom:1px solid var(--line); }
+.A .overlay .bd { flex:1; overflow:auto; padding:16px 18px; }
+/* phone */
+.Ap { display:flex; flex-direction:column; height:100%; }
+.Ap .top { padding:12px 14px 8px; display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid var(--line); }
+.Ap .top .h { font-size:16px; }
+.Ap .body { flex:1; overflow:auto; }
+.Ap .tabs { display:flex; border-top:1px solid var(--line); background:var(--inset); }
+.Ap .tabs button { flex:1; padding:10px 0 12px; font-size:11px; color:var(--dim); display:flex; flex-direction:column; gap:2px; align-items:center; }
+.Ap .tabs button.on { color:var(--accent); }
+.Ap .tabs button .ic { font-size:18px; }
+.Ap .sheet { position:absolute; left:0; right:0; bottom:0; background:var(--raise); border-top:1px solid var(--line); border-radius:16px 16px 0 0; padding:14px; z-index:25; max-height:70%; overflow:auto; box-shadow:0 -10px 40px rgba(0,0,0,.6); }
+.Ap .chat .obj { padding:10px 14px; border-bottom:1px solid var(--line); background:var(--raise); }
+.Ap .chat .obj .title { font-weight:600; font-size:14px; }
+.Ap .chat { display:flex; flex-direction:column; height:100%; }
+.Ap .chat .scroll { flex:1; overflow:auto; padding:12px 14px; }
+
+/* ===================== B — DESK ===================== */
+.B { display:flex; flex-direction:column; height:100%; }
+.B .topbar { display:flex; align-items:center; gap:14px; padding:10px 18px; border-bottom:1px solid var(--line); background:var(--inset); }
+.B .topbar .brand { font-weight:700; letter-spacing:.02em; }
+.B .topbar nav { display:flex; gap:4px; }
+.B .topbar nav button { padding:5px 10px; border-radius:8px; color:var(--dim); }
+.B .topbar nav button.on { background:var(--raise); color:var(--ink); }
+.B .topbar .ask { margin-left:auto; width:360px; background:var(--raise); border:1px solid var(--line); border-radius:10px; padding:7px 12px; color:var(--dim); font-size:12.5px; }
+.B .board { flex:1; overflow:auto; padding:16px 18px; display:grid; grid-template-columns:repeat(4,1fr); gap:14px; align-content:start; }
+.B .col h4 { font-size:12px; text-transform:uppercase; letter-spacing:.08em; color:var(--dim); margin-bottom:8px; display:flex; gap:8px; align-items:center; }
+.B .col .card { margin-bottom:8px; cursor:pointer; }
+.B .col .card:hover { border-color:var(--dim); }
+.B .card .k { font-size:11px; color:var(--dim); margin-bottom:3px; }
+.B .card .ttl { font-weight:600; font-size:12.5px; }
+.B .card .sum { font-size:12px; color:var(--dim); margin-top:3px; }
+.B .card .act { margin-top:8px; display:flex; gap:6px; flex-wrap:wrap; }
+.B .card .qin { margin-top:8px; display:flex; gap:6px; }
+.B .card .qin .in { flex:1; border:1px solid var(--line); border-radius:8px; padding:5px 8px; font-size:12px; color:var(--dim); background:var(--bg); }
+.B .col.needs .card { border-left:3px solid var(--warn); }
+.B .col.fail .card { border-left:3px solid var(--bad); }
+.B .col.run .card { border-left:3px solid var(--run); }
+.B .col.done .card { border-left:3px solid var(--good); }
+.B .drawer { position:absolute; top:0; right:0; bottom:0; width:640px; background:var(--bg); border-left:1px solid var(--line); box-shadow:-20px 0 60px rgba(0,0,0,.6); z-index:20; display:flex; flex-direction:column; }
+.B .drawer .hd { padding:12px 16px; border-bottom:1px solid var(--line); background:var(--raise); display:flex; justify-content:space-between; gap:10px; align-items:flex-start; }
+.B .drawer .scroll { flex:1; overflow:auto; padding:14px 16px; }
+.B .drawer .stack { display:flex; gap:4px; padding:6px 16px; border-bottom:1px solid var(--line); background:var(--inset); font-size:11.5px; align-items:center; }
+.B .drawer .stack .chip { padding:2px 8px; border-radius:999px; border:1px solid var(--line); color:var(--dim); }
+.B .drawer .stack .chip.on { color:var(--ink); border-color:var(--accent); }
+.B .page { flex:1; overflow:auto; padding:16px 18px; }
+.B .effort { margin-bottom:12px; }
+.B .effort .hd { display:flex; justify-content:space-between; align-items:center; gap:10px; }
+.B .health { display:flex; gap:6px; align-items:center; font-size:12px; }
+.B .lanes { display:grid; grid-template-columns:repeat(5,1fr); gap:8px; margin-top:8px; }
+.B .lane h5 { font-size:11px; color:var(--dim); text-transform:uppercase; letter-spacing:.06em; margin-bottom:4px; }
+.B .lane .tk { font-size:12px; padding:5px 7px; border-radius:6px; background:var(--bg); border:1px solid var(--line); margin-bottom:4px; }
+.B .lane .tk.me { border-color:var(--accent); }
+/* phone */
+.Bp { display:flex; flex-direction:column; height:100%; }
+.Bp .top { padding:12px 14px 6px; display:flex; justify-content:space-between; align-items:center; }
+.Bp .top .h { font-size:16px; }
+.Bp .feed { flex:1; overflow:auto; padding:0 12px 12px; }
+.Bp .feed .sec { margin-top:10px; }
+.Bp .card { margin-bottom:8px; }
+.Bp .tabs { display:flex; border-top:1px solid var(--line); background:var(--inset); }
+.Bp .tabs button { flex:1; padding:10px 0 12px; font-size:11px; color:var(--dim); display:flex; flex-direction:column; gap:2px; align-items:center; }
+.Bp .tabs button.on { color:var(--accent); }
+.Bp .tabs button .ic { font-size:18px; }
+.Bp .push { position:absolute; inset:0; background:var(--bg); z-index:20; display:flex; flex-direction:column; }
+.Bp .push .hd { padding:10px 14px; border-bottom:1px solid var(--line); background:var(--raise); display:flex; gap:10px; align-items:center; }
+.Bp .push .scroll { flex:1; overflow:auto; padding:12px 14px; }
+.Bp .ask { margin:8px 12px; background:var(--raise); border:1px solid var(--line); border-radius:12px; padding:9px 12px; color:var(--dim); }
+
+/* ===================== C — ATLAS ===================== */
+.C { display:grid; grid-template-columns:1fr 480px; height:100%; }
+.C.solo { grid-template-columns:1fr; }
+.C .plan { display:flex; flex-direction:column; overflow:hidden; }
+.C .strip { display:flex; gap:8px; align-items:center; padding:8px 16px; border-bottom:1px solid var(--line); background:var(--inset); overflow:auto; }
+.C .strip .brand { font-weight:700; margin-right:8px; }
+.C .strip .need { display:inline-flex; gap:6px; align-items:center; padding:4px 10px; border-radius:999px; border:1px solid var(--warn); color:var(--warn); font-size:12px; white-space:nowrap; }
+.C .strip .need.fail { border-color:var(--bad); color:var(--bad); }
+.C .strip .need.run { border-color:var(--run); color:var(--run); }
+.C .strip .ask { margin-left:auto; border:1px solid var(--line); border-radius:999px; padding:4px 12px; color:var(--dim); font-size:12px; white-space:nowrap; }
+.C .canvas { flex:1; overflow:auto; padding:14px 16px; }
+.C .map { margin-bottom:18px; }
+.C .map .hd { display:flex; justify-content:space-between; align-items:baseline; gap:10px; margin-bottom:6px; }
+.C .map .hd .h { font-size:14px; }
+.C .map .dest { font-size:12px; color:var(--dim); margin-bottom:8px; }
+.C .lanes { display:grid; grid-template-columns:repeat(5,1fr); gap:8px; }
+.C .lane { background:var(--inset); border:1px solid var(--line); border-radius:10px; padding:8px; min-height:60px; }
+.C .lane h5 { font-size:11px; color:var(--dim); text-transform:uppercase; letter-spacing:.06em; margin-bottom:6px; display:flex; justify-content:space-between; }
+.C .tk { display:block; width:100%; text-align:left; font-size:12px; padding:6px 8px; border-radius:7px; background:var(--raise); border:1px solid var(--line); margin-bottom:5px; position:relative; }
+.C .tk:hover { border-color:var(--dim); }
+.C .tk.on { border-color:var(--accent); }
+.C .tk .agents { display:flex; gap:3px; margin-top:4px; }
+.C .tk.fog { border-style:dashed; color:var(--dim); }
+.C .tk.oos { opacity:.5; text-decoration:line-through; }
+.C .dock { background:var(--inset); border-left:1px solid var(--line); display:flex; flex-direction:column; overflow:hidden; }
+.C .dock .hd { padding:10px 14px; border-bottom:1px solid var(--line); background:var(--raise); }
+.C .dock .tabs { display:flex; gap:4px; padding:6px 10px; border-bottom:1px solid var(--line); overflow:auto; }
+.C .dock .tabs button { padding:3px 9px; border-radius:999px; border:1px solid var(--line); color:var(--dim); font-size:11.5px; white-space:nowrap; }
+.C .dock .tabs button.on { color:var(--ink); border-color:var(--accent); }
+.C .dock .scroll { flex:1; overflow:auto; padding:12px 14px; }
+.C .unmapped { margin-top:6px; }
+.C .unmapped .row { display:flex; gap:8px; flex-wrap:wrap; }
+.C .unmapped .tk { width:auto; display:inline-block; }
+/* phone */
+.Cp { display:flex; flex-direction:column; height:100%; }
+.Cp .top { padding:12px 14px 6px; display:flex; justify-content:space-between; align-items:center; }
+.Cp .top .h { font-size:16px; }
+.Cp .body { flex:1; overflow:auto; padding:0 12px 12px; }
+.Cp .strip { display:flex; gap:6px; overflow:auto; padding:6px 12px; }
+.Cp .strip .need { flex-shrink:0; display:inline-flex; gap:6px; align-items:center; padding:4px 10px; border-radius:999px; border:1px solid var(--warn); color:var(--warn); font-size:12px; }
+.Cp .strip .need.fail { border-color:var(--bad); color:var(--bad); }
+.Cp .strip .need.run { border-color:var(--run); color:var(--run); }
+.Cp .mapcard { margin-bottom:10px; }
+.Cp .rail { display:flex; height:6px; border-radius:3px; overflow:hidden; margin:6px 0; }
+.Cp .rail i { display:block; }
+.Cp .tabs { display:flex; border-top:1px solid var(--line); background:var(--inset); }
+.Cp .tabs button { flex:1; padding:10px 0 12px; font-size:11px; color:var(--dim); display:flex; flex-direction:column; gap:2px; align-items:center; }
+.Cp .tabs button.on { color:var(--accent); }
+.Cp .tabs button .ic { font-size:18px; }
+.Cp .push { position:absolute; inset:0; background:var(--bg); z-index:20; display:flex; flex-direction:column; }
+.Cp .push .hd { padding:10px 14px; border-bottom:1px solid var(--line); background:var(--raise); display:flex; gap:10px; align-items:center; }
+.Cp .push .scroll { flex:1; overflow:auto; padding:12px 14px; }
+.Cp .ask { margin:8px 0; background:var(--raise); border:1px solid var(--line); border-radius:12px; padding:9px 12px; color:var(--dim); }
+</style>
+</head>
+<body>
+<div class="proto-head"><b>#1021 workspace direction</b> <span id="ph"></span> <span>· ←/→ variant · d device · scenario tabs on the right drive the mock state</span></div>
+<div class="layout">
+  <div class="stage"><div id="frame" class="frame desktop"></div></div>
+  <aside class="guide" id="guide"></aside>
+</div>
+<div class="bar">
+  <button id="prev">←</button><span class="name" id="vname"></span><button id="next">→</button>
+  <span class="sep"></span>
+  <button class="tog" id="dDesk">desktop</button><button class="tog" id="dPhone">phone</button>
+</div>
+
+<script>
+/* ==================== MOCK DATA ==================== */
+const MAPS = [
+  { id:'m1', title:'Redesign the Curia app for agent work and roadmap planning', dest:'A deployed redesign for daily agent work and roadmap shaping.',
+    lanes:{ done:['What can workspaces teach Curia?','Which UI foundations fit?','Which workflows organize the app?'],
+      running:['Choose between conversation-led and attention-led workspaces'],
+      frontier:['Which requirements belong in first use?'],
+      blocked:['Choose a map overview for the full plan','Choose a simpler first-use experience','Choose the frontend architecture','Define acceptance and deployment','Keep agent artifacts reachable after close'],
+      fog:['Interaction states after a direction is chosen','Implementation slices and migration path'] } },
+  { id:'m2', title:'Discord permission recovery', dest:'Setup offers recovery when the bot loses a permission.',
+    lanes:{ done:['Which permissions can drop silently?','Detect a dropped permission at boot'], running:['Offer recovery from setup'], frontier:['Write the recovery walkthrough'], blocked:['Ship and announce'], fog:[] } },
+];
+
+/* conversations. state: wait|run|done|fail|review */
+const CONV = [
+  { id:'c1', map:'m1', ticket:'#1023', title:'Which requirements belong in first use?', kind:'grilling', state:'wait', agent:'claude', ago:'6h',
+    last:'Which of the four integration cards should stay required for a first task?',
+    msgs:[
+      {who:'curia',t:'I read the four required integration cards: GitHub app, Discord bot, Tailscale, and a harness credential. A first task can run with GitHub and one harness credential.'},
+      {who:'curia',t:'Two of them exist for later stages of a task rather than the first one:', table:[['Card','Needed for first task','Why it is required today'],['GitHub app','yes','tickets live there'],['Harness credential','yes','the agent needs a model'],['Discord bot','no','answers and pictures route through it'],['Tailscale','no','previews and attach']]},
+      {who:'curia',q:'Which cards stay required before a first task can start?', opts:['GitHub + harness only','Keep all four','GitHub + harness + Discord']},
+    ]},
+  { id:'c2', map:'m1', ticket:'#1021', title:'Choose between conversation-led and attention-led workspaces', kind:'prototype', state:'run', agent:'claude', ago:'now', last:'Building variant C, the map-led shell…',
+    msgs:[{who:'me',t:'Build three shells against the seven scenarios.'},{who:'curia',t:'Two variants are in. Building variant C, the map-led shell…'},{who:'sys',t:'Running · 41 min · 118K tokens'}] },
+  { id:'c3', map:'m1', ticket:'#1022', title:'Choose a map overview for the full plan', kind:'prototype', state:'done', agent:'codex', ago:'3h', last:'Resolved. Three overview forms compared; lanes with a rail won.',
+    msgs:[{who:'curia',t:'Resolved. Three overview forms compared. The lane view with a progress rail won on time to orientation.'},{who:'curia',t:'Map shape after the resolution:', diag:'done ████ running █ frontier ██ blocked █████ fog ░░\n\n#1022 ─┬─▶ #1024 first-use prototype\n       └─▶ #1025 frontend architecture'},{who:'sys',t:'Closed #1022 · map updated · 2 tickets unblocked'}] },
+  { id:'c4', map:'m2', ticket:'#1001', title:'Offer recovery from setup', kind:'task', state:'review', agent:'claude', ago:'2h', last:'Opened PR #1031: offer Discord permission recovery from setup.',
+    msgs:[
+      {who:'curia',t:'Opened a pull request.', pr:{n:'#1031', title:'fix: offer Discord permission recovery from setup', files:6, add:212, del:31, checks:'3 passing'}},
+      {who:'curia',md:'<h4>Summary</h4><p>Setup now detects a bot that lost <code>Manage Threads</code> and offers a one-click re-invite link.</p><h4>Tests</h4><p>Added <code>discordrecovery.test.mjs</code> with 4 cases. Suite green: 412 pass, 0 fail.</p><h4>Open question</h4><p>Should the recovery card also show when the bot is missing entirely?</p>'},
+    ]},
+  { id:'c5', map:'m2', ticket:'#1030', title:'Write the recovery walkthrough', kind:'task', state:'fail', agent:'codex', ago:'5h', last:'Failed: the container lost its network before the harness finished.',
+    msgs:[{who:'sys',t:'Failed at 03:12 · container lost network · last output below'},{who:'curia',t:'Writing docs/recovery.md, section 3 of 5…'},{who:'sys',t:'Retry keeps the branch and the transcript.'}] },
+  { id:'c6', map:null, ticket:null, title:'Quick: bump the ttyd font size on phone', kind:'quick', state:'done', agent:'claude', ago:'40m', last:'Done. Branch quick/ttyd-font pushed, PR #1032 opened.', repo:'alp82/curia',
+    msgs:[{who:'me',t:'On the phone attach page the terminal font is too small. Bump it one step.'},{who:'curia',t:'Done. Changed the phone breakpoint font from 11px to 13px in attach-chrome.html.', pr:{n:'#1032',title:'fix: larger terminal font on phone attach',files:1,add:2,del:2,checks:'3 passing'}}] },
+  { id:'c7', map:'m1', ticket:'#1019', title:'Which UI foundations fit?', kind:'research', state:'done', agent:'claude', ago:'1d', last:'Resolved. shadcn viable; React build implied.', msgs:[{who:'curia',t:'Resolved. Findings in docs/research/curia-ui-foundations.md.'}] },
+  { id:'c8', map:'m1', ticket:'#1024', title:'Choose a simpler first-use experience', kind:'prototype', state:'wait', agent:'codex', ago:'now', last:'Published a preview and a report. Which of the two headers should stay?',
+    msgs:[
+      {who:'curia',t:'Published a preview of the first-use page on the tailnet.', att:[{n:'first-use-report.md',k:'md'}], preview:'https://gw-worker1.tail.ts.net:9017/'},
+      {who:'curia',t:'Screenshot of the two candidates side by side:', pic:true},
+      {who:'curia',md:'<h4>first-use-report.md</h4><p>Both candidates reach a first task in three steps. Candidate 2 needs no Discord card. Candidate 1 keeps the four cards but collapses three of them.</p><ul><li>Steps to first task: 3 vs 3</li><li>Required cards: 4 vs 2</li></ul>'},
+      {who:'curia',q:'Which header should the first-use page keep?', opts:['Candidate 1 (four cards, collapsed)','Candidate 2 (two cards)']},
+    ]},
+  { id:'c9', map:null, ticket:null, title:'Overseer', kind:'overseer', state:'done', agent:'overseer', ago:'2m', last:'Four sessions ran overnight. Two finished, one waits, one failed.',
+    msgs:[{who:'curia',t:'Four sessions ran overnight on two maps.', table:[['Session','Map','Result'],['#1022 map overview','Redesign','finished'],['#1019 UI foundations','Redesign','finished'],['#1023 first-use requirements','Redesign','waiting for you'],['#1030 recovery walkthrough','Discord recovery','failed: network']]}] },
+];
+const byId = id => CONV.find(c=>c.id===id);
+const mapOf = c => MAPS.find(m=>m.id===c.map);
+const label = {wait:'needs you',run:'running',done:'finished',fail:'failed',review:'review'};
+
+/* ==================== STATE ==================== */
+const S = { variant:'A', device:'desktop', chat:null, view:'home', overlay:null, ctx:true, answered:{}, toast:null, mapEdit:false, place:{}, dockTabs:['c2'], filter:'all' };
+const url = new URL(location.href);
+S.variant = (url.searchParams.get('variant')||'A').toUpperCase();
+S.device = url.searchParams.get('device')||'desktop';
+let scenario = +(url.searchParams.get('s')||1), step = +(url.searchParams.get('step')||0);
+
+/* ==================== SHARED RENDER BITS ==================== */
+const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;');
+function pic(){ return `<div class="pic"><svg viewBox="0 0 420 200"><rect width="420" height="200" fill="#1a1f28"/><rect x="14" y="14" width="190" height="172" rx="8" fill="#232a36"/><rect x="216" y="14" width="190" height="172" rx="8" fill="#232a36"/><rect x="26" y="26" width="166" height="22" rx="4" fill="#5ec8e5"/><rect x="26" y="58" width="80" height="40" rx="4" fill="#2f3a4c"/><rect x="112" y="58" width="80" height="40" rx="4" fill="#2f3a4c"/><rect x="26" y="104" width="80" height="40" rx="4" fill="#2f3a4c"/><rect x="112" y="104" width="80" height="40" rx="4" fill="#2f3a4c"/><rect x="228" y="26" width="166" height="22" rx="4" fill="#5ad38a"/><rect x="228" y="58" width="166" height="40" rx="4" fill="#2f3a4c"/><rect x="228" y="104" width="166" height="40" rx="4" fill="#2f3a4c"/><text x="110" y="170" fill="#8b94a3" font-size="11" text-anchor="middle">candidate 1</text><text x="311" y="170" fill="#8b94a3" font-size="11" text-anchor="middle">candidate 2</text></svg><div class="cap">first-use-candidates.png · 84 KB · tap to open</div></div>`; }
+function msgHtml(c, m, i){
+  let b='';
+  if(m.t) b+=`<div>${esc(m.t)}</div>`;
+  if(m.md) b+=`<div class="md report">${m.md}</div>`;
+  if(m.table) b+=`<table>${m.table.map((r,ri)=>`<tr>${r.map(x=>ri?`<td>${x}</td>`:`<th>${x}</th>`).join('')}</tr>`).join('')}</table>`;
+  if(m.diag) b+=`<div class="diag mono">${esc(m.diag)}</div>`;
+  if(m.pic) b+=pic();
+  if(m.pr) b+=`<div class="card" style="margin-top:6px"><div class="h">${m.pr.n} ${esc(m.pr.title)}</div><div class="dim" style="font-size:12px">${m.pr.files} files · +${m.pr.add} −${m.pr.del} · checks ${m.pr.checks}</div><div class="ctl" style="margin-top:8px"><a class="btn small" href="#">Open PR ↗</a><a class="btn small" href="#">Open in VS Code ↗</a><button class="btn small" data-act="merge">Merge</button><button class="btn small" data-act="redo">Redo</button></div></div>`;
+  if(m.att) b+=`<div class="att">${m.att.map(a=>`<a href="#">📄 ${a.n}</a>`).join('')}${m.preview?`<a href="#">🔗 preview ${m.preview.replace('https://','')}</a>`:''}</div>`;
+  if(m.q){ const ans=S.answered[c.id+i]; b+=`<div class="q"><div class="h" style="padding-left:8px">${esc(m.q)}</div><div class="opts" style="padding-left:8px">${m.q&&m.opts.map(o=>`<button class="btn small ${ans===o?'chosen':''}" data-ans="${c.id+i}" data-o="${esc(o)}">${esc(o)}</button>`).join('')}</div></div>`; }
+  return `<div class="msg ${m.who==='me'?'me':m.who==='sys'?'sys':''}"><div class="who">${m.who==='me'?'you':m.who==='sys'?'':'curia · '+(c.agent||'')} </div><div class="body">${b}</div></div>`;
+}
+function msgs(c){ return `<div class="msgs">${c.msgs.map((m,i)=>msgHtml(c,m,i)).join('')}</div>`; }
+function controls(c){
+  const run = c.state==='run'||c.state==='wait';
+  return `<div class="ctl">${run?`<button class="btn small">⏸ Pause</button><button class="btn small">■ Stop</button>`:c.state==='fail'?`<button class="btn small primary">↻ Retry</button>`:''}${c.ticket?`<a class="btn small" href="#">${c.ticket} ↗</a>`:''}${c.map?`<button class="btn small" data-act="map">Map</button>`:''}<a class="btn small" href="#">Terminal</a></div>`;
+}
+function composer(ph){ return `<div class="composer"><div class="in">${ph||'Message the agent…'}</div><button class="btn primary">Send</button></div>`; }
+function toast(){ if(!S.toast) return ''; return `<div class="toast" style="top:${S.device==='phone'?'12px':'14px'}"><span class="dot wait"></span><div><div class="h" style="font-size:12.5px">${esc(S.toast.title)}</div><div class="dim" style="font-size:12px">${esc(S.toast.text)}</div></div><button class="btn small primary" data-open="${S.toast.chat}">Answer</button><button class="btn small" data-act="dismiss">Later</button></div>`; }
+function mapRail(m){ const L=m.lanes, tot=Object.values(L).reduce((a,b)=>a+b.length,0); const col={done:'var(--good)',running:'var(--run)',frontier:'var(--accent)',blocked:'var(--dim)',fog:'#333a46'}; return `<div class="rail">${Object.keys(L).map(k=>`<i style="width:${L[k].length/tot*100}%;background:${col[k]}"></i>`).join('')}</div>`; }
+function tk(m, lane, t, opts={}){ const c=CONV.find(x=>x.map===m.id&&x.title===t); const cls=[opts.cls||'', c&&S.chat===c.id?'on':'', lane==='fog'?'fog':'', S.mapEdit&&t==='Which requirements belong in first use?'&&opts.oos?'oos':''].join(' ');
+  return `<button class="tk ${cls}" ${c?`data-open="${c.id}"`:''}>${esc(t)}${c?`<div class="agents"><span class="pill ${c.state}">${label[c.state]}</span></div>`:''}</button>`; }
+function mapLanes(m){ const L=m.lanes; const names={done:'done',running:'running',frontier:'frontier',blocked:'blocked',fog:'fog'};
+  return `<div class="lanes">${Object.keys(L).map(k=>`<div class="lane"><h5>${names[k]} <span>${L[k].length}</span></h5>${L[k].map(t=>tk(m,k,t,{oos:true})).join('')}${k==='frontier'&&S.mapEdit?`<button class="tk" style="border-style:dashed;color:var(--accent)">+ Is Discord optional for a first task?</button>`:''}</div>`).join('')}</div>`; }
+
+/* ==================== VARIANT A — THREADS ==================== */
+function A_desktop(){
+  const c = byId(S.chat)||byId('c9');
+  const groups = [['needs you',CONV.filter(x=>x.state==='wait')],['running',CONV.filter(x=>x.state==='run')],['review',CONV.filter(x=>x.state==='review')],['finished',CONV.filter(x=>x.state==='done'&&x.kind!=='overseer')],['failed',CONV.filter(x=>x.state==='fail')]];
+  const filt = x => S.filter==='all'||x.map===S.filter||(S.filter==='quick'&&!x.map);
+  const rail = `<div class="rail"><div class="top"><span class="h" style="font-size:15px">Curia</span><span class="dim" style="margin-left:auto">⌘K</span></div>
+    <div style="padding:0 12px 8px"><button class="btn primary" style="width:100%;justify-content:center">+ New conversation</button></div>
+    <div class="filters"><button class="${S.filter==='all'?'on':''}" data-filter="all">all</button><button class="${S.filter==='m1'?'on':''}" data-filter="m1">Redesign</button><button class="${S.filter==='m2'?'on':''}" data-filter="m2">Discord</button><button class="${S.filter==='quick'?'on':''}" data-filter="quick">quick</button></div>
+    <div class="list"><button class="thread ${c.id==='c9'?'on':''}" data-open="c9"><div class="t"><span class="h">Overseer</span><span class="dim" style="font-size:11px">2m</span></div><div class="m">${esc(byId('c9').last)}</div></button>
+    ${groups.map(([g,list])=>{list=list.filter(filt); return list.length?`<div class="sec">${g} · ${list.length}</div>${list.map(x=>`<button class="thread ${x.id===c.id?'on':''}" data-open="${x.id}"><div class="t"><span class="h"><span class="dot ${x.state}"></span>${esc(x.title)}</span><span class="dim" style="font-size:11px">${x.ago}</span></div><div class="m">${x.map?esc(mapOf(x).title.split(' ')[0])+' · ':''}${esc(x.last)}</div></button>`).join('')}`:''}).join('')}</div>
+    <div style="padding:8px 12px;border-top:1px solid var(--line);display:flex;gap:6px"><button class="btn small" data-act="maps">Maps</button><button class="btn small">History</button><button class="btn small">Settings</button></div></div>`;
+  const m = mapOf(c);
+  const main = `<div class="main"><div class="obj"><div class="crumbs">${m?`<b>${esc(m.title)}</b> › ${c.ticket} · ${c.kind}`:c.kind==='quick'?`<b>quick task</b> · ${c.repo}`:'<b>overseer</b> · every session, every map'}</div><div class="row"><div class="title">${esc(c.title)}</div><span class="pill ${c.state}">${label[c.state]}</span></div><div style="margin-top:8px">${controls(c)}</div></div>
+    <div class="scroll">${msgs(c)}</div>${composer(c.state==='wait'?'Answer, or type a different instruction…':undefined)}</div>`;
+  const ctx = `<div class="ctx">${m?`<div class="sec">this ticket on the map</div><div class="card"><div class="h" style="font-size:12px">${esc(m.title)}</div><div class="mini">${Object.keys(m.lanes).map(k=>`<div class="r"><span class="dot ${k==='done'?'done':k==='running'?'run':''}"></span>${k} · ${m.lanes[k].length}${m.lanes[k].includes(c.title)?' · <b>here</b>':''}</div>`).join('')}</div><button class="btn small" style="margin-top:8px" data-act="map">Open map</button></div>
+    <div class="sec">unblocks</div><div class="card dim" style="font-size:12px">${c.id==='c1'?'Choose a simpler first-use experience':c.id==='c2'?'Map overview · Frontend architecture · Artifacts after close':'—'}</div>`:''}
+    <div class="sec">artifacts</div><div class="card" style="font-size:12px">${c.msgs.some(x=>x.pic||x.att||x.pr)?c.msgs.filter(x=>x.pic||x.att||x.pr).map(x=>x.pic?'🖼 first-use-candidates.png':x.pr?'⇄ '+x.pr.n+' pull request':'📄 first-use-report.md · 🔗 preview').join('<br>'):'<span class="dim">none yet</span>'}</div>
+    <div class="sec">session</div><div class="card dim" style="font-size:12px">${c.agent} · ${c.ago}${c.state==='run'?' · 118K tokens':''}<br>branch ${c.ticket?c.ticket.replace('#','ticket/'):'quick/ttyd-font'}</div></div>`;
+  const overlay = S.overlay==='map'&&m?`<div class="overlay"><div class="hd"><div><div class="dim" style="font-size:11.5px">map</div><div class="h" style="font-size:15px">${esc(m.title)}</div></div><div class="ctl">${S.mapEdit?`<button class="btn small" data-act="mapedit">Done editing</button>`:`<button class="btn small" data-act="mapedit">Reshape</button>`}<button class="btn small" data-act="close">Back to conversation ✕</button></div></div><div class="bd"><div class="dim" style="margin-bottom:10px">${esc(m.dest)}</div>${mapLanes(m)}${S.mapEdit?`<div class="card" style="margin-top:12px">Editing: click a ticket to <b>close as out of scope</b>, or add a ticket in a lane. Changes post to GitHub as the overseer.</div>`:''}<div class="sec">recent decisions</div><div class="card" style="font-size:12px">Which workflows organize the app? — three journeys, seven scenarios<br>Which UI foundations fit? — shadcn viable, React build implied</div></div></div>`
+    : S.overlay==='maps'?`<div class="overlay"><div class="hd"><div class="h" style="font-size:15px">Maps</div><button class="btn small" data-act="close">✕</button></div><div class="bd">${MAPS.map(x=>`<div class="card" style="margin-bottom:10px"><div class="h">${esc(x.title)}</div><div class="dim" style="font-size:12px">${esc(x.dest)}</div><div style="margin-top:8px">${mapLanes(x)}</div></div>`).join('')}</div></div>`:'';
+  return `<div class="A" style="grid-template-columns:280px 1fr ${S.ctx?'300px':'0'}">${rail}${main}${S.ctx?ctx:''}</div>${overlay}${toast()}`;
+}
+function A_phone(){
+  const tab = S.view==='home'?'chats':S.view;
+  let body='';
+  if(S.chat){ const c=byId(S.chat), m=mapOf(c);
+    body = `<div class="chat"><div class="obj"><div style="display:flex;gap:8px;align-items:center"><button data-act="back" class="btn small">‹</button><div style="min-width:0;flex:1"><div class="dim" style="font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${m?esc(m.title):c.kind}</div><div class="title" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(c.title)}</div></div><span class="pill ${c.state}">${label[c.state]}</span></div><div style="margin-top:8px;display:flex;justify-content:space-between;align-items:center">${controls(c)}<button class="btn small" data-act="ctx">Context ▴</button></div></div><div class="scroll">${msgs(c)}</div>${composer(c.state==='wait'?'Answer…':undefined)}</div>
+    ${S.overlay==='ctx'?`<div class="sheet"><div class="h">Context</div>${m?`<div class="sec">on the map</div><div class="card"><div style="font-size:12px">${esc(m.title)}</div>${mapRail(m)}<button class="btn small" data-act="map">Open map</button></div>`:''}<div class="sec">artifacts</div><div class="card" style="font-size:12px">${c.msgs.some(x=>x.pic||x.att||x.pr)?'🖼 picture · 📄 report · 🔗 preview':'none yet'}</div><button class="btn small" style="margin-top:10px" data-act="close">Close</button></div>`:''}
+    ${S.overlay==='map'&&m?`<div class="push" style="position:absolute;inset:0;background:var(--bg);z-index:22;display:flex;flex-direction:column"><div class="obj" style="padding:10px 14px;border-bottom:1px solid var(--line);background:var(--raise);display:flex;gap:8px;align-items:center"><button class="btn small" data-act="close">‹</button><div class="h">${esc(m.title)}</div></div><div style="flex:1;overflow:auto;padding:12px">${Object.keys(m.lanes).map(k=>`<div class="sec">${k} · ${m.lanes[k].length}</div>${m.lanes[k].map(t=>tk(m,k,t,{oos:true})).join('')}`).join('')}${S.mapEdit?`<button class="tk" style="border-style:dashed;color:var(--accent);display:block;width:100%;padding:8px;border:1px dashed;border-radius:8px;margin-top:8px">+ Add ticket</button>`:''}</div><div class="composer"><button class="btn" data-act="mapedit">${S.mapEdit?'Done':'Reshape'}</button></div></div>`:''}`;
+  } else if(tab==='chats'){
+    const groups=[['needs you',CONV.filter(x=>x.state==='wait')],['running',CONV.filter(x=>x.state==='run')],['review',CONV.filter(x=>x.state==='review')],['failed',CONV.filter(x=>x.state==='fail')],['finished',CONV.filter(x=>x.state==='done'&&x.kind!=='overseer')]];
+    body=`<div class="top"><span class="h">Conversations</span><span class="dim">⌕</span></div><div class="body" style="padding:6px 8px">
+      <button class="thread" data-open="c9" style="display:block;width:100%;text-align:left;padding:8px;border-radius:8px"><div class="h">Overseer</div><div class="dim" style="font-size:12px">${esc(byId('c9').last)}</div></button>
+      ${groups.map(([g,l])=>l.length?`<div class="sec">${g} · ${l.length}</div>${l.map(x=>`<button class="thread" data-open="${x.id}" style="display:block;width:100%;text-align:left;padding:8px;border-radius:8px"><div style="display:flex;justify-content:space-between;gap:6px"><span class="h" style="font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><span class="dot ${x.state}"></span>${esc(x.title)}</span><span class="dim" style="font-size:11px">${x.ago}</span></div><div class="dim" style="font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(x.last)}</div></button>`).join('')}`:'').join('')}</div>`;
+  } else if(tab==='maps'){
+    body=`<div class="top"><span class="h">Maps</span></div><div class="body" style="padding:6px 12px">${MAPS.map(m=>`<div class="card" style="margin-bottom:10px"><div class="h">${esc(m.title)}</div>${mapRail(m)}<div class="dim" style="font-size:12px">${m.lanes.running.length} running · ${m.lanes.frontier.length} on the frontier · ${CONV.filter(c=>c.map===m.id&&c.state==='wait').length} need you</div><div style="margin-top:8px;display:flex;gap:6px"><button class="btn small" data-open="${CONV.find(c=>c.map===m.id&&c.state==='wait')?.id||'c9'}" >Open waiting ticket</button><button class="btn small" data-act="mapedit">Reshape</button></div></div>`).join('')}</div>`;
+  } else if(tab==='new'){
+    body=`<div class="top"><span class="h">New conversation</span></div><div class="body" style="padding:12px"><div class="card" style="min-height:120px;color:var(--dim)">${S.place.quick||'Describe the outcome. Curia picks a repo and an agent, or asks.'}</div><div class="sec">repo</div><div class="ctl"><span class="pill">alp82/curia</span><span class="pill">alp82/coinmatica</span></div><div class="sec">attach to</div><div class="ctl"><span class="pill">nothing (quick task)</span><span class="pill">a map ticket…</span></div><button class="btn primary" style="margin-top:14px;width:100%;justify-content:center" data-act="startquick">Start</button></div>`;
+  }
+  return `<div class="Ap">${body}${S.chat?'':`<div class="tabs"><button class="${tab==='chats'?'on':''}" data-view="chats"><span class="ic">💬</span>Chats <span class="badge">2</span></button><button class="${tab==='maps'?'on':''}" data-view="maps"><span class="ic">🗺</span>Maps</button><button class="${tab==='new'?'on':''}" data-view="new"><span class="ic">＋</span>New</button></div>`}</div>${toast()}`;
+}
+
+/* ==================== VARIANT B — DESK ==================== */
+function B_card(c){ const m=mapOf(c); const q=c.msgs.find(x=>x.q);
+  return `<div class="card" data-open="${c.id}"><div class="k">${m?esc(m.title.split(' for ')[0]):c.kind==='quick'?'quick task · '+c.repo:'overseer'} · ${c.agent} · ${c.ago}</div><div class="ttl">${esc(c.title)}</div><div class="sum">${esc(c.last)}</div>
+  ${c.state==='wait'&&q?`<div class="act">${q.opts.slice(0,2).map(o=>`<button class="btn small" data-ans="${c.id+c.msgs.indexOf(q)}" data-o="${esc(o)}">${esc(o)}</button>`).join('')}</div><div class="qin"><div class="in">or type an answer…</div></div>`:''}
+  ${c.state==='fail'?`<div class="act"><button class="btn small primary">↻ Retry</button><button class="btn small">Open transcript</button></div>`:''}
+  ${c.state==='review'?`<div class="act"><a class="btn small" href="#">PR ↗</a><button class="btn small">Merge</button><button class="btn small">Ask a follow-up</button></div>`:''}
+  ${c.state==='done'&&c.map?`<div class="act"><button class="btn small" data-act="map" data-map="${c.map}">See map change</button></div>`:''}
+  ${c.state==='run'?`<div class="act"><button class="btn small">⏸ Pause</button><button class="btn small">Steer…</button></div>`:''}</div>`; }
+function B_desktop(){
+  const nav = `<div class="topbar"><span class="brand">Curia</span><nav><button class="${S.view==='home'?'on':''}" data-view="home">Desk <span class="badge">2</span></button><button class="${S.view==='efforts'?'on':''}" data-view="efforts">Efforts</button><button class="${S.view==='history'?'on':''}" data-view="history">History</button></nav><div class="ask">Ask for anything: a fix, a question, a plan…</div><button class="btn small">Settings</button></div>`;
+  let page='';
+  if(S.view==='home'){
+    const cols=[['needs you',CONV.filter(x=>x.state==='wait'),'needs'],['failed',CONV.filter(x=>x.state==='fail'),'fail'],['running',CONV.filter(x=>x.state==='run'),'run'],['finished since you left · 10h',CONV.filter(x=>x.state==='done'||x.state==='review').filter(x=>x.kind!=='overseer'),'done']];
+    page=`<div class="board">${cols.map(([h,l,k])=>`<div class="col ${k}"><h4>${h} <span class="dim">${l.length}</span></h4>${l.map(B_card).join('')}${k==='done'?`<div class="card" data-open="c9" style="border-left-color:var(--dim)"><div class="k">overseer · 2m</div><div class="ttl">Overnight summary</div><div class="sum">${esc(byId('c9').last)}</div></div>`:''}</div>`).join('')}</div>`;
+  } else if(S.view==='efforts'){
+    page=`<div class="page">${MAPS.map(m=>`<div class="card effort ${S.overlay==='map'&&S.place.map===m.id?'sel':''}"><div class="hd"><div><div class="h" style="font-size:14px">${esc(m.title)}</div><div class="dim" style="font-size:12px">${esc(m.dest)}</div></div><div class="health"><span class="dot ${CONV.some(c=>c.map===m.id&&c.state==='fail')?'fail':'good'}"></span>${CONV.some(c=>c.map===m.id&&c.state==='fail')?'at risk':'on track'} · ${m.lanes.done.length} of ${Object.values(m.lanes).flat().length} decided</div></div>
+      <div class="dim" style="font-size:12px;margin-top:8px"><b style="color:var(--ink)">latest update</b> · ${m.id==='m1'?'Map overview resolved 3h ago; two tickets unblocked. Direction ticket running.':'Recovery PR opened 2h ago; walkthrough failed on network, retry pending.'}</div>
+      <div class="lanes">${Object.keys(m.lanes).map(k=>`<div class="lane"><h5>${k} · ${m.lanes[k].length}</h5>${m.lanes[k].map(t=>{const c=CONV.find(x=>x.map===m.id&&x.title===t);return `<div class="tk ${c&&S.chat===c.id?'me':''} ${S.mapEdit&&t==='Which requirements belong in first use?'?'dim':''}" ${c?`data-open="${c.id}"`:''} style="${k==='fog'?'border-style:dashed;color:var(--dim)':''}${S.mapEdit&&t==='Which requirements belong in first use?'?';text-decoration:line-through':''}">${esc(t)}${c?` <span class="pill ${c.state}">${label[c.state]}</span>`:''}</div>`}).join('')}${k==='frontier'&&S.mapEdit&&m.id==='m1'?`<div class="tk" style="border-style:dashed;color:var(--accent)">+ Is Discord optional for a first task?</div>`:''}</div>`).join('')}</div>
+      <div class="ctl" style="margin-top:10px"><button class="btn small" data-act="mapedit">${S.mapEdit?'Done reshaping':'Reshape plan'}</button><button class="btn small">Decisions so far</button><button class="btn small">Open on GitHub ↗</button></div></div>`).join('')}</div>`;
+  } else page=`<div class="page"><div class="sec">history</div>${CONV.filter(c=>c.state==='done'||c.state==='review').map(c=>`<div class="card" style="margin-bottom:6px" data-open="${c.id}"><span class="dim" style="font-size:11px">${c.ago}</span> · <b>${esc(c.title)}</b> <span class="dim">${esc(c.last)}</span></div>`).join('')}</div>`;
+  const c=byId(S.chat);
+  const drawer = c?`<div class="drawer"><div class="stack"><span class="dim">open:</span>${S.dockTabs.map(id=>`<button class="chip ${id===c.id?'on':''}" data-open="${id}">${esc(byId(id).title.slice(0,28))}${byId(id).state==='wait'?' ●':''}</button>`).join('')}</div><div class="hd"><div><div class="dim" style="font-size:11.5px">${mapOf(c)?esc(mapOf(c).title)+' › '+c.ticket:c.kind}</div><div class="h" style="font-size:14px">${esc(c.title)}</div><div style="margin-top:6px">${controls(c)}</div></div><button class="btn small" data-act="close">✕</button></div><div class="scroll">${msgs(c)}</div>${composer(c.state==='wait'?'Answer…':undefined)}</div>`:'';
+  return `<div class="B">${nav}${page}</div>${drawer}${toast()}`;
+}
+function B_phone(){
+  const tab=S.view==='home'?'desk':S.view;
+  let body='';
+  if(tab==='desk'){
+    const secs=[['needs you',CONV.filter(x=>x.state==='wait')],['failed',CONV.filter(x=>x.state==='fail')],['running',CONV.filter(x=>x.state==='run')],['finished since you left',CONV.filter(x=>(x.state==='done'||x.state==='review')&&x.kind!=='overseer')]];
+    body=`<div class="top"><span class="h">Desk</span><span class="dim">10h away</span></div><div class="ask" data-view="new">${S.place.quick||'Ask for anything…'}</div><div class="feed">${secs.map(([h,l])=>l.length?`<div class="sec">${h} · ${l.length}</div>${l.map(B_card).join('')}`:'').join('')}</div>`;
+  } else if(tab==='efforts'){
+    body=`<div class="top"><span class="h">Efforts</span></div><div class="feed">${MAPS.map(m=>`<div class="card"><div class="h">${esc(m.title)}</div>${mapRail(m)}<div class="dim" style="font-size:12px">${m.id==='m1'?'Map overview resolved 3h ago; two tickets unblocked.':'Recovery PR opened; walkthrough failed, retry pending.'}</div>${Object.keys(m.lanes).filter(k=>k!=='fog').map(k=>`<div class="sec">${k}</div>${m.lanes[k].map(t=>{const c=CONV.find(x=>x.map===m.id&&x.title===t);return `<div class="tk" style="font-size:12px;padding:5px 7px;border:1px solid var(--line);border-radius:6px;margin-bottom:4px;${S.mapEdit&&t==='Which requirements belong in first use?'?'text-decoration:line-through;opacity:.5':''}" ${c?`data-open="${c.id}"`:''}>${esc(t)}${c?` <span class="pill ${c.state}">${label[c.state]}</span>`:''}</div>`}).join('')}${k==='frontier'&&S.mapEdit&&m.id==='m1'?`<div class="tk" style="font-size:12px;padding:5px 7px;border:1px dashed var(--accent);color:var(--accent);border-radius:6px">+ Is Discord optional for a first task?</div>`:''}`).join('')}<div class="ctl" style="margin-top:8px"><button class="btn small" data-act="mapedit">${S.mapEdit?'Done':'Reshape'}</button></div></div>`).join('')}</div>`;
+  } else if(tab==='new'){
+    body=`<div class="top"><span class="h">Ask</span></div><div class="feed"><div class="card" style="min-height:120px;color:var(--dim)">${S.place.quick||'Describe the outcome…'}</div><div class="sec">repo</div><div class="ctl"><span class="pill">alp82/curia</span></div><button class="btn primary" style="margin-top:14px;width:100%;justify-content:center" data-act="startquick">Start</button></div>`;
+  } else body=`<div class="top"><span class="h">History</span></div><div class="feed">${CONV.filter(c=>c.state==='done'||c.state==='review').map(c=>`<div class="card" data-open="${c.id}"><b>${esc(c.title)}</b><div class="dim" style="font-size:12px">${esc(c.last)}</div></div>`).join('')}</div>`;
+  const c=byId(S.chat), m=c&&mapOf(c);
+  const push=c?`<div class="push"><div class="hd"><button class="btn small" data-act="back">‹ Desk</button><div style="min-width:0"><div class="dim" style="font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${m?esc(m.title):c.kind}</div><div class="h" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(c.title)}</div></div><span class="pill ${c.state}" style="margin-left:auto">${label[c.state]}</span></div><div style="padding:8px 14px;border-bottom:1px solid var(--line)">${controls(c)}</div><div class="scroll">${msgs(c)}</div>${composer(c.state==='wait'?'Answer…':undefined)}</div>`:'';
+  return `<div class="Bp">${body}<div class="tabs"><button class="${tab==='desk'?'on':''}" data-view="home"><span class="ic">▤</span>Desk <span class="badge">2</span></button><button class="${tab==='efforts'?'on':''}" data-view="efforts"><span class="ic">◔</span>Efforts</button><button class="${tab==='new'?'on':''}" data-view="new"><span class="ic">＋</span>Ask</button><button class="${tab==='history'?'on':''}" data-view="history"><span class="ic">≡</span>History</button></div>${push}</div>${toast()}`;
+}
+
+/* ==================== VARIANT C — ATLAS ==================== */
+function C_strip(){ const w=CONV.filter(c=>c.state==='wait'), f=CONV.filter(c=>c.state==='fail'), r=CONV.filter(c=>c.state==='run'||c.state==='review');
+  return `${w.map(c=>`<button class="need" data-open="${c.id}">● ${esc(c.title.slice(0,34))}</button>`).join('')}${f.map(c=>`<button class="need fail" data-open="${c.id}">✕ ${esc(c.title.slice(0,30))}</button>`).join('')}${r.map(c=>`<button class="need run" data-open="${c.id}">▶ ${esc(c.title.slice(0,26))}</button>`).join('')}`; }
+function C_desktop(){
+  const c=byId(S.chat);
+  const plan=`<div class="plan"><div class="strip"><span class="brand">Curia</span>${C_strip()}<button class="ask" data-act="startquick">＋ ask for anything…</button><button class="btn small" data-open="c9">Overseer</button></div>
+    <div class="canvas">${MAPS.map(m=>`<div class="map"><div class="hd"><div><div class="h">${esc(m.title)}</div><div class="dest">${esc(m.dest)} · <span class="dim">latest: ${m.id==='m1'?'map overview resolved 3h ago, two tickets unblocked':'PR opened 2h ago, walkthrough failed'}</span></div></div><div class="ctl"><button class="btn small" data-act="mapedit">${S.mapEdit?'Done reshaping':'Reshape'}</button><button class="btn small">Decisions</button></div></div>${mapLanes(m)}</div>`).join('')}
+    <div class="unmapped"><div class="sec">unmapped work · quick tasks and research</div><div class="row">${CONV.filter(x=>!x.map&&x.kind!=='overseer').map(x=>`<button class="tk ${S.chat===x.id?'on':''}" data-open="${x.id}">${esc(x.title)} <span class="pill ${x.state}">${label[x.state]}</span></button>`).join('')}<button class="tk" style="border-style:dashed;color:var(--accent)" data-act="startquick">+ new</button></div></div></div></div>`;
+  const dock=c?`<div class="dock"><div class="tabs">${S.dockTabs.map(id=>`<button class="${id===c.id?'on':''}" data-open="${id}"><span class="dot ${byId(id).state}"></span>${esc(byId(id).title.slice(0,22))}</button>`).join('')}<button data-act="close" style="margin-left:auto;color:var(--dim)">✕</button></div><div class="hd"><div class="dim" style="font-size:11.5px">${mapOf(c)?esc(mapOf(c).title)+' › '+c.ticket:c.kind}</div><div class="h" style="font-size:14px">${esc(c.title)}</div><div style="margin-top:6px">${controls(c)}</div></div><div class="scroll">${msgs(c)}</div>${composer(c.state==='wait'?'Answer…':undefined)}</div>`:'';
+  return `<div class="C ${c?'':'solo'}">${plan}${dock}</div>${toast()}`;
+}
+function C_phone(){
+  const tab=S.view==='home'?'plan':S.view;
+  let body='';
+  if(tab==='plan'){
+    body=`<div class="top"><span class="h">Plan</span><button class="btn small" data-open="c9">Overseer</button></div><div class="strip">${C_strip()}</div><div class="body">${MAPS.map(m=>`<div class="card mapcard"><div class="h">${esc(m.title)}</div>${mapRail(m)}<div class="dim" style="font-size:12px">${m.id==='m1'?'map overview resolved 3h ago':'PR opened 2h ago, walkthrough failed'}</div>${S.place.openMap===m.id?`${Object.keys(m.lanes).map(k=>`<div class="sec">${k} · ${m.lanes[k].length}</div>${m.lanes[k].map(t=>tk(m,k,t,{oos:true})).join('')}`).join('')}${S.mapEdit?`<button class="tk" style="border:1px dashed var(--accent);color:var(--accent)">+ Add ticket</button>`:''}<div class="ctl" style="margin-top:6px"><button class="btn small" data-act="mapedit">${S.mapEdit?'Done':'Reshape'}</button><button class="btn small" data-act="collapse">Collapse</button></div>`:`<button class="btn small" style="margin-top:6px" data-act="expand" data-map="${m.id}">Open lanes</button>`}</div>`).join('')}<div class="sec">unmapped</div>${CONV.filter(x=>!x.map&&x.kind!=='overseer').map(x=>`<button class="tk" data-open="${x.id}" style="display:block;width:100%;text-align:left;padding:6px 8px;border:1px solid var(--line);border-radius:7px;margin-bottom:5px;font-size:12px">${esc(x.title)} <span class="pill ${x.state}">${label[x.state]}</span></button>`).join('')}<div class="ask" data-view="new">${S.place.quick||'＋ ask for anything…'}</div></div>`;
+  } else if(tab==='new'){
+    body=`<div class="top"><span class="h">Ask</span></div><div class="body"><div class="card" style="min-height:120px;color:var(--dim)">${S.place.quick||'Describe the outcome…'}</div><div class="sec">repo</div><div class="ctl"><span class="pill">alp82/curia</span></div><div class="sec">place on the plan</div><div class="ctl"><span class="pill">unmapped</span><span class="pill">a ticket…</span></div><button class="btn primary" style="margin-top:14px;width:100%;justify-content:center" data-act="startquick">Start</button></div>`;
+  } else body=`<div class="top"><span class="h">History</span></div><div class="body">${CONV.filter(c=>c.state==='done'||c.state==='review').map(c=>`<div class="card" style="margin-bottom:6px" data-open="${c.id}"><b>${esc(c.title)}</b><div class="dim" style="font-size:12px">${esc(c.last)}</div></div>`).join('')}</div>`;
+  const c=byId(S.chat), m=c&&mapOf(c);
+  const push=c?`<div class="push"><div class="hd"><button class="btn small" data-act="back">‹ Plan</button><div style="min-width:0"><div class="dim" style="font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${m?esc(m.title):c.kind}</div><div class="h" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(c.title)}</div></div><span class="pill ${c.state}" style="margin-left:auto">${label[c.state]}</span></div><div style="padding:8px 14px;border-bottom:1px solid var(--line);display:flex;gap:6px;overflow:auto">${S.dockTabs.map(id=>`<button class="pill ${id===c.id?'review':''}" data-open="${id}">${esc(byId(id).title.slice(0,18))}</button>`).join('')}</div><div class="scroll">${msgs(c)}</div>${composer(c.state==='wait'?'Answer…':undefined)}</div>`:'';
+  return `<div class="Cp">${body}<div class="tabs"><button class="${tab==='plan'?'on':''}" data-view="home"><span class="ic">🗺</span>Plan <span class="badge">2</span></button><button class="${tab==='new'?'on':''}" data-view="new"><span class="ic">＋</span>Ask</button><button class="${tab==='history'?'on':''}" data-view="history"><span class="ic">≡</span>History</button></div>${push}</div>${toast()}`;
+}
+
+/* ==================== SCENARIOS (steps set state; no real mutations) ==================== */
+const R = ()=>{ Object.assign(S,{chat:null,view:'home',overlay:null,toast:null,mapEdit:false,place:{},dockTabs:['c2'],answered:{},filter:'all'}); };
+const open = id => { S.chat=id; if(!S.dockTabs.includes(id)) S.dockTabs.push(id); };
+const SC = [
+ { n:1, name:'Morning return', steps:[
+   ['Land in the app after 10 hours away', s=>{R();}],
+   ['Find what happened overnight', s=>{ if(S.variant==='A') open('c9'); }],
+   ['Open the waiting agent', s=>{ if(S.variant==='A') open('c9'); open('c1'); }],
+   ['Answer it', s=>{ open('c1'); S.answered['c12']='GitHub + harness only'; }],
+ ]},
+ { n:2, name:'Work a map ticket', steps:[
+   ['Look at the Redesign map', s=>{R(); if(S.variant==='A'){open('c9');S.overlay='map';S.chat='c1';} if(S.variant==='B'){S.view='efforts';} if(S.variant==='C'&&S.device==='phone'){S.place.openMap='m1';} }],
+   ['Pick the next frontier ticket', s=>{ open('c1'); if(S.variant==='A') S.overlay=null; if(S.variant==='B') S.view='efforts'; if(S.variant==='C'&&S.device==='phone') S.place.openMap='m1'; }],
+   ['Grill with the agent and answer', s=>{ open('c1'); S.answered['c12']='GitHub + harness only'; if(S.variant==='B') S.view='efforts'; }],
+   ['See the map update after resolution', s=>{ open('c3'); if(S.variant==='A'){S.overlay='map';} if(S.variant==='B'){S.view='efforts';S.chat=null;S.overlay='map';S.place.map='m1';} if(S.variant==='C'&&S.device==='phone'){S.chat=null;S.place.openMap='m1';} }],
+ ]},
+ { n:3, name:'Quick task without a ticket', steps:[
+   ['On the phone, start a new conversation', s=>{R(); S.view='new'; if(S.variant==='A') S.view='new'; }],
+   ['Describe the fix', s=>{ S.view='new'; S.place.quick='On the phone attach page the terminal font is too small. Bump it one step.'; }],
+   ['Start it (no ticket, no map)', s=>{ open('c6'); }],
+   ['Later, on the desktop, find the result', s=>{ R(); if(S.variant==='A') open('c6'); if(S.variant==='B') S.view='home'; }],
+ ]},
+ { n:4, name:'Switch under load', steps:[
+   ['Five conversations active; you are mid-exchange in the PR review', s=>{R(); S.dockTabs=['c2','c4','c8','c5']; open('c4'); }],
+   ['Another agent interrupts with a question', s=>{ S.dockTabs=['c2','c4','c8','c5']; open('c4'); S.toast={title:'Which requirements belong in first use?',text:'Which cards stay required before a first task can start?',chat:'c1'}; }],
+   ['Answer it', s=>{ S.dockTabs=['c2','c4','c8','c5','c1']; open('c1'); S.answered['c12']='GitHub + harness only'; }],
+   ['Return to the PR review where you were', s=>{ S.dockTabs=['c2','c4','c8','c5','c1']; open('c4'); S.answered['c12']='GitHub + harness only'; }],
+ ]},
+ { n:5, name:'Reshape a plan', steps:[
+   ['A resolution changed the map: read what changed', s=>{R(); open('c3'); if(S.variant==='B'){S.view='efforts';} }],
+   ['Open the map', s=>{ open('c3'); if(S.variant==='A') S.overlay='map'; if(S.variant==='B'){S.view='efforts';S.chat=null;} if(S.variant==='C'){S.chat=null; if(S.device==='phone') S.place.openMap='m1';} }],
+   ['Close a ticket as out of scope', s=>{ S.mapEdit=true; if(S.variant==='A'){open('c3');S.overlay='map';} if(S.variant==='B'){S.view='efforts';S.chat=null;} if(S.variant==='C'){S.chat=null; if(S.device==='phone') S.place.openMap='m1';} }],
+   ['Add a new ticket', s=>{ S.mapEdit=true; if(S.variant==='A'){open('c3');S.overlay='map';} if(S.variant==='B'){S.view='efforts';S.chat=null;} if(S.variant==='C'){S.chat=null; if(S.device==='phone') S.place.openMap='m1';} }],
+ ]},
+ { n:6, name:'Review and follow up', steps:[
+   ['An agent opened a PR: find it', s=>{R();}],
+   ['Read the summary in Curia', s=>{ open('c4'); }],
+   ['Ask two follow-up questions', s=>{ open('c4'); byId('c4').msgs.length===2&&byId('c4').msgs.push({who:'me',t:'Does the recovery card show when the bot is missing entirely?'},{who:'curia',t:'No. It shows only when the bot exists and lost a permission. A missing bot goes through the normal invite card.'},{who:'me',t:'Which test covers the re-invite link?'},{who:'curia',t:'discordrecovery.test.mjs, case 3: "offers re-invite when Manage Threads is missing".'}); }],
+   ['Read the diff on the PR or in VS Code, then merge or redo', s=>{ open('c4'); }],
+ ]},
+ { n:7, name:'Artifact review (phone)', steps:[
+   ['On the phone, an agent published a preview and sent a picture and a report', s=>{R();}],
+   ['Find them from the conversation that produced them', s=>{ open('c8'); }],
+   ['Look at the picture and the report in place', s=>{ open('c8'); }],
+   ['Open the preview, then answer the agent', s=>{ open('c8'); S.answered['c83']='Candidate 2 (two cards)'; }],
+ ]},
+];
+const STMT = {
+ A:{ name:'Threads', always:'The conversation list on the left (grouped needs-you / running / review / finished / failed, filterable by map) and the objective header of the open conversation. New conversation button.',
+     contextual:'The right context pane (this ticket on its map, what it unblocks, artifacts, session). The map itself, opened as an overlay from the header. Maps index behind a rail button.',
+     ret:'The overseer conversation is the top thread and reads as the overnight summary. The needs-you group at the top of the rail shows what waits.',
+     switch:'Click another thread. The rail keeps grouping; the previous thread keeps its scroll. On phone, a chats list with a push page per conversation.',
+     map:'Reachable from every conversation (context pane, header button). Full map is an overlay over the conversation, never a separate destination.' },
+ B:{ name:'Desk', always:'The top nav (Desk / Efforts / History) and the ask box. On Desk: four columns of cards with inline actions (answer buttons, retry, merge).',
+     contextual:'Conversations open in a drawer over the board with a tab strip of open chats. Efforts is the map page with lanes and a health line.',
+     ret:'The Desk board itself is the morning summary: needs-you, failed, running, finished-since-you-left. Quick answers can be given from the card without opening the chat.',
+     switch:'The drawer keeps a strip of open chats; the board underneath never moves. Interrupts arrive as a card at the top of needs-you plus a toast.',
+     map:'A separate top-level page (Efforts) with lanes, latest update, and reshape. Finished cards link to the map change.' },
+ C:{ name:'Atlas', always:'The plan canvas: every map with its lanes and tickets, with agent state on each ticket, plus an unmapped row for quick tasks. An attention strip along the top.',
+     contextual:'Conversations dock to the right of the plan, tabbed, tied to the ticket they belong to. The overseer is one more conversation.',
+     ret:'The strip says what needs you and what failed; the lanes show what moved (finished pills). Reading the lanes is the summary.',
+     switch:'Click a ticket or a strip chip. The dock tabs keep every open conversation; the plan stays put underneath.',
+     map:'The map is the page. There is no separate overview; reshaping happens in place.' },
+};
+
+/* ==================== RENDER + WIRING ==================== */
+const frame=document.getElementById('frame'), guide=document.getElementById('guide');
+function render(){
+  const V={A:[A_desktop,A_phone],B:[B_desktop,B_phone],C:[C_desktop,C_phone]}[S.variant];
+  frame.className='frame '+S.device;
+  frame.innerHTML=(S.device==='phone'?V[1]:V[0])();
+  document.getElementById('vname').textContent=`${S.variant} — ${STMT[S.variant].name}`;
+  document.getElementById('dDesk').classList.toggle('on',S.device==='desktop');
+  document.getElementById('dPhone').classList.toggle('on',S.device==='phone');
+  document.getElementById('ph').textContent=`variant=${S.variant} device=${S.device} s=${scenario} step=${step}`;
+  const sc=SC[scenario-1], st=STMT[S.variant];
+  guide.innerHTML=`<h3>Variant ${S.variant} — ${st.name}</h3><div class="stmt"><b>Always present:</b> ${st.always}</div><div class="stmt"><b>Contextual:</b> ${st.contextual}</div><div class="stmt"><b>After a return:</b> ${st.ret}</div><div class="stmt"><b>Switching:</b> ${st.switch}</div><div class="stmt"><b>Map overview:</b> ${st.map}</div>
+    <h3>Scenario</h3><div class="tabs">${SC.map(x=>`<button class="${x.n===scenario?'on':''}" data-s="${x.n}">${x.n} ${x.name}</button>`).join('')}</div>
+    <h3>${sc.n}. ${sc.name}</h3><ol>${sc.steps.map((x,i)=>`<li><button class="${i===step?'on':''}" data-step="${i}"><span class="k">step ${i+1}</span>${x[0]}</button></li>`).join('')}</ol>
+    <h3>Free play</h3><div class="free"><button data-act="reset">reset</button><button data-act="toastdemo">interrupt</button><button data-act="mapedit">toggle reshape</button><button data-act="ctxtog">toggle context (A)</button></div>`;
+  const u=new URL(location.href); u.searchParams.set('variant',S.variant); u.searchParams.set('device',S.device); u.searchParams.set('s',scenario); u.searchParams.set('step',step); history.replaceState(null,'',u);
+}
+function runStep(){ SC[scenario-1].steps[step][1](); render(); }
+document.body.addEventListener('click',e=>{
+  const t=e.target.closest('[data-open],[data-act],[data-view],[data-s],[data-step],[data-ans],[data-filter],[data-map]'); if(!t) return;
+  if(t.dataset.s){ scenario=+t.dataset.s; step=0; runStep(); return; }
+  if(t.dataset.step!=null){ step=+t.dataset.step; runStep(); return; }
+  if(t.dataset.ans){ S.answered[t.dataset.ans]=t.dataset.o; render(); return; }
+  if(t.dataset.filter){ S.filter=t.dataset.filter; render(); return; }
+  if(t.dataset.open){ open(t.dataset.open); S.toast=null; if(S.variant==='A') S.overlay=null; render(); return; }
+  if(t.dataset.view){ S.view=t.dataset.view; S.chat=null; S.overlay=null; render(); return; }
+  const a=t.dataset.act;
+  if(a==='map'){ if(S.variant==='A') S.overlay='map'; if(S.variant==='B'){S.view='efforts';S.chat=null; if(t.dataset.map) S.place.map=t.dataset.map;} if(S.variant==='C'){ if(S.device==='phone'){S.chat=null;S.place.openMap='m1';} } }
+  if(a==='maps') S.overlay='maps';
+  if(a==='close'){ S.overlay=null; if(S.variant!=='A') S.chat=null; }
+  if(a==='back'){ S.chat=null; S.overlay=null; }
+  if(a==='ctx'){ S.overlay='ctx'; }
+  if(a==='ctxtog'){ S.ctx=!S.ctx; }
+  if(a==='mapedit'){ S.mapEdit=!S.mapEdit; }
+  if(a==='dismiss'){ S.toast=null; }
+  if(a==='reset'){ R(); }
+  if(a==='toastdemo'){ S.toast={title:'Which requirements belong in first use?',text:'Which cards stay required before a first task can start?',chat:'c1'}; }
+  if(a==='startquick'){ S.place.quick=S.place.quick||'On the phone attach page the terminal font is too small.'; open('c6'); S.view='home'; }
+  if(a==='expand'){ S.place.openMap=t.dataset.map; }
+  if(a==='collapse'){ S.place.openMap=null; }
+  render();
+});
+const VARS=['A','B','C'];
+function setVariant(v){ S.variant=v; runStep(); }
+document.getElementById('prev').onclick=()=>setVariant(VARS[(VARS.indexOf(S.variant)+2)%3]);
+document.getElementById('next').onclick=()=>setVariant(VARS[(VARS.indexOf(S.variant)+1)%3]);
+document.getElementById('dDesk').onclick=()=>{S.device='desktop';runStep();};
+document.getElementById('dPhone').onclick=()=>{S.device='phone';runStep();};
+document.addEventListener('keydown',e=>{ if(e.target.closest('input,textarea,[contenteditable]')) return; if(e.key==='ArrowLeft') document.getElementById('prev').click(); if(e.key==='ArrowRight') document.getElementById('next').click(); if(e.key==='d'){S.device=S.device==='phone'?'desktop':'phone';runStep();} });
+runStep();
+</script>
+</body>
+</html>
