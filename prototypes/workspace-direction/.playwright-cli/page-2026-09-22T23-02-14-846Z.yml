@@ -1,0 +1,160 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e3]: "#1021 workspace direction"
+    - generic [ref=e4]: variant=A device=desktop s=1 step=0
+    - generic [ref=e5]: · ←/→ variant · d device · scenario tabs on the right drive the mock state
+  - generic [ref=e6]:
+    - generic [ref=e9]:
+      - generic [ref=e10]:
+        - generic [ref=e11]:
+          - generic [ref=e12]: Curia
+          - generic [ref=e13]: ⌘K
+        - button "+ New conversation" [ref=e15] [cursor=pointer]
+        - generic [ref=e16]:
+          - button "all" [ref=e17] [cursor=pointer]
+          - button "Redesign" [ref=e18] [cursor=pointer]
+          - button "Discord" [ref=e19] [cursor=pointer]
+          - button "quick" [ref=e20] [cursor=pointer]
+        - generic [ref=e21]:
+          - button "Overseer 2m Four sessions ran overnight. Two finished, one waits, one failed." [ref=e22] [cursor=pointer]:
+            - generic [ref=e23]:
+              - generic [ref=e24]: Overseer
+              - generic [ref=e25]: 2m
+            - generic [ref=e26]: Four sessions ran overnight. Two finished, one waits, one failed.
+          - generic [ref=e27]: needs you · 2
+          - button "Which requirements belong in first use? 6h Redesign · Which of the four integration cards should stay required for a first task?" [ref=e28] [cursor=pointer]:
+            - generic [ref=e29]:
+              - generic [ref=e30]: Which requirements belong in first use?
+              - generic [ref=e32]: 6h
+            - generic [ref=e33]: Redesign · Which of the four integration cards should stay required for a first task?
+          - button "Choose a simpler first-use experience now Redesign · Published a preview and a report. Which of the two headers should stay?" [ref=e34] [cursor=pointer]:
+            - generic [ref=e35]:
+              - generic [ref=e36]: Choose a simpler first-use experience
+              - generic [ref=e38]: now
+            - generic [ref=e39]: Redesign · Published a preview and a report. Which of the two headers should stay?
+          - generic [ref=e40]: running · 1
+          - button "Choose between conversation-led and attention-led workspaces now Redesign · Building variant C, the map-led shell…" [ref=e41] [cursor=pointer]:
+            - generic [ref=e42]:
+              - generic [ref=e43]: Choose between conversation-led and attention-led workspaces
+              - generic [ref=e45]: now
+            - generic [ref=e46]: Redesign · Building variant C, the map-led shell…
+          - generic [ref=e47]: review · 1
+          - 'button "Offer recovery from setup 2h Discord · Opened PR #1031: offer Discord permission recovery from setup." [ref=e48] [cursor=pointer]':
+            - generic [ref=e49]:
+              - generic [ref=e50]: Offer recovery from setup
+              - generic [ref=e52]: 2h
+            - generic [ref=e53]: "Discord · Opened PR #1031: offer Discord permission recovery from setup."
+          - generic [ref=e54]: finished · 3
+          - button "Choose a map overview for the full plan 3h Redesign · Resolved. Three overview forms compared; lanes with a rail won." [ref=e55] [cursor=pointer]:
+            - generic [ref=e56]:
+              - generic [ref=e57]: Choose a map overview for the full plan
+              - generic [ref=e59]: 3h
+            - generic [ref=e60]: Redesign · Resolved. Three overview forms compared; lanes with a rail won.
+          - 'button "Quick: bump the ttyd font size on phone 40m Done. Branch quick/ttyd-font pushed, PR #1032 opened." [ref=e61] [cursor=pointer]':
+            - generic [ref=e62]:
+              - generic [ref=e63]: "Quick: bump the ttyd font size on phone"
+              - generic [ref=e65]: 40m
+            - generic [ref=e66]: "Done. Branch quick/ttyd-font pushed, PR #1032 opened."
+          - button "Which UI foundations fit? 1d Redesign · Resolved. shadcn viable; React build implied." [ref=e67] [cursor=pointer]:
+            - generic [ref=e68]:
+              - generic [ref=e69]: Which UI foundations fit?
+              - generic [ref=e71]: 1d
+            - generic [ref=e72]: Redesign · Resolved. shadcn viable; React build implied.
+          - generic [ref=e73]: failed · 1
+          - 'button "Write the recovery walkthrough 5h Discord · Failed: the container lost its network before the harness finished." [ref=e74] [cursor=pointer]':
+            - generic [ref=e75]:
+              - generic [ref=e76]: Write the recovery walkthrough
+              - generic [ref=e78]: 5h
+            - generic [ref=e79]: "Discord · Failed: the container lost its network before the harness finished."
+        - generic [ref=e80]:
+          - button "Maps" [ref=e81] [cursor=pointer]
+          - button "History" [ref=e82] [cursor=pointer]
+          - button "Settings" [ref=e83] [cursor=pointer]
+      - generic [ref=e84]:
+        - generic [ref=e85]:
+          - generic [ref=e86]: overseer · every session, every map
+          - generic [ref=e87]:
+            - generic [ref=e88]: Overseer
+            - generic [ref=e89]: finished
+          - link "Terminal" [ref=e92] [cursor=pointer]:
+            - /url: "#"
+        - generic [ref=e95]:
+          - generic [ref=e96]: curia · overseer
+          - generic [ref=e97]:
+            - generic [ref=e98]: Four sessions ran overnight on two maps.
+            - table [ref=e99]:
+              - rowgroup [ref=e100]:
+                - row [ref=e101]:
+                  - columnheader "Session" [ref=e102]
+                  - columnheader "Map" [ref=e103]
+                  - columnheader "Result" [ref=e104]
+                - row [ref=e105]:
+                  - cell "#1022 map overview" [ref=e106]
+                  - cell "Redesign" [ref=e107]
+                  - cell "finished" [ref=e108]
+                - row [ref=e109]:
+                  - cell "#1019 UI foundations" [ref=e110]
+                  - cell "Redesign" [ref=e111]
+                  - cell "finished" [ref=e112]
+                - row [ref=e113]:
+                  - cell "#1023 first-use requirements" [ref=e114]
+                  - cell "Redesign" [ref=e115]
+                  - cell "waiting for you" [ref=e116]
+                - row [ref=e117]:
+                  - cell "#1030 recovery walkthrough" [ref=e118]
+                  - cell "Discord recovery" [ref=e119]
+                  - 'cell "failed: network" [ref=e120]'
+        - generic [ref=e121]:
+          - generic [ref=e122]: Message the agent…
+          - button "Send" [ref=e123] [cursor=pointer]
+      - generic [ref=e124]:
+        - generic [ref=e125]: artifacts
+        - generic [ref=e126]: none yet
+        - generic [ref=e127]: session
+        - generic [ref=e128]: overseer · 2mbranch quick/ttyd-font
+    - complementary [ref=e129]:
+      - heading "Variant A — Threads" [level=3] [ref=e130]
+      - generic [ref=e131]: "Always present: The conversation list on the left (grouped needs-you / running / review / finished / failed, filterable by map) and the objective header of the open conversation. New conversation button."
+      - generic [ref=e132]: "Contextual: The right context pane (this ticket on its map, what it unblocks, artifacts, session). The map itself, opened as an overlay from the header. Maps index behind a rail button."
+      - generic [ref=e133]: "After a return: The overseer conversation is the top thread and reads as the overnight summary. The needs-you group at the top of the rail shows what waits."
+      - generic [ref=e134]: "Switching: Click another thread. The rail keeps grouping; the previous thread keeps its scroll. On phone, a chats list with a push page per conversation."
+      - generic [ref=e135]: "Map overview: Reachable from every conversation (context pane, header button). Full map is an overlay over the conversation, never a separate destination."
+      - heading "Scenario" [level=3] [ref=e136]
+      - generic [ref=e137]:
+        - button "1 Morning return" [ref=e138] [cursor=pointer]
+        - button "2 Work a map ticket" [ref=e139] [cursor=pointer]
+        - button "3 Quick task without a ticket" [ref=e140] [cursor=pointer]
+        - button "4 Switch under load" [ref=e141] [cursor=pointer]
+        - button "5 Reshape a plan" [ref=e142] [cursor=pointer]
+        - button "6 Review and follow up" [ref=e143] [cursor=pointer]
+        - button "7 Artifact review (phone)" [ref=e144] [cursor=pointer]
+      - heading "1. Morning return" [level=3] [ref=e145]
+      - list [ref=e146]:
+        - listitem [ref=e147]:
+          - button "step 1 Land in the app after 10 hours away" [ref=e148] [cursor=pointer]:
+            - generic [ref=e149]: step 1
+            - text: Land in the app after 10 hours away
+        - listitem [ref=e150]:
+          - button "step 2 Find what happened overnight" [ref=e151] [cursor=pointer]:
+            - generic [ref=e152]: step 2
+            - text: Find what happened overnight
+        - listitem [ref=e153]:
+          - button "step 3 Open the waiting agent" [ref=e154] [cursor=pointer]:
+            - generic [ref=e155]: step 3
+            - text: Open the waiting agent
+        - listitem [ref=e156]:
+          - button "step 4 Answer it" [ref=e157] [cursor=pointer]:
+            - generic [ref=e158]: step 4
+            - text: Answer it
+      - heading "Free play" [level=3] [ref=e159]
+      - generic [ref=e160]:
+        - button "reset" [ref=e161] [cursor=pointer]
+        - button "interrupt" [ref=e162] [cursor=pointer]
+        - button "toggle reshape" [ref=e163] [cursor=pointer]
+        - button "toggle context (A)" [ref=e164] [cursor=pointer]
+  - generic [ref=e165]:
+    - button "←" [ref=e166] [cursor=pointer]
+    - generic [ref=e167]: A — Threads
+    - button "→" [ref=e168] [cursor=pointer]
+    - button "desktop" [ref=e170] [cursor=pointer]
+    - button "phone" [ref=e171] [cursor=pointer]

@@ -251,6 +251,75 @@ a { color:inherit; }
 .Cp .push .hd { padding:10px 14px; border-bottom:1px solid var(--line); background:var(--raise); display:flex; gap:10px; align-items:center; }
 .Cp .push .scroll { flex:1; overflow:auto; padding:12px 14px; }
 .Cp .ask { margin:8px 0; background:var(--raise); border:1px solid var(--line); border-radius:12px; padding:9px 12px; color:var(--dim); }
+
+/* ===================== D — CALM THREADS (A, redesigned; C as a page) ===================== */
+.D { display:grid; grid-template-columns:260px 1fr; height:100%; font-size:14px; --raise:#15181f; }
+.D .side { background:var(--inset); display:flex; flex-direction:column; padding:14px 10px; gap:2px; overflow:hidden; }
+.D .side .row { display:flex; align-items:center; gap:8px; padding:8px 10px; border-radius:10px; color:var(--dim); font-size:13.5px; }
+.D .side .row:hover { background:var(--raise); color:var(--ink); }
+.D .side .row.on { background:var(--raise); color:var(--ink); }
+.D .side .row .ic { width:18px; text-align:center; opacity:.8; }
+.D .side .row .badge { margin-left:auto; }
+.D .side .brand { font-weight:700; font-size:15px; padding:6px 10px 12px; color:var(--ink); display:flex; justify-content:space-between; }
+.D .side .grp { font-size:11px; color:var(--dim); padding:14px 10px 4px; letter-spacing:.06em; text-transform:uppercase; }
+.D .side .list { overflow:auto; flex:1; }
+.D .side .ch { display:block; width:100%; text-align:left; padding:7px 10px; border-radius:10px; font-size:13.5px; color:var(--ink); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.D .side .ch:hover, .D .side .ch.on { background:var(--raise); }
+.D .side .ch .dot { width:6px; height:6px; margin-right:8px; }
+.D .side .foot { border-top:1px solid var(--line); padding-top:8px; }
+.D .main { display:flex; flex-direction:column; overflow:hidden; min-width:0; }
+.D .hd { display:flex; align-items:center; gap:10px; padding:12px 24px; }
+.D .hd .title { font-weight:600; font-size:14.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.D .hd .sub { color:var(--dim); font-size:12.5px; white-space:nowrap; }
+.D .hd .sp { flex:1; }
+.D .hd .ib { width:32px; height:32px; border-radius:8px; color:var(--dim); display:inline-flex; align-items:center; justify-content:center; }
+.D .hd .ib:hover { background:var(--raise); color:var(--ink); }
+.D .scroll { flex:1; overflow:auto; padding:8px 24px 24px; }
+.D .col { max-width:760px; margin:0 auto; }
+.D .msg { max-width:none; margin-bottom:18px; }
+.D .msg .who { font-size:12px; margin-bottom:6px; }
+.D .msg .body { background:transparent; border:0; padding:0; line-height:1.6; }
+.D .msg.me .body { background:var(--raise); border-radius:16px; padding:10px 16px; display:inline-block; }
+.D .msg.me { text-align:right; }
+.D .msg.sys .body { color:var(--dim); font-size:12.5px; }
+.D .msg .q { border:0; background:var(--raise); border-radius:14px; padding:12px 16px; }
+.D .msg .q .h { padding:0 !important; }
+.D .msg .q .opts { padding:0 !important; }
+.D .msg .pic, .D .msg .diag, .D .msg table { border-radius:12px; }
+.D .msg .card { border-radius:14px; }
+.D .status { display:flex; align-items:center; gap:10px; padding:8px 14px; border-radius:14px; background:var(--raise); margin:0 auto 12px; max-width:760px; font-size:13px; color:var(--dim); }
+.D .status .sp { flex:1; }
+.D .status button { color:var(--ink); padding:4px 10px; border-radius:8px; }
+.D .status button:hover { background:var(--bg); }
+.D .compose { padding:0 24px 20px; }
+.D .compose .box { max-width:760px; margin:0 auto; background:var(--raise); border:1px solid var(--line); border-radius:22px; padding:12px 16px; display:flex; flex-direction:column; gap:10px; }
+.D .compose .box .in { color:var(--dim); font-size:14px; }
+.D .compose .box .tools { display:flex; gap:6px; align-items:center; }
+.D .compose .box .tools .sp { flex:1; }
+.D .compose .box .send { width:32px; height:32px; border-radius:50%; background:var(--ink); color:var(--bg); display:inline-flex; align-items:center; justify-content:center; font-weight:700; }
+.D .pop { position:absolute; right:24px; top:52px; width:300px; background:var(--raise); border:1px solid var(--line); border-radius:14px; padding:14px; z-index:20; box-shadow:0 12px 40px rgba(0,0,0,.5); font-size:12.5px; }
+.D .page { flex:1; overflow:auto; padding:8px 24px 24px; }
+.D .page .C .lane { background:var(--raise); border:0; }
+.D .page .C .tk { background:var(--bg); }
+.D .home { max-width:760px; margin:60px auto 0; text-align:center; }
+.D .home h2 { font-size:22px; font-weight:600; margin-bottom:24px; }
+.D .home .cards { display:grid; grid-template-columns:1fr 1fr; gap:10px; text-align:left; margin-top:24px; }
+.D .home .cards .card { border-radius:14px; cursor:pointer; }
+.D .home .cards .card .k { font-size:11.5px; color:var(--dim); margin-bottom:4px; }
+/* phone */
+.Dp { display:flex; flex-direction:column; height:100%; font-size:14px; --raise:#15181f; }
+.Dp .hd { display:flex; align-items:center; gap:10px; padding:12px 14px; }
+.Dp .hd .title { font-weight:600; flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.Dp .scroll { flex:1; overflow:auto; padding:6px 14px 14px; }
+.Dp .compose { padding:6px 12px 14px; }
+.Dp .compose .box { background:var(--raise); border:1px solid var(--line); border-radius:22px; padding:10px 14px; display:flex; align-items:center; gap:10px; }
+.Dp .compose .box .in { flex:1; color:var(--dim); }
+.Dp .compose .box .send { width:30px; height:30px; border-radius:50%; background:var(--ink); color:var(--bg); display:inline-flex; align-items:center; justify-content:center; font-weight:700; }
+.Dp .drawer { position:absolute; inset:0; background:rgba(0,0,0,.5); z-index:25; }
+.Dp .drawer .pane { width:82%; height:100%; background:var(--inset); padding:14px 10px; display:flex; flex-direction:column; }
+.Dp .status { display:flex; align-items:center; gap:10px; padding:8px 14px; border-radius:14px; background:var(--raise); margin-bottom:12px; font-size:13px; color:var(--dim); }
+.Dp .status .sp { flex:1; }
+.Dp .status button { color:var(--ink); }
 </style>
 </head>
 <body>
@@ -456,21 +525,62 @@ function C_phone(){
   return `<div class="Cp">${body}<div class="tabs"><button class="${tab==='plan'?'on':''}" data-view="home"><span class="ic">🗺</span>Plan <span class="badge">2</span></button><button class="${tab==='new'?'on':''}" data-view="new"><span class="ic">＋</span>Ask</button><button class="${tab==='history'?'on':''}" data-view="history"><span class="ic">≡</span>History</button></div>${push}</div>${toast()}`;
 }
 
+
+/* ==================== VARIANT D — CALM THREADS ==================== */
+function D_side(){
+  const needs=CONV.filter(x=>x.state==='wait'), rest=CONV.filter(x=>x.state!=='wait'&&x.kind!=='overseer');
+  const on=(id)=>S.chat===id?'on':'';
+  return `<div class="side"><div class="brand"><span>Curia</span><span class="dim" style="font-weight:400">⌘K</span></div>
+    <button class="row ${S.view==='new'&&!S.chat?'on':''}" data-view="new"><span class="ic">✎</span>New conversation</button>
+    <button class="row ${S.view==='maps'?'on':''}" data-view="maps"><span class="ic">◫</span>Maps</button>
+    <button class="row ${on('c9')}" data-open="c9"><span class="ic">◉</span>Overseer</button>
+    <div class="grp">Needs you</div><div>${needs.map(x=>`<button class="ch ${on(x.id)}" data-open="${x.id}"><span class="dot wait"></span>${esc(x.title)}</button>`).join('')}</div>
+    <div class="grp">Recent</div><div class="list">${rest.map(x=>`<button class="ch ${on(x.id)}" data-open="${x.id}"><span class="dot ${x.state}"></span>${esc(x.title)}</button>`).join('')}</div>
+    <div class="foot"><button class="row"><span class="ic">◷</span>History</button><button class="row"><span class="ic">⚙</span>Settings</button></div></div>`;
+}
+function D_status(c){
+  if(c.state==='run') return `<div class="status"><span class="dot run"></span>Working · 41 min · building variant C<span class="sp"></span><button>Pause</button><button>Stop</button></div>`;
+  if(c.state==='wait') return `<div class="status"><span class="dot wait"></span>Waiting for your answer · ${c.ago}<span class="sp"></span><button>Stop</button></div>`;
+  if(c.state==='fail') return `<div class="status"><span class="dot fail"></span>Failed at 03:12 · container lost network<span class="sp"></span><button class="h">Retry</button></div>`;
+  if(c.state==='review') return `<div class="status"><span class="dot review"></span>Pull request open · checks passing<span class="sp"></span><button>Open PR ↗</button></div>`;
+  return `<div class="status"><span class="dot done"></span>Finished · ${c.ago}<span class="sp"></span>${c.ticket?`<button>${c.ticket} ↗</button>`:''}</div>`;
+}
+function D_compose(ph){ return `<div class="compose"><div class="box"><div class="in">${ph||'Message the agent, or ask for anything…'}</div><div class="tools"><button class="btn small">＋</button><button class="btn small">alp82/curia</button><span class="sp"></span><span class="send">↑</span></div></div></div>`; }
+function D_main(){
+  if(S.view==='maps') return `<div class="main"><div class="hd"><span class="title">Maps</span><span class="sub">· 2 maps · 2 need you</span><span class="sp"></span><button class="ib" data-act="mapedit" title="Reshape">✎</button></div><div class="page"><div class="C solo" style="height:auto;display:block"><div class="canvas" style="padding:0">${MAPS.map(m=>`<div class="map"><div class="hd" style="padding:0 0 6px"><div><div class="h">${esc(m.title)}</div><div class="dest">${esc(m.dest)} · <span class="dim">latest: ${m.id==='m1'?'map overview resolved 3h ago':'PR opened 2h ago, walkthrough failed'}</span></div></div><div class="ctl"><button class="btn small" data-act="mapedit">${S.mapEdit?'Done':'Reshape'}</button><button class="btn small">Decisions</button></div></div>${mapLanes(m)}</div>`).join('')}<div class="unmapped"><div class="sec">unmapped</div><div class="row">${CONV.filter(x=>!x.map&&x.kind!=='overseer').map(x=>`<button class="tk" data-open="${x.id}">${esc(x.title)} <span class="pill ${x.state}">${label[x.state]}</span></button>`).join('')}</div></div></div></div></div></div>`;
+  const c=byId(S.chat);
+  if(!c) return `<div class="main"><div class="hd"><span class="sp"></span></div><div class="page"><div class="home"><h2>What are we working on?</h2>${D_compose('Describe the outcome…').replace('class="compose"','class="compose" style="padding:0"')}<div class="cards">${CONV.filter(x=>x.state==='wait').map(x=>`<div class="card" data-open="${x.id}"><div class="k"><span class="dot wait"></span>needs you · ${x.ago}</div>${esc(x.title)}</div>`).join('')}<div class="card" data-open="c9"><div class="k"><span class="dot"></span>overseer · 2m</div>${esc(byId('c9').last)}</div><div class="card" data-open="c5"><div class="k"><span class="dot fail"></span>failed · 5h</div>${esc(byId('c5').title)}</div></div></div></div></div>`;
+  const m=mapOf(c);
+  return `<div class="main"><div class="hd"><span class="title">${esc(c.title)}</span><span class="sub">${m?'· '+esc(m.title.split(' for ')[0])+' '+c.ticket:c.kind==='quick'?'· quick task':'· overseer'}</span><span class="sp"></span>${m?`<button class="ib" data-act="map" title="Map">◫</button>`:''}<button class="ib" data-act="ctx" title="Details">ⓘ</button><button class="ib">⋯</button></div>
+    ${S.overlay==='ctx'?`<div class="pop">${m?`<div class="sec" style="margin-top:0">On the map</div><div>${esc(m.title)}</div>${mapRail(m)}<div class="dim">frontier · unblocks: Choose a simpler first-use experience</div>`:''}<div class="sec">Artifacts</div><div>${c.msgs.some(x=>x.pic||x.att||x.pr)?'🖼 picture · 📄 report · 🔗 preview':'<span class="dim">none yet</span>'}</div><div class="sec">Session</div><div class="dim">${c.agent} · branch ${c.ticket?c.ticket.replace('#','ticket/'):'quick/ttyd-font'} · <a href="#">terminal</a></div></div>`:''}
+    <div class="scroll"><div class="col">${D_status(c)}${msgs(c)}</div></div>${D_compose(c.state==='wait'?'Answer, or say something else…':undefined)}</div>`;
+}
+function D_desktop(){ return `<div class="D">${D_side()}${D_main()}</div>${toast()}`; }
+function D_phone(){
+  const c=byId(S.chat);
+  let body;
+  if(S.view==='maps') body=`<div class="hd"><button class="ib" data-act="menu">☰</button><span class="title">Maps</span><button class="btn small" data-act="mapedit">${S.mapEdit?'Done':'Reshape'}</button></div><div class="scroll">${MAPS.map(m=>`<div class="card mapcard" style="margin-bottom:10px;border-radius:14px"><div class="h">${esc(m.title)}</div>${mapRail(m)}${(S.place.openMap===m.id?Object.keys(m.lanes).map(k=>`<div class="sec">${k} · ${m.lanes[k].length}</div>${m.lanes[k].map(t=>tk(m,k,t,{oos:true})).join('')}`).join(''):`<button class="btn small" data-act="expand" data-map="${m.id}">Open lanes</button>`)}</div>`).join('')}</div>`;
+  else if(!c) body=`<div class="hd"><button class="ib" data-act="menu">☰</button><span class="title">Curia</span></div><div class="scroll"><div class="home" style="margin-top:30px"><h2 style="font-size:20px">What are we working on?</h2><div class="cards" style="grid-template-columns:1fr">${CONV.filter(x=>x.state==='wait').map(x=>`<div class="card" data-open="${x.id}"><div class="k"><span class="dot wait"></span>needs you · ${x.ago}</div>${esc(x.title)}</div>`).join('')}<div class="card" data-open="c9"><div class="k">overseer · 2m</div>${esc(byId('c9').last)}</div></div></div></div>${`<div class="compose"><div class="box"><div class="in">${S.place.quick||'Describe the outcome…'}</div><span class="send" data-act="startquick">↑</span></div></div>`}`;
+  else body=`<div class="hd"><button class="ib" data-act="menu">☰</button><span class="title">${esc(c.title)}</span>${mapOf(c)?`<button class="ib" data-act="map">◫</button>`:''}<button class="ib" data-act="ctx">ⓘ</button></div>${S.overlay==='ctx'?`<div class="sheet" style="position:absolute;left:0;right:0;bottom:0;background:var(--raise);border-radius:16px 16px 0 0;padding:14px;z-index:25;max-height:60%;overflow:auto">${mapOf(c)?`<div class="sec" style="margin-top:0">On the map</div>${mapRail(mapOf(c))}`:''}<div class="sec">Artifacts</div>${c.msgs.some(x=>x.pic||x.att||x.pr)?'🖼 picture · 📄 report · 🔗 preview':'none yet'}<div style="margin-top:10px"><button class="btn small" data-act="close">Close</button></div></div>`:''}<div class="scroll">${D_status(c)}${msgs(c)}</div><div class="compose"><div class="box"><div class="in">${c.state==='wait'?'Answer…':'Message…'}</div><span class="send">↑</span></div></div>`;
+  const menu=S.overlay==='menu'?`<div class="drawer" data-act="close"><div class="pane">${D_side().replace('class="side"','class="side" style="padding:0;background:transparent"')}</div></div>`:'';
+  return `<div class="Dp">${body}${menu}</div>${toast()}`;
+}
+
 /* ==================== SCENARIOS (steps set state; no real mutations) ==================== */
 const R = ()=>{ Object.assign(S,{chat:null,view:'home',overlay:null,toast:null,mapEdit:false,place:{},dockTabs:['c2'],answered:{},filter:'all'}); };
 const open = id => { S.chat=id; if(!S.dockTabs.includes(id)) S.dockTabs.push(id); };
 const SC = [
  { n:1, name:'Morning return', steps:[
    ['Land in the app after 10 hours away', s=>{R();}],
-   ['Find what happened overnight', s=>{ if(S.variant==='A') open('c9'); }],
-   ['Open the waiting agent', s=>{ if(S.variant==='A') open('c9'); open('c1'); }],
+   ['Find what happened overnight', s=>{ if(S.variant==='A'||S.variant==='D') open('c9'); }],
+   ['Open the waiting agent', s=>{ if(S.variant==='A'||S.variant==='D') open('c9'); open('c1'); }],
    ['Answer it', s=>{ open('c1'); S.answered['c12']='GitHub + harness only'; }],
  ]},
  { n:2, name:'Work a map ticket', steps:[
-   ['Look at the Redesign map', s=>{R(); if(S.variant==='A'){open('c9');S.overlay='map';S.chat='c1';} if(S.variant==='B'){S.view='efforts';} if(S.variant==='C'&&S.device==='phone'){S.place.openMap='m1';} }],
+   ['Look at the Redesign map', s=>{R(); if(S.variant==='A'){open('c9');S.overlay='map';S.chat='c1';} if(S.variant==='D'){S.view='maps';} if(S.variant==='B'){S.view='efforts';} if(S.variant==='C'&&S.device==='phone'){S.place.openMap='m1';} }],
    ['Pick the next frontier ticket', s=>{ open('c1'); if(S.variant==='A') S.overlay=null; if(S.variant==='B') S.view='efforts'; if(S.variant==='C'&&S.device==='phone') S.place.openMap='m1'; }],
    ['Grill with the agent and answer', s=>{ open('c1'); S.answered['c12']='GitHub + harness only'; if(S.variant==='B') S.view='efforts'; }],
-   ['See the map update after resolution', s=>{ open('c3'); if(S.variant==='A'){S.overlay='map';} if(S.variant==='B'){S.view='efforts';S.chat=null;S.overlay='map';S.place.map='m1';} if(S.variant==='C'&&S.device==='phone'){S.chat=null;S.place.openMap='m1';} }],
+   ['See the map update after resolution', s=>{ open('c3'); if(S.variant==='A'){S.overlay='map';} if(S.variant==='D'){S.view='maps';S.chat=null;} if(S.variant==='B'){S.view='efforts';S.chat=null;S.overlay='map';S.place.map='m1';} if(S.variant==='C'&&S.device==='phone'){S.chat=null;S.place.openMap='m1';} }],
  ]},
  { n:3, name:'Quick task without a ticket', steps:[
    ['On the phone, start a new conversation', s=>{R(); S.view='new'; if(S.variant==='A') S.view='new'; }],
@@ -487,8 +597,8 @@ const SC = [
  { n:5, name:'Reshape a plan', steps:[
    ['A resolution changed the map: read what changed', s=>{R(); open('c3'); if(S.variant==='B'){S.view='efforts';} }],
    ['Open the map', s=>{ open('c3'); if(S.variant==='A') S.overlay='map'; if(S.variant==='B'){S.view='efforts';S.chat=null;} if(S.variant==='C'){S.chat=null; if(S.device==='phone') S.place.openMap='m1';} }],
-   ['Close a ticket as out of scope', s=>{ S.mapEdit=true; if(S.variant==='A'){open('c3');S.overlay='map';} if(S.variant==='B'){S.view='efforts';S.chat=null;} if(S.variant==='C'){S.chat=null; if(S.device==='phone') S.place.openMap='m1';} }],
-   ['Add a new ticket', s=>{ S.mapEdit=true; if(S.variant==='A'){open('c3');S.overlay='map';} if(S.variant==='B'){S.view='efforts';S.chat=null;} if(S.variant==='C'){S.chat=null; if(S.device==='phone') S.place.openMap='m1';} }],
+   ['Close a ticket as out of scope', s=>{ S.mapEdit=true; if(S.variant==='A'){open('c3');S.overlay='map';} if(S.variant==='D'){S.view='maps';S.chat=null;} if(S.variant==='B'){S.view='efforts';S.chat=null;} if(S.variant==='C'){S.chat=null; if(S.device==='phone') S.place.openMap='m1';} }],
+   ['Add a new ticket', s=>{ S.mapEdit=true; if(S.variant==='A'){open('c3');S.overlay='map';} if(S.variant==='D'){S.view='maps';S.chat=null;} if(S.variant==='B'){S.view='efforts';S.chat=null;} if(S.variant==='C'){S.chat=null; if(S.device==='phone') S.place.openMap='m1';} }],
  ]},
  { n:6, name:'Review and follow up', steps:[
    ['An agent opened a PR: find it', s=>{R();}],
@@ -514,6 +624,11 @@ const STMT = {
      ret:'The Desk board itself is the morning summary: needs-you, failed, running, finished-since-you-left. Quick answers can be given from the card without opening the chat.',
      switch:'The drawer keeps a strip of open chats; the board underneath never moves. Interrupts arrive as a card at the top of needs-you plus a toast.',
      map:'A separate top-level page (Efforts) with lanes, latest update, and reshape. Finished cards link to the map change.' },
+ D:{ name:'Calm threads', always:'A quiet sidebar: New conversation, Maps, Overseer, a short Needs-you list, then Recent. The conversation, centered at 760px, with one status line on top (working, waiting, failed, PR open) that carries the controls.',
+     contextual:'Details behind an info button: place on the map, artifacts, session. Maps is a page, the Atlas canvas, reached from the sidebar and from the map icon in the header.',
+     ret:'Landing with nothing open shows a prompt box and cards for what needs you, the overseer note, and any failure. The sidebar Needs-you list stays visible from every conversation.',
+     switch:'Click a sidebar entry. Phone: the sidebar is a slide-in drawer from the ☰ button, so a switch is two taps from anywhere.',
+     map:'A page (Maps), the Atlas canvas, one click from any conversation. Not an overlay: it is a place you can rest.' },
  C:{ name:'Atlas', always:'The plan canvas: every map with its lanes and tickets, with agent state on each ticket, plus an unmapped row for quick tasks. An attention strip along the top.',
      contextual:'Conversations dock to the right of the plan, tabbed, tied to the ticket they belong to. The overseer is one more conversation.',
      ret:'The strip says what needs you and what failed; the lanes show what moved (finished pills). Reading the lanes is the summary.',
@@ -524,7 +639,7 @@ const STMT = {
 /* ==================== RENDER + WIRING ==================== */
 const frame=document.getElementById('frame'), guide=document.getElementById('guide');
 function render(){
-  const V={A:[A_desktop,A_phone],B:[B_desktop,B_phone],C:[C_desktop,C_phone]}[S.variant];
+  const V={A:[A_desktop,A_phone],B:[B_desktop,B_phone],C:[C_desktop,C_phone],D:[D_desktop,D_phone]}[S.variant];
   frame.className='frame '+S.device;
   frame.innerHTML=(S.device==='phone'?V[1]:V[0])();
   document.getElementById('vname').textContent=`${S.variant} — ${STMT[S.variant].name}`;
@@ -545,14 +660,15 @@ document.body.addEventListener('click',e=>{
   if(t.dataset.step!=null){ step=+t.dataset.step; runStep(); return; }
   if(t.dataset.ans){ S.answered[t.dataset.ans]=t.dataset.o; render(); return; }
   if(t.dataset.filter){ S.filter=t.dataset.filter; render(); return; }
-  if(t.dataset.open){ open(t.dataset.open); S.toast=null; if(S.variant==='A') S.overlay=null; render(); return; }
-  if(t.dataset.view){ S.view=t.dataset.view; S.chat=null; S.overlay=null; render(); return; }
+  if(t.dataset.open){ open(t.dataset.open); S.toast=null; if(S.variant==='A'||S.variant==='D'){ S.overlay=null; if(S.variant==='D') S.view='home'; } render(); return; }
+  if(t.dataset.view){ S.view=t.dataset.view; S.chat=null; S.overlay=null; if(S.variant==='D'&&t.dataset.view==='new'){S.view='home';} render(); return; }
   const a=t.dataset.act;
-  if(a==='map'){ if(S.variant==='A') S.overlay='map'; if(S.variant==='B'){S.view='efforts';S.chat=null; if(t.dataset.map) S.place.map=t.dataset.map;} if(S.variant==='C'){ if(S.device==='phone'){S.chat=null;S.place.openMap='m1';} } }
+  if(a==='map'){ if(S.variant==='A') S.overlay='map'; if(S.variant==='D'){S.view='maps';S.chat=null;S.overlay=null;} if(S.variant==='B'){S.view='efforts';S.chat=null; if(t.dataset.map) S.place.map=t.dataset.map;} if(S.variant==='C'){ if(S.device==='phone'){S.chat=null;S.place.openMap='m1';} } }
   if(a==='maps') S.overlay='maps';
   if(a==='close'){ S.overlay=null; if(S.variant!=='A') S.chat=null; }
   if(a==='back'){ S.chat=null; S.overlay=null; }
-  if(a==='ctx'){ S.overlay='ctx'; }
+  if(a==='ctx'){ S.overlay=S.overlay==='ctx'?null:'ctx'; }
+  if(a==='menu'){ S.overlay='menu'; }
   if(a==='ctxtog'){ S.ctx=!S.ctx; }
   if(a==='mapedit'){ S.mapEdit=!S.mapEdit; }
   if(a==='dismiss'){ S.toast=null; }
@@ -563,10 +679,10 @@ document.body.addEventListener('click',e=>{
   if(a==='collapse'){ S.place.openMap=null; }
   render();
 });
-const VARS=['A','B','C'];
+const VARS=['A','B','C','D'];
 function setVariant(v){ S.variant=v; runStep(); }
-document.getElementById('prev').onclick=()=>setVariant(VARS[(VARS.indexOf(S.variant)+2)%3]);
-document.getElementById('next').onclick=()=>setVariant(VARS[(VARS.indexOf(S.variant)+1)%3]);
+document.getElementById('prev').onclick=()=>setVariant(VARS[(VARS.indexOf(S.variant)+VARS.length-1)%VARS.length]);
+document.getElementById('next').onclick=()=>setVariant(VARS[(VARS.indexOf(S.variant)+1)%VARS.length]);
 document.getElementById('dDesk').onclick=()=>{S.device='desktop';runStep();};
 document.getElementById('dPhone').onclick=()=>{S.device='phone';runStep();};
 document.addEventListener('keydown',e=>{ if(e.target.closest('input,textarea,[contenteditable]')) return; if(e.key==='ArrowLeft') document.getElementById('prev').click(); if(e.key==='ArrowRight') document.getElementById('next').click(); if(e.key==='d'){S.device=S.device==='phone'?'desktop':'phone';runStep();} });
