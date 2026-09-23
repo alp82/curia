@@ -264,6 +264,75 @@ input { font:inherit; color:inherit; }
 .H-list { background:var(--raise); border-radius:12px; padding:6px; } .H-list .tk:hover { background:var(--bg); }
 .H-list .phh { font-size:11px; text-transform:uppercase; letter-spacing:.07em; color:var(--dim); padding:10px 8px 4px; display:flex; justify-content:space-between; }
 .H-2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px; }
+
+/* ===== round 3: calm ===== */
+.Z { display:grid; grid-template-columns:240px 1fr; height:100%; font-size:14px; }
+.Z, .Zp { --z-closed:#3b4049; --z-work:#5ec8e5; --z-need:#f2c14e; }
+.zmap { display:flex; align-items:center; gap:8px; padding:6px 10px 6px 36px; border-radius:8px; font-size:13px; color:var(--dim); width:100%; }
+.zmap:hover { color:var(--ink); } .zmap.on { background:var(--raise); color:var(--ink); } .zmap.child { padding-left:50px; }
+.zmap .nm { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.zneeddot { width:6px; height:6px; border-radius:50%; background:var(--z-need); flex:none; display:inline-block; }
+.zmain { position:relative; display:flex; flex-direction:column; min-width:0; overflow:hidden; }
+.zpage { flex:1; overflow:auto; padding:44px 48px 120px; }
+.zhead, .zbody { max-width:880px; margin:0 auto; }
+.zhead { margin-bottom:32px; }
+.zhead h1 { font-size:22px; font-weight:600; letter-spacing:-.01em; text-wrap:balance; }
+.zdest { color:var(--dim); margin-top:4px; max-width:65ch; }
+.zsum { display:flex; gap:6px; align-items:center; margin-top:16px; color:var(--dim); font-size:13.5px; flex-wrap:wrap; }
+.zsum .zneed { color:var(--z-need); } .zsum .sp { flex:1; }
+.zlink { color:var(--dim); padding:5px 10px; border-radius:8px; font-size:13px; } .zlink:hover { background:var(--raise); color:var(--ink); }
+.zrel2 { margin-top:8px; font-size:13px; color:var(--dim); } .zrel2 button { color:var(--ink); text-decoration:underline; text-decoration-color:var(--faint); text-underline-offset:3px; }
+.zchg { margin-top:10px; }
+.zd { width:8px; height:8px; border-radius:50%; flex:none; display:inline-block; background:transparent; }
+.zd.s-done { background:var(--z-closed); } .zd.s-run { background:var(--z-work); } .zd.s-wait, .zd.s-review { background:var(--z-need); }
+.zd.s-front { box-shadow:inset 0 0 0 1.5px var(--ink); } .zd.s-blocked { box-shadow:inset 0 0 0 1.5px var(--faint); }
+.zcols { display:grid; grid-template-columns:repeat(var(--n),minmax(0,1fr)); gap:24px; }
+.zcol h3, .zsec { font-size:12.5px; font-weight:500; color:var(--dim); padding-left:10px; }
+.zcol h3 { margin-bottom:8px; } .zcol h3 span, .zsec span { color:var(--faint); margin-left:6px; }
+.zsec { margin:26px 0 6px; } .zlist .zsec:first-child { margin-top:0; }
+.zrow { display:flex; align-items:baseline; gap:10px; width:100%; padding:7px 10px; border-radius:8px; font-size:13.5px; line-height:1.4; transition:opacity .15s, background .15s; }
+.zrow .zd { transform:translateY(-1px); }
+.zrow:hover { background:var(--raise); }
+.zrow .zt { flex:1; min-width:0; } .zrow .zg2 { color:var(--dim); }
+.zrow .zs { font-size:12px; color:var(--dim); white-space:nowrap; } .zrow .zs.need { color:var(--z-need); }
+.zrow.blk .zt { color:var(--dim); }
+.zrow.zsel { background:var(--raise); } .zrow.zrel { background:rgba(94,200,229,.07); }
+.zdim { opacity:.3; }
+.zmore { color:var(--dim); font-size:12.5px; padding:6px 10px; } .zmore:hover { color:var(--ink); }
+.zfog { padding:7px 10px; font-size:13px; color:var(--faint); border:1px dashed var(--line); border-radius:8px; margin:4px 0; }
+.zfoot { color:var(--faint); font-size:12.5px; padding:14px 10px 0; }
+.zgwrap { overflow-x:auto; padding:6px 4px 4px; }
+.zg { position:relative; margin:0 auto; }
+.zg svg { position:absolute; inset:0; overflow:visible; }
+.zg path { fill:none; stroke:#262b33; stroke-width:1.2; transition:opacity .15s; }
+.zg path.hot { stroke:var(--accent); stroke-width:1.8; } .zg.has path:not(.hot) { opacity:.25; }
+.zsq { position:absolute; border-radius:6px; transition:opacity .15s, transform .12s; }
+.zsq:hover { transform:scale(1.15); }
+.zsq.s-done { background:var(--z-closed); } .zsq.s-run { background:var(--z-work); } .zsq.s-wait, .zsq.s-review { background:var(--z-need); }
+.zsq.s-front { box-shadow:inset 0 0 0 2px var(--ink); } .zsq.s-blocked { box-shadow:inset 0 0 0 2px #363c47; } .zsq.fog { border:1.5px dashed #363c47; }
+.zsq.zsel { outline:2px solid var(--accent); outline-offset:3px; }
+.zsq:focus-visible, .zrow:focus-visible, .zbtn:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.zkey { display:flex; gap:16px; justify-content:center; margin-top:18px; font-size:12px; color:var(--faint); flex-wrap:wrap; } .zkey span { display:inline-flex; gap:6px; align-items:center; }
+.zbar { position:absolute; left:50%; transform:translateX(-50%); bottom:24px; width:min(760px, calc(100% - 32px)); display:flex; align-items:center; gap:10px; padding:8px 8px 8px 16px; background:var(--raise); border:1px solid var(--line); border-radius:16px; box-shadow:0 12px 32px rgba(0,0,0,.45); font-size:13.5px; z-index:10; }
+.zbar .zbt { flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; } .zbar .zbt b { font-weight:600; } .zmeta { color:var(--dim); }
+.zbtn { padding:7px 14px; border-radius:10px; font-size:13px; color:var(--ink); flex:none; } .zbtn:hover { background:var(--bg); }
+.zbtn.pri { background:var(--ink); color:var(--bg); font-weight:600; } .zbtn.pri:hover { background:#fff; }
+.zx { color:var(--dim); min-width:32px; height:32px; border-radius:8px; flex:none; position:relative; } .zx:hover { background:var(--bg); color:var(--ink); }
+.zmenu { position:absolute; right:44px; bottom:54px; background:var(--inset); border:1px solid var(--line); border-radius:12px; padding:6px; min-width:220px; box-shadow:0 12px 32px rgba(0,0,0,.5); display:flex; flex-direction:column; }
+.zmenu button { text-align:left; padding:8px 10px; border-radius:8px; font-size:13px; } .zmenu button:hover { background:var(--raise); } .zmenu .warn { color:var(--bad); }
+.zadd { display:flex; gap:8px; margin-top:14px; } .zadd input { flex:1; min-width:0; background:var(--raise); border:1px solid var(--line); border-radius:10px; padding:8px 12px; font-size:13.5px; }
+.zadd input:focus { outline:none; border-color:var(--accent); }
+.Zp { display:flex; flex-direction:column; height:100%; position:relative; font-size:14px; }
+.Zp .zphd { display:flex; align-items:center; gap:6px; padding:10px 12px; }
+.Zp .zpage { padding:8px 16px 110px; }
+.Zp .zhead { margin-bottom:22px; } .Zp .zhead h1 { font-size:19px; }
+.Zp .zcols { grid-template-columns:1fr; gap:0; } .Zp .zcol h3 { margin:22px 0 6px; } .Zp .zcol:first-child h3 { margin-top:0; }
+.Zp .zbar { bottom:14px; gap:6px; padding-left:12px; } .Zp .zmeta { display:none; }
+.Zp .zmenu { right:8px; }
+.Zdrawer { position:absolute; inset:0; background:rgba(0,0,0,.5); z-index:30; } .Zdrawer .side { width:82%; height:100%; }
+.zcols .zs:not(.need) { display:none; }
+.zkey + .zlist { margin-top:24px !important; }
+@media (prefers-reduced-motion: reduce) { .zsq, .zrow, .zg path { transition:none; } .zsq:hover { transform:none; } }
 </style>
 </head>
 <body>
@@ -416,7 +485,7 @@ const PLANS=[
 
 /* ==================== STATE ==================== */
 const q=new URLSearchParams(location.search);
-const S={ variant:q.get('variant')||'D', device:q.get('device')||'desktop', plan:Math.max(0,Math.min(PLANS.length-1,(+q.get('plan')||1)-1)),
+const S={ variant:q.get('variant')||'I', device:q.get('device')||'desktop', plan:Math.max(0,Math.min(PLANS.length-1,(+q.get('plan')||1)-1)),
   sel:q.get('maps')||'list', menu:false, fsheet:false, reshape:false, peek:null, conv:null, sheet:null, expand:{}, focus:{}, oos:{}, added:{}, fogGone:{}, started:{}, toast:null, order:{} };
 let addSeq=9000;
 
@@ -689,7 +758,7 @@ const STMT={
  G:{ name:'Path', always:'The selected ticket with what came before it collapsed, then the longest route from it to the destination, step by step. A side list of what needs you, what runs, and what is ready picks the next ticket.', shows:'How far a ticket is from the destination and what stands between. '+FOCUS_ACTS, scale:'The path shows one route; the other open tickets at each step are counted, not listed.' },
  H:{ name:'Split', always:'A text list of every ticket by phase on the left, closed collapsed. The selected ticket on the right with the latest from its conversation, what it waits on, and what it unlocks.', shows:'Every title at a glance, like a mail client. '+FOCUS_ACTS, scale:'The list scrolls on its own. No visual of the shape.' },
 };
-function guideHtml(){ const s=STMT[S.variant];
+function guideHtml(){ const s=STMT[S.variant]; if(CALM.includes(S.variant)) return guideCalm(s);
   return `<h3>Variant ${S.variant}: ${s.name}</h3><div class="stmt"><b>On the page:</b> ${s.always}</div><div class="stmt"><b>What it shows first:</b> ${s.shows}</div><div class="stmt"><b>At scale:</b> ${s.scale}</div>
   <h3>Map selector (m)</h3><div class="stmt"><b>${S.sel==='list'?'List':'Menu'}:</b> ${S.sel==='list'?'A column of every map beside the overview. Each map shows its tickets as small squares, the live phase, and what needs you. Build maps sit under their planning map.':'The map name in the header opens a menu with the same entries. The overview gets the full width, and a badge counts what needs you on other maps.'}</div>
   <h3>Plan shapes</h3><div class="plans">${PLANS.map((p,i)=>`<button class="${i===S.plan?'on':''}" data-plan="${p.id}"><span class="k">${i+1}</span>${esc(p.title)}<span class="k">${esc(p.shape)}</span></button>`).join('')}</div>
@@ -697,11 +766,86 @@ function guideHtml(){ const s=STMT[S.variant];
   <h3>Try on each variant</h3><ul><li>Say which phase the plan is in and how far the destination is.</li><li>Find what needs you on this map and on the others.</li><li>Say why a blocked ticket waits, and what closing it frees.</li><li>Read what changed since your last look.</li><li>Rule a ticket out of scope and add one (r).</li><li>Start a ready ticket.</li><li>Do all of it on the phone, on plan 1 and plan 3.</li></ul>
   <h3>Earlier round</h3><div class="stmt">A Lanes, B Route, and C Outline are still at <code>?variant=A</code>, <code>B</code>, and <code>C</code>.</div>`; }
 
+/* ==================== ROUND 3: CALM (I–L) ==================== */
+const CALM=['I','J','K','L'];
+const CYCLE=['E','I','J','K','L'];
+const ORDER=['wait','review','run','front','blocked'];
+function waves(p){ const W={}; const w=t=>{ if(W[t.n]!=null) return W[t.n]; const ob=openBlockers(p,t); return W[t.n]=ob.length?1+Math.max(...ob.map(w)):0; };
+  all(p).filter(t=>st(p,t)!=='done').forEach(w); return W; }
+function waveLists(p){ const W=waves(p), open=all(p).filter(t=>st(p,t)!=='done'); const L=[[],[],[],[]];
+  open.forEach(t=>L[Math.min(3,W[t.n])].push(t)); L.forEach(l=>l.sort((a,b)=>ORDER.indexOf(st(p,a))-ORDER.indexOf(st(p,b))||PHS.indexOf(phase(a))-PHS.indexOf(phase(b)))); return L; }
+const WAVE=['Now','Next','After that','Later'];
+function zSel(p){ const t=S.zsel&&find(p,S.zsel); return t&&!isOut(p,t.n)?t:null; }
+function zRel(p,t){ return t?new Set([...t.by, ...unlocks(p,t).map(x=>x.n)]):new Set(); }
+function zCls(p,t){ const s=zSel(p); if(!s) return ''; if(s.n===t.n) return 'zsel'; return zRel(p,s).has(t.n)?'zrel':'zdim'; }
+const zWord=s=>({wait:['needs you','need'],review:['review','need'],run:['working',''],front:['ready',''],blocked:['',''],done:['closed','']}[s]);
+function zrow(p,t){ const s=st(p,t), w=zWord(s);
+  return `<button class="zrow ${s==='blocked'?'blk':''} ${zCls(p,t)}" data-z="${t.n}"><span class="zd s-${s}"></span><span class="zt">${esc(t.t)}</span>${w[0]?`<span class="zs ${w[1]}">${w[0]}</span>`:''}</button>`; }
+function zSummary(p){ const c=counts(p), n=all(p).length, need=needCount(p), ph=phaseNow(p);
+  return `${ph==='All closed'||ph==='Blocked'?ph:'In '+ph}.${need?` <span class="zneed">${need} need${need>1?'':'s'} you</span>,`:''} ${c.run} working, ${c.done} of ${n} closed.`; }
+function zHead(p){ const chg=p.changes.filter(c=>find(p,c.n));
+  return `<div class="zhead"><h1>${esc(p.title)}</h1><p class="zdest">${esc(p.dest)}</p>
+    <div class="zsum"><span>${zSummary(p)}</span><span class="sp"></span>${chg.length?`<button class="zlink" data-zt="chg">${chg.length} change${chg.length>1?'s':''} since ${esc(p.since)}</button>`:''}<button class="zlink" data-zt="new">+ Ticket</button></div>
+    ${S.zchg?`<div class="zchg">${chg.map(c=>`<button class="zrow" data-z="${c.n}"><span class="zs" style="width:110px">${CHL[c.k]}</span><span class="zt">${esc(find(p,c.n).t)}</span></button>`).join('')}</div>`:''}
+    ${S.znew?`<div class="zadd"><input id="znew" data-addin="${S.znew}" placeholder="${S.znew==='next'?'What needs deciding or doing?':'What comes after “'+esc(short(find(p,+S.znew.slice(6)).t))+'”?'}"><button class="zbtn pri" data-add="${S.znew}">Add</button></div>`:''}
+    ${p.child?`<p class="zrel2">Execution continues on <button data-plan="${p.child}">${esc(byId(p.child).title)}</button>.</p>`:p.parent?`<p class="zrel2">Part of <button data-plan="${p.parent}">${esc(byId(p.parent).title)}</button>.</p>`:''}</div>`; }
+function zClosed(p){ const d=all(p).filter(t=>st(p,t)==='done'); if(!d.length) return ''; const open=S.expand[K(p,'zc')];
+  return `<div class="zsec"><button class="zmore" style="padding:0" data-exp="zc">${open?'▾':'▸'} ${d.length} closed</button></div>${open?d.map(t=>`<button class="zrow ${zCls(p,t)}" data-z="${t.n}"><span class="zd s-done"></span><span class="zt">${esc(t.t)}${t.g?`<span class="zg2"> — ${esc(t.g)}</span>`:''}</span></button>`).join(''):''}`; }
+function zFog(p){ const f=fogOf(p); return f.length?`<div class="zsec">Not yet specified <span>${f.length}</span></div>${f.map(x=>`<div class="zfog">${esc(x.t)}</div>`).join('')}`:''; }
+function zCap(p,key,list,n){ const open=S.expand[K(p,key)]; return (open?list:list.slice(0,n)).map(t=>zrow(p,t)).join('')+(list.length>n?`<button class="zmore" data-exp="${key}">${open?'Show fewer':`${list.length-n} more`}</button>`:''); }
+function zGraph(p, maxW, phone){ const ts=all(p), L=levels(p), fog=fogOf(p), sel=zSel(p), rel=zRel(p,sel);
+  const nL=Math.max(0,...Object.values(L))+1, cols=[...Array(nL)].map(()=>[]);
+  ts.forEach(t=>cols[L[t.n]].push(t)); cols.forEach(c=>c.sort((a,b)=>(st(p,a)==='done'?0:1)-(st(p,b)==='done'?0:1)||PHS.indexOf(phase(a))-PHS.indexOf(phase(b))));
+  const nc=nL+(fog.length?1:0), SQ=phone?14:20, CW=Math.max(SQ+6,Math.min(phone?34:60,Math.floor(maxW/nc))), RH=phone?22:32;
+  const pos={}; cols.forEach((c,i)=>c.forEach((t,j)=>pos[t.n]={x:i*CW,y:j*RH}));
+  const W=(nc-1)*CW+SQ, H=(Math.max(...cols.map(c=>c.length),fog.length,1)-1)*RH+SQ;
+  let edges=''; ts.forEach(t=>t.by.forEach(b=>{ const a=pos[b], z=pos[t.n]; if(!a||!z) return; const hot=sel&&(t.n===sel.n||b===sel.n);
+    const x1=a.x+SQ, y1=a.y+SQ/2, x2=z.x, y2=z.y+SQ/2, mx=(x1+x2)/2; edges+=`<path class="${hot?'hot':''}" d="M${x1} ${y1} C${mx} ${y1} ${mx} ${y2} ${x2} ${y2}"/>`; }));
+  const sq=ts.map(t=>`<button class="zsq s-${st(p,t)} ${zCls(p,t)}" style="left:${pos[t.n].x}px;top:${pos[t.n].y}px;width:${SQ}px;height:${SQ}px" data-z="${t.n}" title="${esc(t.t)}${zWord(st(p,t))[0]?' · '+zWord(st(p,t))[0]:''}" aria-label="${esc(t.t)}"></button>`).join('');
+  const fg=fog.map((x,j)=>`<span class="zsq fog ${sel?'zdim':''}" style="left:${nL*CW}px;top:${j*RH}px;width:${SQ}px;height:${SQ}px" title="${esc(x.t)} · not yet specified"></span>`).join('');
+  return `<div class="zgwrap"><div class="zg ${sel?'has':''}" style="width:${W}px;height:${H}px"><svg width="${W}" height="${H}" aria-hidden="true">${edges}</svg>${sq}${fg}</div></div>
+    <div class="zkey"><span><i class="zd s-wait"></i>needs you</span><span><i class="zd s-run"></i>working</span><span><i class="zd s-front"></i>ready</span><span><i class="zd s-blocked"></i>blocked</span><span><i class="zd s-done"></i>closed</span>${fog.length?'<span><i class="zd" style="border:1px dashed var(--faint)"></i>not yet specified</span>':''}<span>· order runs left to right</span></div>`; }
+function I(p,phone){ return `${zHead(p)}<div class="zbody">${zGraph(p,phone?330:860,phone)}</div>`; }
+function J(p,phone){ const L=waveLists(p); const used=L.map((l,i)=>[i,l]).filter(x=>x[1].length);
+  return `${zHead(p)}<div class="zbody"><div class="zcols" style="--n:${used.length||1}">${used.map(([i,l])=>`<div class="zcol"><h3>${WAVE[i]}<span>${l.length}</span></h3>${zCap(p,'jw'+i,l,i===3?6:8)}${i===used[used.length-1][0]?zFog(p):''}</div>`).join('')||'<div class="dim">Every ticket is closed.</div>'}</div>${zClosed(p)}</div>`; }
+function Kl(p,phone){ const L=waveLists(p);
+  return `${zHead(p)}<div class="zbody zlist">${L.map((l,i)=>l.length?`<div class="zsec">${WAVE[i]} <span>${l.length}</span></div>${zCap(p,'kw'+i,l,i===3?4:10)}`:'').join('')}${zFog(p)}${zClosed(p)}</div>`; }
+function Lg(p,phone){ const L=waveLists(p), later=L[2].length+L[3].length;
+  return `${zHead(p)}<div class="zbody">${zGraph(p,phone?330:860,phone)}<div class="zlist" style="margin-top:8px">${[0,1].map(i=>L[i].length?`<div class="zsec">${WAVE[i]} <span>${L[i].length}</span></div>${zCap(p,'lw'+i,L[i],8)}`:'').join('')}${later?`<p class="zfoot">${later} more open ticket${later>1?'s':''} after these. Select a square to see one.</p>`:''}</div></div>`; }
+function zBar(p){ const t=zSel(p); if(!t) return ''; const s=st(p,t), ob=openBlockers(p,t), u=unlocks(p,t);
+  const pri=s==='wait'?['Answer','conv']:s==='review'?['Review','conv']:s==='front'?['Start','start']:['Open','conv'];
+  const meta=[zWord(s)[0]||'blocked', ob.length?`waits on ${ob.length}`:'', u.length?`unlocks ${u.length}`:''].filter(Boolean).join(' · ');
+  return `<div class="zbar" role="region" aria-label="Selected ticket"><span class="zd s-${s}"></span><span class="zbt"><b>${esc(t.t)}</b><span class="zmeta"> · ${meta}</span></span>
+    <button class="zbtn pri" data-za="${pri[1]}">${pri[0]}</button><button class="zbtn" data-za="more" aria-label="More actions">⋯</button><button class="zx" data-za="close" aria-label="Clear selection">×</button>
+    ${S.zmore?`<div class="zmenu">${pri[1]!=='conv'?'<button data-za="conv">Open conversation</button>':''}${pri[1]!=='start'&&s==='front'?'<button data-za="start">Start</button>':''}<button data-za="after">Add a ticket after this</button>${s!=='done'?'<button class="warn" data-za="out">Rule out of scope</button>':''}</div>`:''}</div>`; }
+function zSide(){ const p=P(); const needs=PLANS.flatMap(x=>all(x).filter(t=>NEED.includes(st(x,t))).map(t=>[t.t,st(x,t)])).slice(0,3);
+  return `<div class="side"><div class="brand">Curia</div><div class="row">✎ New conversation</div><div class="row on">◫ Maps</div>
+    ${PLANS.map(x=>`<button class="zmap ${x===p?'on':''} ${x.parent?'child':''}" data-plan="${x.id}"><span class="nm">${esc(x.title)}</span>${needCount(x)?`<span class="zneeddot" title="${needCount(x)} need you"></span>`:''}</button>`).join('')}
+    <div class="row">◉ Overseer</div><div class="grp">Needs you</div>${needs.map(t=>`<div class="ch"><span class="zd s-${t[1]}" style="width:6px;height:6px"></span>${esc(t[0])}</div>`).join('')}</div>`; }
+const ZV={I:['Graph',I],J:['Waves',J],K:['List',Kl],L:['Graph + list',Lg]};
+function zDesktop(){ const p=P();
+  const page=S.conv?`<div class="zpage">${convHtml(p)}</div>`:`<div class="zpage">${ZV[S.variant][1](p,false)}</div>${zBar(p)}`;
+  return `<div class="Z">${zSide()}<div class="zmain">${page}${S.toast?`<div class="toast" style="bottom:90px">${S.toast}</div>`:''}</div></div>`; }
+function zPhone(){ const p=P();
+  if(S.conv) return `<div class="Zp"><div class="zphd"><button class="zx" data-act="back">‹</button><b>Conversation</b></div><div class="zpage">${convHtml(p)}</div></div>`;
+  const others=PLANS.filter(x=>x!==p).some(x=>needCount(x));
+  return `<div class="Zp"><div class="zphd"><button class="zx" data-za="drawer" aria-label="Open menu">☰${others?'<span class="zneeddot" style="position:absolute;margin:-10px 0 0 6px"></span>':''}</button><span class="dim" style="font-size:13px">Maps</span></div><div class="zpage">${ZV[S.variant][1](p,true)}</div>${zBar(p)}
+    ${S.zdrawer?`<div class="Zdrawer" data-za="drawer-close"><div>${zSide()}</div></div>`:''}${S.toast?`<div class="toast" style="bottom:80px">${S.toast}</div>`:''}</div>`; }
+STMT.I={name:'Graph', always:'The map header in one sentence, then every ticket as a square in dependency order, left to right, with faint lines to its blockers. Maps are listed in the sidebar.', shows:'The shape of the plan. Titles appear on hover, and on the bottom bar when you select a square.', scale:'One square per ticket. Wide plans grow tall, deep plans grow wide.'};
+STMT.J={name:'Waves', always:'Open tickets in four columns by how soon they can start: now (nothing open blocks it), next, after that, and later. Closed tickets collapse under the columns.', shows:'What you can act on now and what follows, with titles. Selecting a ticket highlights its blockers and the tickets it unlocks and fades the rest.', scale:'Later caps at six with a “more” link.'};
+STMT.K={name:'List', always:'The same waves as one quiet column: now, next, after that, later, not yet specified, closed.', shows:'Reading order with no layout to learn. Works the same on the phone.', scale:'Later caps at four, closed collapses.'};
+STMT.L={name:'Graph + list', always:'The graph on top for shape, then titles only for now and next.', shows:'The shape and the next steps together, without listing everything.', scale:'Everything past next stays a square in the graph.'};
+const CALM_NOTE='In all four: maps live in the sidebar, the header is one sentence, and two colors carry meaning (amber needs you, blue working). Selecting a ticket shows one bar at the bottom with its main action (Answer, Review, Start, or Open) and a ⋯ menu. + Ticket sits in the header; there is no reshape mode.';
+
+function guideCalm(s){ return `<h3>Variant ${S.variant}: ${s.name}</h3><div class="stmt"><b>On the page:</b> ${s.always}</div><div class="stmt"><b>What it shows first:</b> ${s.shows}</div><div class="stmt"><b>At scale:</b> ${s.scale}</div><div class="stmt">${CALM_NOTE}</div>
+  <h3>Plan shapes</h3><div class="plans">${PLANS.map((p,i)=>`<button class="${i===S.plan?'on':''}" data-plan="${p.id}"><span class="k">${i+1}</span>${esc(p.title)}<span class="k">${esc(p.shape)}</span></button>`).join('')}</div>
+  <h3>Try</h3><ul><li>Say what you can act on now.</li><li>Select a blocked ticket: see what it waits on and what it frees.</li><li>Add a ticket, rule one out, start one.</li><li>Switch maps from the sidebar; on the phone, from ☰.</li><li>Compare plans 1, 3, and 4.</li></ul>
+  <h3>Earlier rounds</h3><div class="stmt">The arrows cycle E, then I to L. A to H stay at <code>?variant=</code>.</div>`; }
 /* ==================== RENDER + WIRING ==================== */
 const frame=document.getElementById('frame'), guide=document.getElementById('guide');
 function render(){
-  frame.className='frame '+S.device; frame.innerHTML=S.device==='phone'?phone():desktop();
-  document.getElementById('vname').textContent=`${S.variant}: ${V[S.variant][0]}`;
+  frame.className='frame '+S.device; frame.innerHTML=CALM.includes(S.variant)?(S.device==='phone'?zPhone():zDesktop()):(S.device==='phone'?phone():desktop());
+  document.getElementById('vname').textContent=`${S.variant}: ${(ZV[S.variant]||V[S.variant])[0]}`;
   document.getElementById('dDesk').classList.toggle('on',S.device==='desktop'); document.getElementById('dPhone').classList.toggle('on',S.device==='phone');
   document.getElementById('selL').classList.toggle('on',S.sel==='list'); document.getElementById('selM').classList.toggle('on',S.sel==='menu');
   document.getElementById('ph').textContent=`variant=${S.variant} device=${S.device} plan=${S.plan+1} maps=${S.sel}${S.reshape?' reshape':''}`;
@@ -712,7 +856,18 @@ let toastTimer; function toast(m){ S.toast=m; clearTimeout(toastTimer); toastTim
 function addTicket(where, title){ const p=P(); if(!title.trim()) return; const n=++addSeq; let by=[], ph;
   if(where.startsWith('after-')) by=[+where.slice(6)]; if(where.startsWith('ph-')) ph=where.slice(3);
   const t=T(n,ph==='ship'?'deploy':ph==='build'?'impl':ph==='proto'?'proto':'grill',title.trim(),null,by,null,ph);
-  (S.added[p.id]=S.added[p.id]||[]).push(t); p.changes.push({k:'added',n}); toast(`Added “${esc(title.trim())}” as a child of the map. Would post to GitHub.`); }
+  (S.added[p.id]=S.added[p.id]||[]).push(t); p.changes.push({k:'added',n}); S.znew=null; toast(`Added “${esc(title.trim())}” as a child of the map. Would post to GitHub.`); }
+document.body.addEventListener('click',e=>{
+  const t=e.target.closest('[data-z],[data-za],[data-zt]'); if(!t) return; if(t.dataset.za==='drawer-close'&&e.target.closest('.side')){ if(e.target.closest('[data-plan]')) S.zdrawer=false; return; } e.stopImmediatePropagation(); const p=P(), d=t.dataset;
+  if(d.z){ S.zsel=S.zsel===+d.z?null:+d.z; S.zmore=false; }
+  else if(d.zt==='chg'){ S.zchg=!S.zchg; } else if(d.zt==='new'){ S.znew=S.znew?null:'next'; }
+  else { const a=d.za, n=S.zsel;
+    if(a==='close'){ S.zsel=null; S.zmore=false; } if(a==='more') S.zmore=!S.zmore;
+    if(a==='conv'){ S.conv=n; S.zmore=false; } if(a==='start'){ S.started[K(p,n)]=1; S.zmore=false; toast(`Started. An agent is on “${esc(short(find(p,n).t))}”.`); }
+    if(a==='after'){ S.znew='after-'+n; S.zmore=false; } if(a==='out'){ S.oos[K(p,n)]=1; S.zsel=null; S.zmore=false; toast('Ruled out of scope and closed on GitHub.'); }
+    if(a==='drawer') S.zdrawer=true; if(a==='drawer-close') S.zdrawer=false; }
+  render(); if(S.znew){ const i=frame.querySelector('#znew'); if(i&&d.zt==='new'||d.za==='after') i&&i.focus(); }
+});
 document.body.addEventListener('click',e=>{
   const t=e.target.closest('[data-plan],[data-tk],[data-focus],[data-start],[data-out],[data-grad],[data-add],[data-exp],[data-conv],[data-act],[data-up],[data-dn]'); if(!t) return;
   const p=P(), d=t.dataset;
@@ -720,7 +875,7 @@ document.body.addEventListener('click',e=>{
   else if(d.out){ S.oos[K(p,+d.out)]=1; if(S.peek===+d.out) S.peek=null; S.fsheet=false; toast(`Ruled out of scope: closed on GitHub, one line added to Out of scope.`); }
   else if(d.grad!=null){ const f=p.fog[+d.grad]; S.fogGone[K(p,'f'+d.grad)]=1; addTicket(f.ph?'ph-'+f.ph:'next', f.t.replace(/^./,c=>c.toUpperCase())+'?'); }
   else if(d.add){ const inp=frame.querySelector(`[data-addin="${d.add}"]`); addTicket(d.add, inp?inp.value:''); }
-  else if(d.plan){ S.plan=PLANS.findIndex(x=>x.id===d.plan); S.peek=null; S.sheet=null; S.menu=false; S.fsheet=false; }
+  else if(d.plan){ S.plan=PLANS.findIndex(x=>x.id===d.plan); S.zsel=null; S.zmore=false; S.zdrawer=false; S.zchg=false; S.znew=null; S.peek=null; S.sheet=null; S.menu=false; S.fsheet=false; }
   else if(d.focus||(d.tk&&FAM.includes(S.variant))){ S.focus[p.id]=+(d.focus||d.tk); S.peek=null; if(S.device==='phone'&&['F','H'].includes(S.variant)) S.fsheet=true; }
   else if(d.tk){ S.peek=S.peek===+d.tk?null:+d.tk; }
   else if(d.exp){ const k=K(p,d.exp); S.expand[k]=S.expand[k]===undefined&&d.default!==undefined?!(+d.default):!S.expand[k]; }
@@ -732,8 +887,8 @@ document.body.addEventListener('click',e=>{
   render();
 });
 document.body.addEventListener('keydown',e=>{ if(e.target.matches('[data-addin]')&&e.key==='Enter'){ addTicket(e.target.dataset.addin,e.target.value); render(); } });
-const setVariant=v=>{ S.variant=v; S.peek=null; S.fsheet=false; render(); };
-const step=k=>{ const i=FAM.indexOf(S.variant); setVariant(i<0?FAM[0]:FAM[(i+k+FAM.length)%FAM.length]); };
+const setVariant=v=>{ S.variant=v; S.peek=null; S.fsheet=false; S.zmore=false; render(); };
+const step=k=>{ const i=CYCLE.indexOf(S.variant); setVariant(i<0?CYCLE[0]:CYCLE[(i+k+CYCLE.length)%CYCLE.length]); };
 document.getElementById('prev').onclick=()=>step(-1);
 document.getElementById('next').onclick=()=>step(1);
 document.getElementById('dDesk').onclick=()=>{S.device='desktop';render();};
@@ -744,7 +899,7 @@ document.addEventListener('keydown',e=>{ if(e.target.closest('input,textarea,[co
   if(e.key==='ArrowLeft') step(-1); if(e.key==='ArrowRight') step(1);
   if(e.key==='d'){ S.device=S.device==='phone'?'desktop':'phone'; render(); } if(e.key==='r'){ S.reshape=!S.reshape; render(); }
   if(e.key==='m'){ S.sel=S.sel==='list'?'menu':'list'; S.menu=false; render(); }
-  if(/^[1-7]$/.test(e.key)){ S.plan=+e.key-1; S.peek=null; S.fsheet=false; render(); } });
+  if(/^[1-7]$/.test(e.key)){ S.plan=+e.key-1; S.zsel=null; S.zmore=false; S.peek=null; S.fsheet=false; render(); } });
 render();
 </script>
 </body>

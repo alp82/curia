@@ -11,7 +11,7 @@ Run it from the repository root:
 cd prototypes/map-overview && python3 -m http.server 9022 --bind 127.0.0.1
 ```
 
-Open <http://127.0.0.1:9022/?variant=D>. To switch the variant, use the floating bar or the Left Arrow and Right Arrow keys.
+Open <http://127.0.0.1:9022/?variant=I>. To switch the variant, use the floating bar or the Left Arrow and Right Arrow keys.
 Press `d` to switch between desktop and phone, `1` to `7` to switch the plan, `r` to toggle reshape, and `m` to switch the map selector between a list and a menu.
 
 | Variant | Name | What it shows first |
@@ -34,6 +34,19 @@ The operator saw potential in D and asked for more variations. Round 2 drops the
 | H | Split | A text list by phase beside the selected ticket and the latest from its conversation |
 
 The arrows cycle D to H. A to C stay reachable by `?variant=`.
+
+## Round 3
+
+The operator found E interesting and asked for simple variations in the register of the sidebar. Maps move into the sidebar. The header is one sentence. Two colors carry meaning: amber for needs you and blue for working. Selecting a ticket shows one bar at the bottom with its main action and a menu, and it highlights related tickets. There is no reshape mode.
+
+| Variant | Name | What it shows first |
+| --- | --- | --- |
+| I | Graph | E's squares and lines, quieter, titles on hover and in the bar |
+| J | Waves | Open tickets in columns: now, next, after that, later |
+| K | List | The same waves in one column |
+| L | Graph + list | The graph, then titles for now and next |
+
+The arrows cycle E, then I to L.
 
 The seven plans differ in size and shape:
 
