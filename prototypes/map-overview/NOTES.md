@@ -11,7 +11,7 @@ Run it from the repository root:
 cd prototypes/map-overview && python3 -m http.server 9022 --bind 127.0.0.1
 ```
 
-Open <http://127.0.0.1:9022/?variant=I>. To switch the variant, use the floating bar or the Left Arrow and Right Arrow keys.
+Open <http://127.0.0.1:9022/?variant=L>. To switch the variant, use the floating bar or the Left Arrow and Right Arrow keys.
 Press `d` to switch between desktop and phone, `1` to `7` to switch the plan, `r` to toggle reshape, and `m` to switch the map selector between a list and a menu.
 
 | Variant | Name | What it shows first |
@@ -47,6 +47,16 @@ The operator found E interesting and asked for simple variations in the register
 | L | Graph + list | The graph, then titles for now and next |
 
 The arrows cycle E, then I to L.
+
+## Round 4
+
+The operator chose L to iterate on. L now has three independent switches in the side panel (keys `t`, `s`, and `w`):
+
+- Ticket type: none, shape (research circle, grilling square, prototype diamond, task hexagon, build pill, deploy triangle), color, letter, or tag.
+- State: plain, texture (a check on closed, a pulse on working, a glow on needs you, red stripes on blocked, a cloud for fog), or icon badges.
+- Layout: stack, wrap tall columns after five, or also wrap wide plans into rows. Edges that cross rows are dashed.
+
+The settings are in the URL as `tm`, `sm`, and `wm`.
 
 The seven plans differ in size and shape:
 

@@ -333,10 +333,34 @@ input { font:inherit; color:inherit; }
 .zcols .zs:not(.need) { display:none; }
 .zkey + .zlist { margin-top:24px !important; }
 @media (prefers-reduced-motion: reduce) { .zsq, .zrow, .zg path { transition:none; } .zsq:hover { transform:none; } }
+
+/* ===== round 4: encodings ===== */
+.zg svg { position:absolute; inset:0; }
+.zg .edges path { fill:none; stroke:#2a3039; stroke-width:1.2; }
+.zg .edges path.x { stroke-dasharray:3 4; }
+.zg .edges path.hot { stroke:var(--accent); stroke-width:1.8; stroke-dasharray:none; }
+.zg.has .edges path:not(.hot) { opacity:.25; }
+.zg g.zdim { opacity:.25; }
+.zhit { position:absolute; border-radius:6px; }
+.zhit:hover { background:rgba(255,255,255,.06); }
+.zhit:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.zpulse { transform-box:fill-box; transform-origin:center; animation:zp 1.8s ease-out infinite; }
+@keyframes zp { 0% { opacity:.9; transform:scale(1); } 100% { opacity:0; transform:scale(1.5); } }
+.zic { flex:none; transform:translateY(2px); overflow:visible; }
+.ztag { font:10.5px ui-monospace,Menlo,monospace; color:var(--dim); border:1px solid var(--line); border-radius:4px; padding:0 5px; margin-left:8px; white-space:nowrap; vertical-align:1px; }
+.zgl { font:700 11px ui-monospace,Menlo,monospace; color:var(--ink); background:#2a303a; border-radius:4px; padding:0 4px; }
+.zkey + .zkey { margin-top:8px; }
+.zrow.blk.tex { background:repeating-linear-gradient(135deg, rgba(160,60,60,.10) 0 6px, transparent 6px 12px); }
+.zrow.blk.tex:hover { background-color:var(--raise); }
+.zfog.tex { border:0; color:var(--dim); background:radial-gradient(ellipse 40% 90% at 15% 50%, rgba(120,128,142,.22), transparent 70%), radial-gradient(ellipse 45% 100% at 55% 40%, rgba(120,128,142,.16), transparent 70%), radial-gradient(ellipse 35% 90% at 90% 60%, rgba(120,128,142,.14), transparent 70%); }
+.guide .encs { display:flex; flex-wrap:wrap; gap:4px; }
+.guide .encs button { padding:6px 9px; border-radius:6px; background:#161a21; font-size:12px; }
+.guide .encs button.on { background:#273043; color:#fff; outline:1px solid #3d5a80; }
+@media (prefers-reduced-motion: reduce) { .zpulse { animation:none; } }
 </style>
 </head>
 <body>
-<div class="proto-head"><b>#1022 map overview</b> <span id="ph"></span> <span>· ←/→ variant · d device · 1-7 plan · r reshape · m map selector</span></div>
+<div class="proto-head"><b>#1022 map overview</b> <span id="ph"></span> <span>· ←/→ variant · d device · 1-7 plan · t type · s state · w layout</span></div>
 <div class="layout">
   <div class="stage"><div id="frame" class="frame desktop"></div></div>
   <aside class="guide" id="guide"></aside>
@@ -485,8 +509,8 @@ const PLANS=[
 
 /* ==================== STATE ==================== */
 const q=new URLSearchParams(location.search);
-const S={ variant:q.get('variant')||'I', device:q.get('device')||'desktop', plan:Math.max(0,Math.min(PLANS.length-1,(+q.get('plan')||1)-1)),
-  sel:q.get('maps')||'list', menu:false, fsheet:false, reshape:false, peek:null, conv:null, sheet:null, expand:{}, focus:{}, oos:{}, added:{}, fogGone:{}, started:{}, toast:null, order:{} };
+const S={ variant:q.get('variant')||'L', device:q.get('device')||'desktop', plan:Math.max(0,Math.min(PLANS.length-1,(+q.get('plan')||1)-1)),
+  sel:q.get('maps')||'list', tm:q.get('tm')||'shape', sm:q.get('sm')||'texture', wm:q.get('wm')||'cols', menu:false, fsheet:false, reshape:false, peek:null, conv:null, sheet:null, expand:{}, focus:{}, oos:{}, added:{}, fogGone:{}, started:{}, toast:null, order:{} };
 let addSeq=9000;
 
 /* ==================== MODEL HELPERS ==================== */
@@ -768,7 +792,7 @@ function guideHtml(){ const s=STMT[S.variant]; if(CALM.includes(S.variant)) retu
 
 /* ==================== ROUND 3: CALM (I–L) ==================== */
 const CALM=['I','J','K','L'];
-const CYCLE=['E','I','J','K','L'];
+const CYCLE=['L','I','J','K'];
 const ORDER=['wait','review','run','front','blocked'];
 function waves(p){ const W={}; const w=t=>{ if(W[t.n]!=null) return W[t.n]; const ob=openBlockers(p,t); return W[t.n]=ob.length?1+Math.max(...ob.map(w)):0; };
   all(p).filter(t=>st(p,t)!=='done').forEach(w); return W; }
@@ -779,7 +803,7 @@ function zSel(p){ const t=S.zsel&&find(p,S.zsel); return t&&!isOut(p,t.n)?t:null
 function zRel(p,t){ return t?new Set([...t.by, ...unlocks(p,t).map(x=>x.n)]):new Set(); }
 function zCls(p,t){ const s=zSel(p); if(!s) return ''; if(s.n===t.n) return 'zsel'; return zRel(p,s).has(t.n)?'zrel':'zdim'; }
 const zWord=s=>({wait:['needs you','need'],review:['review','need'],run:['working',''],front:['ready',''],blocked:['',''],done:['closed','']}[s]);
-function zrow(p,t){ const s=st(p,t), w=zWord(s);
+let zrow=function(p,t){ const s=st(p,t), w=zWord(s);
   return `<button class="zrow ${s==='blocked'?'blk':''} ${zCls(p,t)}" data-z="${t.n}"><span class="zd s-${s}"></span><span class="zt">${esc(t.t)}</span>${w[0]?`<span class="zs ${w[1]}">${w[0]}</span>`:''}</button>`; }
 function zSummary(p){ const c=counts(p), n=all(p).length, need=needCount(p), ph=phaseNow(p);
   return `${ph==='All closed'||ph==='Blocked'?ph:'In '+ph}.${need?` <span class="zneed">${need} need${need>1?'':'s'} you</span>,`:''} ${c.run} working, ${c.done} of ${n} closed.`; }
@@ -791,9 +815,9 @@ function zHead(p){ const chg=p.changes.filter(c=>find(p,c.n));
     ${p.child?`<p class="zrel2">Execution continues on <button data-plan="${p.child}">${esc(byId(p.child).title)}</button>.</p>`:p.parent?`<p class="zrel2">Part of <button data-plan="${p.parent}">${esc(byId(p.parent).title)}</button>.</p>`:''}</div>`; }
 function zClosed(p){ const d=all(p).filter(t=>st(p,t)==='done'); if(!d.length) return ''; const open=S.expand[K(p,'zc')];
   return `<div class="zsec"><button class="zmore" style="padding:0" data-exp="zc">${open?'▾':'▸'} ${d.length} closed</button></div>${open?d.map(t=>`<button class="zrow ${zCls(p,t)}" data-z="${t.n}"><span class="zd s-done"></span><span class="zt">${esc(t.t)}${t.g?`<span class="zg2"> — ${esc(t.g)}</span>`:''}</span></button>`).join(''):''}`; }
-function zFog(p){ const f=fogOf(p); return f.length?`<div class="zsec">Not yet specified <span>${f.length}</span></div>${f.map(x=>`<div class="zfog">${esc(x.t)}</div>`).join('')}`:''; }
+let zFog=function(p){ const f=fogOf(p); return f.length?`<div class="zsec">Not yet specified <span>${f.length}</span></div>${f.map(x=>`<div class="zfog">${esc(x.t)}</div>`).join('')}`:''; }
 function zCap(p,key,list,n){ const open=S.expand[K(p,key)]; return (open?list:list.slice(0,n)).map(t=>zrow(p,t)).join('')+(list.length>n?`<button class="zmore" data-exp="${key}">${open?'Show fewer':`${list.length-n} more`}</button>`:''); }
-function zGraph(p, maxW, phone){ const ts=all(p), L=levels(p), fog=fogOf(p), sel=zSel(p), rel=zRel(p,sel);
+let zGraph=function(p, maxW, phone){ const ts=all(p), L=levels(p), fog=fogOf(p), sel=zSel(p), rel=zRel(p,sel);
   const nL=Math.max(0,...Object.values(L))+1, cols=[...Array(nL)].map(()=>[]);
   ts.forEach(t=>cols[L[t.n]].push(t)); cols.forEach(c=>c.sort((a,b)=>(st(p,a)==='done'?0:1)-(st(p,b)==='done'?0:1)||PHS.indexOf(phase(a))-PHS.indexOf(phase(b))));
   const nc=nL+(fog.length?1:0), SQ=phone?14:20, CW=Math.max(SQ+6,Math.min(phone?34:60,Math.floor(maxW/nc))), RH=phone?22:32;
@@ -837,20 +861,92 @@ STMT.K={name:'List', always:'The same waves as one quiet column: now, next, afte
 STMT.L={name:'Graph + list', always:'The graph on top for shape, then titles only for now and next.', shows:'The shape and the next steps together, without listing everything.', scale:'Everything past next stays a square in the graph.'};
 const CALM_NOTE='In all four: maps live in the sidebar, the header is one sentence, and two colors carry meaning (amber needs you, blue working). Selecting a ticket shows one bar at the bottom with its main action (Answer, Review, Start, or Open) and a ⋯ menu. + Ticket sits in the header; there is no reshape mode.';
 
-function guideCalm(s){ return `<h3>Variant ${S.variant}: ${s.name}</h3><div class="stmt"><b>On the page:</b> ${s.always}</div><div class="stmt"><b>What it shows first:</b> ${s.shows}</div><div class="stmt"><b>At scale:</b> ${s.scale}</div><div class="stmt">${CALM_NOTE}</div>
+/* ==================== ROUND 4: L encodings ==================== */
+const TYN={research:'research',grill:'grilling',proto:'prototype',task:'task',impl:'build',deploy:'deploy'};
+const TYL={research:'R',grill:'G',proto:'P',task:'T',impl:'B',deploy:'D'};
+const TYC={research:'#4fd1c5',grill:'#b794f4',proto:'#f687b3',task:'#a0aec0',impl:'#7aa2f7',deploy:'#f6ad55'};
+const NC={closed:'#3b4049',work:'#5ec8e5',need:'#f2c14e',ink:'#e6e9ef',faint:'#3a404b',bg:'#0b0c10'};
+const ENC={tm:[['none','None'],['shape','Shape'],['color','Color'],['glyph','Letter'],['tag','Tag']],sm:[['plain','Plain'],['texture','Texture'],['icon','Icon']],wm:[['stack','Stack'],['cols','Wrap columns'],['both','Wrap both']]};
+const ENCN={tm:'Ticket type',sm:'State',wm:'Layout'};
+function nodeW(t,H){ return S.tm==='shape'&&t.ty==='impl'?Math.round(H*1.6):H; }
+function geom(ty,x,y,w,H,a){ const cx=x+w/2, cy=y+H/2;
+  if(S.tm!=='shape') return `<rect x="${x}" y="${y}" width="${w}" height="${H}" rx="${H*.27}" ${a}/>`;
+  if(ty==='research') return `<circle cx="${cx}" cy="${cy}" r="${H/2}" ${a}/>`;
+  if(ty==='proto') return `<polygon points="${cx},${y-1} ${x+w+1},${cy} ${cx},${y+H+1} ${x-1},${cy}" ${a}/>`;
+  if(ty==='deploy') return `<polygon points="${x},${y} ${x+w},${cy} ${x},${y+H}" ${a}/>`;
+  if(ty==='task'){ const q=H*.28; return `<polygon points="${x+q},${y} ${x+w-q},${y} ${x+w},${cy} ${x+w-q},${y+H} ${x+q},${y+H} ${x},${cy}" ${a}/>`; }
+  if(ty==='impl') return `<rect x="${x}" y="${y}" width="${w}" height="${H}" rx="${H/2}" ${a}/>`;
+  return `<rect x="${x}" y="${y}" width="${w}" height="${H}" rx="${H*.18}" ${a}/>`; }
+function nodeSvg(t,s,x,y,H,mini){ const w=nodeW(t,H), hue=S.tm==='color'?TYC[t.ty]:null, tex=S.sm==='texture'; let pre='', post='', fill, stroke='none', sw=0, op=1;
+  if(s==='done'){ fill=hue||NC.closed; op=hue?.35:1; }
+  else if(s==='run'){ fill=hue||NC.work; }
+  else if(s==='wait'||s==='review'){ fill=hue||NC.need; }
+  else if(s==='front'){ fill=NC.bg; stroke=hue||NC.ink; sw=2; }
+  else { fill=tex?'url(#zstripe)':NC.bg; stroke=tex?'#8a3b3b':(hue?hue+'77':NC.faint); sw=2; }
+  const ring=(c,d)=>geom(t.ty,x-d,y-d,w+2*d,H+2*d,`fill="none" stroke="${c}" stroke-width="2"`);
+  if(mini){ pre=''; }
+  if(hue&&s==='run'&&!mini) post+=ring(NC.work,3.5);
+  if(hue&&(s==='wait'||s==='review')&&!mini) post+=ring(NC.need,3.5);
+  if(tex&&(s==='wait'||s==='review')&&!mini) pre+=`<g filter="url(#zglow)" opacity=".75">${geom(t.ty,x-2,y-2,w+4,H+4,`fill="${NC.need}"`)}</g>`;
+  if(tex&&s==='run'&&!mini) post+=`<g class="zpulse">${ring(NC.work,4)}</g>`;
+  if(tex&&s==='done'&&!mini) post+=`<path d="M${x+w*.28} ${y+H*.52} L${x+w*.45} ${y+H*.68} L${x+w*.74} ${y+H*.34}" fill="none" stroke="${hue||'#9aa3b0'}" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" opacity="${hue?1:.8}"/>`;
+  if(S.tm==='glyph'&&!mini){ const dark=['done','run','wait','review'].includes(s)&&!(s==='done'); post+=`<text x="${x+w/2}" y="${y+H/2+3.5}" text-anchor="middle" font-size="${Math.round(H*.48)}" font-weight="700" font-family="ui-monospace,Menlo,monospace" fill="${dark?NC.bg:s==='blocked'?'#6b7280':NC.ink}">${TYL[t.ty]}</text>`; }
+  if(S.sm==='icon'&&!mini){ const sym={done:'✓',run:'…',wait:'?',review:'!',front:'▸',blocked:'×'}[s], bc={done:'#59606b',run:NC.work,wait:NC.need,review:NC.need,front:NC.ink,blocked:'#b04a4a'}[s], r=H*.3;
+    post+=`<circle cx="${x+w-1}" cy="${y+1}" r="${r}" fill="${bc}" stroke="${NC.bg}" stroke-width="1.5"/><text x="${x+w-1}" y="${y+1+r*.42}" text-anchor="middle" font-size="${r*1.35}" font-weight="700" fill="${NC.bg}">${sym}</text>`; }
+  return `${pre}${geom(t.ty,x,y,w,H,`fill="${fill}" stroke="${stroke}" stroke-width="${sw}" opacity="${op}"`)}${post}`; }
+function fogSvg(x,y,H){ if(S.sm==='texture') return `<g filter="url(#zcloud)" opacity=".8"><circle cx="${x+H*.3}" cy="${y+H*.6}" r="${H*.34}" fill="#5a616d"/><circle cx="${x+H*.62}" cy="${y+H*.42}" r="${H*.4}" fill="#5a616d"/><circle cx="${x+H*.85}" cy="${y+H*.65}" r="${H*.3}" fill="#5a616d"/></g>`;
+  return `<rect x="${x}" y="${y}" width="${H}" height="${H}" rx="${H*.27}" fill="none" stroke="#3a404b" stroke-width="1.5" stroke-dasharray="3 3"/>${S.sm==='icon'?`<text x="${x+H/2}" y="${y+H/2+4}" text-anchor="middle" font-size="${H*.5}" fill="#6b7280">~</text>`:''}`; }
+const DEFS=`<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <pattern id="zstripe" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#140e10"/><rect width="2.4" height="6" fill="#7a3434"/></pattern>
+  <filter id="zglow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="3"/></filter>
+  <filter id="zcloud" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="2.2"/></filter></defs></svg>`;
+function icon(t,s,H=12,key){ const w=nodeW(t,H), m=key?5:2; return `<svg class="zic" width="${w+2*m}" height="${H+2*m}" viewBox="${-m} ${-m} ${w+2*m} ${H+2*m}" aria-hidden="true">${nodeSvg(t,s,0,0,H,!key)}</svg>`; }
+function typeTag(t){ return ['glyph','tag','none'].includes(S.tm)&&S.tm!=='none'?`<span class="ztag">${TYN[t.ty]}</span>`:''; }
+/* list row, with the chosen encodings */
+zrow=function(p,t){ const s=st(p,t), w=zWord(s), tex=S.sm==='texture'&&s==='blocked'?'tex':'';
+  return `<button class="zrow ${s==='blocked'?'blk':''} ${tex} ${zCls(p,t)}" data-z="${t.n}">${icon(t,s)}<span class="zt">${esc(t.t)}${typeTag(t)}</span>${w[0]?`<span class="zs ${w[1]}">${w[0]}</span>`:''}</button>`; };
+zFog=function(p){ const f=fogOf(p); return f.length?`<div class="zsec">Not yet specified <span>${f.length}</span></div>${f.map(x=>`<div class="zfog ${S.sm==='texture'?'tex':''}">${esc(x.t)}</div>`).join('')}`:''; };
+function keyHtml(fog){ const smp=(ty,s)=>icon({ty},s,12,s!=='front'&&s!=='done');
+  const types=S.tm==='none'||S.tm==='tag'?'':`<div class="zkey">${Object.keys(TYN).map(k=>`<span>${S.tm==='glyph'?`<b class="zgl">${TYL[k]}</b>`:smp(k,S.tm==='color'?'done':'front').replace('opacity="0.35"','')}${TYN[k]}</span>`).join('')}</div>`;
+  const ty=S.tm==='shape'?'grill':'grill';
+  const states=`<div class="zkey">${[['wait','needs you'],['run','working'],['front','ready'],['blocked','blocked'],['done','closed']].map(([s,l])=>`<span>${smp(ty,s)}${l}</span>`).join('')}${fog?`<span><svg width="16" height="16" viewBox="-2 -2 16 16">${fogSvg(0,0,12)}</svg>not yet specified</span>`:''}<span>· order runs left to right</span></div>`;
+  return types+states; }
+zGraph=function(p, maxW, phone){ const ts=all(p), Lv=levels(p), fog=fogOf(p), sel=zSel(p);
+  const nL=Math.max(0,...Object.values(Lv))+1, cols=[...Array(nL)].map(()=>[]);
+  ts.forEach(t=>cols[Lv[t.n]].push(t)); cols.forEach(c=>c.sort((a,b)=>(st(p,a)==='done'?0:1)-(st(p,b)==='done'?0:1)||PHS.indexOf(phase(a))-PHS.indexOf(phase(b))));
+  if(fog.length) cols.push(fog.map(f=>({fog:f})));
+  const H=phone?14:(S.tm==='glyph'||S.sm==='icon'?22:20), GX=phone?12:22, GY=phone?9:12, pill=S.tm==='shape'?Math.round(H*1.6):H, CW=pill+GX, RH=H+GY;
+  const maxR=S.wm==='stack'?999:(phone?6:5);
+  const blocks=cols.map(c=>{ const sub=Math.max(1,Math.ceil(c.length/maxR)), rows=Math.min(c.length,maxR); return {c,sub,rows,w:sub*CW}; });
+  let bands=[[]], bx=0; blocks.forEach(b=>{ if(S.wm==='both'&&bx+b.w>maxW&&bands[bands.length-1].length){ bands.push([]); bx=0; } bands[bands.length-1].push(b); bx+=b.w+ (phone?4:8); });
+  const pos={}, fogPos=[]; let y0=0, W=0;
+  bands.forEach(band=>{ let x=0; const bh=Math.max(...band.map(b=>b.rows))*RH;
+    band.forEach(b=>{ b.c.forEach((t,j)=>{ const cx=x+Math.floor(j/maxR)*CW, cy=y0+(j%maxR)*RH; if(t.fog) fogPos.push({x:cx,y:cy,f:t.fog}); else pos[t.n]={x:cx,y:cy}; }); x+=b.w+(phone?4:8); });
+    W=Math.max(W,x); y0+=bh+(phone?22:30); });
+  const Ht=y0-(phone?22:30)-GY+4, Wt=W+4;
+  let edges=''; ts.forEach(t=>t.by.forEach(b=>{ const a=pos[b], z=pos[t.n]; if(!a||!z) return; const bt=find(p,b); const hot=sel&&(t.n===sel.n||b===sel.n);
+    const x1=a.x+nodeW(bt,H), y1=a.y+H/2, x2=z.x, y2=z.y+H/2, cross=Math.abs(y2-y1)>RH*6||x2<x1;
+    const mx=cross?Math.max(x1,x2)+40:(x1+x2)/2; edges+=`<path class="${hot?'hot':''} ${cross?'x':''}" d="M${x1} ${y1} C${cross?x1+30:mx} ${y1} ${cross?x2-30:mx} ${y2} ${x2} ${y2}"/>`; }));
+  const nodes=ts.map(t=>{ const q=pos[t.n], c=zCls(p,t); return `<g class="${c}">${nodeSvg(t,st(p,t),q.x+2,q.y+2,H)}${c==='zsel'?geom(t.ty,q.x-2,q.y-2,nodeW(t,H)+8,H+8,`fill="none" stroke="var(--accent)" stroke-width="2"`):''}</g>`; }).join('');
+  const hits=ts.map(t=>{ const q=pos[t.n]; return `<button class="zhit" style="left:${q.x}px;top:${q.y}px;width:${nodeW(t,H)+4}px;height:${H+4}px" data-z="${t.n}" title="${esc(t.t)} · ${TYN[t.ty]}${zWord(st(p,t))[0]?' · '+zWord(st(p,t))[0]:''}" aria-label="${esc(t.t)}"></button>`; }).join('');
+  const fg=fogPos.map(q=>`<g class="${sel?'zdim':''}"><title>${esc(q.f.t)} · not yet specified</title>${fogSvg(q.x+2,q.y+2,H)}</g>`).join('');
+  return `<div class="zgwrap"><div class="zg ${sel?'has':''}" style="width:${Wt}px;height:${Ht}px"><svg width="${Wt}" height="${Ht}" style="overflow:visible"><g class="edges" transform="translate(2,2)">${edges}</g>${nodes}${fg}</svg>${hits}</div></div>${keyHtml(fog.length)}`; };
+function encHtml(){ return Object.keys(ENC).map(k=>`<h3>${ENCN[k]} (${k==='tm'?'t':k==='sm'?'s':'w'})</h3><div class="encs">${ENC[k].map(([v,l])=>`<button class="${S[k]===v?'on':''}" data-set="${k}:${v}">${l}</button>`).join('')}</div>`).join(''); }
+
+function guideCalm(s){ return `${S.variant==='L'||S.variant==='I'?encHtml():''}<h3>Variant ${S.variant}: ${s.name}</h3><div class="stmt"><b>On the page:</b> ${s.always}</div><div class="stmt"><b>What it shows first:</b> ${s.shows}</div><div class="stmt"><b>At scale:</b> ${s.scale}</div><div class="stmt">${CALM_NOTE}</div>
   <h3>Plan shapes</h3><div class="plans">${PLANS.map((p,i)=>`<button class="${i===S.plan?'on':''}" data-plan="${p.id}"><span class="k">${i+1}</span>${esc(p.title)}<span class="k">${esc(p.shape)}</span></button>`).join('')}</div>
   <h3>Try</h3><ul><li>Say what you can act on now.</li><li>Select a blocked ticket: see what it waits on and what it frees.</li><li>Add a ticket, rule one out, start one.</li><li>Switch maps from the sidebar; on the phone, from ☰.</li><li>Compare plans 1, 3, and 4.</li></ul>
   <h3>Earlier rounds</h3><div class="stmt">The arrows cycle E, then I to L. A to H stay at <code>?variant=</code>.</div>`; }
 /* ==================== RENDER + WIRING ==================== */
 const frame=document.getElementById('frame'), guide=document.getElementById('guide');
 function render(){
-  frame.className='frame '+S.device; frame.innerHTML=CALM.includes(S.variant)?(S.device==='phone'?zPhone():zDesktop()):(S.device==='phone'?phone():desktop());
+  frame.className='frame '+S.device; frame.innerHTML=DEFS+CALM.includes(S.variant)?(S.device==='phone'?zPhone():zDesktop()):(S.device==='phone'?phone():desktop());
   document.getElementById('vname').textContent=`${S.variant}: ${(ZV[S.variant]||V[S.variant])[0]}`;
   document.getElementById('dDesk').classList.toggle('on',S.device==='desktop'); document.getElementById('dPhone').classList.toggle('on',S.device==='phone');
   document.getElementById('selL').classList.toggle('on',S.sel==='list'); document.getElementById('selM').classList.toggle('on',S.sel==='menu');
   document.getElementById('ph').textContent=`variant=${S.variant} device=${S.device} plan=${S.plan+1} maps=${S.sel}${S.reshape?' reshape':''}`;
   guide.innerHTML=guideHtml();
-  const u=new URL(location.href); u.searchParams.set('variant',S.variant); u.searchParams.set('device',S.device); u.searchParams.set('plan',S.plan+1); u.searchParams.set('maps',S.sel); history.replaceState(null,'',u);
+  const u=new URL(location.href); u.searchParams.set('variant',S.variant); u.searchParams.set('device',S.device); u.searchParams.set('plan',S.plan+1); u.searchParams.set('maps',S.sel); ['tm','sm','wm'].forEach(k=>u.searchParams.set(k,S[k])); history.replaceState(null,'',u);
 }
 let toastTimer; function toast(m){ S.toast=m; clearTimeout(toastTimer); toastTimer=setTimeout(()=>{S.toast=null;render();},2600); }
 function addTicket(where, title){ const p=P(); if(!title.trim()) return; const n=++addSeq; let by=[], ph;
@@ -858,7 +954,7 @@ function addTicket(where, title){ const p=P(); if(!title.trim()) return; const n
   const t=T(n,ph==='ship'?'deploy':ph==='build'?'impl':ph==='proto'?'proto':'grill',title.trim(),null,by,null,ph);
   (S.added[p.id]=S.added[p.id]||[]).push(t); p.changes.push({k:'added',n}); S.znew=null; toast(`Added “${esc(title.trim())}” as a child of the map. Would post to GitHub.`); }
 document.body.addEventListener('click',e=>{
-  const t=e.target.closest('[data-z],[data-za],[data-zt]'); if(!t) return; if(t.dataset.za==='drawer-close'&&e.target.closest('.side')){ if(e.target.closest('[data-plan]')) S.zdrawer=false; return; } e.stopImmediatePropagation(); const p=P(), d=t.dataset;
+  const t=e.target.closest('[data-z],[data-za],[data-zt],[data-set]'); if(!t) return; if(t.dataset.set){ const [k,v]=t.dataset.set.split(':'); S[k]=v; render(); return; } if(t.dataset.za==='drawer-close'&&e.target.closest('.side')){ if(e.target.closest('[data-plan]')) S.zdrawer=false; return; } e.stopImmediatePropagation(); const p=P(), d=t.dataset;
   if(d.z){ S.zsel=S.zsel===+d.z?null:+d.z; S.zmore=false; }
   else if(d.zt==='chg'){ S.zchg=!S.zchg; } else if(d.zt==='new'){ S.znew=S.znew?null:'next'; }
   else { const a=d.za, n=S.zsel;
@@ -898,6 +994,7 @@ document.getElementById('selM').onclick=()=>{S.sel='menu';render();};
 document.addEventListener('keydown',e=>{ if(e.target.closest('input,textarea,[contenteditable]')) return;
   if(e.key==='ArrowLeft') step(-1); if(e.key==='ArrowRight') step(1);
   if(e.key==='d'){ S.device=S.device==='phone'?'desktop':'phone'; render(); } if(e.key==='r'){ S.reshape=!S.reshape; render(); }
+  const cyc=k=>{ const l=ENC[k].map(x=>x[0]); S[k]=l[(l.indexOf(S[k])+1)%l.length]; render(); }; if(e.key==='t') cyc('tm'); if(e.key==='s') cyc('sm'); if(e.key==='w') cyc('wm');
   if(e.key==='m'){ S.sel=S.sel==='list'?'menu':'list'; S.menu=false; render(); }
   if(/^[1-7]$/.test(e.key)){ S.plan=+e.key-1; S.zsel=null; S.zmore=false; S.peek=null; S.fsheet=false; render(); } });
 render();
