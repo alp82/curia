@@ -1,0 +1,611 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Map overview prototype</title>
+<!--
+  THROWAWAY PROTOTYPE for alp82/curia#1022 "Choose a map overview for the full plan and its execution".
+  Four variants of the Maps page inside the chosen variant D shell (#1021), switchable via ?variant=A|B|C|D,
+  device via ?device=desktop|phone, plan via ?plan=1..7. Static mock data, in-memory state, no persistence.
+    A: Lanes    (where each ticket stands: done, active, ready, blocked, fog)
+    B: Route    (phases in order toward the destination; tickets are stops on the way)
+    C: Outline  (the map as a readable page: needs you, now, next, later, fog, decided)
+    D: Focus    (one ticket at the center, what it waits on and what it unlocks; a whole-plan strip above)
+-->
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+html,body { background:#191c22; }
+body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color:#e6e9ef; }
+button { font:inherit; color:inherit; background:none; border:0; cursor:pointer; text-align:inherit; }
+input { font:inherit; color:inherit; }
+
+/* ===== prototype shell (not part of any design) ===== */
+.proto-head { position:sticky; top:0; z-index:40; background:#0e1013; color:#8b94a3; font:11px/1.4 ui-monospace,Menlo,monospace; padding:8px 12px; border-bottom:1px solid #23272f; display:flex; gap:16px; flex-wrap:wrap; }
+.proto-head b { color:#cdd5e0; }
+.layout { display:grid; grid-template-columns:1fr 340px; min-height:calc(100vh - 34px); }
+@media (max-width:1100px){ .layout { grid-template-columns:1fr; } .guide { position:static !important; height:auto !important; } }
+.stage { padding:16px 8px 120px; display:flex; justify-content:center; align-items:flex-start; overflow:auto; }
+.frame { box-shadow:0 8px 40px rgba(0,0,0,.5); border-radius:14px; overflow:hidden; position:relative; background:var(--bg); color:var(--ink); }
+.frame.desktop { width:1280px; height:800px; }
+.frame.phone { width:390px; height:780px; border-radius:36px; border:6px solid #2a2f38; }
+.guide { position:sticky; top:34px; height:calc(100vh - 34px); overflow:auto; background:#0e1013; border-left:1px solid #23272f; padding:14px; font-size:13px; color:#cdd5e0; line-height:1.45; }
+.guide h3 { font-size:12px; text-transform:uppercase; letter-spacing:.08em; color:#8b94a3; margin:16px 0 6px; }
+.guide .plans button { display:block; width:100%; text-align:left; padding:7px 9px; border-radius:6px; background:#12151b; margin-bottom:4px; }
+.guide .plans button.on { background:#1f3a2f; outline:1px solid #2f7a5a; }
+.guide .plans .k { color:#8b94a3; font-size:11px; display:block; }
+.guide .stmt { background:#12151b; border-radius:8px; padding:10px; margin-bottom:8px; }
+.guide .stmt b { color:#9fd1ff; }
+.guide ul { padding-left:18px; }
+.guide li { margin-bottom:4px; }
+.bar { position:fixed; left:calc((100vw - 340px)/2); bottom:14px; transform:translateX(-50%); z-index:50; display:flex; align-items:center; gap:4px; padding:6px; background:#0e1013; border:1px solid #2c313b; border-radius:999px; box-shadow:0 6px 24px rgba(0,0,0,.55); font:12px/1 ui-monospace,Menlo,monospace; color:#cdd5e0; white-space:nowrap; }
+@media (max-width:1100px){ .bar { left:50%; } }
+.bar button { min-width:40px; min-height:40px; border-radius:999px; padding:0 10px; }
+.bar button:hover { background:#1c212a; }
+.bar .name { min-width:150px; text-align:center; font-weight:600; }
+.bar .sep { width:1px; height:22px; background:#2c313b; }
+.bar .tog.on { background:#273043; color:#fff; }
+
+/* ===== app tokens (variant D register) ===== */
+.frame { --bg:#0b0c10; --raise:#15181f; --inset:#08090c; --line:#232833; --ink:#e6e9ef; --dim:#8b94a3; --faint:#555d6b; --accent:#5ec8e5;
+  --warn:#f2c14e; --bad:#ff6b6b; --good:#5ad38a; --run:#9d8cff; font-size:13.5px; line-height:1.45; }
+.dim { color:var(--dim); } .h { font-weight:600; }
+.num { color:var(--faint); font-size:11.5px; font-variant-numeric:tabular-nums; }
+.dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--faint); flex:none; }
+.s-done .dot, .dot.s-done { background:var(--good); }
+.s-run .dot, .dot.s-run { background:var(--run); box-shadow:0 0 0 3px rgba(157,140,255,.2); }
+.s-wait .dot, .dot.s-wait { background:var(--warn); }
+.s-fail .dot, .dot.s-fail { background:var(--bad); }
+.s-review .dot, .dot.s-review { background:var(--accent); }
+.s-front .dot, .dot.s-front { background:transparent; border:2px solid var(--ink); }
+.s-blocked .dot, .dot.s-blocked { background:transparent; border:2px solid var(--faint); }
+.pill { display:inline-block; font-size:11px; padding:1px 7px; border-radius:999px; border:1px solid var(--line); color:var(--dim); white-space:nowrap; }
+.pill.s-wait { color:var(--warn); border-color:var(--warn); } .pill.s-run { color:var(--run); border-color:var(--run); }
+.pill.s-fail { color:var(--bad); border-color:var(--bad); } .pill.s-review { color:var(--accent); border-color:var(--accent); }
+.pill.s-done { color:var(--good); border-color:var(--good); } .pill.s-front { color:var(--ink); border-color:var(--ink); }
+.chg { font-size:10.5px; color:var(--accent); border:1px solid rgba(94,200,229,.4); border-radius:4px; padding:0 4px; white-space:nowrap; }
+.btn { display:inline-flex; align-items:center; gap:6px; padding:5px 10px; border-radius:8px; border:1px solid var(--line); background:var(--raise); font-size:12px; }
+.btn.primary { background:var(--accent); color:#08090c; border-color:var(--accent); font-weight:600; }
+.btn.warn { color:var(--bad); }
+.sec { font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--dim); margin:16px 0 6px; display:flex; gap:8px; align-items:center; }
+.sec .n { color:var(--faint); }
+.ty { font:10.5px ui-monospace,Menlo,monospace; color:var(--faint); }
+.rail { display:flex; height:6px; border-radius:3px; overflow:hidden; background:var(--line); gap:1px; }
+.rail i { display:block; height:100%; }
+
+/* ticket row, shared */
+.tk { display:flex; align-items:flex-start; gap:8px; width:100%; padding:6px 8px; border-radius:8px; font-size:13px; line-height:1.35; }
+.tk:hover { background:var(--raise); }
+.tk .dot { margin-top:5px; }
+.tk .t { flex:1; min-width:0; }
+.tk .sub { display:block; font-size:11.5px; color:var(--dim); margin-top:1px; }
+.tk.s-blocked .t { color:var(--dim); }
+.tk.on { background:var(--raise); outline:1px solid var(--accent); }
+.tk .x { color:var(--bad); font-size:12px; padding:0 4px; border-radius:4px; }
+.tk .go { color:var(--accent); font-size:12px; padding:0 4px; }
+.fogi { display:flex; gap:8px; padding:6px 8px; border:1px dashed var(--line); border-radius:8px; color:var(--dim); font-size:12.5px; margin-bottom:5px; align-items:flex-start; }
+.fogi .t { flex:1; }
+.add { display:flex; gap:6px; margin-top:6px; }
+.add input { flex:1; min-width:0; background:var(--bg); border:1px dashed var(--accent); border-radius:8px; padding:5px 8px; font-size:12.5px; }
+.more { font-size:12px; color:var(--accent); padding:4px 8px; }
+
+/* D shell */
+.D { display:grid; grid-template-columns:240px 1fr; height:100%; font-size:14px; }
+.side { background:var(--inset); display:flex; flex-direction:column; padding:14px 10px; gap:2px; }
+.side .brand { font-weight:700; font-size:15px; padding:6px 10px 12px; }
+.side .row { display:flex; gap:8px; padding:8px 10px; border-radius:10px; color:var(--dim); font-size:13.5px; align-items:center; }
+.side .row.on { background:var(--raise); color:var(--ink); }
+.side .grp { font-size:11px; color:var(--dim); padding:14px 10px 4px; letter-spacing:.06em; text-transform:uppercase; }
+.side .ch { padding:6px 10px; font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; display:flex; gap:8px; align-items:center; }
+.side .ch .dot { width:6px; height:6px; }
+.main { display:flex; flex-direction:column; overflow:hidden; min-width:0; position:relative; }
+.mhd { display:flex; align-items:center; gap:10px; padding:12px 24px 6px; }
+.mhd .title { font-weight:600; font-size:14.5px; }
+.mhd .sp { flex:1; }
+.mapstrip { display:flex; gap:8px; padding:4px 24px 10px; overflow-x:auto; border-bottom:1px solid var(--line); }
+.mapchip { flex:none; width:176px; padding:8px 10px; border-radius:10px; background:var(--raise); border:1px solid transparent; display:flex; flex-direction:column; gap:6px; font-size:12.5px; }
+.mapchip.on { border-color:var(--accent); }
+.mapchip .top { display:flex; gap:6px; align-items:center; }
+.mapchip .top .nm { flex:1; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:600; }
+.mapchip .par { font-size:11px; color:var(--dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.badge { display:inline-flex; min-width:18px; height:18px; padding:0 5px; border-radius:9px; background:var(--warn); color:#000; font-size:11px; font-weight:700; align-items:center; justify-content:center; }
+.page { flex:1; overflow:auto; padding:14px 24px 30px; }
+.ovh { display:flex; gap:16px; align-items:flex-start; margin-bottom:12px; }
+.ovh .l { flex:1; min-width:0; }
+.ovh .ttl { font-size:17px; font-weight:600; }
+.ovh .dest { color:var(--dim); font-size:13px; margin-top:2px; }
+.ovh .stats { font-size:12.5px; color:var(--dim); margin-top:6px; display:flex; gap:12px; flex-wrap:wrap; }
+.ovh .stats b { color:var(--ink); font-weight:600; }
+.since { font-size:12.5px; color:var(--dim); margin-top:4px; }
+.since b { color:var(--accent); font-weight:500; }
+.rel { font-size:12.5px; margin-top:6px; }
+.rel button { color:var(--accent); }
+.toast { position:absolute; left:50%; transform:translateX(-50%); bottom:18px; background:#1d2230; border:1px solid var(--line); border-radius:12px; padding:9px 14px; font-size:12.5px; z-index:30; box-shadow:0 8px 24px rgba(0,0,0,.5); max-width:90%; }
+
+/* peek (detail) */
+.peek { position:absolute; top:0; right:0; bottom:0; width:360px; background:var(--inset); border-left:1px solid var(--line); z-index:20; display:flex; flex-direction:column; box-shadow:-12px 0 40px rgba(0,0,0,.4); }
+.peek .bd { flex:1; overflow:auto; padding:16px; }
+.peek .ft { padding:12px 16px; border-top:1px solid var(--line); display:flex; gap:6px; flex-wrap:wrap; }
+.sheet { position:absolute; left:0; right:0; bottom:0; max-height:78%; background:var(--inset); border-top:1px solid var(--line); border-radius:18px 18px 0 0; z-index:20; display:flex; flex-direction:column; box-shadow:0 -12px 40px rgba(0,0,0,.5); }
+.sheet .bd { flex:1; overflow:auto; padding:14px; }
+.sheet .ft { padding:10px 14px 16px; display:flex; gap:6px; flex-wrap:wrap; }
+.scrim { position:absolute; inset:0; background:rgba(0,0,0,.45); z-index:19; }
+
+/* conversation stub */
+.conv { max-width:760px; margin:0 auto; }
+.conv .status { display:flex; gap:10px; align-items:center; padding:8px 14px; border-radius:14px; background:var(--raise); color:var(--dim); font-size:13px; margin-bottom:16px; }
+.conv .msg { margin-bottom:16px; line-height:1.6; }
+.conv .who { font-size:12px; color:var(--dim); margin-bottom:4px; }
+
+/* phone shell */
+.P { display:flex; flex-direction:column; height:100%; font-size:14px; position:relative; }
+.P .phd { display:flex; align-items:center; gap:8px; padding:12px 12px 8px; }
+.P .phd .title { font-weight:600; flex:1; min-width:0; display:flex; align-items:center; gap:6px; }
+.P .phd .title span { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.P .ib { width:32px; height:32px; border-radius:8px; color:var(--dim); display:inline-flex; align-items:center; justify-content:center; flex:none; }
+.P .ib.on { color:var(--accent); background:var(--raise); }
+.P .page { padding:6px 14px 30px; }
+.P .ovh .ttl { font-size:16px; }
+.P .ovh { flex-direction:column; gap:8px; }
+.P .ovh > div:last-child { width:100% !important; padding-top:0 !important; }
+.P .ovh .stats { gap:4px 12px; }
+
+/* ===== A: Lanes ===== */
+.A-lanes { display:grid; grid-template-columns:1fr 1.15fr 1fr 1fr .9fr; gap:10px; align-items:start; }
+.A-lane { background:var(--raise); border-radius:12px; padding:8px; }
+.A-lane .tk:hover { background:var(--bg); }
+.A-lane h5 { font-size:11px; text-transform:uppercase; letter-spacing:.07em; color:var(--dim); padding:2px 6px 6px; display:flex; justify-content:space-between; }
+.A-lane .fogi { border-color:#2d3340; }
+
+/* ===== B: Route ===== */
+.B-route { display:grid; gap:0; align-items:start; position:relative; }
+.B-ph { padding:0 10px; border-left:1px solid var(--line); min-width:0; }
+.B-ph:first-child { border-left:0; padding-left:0; }
+.B-ph .hd { padding:0 0 8px; }
+.B-ph .hd .nm { font-weight:600; display:flex; align-items:center; gap:6px; }
+.B-ph .hd .here { font-size:10.5px; background:var(--accent); color:#08090c; border-radius:4px; padding:0 5px; font-weight:700; }
+.B-ph .hd .pr { font-size:11.5px; color:var(--dim); margin:3px 0 5px; }
+.B-ph.ahead .hd .nm { color:var(--dim); }
+.B-stops { position:relative; padding-left:4px; }
+.B-stops::before { content:""; position:absolute; left:15px; top:8px; bottom:8px; width:2px; background:var(--line); }
+.B-stops .tk { position:relative; }
+.B-stops .tk .dot { position:relative; z-index:1; outline:3px solid var(--bg); }
+.B-donegrp { display:flex; gap:8px; align-items:center; padding:6px 8px; font-size:12.5px; color:var(--good); width:100%; }
+.B-dest { padding:0 0 0 12px; border-left:1px solid var(--line); }
+.B-dest .flag { font-size:18px; }
+.B-empty { color:var(--faint); font-size:12.5px; padding:6px 8px; }
+.B-vert .B-ph { border-left:0; padding:0; margin-bottom:6px; }
+.B-vert .B-phrow { display:flex; gap:10px; align-items:center; width:100%; padding:8px 0; }
+.B-vert .B-phrow .bar2 { flex:1; }
+
+/* ===== C: Outline ===== */
+.C-doc { max-width:760px; margin:0 auto; }
+.C-doc .sec { margin-top:22px; font-size:11.5px; }
+.C-doc .grp { font-size:12.5px; color:var(--dim); margin:10px 0 2px 8px; }
+.C-doc .grp b { color:var(--ink); font-weight:500; }
+.C-doc .dec { display:flex; gap:8px; padding:5px 8px; font-size:13px; }
+.C-doc .dec .t { flex:1; }
+.C-doc .dec .g { color:var(--dim); }
+.C-chg { background:var(--raise); border-radius:12px; padding:10px 14px; font-size:13px; }
+.C-chg div { margin:2px 0; }
+.C-ord { display:flex; flex-direction:column; }
+.C-ord button { font-size:10px; color:var(--dim); line-height:1; padding:1px 3px; }
+
+/* ===== D: Focus ===== */
+.F-strip { background:var(--raise); border-radius:12px; padding:10px 12px; margin-bottom:14px; }
+.F-row { display:flex; gap:8px; align-items:center; margin:3px 0; }
+.F-row .lb { width:68px; font-size:11px; color:var(--dim); text-transform:uppercase; letter-spacing:.06em; flex:none; }
+.F-row .sq { display:flex; flex-wrap:wrap; gap:3px; }
+.F-sq { width:16px; height:16px; border-radius:4px; background:var(--faint); position:relative; }
+.F-sq.s-done { background:var(--good); opacity:.55; } .F-sq.s-run { background:var(--run); } .F-sq.s-wait { background:var(--warn); }
+.F-sq.s-fail { background:var(--bad); } .F-sq.s-review { background:var(--accent); } .F-sq.s-front { background:transparent; border:2px solid var(--ink); }
+.F-sq.s-blocked { background:transparent; border:2px solid var(--faint); } .F-sq.fog { background:transparent; border:1px dashed var(--faint); }
+.F-sq.on { outline:2px solid var(--accent); outline-offset:2px; }
+.F-sq.nb { box-shadow:0 0 0 1px var(--accent); }
+.F-sq.ch::after { content:""; position:absolute; right:-3px; top:-3px; width:6px; height:6px; border-radius:50%; background:var(--accent); }
+.F-grid { display:grid; grid-template-columns:1fr 1.3fr 1fr; gap:14px; align-items:start; }
+.F-col h5 { font-size:11px; text-transform:uppercase; letter-spacing:.07em; color:var(--dim); margin:4px 0 6px 8px; }
+.F-card { background:var(--raise); border-radius:14px; padding:14px 16px; }
+.F-card .q { color:var(--dim); margin:8px 0; font-size:13px; }
+.F-card .acts { display:flex; gap:6px; flex-wrap:wrap; margin-top:10px; }
+.F-path { font-size:12px; color:var(--dim); padding:4px 8px; }
+.F-jump { display:flex; gap:6px; flex-wrap:wrap; margin-bottom:12px; font-size:12px; align-items:center; }
+.F-jump button { border:1px solid var(--line); border-radius:999px; padding:3px 9px; display:inline-flex; gap:6px; align-items:center; }
+.F-legend { display:flex; gap:10px; flex-wrap:wrap; font-size:11px; color:var(--dim); margin-top:6px; }
+.F-legend span { display:inline-flex; gap:4px; align-items:center; }
+.F-legend .F-sq { width:10px; height:10px; }
+</style>
+</head>
+<body>
+<div class="proto-head"><b>#1022 map overview</b> <span id="ph"></span> <span>· ←/→ variant · d device · 1-7 plan · r reshape</span></div>
+<div class="layout">
+  <div class="stage"><div id="frame" class="frame desktop"></div></div>
+  <aside class="guide" id="guide"></aside>
+</div>
+<div class="bar">
+  <button id="prev" aria-label="Previous variant">←</button><span class="name" id="vname"></span><button id="next" aria-label="Next variant">→</button>
+  <span class="sep"></span>
+  <button class="tog" id="dDesk">desktop</button><button class="tog" id="dPhone">phone</button>
+</div>
+
+<script>
+/* ==================== MOCK DATA ====================
+   Ticket: n, ty (research|grill|proto|task|impl|deploy), t title, st (done|run|wait|fail|review; absent = computed
+   ready or blocked from its blockers), by [blocker numbers], g gist when done, ph phase override. */
+const T=(n,ty,t,st,by,g,ph)=>({n,ty,t,st,by:by||[],g,ph});
+const PLANS=[
+{ id:'redesign', title:'Redesign the Curia app', dest:'Implement, validate, and deploy the redesigned app for agent work and planning.',
+  shape:'Large and mixed: decisions, build, and ship on one map (32 tickets)', since:'yesterday 18:40',
+  tickets:[
+  T(1018,'research','What can conversation-led and attention-led workspaces teach Curia?','done',[],'Outcome-specific conversations, visible controls, filtered attention views'),
+  T(1019,'research','Which standard UI foundations fit the redesign?','done',[],'React foundations need a build, asset serving, and test migration'),
+  T(1020,'grill','Which workflows should organize the app?','done',[1018],'Three journeys, seven scenarios, five criteria'),
+  T(1021,'proto','Choose conversation-led or attention-led workspace','done',[1018,1020],'Variant D, Calm threads'),
+  T(1022,'proto','Choose a map overview for the full plan','wait',[1021]),
+  T(1023,'grill','Which requirements belong in first use?',null,[1020]),
+  T(1028,'grill','Keep agent artifacts reachable after a ticket closes','run',[1021]),
+  T(1029,'proto','Define conversation states and density',null,[1021]),
+  T(1024,'proto','Choose a simpler first-use experience',null,[1023]),
+  T(1025,'grill','Choose the frontend and component architecture',null,[1022,1024]),
+  T(1026,'grill','Define acceptance and the path to deployment',null,[1025]),
+  T(1040,'impl','Set up the build and asset serving',null,[1025]),
+  T(1055,'task','Move the daemon tests onto the new build',null,[1040]),
+  T(1041,'impl','Port the app shell and sidebar',null,[1040]),
+  T(1042,'impl','Conversation page with the status line',null,[1041,1029]),
+  T(1043,'impl','Render pictures, tables, diagrams, attachments',null,[1042]),
+  T(1044,'impl','Question cards in the conversation',null,[1042]),
+  T(1045,'impl','New-conversation landing',null,[1041]),
+  T(1046,'impl','Maps page overview',null,[1041,1022]),
+  T(1047,'impl','Reshape actions on the map',null,[1046]),
+  T(1048,'impl','Overseer conversation',null,[1042]),
+  T(1049,'impl','Phone drawer and layout',null,[1041]),
+  T(1050,'impl','First-use path',null,[1024,1041]),
+  T(1051,'impl','Settings and integrations',null,[1050]),
+  T(1052,'impl','Artifact shelf',null,[1028,1043]),
+  T(1053,'impl','History and search',null,[1041]),
+  T(1054,'impl','Remove the old frontend',null,[1042,1043,1044,1045,1046,1047,1048,1049,1050,1051,1052,1053]),
+  T(1060,'task','Acceptance run on desktop',null,[1054,1026],null,'ship'),
+  T(1061,'task','Acceptance run on phone',null,[1054,1026],null,'ship'),
+  T(1064,'task','Update the operator guide',null,[1054],null,'ship'),
+  T(1062,'deploy','Stage on the live host',null,[1060,1061]),
+  T(1063,'deploy','Switch the live host and watch a day',null,[1062]),
+  ],
+  fog:[{t:'Service contract changes the accepted designs expose',ph:'build'},{t:'Migration checks for existing bookmarks and hashes',ph:'ship'},{t:'Rollback plan if the switch fails',ph:'ship'}],
+  oos:[{t:'A roadmap layer above maps',why:'ruled out on Which workflows should organize the app?'}],
+  changes:[{k:'resolved',n:1021},{k:'added',n:1029},{k:'unblocked',n:1022},{k:'unblocked',n:1028},{k:'started',n:1028}] },
+
+{ id:'discord', title:'Discord permission recovery', dest:'An operator whose Discord permissions dropped can recover from setup without reading logs.',
+  shape:'Small and nearly done: 5 tickets, one PR open, one failed', since:'yesterday 18:40',
+  tickets:[
+  T(1001,'research','Which permissions can drop silently?','done',[],'Three: Send Messages in Threads, Attach Files, Use Slash Commands'),
+  T(1002,'grill','Detect a dropped permission at boot','done',[1001],'Check at boot and on each 403; one card, no DM'),
+  T(1003,'impl','Offer recovery from setup','review',[1002]),
+  T(1004,'task','Write the recovery walkthrough','fail',[1002]),
+  T(1005,'deploy','Ship and announce',null,[1003,1004]),
+  ], fog:[], oos:[], changes:[{k:'pr',n:1003},{k:'failed',n:1004}] },
+
+{ id:'vector', title:'Choose a store for transcript search', dest:'A decision, with evidence, on which store backs search over agent transcripts.',
+  shape:'Wide: one question fans out to nine parallel research tickets, then fans back in', since:'2 days ago',
+  tickets:[
+  T(1100,'grill','What must transcript search answer?','done',[],'Recall a past decision by meaning, under 300 ms, on one box'),
+  T(1101,'research','sqlite-vec on the journal database','done',[1100],'Fits; 1.2 M vectors in 8 GB; no filtered ANN'),
+  T(1102,'research','pgvector','done',[1100],'Fits only with the Postgres migration'),
+  T(1103,'research','LanceDB embedded','done',[1100],'Fast, file-based, young ecosystem'),
+  T(1104,'research','Qdrant as a sidecar','run',[1100]),
+  T(1105,'research','Chroma','run',[1100]),
+  T(1106,'research','Turbopuffer (hosted)','wait',[1100]),
+  T(1107,'research','Meilisearch hybrid search','run',[1100]),
+  T(1108,'research','Tantivy with stored embeddings','fail',[1100]),
+  T(1109,'research','No vector store: FTS5 plus reranking','run',[1100]),
+  T(1110,'proto','Compare the top three on real transcripts',null,[1101,1102,1103,1104,1105,1106,1107,1108,1109]),
+  T(1111,'grill','Choose the store',null,[1110]),
+  ], fog:[{t:'Where the embedding model runs',ph:'decide'},{t:'Backfill of two years of transcripts',ph:'build'}], oos:[{t:'Search across other people’s boxes',why:'one box per operator'}],
+  changes:[{k:'resolved',n:1103},{k:'failed',n:1108},{k:'waiting',n:1106}] },
+
+{ id:'journal', title:'Move the journal to Postgres', dest:'The live journal runs on Postgres with no lost events and a tested rollback.',
+  shape:'Deep: an 11-step chain of execution with a failure in the middle', since:'yesterday 18:40',
+  tickets:[
+  T(1200,'task','Measure journal sizes and write rates','done',[],'4.1 GB, 900 events per minute at peak'),
+  T(1201,'impl','Create the schema in Postgres','done',[1200],'Merged'),
+  T(1202,'impl','Dual-write every event','done',[1201],'Merged'),
+  T(1203,'impl','Backfill history','done',[1202],'Merged; 38 M rows'),
+  T(1204,'impl','Compare reads in shadow mode','fail',[1203]),
+  T(1205,'impl','Switch reads to Postgres',null,[1204]),
+  T(1206,'impl','Switch writes to Postgres',null,[1205]),
+  T(1208,'task','Point the daily backups at Postgres',null,[1206]),
+  T(1207,'impl','Remove the SQLite writer',null,[1206]),
+  T(1209,'deploy','Migrate the live host',null,[1207,1208]),
+  T(1210,'task','Watch a week, then drop the dump',null,[1209],null,'ship'),
+  ], fog:[], oos:[], changes:[{k:'failed',n:1204},{k:'resolved',n:1203}] },
+
+{ id:'harness', title:'Harness adapters: decide', dest:'Every harness decision is made, and the build map exists.',
+  shape:'Split, planning half: decisions only; its execution lives on a child map', child:'harnessb', since:'3 days ago',
+  tickets:[
+  T(1300,'research','What does each harness expose for rewind?','done',[],'Codex and Claude natively; OpenCode by session copy; Pi none'),
+  T(1301,'grill','One behavioral contract for every harness','done',[1300],'Six behaviors; ADR 0029'),
+  T(1302,'grill','Compose native behavior, not emulate it','done',[1301],'ADR 0030'),
+  T(1303,'proto','How the operator picks a harness per ticket','done',[1301],'A label plus a default'),
+  T(1304,'research','Which harnesses run in the agent image today?','done',[],'Four; Pi needs a Node bump'),
+  T(1305,'grill','What happens when a harness lacks a behavior?','done',[1302],'Refuse at dispatch with a named reason'),
+  T(1306,'grill','Chart the build map','done',[1303,1305],'Child map created: Harness adapters: build'),
+  T(1307,'grill','Retire the old single-harness flag?','wait',[1306]),
+  ], fog:[], oos:[{t:'Harnesses outside the container',why:'containment is ADR 0006'}], changes:[{k:'resolved',n:1306},{k:'waiting',n:1307}] },
+
+{ id:'harnessb', title:'Harness adapters: build', dest:'Four harnesses pass the behavioral contract suite on the live host.',
+  shape:'Split, execution half: 16 build slices in four parallel tracks', parent:'harness', since:'3 days ago',
+  tickets:[
+  T(1320,'impl','Contract test suite','done',[],'Merged'),
+  T(1321,'impl','Codex adapter','done',[1320],'Merged'),
+  T(1322,'impl','Codex rewind','review',[1321]),
+  T(1323,'impl','Codex image update','done',[1320],'Merged'),
+  T(1324,'impl','Claude adapter','run',[1320]),
+  T(1325,'impl','Claude rewind',null,[1324]),
+  T(1326,'impl','Claude image update','done',[1320],'Merged'),
+  T(1327,'impl','OpenCode adapter','run',[1320]),
+  T(1328,'impl','OpenCode rewind by session copy',null,[1327]),
+  T(1329,'impl','OpenCode image update',null,[1320]),
+  T(1330,'impl','Pi adapter','wait',[1320]),
+  T(1331,'impl','Pi refusal for rewind',null,[1330]),
+  T(1332,'impl','Pi image and Node bump','fail',[1320]),
+  T(1333,'impl','Dispatch picks the harness from the label',null,[1321,1324,1327,1330]),
+  T(1334,'task','Run the suite against all four',null,[1322,1325,1328,1331,1333]),
+  T(1335,'deploy','Roll out to the live host',null,[1334]),
+  ], fog:[{t:'Per-harness cost reporting',ph:'build'}], oos:[], changes:[{k:'added',n:1333},{k:'failed',n:1332},{k:'pr',n:1322}] },
+
+{ id:'gitlab', title:'Support GitLab as a tracker', dest:'A decision on whether and how Curia watches GitLab projects.',
+  shape:'Fresh and foggy: two tickets, most of the route not charted yet', since:'never',
+  tickets:[
+  T(1400,'research','What do GitLab issues offer for sub-issues and blocking?','run',[]),
+  T(1401,'research','Can the GitHub App identity model map onto GitLab?',null,[]),
+  ],
+  fog:[{t:'Whether labels route the same way',ph:'decide'},{t:'Where GitLab credentials live',ph:'decide'},{t:'How the map body renders without task lists',ph:'decide'},{t:'Webhook delivery through the tailnet',ph:'build'},{t:'Whether one box can watch both',ph:'decide'}],
+  oos:[], changes:[{k:'added',n:1400},{k:'added',n:1401}] },
+];
+
+/* ==================== STATE ==================== */
+const q=new URLSearchParams(location.search);
+const S={ variant:q.get('variant')||'A', device:q.get('device')||'desktop', plan:Math.max(0,Math.min(PLANS.length-1,(+q.get('plan')||1)-1)),
+  reshape:false, peek:null, conv:null, sheet:null, expand:{}, focus:{}, oos:{}, added:{}, fogGone:{}, started:{}, toast:null, order:{} };
+let addSeq=9000;
+
+/* ==================== MODEL HELPERS ==================== */
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const P=()=>PLANS[S.plan];
+const byId=id=>PLANS.find(p=>p.id===id);
+const K=(p,n)=>p.id+':'+n;
+const all=p=>p.tickets.concat(S.added[p.id]||[]).filter(t=>!S.oos[K(p,t.n)]);
+const find=(p,n)=>p.tickets.concat(S.added[p.id]||[]).find(t=>t.n===n);
+const isOut=(p,n)=>!!S.oos[K(p,n)];
+function st(p,t){
+  if(S.started[K(p,t.n)]) return 'run';
+  if(t.st) return t.st;
+  return openBlockers(p,t).length?'blocked':'front';
+}
+function openBlockers(p,t){ return t.by.map(b=>find(p,b)).filter(x=>x&&!isOut(p,x.n)&&st(p,x)!=='done'); }
+const unlocks=(p,t)=>all(p).filter(x=>x.by.includes(t.n));
+const PH={decide:'Decide',proto:'Prototype',build:'Build',ship:'Ship'};
+const PHS=['decide','proto','build','ship'];
+const phase=t=>t.ph||{research:'decide',grill:'decide',proto:'proto',impl:'build',task:'build',deploy:'ship'}[t.ty];
+const TY={research:'research',grill:'grilling',proto:'prototype',task:'task',impl:'build',deploy:'deploy'};
+const LBL={done:'done',run:'working',wait:'needs you',fail:'failed',review:'PR open',front:'ready',blocked:'blocked'};
+const ACTIVE=['wait','fail','review','run'];
+const fogOf=p=>p.fog.filter((f,i)=>!S.fogGone[K(p,'f'+i)]).map(f=>({...f,i:p.fog.indexOf(f)}));
+const chOf=(p,n)=>(p.changes.find(c=>c.n===n)||{}).k;
+const CHL={resolved:'resolved',added:'new',unblocked:'unblocked',started:'started',failed:'failed',waiting:'asks you',pr:'PR opened'};
+function counts(p){ const c={done:0,run:0,wait:0,fail:0,review:0,front:0,blocked:0}; all(p).forEach(t=>c[st(p,t)]++); return c; }
+const short=t=>t.length>44?t.slice(0,42)+'…':t;
+function railHtml(p){
+  const c=counts(p), f=fogOf(p).length, tot=all(p).length+f||1;
+  const seg=[[c.done,'var(--good)'],[c.run+c.review,'var(--run)'],[c.wait+c.fail,'var(--warn)'],[c.front,'var(--ink)'],[c.blocked,'var(--faint)'],[f,'#2d3340']];
+  return `<div class="rail">${seg.filter(s=>s[0]).map(s=>`<i style="width:${s[0]/tot*100}%;background:${s[1]}"></i>`).join('')}</div>`;
+}
+function statsHtml(p){ const c=counts(p), n=all(p).length;
+  return `<div class="stats"><span><b>${c.done}</b> of ${n} done</span>${c.wait+c.fail?`<span><b style="color:var(--warn)">${c.wait+c.fail}</b> need you</span>`:''}<span><b>${c.run+c.review}</b> working</span><span><b>${c.front}</b> ready</span><span><b>${c.blocked}</b> blocked</span>${fogOf(p).length?`<span><b>${fogOf(p).length}</b> not yet specified</span>`:''}</div>`; }
+function sinceHtml(p){ if(!p.changes.length) return ''; const agg={}; p.changes.forEach(c=>agg[CHL[c.k]]=(agg[CHL[c.k]]||0)+1);
+  return `<div class="since">Since you looked ${esc(p.since)}: <b>${Object.entries(agg).map(([k,v])=>`${v} ${k}`).join(' · ')}</b></div>`; }
+function relHtml(p){
+  if(p.child) return `<div class="rel dim">Execution continues on <button data-plan="${p.child}">${esc(byId(p.child).title)} →</button></div>`;
+  if(p.parent) return `<div class="rel dim">Decisions live on <button data-plan="${p.parent}">← ${esc(byId(p.parent).title)}</button></div>`;
+  return '';
+}
+function headHtml(p){ return `<div class="ovh"><div class="l"><div class="ttl">${esc(p.title)}</div><div class="dest">${esc(p.dest)}</div>${statsHtml(p)}${sinceHtml(p)}${relHtml(p)}</div>
+  <div style="width:220px;flex:none;padding-top:6px">${railHtml(p)}</div></div>`; }
+
+/* one ticket row, shared by A, B, C */
+function row(p,t,o={}){
+  const s=st(p,t), ch=chOf(p,t.n), ob=openBlockers(p,t);
+  let sub=o.sub;
+  if(sub===undefined){ sub = s==='blocked'&&ob.length?`after ${esc(short(ob[0].t))}${ob.length>1?` +${ob.length-1}`:''}` : s==='done'&&o.gist&&t.g?esc(t.g) : ACTIVE.includes(s)?LBL[s]:''; }
+  const tail = S.reshape ? `${s==='front'?`<span class="go" data-start="${t.n}" title="Start">▶</span>`:''}${s!=='done'?`<span class="x" data-out="${t.n}" title="Rule out of scope">✕</span>`:''}` : '';
+  return `<button class="tk s-${s} ${S.peek===t.n?'on':''}" data-tk="${t.n}"><span class="dot"></span><span class="t">${esc(t.title||t.t)}${o.ty?` <span class="ty">${TY[t.ty]}</span>`:''}${ch?` <span class="chg">${CHL[ch]}</span>`:''}${sub?`<span class="sub">${sub}</span>`:''}</span>${tail}</button>`;
+}
+function fogRow(p,f){ return `<div class="fogi"><span>░</span><span class="t">${esc(f.t)}</span>${S.reshape?`<button class="go" data-grad="${f.i}" title="Make it a ticket">→ ticket</button>`:''}</div>`; }
+function addBox(where){ return S.reshape?`<div class="add"><input data-addin="${where}" placeholder="+ Add a ticket"><button class="btn" data-add="${where}">Add</button></div>`:''; }
+
+/* ==================== A — LANES ==================== */
+function A(p, phone){
+  const ts=all(p), by=s=>ts.filter(t=>s.includes(st(p,t)));
+  const done=by(['done']), act=by(ACTIVE).sort((a,b)=>ACTIVE.indexOf(st(p,a))-ACTIVE.indexOf(st(p,b))), ready=by(['front']), blk=by(['blocked']), fog=fogOf(p);
+  const cap=(key,list,n)=>{ const open=S.expand[K(p,key)]; const shown=open?list:list.slice(-n); return shown.map(t=>row(p,t,{gist:true})).join('')+(list.length>n?`<button class="more" data-exp="${key}">${open?'Show fewer':`Show all ${list.length}`}</button>`:''); };
+  const lanes=[['Done',done.length,cap('done',done,phone?3:4)],['Active',act.length,act.map(t=>row(p,t)).join('')||'<div class="B-empty">Nothing running</div>'],
+    ['Ready',ready.length,ready.map(t=>row(p,t)).join('')+addBox('ready')],['Blocked',blk.length,cap('blk',blk,phone?3:7)],['Not yet specified',fog.length,fog.map(f=>fogRow(p,f)).join('')||'<div class="B-empty">No fog</div>']];
+  if(phone) return `${headHtml(p)}${lanes.map(l=>`<div class="sec">${l[0]} <span class="n">${l[1]}</span></div>${l[2]}`).join('')}`;
+  return `${headHtml(p)}<div class="A-lanes">${lanes.map(l=>`<div class="A-lane"><h5>${l[0]}<span>${l[1]}</span></h5>${l[2]}</div>`).join('')}</div>`;
+}
+
+/* ==================== B — ROUTE ==================== */
+function B(p, phone){
+  const ts=all(p), fog=fogOf(p);
+  const phs=PHS.map(k=>{ const list=ts.filter(t=>phase(t)===k); const d=list.filter(t=>st(p,t)==='done');
+    const live=list.some(t=>ACTIVE.includes(st(p,t))||st(p,t)==='front'); const allDone=list.length&&d.length===list.length;
+    return {k,list,d,live,allDone,fog:fog.filter(f=>f.ph===k)}; });
+  const firstLive=phs.findIndex(x=>x.live);
+  const stops=x=>{ const key='ph'+x.k, open=S.expand[K(p,key)]; const rest=x.list.filter(t=>st(p,t)!=='done')
+      .sort((a,b)=>['wait','fail','review','run','front','blocked'].indexOf(st(p,a))-['wait','fail','review','run','front','blocked'].indexOf(st(p,b)));
+    const blocked=rest.filter(t=>st(p,t)==='blocked'), near=rest.filter(t=>st(p,t)!=='blocked');
+    const bkey='phb'+x.k, bopen=S.expand[K(p,bkey)], bcap=x.live?4:6;
+    return `<div class="B-stops">${x.d.length?(open?x.d.map(t=>row(p,t,{gist:true})).join('')+`<button class="more" data-exp="${key}">Collapse done</button>`:`<button class="B-donegrp" data-exp="${key}"><span class="dot s-done"></span>${x.d.length} done${x.allDone?' · phase complete':''}</button>`):''}
+      ${near.map(t=>row(p,t,{ty:x.k==='decide'||x.k==='build'})).join('')}
+      ${(bopen?blocked:blocked.slice(0,bcap)).map(t=>row(p,t)).join('')}${blocked.length>bcap?`<button class="more" data-exp="${bkey}">${bopen?'Show fewer':`${blocked.length-bcap} more blocked`}</button>`:''}
+      ${x.fog.map(f=>fogRow(p,f)).join('')}
+      ${!x.list.length&&!x.fog.length?`<div class="B-empty">Nothing charted yet</div>`:''}</div>${addBox('ph-'+x.k)}`; };
+  const hd=(x,i)=>`<div class="hd"><div class="nm">${PH[x.k]}${i===firstLive?'<span class="here">YOU ARE HERE</span>':''}${x.allDone?' <span class="dim" style="font-weight:400">✓</span>':''}</div><div class="pr">${x.list.length?`${x.d.length} of ${x.list.length} done`:'—'}</div><div class="rail">${x.list.length?`<i style="width:${x.d.length/x.list.length*100}%;background:var(--good)"></i>`:''}</div></div>`;
+  if(phone){
+    return `${headHtml(p)}<div class="B-vert">${phs.map((x,i)=>{ const key='pv'+x.k; const open=S.expand[K(p,key)]??(x.live||(!x.allDone&&i===firstLive));
+      return `<div class="B-ph"><button class="B-phrow" data-exp="${key}" data-default="${open?1:0}"><span class="dot ${x.allDone?'s-done':x.live?'s-front':'s-blocked'}"></span><span class="h" style="width:80px">${PH[x.k]}</span><span class="bar2">${hd(x,i).replace('<div class="hd">','<div>').replace(/<div class="nm">.*?<\/div>/,'')}</span>${i===firstLive?'<span class="chg">here</span>':''}<span class="dim">${open?'▾':'▸'}</span></button>${open?stops(x):''}</div>`; }).join('')}
+      <div class="B-ph"><div class="B-phrow"><span>⚑</span><span class="h">Destination</span></div><div class="dim" style="font-size:12.5px;padding:0 0 0 18px">${esc(p.dest)}</div></div></div>`;
+  }
+  return `${headHtml(p)}<div class="B-route" style="grid-template-columns:repeat(4,minmax(0,1fr)) 150px">${phs.map((x,i)=>`<div class="B-ph ${i>firstLive&&firstLive>=0&&!x.live?'ahead':''}">${hd(x,i)}${stops(x)}</div>`).join('')}
+    <div class="B-dest"><div class="hd" style="padding-bottom:8px"><div class="flag">⚑</div><div class="h">Destination</div></div><div class="dim" style="font-size:12.5px">${esc(p.dest)}</div>${p.child?`<div class="rel"><button data-plan="${p.child}">Build map →</button></div>`:''}</div></div>`;
+}
+
+/* ==================== C — OUTLINE ==================== */
+function C(p, phone){
+  const ts=all(p), s=t=>st(p,t);
+  const needs=ts.filter(t=>['wait','fail','review'].includes(s(t))), now=ts.filter(t=>s(t)==='run');
+  let next=ts.filter(t=>s(t)==='front'); const ord=S.order[p.id]; if(ord) next.sort((a,b)=>ord.indexOf(a.n)-ord.indexOf(b.n));
+  const later=ts.filter(t=>s(t)==='blocked'), done=ts.filter(t=>s(t)==='done');
+  const groups={}; later.forEach(t=>{ const b=openBlockers(p,t)[0]; (groups[b.n]=groups[b.n]||{b,list:[]}).list.push(t); });
+  const gkeys=Object.values(groups); const gcap=S.expand[K(p,'later')]?gkeys.length:5;
+  const dcap=S.expand[K(p,'dec')]?done.length:5;
+  const chg=p.changes.map(c=>{ const t=find(p,c.n); return t?`<div><span class="chg">${CHL[c.k]}</span> ${esc(t.t)}</div>`:''; }).join('');
+  const nextRow=(t,i)=>S.reshape?`<div style="display:flex;align-items:center"><span class="C-ord"><button data-up="${t.n}">▲</button><button data-dn="${t.n}">▼</button></span>${row(p,t,{ty:true})}</div>`:row(p,t,{ty:true});
+  return `<div class="C-doc">${headHtml(p).replace('<div style="width:220px;flex:none;padding-top:6px">','<div style="width:160px;flex:none;padding-top:6px">')}
+    ${chg?`<div class="sec">Since you looked ${esc(p.since)}</div><div class="C-chg">${chg}</div>`:''}
+    ${needs.length?`<div class="sec">Needs you <span class="n">${needs.length}</span></div>${needs.map(t=>row(p,t,{ty:true})).join('')}`:''}
+    <div class="sec">Working now <span class="n">${now.length}</span></div>${now.map(t=>row(p,t,{ty:true})).join('')||'<div class="B-empty">No agent is working on this map.</div>'}
+    <div class="sec">Up next <span class="n">${next.length}</span></div>${next.map(nextRow).join('')||'<div class="B-empty">Nothing is ready.</div>'}${addBox('next')}
+    ${later.length?`<div class="sec">Later <span class="n">${later.length}</span></div>${gkeys.slice(0,gcap).map(g=>`<div class="grp">After <b>${esc(short(g.b.t))}</b></div>${g.list.map(t=>row(p,t,{sub:''})).join('')}`).join('')}${gkeys.length>5?`<button class="more" data-exp="later">${gcap<gkeys.length?`${gkeys.length-5} more groups`:'Show fewer'}</button>`:''}`:''}
+    ${fogOf(p).length?`<div class="sec">Not yet specified <span class="n">${fogOf(p).length}</span></div>${fogOf(p).map(f=>fogRow(p,f)).join('')}`:''}
+    ${done.length?`<div class="sec">Decided and done <span class="n">${done.length}</span></div>${done.slice(0,dcap).map(t=>`<button class="dec tk" data-tk="${t.n}"><span class="dot s-done" style="margin-top:6px"></span><span class="t">${esc(t.t)}${t.g?` <span class="g">— ${esc(t.g)}</span>`:''}</span></button>`).join('')}${done.length>5?`<button class="more" data-exp="dec">${dcap<done.length?`Show all ${done.length}`:'Show fewer'}</button>`:''}`:''}
+    ${p.oos.length||Object.keys(S.oos).some(k=>k.startsWith(p.id+':'))?`<div class="sec">Out of scope</div>${p.oos.map(o=>`<div class="dec"><span class="t dim">${esc(o.t)} — ${esc(o.why)}</span></div>`).join('')}${p.tickets.concat(S.added[p.id]||[]).filter(t=>isOut(p,t.n)).map(t=>`<div class="dec"><span class="t dim">${esc(t.t)} — ruled out just now</span></div>`).join('')}`:''}
+    ${S.reshape?`<div class="sec">Destination</div><button class="btn" data-conv="dest">Change the destination in a conversation</button>`:''}
+  </div>`;
+}
+
+/* ==================== D — FOCUS ==================== */
+function focusOf(p){ const ts=all(p); let n=S.focus[p.id]; if(n&&ts.find(t=>t.n===n)) return find(p,n);
+  const pick=['wait','fail','review','front','run','blocked','done']; for(const s of pick){ const t=ts.find(x=>st(p,x)===s); if(t) return t; } return null; }
+function ancestors(p,t,seen=new Set()){ t.by.forEach(b=>{ const x=find(p,b); if(x&&!seen.has(b)&&!isOut(p,b)){ seen.add(b); ancestors(p,x,seen);} }); return seen; }
+function depth(p,t,m={}){ if(m[t.n]!=null) return m[t.n]; const u=unlocks(p,t); return m[t.n]=u.length?1+Math.max(...u.map(x=>depth(p,x,m))):0; }
+function D(p, phone){
+  const f=focusOf(p), ts=all(p), fog=fogOf(p);
+  const nb=f?new Set([...f.by, ...unlocks(p,f).map(x=>x.n)]):new Set();
+  const strip=`<div class="F-strip">${PHS.map(k=>{ const list=ts.filter(t=>phase(t)===k), fg=fog.filter(x=>x.ph===k); if(!list.length&&!fg.length) return '';
+      return `<div class="F-row"><span class="lb">${PH[k]}</span><span class="sq">${list.map(t=>`<button class="F-sq s-${st(p,t)} ${f&&f.n===t.n?'on':''} ${nb.has(t.n)?'nb':''} ${chOf(p,t.n)?'ch':''}" data-focus="${t.n}" title="${esc(t.t)} · ${LBL[st(p,t)]}"></button>`).join('')}${fg.map(x=>`<span class="F-sq fog" title="${esc(x.t)} (not yet specified)"></span>`).join('')}</span></div>`; }).join('')}
+      <div class="F-legend"><span><i class="F-sq s-done"></i>done</span><span><i class="F-sq s-run"></i>working</span><span><i class="F-sq s-wait"></i>needs you</span><span><i class="F-sq s-fail"></i>failed</span><span><i class="F-sq s-review"></i>PR open</span><span><i class="F-sq s-front"></i>ready</span><span><i class="F-sq s-blocked"></i>blocked</span><span><i class="F-sq fog"></i>not yet specified</span><span><i class="F-sq nb"></i>linked to focus</span></div></div>`;
+  const jump=['wait','fail','review','front'].flatMap(s=>ts.filter(t=>st(p,t)===s)).slice(0,phone?4:6);
+  const jumpHtml=jump.length?`<div class="F-jump"><span class="dim">Jump to</span>${jump.map(t=>`<button data-focus="${t.n}"><span class="dot s-${st(p,t)}"></span>${esc(short(t.t))}</button>`).join('')}</div>`:'';
+  if(!f) return `${headHtml(p)}${strip}`;
+  const s=st(p,f), anc=ancestors(p,f), ancOpen=[...anc].filter(n=>st(p,find(p,n))!=='done').length, dep=depth(p,f);
+  const waits=f.by.map(b=>find(p,b)).filter(x=>x&&!isOut(p,x.n)), unl=unlocks(p,f);
+  const nav=t=>row(p,t,{sub:st(p,t)==='blocked'&&t.by.length>1?`waits on ${t.by.length}`:undefined}).replace('data-tk=','data-focus=');
+  const card=`<div class="F-card"><div style="display:flex;gap:8px;align-items:center"><span class="pill s-${s}">${LBL[s]}</span><span class="ty">${TY[f.ty]} · ${PH[phase(f)]}</span><span class="num">#${f.n}</span>${chOf(p,f.n)?`<span class="chg">${CHL[chOf(p,f.n)]}</span>`:''}</div>
+    <div class="h" style="font-size:16px;margin-top:8px">${esc(f.t)}</div>
+    <div class="q">${s==='done'&&f.g?`Answer: ${esc(f.g)}`:s==='blocked'?`Waits on ${openBlockers(p,f).length} open ticket${openBlockers(p,f).length>1?'s':''}.`:s==='front'?'Ready to start. No open blockers.':LBL[s]==='needs you'?'The agent asked you a question.':s==='fail'?'The session failed. Retry from the conversation.':'An agent is on it.'}</div>
+    <div class="dim" style="font-size:12px">${anc.size?`${anc.size-ancOpen} of ${anc.size} steps before it are done`:'Nothing comes before it'} · ${dep?`${dep} step${dep>1?'s':''} from here to the end of the chart`:'Nothing charted after it'}</div>
+    <div class="acts"><button class="btn primary" data-conv="${f.n}">Open conversation</button>${s==='front'?`<button class="btn" data-start="${f.n}">Start</button>`:''}${s!=='done'?`<button class="btn warn" data-out="${f.n}">Rule out of scope</button>`:''}</div>
+    ${S.reshape?`<div class="sec">Add after this ticket</div>${addBox('after-'+f.n).replace('class="add"','class="add" style="margin-top:0"')}`:''}</div>`;
+  const col=(h,list,empty)=>`<div class="F-col"><h5>${h}</h5>${list.map(nav).join('')||`<div class="F-path">${empty}</div>`}</div>`;
+  if(phone) return `${headHtml(p)}${strip}${jumpHtml}${card}${col('Waits on',waits,'Nothing. It can start.')}${col('Unlocks',unl,dep?'':'Nothing charted after it.')}`;
+  return `${headHtml(p)}${strip}${jumpHtml}<div class="F-grid">${col('Waits on',waits,'Nothing. It can start.')}${card}${col('Unlocks',unl,'Nothing charted after it.')}</div>`;
+}
+
+/* ==================== SHELL ==================== */
+const V={A:['Lanes',A],B:['Route',B],C:['Outline',C],D:['Focus',D]};
+function needCount(p){ return all(p).filter(t=>['wait','fail'].includes(st(p,t))).length; }
+function mapStrip(){ return `<div class="mapstrip">${PLANS.map((p,i)=>`<button class="mapchip ${i===S.plan?'on':''}" data-plan="${p.id}"><span class="top"><span class="nm">${esc(p.title)}</span>${needCount(p)?`<span class="badge">${needCount(p)}</span>`:''}</span>${p.parent?`<span class="par">↳ build map of ${esc(byId(p.parent).title)}</span>`:''}${railHtml(p)}</button>`).join('')}</div>`; }
+function side(){ const needs=PLANS.flatMap(p=>all(p).filter(t=>st(p,t)==='wait').map(t=>t.t)).slice(0,4);
+  return `<div class="side"><div class="brand">Curia</div><div class="row">✎ New conversation</div><div class="row on">◫ Maps</div><div class="row">◉ Overseer</div>
+    <div class="grp">Needs you</div>${needs.map(t=>`<div class="ch"><span class="dot s-wait"></span>${esc(t)}</div>`).join('')}
+    <div class="grp">Recent</div><div class="ch"><span class="dot s-run"></span>Qdrant as a sidecar</div><div class="ch"><span class="dot s-review"></span>Codex rewind</div><div class="ch"><span class="dot s-done"></span>Fix the ttyd font size</div></div>`; }
+function peekHtml(p){ const t=find(p,S.peek); if(!t) return ''; const s=st(p,t), w=t.by.map(b=>find(p,b)).filter(Boolean), u=unlocks(p,t);
+  const bd=`<div style="display:flex;gap:8px;align-items:center"><span class="pill s-${s}">${LBL[s]}</span><span class="ty">${TY[t.ty]} · ${PH[phase(t)]}</span><span class="num">#${t.n}</span></div>
+    <div class="h" style="font-size:16px;margin:8px 0">${esc(t.t)}</div>${t.g?`<div class="dim">Answer: ${esc(t.g)}</div>`:''}
+    <div class="sec">Waits on</div>${w.map(x=>row(p,x,{sub:''})).join('')||'<div class="B-empty">Nothing</div>'}
+    <div class="sec">Unlocks</div>${u.map(x=>row(p,x,{sub:''})).join('')||'<div class="B-empty">Nothing charted after it</div>'}`;
+  const ft=`<button class="btn primary" data-conv="${t.n}">Open conversation</button>${s==='front'?`<button class="btn" data-start="${t.n}">Start</button>`:''}${s!=='done'?`<button class="btn warn" data-out="${t.n}">Rule out of scope</button>`:''}<button class="btn" data-act="closepeek">Close</button>`;
+  return S.device==='phone'?`<div class="scrim" data-act="closepeek"></div><div class="sheet"><div class="bd">${bd}</div><div class="ft">${ft}</div></div>`:`<div class="peek"><div class="bd">${bd}</div><div class="ft">${ft}</div></div>`; }
+function convHtml(p){ const t=S.conv==='dest'?null:find(p,S.conv); const title=t?t.t:'Change the destination of '+p.title; const s=t?st(p,t):'run';
+  return `<div class="conv"><div class="status"><span class="dot s-${s}"></span>${t?LBL[s]:'charting agent'}<span style="flex:1"></span><button class="btn" data-act="back">← Back to the map</button></div>
+    <div class="h" style="font-size:16px;margin-bottom:14px">${esc(title)}</div>
+    <div class="msg"><div class="who">curia</div>${t&&t.g?`Resolved. ${esc(t.g)}.`:t?'This is the ticket conversation. Everything the agent says, asks, and publishes lands here.':'Tell me what the destination should become. I will propose the map changes and post them when you agree.'}</div>
+    <div class="dim" style="font-size:12.5px">Mock: the real page is the variant D conversation. The back button returns to the same map, variant, and scroll state.</div></div>`; }
+function desktop(){ const p=P();
+  const body=S.conv?`<div class="page">${convHtml(p)}</div>`:`${mapStrip()}<div class="page">${V[S.variant][1](p,false)}</div>${peekHtml(p)}`;
+  return `<div class="D">${side()}<div class="main"><div class="mhd"><span class="title">Maps</span><span class="dim" style="font-size:12.5px">· ${PLANS.length} maps · ${PLANS.reduce((a,p)=>a+needCount(p),0)} need you</span><span class="sp"></span><button class="btn ${S.reshape?'primary':''}" data-act="reshape">${S.reshape?'Done reshaping':'✎ Reshape'}</button></div>${body}${S.toast?`<div class="toast">${S.toast}</div>`:''}</div></div>`; }
+function phone(){ const p=P();
+  if(S.conv) return `<div class="P"><div class="phd"><button class="ib" data-act="back">‹</button><span class="title"><span>Conversation</span></span></div><div class="page">${convHtml(p)}</div></div>`;
+  const sheet=S.sheet==='maps'?`<div class="scrim" data-act="closesheet"></div><div class="sheet"><div class="bd"><div class="sec" style="margin-top:0">Maps</div>${PLANS.map(x=>`<button class="mapchip ${x===p?'on':''}" style="width:100%;margin-bottom:6px" data-plan="${x.id}"><span class="top"><span class="nm">${esc(x.title)}</span>${needCount(x)?`<span class="badge">${needCount(x)}</span>`:''}</span>${x.parent?`<span class="par">↳ build map of ${esc(byId(x.parent).title)}</span>`:''}${railHtml(x)}</button>`).join('')}</div></div>`:'';
+  return `<div class="P"><div class="phd"><button class="ib">☰</button><button class="title" data-act="maps"><span>${esc(p.title)}</span><span class="dim">▾</span>${PLANS.some(x=>x!==p&&needCount(x))?'<span class="badge">'+PLANS.filter(x=>x!==p).reduce((a,x)=>a+needCount(x),0)+'</span>':''}</button><button class="ib ${S.reshape?'on':''}" data-act="reshape" title="Reshape">✎</button></div>
+    <div class="page">${V[S.variant][1](p,true)}</div>${peekHtml(p)}${sheet}${S.toast?`<div class="toast">${S.toast}</div>`:''}</div>`; }
+
+const STMT={
+ A:{ always:'Five lanes by state: done (collapsed to the latest few), active, ready, blocked, not yet specified. Header with destination, counts, and changes since your last look.',
+     shows:'Where every ticket stands. Blocked tickets say what they wait on. It does not show phases or order toward the destination.',
+     scale:'Large plans collapse done and blocked. Lanes stay the same width, so a long blocked lane scrolls.' },
+ B:{ always:'Four phases in order (Decide, Prototype, Build, Ship), then the destination. Each phase has progress and its tickets as stops; fog sits in the phase it belongs to. A marker says where the work is.',
+     shows:'How far the plan is from the destination and which stretch is live. Dependencies are implied by phase order, not drawn.',
+     scale:'Done collapses per phase. Blocked tickets past four collapse. A planning-only map has empty Build and Ship phases, which says so.' },
+ C:{ always:'The map as a readable page in the conversation column: what changed, needs you, working now, up next, later (grouped by what each waits on), not yet specified, decided, and out of scope.',
+     shows:'What to do next and why the rest waits, in reading order. Decisions carry their gist. It does not show phases.',
+     scale:'Later groups and decisions collapse. The same page works on the phone without change.' },
+ D:{ always:'A strip of every ticket as a square, by phase, colored by state. Below: one ticket in focus, what it waits on, and what it unlocks. Jump chips for what needs you and what is ready.',
+     shows:'Why a ticket is where it is, and what finishing it frees. The strip shows the whole plan at once without text.',
+     scale:'The strip grows by one square per ticket, so 40 tickets still fit. Deep chains read one step at a time.' },
+};
+function guideHtml(){ const st=STMT[S.variant];
+  return `<h3>Variant ${S.variant}: ${V[S.variant][0]}</h3><div class="stmt"><b>On the page:</b> ${st.always}</div><div class="stmt"><b>What it shows first:</b> ${st.shows}</div><div class="stmt"><b>At scale:</b> ${st.scale}</div>
+  <h3>Plan shapes</h3><div class="plans">${PLANS.map((p,i)=>`<button class="${i===S.plan?'on':''}" data-plan="${p.id}"><span class="k">${i+1}</span>${esc(p.title)}<span class="k">${esc(p.shape)}</span></button>`).join('')}</div>
+  <h3>Try on each variant</h3><ul><li>Say which phase the plan is in and how far the destination is.</li><li>Find what needs you on this map.</li><li>Say why a blocked ticket waits, and what finishing it frees.</li><li>Read what changed since your last look.</li><li>Rule a ticket out of scope, add one, and make a fog line a ticket (Reshape).</li><li>Start a ready ticket.</li><li>Open a ticket's conversation, then come back.</li><li>Do all of it on the phone, on plan 1 and plan 6.</li></ul>
+  <h3>Where each action happens (same in every variant)</h3><div class="stmt"><b>In the overview:</b> start a ready ticket, rule a ticket out of scope, add a ticket, make a fog line a ticket, reorder what is up next (Outline), switch maps, follow a planning map to its build map.</div>
+  <div class="stmt"><b>Opens a conversation:</b> answer an agent, retry a failure, resolve a decision, review a PR, and change the destination. Clicking a ticket opens a detail panel first (Lanes, Route, Outline); in Focus the center card is the detail.</div>
+  <div class="stmt"><b>Mock limits:</b> nothing posts to GitHub. Changes live until reload. The conversation is a stub.</div>`; }
+
+/* ==================== RENDER + WIRING ==================== */
+const frame=document.getElementById('frame'), guide=document.getElementById('guide');
+function render(){
+  frame.className='frame '+S.device; frame.innerHTML=S.device==='phone'?phone():desktop();
+  document.getElementById('vname').textContent=`${S.variant}: ${V[S.variant][0]}`;
+  document.getElementById('dDesk').classList.toggle('on',S.device==='desktop'); document.getElementById('dPhone').classList.toggle('on',S.device==='phone');
+  document.getElementById('ph').textContent=`variant=${S.variant} device=${S.device} plan=${S.plan+1}${S.reshape?' reshape':''}`;
+  guide.innerHTML=guideHtml();
+  const u=new URL(location.href); u.searchParams.set('variant',S.variant); u.searchParams.set('device',S.device); u.searchParams.set('plan',S.plan+1); history.replaceState(null,'',u);
+}
+let toastTimer; function toast(m){ S.toast=m; clearTimeout(toastTimer); toastTimer=setTimeout(()=>{S.toast=null;render();},2600); }
+function addTicket(where, title){ const p=P(); if(!title.trim()) return; const n=++addSeq; let by=[], ph;
+  if(where.startsWith('after-')) by=[+where.slice(6)]; if(where.startsWith('ph-')) ph=where.slice(3);
+  const t=T(n,ph==='ship'?'deploy':ph==='build'?'impl':ph==='proto'?'proto':'grill',title.trim(),null,by,null,ph);
+  (S.added[p.id]=S.added[p.id]||[]).push(t); p.changes.push({k:'added',n}); toast(`Added “${esc(title.trim())}” as a child of the map. Would post to GitHub.`); }
+document.body.addEventListener('click',e=>{
+  const t=e.target.closest('[data-plan],[data-tk],[data-focus],[data-start],[data-out],[data-grad],[data-add],[data-exp],[data-conv],[data-act],[data-up],[data-dn]'); if(!t) return;
+  const p=P(), d=t.dataset;
+  if(d.start){ S.started[K(p,+d.start)]=1; toast(`Started ${esc(find(p,+d.start).t)}. An agent is dispatched; its conversation appears under Recent.`); }
+  else if(d.out){ S.oos[K(p,+d.out)]=1; if(S.peek===+d.out) S.peek=null; toast(`Ruled out of scope: closed on GitHub, one line added to Out of scope.`); }
+  else if(d.grad!=null){ const f=p.fog[+d.grad]; S.fogGone[K(p,'f'+d.grad)]=1; addTicket(f.ph?'ph-'+f.ph:'next', f.t.replace(/^./,c=>c.toUpperCase())+'?'); }
+  else if(d.add){ const inp=frame.querySelector(`[data-addin="${d.add}"]`); addTicket(d.add, inp?inp.value:''); }
+  else if(d.plan){ S.plan=PLANS.findIndex(x=>x.id===d.plan); S.peek=null; S.sheet=null; }
+  else if(d.focus){ S.focus[p.id]=+d.focus; }
+  else if(d.tk){ if(S.variant==='D'){ S.focus[p.id]=+d.tk; S.peek=null; } else S.peek=S.peek===+d.tk?null:+d.tk; }
+  else if(d.exp){ const k=K(p,d.exp); S.expand[k]=S.expand[k]===undefined&&d.default!==undefined?!(+d.default):!S.expand[k]; }
+  else if(d.conv){ S.conv=d.conv==='dest'?'dest':+d.conv; S.peek=null; }
+  else if(d.up||d.dn){ const next=all(p).filter(x=>st(p,x)==='front'); let ord=S.order[p.id]||next.map(x=>x.n); next.forEach(x=>{ if(!ord.includes(x.n)) ord.push(x.n); });
+    const n=+(d.up||d.dn), i=ord.indexOf(n), j=d.up?i-1:i+1; if(j>=0&&j<ord.length){ [ord[i],ord[j]]=[ord[j],ord[i]]; } S.order[p.id]=ord; toast('Frontier order changed. Would reorder the sub-issues on GitHub.'); }
+  else { const a=d.act; if(a==='reshape') S.reshape=!S.reshape; if(a==='closepeek') S.peek=null; if(a==='back') S.conv=null; if(a==='maps') S.sheet='maps'; if(a==='closesheet') S.sheet=null; }
+  render();
+});
+document.body.addEventListener('keydown',e=>{ if(e.target.matches('[data-addin]')&&e.key==='Enter'){ addTicket(e.target.dataset.addin,e.target.value); render(); } });
+const VARS=['A','B','C','D'];
+const setVariant=v=>{ S.variant=v; S.peek=null; render(); };
+document.getElementById('prev').onclick=()=>setVariant(VARS[(VARS.indexOf(S.variant)+3)%4]);
+document.getElementById('next').onclick=()=>setVariant(VARS[(VARS.indexOf(S.variant)+1)%4]);
+document.getElementById('dDesk').onclick=()=>{S.device='desktop';render();};
+document.getElementById('dPhone').onclick=()=>{S.device='phone';render();};
+document.addEventListener('keydown',e=>{ if(e.target.closest('input,textarea,[contenteditable]')) return;
+  if(e.key==='ArrowLeft') document.getElementById('prev').click(); if(e.key==='ArrowRight') document.getElementById('next').click();
+  if(e.key==='d'){ S.device=S.device==='phone'?'desktop':'phone'; render(); } if(e.key==='r'){ S.reshape=!S.reshape; render(); }
+  if(/^[1-7]$/.test(e.key)){ S.plan=+e.key-1; S.peek=null; render(); } });
+render();
+</script>
+</body>
+</html>
