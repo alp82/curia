@@ -19,6 +19,9 @@ sets the mock state so the frame shows that moment.
 | A | Threads | the open conversation | the left rail, grouped by state | an overlay from the conversation |
 | B | Desk | a board of what needs you | a drawer over the board, tabbed | a separate top-level page (Efforts) |
 | C | Atlas | the plan itself (every map, lanes, tickets) | a dock beside the plan, tabbed | the page |
+| D | Calm threads | the open conversation, in the ChatGPT and Codex register | a quiet sidebar with Needs-you and Recent | the Atlas canvas as a Maps page |
+
+**Verdict (September 23, 2026):** the operator chose D. See the resolution on the ticket.
 
 Every variant renders picture, table, diagram, attachments, question cards, and a pull-request card in the conversation, and
 every scenario completes on the phone.
