@@ -58,6 +58,17 @@ The operator chose L to iterate on. L now has three independent switches in the 
 
 The settings are in the URL as `tm`, `sm`, and `wm`.
 
+## Round 5
+
+The operator chose color plus letter for the ticket type (grilling is always a green box with a G) and texture for the state, keeping the working pulse. They asked for fog that looks like fog, another look for blocked, and wrapping that reads as grouping. The side panel now switches:
+
+- Fog (`f`): a fog bank of soft noise over ghost boxes, blurred ghost boxes, or a mist that fades the right edge.
+- Blocked (`b`): grayed, hollow dashed, hatched over the type color, or a lock badge.
+- Layout (`w`): stack, wrap tall steps, or also wrap wide plans into rows. Lines across rows show only for the selected ticket.
+- Grouping (`g`): tight gaps inside a step, a soft panel behind each step, or a square block for large steps.
+
+The settings are in the URL as `fm`, `bm`, `wm`, and `gm`.
+
 The seven plans differ in size and shape:
 
 1. Large and mixed: decisions, build, and ship on one map (32 tickets).

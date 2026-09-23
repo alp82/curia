@@ -357,10 +357,20 @@ input { font:inherit; color:inherit; }
 .guide .encs button { padding:6px 9px; border-radius:6px; background:#161a21; font-size:12px; }
 .guide .encs button.on { background:#273043; color:#fff; outline:1px solid #3d5a80; }
 @media (prefers-reduced-motion: reduce) { .zpulse { animation:none; } }
+
+/* ===== round 5 ===== */
+.zpanel { fill:#12151c; stroke:#1c2029; }
+.zseam { stroke:#232833; stroke-dasharray:2 5; }
+.zcont { font-size:11px; fill:#555d6b; }
+.zg .edges path { stroke:#2c323c; }
+.zfog.f-bank { border:0; color:var(--dim); background:url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org/2000/svg%27%20width%3D%27320%27%20height%3D%2748%27%3E%3Cfilter%20id%3D%27n%27%20x%3D%270%27%20y%3D%270%27%20width%3D%27100%25%27%20height%3D%27100%25%27%3E%3CfeTurbulence%20type%3D%27fractalNoise%27%20baseFrequency%3D%27.02%20.09%27%20numOctaves%3D%274%27%20seed%3D%275%27/%3E%3CfeColorMatrix%20values%3D%270%200%200%200%20.72%200%200%200%200%20.75%200%200%200%200%20.82%200%200%200%201.1%20-.45%27/%3E%3C/filter%3E%3Crect%20width%3D%27100%25%27%20height%3D%27100%25%27%20filter%3D%27url%28%23n%29%27/%3E%3C/svg%3E") left center / 320px 100% repeat-x; }
+.zfog.f-ghost { border:1px dashed #2d333d; color:transparent; text-shadow:0 0 5px rgba(160,168,180,.75); }
+.zfog.f-mist { border:0; color:var(--dim); background:linear-gradient(90deg, rgba(154,163,178,.05), rgba(154,163,178,.2)); }
+.zic text { pointer-events:none; }
 </style>
 </head>
 <body>
-<div class="proto-head"><b>#1022 map overview</b> <span id="ph"></span> <span>· ←/→ variant · d device · 1-7 plan · t type · s state · w layout</span></div>
+<div class="proto-head"><b>#1022 map overview</b> <span id="ph"></span> <span>· ←/→ variant · d device · 1-7 plan · f fog · b blocked · w layout · g grouping</span></div>
 <div class="layout">
   <div class="stage"><div id="frame" class="frame desktop"></div></div>
   <aside class="guide" id="guide"></aside>
@@ -510,7 +520,7 @@ const PLANS=[
 /* ==================== STATE ==================== */
 const q=new URLSearchParams(location.search);
 const S={ variant:q.get('variant')||'L', device:q.get('device')||'desktop', plan:Math.max(0,Math.min(PLANS.length-1,(+q.get('plan')||1)-1)),
-  sel:q.get('maps')||'list', tm:q.get('tm')||'shape', sm:q.get('sm')||'texture', wm:q.get('wm')||'cols', menu:false, fsheet:false, reshape:false, peek:null, conv:null, sheet:null, expand:{}, focus:{}, oos:{}, added:{}, fogGone:{}, started:{}, toast:null, order:{} };
+  sel:q.get('maps')||'list', fm:q.get('fm')||'bank', bm:q.get('bm')||'hatch', wm:q.get('wm')||'cols', gm:q.get('gm')||'panel', menu:false, fsheet:false, reshape:false, peek:null, conv:null, sheet:null, expand:{}, focus:{}, oos:{}, added:{}, fogGone:{}, started:{}, toast:null, order:{} };
 let addSeq=9000;
 
 /* ==================== MODEL HELPERS ==================== */
@@ -900,7 +910,7 @@ const DEFS=`<svg width="0" height="0" style="position:absolute" aria-hidden="tru
   <pattern id="zstripe" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#140e10"/><rect width="2.4" height="6" fill="#7a3434"/></pattern>
   <filter id="zglow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="3"/></filter>
   <filter id="zcloud" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="2.2"/></filter></defs></svg>`;
-function icon(t,s,H=12,key){ const w=nodeW(t,H), m=key?5:2; return `<svg class="zic" width="${w+2*m}" height="${H+2*m}" viewBox="${-m} ${-m} ${w+2*m} ${H+2*m}" aria-hidden="true">${nodeSvg(t,s,0,0,H,!key)}</svg>`; }
+let icon=function(t,s,H=12,key){ const w=nodeW(t,H), m=key?5:2; return `<svg class="zic" width="${w+2*m}" height="${H+2*m}" viewBox="${-m} ${-m} ${w+2*m} ${H+2*m}" aria-hidden="true">${nodeSvg(t,s,0,0,H,!key)}</svg>`; }
 function typeTag(t){ return ['glyph','tag','none'].includes(S.tm)&&S.tm!=='none'?`<span class="ztag">${TYN[t.ty]}</span>`:''; }
 /* list row, with the chosen encodings */
 zrow=function(p,t){ const s=st(p,t), w=zWord(s), tex=S.sm==='texture'&&s==='blocked'?'tex':'';
@@ -931,7 +941,75 @@ zGraph=function(p, maxW, phone){ const ts=all(p), Lv=levels(p), fog=fogOf(p), se
   const hits=ts.map(t=>{ const q=pos[t.n]; return `<button class="zhit" style="left:${q.x}px;top:${q.y}px;width:${nodeW(t,H)+4}px;height:${H+4}px" data-z="${t.n}" title="${esc(t.t)} · ${TYN[t.ty]}${zWord(st(p,t))[0]?' · '+zWord(st(p,t))[0]:''}" aria-label="${esc(t.t)}"></button>`; }).join('');
   const fg=fogPos.map(q=>`<g class="${sel?'zdim':''}"><title>${esc(q.f.t)} · not yet specified</title>${fogSvg(q.x+2,q.y+2,H)}</g>`).join('');
   return `<div class="zgwrap"><div class="zg ${sel?'has':''}" style="width:${Wt}px;height:${Ht}px"><svg width="${Wt}" height="${Ht}" style="overflow:visible"><g class="edges" transform="translate(2,2)">${edges}</g>${nodes}${fg}</svg>${hits}</div></div>${keyHtml(fog.length)}`; };
-function encHtml(){ return Object.keys(ENC).map(k=>`<h3>${ENCN[k]} (${k==='tm'?'t':k==='sm'?'s':'w'})</h3><div class="encs">${ENC[k].map(([v,l])=>`<button class="${S[k]===v?'on':''}" data-set="${k}:${v}">${l}</button>`).join('')}</div>`).join(''); }
+let encHtml=function(){ return Object.keys(ENC).map(k=>`<h3>${ENCN[k]} (${k==='tm'?'t':k==='sm'?'s':'w'})</h3><div class="encs">${ENC[k].map(([v,l])=>`<button class="${S[k]===v?'on':''}" data-set="${k}:${v}">${l}</button>`).join('')}</div>`).join(''); }
+
+/* ==================== ROUND 5: color + letter, fog, blocked, grouping ==================== */
+const TC={research:'#b794f4',grill:'#68d391',proto:'#f687b3',task:'#a0aec0',impl:'#7aa2f7',deploy:'#f6ad55'};
+const ENC5={fm:[['bank','Fog bank'],['ghost','Ghost boxes'],['mist','Mist']],bm:[['gray','Grayed'],['hollow','Hollow'],['hatch','Hatch'],['lock','Lock']],wm:[['stack','Stack'],['cols','Wrap'],['both','Wrap both']],gm:[['tight','Tight'],['panel','Panel'],['square','Square']]};
+const ENCN5={fm:['Fog','f'],bm:['Blocked','b'],wm:['Layout','w'],gm:['Grouping','g']};
+function lockBadge(x,y,r){ return `<g transform="translate(${x-r} ${y-r})"><circle cx="${r}" cy="${r}" r="${r+2}" fill="#0b0c10"/><circle cx="${r}" cy="${r}" r="${r+.5}" fill="#3a404b"/><rect x="${r*.45}" y="${r*.9}" width="${r*1.1}" height="${r*.85}" rx="1" fill="#e6e9ef"/><path d="M${r*.65} ${r*.95} V${r*.62} a${r*.35} ${r*.35} 0 0 1 ${r*.7} 0 V${r*.95}" fill="none" stroke="#e6e9ef" stroke-width="1.4"/></g>`; }
+function node5(t,s,x,y,H,mini){ const c=TC[t.ty]||'#a0aec0', L=TYL[t.ty]||'?', rx=H*.28; let pre='', post='', fill=c, op=1, lc='#0b0c10', lo=1, stroke='none', dash='';
+  if(s==='done'){ op=.28; lc=c; lo=.95; }
+  if(s==='blocked'){ if(S.bm==='gray'){ fill='#262b33'; lc=c; lo=.55; } else if(S.bm==='hollow'){ fill='#0b0c10'; stroke=c; dash='3 2.5'; lc=c; lo=.85; } else { op=.3; lc=c; } }
+  const box=`<rect x="${x}" y="${y}" width="${H}" height="${H}" rx="${rx}" fill="${fill}" fill-opacity="${op}" ${stroke!=='none'?`stroke="${stroke}" stroke-width="1.6" stroke-dasharray="${dash}" stroke-opacity=".8"`:''}/>`;
+  if(s==='blocked'&&S.bm==='hatch') post+=`<rect x="${x}" y="${y}" width="${H}" height="${H}" rx="${rx}" fill="url(#zhatch)"/>`;
+  if(s==='done') post+=`<rect x="${x+.5}" y="${y+.5}" width="${H-1}" height="${H-1}" rx="${rx}" fill="none" stroke="${c}" stroke-opacity=".35"/>`;
+  const ring=(col,d,w=2)=>`<rect x="${x-d}" y="${y-d}" width="${H+2*d}" height="${H+2*d}" rx="${rx+d}" fill="none" stroke="${col}" stroke-width="${w}"/>`;
+  if((s==='wait'||s==='review')&&!mini){ pre+=`<rect x="${x-3}" y="${y-3}" width="${H+6}" height="${H+6}" rx="${rx+3}" fill="${NC.need}" filter="url(#zglow)" opacity=".7"/>`; post+=ring(NC.need,3); }
+  if((s==='wait'||s==='review')&&mini) post+=ring(NC.need,1.5,1.5);
+  if(s==='run'&&!mini) post+=`<g class="zpulse">${ring(NC.work,3)}</g>`+ring(NC.work,3,1.2);
+  if(s==='run'&&mini) post+=ring(NC.work,1.5,1.5);
+  post+=`<text x="${x+H/2}" y="${y+H/2+H*.18}" text-anchor="middle" font-size="${Math.round(H*.52)}" font-weight="700" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" fill="${lc}" fill-opacity="${lo}">${L}</text>`;
+  if(s==='blocked'&&S.bm==='lock'&&!mini) post+=lockBadge(x+H-1,y+1,H*.4);
+  return pre+box+post; }
+function ghost5(x,y,H){ return `<rect x="${x}" y="${y}" width="${H}" height="${H}" rx="${H*.28}" fill="#8b94a3" fill-opacity=".10" stroke="#8b94a3" stroke-opacity=".22" stroke-dasharray="2 3"/>`; }
+const DEFS5=`<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <pattern id="zhatch" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="1.6" height="5" fill="#0b0c10" fill-opacity=".75"/></pattern>
+  <filter id="zglow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="3"/></filter>
+  <filter id="zghost" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="1.3"/></filter>
+  <filter id="zfog" x="0" y="0" width="100%" height="100%"><feTurbulence type="fractalNoise" baseFrequency="0.018 0.06" numOctaves="4" seed="7"/><feColorMatrix values="0 0 0 0 .72  0 0 0 0 .75  0 0 0 0 .82  0 0 0 1.25 -.42"/><feGaussianBlur stdDeviation="1.2"/></filter>
+  <linearGradient id="zfogfade" x1="0" x2="1"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".35" stop-color="#fff" stop-opacity="1"/></linearGradient>
+  <linearGradient id="zfogv" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".2" stop-color="#fff" stop-opacity="1"/><stop offset=".8" stop-color="#fff" stop-opacity="1"/><stop offset="1" stop-color="#fff" stop-opacity="0"/></linearGradient>
+  <mask id="zfogmask" maskContentUnits="objectBoundingBox"><rect width="1" height="1" fill="url(#zfogfade)"/></mask>
+  <linearGradient id="zfogl" x1="0" x2="1"><stop offset="0" stop-color="#0b0c10"/><stop offset="1" stop-color="#0b0c10" stop-opacity="0"/></linearGradient><linearGradient id="zfogr" x1="1" x2="0"><stop offset="0" stop-color="#0b0c10"/><stop offset="1" stop-color="#0b0c10" stop-opacity="0"/></linearGradient><linearGradient id="zfogt" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#0b0c10"/><stop offset="1" stop-color="#0b0c10" stop-opacity="0"/></linearGradient><linearGradient id="zfogb" x1="0" x2="0" y1="1" y2="0"><stop offset="0" stop-color="#0b0c10"/><stop offset="1" stop-color="#0b0c10" stop-opacity="0"/></linearGradient>
+  <linearGradient id="zmist" x1="0" x2="1"><stop offset="0" stop-color="#9aa3b2" stop-opacity="0"/><stop offset="1" stop-color="#9aa3b2" stop-opacity=".22"/></linearGradient></defs></svg>`;
+function fogLayer(fp,H,W,Ht){ if(!fp.length) return ''; const x0=Math.min(...fp.map(q=>q.x)), y1=Math.max(...fp.map(q=>q.y))+H;
+  if(S.fm==='bank'){ const ys=fp.map(q=>q.y), by=Math.min(...ys)-26, bh=Math.max(...ys)+H+52-by, bx=x0-70, bw=Math.max(...fp.map(q=>q.x))+H+50-bx;
+    return `<g>${fp.map(q=>ghost5(q.x+2,q.y+2,H)).join('')}<g opacity=".7"><image href="data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org/2000/svg%27%20width%3D%27400%27%20height%3D%27240%27%3E%3Cfilter%20id%3D%27n%27%20x%3D%270%27%20y%3D%270%27%20width%3D%27100%25%27%20height%3D%27100%25%27%3E%3CfeTurbulence%20type%3D%27fractalNoise%27%20baseFrequency%3D%27.007%20.02%27%20numOctaves%3D%273%27%20seed%3D%279%27/%3E%3CfeColorMatrix%20values%3D%270%200%200%200%20.74%200%200%200%200%20.77%200%200%200%200%20.84%200%200%200%201.3%20-.48%27/%3E%3CfeGaussianBlur%20stdDeviation%3D%274%27/%3E%3C/filter%3E%3Crect%20width%3D%27100%25%27%20height%3D%27100%25%27%20filter%3D%27url%28%23n%29%27/%3E%3C/svg%3E" x="${bx}" y="${by}" width="${bw}" height="${bh}" preserveAspectRatio="none"/></g><rect x="${bx-1}" y="${by}" width="${bw*.55}" height="${bh}" fill="url(#zfogl)"/><rect x="${bx}" y="${by-1}" width="${bw}" height="${bh*.3}" fill="url(#zfogt)"/><rect x="${bx}" y="${by+bh*.7}" width="${bw}" height="${bh*.3+1}" fill="url(#zfogb)"/><rect x="${bx+bw*.75}" y="${by}" width="${bw*.25+1}" height="${bh}" fill="url(#zfogr)"/></g>`; }
+  if(S.fm==='ghost') return `<g filter="url(#zghost)" opacity=".85">${fp.map(q=>ghost5(q.x+2,q.y+2,H)+`<text x="${q.x+2+H/2}" y="${q.y+2+H*.68}" text-anchor="middle" font-size="${H*.5}" fill="#8b94a3" fill-opacity=".5">?</text>`).join('')}</g>`;
+  const mx=x0-60; return `${fp.map(q=>ghost5(q.x+2,q.y+2,H)).join('')}<rect x="${mx}" y="-12" width="${W-mx+30}" height="${Math.max(Ht,y1)+24}" fill="url(#zmist)"/>`; }
+icon=function(t,s,H=16){ const m=3; return `<svg class="zic" width="${H+2*m}" height="${H+2*m}" viewBox="${-m} ${-m} ${H+2*m} ${H+2*m}" aria-hidden="true">${node5(t,s,0,0,H,true)}</svg>`; };
+zrow=function(p,t){ const s=st(p,t), w=zWord(s);
+  return `<button class="zrow ${s==='blocked'?'blk':''} ${zCls(p,t)}" data-z="${t.n}">${icon(t,s)}<span class="zt">${esc(t.t)}</span>${w[0]?`<span class="zs ${w[1]}">${w[0]}</span>`:''}</button>`; };
+zFog=function(p){ const f=fogOf(p); return f.length?`<div class="zsec">Not yet specified <span>${f.length}</span></div>${f.map(x=>`<div class="zfog f-${S.fm}">${esc(x.t)}</div>`).join('')}`:''; };
+function key5(fog){ const sm=(ty,s)=>`<svg class="zic" width="22" height="22" viewBox="-3 -3 22 22" aria-hidden="true">${node5({ty},s,0,0,16,s!=='run'&&s!=='wait')}</svg>`;
+  return `<div class="zkey">${Object.keys(TYN).map(k=>`<span>${sm(k,'front')}${TYN[k]}</span>`).join('')}</div>
+    <div class="zkey"><span>${sm('grill','wait')}needs you</span><span>${sm('grill','run')}working</span><span>${sm('grill','front')}ready</span><span>${sm('grill','blocked')}blocked</span><span>${sm('grill','done')}closed</span>${fog?`<span><svg width="22" height="22" viewBox="-3 -3 22 22">${ghost5(0,0,16)}</svg>not yet specified</span>`:''}</div>`; }
+zGraph=function(p, maxW, phone){ const ts=all(p), Lv=levels(p), fog=fogOf(p), sel=zSel(p);
+  const nL=Math.max(0,...Object.values(Lv))+1, cols=[...Array(nL)].map(()=>[]);
+  ts.forEach(t=>cols[Lv[t.n]].push(t)); cols.forEach(c=>c.sort((a,b)=>(st(p,a)==='done'?0:1)-(st(p,b)==='done'?0:1)||PHS.indexOf(phase(a))-PHS.indexOf(phase(b))));
+  if(fog.length) cols.push(fog.map(f=>({fog:f})));
+  const H=phone?16:20, GI=phone?4:4, GS=phone?14:22, PAD=S.gm==='tight'?0:(phone?4:6), maxR=S.wm==='stack'?999:(phone?6:5);
+  const blocks=cols.map(c=>{ const n=c.length; let sub=1, rows=n;
+    if(n>maxR){ if(S.gm==='square'){ sub=Math.ceil(Math.sqrt(n*1.4)); rows=Math.ceil(n/sub); } else { sub=Math.ceil(n/maxR); rows=Math.min(n,maxR); } }
+    return {c,sub,rows,w:sub*H+(sub-1)*GI+2*PAD,h:rows*H+(rows-1)*GI+2*PAD,fog:!!(c[0]&&c[0].fog)}; });
+  let bands=[[]], bx=0; blocks.forEach(b=>{ if(S.wm==='both'&&bx+b.w>maxW&&bands[bands.length-1].length){ bands.push([]); bx=0; } bands[bands.length-1].push(b); bx+=b.w+GS; });
+  const pos={}, fp=[], panels=[], BG=phone?30:44; let y0=0, W=0; const bandY=[];
+  bands.forEach(band=>{ let x=0; const bh=Math.max(...band.map(b=>b.h)); bandY.push([y0,bh]);
+    band.forEach(b=>{ const oy=y0; if(PAD&&b.c.length>1&&!b.fog) panels.push({x,y:oy,w:b.w,h:b.h});
+      b.c.forEach((t,j)=>{ const col=Math.floor(j/b.rows), row=j%b.rows, cx=x+PAD+col*(H+GI), cy=oy+PAD+row*(H+GI); if(t.fog) fp.push({x:cx,y:cy,f:t.fog}); else pos[t.n]={x:cx,y:cy}; }); x+=b.w+GS; });
+    W=Math.max(W,x-GS); y0+=bh+BG; });
+  const Ht=y0-BG+6, Wt=W+6;
+  let edges=''; ts.forEach(t=>t.by.forEach(b=>{ const a=pos[b], z=pos[t.n]; if(!a||!z) return; const hot=sel&&(t.n===sel.n||b===sel.n);
+    const x1=a.x+H+2, y1=a.y+H/2+2, x2=z.x+2, y2=z.y+H/2+2, cross=x2<x1;
+    const d=cross?`M${x1} ${y1} C${x1+40} ${y1} ${x2-40} ${y2} ${x2} ${y2}`:`M${x1} ${y1} C${(x1+x2)/2} ${y1} ${(x1+x2)/2} ${y2} ${x2} ${y2}`;
+    if(!cross||hot) edges+=`<path class="${hot?'hot':''} ${cross?'x':''}" d="${d}"/>`; }));
+  const pan=panels.map(q=>`<rect x="${q.x+2}" y="${q.y+2}" width="${q.w}" height="${q.h}" rx="${phone?7:10}" class="zpanel"/>`).join('');
+  const seams=bandY.slice(1).map(([y])=>`<line x1="0" x2="${Wt}" y1="${y-BG/2+2}" y2="${y-BG/2+2}" class="zseam"/><text x="${Wt}" y="${y-BG/2-4}" text-anchor="end" class="zcont">continues ↩</text>`).join('');
+  const nodes=ts.map(t=>{ const q=pos[t.n], c=zCls(p,t); return `<g class="${c}">${node5(t,st(p,t),q.x+2,q.y+2,H)}${c==='zsel'?`<rect x="${q.x-3}" y="${q.y-3}" width="${H+10}" height="${H+10}" rx="${H*.28+5}" fill="none" stroke="var(--accent)" stroke-width="2"/>`:''}</g>`; }).join('');
+  const hits=ts.map(t=>{ const q=pos[t.n]; return `<button class="zhit" style="left:${q.x}px;top:${q.y}px;width:${H+4}px;height:${H+4}px" data-z="${t.n}" title="${esc(t.t)} · ${TYN[t.ty]}${zWord(st(p,t))[0]?' · '+zWord(st(p,t))[0]:''}" aria-label="${esc(t.t)}"></button>`; }).join('');
+  return `<div class="zgwrap"><div class="zg ${sel?'has':''}" style="width:${Wt}px;height:${Ht}px"><svg width="${Wt}" height="${Ht}" style="overflow:visible">${pan}${seams}<g class="edges">${edges}</g>${nodes}<g class="${sel?'zdim':''}">${fogLayer(fp,H,Wt,Ht)}</g></svg>${hits}</div></div>${key5(fog.length)}`; };
+encHtml=function(){ return Object.keys(ENC5).map(k=>`<h3>${ENCN5[k][0]} (${ENCN5[k][1]})</h3><div class="encs">${ENC5[k].map(([v,l])=>`<button class="${S[k]===v?'on':''}" data-set="${k}:${v}">${l}</button>`).join('')}</div>`).join(''); };
 
 function guideCalm(s){ return `${S.variant==='L'||S.variant==='I'?encHtml():''}<h3>Variant ${S.variant}: ${s.name}</h3><div class="stmt"><b>On the page:</b> ${s.always}</div><div class="stmt"><b>What it shows first:</b> ${s.shows}</div><div class="stmt"><b>At scale:</b> ${s.scale}</div><div class="stmt">${CALM_NOTE}</div>
   <h3>Plan shapes</h3><div class="plans">${PLANS.map((p,i)=>`<button class="${i===S.plan?'on':''}" data-plan="${p.id}"><span class="k">${i+1}</span>${esc(p.title)}<span class="k">${esc(p.shape)}</span></button>`).join('')}</div>
@@ -940,13 +1018,13 @@ function guideCalm(s){ return `${S.variant==='L'||S.variant==='I'?encHtml():''}<
 /* ==================== RENDER + WIRING ==================== */
 const frame=document.getElementById('frame'), guide=document.getElementById('guide');
 function render(){
-  frame.className='frame '+S.device; frame.innerHTML=DEFS+CALM.includes(S.variant)?(S.device==='phone'?zPhone():zDesktop()):(S.device==='phone'?phone():desktop());
+  frame.className='frame '+S.device; frame.innerHTML=DEFS5+CALM.includes(S.variant)?(S.device==='phone'?zPhone():zDesktop()):(S.device==='phone'?phone():desktop());
   document.getElementById('vname').textContent=`${S.variant}: ${(ZV[S.variant]||V[S.variant])[0]}`;
   document.getElementById('dDesk').classList.toggle('on',S.device==='desktop'); document.getElementById('dPhone').classList.toggle('on',S.device==='phone');
   document.getElementById('selL').classList.toggle('on',S.sel==='list'); document.getElementById('selM').classList.toggle('on',S.sel==='menu');
   document.getElementById('ph').textContent=`variant=${S.variant} device=${S.device} plan=${S.plan+1} maps=${S.sel}${S.reshape?' reshape':''}`;
   guide.innerHTML=guideHtml();
-  const u=new URL(location.href); u.searchParams.set('variant',S.variant); u.searchParams.set('device',S.device); u.searchParams.set('plan',S.plan+1); u.searchParams.set('maps',S.sel); ['tm','sm','wm'].forEach(k=>u.searchParams.set(k,S[k])); history.replaceState(null,'',u);
+  const u=new URL(location.href); u.searchParams.set('variant',S.variant); u.searchParams.set('device',S.device); u.searchParams.set('plan',S.plan+1); u.searchParams.set('maps',S.sel); ['fm','bm','wm','gm'].forEach(k=>u.searchParams.set(k,S[k])); history.replaceState(null,'',u);
 }
 let toastTimer; function toast(m){ S.toast=m; clearTimeout(toastTimer); toastTimer=setTimeout(()=>{S.toast=null;render();},2600); }
 function addTicket(where, title){ const p=P(); if(!title.trim()) return; const n=++addSeq; let by=[], ph;
@@ -994,7 +1072,7 @@ document.getElementById('selM').onclick=()=>{S.sel='menu';render();};
 document.addEventListener('keydown',e=>{ if(e.target.closest('input,textarea,[contenteditable]')) return;
   if(e.key==='ArrowLeft') step(-1); if(e.key==='ArrowRight') step(1);
   if(e.key==='d'){ S.device=S.device==='phone'?'desktop':'phone'; render(); } if(e.key==='r'){ S.reshape=!S.reshape; render(); }
-  const cyc=k=>{ const l=ENC[k].map(x=>x[0]); S[k]=l[(l.indexOf(S[k])+1)%l.length]; render(); }; if(e.key==='t') cyc('tm'); if(e.key==='s') cyc('sm'); if(e.key==='w') cyc('wm');
+  const cyc=k=>{ const l=ENC5[k].map(x=>x[0]); S[k]=l[(l.indexOf(S[k])+1)%l.length]; render(); }; if(e.key==='f') cyc('fm'); if(e.key==='b') cyc('bm'); if(e.key==='w') cyc('wm'); if(e.key==='g') cyc('gm');
   if(e.key==='m'){ S.sel=S.sel==='list'?'menu':'list'; S.menu=false; render(); }
   if(/^[1-7]$/.test(e.key)){ S.plan=+e.key-1; S.zsel=null; S.zmore=false; S.peek=null; S.fsheet=false; render(); } });
 render();
