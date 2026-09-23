@@ -82,6 +82,8 @@ SVG patterns in the shared definitions did not render, so the stripes are drawn 
 
 The operator fixed fog as wavy boxes, with stronger waves, and blocked as red stripes. Layout (wrap both) and grouping (square) were fixed in round 6. The only switch left is the palette (`c`), because vivid looked heavy: vivid, soft (tint with a thin border and a colored letter), tint (no border), letter (neutral box, colored letter), and bar (neutral box, colored left bar). Stripes are lighter on every palette except vivid. The state legend uses empty boxes, so it shows only the state marking.
 
+**Verdict (September 23, 2026):** the operator chose L, Graph + list, with the soft palette, color and letter for type, wavy boxes for fog, red stripes for blocked, wrap both, and square grouping. See the resolution on the ticket.
+
 The seven plans differ in size and shape:
 
 1. Large and mixed: decisions, build, and ship on one map (32 tickets).
