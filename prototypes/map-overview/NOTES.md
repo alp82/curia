@@ -69,6 +69,15 @@ The operator chose color plus letter for the ticket type (grilling is always a g
 
 The settings are in the URL as `fm`, `bm`, `wm`, and `gm`.
 
+## Round 6
+
+The operator chose wrap both for the layout and square for the grouping, which are now the defaults. Fog and blocked got new options:
+
+- Fog (`f`): wavy lines inside faint boxes, a wavy area across the fog column, or the same area drifting slowly.
+- Blocked (`b`): grayed, a soft thin outline, dark red stripes over the faded type color, or red stripes on gray.
+
+SVG patterns in the shared definitions did not render, so the stripes are drawn as lines clipped to each box.
+
 The seven plans differ in size and shape:
 
 1. Large and mixed: decisions, build, and ship on one map (32 tickets).

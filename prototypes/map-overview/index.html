@@ -367,6 +367,16 @@ input { font:inherit; color:inherit; }
 .zfog.f-ghost { border:1px dashed #2d333d; color:transparent; text-shadow:0 0 5px rgba(160,168,180,.75); }
 .zfog.f-mist { border:0; color:var(--dim); background:linear-gradient(90deg, rgba(154,163,178,.05), rgba(154,163,178,.2)); }
 .zic text { pointer-events:none; }
+
+/* ===== round 6 ===== */
+.zfog.f-wbox, .zfog.f-warea, .zfog.f-wdrift { border:0; color:var(--dim); background:url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%2724%27%20height%3D%277%27%3E%3Cpath%20d%3D%27M0%203.5%20q3%20-2%206%200%20t6%200%20t6%200%20t6%200%27%20fill%3D%27none%27%20stroke%3D%27%239aa3b2%27%20stroke-opacity%3D%27.4%27%2F%3E%3C%2Fsvg%3E") 0 0 / 24px 7px repeat; -webkit-mask-image:linear-gradient(90deg, rgba(0,0,0,.35), #000 40%, #000 80%, rgba(0,0,0,.4)); mask-image:linear-gradient(90deg, rgba(0,0,0,.35), #000 40%, #000 80%, rgba(0,0,0,.4)); }
+.zfog.f-wdrift { animation:zdr 6s linear infinite; }
+.zdrift { animation:zdrs 5s linear infinite; }
+@keyframes zdrs { from { transform:translateX(0); } to { transform:translateX(12px); } }
+@keyframes zdr { from { background-position:0 0; } to { background-position:24px 0; } }
+.zrow.blk.red { background:repeating-linear-gradient(135deg, rgba(138,35,35,.16) 0 5px, transparent 5px 11px); }
+.zrow.blk.red:hover { background-color:var(--raise); }
+@media (prefers-reduced-motion: reduce) { .zdrift, .zfog.f-wdrift { animation:none; } }
 </style>
 </head>
 <body>
@@ -520,7 +530,7 @@ const PLANS=[
 /* ==================== STATE ==================== */
 const q=new URLSearchParams(location.search);
 const S={ variant:q.get('variant')||'L', device:q.get('device')||'desktop', plan:Math.max(0,Math.min(PLANS.length-1,(+q.get('plan')||1)-1)),
-  sel:q.get('maps')||'list', fm:q.get('fm')||'bank', bm:q.get('bm')||'hatch', wm:q.get('wm')||'cols', gm:q.get('gm')||'panel', menu:false, fsheet:false, reshape:false, peek:null, conv:null, sheet:null, expand:{}, focus:{}, oos:{}, added:{}, fogGone:{}, started:{}, toast:null, order:{} };
+  sel:q.get('maps')||'list', fm:q.get('fm')||'warea', bm:q.get('bm')||'red', wm:q.get('wm')||'both', gm:q.get('gm')||'square', menu:false, fsheet:false, reshape:false, peek:null, conv:null, sheet:null, expand:{}, focus:{}, oos:{}, added:{}, fogGone:{}, started:{}, toast:null, order:{} };
 let addSeq=9000;
 
 /* ==================== MODEL HELPERS ==================== */
@@ -945,14 +955,16 @@ let encHtml=function(){ return Object.keys(ENC).map(k=>`<h3>${ENCN[k]} (${k==='t
 
 /* ==================== ROUND 5: color + letter, fog, blocked, grouping ==================== */
 const TC={research:'#b794f4',grill:'#68d391',proto:'#f687b3',task:'#a0aec0',impl:'#7aa2f7',deploy:'#f6ad55'};
-const ENC5={fm:[['bank','Fog bank'],['ghost','Ghost boxes'],['mist','Mist']],bm:[['gray','Grayed'],['hollow','Hollow'],['hatch','Hatch'],['lock','Lock']],wm:[['stack','Stack'],['cols','Wrap'],['both','Wrap both']],gm:[['tight','Tight'],['panel','Panel'],['square','Square']]};
+const ENC5={fm:[['wbox','Wavy boxes'],['warea','Wavy area'],['wdrift','Drifting area']],bm:[['gray','Grayed'],['soft','Soft hollow'],['red','Red stripes'],['redgray','Red on gray']],wm:[['stack','Stack'],['cols','Wrap'],['both','Wrap both']],gm:[['tight','Tight'],['panel','Panel'],['square','Square']]};
 const ENCN5={fm:['Fog','f'],bm:['Blocked','b'],wm:['Layout','w'],gm:['Grouping','g']};
 function lockBadge(x,y,r){ return `<g transform="translate(${x-r} ${y-r})"><circle cx="${r}" cy="${r}" r="${r+2}" fill="#0b0c10"/><circle cx="${r}" cy="${r}" r="${r+.5}" fill="#3a404b"/><rect x="${r*.45}" y="${r*.9}" width="${r*1.1}" height="${r*.85}" rx="1" fill="#e6e9ef"/><path d="M${r*.65} ${r*.95} V${r*.62} a${r*.35} ${r*.35} 0 0 1 ${r*.7} 0 V${r*.95}" fill="none" stroke="#e6e9ef" stroke-width="1.4"/></g>`; }
+let zcid=0;
 function node5(t,s,x,y,H,mini){ const c=TC[t.ty]||'#a0aec0', L=TYL[t.ty]||'?', rx=H*.28; let pre='', post='', fill=c, op=1, lc='#0b0c10', lo=1, stroke='none', dash='';
   if(s==='done'){ op=.28; lc=c; lo=.95; }
-  if(s==='blocked'){ if(S.bm==='gray'){ fill='#262b33'; lc=c; lo=.55; } else if(S.bm==='hollow'){ fill='#0b0c10'; stroke=c; dash='3 2.5'; lc=c; lo=.85; } else { op=.3; lc=c; } }
-  const box=`<rect x="${x}" y="${y}" width="${H}" height="${H}" rx="${rx}" fill="${fill}" fill-opacity="${op}" ${stroke!=='none'?`stroke="${stroke}" stroke-width="1.6" stroke-dasharray="${dash}" stroke-opacity=".8"`:''}/>`;
-  if(s==='blocked'&&S.bm==='hatch') post+=`<rect x="${x}" y="${y}" width="${H}" height="${H}" rx="${rx}" fill="url(#zhatch)"/>`;
+  if(s==='blocked'){ if(S.bm==='gray'||S.bm==='redgray'){ fill='#262b33'; lc=c; lo=S.bm==='gray'?.55:.8; } else if(S.bm==='soft'){ fill='#0b0c10'; stroke=c; lc=c; lo=.5; } else { op=.3; lc=c; } }
+  const box=`<rect x="${x}" y="${y}" width="${H}" height="${H}" rx="${rx}" fill="${fill}" fill-opacity="${op}" ${stroke!=='none'?`stroke="${stroke}" stroke-width="1" stroke-opacity=".45"`:''}/>`;
+  if(s==='blocked'&&(S.bm==='red'||S.bm==='redgray')){ const id='zc'+(++zcid); let ln=''; for(let k=-H;k<H*2;k+=4.5) ln+=`<line x1="${x+k}" y1="${y+H}" x2="${x+k+H}" y2="${y}"/>`; post+=`<clipPath id="${id}"><rect x="${x}" y="${y}" width="${H}" height="${H}" rx="${rx}"/></clipPath><g clip-path="url(#${id})" stroke="#9b2a2a" stroke-width="1.8" stroke-opacity=".9">${ln}</g>`; }
+  if(s==='blocked'&&(S.bm==='red'||S.bm==='redgray')) post+=`<rect x="${x+.5}" y="${y+.5}" width="${H-1}" height="${H-1}" rx="${rx}" fill="none" stroke="#8a2323" stroke-opacity=".7"/>`;
   if(s==='done') post+=`<rect x="${x+.5}" y="${y+.5}" width="${H-1}" height="${H-1}" rx="${rx}" fill="none" stroke="${c}" stroke-opacity=".35"/>`;
   const ring=(col,d,w=2)=>`<rect x="${x-d}" y="${y-d}" width="${H+2*d}" height="${H+2*d}" rx="${rx+d}" fill="none" stroke="${col}" stroke-width="${w}"/>`;
   if((s==='wait'||s==='review')&&!mini){ pre+=`<rect x="${x-3}" y="${y-3}" width="${H+6}" height="${H+6}" rx="${rx+3}" fill="${NC.need}" filter="url(#zglow)" opacity=".7"/>`; post+=ring(NC.need,3); }
@@ -960,10 +972,10 @@ function node5(t,s,x,y,H,mini){ const c=TC[t.ty]||'#a0aec0', L=TYL[t.ty]||'?', r
   if(s==='run'&&!mini) post+=`<g class="zpulse">${ring(NC.work,3)}</g>`+ring(NC.work,3,1.2);
   if(s==='run'&&mini) post+=ring(NC.work,1.5,1.5);
   post+=`<text x="${x+H/2}" y="${y+H/2+H*.18}" text-anchor="middle" font-size="${Math.round(H*.52)}" font-weight="700" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" fill="${lc}" fill-opacity="${lo}">${L}</text>`;
-  if(s==='blocked'&&S.bm==='lock'&&!mini) post+=lockBadge(x+H-1,y+1,H*.4);
   return pre+box+post; }
 function ghost5(x,y,H){ return `<rect x="${x}" y="${y}" width="${H}" height="${H}" rx="${H*.28}" fill="#8b94a3" fill-opacity=".10" stroke="#8b94a3" stroke-opacity=".22" stroke-dasharray="2 3"/>`; }
-const DEFS5=`<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+const DEFS5=`<svg width="1" height="1" style="position:absolute;left:-10px;top:-10px;overflow:hidden" aria-hidden="true"><defs>
+  <pattern id="zred" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="2.2" height="5" fill="#8a2323" fill-opacity=".9"/></pattern>
   <pattern id="zhatch" width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="1.6" height="5" fill="#0b0c10" fill-opacity=".75"/></pattern>
   <filter id="zglow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="3"/></filter>
   <filter id="zghost" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="1.3"/></filter>
@@ -973,18 +985,21 @@ const DEFS5=`<svg width="0" height="0" style="position:absolute" aria-hidden="tr
   <mask id="zfogmask" maskContentUnits="objectBoundingBox"><rect width="1" height="1" fill="url(#zfogfade)"/></mask>
   <linearGradient id="zfogl" x1="0" x2="1"><stop offset="0" stop-color="#0b0c10"/><stop offset="1" stop-color="#0b0c10" stop-opacity="0"/></linearGradient><linearGradient id="zfogr" x1="1" x2="0"><stop offset="0" stop-color="#0b0c10"/><stop offset="1" stop-color="#0b0c10" stop-opacity="0"/></linearGradient><linearGradient id="zfogt" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#0b0c10"/><stop offset="1" stop-color="#0b0c10" stop-opacity="0"/></linearGradient><linearGradient id="zfogb" x1="0" x2="0" y1="1" y2="0"><stop offset="0" stop-color="#0b0c10"/><stop offset="1" stop-color="#0b0c10" stop-opacity="0"/></linearGradient>
   <linearGradient id="zmist" x1="0" x2="1"><stop offset="0" stop-color="#9aa3b2" stop-opacity="0"/><stop offset="1" stop-color="#9aa3b2" stop-opacity=".22"/></linearGradient></defs></svg>`;
-function fogLayer(fp,H,W,Ht){ if(!fp.length) return ''; const x0=Math.min(...fp.map(q=>q.x)), y1=Math.max(...fp.map(q=>q.y))+H;
-  if(S.fm==='bank'){ const ys=fp.map(q=>q.y), by=Math.min(...ys)-26, bh=Math.max(...ys)+H+52-by, bx=x0-70, bw=Math.max(...fp.map(q=>q.x))+H+50-bx;
-    return `<g>${fp.map(q=>ghost5(q.x+2,q.y+2,H)).join('')}<g opacity=".7"><image href="data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A//www.w3.org/2000/svg%27%20width%3D%27400%27%20height%3D%27240%27%3E%3Cfilter%20id%3D%27n%27%20x%3D%270%27%20y%3D%270%27%20width%3D%27100%25%27%20height%3D%27100%25%27%3E%3CfeTurbulence%20type%3D%27fractalNoise%27%20baseFrequency%3D%27.007%20.02%27%20numOctaves%3D%273%27%20seed%3D%279%27/%3E%3CfeColorMatrix%20values%3D%270%200%200%200%20.74%200%200%200%200%20.77%200%200%200%200%20.84%200%200%200%201.3%20-.48%27/%3E%3CfeGaussianBlur%20stdDeviation%3D%274%27/%3E%3C/filter%3E%3Crect%20width%3D%27100%25%27%20height%3D%27100%25%27%20filter%3D%27url%28%23n%29%27/%3E%3C/svg%3E" x="${bx}" y="${by}" width="${bw}" height="${bh}" preserveAspectRatio="none"/></g><rect x="${bx-1}" y="${by}" width="${bw*.55}" height="${bh}" fill="url(#zfogl)"/><rect x="${bx}" y="${by-1}" width="${bw}" height="${bh*.3}" fill="url(#zfogt)"/><rect x="${bx}" y="${by+bh*.7}" width="${bw}" height="${bh*.3+1}" fill="url(#zfogb)"/><rect x="${bx+bw*.75}" y="${by}" width="${bw*.25+1}" height="${bh}" fill="url(#zfogr)"/></g>`; }
-  if(S.fm==='ghost') return `<g filter="url(#zghost)" opacity=".85">${fp.map(q=>ghost5(q.x+2,q.y+2,H)+`<text x="${q.x+2+H/2}" y="${q.y+2+H*.68}" text-anchor="middle" font-size="${H*.5}" fill="#8b94a3" fill-opacity=".5">?</text>`).join('')}</g>`;
-  const mx=x0-60; return `${fp.map(q=>ghost5(q.x+2,q.y+2,H)).join('')}<rect x="${mx}" y="-12" width="${W-mx+30}" height="${Math.max(Ht,y1)+24}" fill="url(#zmist)"/>`; }
+function wave(x,y,w,a,per){ let d=`M${x} ${y}`; for(let k=0;k<w;k+=per){ d+=` q${per/4} ${-a} ${per/2} 0 t${per/2} 0`; } return d; }
+function fogLayer(fp,H,W,Ht){ if(!fp.length) return '';
+  if(S.fm==='wbox') return fp.map((q,i)=>{ const x=q.x+2, y=q.y+2, id='zfc'+i; return `<clipPath id="${id}"><rect x="${x}" y="${y}" width="${H}" height="${H}" rx="${H*.28}"/></clipPath><rect x="${x}" y="${y}" width="${H}" height="${H}" rx="${H*.28}" fill="#8b94a3" fill-opacity=".06" stroke="#8b94a3" stroke-opacity=".25"/><g clip-path="url(#${id})" stroke="#9aa3b2" stroke-opacity=".55" fill="none" stroke-width="1.1">${[.3,.55,.8].map((f,k)=>`<path d="${wave(x-6+(k%2)*3,y+H*f,H+12,1.6,6)}"/>`).join('')}</g>`; }).join('');
+  const x0=Math.min(...fp.map(q=>q.x)), ys=fp.map(q=>q.y), by=Math.min(...ys)-18, bh=Math.max(...ys)+H+36-by, bx=x0-14, bw=Math.max(...fp.map(q=>q.x))+H+30-bx;
+  let lines=''; for(let yy=by+4; yy<by+bh; yy+=5.5){ lines+=`<path d="${wave(bx-24,yy,bw+48,1.5,12)}"/>`; }
+  return `<clipPath id="zfa"><rect x="${bx}" y="${by}" width="${bw}" height="${bh}" rx="14"/></clipPath>${fp.map(q=>`<rect x="${q.x+2}" y="${q.y+2}" width="${H}" height="${H}" rx="${H*.28}" fill="none" stroke="#8b94a3" stroke-opacity=".35"/>`).join('')}
+    <g clip-path="url(#zfa)"><g class="${S.fm==='wdrift'?'zdrift':''}" stroke="#aab3c2" stroke-opacity=".5" fill="none" stroke-width="1.1">${lines}</g></g>
+    <rect x="${bx-1}" y="${by}" width="${bw*.3}" height="${bh}" fill="url(#zfogl)"/><rect x="${bx}" y="${by-1}" width="${bw}" height="${bh*.25}" fill="url(#zfogt)"/><rect x="${bx}" y="${by+bh*.75}" width="${bw}" height="${bh*.25+1}" fill="url(#zfogb)"/><rect x="${bx+bw*.8}" y="${by}" width="${bw*.2+1}" height="${bh}" fill="url(#zfogr)"/>`; }
 icon=function(t,s,H=16){ const m=3; return `<svg class="zic" width="${H+2*m}" height="${H+2*m}" viewBox="${-m} ${-m} ${H+2*m} ${H+2*m}" aria-hidden="true">${node5(t,s,0,0,H,true)}</svg>`; };
 zrow=function(p,t){ const s=st(p,t), w=zWord(s);
-  return `<button class="zrow ${s==='blocked'?'blk':''} ${zCls(p,t)}" data-z="${t.n}">${icon(t,s)}<span class="zt">${esc(t.t)}</span>${w[0]?`<span class="zs ${w[1]}">${w[0]}</span>`:''}</button>`; };
+  return `<button class="zrow ${s==='blocked'?'blk':''} ${s==='blocked'&&(S.bm==='red'||S.bm==='redgray')?'red':''} ${zCls(p,t)}" data-z="${t.n}">${icon(t,s)}<span class="zt">${esc(t.t)}</span>${w[0]?`<span class="zs ${w[1]}">${w[0]}</span>`:''}</button>`; };
 zFog=function(p){ const f=fogOf(p); return f.length?`<div class="zsec">Not yet specified <span>${f.length}</span></div>${f.map(x=>`<div class="zfog f-${S.fm}">${esc(x.t)}</div>`).join('')}`:''; };
 function key5(fog){ const sm=(ty,s)=>`<svg class="zic" width="22" height="22" viewBox="-3 -3 22 22" aria-hidden="true">${node5({ty},s,0,0,16,s!=='run'&&s!=='wait')}</svg>`;
   return `<div class="zkey">${Object.keys(TYN).map(k=>`<span>${sm(k,'front')}${TYN[k]}</span>`).join('')}</div>
-    <div class="zkey"><span>${sm('grill','wait')}needs you</span><span>${sm('grill','run')}working</span><span>${sm('grill','front')}ready</span><span>${sm('grill','blocked')}blocked</span><span>${sm('grill','done')}closed</span>${fog?`<span><svg width="22" height="22" viewBox="-3 -3 22 22">${ghost5(0,0,16)}</svg>not yet specified</span>`:''}</div>`; }
+    <div class="zkey"><span>${sm('grill','wait')}needs you</span><span>${sm('grill','run')}working</span><span>${sm('grill','front')}ready</span><span>${sm('grill','blocked')}blocked</span><span>${sm('grill','done')}closed</span>${fog?`<span><svg width="22" height="22" viewBox="-3 -3 22 22"><clipPath id="zkc"><rect width="16" height="16" rx="4.5"/></clipPath><rect width="16" height="16" rx="4.5" fill="none" stroke="#8b94a3" stroke-opacity=".3"/><g clip-path="url(#zkc)" stroke="#9aa3b2" stroke-opacity=".6" fill="none">${[5,9,13].map(y=>`<path d="${wave(-6,y,28,1.6,6)}"/>`).join('')}</g></svg>not yet specified</span>`:''}</div>`; }
 zGraph=function(p, maxW, phone){ const ts=all(p), Lv=levels(p), fog=fogOf(p), sel=zSel(p);
   const nL=Math.max(0,...Object.values(Lv))+1, cols=[...Array(nL)].map(()=>[]);
   ts.forEach(t=>cols[Lv[t.n]].push(t)); cols.forEach(c=>c.sort((a,b)=>(st(p,a)==='done'?0:1)-(st(p,b)==='done'?0:1)||PHS.indexOf(phase(a))-PHS.indexOf(phase(b))));
@@ -1008,7 +1023,7 @@ zGraph=function(p, maxW, phone){ const ts=all(p), Lv=levels(p), fog=fogOf(p), se
   const seams=bandY.slice(1).map(([y])=>`<line x1="0" x2="${Wt}" y1="${y-BG/2+2}" y2="${y-BG/2+2}" class="zseam"/><text x="${Wt}" y="${y-BG/2-4}" text-anchor="end" class="zcont">continues ↩</text>`).join('');
   const nodes=ts.map(t=>{ const q=pos[t.n], c=zCls(p,t); return `<g class="${c}">${node5(t,st(p,t),q.x+2,q.y+2,H)}${c==='zsel'?`<rect x="${q.x-3}" y="${q.y-3}" width="${H+10}" height="${H+10}" rx="${H*.28+5}" fill="none" stroke="var(--accent)" stroke-width="2"/>`:''}</g>`; }).join('');
   const hits=ts.map(t=>{ const q=pos[t.n]; return `<button class="zhit" style="left:${q.x}px;top:${q.y}px;width:${H+4}px;height:${H+4}px" data-z="${t.n}" title="${esc(t.t)} · ${TYN[t.ty]}${zWord(st(p,t))[0]?' · '+zWord(st(p,t))[0]:''}" aria-label="${esc(t.t)}"></button>`; }).join('');
-  return `<div class="zgwrap"><div class="zg ${sel?'has':''}" style="width:${Wt}px;height:${Ht}px"><svg width="${Wt}" height="${Ht}" style="overflow:visible">${pan}${seams}<g class="edges">${edges}</g>${nodes}<g class="${sel?'zdim':''}">${fogLayer(fp,H,Wt,Ht)}</g></svg>${hits}</div></div>${key5(fog.length)}`; };
+  return `<div class="zgwrap"><div class="zg ${sel?'has':''}" style="width:${Wt}px;height:${Ht}px"><svg width="${Wt}" height="${Ht}" style="overflow:visible">${pan}${seams}<g class="${sel?'zdim':''}">${fogLayer(fp,H,Wt,Ht)}</g><g class="edges">${edges}</g>${nodes}</svg>${hits}</div></div>${key5(fog.length)}`; };
 encHtml=function(){ return Object.keys(ENC5).map(k=>`<h3>${ENCN5[k][0]} (${ENCN5[k][1]})</h3><div class="encs">${ENC5[k].map(([v,l])=>`<button class="${S[k]===v?'on':''}" data-set="${k}:${v}">${l}</button>`).join('')}</div>`).join(''); };
 
 function guideCalm(s){ return `${S.variant==='L'||S.variant==='I'?encHtml():''}<h3>Variant ${S.variant}: ${s.name}</h3><div class="stmt"><b>On the page:</b> ${s.always}</div><div class="stmt"><b>What it shows first:</b> ${s.shows}</div><div class="stmt"><b>At scale:</b> ${s.scale}</div><div class="stmt">${CALM_NOTE}</div>
