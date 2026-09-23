@@ -198,7 +198,7 @@ input { font:inherit; color:inherit; }
 .F-row .sq { display:flex; flex-wrap:wrap; gap:3px; }
 .F-sq { width:16px; height:16px; border-radius:4px; background:var(--faint); position:relative; }
 .F-sq.s-done { background:var(--good); opacity:.55; } .F-sq.s-run { background:var(--run); } .F-sq.s-wait { background:var(--warn); }
-.F-sq.s-fail { background:var(--bad); } .F-sq.s-review { background:var(--accent); } .F-sq.s-front { background:transparent; border:2px solid var(--ink); }
+.F-sq.s-fail { background:var(--bad); } .F-sq.s-review { background:var(--warn); box-shadow:inset 0 0 0 3px var(--bg); } .F-sq.s-front { background:transparent; border:2px solid var(--ink); }
 .F-sq.s-blocked { background:transparent; border:2px solid var(--faint); } .F-sq.fog { background:transparent; border:1px dashed var(--faint); }
 .F-sq.on { outline:2px solid var(--accent); outline-offset:2px; }
 .F-sq.nb { box-shadow:0 0 0 1px var(--accent); }
@@ -214,10 +214,60 @@ input { font:inherit; color:inherit; }
 .F-legend { display:flex; gap:10px; flex-wrap:wrap; font-size:11px; color:var(--dim); margin-top:6px; }
 .F-legend span { display:inline-flex; gap:4px; align-items:center; }
 .F-legend .F-sq { width:10px; height:10px; }
+
+/* ===== round 2: real states, selectors, D family ===== */
+.s-review .dot, .dot.s-review { background:var(--warn); box-shadow:inset 0 0 0 2px var(--bg); }
+.pill.s-review { color:var(--warn); border-color:var(--warn); }
+.split { flex:1; display:grid; grid-template-columns:250px minmax(0,1fr); min-height:0; border-top:1px solid var(--line); }
+.maplist { overflow:auto; padding:10px 8px; border-right:1px solid var(--line); display:flex; flex-direction:column; gap:4px; }
+.mi { display:flex; flex-direction:column; gap:6px; padding:9px 10px; border-radius:10px; width:100%; }
+.mi:hover { background:var(--raise); } .mi.on { background:var(--raise); outline:1px solid var(--accent); }
+.mi.child { margin-left:14px; width:calc(100% - 14px); }
+.mi .top { display:flex; gap:6px; align-items:flex-start; } .mi .nm { flex:1; font-weight:600; font-size:13px; line-height:1.3; }
+.mi .par { font-size:11px; color:var(--dim); margin-top:-3px; }
+.msq { display:flex; flex-wrap:wrap; gap:2px; }
+.msq i { width:7px; height:7px; border-radius:2px; background:var(--faint); }
+.msq i.s-done { background:var(--good); opacity:.55; } .msq i.s-run { background:var(--run); } .msq i.s-wait, .msq i.s-review { background:var(--warn); }
+.msq i.s-front { background:transparent; box-shadow:inset 0 0 0 1.5px var(--ink); } .msq i.s-blocked { background:transparent; box-shadow:inset 0 0 0 1.5px var(--faint); }
+.msq i.fog { background:transparent; outline:1px dashed var(--faint); outline-offset:-1px; }
+.mi .ml { font-size:11.5px; color:var(--dim); }
+.mtitle { display:flex; align-items:center; gap:8px; font-weight:600; font-size:14.5px; padding:4px 8px; border-radius:8px; } .mtitle:hover { background:var(--raise); }
+.menu { position:absolute; top:46px; left:70px; width:340px; max-height:600px; overflow:auto; background:var(--inset); border:1px solid var(--line); border-radius:14px; padding:8px; z-index:25; box-shadow:0 16px 40px rgba(0,0,0,.5); }
+.pv { background:var(--bg); border-radius:10px; padding:8px 10px; margin:8px 0; font-size:12.5px; line-height:1.5; }
+.pvm + .pvm { margin-top:4px; } .pv .who { color:var(--dim); font-size:11px; margin-right:6px; }
+.E-box { background:var(--raise); border-radius:12px; padding:12px; margin-bottom:14px; overflow-x:auto; }
+.E-cap { font-size:12px; color:var(--dim); margin-bottom:10px; }
+.E-g { position:relative; margin-bottom:4px; }
+.E-g svg { position:absolute; inset:0; overflow:visible; }
+.E-g path { fill:none; stroke:#2c3340; stroke-width:1.2; }
+.E-g path.hot { stroke:var(--accent); stroke-width:2; }
+.Fb-wrap { display:grid; grid-template-columns:minmax(0,1fr) 320px; gap:16px; align-items:start; }
+.Fb-side { position:sticky; top:0; display:flex; flex-direction:column; gap:8px; }
+.Fb-ph { margin-bottom:14px; }
+.Fb-ph h4 { font-size:12px; text-transform:uppercase; letter-spacing:.07em; color:var(--dim); margin-bottom:6px; display:flex; gap:10px; align-items:center; font-weight:500; }
+.Fb-closed { display:flex; gap:3px; flex-wrap:wrap; align-items:center; margin-bottom:6px; } .Fb-closed .F-sq { width:14px; height:14px; }
+.Fb-tiles { display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:6px; }
+.Fb-tile { display:flex; flex-direction:column; gap:4px; padding:8px 10px; border-radius:10px; background:var(--raise); border-left:3px solid var(--faint); min-height:62px; font-size:12.5px; line-height:1.3; }
+.Fb-tile .st { font-size:11px; color:var(--dim); display:flex; gap:6px; align-items:center; flex-wrap:wrap; } .Fb-tile .st .dot { width:6px; height:6px; }
+.Fb-tile.s-run { border-left-color:var(--run); } .Fb-tile.s-wait, .Fb-tile.s-review { border-left-color:var(--warn); } .Fb-tile.s-front { border-left-color:var(--ink); } .Fb-tile.s-blocked { color:var(--dim); }
+.Fb-tile.on { outline:2px solid var(--accent); } .Fb-tile.nb { outline:1px dashed var(--accent); }
+.Fb-tile.fog { background:transparent; border:1px dashed var(--line); color:var(--dim); }
+.P .Fb-tiles { grid-template-columns:1fr 1fr; }
+.G-wrap { display:grid; grid-template-columns:minmax(0,1fr) 250px; gap:22px; align-items:start; }
+.G-before { font-size:12.5px; color:var(--dim); padding:4px 0 8px; }
+.G-then { font-size:11px; text-transform:uppercase; letter-spacing:.07em; color:var(--dim); margin:14px 0 4px; }
+.G-path { padding-left:14px; border-left:2px solid var(--line); margin-left:10px; }
+.G-step .note { font-size:11.5px; color:var(--faint); padding:0 8px 6px 24px; }
+.G-dest { display:flex; gap:8px; padding:8px; color:var(--dim); font-size:13px; }
+.G-side .sec:first-child { margin-top:0; }
+.H-wrap { display:grid; grid-template-columns:300px minmax(0,1fr); gap:18px; align-items:start; }
+.H-list { background:var(--raise); border-radius:12px; padding:6px; } .H-list .tk:hover { background:var(--bg); }
+.H-list .phh { font-size:11px; text-transform:uppercase; letter-spacing:.07em; color:var(--dim); padding:10px 8px 4px; display:flex; justify-content:space-between; }
+.H-2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px; }
 </style>
 </head>
 <body>
-<div class="proto-head"><b>#1022 map overview</b> <span id="ph"></span> <span>· ←/→ variant · d device · 1-7 plan · r reshape</span></div>
+<div class="proto-head"><b>#1022 map overview</b> <span id="ph"></span> <span>· ←/→ variant · d device · 1-7 plan · r reshape · m map selector</span></div>
 <div class="layout">
   <div class="stage"><div id="frame" class="frame desktop"></div></div>
   <aside class="guide" id="guide"></aside>
@@ -226,11 +276,13 @@ input { font:inherit; color:inherit; }
   <button id="prev" aria-label="Previous variant">←</button><span class="name" id="vname"></span><button id="next" aria-label="Next variant">→</button>
   <span class="sep"></span>
   <button class="tog" id="dDesk">desktop</button><button class="tog" id="dPhone">phone</button>
+  <span class="sep"></span>
+  <button class="tog" id="selL">maps: list</button><button class="tog" id="selM">maps: menu</button>
 </div>
 
 <script>
 /* ==================== MOCK DATA ====================
-   Ticket: n, ty (research|grill|proto|task|impl|deploy), t title, st (done|run|wait|fail|review; absent = computed
+   Ticket: n, ty (research|grill|proto|task|impl|deploy), t title, st (done|run|wait|review; absent = computed
    ready or blocked from its blockers), by [blocker numbers], g gist when done, ph phase override. */
 const T=(n,ty,t,st,by,g,ph)=>({n,ty,t,st,by:by||[],g,ph});
 const PLANS=[
@@ -275,14 +327,14 @@ const PLANS=[
   changes:[{k:'resolved',n:1021},{k:'added',n:1029},{k:'unblocked',n:1022},{k:'unblocked',n:1028},{k:'started',n:1028}] },
 
 { id:'discord', title:'Discord permission recovery', dest:'An operator whose Discord permissions dropped can recover from setup without reading logs.',
-  shape:'Small and nearly done: 5 tickets, one PR open, one failed', since:'yesterday 18:40',
+  shape:'Small and nearly done: 5 tickets, one PR waiting for review, one claim released', since:'yesterday 18:40',
   tickets:[
   T(1001,'research','Which permissions can drop silently?','done',[],'Three: Send Messages in Threads, Attach Files, Use Slash Commands'),
   T(1002,'grill','Detect a dropped permission at boot','done',[1001],'Check at boot and on each 403; one card, no DM'),
   T(1003,'impl','Offer recovery from setup','review',[1002]),
-  T(1004,'task','Write the recovery walkthrough','fail',[1002]),
+  T(1004,'task','Write the recovery walkthrough',null,[1002]),
   T(1005,'deploy','Ship and announce',null,[1003,1004]),
-  ], fog:[], oos:[], changes:[{k:'pr',n:1003},{k:'failed',n:1004}] },
+  ], fog:[], oos:[], changes:[{k:'pr',n:1003},{k:'released',n:1004}] },
 
 { id:'vector', title:'Choose a store for transcript search', dest:'A decision, with evidence, on which store backs search over agent transcripts.',
   shape:'Wide: one question fans out to nine parallel research tickets, then fans back in', since:'2 days ago',
@@ -295,28 +347,28 @@ const PLANS=[
   T(1105,'research','Chroma','run',[1100]),
   T(1106,'research','Turbopuffer (hosted)','wait',[1100]),
   T(1107,'research','Meilisearch hybrid search','run',[1100]),
-  T(1108,'research','Tantivy with stored embeddings','fail',[1100]),
+  T(1108,'research','Tantivy with stored embeddings',null,[1100]),
   T(1109,'research','No vector store: FTS5 plus reranking','run',[1100]),
   T(1110,'proto','Compare the top three on real transcripts',null,[1101,1102,1103,1104,1105,1106,1107,1108,1109]),
   T(1111,'grill','Choose the store',null,[1110]),
   ], fog:[{t:'Where the embedding model runs',ph:'decide'},{t:'Backfill of two years of transcripts',ph:'build'}], oos:[{t:'Search across other people’s boxes',why:'one box per operator'}],
-  changes:[{k:'resolved',n:1103},{k:'failed',n:1108},{k:'waiting',n:1106}] },
+  changes:[{k:'resolved',n:1103},{k:'released',n:1108},{k:'waiting',n:1106}] },
 
 { id:'journal', title:'Move the journal to Postgres', dest:'The live journal runs on Postgres with no lost events and a tested rollback.',
-  shape:'Deep: an 11-step chain of execution with a failure in the middle', since:'yesterday 18:40',
+  shape:'Deep: an 11-step chain of execution, stopped in the middle on a question', since:'yesterday 18:40',
   tickets:[
   T(1200,'task','Measure journal sizes and write rates','done',[],'4.1 GB, 900 events per minute at peak'),
   T(1201,'impl','Create the schema in Postgres','done',[1200],'Merged'),
   T(1202,'impl','Dual-write every event','done',[1201],'Merged'),
   T(1203,'impl','Backfill history','done',[1202],'Merged; 38 M rows'),
-  T(1204,'impl','Compare reads in shadow mode','fail',[1203]),
+  T(1204,'impl','Compare reads in shadow mode','wait',[1203]),
   T(1205,'impl','Switch reads to Postgres',null,[1204]),
   T(1206,'impl','Switch writes to Postgres',null,[1205]),
   T(1208,'task','Point the daily backups at Postgres',null,[1206]),
   T(1207,'impl','Remove the SQLite writer',null,[1206]),
   T(1209,'deploy','Migrate the live host',null,[1207,1208]),
   T(1210,'task','Watch a week, then drop the dump',null,[1209],null,'ship'),
-  ], fog:[], oos:[], changes:[{k:'failed',n:1204},{k:'resolved',n:1203}] },
+  ], fog:[], oos:[], changes:[{k:'waiting',n:1204},{k:'resolved',n:1203}] },
 
 { id:'harness', title:'Harness adapters: decide', dest:'Every harness decision is made, and the build map exists.',
   shape:'Split, planning half: decisions only; its execution lives on a child map', child:'harnessb', since:'3 days ago',
@@ -346,11 +398,11 @@ const PLANS=[
   T(1329,'impl','OpenCode image update',null,[1320]),
   T(1330,'impl','Pi adapter','wait',[1320]),
   T(1331,'impl','Pi refusal for rewind',null,[1330]),
-  T(1332,'impl','Pi image and Node bump','fail',[1320]),
+  T(1332,'impl','Pi image and Node bump','run',[1320]),
   T(1333,'impl','Dispatch picks the harness from the label',null,[1321,1324,1327,1330]),
   T(1334,'task','Run the suite against all four',null,[1322,1325,1328,1331,1333]),
   T(1335,'deploy','Roll out to the live host',null,[1334]),
-  ], fog:[{t:'Per-harness cost reporting',ph:'build'}], oos:[], changes:[{k:'added',n:1333},{k:'failed',n:1332},{k:'pr',n:1322}] },
+  ], fog:[{t:'Per-harness cost reporting',ph:'build'}], oos:[], changes:[{k:'added',n:1333},{k:'started',n:1332},{k:'pr',n:1322}] },
 
 { id:'gitlab', title:'Support GitLab as a tracker', dest:'A decision on whether and how Curia watches GitLab projects.',
   shape:'Fresh and foggy: two tickets, most of the route not charted yet', since:'never',
@@ -364,8 +416,8 @@ const PLANS=[
 
 /* ==================== STATE ==================== */
 const q=new URLSearchParams(location.search);
-const S={ variant:q.get('variant')||'A', device:q.get('device')||'desktop', plan:Math.max(0,Math.min(PLANS.length-1,(+q.get('plan')||1)-1)),
-  reshape:false, peek:null, conv:null, sheet:null, expand:{}, focus:{}, oos:{}, added:{}, fogGone:{}, started:{}, toast:null, order:{} };
+const S={ variant:q.get('variant')||'D', device:q.get('device')||'desktop', plan:Math.max(0,Math.min(PLANS.length-1,(+q.get('plan')||1)-1)),
+  sel:q.get('maps')||'list', menu:false, fsheet:false, reshape:false, peek:null, conv:null, sheet:null, expand:{}, focus:{}, oos:{}, added:{}, fogGone:{}, started:{}, toast:null, order:{} };
 let addSeq=9000;
 
 /* ==================== MODEL HELPERS ==================== */
@@ -387,20 +439,20 @@ const PH={decide:'Decide',proto:'Prototype',build:'Build',ship:'Ship'};
 const PHS=['decide','proto','build','ship'];
 const phase=t=>t.ph||{research:'decide',grill:'decide',proto:'proto',impl:'build',task:'build',deploy:'ship'}[t.ty];
 const TY={research:'research',grill:'grilling',proto:'prototype',task:'task',impl:'build',deploy:'deploy'};
-const LBL={done:'done',run:'working',wait:'needs you',fail:'failed',review:'PR open',front:'ready',blocked:'blocked'};
-const ACTIVE=['wait','fail','review','run'];
+const LBL={done:'closed',run:'working',wait:'needs your answer',review:'needs your review',front:'ready',blocked:'blocked'};
+const ACTIVE=['wait','review','run'];
 const fogOf=p=>p.fog.filter((f,i)=>!S.fogGone[K(p,'f'+i)]).map(f=>({...f,i:p.fog.indexOf(f)}));
 const chOf=(p,n)=>(p.changes.find(c=>c.n===n)||{}).k;
-const CHL={resolved:'resolved',added:'new',unblocked:'unblocked',started:'started',failed:'failed',waiting:'asks you',pr:'PR opened'};
-function counts(p){ const c={done:0,run:0,wait:0,fail:0,review:0,front:0,blocked:0}; all(p).forEach(t=>c[st(p,t)]++); return c; }
+const CHL={resolved:'resolved',added:'new',unblocked:'unblocked',started:'started',released:'claim released',waiting:'asks you',pr:'asks for review'};
+function counts(p){ const c={done:0,run:0,wait:0,review:0,front:0,blocked:0}; all(p).forEach(t=>c[st(p,t)]++); return c; }
 const short=t=>t.length>44?t.slice(0,42)+'…':t;
 function railHtml(p){
   const c=counts(p), f=fogOf(p).length, tot=all(p).length+f||1;
-  const seg=[[c.done,'var(--good)'],[c.run+c.review,'var(--run)'],[c.wait+c.fail,'var(--warn)'],[c.front,'var(--ink)'],[c.blocked,'var(--faint)'],[f,'#2d3340']];
+  const seg=[[c.done,'var(--good)'],[c.run,'var(--run)'],[c.wait+c.review,'var(--warn)'],[c.front,'var(--ink)'],[c.blocked,'var(--faint)'],[f,'#2d3340']];
   return `<div class="rail">${seg.filter(s=>s[0]).map(s=>`<i style="width:${s[0]/tot*100}%;background:${s[1]}"></i>`).join('')}</div>`;
 }
 function statsHtml(p){ const c=counts(p), n=all(p).length;
-  return `<div class="stats"><span><b>${c.done}</b> of ${n} done</span>${c.wait+c.fail?`<span><b style="color:var(--warn)">${c.wait+c.fail}</b> need you</span>`:''}<span><b>${c.run+c.review}</b> working</span><span><b>${c.front}</b> ready</span><span><b>${c.blocked}</b> blocked</span>${fogOf(p).length?`<span><b>${fogOf(p).length}</b> not yet specified</span>`:''}</div>`; }
+  return `<div class="stats"><span><b>${c.done}</b> of ${n} closed</span>${c.wait+c.review?`<span><b style="color:var(--warn)">${c.wait+c.review}</b> need you</span>`:''}<span><b>${c.run}</b> working</span><span><b>${c.front}</b> ready</span><span><b>${c.blocked}</b> blocked</span>${fogOf(p).length?`<span><b>${fogOf(p).length}</b> not yet specified</span>`:''}</div>`; }
 function sinceHtml(p){ if(!p.changes.length) return ''; const agg={}; p.changes.forEach(c=>agg[CHL[c.k]]=(agg[CHL[c.k]]||0)+1);
   return `<div class="since">Since you looked ${esc(p.since)}: <b>${Object.entries(agg).map(([k,v])=>`${v} ${k}`).join(' · ')}</b></div>`; }
 function relHtml(p){
@@ -408,8 +460,7 @@ function relHtml(p){
   if(p.parent) return `<div class="rel dim">Decisions live on <button data-plan="${p.parent}">← ${esc(byId(p.parent).title)}</button></div>`;
   return '';
 }
-function headHtml(p){ return `<div class="ovh"><div class="l"><div class="ttl">${esc(p.title)}</div><div class="dest">${esc(p.dest)}</div>${statsHtml(p)}${sinceHtml(p)}${relHtml(p)}</div>
-  <div style="width:220px;flex:none;padding-top:6px">${railHtml(p)}</div></div>`; }
+function headHtml(p){ return `<div class="ovh"><div class="l"><div class="ttl">${esc(p.title)}</div><div class="dest">${esc(p.dest)}</div>${statsHtml(p)}${sinceHtml(p)}${relHtml(p)}</div></div>`; }
 
 /* one ticket row, shared by A, B, C */
 function row(p,t,o={}){
@@ -417,7 +468,7 @@ function row(p,t,o={}){
   let sub=o.sub;
   if(sub===undefined){ sub = s==='blocked'&&ob.length?`after ${esc(short(ob[0].t))}${ob.length>1?` +${ob.length-1}`:''}` : s==='done'&&o.gist&&t.g?esc(t.g) : ACTIVE.includes(s)?LBL[s]:''; }
   const tail = S.reshape ? `${s==='front'?`<span class="go" data-start="${t.n}" title="Start">▶</span>`:''}${s!=='done'?`<span class="x" data-out="${t.n}" title="Rule out of scope">✕</span>`:''}` : '';
-  return `<button class="tk s-${s} ${S.peek===t.n?'on':''}" data-tk="${t.n}"><span class="dot"></span><span class="t">${esc(t.title||t.t)}${o.ty?` <span class="ty">${TY[t.ty]}</span>`:''}${ch?` <span class="chg">${CHL[ch]}</span>`:''}${sub?`<span class="sub">${sub}</span>`:''}</span>${tail}</button>`;
+  return `<button class="tk s-${s} ${S.peek===t.n||o.on?'on':''}" data-tk="${t.n}"><span class="dot"></span><span class="t">${esc(t.t)}${o.ty?` <span class="ty">${TY[t.ty]}</span>`:''}${ch?` <span class="chg">${CHL[ch]}</span>`:''}${sub?`<span class="sub">${sub}</span>`:''}</span>${tail}</button>`;
 }
 function fogRow(p,f){ return `<div class="fogi"><span>░</span><span class="t">${esc(f.t)}</span>${S.reshape?`<button class="go" data-grad="${f.i}" title="Make it a ticket">→ ticket</button>`:''}</div>`; }
 function addBox(where){ return S.reshape?`<div class="add"><input data-addin="${where}" placeholder="+ Add a ticket"><button class="btn" data-add="${where}">Add</button></div>`:''; }
@@ -441,7 +492,7 @@ function B(p, phone){
     return {k,list,d,live,allDone,fog:fog.filter(f=>f.ph===k)}; });
   const firstLive=phs.findIndex(x=>x.live);
   const stops=x=>{ const key='ph'+x.k, open=S.expand[K(p,key)]; const rest=x.list.filter(t=>st(p,t)!=='done')
-      .sort((a,b)=>['wait','fail','review','run','front','blocked'].indexOf(st(p,a))-['wait','fail','review','run','front','blocked'].indexOf(st(p,b)));
+      .sort((a,b)=>['wait','review','run','front','blocked'].indexOf(st(p,a))-['wait','review','run','front','blocked'].indexOf(st(p,b)));
     const blocked=rest.filter(t=>st(p,t)==='blocked'), near=rest.filter(t=>st(p,t)!=='blocked');
     const bkey='phb'+x.k, bopen=S.expand[K(p,bkey)], bcap=x.live?4:6;
     return `<div class="B-stops">${x.d.length?(open?x.d.map(t=>row(p,t,{gist:true})).join('')+`<button class="more" data-exp="${key}">Collapse done</button>`:`<button class="B-donegrp" data-exp="${key}"><span class="dot s-done"></span>${x.d.length} done${x.allDone?' · phase complete':''}</button>`):''}
@@ -462,7 +513,7 @@ function B(p, phone){
 /* ==================== C — OUTLINE ==================== */
 function C(p, phone){
   const ts=all(p), s=t=>st(p,t);
-  const needs=ts.filter(t=>['wait','fail','review'].includes(s(t))), now=ts.filter(t=>s(t)==='run');
+  const needs=ts.filter(t=>['wait','review'].includes(s(t))), now=ts.filter(t=>s(t)==='run');
   let next=ts.filter(t=>s(t)==='front'); const ord=S.order[p.id]; if(ord) next.sort((a,b)=>ord.indexOf(a.n)-ord.indexOf(b.n));
   const later=ts.filter(t=>s(t)==='blocked'), done=ts.filter(t=>s(t)==='done');
   const groups={}; later.forEach(t=>{ const b=openBlockers(p,t)[0]; (groups[b.n]=groups[b.n]||{b,list:[]}).list.push(t); });
@@ -470,7 +521,7 @@ function C(p, phone){
   const dcap=S.expand[K(p,'dec')]?done.length:5;
   const chg=p.changes.map(c=>{ const t=find(p,c.n); return t?`<div><span class="chg">${CHL[c.k]}</span> ${esc(t.t)}</div>`:''; }).join('');
   const nextRow=(t,i)=>S.reshape?`<div style="display:flex;align-items:center"><span class="C-ord"><button data-up="${t.n}">▲</button><button data-dn="${t.n}">▼</button></span>${row(p,t,{ty:true})}</div>`:row(p,t,{ty:true});
-  return `<div class="C-doc">${headHtml(p).replace('<div style="width:220px;flex:none;padding-top:6px">','<div style="width:160px;flex:none;padding-top:6px">')}
+  return `<div class="C-doc">${headHtml(p)}
     ${chg?`<div class="sec">Since you looked ${esc(p.since)}</div><div class="C-chg">${chg}</div>`:''}
     ${needs.length?`<div class="sec">Needs you <span class="n">${needs.length}</span></div>${needs.map(t=>row(p,t,{ty:true})).join('')}`:''}
     <div class="sec">Working now <span class="n">${now.length}</span></div>${now.map(t=>row(p,t,{ty:true})).join('')||'<div class="B-empty">No agent is working on this map.</div>'}
@@ -483,84 +534,168 @@ function C(p, phone){
   </div>`;
 }
 
-/* ==================== D — FOCUS ==================== */
+/* ==================== FOCUS FAMILY: shared parts ==================== */
+const FAM=['D','E','F','G','H'];
+const NEED=['wait','review'];
 function focusOf(p){ const ts=all(p); let n=S.focus[p.id]; if(n&&ts.find(t=>t.n===n)) return find(p,n);
-  const pick=['wait','fail','review','front','run','blocked','done']; for(const s of pick){ const t=ts.find(x=>st(p,x)===s); if(t) return t; } return null; }
+  for(const s of ['wait','review','front','run','blocked','done']){ const t=ts.find(x=>st(p,x)===s); if(t) return t; } return null; }
 function ancestors(p,t,seen=new Set()){ t.by.forEach(b=>{ const x=find(p,b); if(x&&!seen.has(b)&&!isOut(p,b)){ seen.add(b); ancestors(p,x,seen);} }); return seen; }
 function depth(p,t,m={}){ if(m[t.n]!=null) return m[t.n]; const u=unlocks(p,t); return m[t.n]=u.length?1+Math.max(...u.map(x=>depth(p,x,m))):0; }
-function D(p, phone){
-  const f=focusOf(p), ts=all(p), fog=fogOf(p);
-  const nb=f?new Set([...f.by, ...unlocks(p,f).map(x=>x.n)]):new Set();
-  const strip=`<div class="F-strip">${PHS.map(k=>{ const list=ts.filter(t=>phase(t)===k), fg=fog.filter(x=>x.ph===k); if(!list.length&&!fg.length) return '';
-      return `<div class="F-row"><span class="lb">${PH[k]}</span><span class="sq">${list.map(t=>`<button class="F-sq s-${st(p,t)} ${f&&f.n===t.n?'on':''} ${nb.has(t.n)?'nb':''} ${chOf(p,t.n)?'ch':''}" data-focus="${t.n}" title="${esc(t.t)} · ${LBL[st(p,t)]}"></button>`).join('')}${fg.map(x=>`<span class="F-sq fog" title="${esc(x.t)} (not yet specified)"></span>`).join('')}</span></div>`; }).join('')}
-      <div class="F-legend"><span><i class="F-sq s-done"></i>done</span><span><i class="F-sq s-run"></i>working</span><span><i class="F-sq s-wait"></i>needs you</span><span><i class="F-sq s-fail"></i>failed</span><span><i class="F-sq s-review"></i>PR open</span><span><i class="F-sq s-front"></i>ready</span><span><i class="F-sq s-blocked"></i>blocked</span><span><i class="F-sq fog"></i>not yet specified</span><span><i class="F-sq nb"></i>linked to focus</span></div></div>`;
-  const jump=['wait','fail','review','front'].flatMap(s=>ts.filter(t=>st(p,t)===s)).slice(0,phone?4:6);
-  const jumpHtml=jump.length?`<div class="F-jump"><span class="dim">Jump to</span>${jump.map(t=>`<button data-focus="${t.n}"><span class="dot s-${st(p,t)}"></span>${esc(short(t.t))}</button>`).join('')}</div>`:'';
-  if(!f) return `${headHtml(p)}${strip}`;
-  const s=st(p,f), anc=ancestors(p,f), ancOpen=[...anc].filter(n=>st(p,find(p,n))!=='done').length, dep=depth(p,f);
-  const waits=f.by.map(b=>find(p,b)).filter(x=>x&&!isOut(p,x.n)), unl=unlocks(p,f);
-  const nav=t=>row(p,t,{sub:st(p,t)==='blocked'&&t.by.length>1?`waits on ${t.by.length}`:undefined}).replace('data-tk=','data-focus=');
-  const card=`<div class="F-card"><div style="display:flex;gap:8px;align-items:center"><span class="pill s-${s}">${LBL[s]}</span><span class="ty">${TY[f.ty]} · ${PH[phase(f)]}</span><span class="num">#${f.n}</span>${chOf(p,f.n)?`<span class="chg">${CHL[chOf(p,f.n)]}</span>`:''}</div>
-    <div class="h" style="font-size:16px;margin-top:8px">${esc(f.t)}</div>
-    <div class="q">${s==='done'&&f.g?`Answer: ${esc(f.g)}`:s==='blocked'?`Waits on ${openBlockers(p,f).length} open ticket${openBlockers(p,f).length>1?'s':''}.`:s==='front'?'Ready to start. No open blockers.':LBL[s]==='needs you'?'The agent asked you a question.':s==='fail'?'The session failed. Retry from the conversation.':'An agent is on it.'}</div>
-    <div class="dim" style="font-size:12px">${anc.size?`${anc.size-ancOpen} of ${anc.size} steps before it are done`:'Nothing comes before it'} · ${dep?`${dep} step${dep>1?'s':''} from here to the end of the chart`:'Nothing charted after it'}</div>
-    <div class="acts"><button class="btn primary" data-conv="${f.n}">Open conversation</button>${s==='front'?`<button class="btn" data-start="${f.n}">Start</button>`:''}${s!=='done'?`<button class="btn warn" data-out="${f.n}">Rule out of scope</button>`:''}</div>
-    ${S.reshape?`<div class="sec">Add after this ticket</div>${addBox('after-'+f.n).replace('class="add"','class="add" style="margin-top:0"')}`:''}</div>`;
-  const col=(h,list,empty)=>`<div class="F-col"><h5>${h}</h5>${list.map(nav).join('')||`<div class="F-path">${empty}</div>`}</div>`;
-  if(phone) return `${headHtml(p)}${strip}${jumpHtml}${card}${col('Waits on',waits,'Nothing. It can start.')}${col('Unlocks',unl,dep?'':'Nothing charted after it.')}`;
-  return `${headHtml(p)}${strip}${jumpHtml}<div class="F-grid">${col('Waits on',waits,'Nothing. It can start.')}${card}${col('Unlocks',unl,'Nothing charted after it.')}</div>`;
-}
+function focusLine(p,f){ const s=st(p,f), ob=openBlockers(p,f);
+  if(s==='done') return f.g?`Answer: ${esc(f.g)}`:'Closed.';
+  if(s==='blocked') return `Waits on ${ob.length} open ticket${ob.length>1?'s':''}.`;
+  if(s==='front') return 'Ready. Nothing open blocks it, and nobody has claimed it.';
+  if(s==='wait') return 'The agent asked you a question.';
+  if(s==='review') return 'The agent opened a pull request and waits for your review.';
+  return 'An agent is working on it.'; }
+const PREVIEW={
+ 1022:['Four forms of the Maps page are ready: Lanes, Route, Outline, and Focus.','Which form works for you, or which parts would you combine?'],
+ 1106:['Turbopuffer needs an account before I can measure latency from the box.','May I sign up with the operator email, or should I stop at the public docs?'],
+ 1204:['Shadow reads disagree on 0.4% of events. All of them were written during the backfill window.','Should I re-run the backfill for that window, or accept the gap and document it?'],
+ 1307:['The old flag is read in two places. Removing it breaks one install that pins it.','Remove it now with a migration note, or keep it for one more release?'],
+ 1330:['Pi has no rewind, so the contract says to refuse at dispatch.','Should the refusal be a card in the conversation, or only a label on the ticket?'],
+ 1322:['Pull request opened: Codex rewind through the native thread fork. Checks pass.','Review it on GitHub, then approve or ask for changes here.'],
+ 1003:['Pull request opened: a recovery card in setup with a re-invite link. Checks pass.','Approve to merge, or tell me what to change.'],
+ 1028:['Reading how previews end with their session (ADR 0021) and what lands on main.'],
+ 1400:['GitLab has linked issues with "blocks", but no sub-issues on the free tier. Reading epics next.'],
+ 1104:['Qdrant runs as a sidecar. Measuring memory at 1.2 M vectors now.'] };
+function preview(p,t){ const s=st(p,t); const m=PREVIEW[t.n]||(s==='run'?['Working. The latest step is in the conversation.']:s==='done'&&t.g?[`Resolved. ${t.g}.`]:null);
+  if(!m) return `<div class="pv dim">No conversation yet. Starting the ticket opens one.</div>`;
+  return `<div class="pv">${m.map(x=>`<div class="pvm"><span class="who">curia</span>${esc(x)}</div>`).join('')}</div>`; }
+function acts(p,f){ const s=st(p,f);
+  return `<div class="acts"><button class="btn primary" data-conv="${f.n}">${s==='wait'?'Answer in the conversation':s==='review'?'Review in the conversation':'Open conversation'}</button>${s==='front'?`<button class="btn" data-start="${f.n}">Start</button>`:''}${s!=='done'?`<button class="btn warn" data-out="${f.n}">Rule out of scope</button>`:''}</div>`; }
+function card(p,f,o={}){ if(!f) return ''; const s=st(p,f), anc=ancestors(p,f), ancOpen=[...anc].filter(n=>st(p,find(p,n))!=='done').length, dep=depth(p,f);
+  return `<div class="F-card"><div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span class="pill s-${s}">${LBL[s]}</span><span class="ty">${TY[f.ty]} · ${PH[phase(f)]}</span><span class="num">#${f.n}</span>${chOf(p,f.n)?`<span class="chg">${CHL[chOf(p,f.n)]}</span>`:''}</div>
+    <div class="h" style="font-size:16px;margin-top:8px">${esc(f.t)}</div><div class="q">${focusLine(p,f)}</div>${o.preview?preview(p,f):''}
+    <div class="dim" style="font-size:12px">${anc.size?(anc.size===1?(ancOpen?'The one ticket before it is open':'The one ticket before it is closed'):`${anc.size-ancOpen} of ${anc.size} tickets before it are closed`):'Nothing comes before it'} · ${dep?`${dep} step${dep>1?'s':''} after it to the end of the chart`:'Nothing charted after it'}</div>
+    ${acts(p,f)}${S.reshape?`<div class="sec">Add after this ticket</div>${addBox('after-'+f.n).replace('class="add"','class="add" style="margin-top:0"')}`:''}</div>`; }
+function nav(p,t,f){ return row(p,t,{on:f&&f.n===t.n,sub:st(p,t)==='blocked'&&t.by.length>1?`waits on ${t.by.length}`:undefined}).replace('data-tk=','data-focus='); }
+const col=(p,h,list,empty,f)=>`<div class="F-col"><h5>${h}</h5>${list.map(t=>nav(p,t,f)).join('')||`<div class="F-path">${empty}</div>`}</div>`;
+const waitsOf=(p,f)=>f?f.by.map(b=>find(p,b)).filter(x=>x&&!isOut(p,x.n)):[];
+const LEGEND=`<div class="F-legend"><span><i class="F-sq s-done"></i>closed</span><span><i class="F-sq s-run"></i>working</span><span><i class="F-sq s-wait"></i>needs your answer</span><span><i class="F-sq s-review"></i>needs your review</span><span><i class="F-sq s-front"></i>ready</span><span><i class="F-sq s-blocked"></i>blocked</span><span><i class="F-sq fog"></i>not yet specified</span><span><i class="F-sq nb"></i>linked to the selected ticket</span></div>`;
+function sqBtn(p,t,f,nb,style=''){ return `<button class="F-sq s-${st(p,t)} ${f&&f.n===t.n?'on':''} ${nb.has(t.n)?'nb':''} ${chOf(p,t.n)?'ch':''}" style="${style}" data-focus="${t.n}" title="${esc(t.t)} · ${LBL[st(p,t)]}"></button>`; }
+const nbOf=(p,f)=>f?new Set([...f.by, ...unlocks(p,f).map(x=>x.n)]):new Set();
+function stripHtml(p,f,legend=true){ const ts=all(p), fog=fogOf(p), nb=nbOf(p,f);
+  return `<div class="F-strip">${PHS.map(k=>{ const list=ts.filter(t=>phase(t)===k), fg=fog.filter(x=>x.ph===k); if(!list.length&&!fg.length) return '';
+    return `<div class="F-row"><span class="lb">${PH[k]}</span><span class="sq">${list.map(t=>sqBtn(p,t,f,nb)).join('')}${fg.map(x=>`<span class="F-sq fog" title="${esc(x.t)} (not yet specified)"></span>`).join('')}</span></div>`; }).join('')}${legend?LEGEND:''}</div>`; }
+function jumpHtml(p,phone){ const ts=all(p); const jump=['wait','review','front'].flatMap(s=>ts.filter(t=>st(p,t)===s)).slice(0,phone?4:6);
+  return jump.length?`<div class="F-jump"><span class="dim">Jump to</span>${jump.map(t=>`<button data-focus="${t.n}"><span class="dot s-${st(p,t)}"></span>${esc(short(t.t))}</button>`).join('')}</div>`:''; }
+function focusSheet(p,f){ if(S.device!=='phone'||!S.fsheet||!f) return ''; return `<div class="scrim" data-act="closef"></div><div class="sheet"><div class="bd">${card(p,f,{preview:true})}${col(p,'Waits on',waitsOf(p,f),'Nothing. It can start.',f)}${col(p,'Unlocks',unlocks(p,f),'Nothing charted after it.',f)}</div><div class="ft"><button class="btn" data-act="closef">Close</button></div></div>`; }
+
+/* ==================== D — FOCUS ==================== */
+function D(p, phone){ const f=focusOf(p);
+  if(!f) return `${headHtml(p)}${stripHtml(p,f)}`;
+  const w=col(p,'Waits on',waitsOf(p,f),'Nothing. It can start.',f), u=col(p,'Unlocks',unlocks(p,f),'Nothing charted after it.',f);
+  if(phone) return `${headHtml(p)}${stripHtml(p,f)}${jumpHtml(p,true)}${card(p,f)}${w}${u}`;
+  return `${headHtml(p)}${stripHtml(p,f)}${jumpHtml(p)}<div class="F-grid">${w}${card(p,f)}${u}</div>`; }
+
+/* ==================== E — LAYERS ==================== */
+function levels(p){ const L={}; const lv=t=>{ if(L[t.n]!=null) return L[t.n]; const bs=t.by.map(b=>find(p,b)).filter(x=>x&&!isOut(p,x.n)); return L[t.n]=bs.length?1+Math.max(...bs.map(lv)):0; }; all(p).forEach(lv); return L; }
+function E(p, phone){ const f=focusOf(p), ts=all(p), L=levels(p), fog=fogOf(p), nb=nbOf(p,f);
+  const nL=Math.max(0,...Object.values(L))+1, cols=[...Array(nL)].map(()=>[]);
+  ts.forEach(t=>cols[L[t.n]].push(t)); cols.forEach(c=>c.sort((a,b)=>PHS.indexOf(phase(a))-PHS.indexOf(phase(b))));
+  const nc=nL+(fog.length?1:0), SQ=phone?14:20, CW=phone?Math.min(40,Math.floor(320/nc)):Math.min(64,Math.floor(700/nc)), RH=phone?20:28;
+  const pos={}; cols.forEach((c,i)=>c.forEach((t,j)=>pos[t.n]={x:i*CW,y:j*RH}));
+  const W=(nc-1)*CW+SQ, H=(Math.max(...cols.map(c=>c.length),fog.length)-1)*RH+SQ;
+  let edges=''; ts.forEach(t=>t.by.forEach(b=>{ const a=pos[b], z=pos[t.n]; if(!a||!z) return; const hot=f&&(t.n===f.n||b===f.n);
+    const x1=a.x+SQ, y1=a.y+SQ/2, x2=z.x, y2=z.y+SQ/2, mx=(x1+x2)/2; edges+=`<path class="${hot?'hot':''}" d="M${x1} ${y1} C${mx} ${y1} ${mx} ${y2} ${x2} ${y2}"/>`; }));
+  const sq=ts.map(t=>sqBtn(p,t,f,nb,`position:absolute;left:${pos[t.n].x}px;top:${pos[t.n].y}px;width:${SQ}px;height:${SQ}px`)).join('');
+  const fg=fog.map((x,j)=>`<span class="F-sq fog" style="position:absolute;left:${nL*CW}px;top:${j*RH}px;width:${SQ}px;height:${SQ}px" title="${esc(x.t)} (not yet specified)"></span>`).join('');
+  const graph=`<div class="E-box"><div class="E-cap">Tickets in dependency order, left to right. A column can start when the columns before it close.${fog.length?' The dashed column is not yet specified.':''}</div><div class="E-g" style="width:${W}px;height:${H}px"><svg width="${W}" height="${H}">${edges}</svg>${sq}${fg}</div>${LEGEND}</div>`;
+  if(!f) return `${headHtml(p)}${graph}`;
+  const w=col(p,'Waits on',waitsOf(p,f),'Nothing. It can start.',f), u=col(p,'Unlocks',unlocks(p,f),'Nothing charted after it.',f);
+  if(phone) return `${headHtml(p)}${graph}${card(p,f)}${w}${u}`;
+  return `${headHtml(p)}${graph}<div class="F-grid">${w}${card(p,f)}${u}</div>`; }
+
+/* ==================== F — BOARD ==================== */
+function Fb(p, phone){ const f=focusOf(p), ts=all(p), fog=fogOf(p), nb=nbOf(p,f);
+  const secs=PHS.map(k=>{ const list=ts.filter(t=>phase(t)===k), fg=fog.filter(x=>x.ph===k); if(!list.length&&!fg.length) return '';
+    const d=list.filter(t=>st(p,t)==='done'), open=list.filter(t=>st(p,t)!=='done').sort((a,b)=>['wait','review','run','front','blocked'].indexOf(st(p,a))-['wait','review','run','front','blocked'].indexOf(st(p,b)));
+    return `<div class="Fb-ph"><h4>${PH[k]}<span class="num">${list.length?`${d.length} of ${list.length} closed`:'not charted yet'}</span></h4>${d.length?`<div class="Fb-closed">${d.map(t=>sqBtn(p,t,f,nb)).join('')}<span class="dim" style="font-size:11.5px;margin-left:4px">${d.length} closed</span></div>`:''}
+      <div class="Fb-tiles">${open.map(t=>{ const s=st(p,t); return `<button class="Fb-tile s-${s} ${f&&f.n===t.n&&!phone?'on':''} ${nb.has(t.n)?'nb':''}" data-focus="${t.n}"><span class="st"><span class="dot"></span>${LBL[s]}${chOf(p,t.n)?` <span class="chg">${CHL[chOf(p,t.n)]}</span>`:''}</span><span>${esc(t.t)}</span></button>`; }).join('')}${fg.map(x=>`<div class="Fb-tile fog"><span class="st">not yet specified</span><span>${esc(x.t)}</span></div>`).join('')}</div>${addBox('ph-'+k)}</div>`; }).join('');
+  if(phone) return `${headHtml(p)}${secs}`;
+  return `${headHtml(p)}<div class="Fb-wrap"><div>${secs}</div><aside class="Fb-side">${card(p,f,{preview:true})}${col(p,'Waits on',waitsOf(p,f),'Nothing. It can start.',f)}${col(p,'Unlocks',f?unlocks(p,f):[],'Nothing charted after it.',f)}</aside></div>`; }
+
+/* ==================== G — PATH ==================== */
+function pathFrom(p,f){ const m={}, chain=[]; let cur=f, guard=0; while(guard++<40){ const u=unlocks(p,cur); if(!u.length) break; const nx=[...u].sort((a,b)=>depth(p,b,m)-depth(p,a,m))[0]; chain.push({t:nx,others:u.length-1}); cur=nx; } return chain; }
+function G(p, phone){ const f=focusOf(p), ts=all(p);
+  if(!f) return `${headHtml(p)}${stripHtml(p,f,false)}`;
+  const anc=ancestors(p,f), ancOpen=[...anc].filter(n=>st(p,find(p,n))!=='done').length, chain=pathFrom(p,f), open=S.expand[K(p,'gb')];
+  const later=fogOf(p).filter(x=>PHS.indexOf(x.ph)>=PHS.indexOf(phase(chain.length?chain[chain.length-1].t:f)));
+  const main=`<div class="G-main">${anc.size?`<button class="G-before" data-exp="gb">${open?'▾':'▸'} ${anc.size-ancOpen} closed${ancOpen?` and ${ancOpen} open`:''} ticket${anc.size>1?'s':''} before it</button>${open?`<div style="margin-bottom:8px">${waitsOf(p,f).map(t=>nav(p,t,f)).join('')}</div>`:''}`:''}
+    ${card(p,f,{preview:true})}
+    <div class="G-then">Then, on the longest route to the end</div>
+    <div class="G-path">${chain.map(c=>`<div class="G-step">${nav(p,c.t,f)}${c.others?`<div class="note">${c.others} other ticket${c.others>1?'s':''} also open here</div>`:''}</div>`).join('')||'<div class="F-path">Nothing charted after it.</div>'}
+      ${later.map(x=>`<div class="fogi" style="margin-left:4px"><span>░</span><span class="t">${esc(x.t)} (not yet specified)</span></div>`).join('')}
+      <div class="G-dest"><span>⚑</span><span>${esc(p.dest)}</span></div></div></div>`;
+  const grp=(h,s)=>{ const l=ts.filter(t=>s.includes(st(p,t))); return l.length?`<div class="sec">${h} <span class="n">${l.length}</span></div>${l.map(t=>nav(p,t,f)).join('')}`:''; };
+  const side=`<aside class="G-side">${grp('Needs you',NEED)}${grp('Working',['run'])}${grp('Ready',['front'])}${addBox('next')}</aside>`;
+  if(phone) return `${headHtml(p)}${stripHtml(p,f,false)}${jumpHtml(p,true)}${main}`;
+  return `${headHtml(p)}${stripHtml(p,f,false)}<div class="G-wrap">${main}${side}</div>`; }
+
+/* ==================== H — SPLIT ==================== */
+function H(p, phone){ const f=focusOf(p), ts=all(p), fog=fogOf(p);
+  const list=`<div class="H-list">${PHS.map(k=>{ const l=ts.filter(t=>phase(t)===k), fg=fog.filter(x=>x.ph===k); if(!l.length&&!fg.length) return '';
+      const d=l.filter(t=>st(p,t)==='done'), o=l.filter(t=>st(p,t)!=='done'), key='hd'+k, open=S.expand[K(p,key)];
+      return `<div class="phh"><span>${PH[k]}</span><span>${l.length?`${d.length} of ${l.length} closed`:'not charted yet'}</span></div>${d.length?(open?d.map(t=>nav(p,t,phone?null:f)).join(''):`<button class="more" data-exp="${key}">${d.length} closed ▸</button>`):''}${o.map(t=>nav(p,t,phone?null:f)).join('')}${fg.map(x=>fogRow(p,x)).join('')}`; }).join('')}${addBox('next')}</div>`;
+  if(phone) return `${headHtml(p)}${list}`;
+  return `${headHtml(p)}<div class="H-wrap">${list}<div>${card(p,f,{preview:true})}<div class="H-2">${col(p,'Waits on',waitsOf(p,f),'Nothing. It can start.',f)}${col(p,'Unlocks',f?unlocks(p,f):[],'Nothing charted after it.',f)}</div></div></div>`; }
 
 /* ==================== SHELL ==================== */
-const V={A:['Lanes',A],B:['Route',B],C:['Outline',C],D:['Focus',D]};
-function needCount(p){ return all(p).filter(t=>['wait','fail'].includes(st(p,t))).length; }
-function mapStrip(){ return `<div class="mapstrip">${PLANS.map((p,i)=>`<button class="mapchip ${i===S.plan?'on':''}" data-plan="${p.id}"><span class="top"><span class="nm">${esc(p.title)}</span>${needCount(p)?`<span class="badge">${needCount(p)}</span>`:''}</span>${p.parent?`<span class="par">↳ build map of ${esc(byId(p.parent).title)}</span>`:''}${railHtml(p)}</button>`).join('')}</div>`; }
-function side(){ const needs=PLANS.flatMap(p=>all(p).filter(t=>st(p,t)==='wait').map(t=>t.t)).slice(0,4);
+const V={A:['Lanes',A],B:['Route',B],C:['Outline',C],D:['Focus',D],E:['Layers',E],F:['Board',Fb],G:['Path',G],H:['Split',H]};
+function needCount(p){ return all(p).filter(t=>NEED.includes(st(p,t))).length; }
+function phaseNow(p){ const ts=all(p); for(const k of PHS){ if(ts.some(t=>phase(t)===k&&['wait','review','run','front'].includes(st(p,t)))) return PH[k]; } return ts.every(t=>st(p,t)==='done')?'All closed':'Blocked'; }
+function miniSq(p){ const ts=all(p); return `<span class="msq">${PHS.flatMap(k=>ts.filter(t=>phase(t)===k)).map(t=>`<i class="s-${st(p,t)}"></i>`).join('')}${fogOf(p).map(()=>'<i class="fog"></i>').join('')}</span>`; }
+function mapItem(p){ const c=counts(p), n=all(p).length, need=needCount(p);
+  return `<button class="mi ${p===P()?'on':''} ${p.parent?'child':''}" data-plan="${p.id}"><span class="top"><span class="nm">${esc(p.title)}</span>${need?`<span class="badge">${need}</span>`:''}</span>${p.parent?`<span class="par">↳ build map of ${esc(byId(p.parent).title)}</span>`:''}${miniSq(p)}<span class="ml">${phaseNow(p)}${c.run?` · ${c.run} working`:''} · ${c.done} of ${n} closed</span></button>`; }
+function side(){ const needs=PLANS.flatMap(p=>all(p).filter(t=>NEED.includes(st(p,t))).map(t=>[t.t,st(p,t)])).slice(0,5);
   return `<div class="side"><div class="brand">Curia</div><div class="row">✎ New conversation</div><div class="row on">◫ Maps</div><div class="row">◉ Overseer</div>
-    <div class="grp">Needs you</div>${needs.map(t=>`<div class="ch"><span class="dot s-wait"></span>${esc(t)}</div>`).join('')}
-    <div class="grp">Recent</div><div class="ch"><span class="dot s-run"></span>Qdrant as a sidecar</div><div class="ch"><span class="dot s-review"></span>Codex rewind</div><div class="ch"><span class="dot s-done"></span>Fix the ttyd font size</div></div>`; }
-function peekHtml(p){ const t=find(p,S.peek); if(!t) return ''; const s=st(p,t), w=t.by.map(b=>find(p,b)).filter(Boolean), u=unlocks(p,t);
+    <div class="grp">Needs you</div>${needs.map(t=>`<div class="ch"><span class="dot s-${t[1]}"></span>${esc(t[0])}</div>`).join('')}
+    <div class="grp">Recent</div><div class="ch"><span class="dot s-run"></span>Qdrant as a sidecar</div><div class="ch"><span class="dot s-run"></span>Claude adapter</div><div class="ch"><span class="dot s-done"></span>Fix the ttyd font size</div></div>`; }
+function peekHtml(p){ if(FAM.includes(S.variant)) return ''; const t=find(p,S.peek); if(!t) return ''; const s=st(p,t), w=t.by.map(b=>find(p,b)).filter(Boolean), u=unlocks(p,t);
   const bd=`<div style="display:flex;gap:8px;align-items:center"><span class="pill s-${s}">${LBL[s]}</span><span class="ty">${TY[t.ty]} · ${PH[phase(t)]}</span><span class="num">#${t.n}</span></div>
     <div class="h" style="font-size:16px;margin:8px 0">${esc(t.t)}</div>${t.g?`<div class="dim">Answer: ${esc(t.g)}</div>`:''}
     <div class="sec">Waits on</div>${w.map(x=>row(p,x,{sub:''})).join('')||'<div class="B-empty">Nothing</div>'}
     <div class="sec">Unlocks</div>${u.map(x=>row(p,x,{sub:''})).join('')||'<div class="B-empty">Nothing charted after it</div>'}`;
-  const ft=`<button class="btn primary" data-conv="${t.n}">Open conversation</button>${s==='front'?`<button class="btn" data-start="${t.n}">Start</button>`:''}${s!=='done'?`<button class="btn warn" data-out="${t.n}">Rule out of scope</button>`:''}<button class="btn" data-act="closepeek">Close</button>`;
+  const ft=`${acts(p,t).replace('<div class="acts">','').replace(/<\/div>$/,'')}<button class="btn" data-act="closepeek">Close</button>`;
   return S.device==='phone'?`<div class="scrim" data-act="closepeek"></div><div class="sheet"><div class="bd">${bd}</div><div class="ft">${ft}</div></div>`:`<div class="peek"><div class="bd">${bd}</div><div class="ft">${ft}</div></div>`; }
 function convHtml(p){ const t=S.conv==='dest'?null:find(p,S.conv); const title=t?t.t:'Change the destination of '+p.title; const s=t?st(p,t):'run';
   return `<div class="conv"><div class="status"><span class="dot s-${s}"></span>${t?LBL[s]:'charting agent'}<span style="flex:1"></span><button class="btn" data-act="back">← Back to the map</button></div>
-    <div class="h" style="font-size:16px;margin-bottom:14px">${esc(title)}</div>
-    <div class="msg"><div class="who">curia</div>${t&&t.g?`Resolved. ${esc(t.g)}.`:t?'This is the ticket conversation. Everything the agent says, asks, and publishes lands here.':'Tell me what the destination should become. I will propose the map changes and post them when you agree.'}</div>
-    <div class="dim" style="font-size:12.5px">Mock: the real page is the variant D conversation. The back button returns to the same map, variant, and scroll state.</div></div>`; }
-function desktop(){ const p=P();
-  const body=S.conv?`<div class="page">${convHtml(p)}</div>`:`${mapStrip()}<div class="page">${V[S.variant][1](p,false)}</div>${peekHtml(p)}`;
-  return `<div class="D">${side()}<div class="main"><div class="mhd"><span class="title">Maps</span><span class="dim" style="font-size:12.5px">· ${PLANS.length} maps · ${PLANS.reduce((a,p)=>a+needCount(p),0)} need you</span><span class="sp"></span><button class="btn ${S.reshape?'primary':''}" data-act="reshape">${S.reshape?'Done reshaping':'✎ Reshape'}</button></div>${body}${S.toast?`<div class="toast">${S.toast}</div>`:''}</div></div>`; }
+    <div class="h" style="font-size:16px;margin-bottom:14px">${esc(title)}</div>${t?preview(p,t):''}
+    <div class="dim" style="font-size:12.5px">Mock: the real page is the variant D conversation. The back button returns to the same map, variant, and selection.</div></div>`; }
+function desktop(){ const p=P(), need=PLANS.reduce((a,x)=>a+needCount(x),0);
+  const view=`<div class="page">${V[S.variant][1](p,false)}</div>${peekHtml(p)}`;
+  const hd=S.sel==='menu'
+    ? `<div class="mhd"><span class="dim" style="font-size:13px">Maps /</span><button class="mtitle" data-act="menu">${esc(p.title)} <span class="dim">▾</span>${need-needCount(p)?`<span class="badge" title="need you on other maps">${need-needCount(p)}</span>`:''}</button><span class="sp"></span><button class="btn ${S.reshape?'primary':''}" data-act="reshape">${S.reshape?'Done reshaping':'✎ Reshape'}</button></div>`
+    : `<div class="mhd"><span class="title">Maps</span><span class="dim" style="font-size:12.5px">· ${PLANS.length} maps · ${need} need you</span><span class="sp"></span><button class="btn ${S.reshape?'primary':''}" data-act="reshape">${S.reshape?'Done reshaping':'✎ Reshape'}</button></div>`;
+  const body=S.conv?`<div class="page">${convHtml(p)}</div>`:S.sel==='menu'?`<div style="flex:1;display:flex;flex-direction:column;min-height:0;position:relative;border-top:1px solid var(--line)">${view}</div>${S.menu?`<div class="scrim" style="background:transparent" data-act="closemenu"></div><div class="menu">${PLANS.map(mapItem).join('')}</div>`:''}`
+    : `<div class="split"><nav class="maplist">${PLANS.map(mapItem).join('')}</nav><div style="display:flex;flex-direction:column;min-height:0;min-width:0;position:relative">${view}</div></div>`;
+  return `<div class="D">${side()}<div class="main">${hd}${body}${S.toast?`<div class="toast">${S.toast}</div>`:''}</div></div>`; }
 function phone(){ const p=P();
   if(S.conv) return `<div class="P"><div class="phd"><button class="ib" data-act="back">‹</button><span class="title"><span>Conversation</span></span></div><div class="page">${convHtml(p)}</div></div>`;
-  const sheet=S.sheet==='maps'?`<div class="scrim" data-act="closesheet"></div><div class="sheet"><div class="bd"><div class="sec" style="margin-top:0">Maps</div>${PLANS.map(x=>`<button class="mapchip ${x===p?'on':''}" style="width:100%;margin-bottom:6px" data-plan="${x.id}"><span class="top"><span class="nm">${esc(x.title)}</span>${needCount(x)?`<span class="badge">${needCount(x)}</span>`:''}</span>${x.parent?`<span class="par">↳ build map of ${esc(byId(x.parent).title)}</span>`:''}${railHtml(x)}</button>`).join('')}</div></div>`:'';
-  return `<div class="P"><div class="phd"><button class="ib">☰</button><button class="title" data-act="maps"><span>${esc(p.title)}</span><span class="dim">▾</span>${PLANS.some(x=>x!==p&&needCount(x))?'<span class="badge">'+PLANS.filter(x=>x!==p).reduce((a,x)=>a+needCount(x),0)+'</span>':''}</button><button class="ib ${S.reshape?'on':''}" data-act="reshape" title="Reshape">✎</button></div>
-    <div class="page">${V[S.variant][1](p,true)}</div>${peekHtml(p)}${sheet}${S.toast?`<div class="toast">${S.toast}</div>`:''}</div>`; }
+  const others=PLANS.filter(x=>x!==p).reduce((a,x)=>a+needCount(x),0);
+  const sheet=S.sheet==='maps'?`<div class="scrim" data-act="closesheet"></div><div class="sheet"><div class="bd"><div class="sec" style="margin-top:0">Maps</div>${PLANS.map(mapItem).join('')}</div></div>`:'';
+  return `<div class="P"><div class="phd"><button class="ib">☰</button><button class="title" data-act="maps"><span>${esc(p.title)}</span><span class="dim">▾</span>${others?`<span class="badge">${others}</span>`:''}</button><button class="ib ${S.reshape?'on':''}" data-act="reshape" title="Reshape">✎</button></div>
+    <div class="page">${V[S.variant][1](p,true)}</div>${peekHtml(p)}${focusSheet(p,focusOf(p))}${sheet}${S.toast?`<div class="toast">${S.toast}</div>`:''}</div>`; }
 
+const FOCUS_ACTS='Selecting a ticket selects it in place. The selected ticket carries its actions: answer or review in the conversation, start, rule out of scope.';
 const STMT={
- A:{ always:'Five lanes by state: done (collapsed to the latest few), active, ready, blocked, not yet specified. Header with destination, counts, and changes since your last look.',
-     shows:'Where every ticket stands. Blocked tickets say what they wait on. It does not show phases or order toward the destination.',
-     scale:'Large plans collapse done and blocked. Lanes stay the same width, so a long blocked lane scrolls.' },
- B:{ always:'Four phases in order (Decide, Prototype, Build, Ship), then the destination. Each phase has progress and its tickets as stops; fog sits in the phase it belongs to. A marker says where the work is.',
-     shows:'How far the plan is from the destination and which stretch is live. Dependencies are implied by phase order, not drawn.',
-     scale:'Done collapses per phase. Blocked tickets past four collapse. A planning-only map has empty Build and Ship phases, which says so.' },
- C:{ always:'The map as a readable page in the conversation column: what changed, needs you, working now, up next, later (grouped by what each waits on), not yet specified, decided, and out of scope.',
-     shows:'What to do next and why the rest waits, in reading order. Decisions carry their gist. It does not show phases.',
-     scale:'Later groups and decisions collapse. The same page works on the phone without change.' },
- D:{ always:'A strip of every ticket as a square, by phase, colored by state. Below: one ticket in focus, what it waits on, and what it unlocks. Jump chips for what needs you and what is ready.',
-     shows:'Why a ticket is where it is, and what finishing it frees. The strip shows the whole plan at once without text.',
-     scale:'The strip grows by one square per ticket, so 40 tickets still fit. Deep chains read one step at a time.' },
+ A:{ name:'Lanes', always:'Five lanes by state: closed (latest few), active, ready, blocked, not yet specified.', shows:'Where every ticket stands. No phases or order.', scale:'Closed and blocked collapse.' },
+ B:{ name:'Route', always:'Four phases in order, then the destination, with a marker for the live phase.', shows:'How far the plan is from the destination.', scale:'Closed collapses per phase.' },
+ C:{ name:'Outline', always:'The map as a readable page: changes, needs you, working, up next, later by blocker, fog, decided.', shows:'What to do next and why the rest waits.', scale:'Groups collapse.' },
+ D:{ name:'Focus', always:'A strip of every ticket as a square, by phase. Below it, the selected ticket in the middle, what it waits on to the left, and what it unlocks to the right.', shows:'Why a ticket is where it is and what closing it frees. '+FOCUS_ACTS, scale:'One square per ticket, so 40 tickets fit on two rows. Deep chains read one step at a time.' },
+ E:{ name:'Layers', always:'The squares laid out in dependency order: each column can start when the columns before it close. Faint lines connect every ticket to its blockers, and the selected ticket’s lines are bright. Focus card, waits on, and unlocks below.', shows:'The shape of the plan: wide fan-outs, deep chains, and where work converges. '+FOCUS_ACTS, scale:'A deep plan gets many narrow columns; a wide plan gets tall ones. The whole plan stays on one screen.' },
+ F:{ name:'Board', always:'Every open ticket as a tile with its title and state, by phase. Closed tickets shrink to squares. The selected ticket sits in a side panel with the latest from its conversation.', shows:'The titles of everything open, readable without selecting. '+FOCUS_ACTS, scale:'Tiles wrap. A large build phase takes most of the page; closed phases shrink to one row of squares.' },
+ G:{ name:'Path', always:'The selected ticket with what came before it collapsed, then the longest route from it to the destination, step by step. A side list of what needs you, what runs, and what is ready picks the next ticket.', shows:'How far a ticket is from the destination and what stands between. '+FOCUS_ACTS, scale:'The path shows one route; the other open tickets at each step are counted, not listed.' },
+ H:{ name:'Split', always:'A text list of every ticket by phase on the left, closed collapsed. The selected ticket on the right with the latest from its conversation, what it waits on, and what it unlocks.', shows:'Every title at a glance, like a mail client. '+FOCUS_ACTS, scale:'The list scrolls on its own. No visual of the shape.' },
 };
-function guideHtml(){ const st=STMT[S.variant];
-  return `<h3>Variant ${S.variant}: ${V[S.variant][0]}</h3><div class="stmt"><b>On the page:</b> ${st.always}</div><div class="stmt"><b>What it shows first:</b> ${st.shows}</div><div class="stmt"><b>At scale:</b> ${st.scale}</div>
+function guideHtml(){ const s=STMT[S.variant];
+  return `<h3>Variant ${S.variant}: ${s.name}</h3><div class="stmt"><b>On the page:</b> ${s.always}</div><div class="stmt"><b>What it shows first:</b> ${s.shows}</div><div class="stmt"><b>At scale:</b> ${s.scale}</div>
+  <h3>Map selector (m)</h3><div class="stmt"><b>${S.sel==='list'?'List':'Menu'}:</b> ${S.sel==='list'?'A column of every map beside the overview. Each map shows its tickets as small squares, the live phase, and what needs you. Build maps sit under their planning map.':'The map name in the header opens a menu with the same entries. The overview gets the full width, and a badge counts what needs you on other maps.'}</div>
   <h3>Plan shapes</h3><div class="plans">${PLANS.map((p,i)=>`<button class="${i===S.plan?'on':''}" data-plan="${p.id}"><span class="k">${i+1}</span>${esc(p.title)}<span class="k">${esc(p.shape)}</span></button>`).join('')}</div>
-  <h3>Try on each variant</h3><ul><li>Say which phase the plan is in and how far the destination is.</li><li>Find what needs you on this map.</li><li>Say why a blocked ticket waits, and what finishing it frees.</li><li>Read what changed since your last look.</li><li>Rule a ticket out of scope, add one, and make a fog line a ticket (Reshape).</li><li>Start a ready ticket.</li><li>Open a ticket's conversation, then come back.</li><li>Do all of it on the phone, on plan 1 and plan 6.</li></ul>
-  <h3>Where each action happens (same in every variant)</h3><div class="stmt"><b>In the overview:</b> start a ready ticket, rule a ticket out of scope, add a ticket, make a fog line a ticket, reorder what is up next (Outline), switch maps, follow a planning map to its build map.</div>
-  <div class="stmt"><b>Opens a conversation:</b> answer an agent, retry a failure, resolve a decision, review a PR, and change the destination. Clicking a ticket opens a detail panel first (Lanes, Route, Outline); in Focus the center card is the detail.</div>
-  <div class="stmt"><b>Mock limits:</b> nothing posts to GitHub. Changes live until reload. The conversation is a stub.</div>`; }
+  <h3>Ticket states</h3><div class="stmt">Closed. Open and working (claimed, live session). Open and needs you (a question, or a review gate on a PR). Open and ready (takeable). Open and blocked. A session that dies releases its claim, so the ticket goes back to ready, and the map shows “claim released” as a change.</div>
+  <h3>Try on each variant</h3><ul><li>Say which phase the plan is in and how far the destination is.</li><li>Find what needs you on this map and on the others.</li><li>Say why a blocked ticket waits, and what closing it frees.</li><li>Read what changed since your last look.</li><li>Rule a ticket out of scope and add one (r).</li><li>Start a ready ticket.</li><li>Do all of it on the phone, on plan 1 and plan 3.</li></ul>
+  <h3>Earlier round</h3><div class="stmt">A Lanes, B Route, and C Outline are still at <code>?variant=A</code>, <code>B</code>, and <code>C</code>.</div>`; }
 
 /* ==================== RENDER + WIRING ==================== */
 const frame=document.getElementById('frame'), guide=document.getElementById('guide');
@@ -568,9 +703,10 @@ function render(){
   frame.className='frame '+S.device; frame.innerHTML=S.device==='phone'?phone():desktop();
   document.getElementById('vname').textContent=`${S.variant}: ${V[S.variant][0]}`;
   document.getElementById('dDesk').classList.toggle('on',S.device==='desktop'); document.getElementById('dPhone').classList.toggle('on',S.device==='phone');
-  document.getElementById('ph').textContent=`variant=${S.variant} device=${S.device} plan=${S.plan+1}${S.reshape?' reshape':''}`;
+  document.getElementById('selL').classList.toggle('on',S.sel==='list'); document.getElementById('selM').classList.toggle('on',S.sel==='menu');
+  document.getElementById('ph').textContent=`variant=${S.variant} device=${S.device} plan=${S.plan+1} maps=${S.sel}${S.reshape?' reshape':''}`;
   guide.innerHTML=guideHtml();
-  const u=new URL(location.href); u.searchParams.set('variant',S.variant); u.searchParams.set('device',S.device); u.searchParams.set('plan',S.plan+1); history.replaceState(null,'',u);
+  const u=new URL(location.href); u.searchParams.set('variant',S.variant); u.searchParams.set('device',S.device); u.searchParams.set('plan',S.plan+1); u.searchParams.set('maps',S.sel); history.replaceState(null,'',u);
 }
 let toastTimer; function toast(m){ S.toast=m; clearTimeout(toastTimer); toastTimer=setTimeout(()=>{S.toast=null;render();},2600); }
 function addTicket(where, title){ const p=P(); if(!title.trim()) return; const n=++addSeq; let by=[], ph;
@@ -581,30 +717,34 @@ document.body.addEventListener('click',e=>{
   const t=e.target.closest('[data-plan],[data-tk],[data-focus],[data-start],[data-out],[data-grad],[data-add],[data-exp],[data-conv],[data-act],[data-up],[data-dn]'); if(!t) return;
   const p=P(), d=t.dataset;
   if(d.start){ S.started[K(p,+d.start)]=1; toast(`Started ${esc(find(p,+d.start).t)}. An agent is dispatched; its conversation appears under Recent.`); }
-  else if(d.out){ S.oos[K(p,+d.out)]=1; if(S.peek===+d.out) S.peek=null; toast(`Ruled out of scope: closed on GitHub, one line added to Out of scope.`); }
+  else if(d.out){ S.oos[K(p,+d.out)]=1; if(S.peek===+d.out) S.peek=null; S.fsheet=false; toast(`Ruled out of scope: closed on GitHub, one line added to Out of scope.`); }
   else if(d.grad!=null){ const f=p.fog[+d.grad]; S.fogGone[K(p,'f'+d.grad)]=1; addTicket(f.ph?'ph-'+f.ph:'next', f.t.replace(/^./,c=>c.toUpperCase())+'?'); }
   else if(d.add){ const inp=frame.querySelector(`[data-addin="${d.add}"]`); addTicket(d.add, inp?inp.value:''); }
-  else if(d.plan){ S.plan=PLANS.findIndex(x=>x.id===d.plan); S.peek=null; S.sheet=null; }
-  else if(d.focus){ S.focus[p.id]=+d.focus; }
-  else if(d.tk){ if(S.variant==='D'){ S.focus[p.id]=+d.tk; S.peek=null; } else S.peek=S.peek===+d.tk?null:+d.tk; }
+  else if(d.plan){ S.plan=PLANS.findIndex(x=>x.id===d.plan); S.peek=null; S.sheet=null; S.menu=false; S.fsheet=false; }
+  else if(d.focus||(d.tk&&FAM.includes(S.variant))){ S.focus[p.id]=+(d.focus||d.tk); S.peek=null; if(S.device==='phone'&&['F','H'].includes(S.variant)) S.fsheet=true; }
+  else if(d.tk){ S.peek=S.peek===+d.tk?null:+d.tk; }
   else if(d.exp){ const k=K(p,d.exp); S.expand[k]=S.expand[k]===undefined&&d.default!==undefined?!(+d.default):!S.expand[k]; }
-  else if(d.conv){ S.conv=d.conv==='dest'?'dest':+d.conv; S.peek=null; }
+  else if(d.conv){ S.conv=d.conv==='dest'?'dest':+d.conv; S.peek=null; S.fsheet=false; }
   else if(d.up||d.dn){ const next=all(p).filter(x=>st(p,x)==='front'); let ord=S.order[p.id]||next.map(x=>x.n); next.forEach(x=>{ if(!ord.includes(x.n)) ord.push(x.n); });
     const n=+(d.up||d.dn), i=ord.indexOf(n), j=d.up?i-1:i+1; if(j>=0&&j<ord.length){ [ord[i],ord[j]]=[ord[j],ord[i]]; } S.order[p.id]=ord; toast('Frontier order changed. Would reorder the sub-issues on GitHub.'); }
-  else { const a=d.act; if(a==='reshape') S.reshape=!S.reshape; if(a==='closepeek') S.peek=null; if(a==='back') S.conv=null; if(a==='maps') S.sheet='maps'; if(a==='closesheet') S.sheet=null; }
+  else { const a=d.act; if(a==='reshape') S.reshape=!S.reshape; if(a==='closepeek') S.peek=null; if(a==='back') S.conv=null; if(a==='maps') S.sheet='maps'; if(a==='closesheet') S.sheet=null;
+    if(a==='menu') S.menu=!S.menu; if(a==='closemenu') S.menu=false; if(a==='closef') S.fsheet=false; }
   render();
 });
 document.body.addEventListener('keydown',e=>{ if(e.target.matches('[data-addin]')&&e.key==='Enter'){ addTicket(e.target.dataset.addin,e.target.value); render(); } });
-const VARS=['A','B','C','D'];
-const setVariant=v=>{ S.variant=v; S.peek=null; render(); };
-document.getElementById('prev').onclick=()=>setVariant(VARS[(VARS.indexOf(S.variant)+3)%4]);
-document.getElementById('next').onclick=()=>setVariant(VARS[(VARS.indexOf(S.variant)+1)%4]);
+const setVariant=v=>{ S.variant=v; S.peek=null; S.fsheet=false; render(); };
+const step=k=>{ const i=FAM.indexOf(S.variant); setVariant(i<0?FAM[0]:FAM[(i+k+FAM.length)%FAM.length]); };
+document.getElementById('prev').onclick=()=>step(-1);
+document.getElementById('next').onclick=()=>step(1);
 document.getElementById('dDesk').onclick=()=>{S.device='desktop';render();};
 document.getElementById('dPhone').onclick=()=>{S.device='phone';render();};
+document.getElementById('selL').onclick=()=>{S.sel='list';S.menu=false;render();};
+document.getElementById('selM').onclick=()=>{S.sel='menu';render();};
 document.addEventListener('keydown',e=>{ if(e.target.closest('input,textarea,[contenteditable]')) return;
-  if(e.key==='ArrowLeft') document.getElementById('prev').click(); if(e.key==='ArrowRight') document.getElementById('next').click();
+  if(e.key==='ArrowLeft') step(-1); if(e.key==='ArrowRight') step(1);
   if(e.key==='d'){ S.device=S.device==='phone'?'desktop':'phone'; render(); } if(e.key==='r'){ S.reshape=!S.reshape; render(); }
-  if(/^[1-7]$/.test(e.key)){ S.plan=+e.key-1; S.peek=null; render(); } });
+  if(e.key==='m'){ S.sel=S.sel==='list'?'menu':'list'; S.menu=false; render(); }
+  if(/^[1-7]$/.test(e.key)){ S.plan=+e.key-1; S.peek=null; S.fsheet=false; render(); } });
 render();
 </script>
 </body>

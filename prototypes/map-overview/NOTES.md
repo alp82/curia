@@ -11,8 +11,8 @@ Run it from the repository root:
 cd prototypes/map-overview && python3 -m http.server 9022 --bind 127.0.0.1
 ```
 
-Open <http://127.0.0.1:9022/?variant=A>. To switch the variant, use the floating bar or the Left Arrow and Right Arrow keys.
-Press `d` to switch between desktop and phone, `1` to `7` to switch the plan, and `r` to toggle reshape.
+Open <http://127.0.0.1:9022/?variant=D>. To switch the variant, use the floating bar or the Left Arrow and Right Arrow keys.
+Press `d` to switch between desktop and phone, `1` to `7` to switch the plan, `r` to toggle reshape, and `m` to switch the map selector between a list and a menu.
 
 | Variant | Name | What it shows first |
 | --- | --- | --- |
@@ -20,6 +20,20 @@ Press `d` to switch between desktop and phone, `1` to `7` to switch the plan, an
 | B | Route | Phases in order (Decide, Prototype, Build, Ship), then the destination, with a marker for the live stretch |
 | C | Outline | The map as a readable page: changes, needs you, working now, up next, later by blocker, fog, decided |
 | D | Focus | A strip of every ticket as a square, then one ticket with what it waits on and what it unlocks |
+
+## Round 2
+
+The operator saw potential in D and asked for more variations. Round 2 drops the invented failed state: a ticket is closed, or open and working, needing an answer, needing a review, ready, or blocked. A dead session releases its claim, which shows as a change. The stacked bars became squares, and the horizontal map strip became a list or a menu.
+
+| Variant | Name | What it shows first |
+| --- | --- | --- |
+| D | Focus | A square per ticket by phase, then the selected ticket between what it waits on and what it unlocks |
+| E | Layers | The squares in dependency order, with lines to blockers; the selected ticket's lines are bright |
+| F | Board | Every open ticket as a titled tile by phase; closed tickets shrink to squares; a side panel for the selected one |
+| G | Path | The selected ticket, then the longest route from it to the destination |
+| H | Split | A text list by phase beside the selected ticket and the latest from its conversation |
+
+The arrows cycle D to H. A to C stay reachable by `?variant=`.
 
 The seven plans differ in size and shape:
 
