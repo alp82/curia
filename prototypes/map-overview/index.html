@@ -369,7 +369,7 @@ input { font:inherit; color:inherit; }
 .zic text { pointer-events:none; }
 
 /* ===== round 6 ===== */
-.zfog.f-wbox, .zfog.f-warea, .zfog.f-wdrift { border:0; color:var(--dim); background:url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%2724%27%20height%3D%277%27%3E%3Cpath%20d%3D%27M0%203.5%20q3%20-2%206%200%20t6%200%20t6%200%20t6%200%27%20fill%3D%27none%27%20stroke%3D%27%239aa3b2%27%20stroke-opacity%3D%27.4%27%2F%3E%3C%2Fsvg%3E") 0 0 / 24px 7px repeat; -webkit-mask-image:linear-gradient(90deg, rgba(0,0,0,.35), #000 40%, #000 80%, rgba(0,0,0,.4)); mask-image:linear-gradient(90deg, rgba(0,0,0,.35), #000 40%, #000 80%, rgba(0,0,0,.4)); }
+.zfog.f-wbox, .zfog.f-warea, .zfog.f-wdrift { border:0; color:var(--dim); background:url("data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20width%3D%2724%27%20height%3D%277%27%3E%3Cpath%20d%3D%27M0%203.5%20q3%20-2%206%200%20t6%200%20t6%200%20t6%200%27%20fill%3D%27none%27%20stroke%3D%27%23c3cad6%27%20stroke-opacity%3D%27.75%27%20stroke-width%3D%271.2%27%2F%3E%3C%2Fsvg%3E") 0 0 / 24px 7px repeat; -webkit-mask-image:linear-gradient(90deg, rgba(0,0,0,.35), #000 40%, #000 80%, rgba(0,0,0,.4)); mask-image:linear-gradient(90deg, rgba(0,0,0,.35), #000 40%, #000 80%, rgba(0,0,0,.4)); }
 .zfog.f-wdrift { animation:zdr 6s linear infinite; }
 .zdrift { animation:zdrs 5s linear infinite; }
 @keyframes zdrs { from { transform:translateX(0); } to { transform:translateX(12px); } }
@@ -380,7 +380,7 @@ input { font:inherit; color:inherit; }
 </style>
 </head>
 <body>
-<div class="proto-head"><b>#1022 map overview</b> <span id="ph"></span> <span>· ←/→ variant · d device · 1-7 plan · f fog · b blocked · w layout · g grouping</span></div>
+<div class="proto-head"><b>#1022 map overview</b> <span id="ph"></span> <span>· ←/→ variant · d device · 1-7 plan · c colors</span></div>
 <div class="layout">
   <div class="stage"><div id="frame" class="frame desktop"></div></div>
   <aside class="guide" id="guide"></aside>
@@ -530,7 +530,7 @@ const PLANS=[
 /* ==================== STATE ==================== */
 const q=new URLSearchParams(location.search);
 const S={ variant:q.get('variant')||'L', device:q.get('device')||'desktop', plan:Math.max(0,Math.min(PLANS.length-1,(+q.get('plan')||1)-1)),
-  sel:q.get('maps')||'list', fm:q.get('fm')||'warea', bm:q.get('bm')||'red', wm:q.get('wm')||'both', gm:q.get('gm')||'square', menu:false, fsheet:false, reshape:false, peek:null, conv:null, sheet:null, expand:{}, focus:{}, oos:{}, added:{}, fogGone:{}, started:{}, toast:null, order:{} };
+  sel:q.get('maps')||'list', cm:q.get('cm')||'soft', fm:'wbox', bm:'red', wm:'both', gm:'square', menu:false, fsheet:false, reshape:false, peek:null, conv:null, sheet:null, expand:{}, focus:{}, oos:{}, added:{}, fogGone:{}, started:{}, toast:null, order:{} };
 let addSeq=9000;
 
 /* ==================== MODEL HELPERS ==================== */
@@ -955,23 +955,31 @@ let encHtml=function(){ return Object.keys(ENC).map(k=>`<h3>${ENCN[k]} (${k==='t
 
 /* ==================== ROUND 5: color + letter, fog, blocked, grouping ==================== */
 const TC={research:'#b794f4',grill:'#68d391',proto:'#f687b3',task:'#a0aec0',impl:'#7aa2f7',deploy:'#f6ad55'};
-const ENC5={fm:[['wbox','Wavy boxes'],['warea','Wavy area'],['wdrift','Drifting area']],bm:[['gray','Grayed'],['soft','Soft hollow'],['red','Red stripes'],['redgray','Red on gray']],wm:[['stack','Stack'],['cols','Wrap'],['both','Wrap both']],gm:[['tight','Tight'],['panel','Panel'],['square','Square']]};
-const ENCN5={fm:['Fog','f'],bm:['Blocked','b'],wm:['Layout','w'],gm:['Grouping','g']};
+const ENC5={cm:[['vivid','Vivid'],['soft','Soft'],['tint','Tint'],['letter','Letter'],['bar','Bar']]};
+const ENCN5={cm:['Colors','c']};
 function lockBadge(x,y,r){ return `<g transform="translate(${x-r} ${y-r})"><circle cx="${r}" cy="${r}" r="${r+2}" fill="#0b0c10"/><circle cx="${r}" cy="${r}" r="${r+.5}" fill="#3a404b"/><rect x="${r*.45}" y="${r*.9}" width="${r*1.1}" height="${r*.85}" rx="1" fill="#e6e9ef"/><path d="M${r*.65} ${r*.95} V${r*.62} a${r*.35} ${r*.35} 0 0 1 ${r*.7} 0 V${r*.95}" fill="none" stroke="#e6e9ef" stroke-width="1.4"/></g>`; }
 let zcid=0;
-function node5(t,s,x,y,H,mini){ const c=TC[t.ty]||'#a0aec0', L=TYL[t.ty]||'?', rx=H*.28; let pre='', post='', fill=c, op=1, lc='#0b0c10', lo=1, stroke='none', dash='';
-  if(s==='done'){ op=.28; lc=c; lo=.95; }
-  if(s==='blocked'){ if(S.bm==='gray'||S.bm==='redgray'){ fill='#262b33'; lc=c; lo=S.bm==='gray'?.55:.8; } else if(S.bm==='soft'){ fill='#0b0c10'; stroke=c; lc=c; lo=.5; } else { op=.3; lc=c; } }
-  const box=`<rect x="${x}" y="${y}" width="${H}" height="${H}" rx="${rx}" fill="${fill}" fill-opacity="${op}" ${stroke!=='none'?`stroke="${stroke}" stroke-width="1" stroke-opacity=".45"`:''}/>`;
-  if(s==='blocked'&&(S.bm==='red'||S.bm==='redgray')){ const id='zc'+(++zcid); let ln=''; for(let k=-H;k<H*2;k+=4.5) ln+=`<line x1="${x+k}" y1="${y+H}" x2="${x+k+H}" y2="${y}"/>`; post+=`<clipPath id="${id}"><rect x="${x}" y="${y}" width="${H}" height="${H}" rx="${rx}"/></clipPath><g clip-path="url(#${id})" stroke="#9b2a2a" stroke-width="1.8" stroke-opacity=".9">${ln}</g>`; }
-  if(s==='blocked'&&(S.bm==='red'||S.bm==='redgray')) post+=`<rect x="${x+.5}" y="${y+.5}" width="${H-1}" height="${H-1}" rx="${rx}" fill="none" stroke="#8a2323" stroke-opacity=".7"/>`;
-  if(s==='done') post+=`<rect x="${x+.5}" y="${y+.5}" width="${H-1}" height="${H-1}" rx="${rx}" fill="none" stroke="${c}" stroke-opacity=".35"/>`;
+function pal(c,s){ const dim=s==='done'||s==='blocked';
+  switch(S.cm){
+    case 'soft': return dim?{fill:c,fo:.08,st:c,so:.3,lc:c,lo:.55}:{fill:c,fo:.2,st:c,so:.75,lc:c,lo:1};
+    case 'tint': return dim?{fill:c,fo:.07,lc:c,lo:.5}:{fill:c,fo:.2,lc:c,lo:1};
+    case 'letter': return dim?{fill:'#171a20',fo:1,lc:c,lo:.45}:{fill:'#1f242c',fo:1,lc:c,lo:1};
+    case 'bar': return dim?{fill:'#171a20',fo:1,lc:'#8b94a3',lo:.55,bar:c,bo:.45}:{fill:'#1f242c',fo:1,lc:'#e6e9ef',lo:1,bar:c,bo:1};
+    default: return dim?{fill:c,fo:.28,lc:c,lo:.95,edge:1}:{fill:c,fo:1,lc:'#0b0c10',lo:1}; } }
+function node5(t,s,x,y,H,mini){ const neutral=t.ty==='_', c=neutral?'#8b94a3':(TC[t.ty]||'#a0aec0'), L=neutral?'':(TYL[t.ty]||'?'), rx=H*.28;
+  const P=neutral?{fill:'none',fo:0,st:'#8b94a3',so:s==='done'?.35:.7}:pal(c,s); let pre='', post='';
+  const box=`<rect x="${x}" y="${y}" width="${H}" height="${H}" rx="${rx}" fill="${P.fill}" fill-opacity="${P.fo}" ${P.st?`stroke="${P.st}" stroke-opacity="${P.so}" stroke-width="1"`:''}/>`
+    +(P.bar?`<rect x="${x+2}" y="${y+3}" width="${Math.max(2,H*.12)}" height="${H-6}" rx="1" fill="${P.bar}" fill-opacity="${P.bo}"/>`:'');
+  if(s==='done'&&P.edge) post+=`<rect x="${x+.5}" y="${y+.5}" width="${H-1}" height="${H-1}" rx="${rx}" fill="none" stroke="${c}" stroke-opacity=".35"/>`;
+  if(s==='done'&&neutral) post+=`<path d="M${x+H*.28} ${y+H*.52} L${x+H*.45} ${y+H*.68} L${x+H*.74} ${y+H*.34}" fill="none" stroke="#8b94a3" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>`;
+  const lc=P.lc, lo=P.lo;
+  if(s==='blocked'){ const heavy=neutral||S.cm==='vivid', id='zc'+(++zcid); let ln=''; for(let k=-H;k<H*2;k+=4.5) ln+=`<line x1="${x+k}" y1="${y+H}" x2="${x+k+H}" y2="${y}"/>`; post+=`<clipPath id="${id}"><rect x="${x}" y="${y}" width="${H}" height="${H}" rx="${rx}"/></clipPath><g clip-path="url(#${id})" stroke="#a83232" stroke-width="${heavy?1.8:1.1}" stroke-opacity="${heavy?.9:.6}">${ln}</g><rect x="${x+.5}" y="${y+.5}" width="${H-1}" height="${H-1}" rx="${rx}" fill="none" stroke="#8a2323" stroke-opacity="${heavy?.7:.5}"/>`; }
   const ring=(col,d,w=2)=>`<rect x="${x-d}" y="${y-d}" width="${H+2*d}" height="${H+2*d}" rx="${rx+d}" fill="none" stroke="${col}" stroke-width="${w}"/>`;
-  if((s==='wait'||s==='review')&&!mini){ pre+=`<rect x="${x-3}" y="${y-3}" width="${H+6}" height="${H+6}" rx="${rx+3}" fill="${NC.need}" filter="url(#zglow)" opacity=".7"/>`; post+=ring(NC.need,3); }
+  if((s==='wait'||s==='review')&&!mini){ if(!neutral) pre+=`<rect x="${x-3}" y="${y-3}" width="${H+6}" height="${H+6}" rx="${rx+3}" fill="${NC.need}" filter="url(#zglow)" opacity=".7"/>`; post+=ring(NC.need,3); }
   if((s==='wait'||s==='review')&&mini) post+=ring(NC.need,1.5,1.5);
   if(s==='run'&&!mini) post+=`<g class="zpulse">${ring(NC.work,3)}</g>`+ring(NC.work,3,1.2);
   if(s==='run'&&mini) post+=ring(NC.work,1.5,1.5);
-  post+=`<text x="${x+H/2}" y="${y+H/2+H*.18}" text-anchor="middle" font-size="${Math.round(H*.52)}" font-weight="700" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" fill="${lc}" fill-opacity="${lo}">${L}</text>`;
+  if(L) post+=`<text x="${x+H/2+(P.bar?H*.06:0)}" y="${y+H/2+H*.18}" text-anchor="middle" font-size="${Math.round(H*.52)}" font-weight="700" font-family="ui-monospace,SFMono-Regular,Menlo,monospace" fill="${lc}" fill-opacity="${lo}">${L}</text>`;
   return pre+box+post; }
 function ghost5(x,y,H){ return `<rect x="${x}" y="${y}" width="${H}" height="${H}" rx="${H*.28}" fill="#8b94a3" fill-opacity=".10" stroke="#8b94a3" stroke-opacity=".22" stroke-dasharray="2 3"/>`; }
 const DEFS5=`<svg width="1" height="1" style="position:absolute;left:-10px;top:-10px;overflow:hidden" aria-hidden="true"><defs>
@@ -987,7 +995,7 @@ const DEFS5=`<svg width="1" height="1" style="position:absolute;left:-10px;top:-
   <linearGradient id="zmist" x1="0" x2="1"><stop offset="0" stop-color="#9aa3b2" stop-opacity="0"/><stop offset="1" stop-color="#9aa3b2" stop-opacity=".22"/></linearGradient></defs></svg>`;
 function wave(x,y,w,a,per){ let d=`M${x} ${y}`; for(let k=0;k<w;k+=per){ d+=` q${per/4} ${-a} ${per/2} 0 t${per/2} 0`; } return d; }
 function fogLayer(fp,H,W,Ht){ if(!fp.length) return '';
-  if(S.fm==='wbox') return fp.map((q,i)=>{ const x=q.x+2, y=q.y+2, id='zfc'+i; return `<clipPath id="${id}"><rect x="${x}" y="${y}" width="${H}" height="${H}" rx="${H*.28}"/></clipPath><rect x="${x}" y="${y}" width="${H}" height="${H}" rx="${H*.28}" fill="#8b94a3" fill-opacity=".06" stroke="#8b94a3" stroke-opacity=".25"/><g clip-path="url(#${id})" stroke="#9aa3b2" stroke-opacity=".55" fill="none" stroke-width="1.1">${[.3,.55,.8].map((f,k)=>`<path d="${wave(x-6+(k%2)*3,y+H*f,H+12,1.6,6)}"/>`).join('')}</g>`; }).join('');
+  if(S.fm==='wbox') return fp.map((q,i)=>{ const x=q.x+2, y=q.y+2, id='zfc'+i; return `<clipPath id="${id}"><rect x="${x}" y="${y}" width="${H}" height="${H}" rx="${H*.28}"/></clipPath><rect x="${x}" y="${y}" width="${H}" height="${H}" rx="${H*.28}" fill="#8b94a3" fill-opacity=".08" stroke="#aab3c2" stroke-opacity=".5"/><g clip-path="url(#${id})" stroke="#d3d9e3" stroke-opacity=".9" fill="none" stroke-width="1.4">${[.3,.55,.8].map((f,k)=>`<path d="${wave(x-6+(k%2)*3,y+H*f,H+12,1.6,6)}"/>`).join('')}</g>`; }).join('');
   const x0=Math.min(...fp.map(q=>q.x)), ys=fp.map(q=>q.y), by=Math.min(...ys)-18, bh=Math.max(...ys)+H+36-by, bx=x0-14, bw=Math.max(...fp.map(q=>q.x))+H+30-bx;
   let lines=''; for(let yy=by+4; yy<by+bh; yy+=5.5){ lines+=`<path d="${wave(bx-24,yy,bw+48,1.5,12)}"/>`; }
   return `<clipPath id="zfa"><rect x="${bx}" y="${by}" width="${bw}" height="${bh}" rx="14"/></clipPath>${fp.map(q=>`<rect x="${q.x+2}" y="${q.y+2}" width="${H}" height="${H}" rx="${H*.28}" fill="none" stroke="#8b94a3" stroke-opacity=".35"/>`).join('')}
@@ -999,7 +1007,7 @@ zrow=function(p,t){ const s=st(p,t), w=zWord(s);
 zFog=function(p){ const f=fogOf(p); return f.length?`<div class="zsec">Not yet specified <span>${f.length}</span></div>${f.map(x=>`<div class="zfog f-${S.fm}">${esc(x.t)}</div>`).join('')}`:''; };
 function key5(fog){ const sm=(ty,s)=>`<svg class="zic" width="22" height="22" viewBox="-3 -3 22 22" aria-hidden="true">${node5({ty},s,0,0,16,s!=='run'&&s!=='wait')}</svg>`;
   return `<div class="zkey">${Object.keys(TYN).map(k=>`<span>${sm(k,'front')}${TYN[k]}</span>`).join('')}</div>
-    <div class="zkey"><span>${sm('grill','wait')}needs you</span><span>${sm('grill','run')}working</span><span>${sm('grill','front')}ready</span><span>${sm('grill','blocked')}blocked</span><span>${sm('grill','done')}closed</span>${fog?`<span><svg width="22" height="22" viewBox="-3 -3 22 22"><clipPath id="zkc"><rect width="16" height="16" rx="4.5"/></clipPath><rect width="16" height="16" rx="4.5" fill="none" stroke="#8b94a3" stroke-opacity=".3"/><g clip-path="url(#zkc)" stroke="#9aa3b2" stroke-opacity=".6" fill="none">${[5,9,13].map(y=>`<path d="${wave(-6,y,28,1.6,6)}"/>`).join('')}</g></svg>not yet specified</span>`:''}</div>`; }
+    <div class="zkey"><span>${sm('_','wait')}needs you</span><span>${sm('_','run')}working</span><span>${sm('_','front')}ready</span><span>${sm('_','blocked')}blocked</span><span>${sm('_','done')}closed</span>${fog?`<span><svg width="22" height="22" viewBox="-3 -3 22 22"><clipPath id="zkc"><rect width="16" height="16" rx="4.5"/></clipPath><rect width="16" height="16" rx="4.5" fill="none" stroke="#aab3c2" stroke-opacity=".5"/><g clip-path="url(#zkc)" stroke="#d3d9e3" stroke-opacity=".9" stroke-width="1.3" fill="none">${[5,9,13].map(y=>`<path d="${wave(-6,y,28,1.6,6)}"/>`).join('')}</g></svg>not yet specified</span>`:''}</div>`; }
 zGraph=function(p, maxW, phone){ const ts=all(p), Lv=levels(p), fog=fogOf(p), sel=zSel(p);
   const nL=Math.max(0,...Object.values(Lv))+1, cols=[...Array(nL)].map(()=>[]);
   ts.forEach(t=>cols[Lv[t.n]].push(t)); cols.forEach(c=>c.sort((a,b)=>(st(p,a)==='done'?0:1)-(st(p,b)==='done'?0:1)||PHS.indexOf(phase(a))-PHS.indexOf(phase(b))));
@@ -1039,7 +1047,7 @@ function render(){
   document.getElementById('selL').classList.toggle('on',S.sel==='list'); document.getElementById('selM').classList.toggle('on',S.sel==='menu');
   document.getElementById('ph').textContent=`variant=${S.variant} device=${S.device} plan=${S.plan+1} maps=${S.sel}${S.reshape?' reshape':''}`;
   guide.innerHTML=guideHtml();
-  const u=new URL(location.href); u.searchParams.set('variant',S.variant); u.searchParams.set('device',S.device); u.searchParams.set('plan',S.plan+1); u.searchParams.set('maps',S.sel); ['fm','bm','wm','gm'].forEach(k=>u.searchParams.set(k,S[k])); history.replaceState(null,'',u);
+  const u=new URL(location.href); u.searchParams.set('variant',S.variant); u.searchParams.set('device',S.device); u.searchParams.set('plan',S.plan+1); u.searchParams.set('maps',S.sel); u.searchParams.set('cm',S.cm); history.replaceState(null,'',u);
 }
 let toastTimer; function toast(m){ S.toast=m; clearTimeout(toastTimer); toastTimer=setTimeout(()=>{S.toast=null;render();},2600); }
 function addTicket(where, title){ const p=P(); if(!title.trim()) return; const n=++addSeq; let by=[], ph;
@@ -1087,7 +1095,7 @@ document.getElementById('selM').onclick=()=>{S.sel='menu';render();};
 document.addEventListener('keydown',e=>{ if(e.target.closest('input,textarea,[contenteditable]')) return;
   if(e.key==='ArrowLeft') step(-1); if(e.key==='ArrowRight') step(1);
   if(e.key==='d'){ S.device=S.device==='phone'?'desktop':'phone'; render(); } if(e.key==='r'){ S.reshape=!S.reshape; render(); }
-  const cyc=k=>{ const l=ENC5[k].map(x=>x[0]); S[k]=l[(l.indexOf(S[k])+1)%l.length]; render(); }; if(e.key==='f') cyc('fm'); if(e.key==='b') cyc('bm'); if(e.key==='w') cyc('wm'); if(e.key==='g') cyc('gm');
+  const cyc=k=>{ const l=ENC5[k].map(x=>x[0]); S[k]=l[(l.indexOf(S[k])+1)%l.length]; render(); }; if(e.key==='c') cyc('cm');
   if(e.key==='m'){ S.sel=S.sel==='list'?'menu':'list'; S.menu=false; render(); }
   if(/^[1-7]$/.test(e.key)){ S.plan=+e.key-1; S.zsel=null; S.zmore=false; S.peek=null; S.fsheet=false; render(); } });
 render();

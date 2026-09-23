@@ -78,6 +78,10 @@ The operator chose wrap both for the layout and square for the grouping, which a
 
 SVG patterns in the shared definitions did not render, so the stripes are drawn as lines clipped to each box.
 
+## Round 7
+
+The operator fixed fog as wavy boxes, with stronger waves, and blocked as red stripes. Layout (wrap both) and grouping (square) were fixed in round 6. The only switch left is the palette (`c`), because vivid looked heavy: vivid, soft (tint with a thin border and a colored letter), tint (no border), letter (neutral box, colored letter), and bar (neutral box, colored left bar). Stripes are lighter on every palette except vivid. The state legend uses empty boxes, so it shows only the state marking.
+
 The seven plans differ in size and shape:
 
 1. Large and mixed: decisions, build, and ship on one map (32 tickets).
