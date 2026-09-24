@@ -79,3 +79,7 @@ move to the preset model.
 
 Settings, Connections shows one row per provider in all three. The arrows cycle E to G; A to D stay reachable by `?variant=`.
 Scenario 6, **Two AI providers**, sets each moment.
+
+**Verdict (September 24, 2026):** the operator chose A, Checklist, with E's provider rows for the AI logins, and a one-line
+status beside **AI logins**: "At least one required", "Add the other to cross-check pull requests", or "Both signed in".
+The Test run is dropped completely: a new operator starts using the app. See the resolution on the ticket.
