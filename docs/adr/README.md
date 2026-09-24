@@ -59,4 +59,4 @@ One file per standing decision. A decision earns an ADR when it still constrains
 - [ADR-0011](0011-tailscale-identity-in-front-of-every-attach-surface.md): Tailscale identity gates every attach surface, reads included. Tailnet membership is no longer the control.
 
 - [ADR-0032](0032-the-app-orders-updates-through-a-detached-runner.md): Settings starts an operator-approved update in a detached sibling using the existing CLI lifecycle. Progress survives service replacement.
-- [ADR-0033](0033-discord-is-optional-and-work-needs-github-and-a-model.md): Starting work needs GitHub and one AI login. Discord is optional, Tailscale is a host prerequisite, and the Test run gates nothing.
+- [ADR-0033](0033-discord-is-optional-and-work-needs-github-and-a-model.md): Starting work needs GitHub and one AI login. Discord is optional, Tailscale is a host prerequisite, and Curia drops the Test run.

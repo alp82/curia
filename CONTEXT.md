@@ -59,7 +59,7 @@ The one readiness decision of integration setup ([#880](https://github.com/alp82
 _Avoid_: setup complete, readiness flag, workflow state.
 
 **Work gate**:
-The one readiness decision for starting agent work ([ADR-0033](docs/adr/0033-discord-is-optional-and-work-needs-github-and-a-model.md)): ready when GitHub and at least one AI login verify on the current read. Discord and the Test run don't take part.
+The one readiness decision for starting agent work ([ADR-0033](docs/adr/0033-discord-is-optional-and-work-needs-github-and-a-model.md)): ready when GitHub and at least one AI login verify on the current read. Discord doesn't take part.
 _Avoid_: setup complete, Full-loop gate when referring to this decision.
 
 **Command channel**:
