@@ -60,3 +60,22 @@ verification fail.
 - Links to GitHub, providers, and Discord show a toast.
 - The overseer and the repository picker are stubs.
 - The first task advances on timers and on your answers.
+
+## Round 2
+
+The operator chose A and found adding a second AI provider convoluted: the second one is easy to miss. In A, the checklist
+disappears as soon as the first provider verifies, so the second provider only lives inside the AI login row of Settings.
+
+Round 2 keeps A and varies only how it offers the second provider. Each variant says what the second provider buys, from
+`docs/operator/integration-setup.md`: with both, a pull request can be cross-checked on the other provider's model, and every
+ticket type runs on the model routing names for it. With one, the cross-check for that provider is refused and some types
+move to the preset model.
+
+| Variant | Name | How the second provider shows |
+| --- | --- | --- |
+| E | Provider rows | OpenAI and Anthropic are rows of their own under **AI logins**. After the first signs in, the other stays in view as optional. The checklist stays until both sign in, you hide it, or the first task starts. |
+| F | Follow-up | One **AI login** row. After the first provider verifies, the row asks once: "Do you also have a Claude subscription?" with **Sign in** and **Not now**. |
+| G | Ask first | The **AI login** row asks which subscriptions you have, then signs in to each one in turn, one sign-in at a time. |
+
+Settings, Connections shows one row per provider in all three. The arrows cycle E to G; A to D stay reachable by `?variant=`.
+Scenario 6, **Two AI providers**, sets each moment.
