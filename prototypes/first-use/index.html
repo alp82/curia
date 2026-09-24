@@ -1,0 +1,639 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Curia first use</title>
+<!--
+  THROWAWAY PROTOTYPE for alp82/curia#1024 "Choose a simpler first-use and configuration experience".
+  Four first-use and configuration variants inside the variant D shell (#1021), switchable via ?variant=A|B|C|D,
+  device via ?device=desktop|phone, first useful outcome via ?outcome=test|task. Static mock, in-memory state, no persistence.
+    A: Checklist   (two rows on the landing page until work can start; one Settings page)
+    B: Guide       (a focused first-run guide without the sidebar; Connections and Settings are two destinations)
+    C: On demand   (no setup screen; the first task asks for what's missing when you send it)
+    D: Setup chat  (setup is a conversation with Curia; question cards carry each step)
+-->
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+:root { color-scheme:dark; }
+html,body { background:#191c22; }
+body { font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color:#e6e9ef; }
+button { font:inherit; color:inherit; background:none; border:0; cursor:pointer; text-align:inherit; }
+input { font:inherit; color:inherit; }
+
+/* ===== prototype shell (not part of any design) ===== */
+.proto-head { position:sticky; top:0; z-index:40; background:#0e1013; color:#8b94a3; font:11px/1.4 ui-monospace,Menlo,monospace; padding:8px 12px; border-bottom:1px solid #23272f; display:flex; gap:16px; flex-wrap:wrap; }
+.proto-head b { color:#cdd5e0; }
+.layout { display:grid; grid-template-columns:1fr 360px; min-height:calc(100vh - 34px); }
+@media (max-width:1100px){ .layout { grid-template-columns:1fr; } .guide { position:static !important; height:auto !important; } }
+.stage { padding:16px 8px 120px; display:flex; justify-content:center; align-items:flex-start; overflow:auto; }
+.frame { box-shadow:0 8px 40px rgba(0,0,0,.5); border-radius:14px; overflow:hidden; position:relative; background:var(--bg); color:var(--ink); }
+.frame.desktop { width:1280px; height:800px; }
+.frame.phone { width:390px; height:780px; border-radius:36px; border:6px solid #2a2f38; }
+.guide { position:sticky; top:34px; height:calc(100vh - 34px); overflow:auto; background:#0e1013; border-left:1px solid #23272f; padding:14px; font-size:13px; color:#cdd5e0; line-height:1.45; }
+.guide h3 { font-size:12px; text-transform:uppercase; letter-spacing:.08em; color:#8b94a3; margin:16px 0 6px; }
+.guide .stmt { background:#12151b; border-radius:8px; padding:10px; margin-bottom:8px; }
+.guide .stmt b { color:#9fd1ff; }
+.guide .sc { background:#12151b; border-radius:8px; padding:8px; margin-bottom:6px; }
+.guide .sc > div { font-weight:600; margin-bottom:4px; }
+.guide .sc button { display:block; width:100%; text-align:left; padding:5px 8px; border-radius:6px; font-size:12.5px; color:#cdd5e0; }
+.guide .sc button:hover { background:#1a1f28; }
+.guide .sc button.on { background:#1f3a2f; outline:1px solid #2f7a5a; }
+.guide .free { display:flex; flex-wrap:wrap; gap:4px; }
+.guide .free button { padding:4px 8px; border-radius:6px; background:#161a21; font-size:11.5px; }
+.guide .free button.on { background:#273043; color:#fff; }
+.guide pre { font:11px/1.5 ui-monospace,Menlo,monospace; background:#12151b; border-radius:8px; padding:8px; white-space:pre-wrap; color:#8b94a3; }
+.bar { position:fixed; left:calc((100vw - 360px)/2); bottom:14px; transform:translateX(-50%); z-index:50; display:flex; align-items:center; gap:4px; padding:6px; background:#0e1013; border:1px solid #2c313b; border-radius:999px; box-shadow:0 6px 24px rgba(0,0,0,.55); font:12px/1 ui-monospace,Menlo,monospace; color:#cdd5e0; white-space:nowrap; }
+@media (max-width:1100px){ .bar { left:50%; } }
+.bar button { min-width:40px; min-height:40px; border-radius:999px; padding:0 10px; }
+.bar button:hover { background:#1c212a; }
+.bar .name { min-width:170px; text-align:center; font-weight:600; }
+.bar .sep { width:1px; height:22px; background:#2c313b; }
+.bar .tog.on { background:#273043; color:#fff; }
+
+/* ===== app tokens (variant D register) ===== */
+.frame { --bg:#0b0c10; --raise:#15181f; --raise2:#1b1f28; --inset:#08090c; --line:#232833; --ink:#e6e9ef; --dim:#8b94a3; --faint:#555d6b; --accent:#5ec8e5;
+  --warn:#f2c14e; --bad:#ff6b6b; --good:#5ad38a; --run:#5ec8e5; font-size:14px; line-height:1.5; }
+.dim { color:var(--dim); } .faint { color:var(--faint); } .h { font-weight:600; }
+.mono { font-family:ui-monospace,Menlo,monospace; }
+.dot { display:inline-block; width:8px; height:8px; border-radius:50%; background:var(--faint); flex:none; }
+.dot.ok { background:var(--good); } .dot.run { background:var(--run); box-shadow:0 0 0 3px rgba(94,200,229,.2); } .dot.wait { background:var(--warn); }
+.dot.bad { background:var(--bad); } .dot.off { background:transparent; box-shadow:inset 0 0 0 1.5px var(--faint); }
+.btn { display:inline-flex; align-items:center; gap:6px; padding:7px 14px; border-radius:10px; font-size:13px; background:var(--raise2); border:1px solid var(--line); flex:none; }
+.btn:hover { border-color:#39404d; }
+a.btn { color:var(--ink); text-decoration:none; }
+.btn.pri { background:var(--ink); color:var(--bg); border-color:var(--ink); font-weight:600; }
+.btn.pri:hover { background:#fff; }
+.btn.quiet { background:none; border-color:transparent; color:var(--dim); } .btn.quiet:hover { color:var(--ink); background:var(--raise); }
+.btn[disabled] { opacity:.45; cursor:default; }
+.link { color:var(--accent); } .link:hover { text-decoration:underline; }
+.fld { display:flex; flex-direction:column; gap:4px; font-size:12.5px; color:var(--dim); margin:8px 0; }
+.fld input { background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:7px 10px; font-size:13.5px; color:var(--ink); }
+.fld input:focus { outline:none; border-color:var(--accent); }
+.code { font:600 20px ui-monospace,Menlo,monospace; letter-spacing:.12em; background:var(--bg); border:1px solid var(--line); border-radius:10px; padding:8px 14px; display:inline-block; }
+.checks { list-style:none; font-size:12.5px; margin:8px 0; display:flex; flex-direction:column; gap:3px; }
+.checks li { display:flex; gap:8px; align-items:center; } .checks li.no { color:var(--bad); } .checks li.pend { color:var(--faint); }
+.repo { display:flex; gap:8px; align-items:center; padding:5px 0; font-size:13.5px; }
+.err { border:1px solid rgba(255,107,107,.35); background:rgba(255,107,107,.07); border-radius:10px; padding:10px 12px; font-size:13px; margin:8px 0; }
+.err b { color:var(--bad); font-weight:600; }
+.note { font-size:12.5px; color:var(--dim); }
+.row2 { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:10px; }
+.toast { position:absolute; left:50%; transform:translateX(-50%); bottom:24px; background:#1d2230; border:1px solid var(--line); border-radius:12px; padding:9px 14px; font-size:12.5px; z-index:60; box-shadow:0 8px 24px rgba(0,0,0,.5); max-width:90%; }
+
+/* shell: sidebar + main */
+.Dk { display:grid; grid-template-columns:250px 1fr; height:100%; }
+.side { background:var(--inset); display:flex; flex-direction:column; padding:14px 10px; gap:2px; overflow:hidden; height:100%; }
+.side .brand { font-weight:700; font-size:15px; padding:6px 10px 12px; }
+.side .row { display:flex; align-items:center; gap:8px; padding:8px 10px; border-radius:10px; color:var(--dim); font-size:13.5px; width:100%; }
+.side .row:hover, .side .row.on { background:var(--raise); color:var(--ink); }
+.side .row .ic { width:18px; text-align:center; opacity:.8; }
+.side .row .sp { flex:1; }
+.side .grp { font-size:11px; color:var(--dim); padding:14px 10px 4px; letter-spacing:.06em; text-transform:uppercase; }
+.side .ch { display:flex; gap:8px; align-items:center; width:100%; padding:7px 10px; border-radius:10px; font-size:13.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.side .ch:hover, .side .ch.on { background:var(--raise); }
+.side .ch .dot { width:6px; height:6px; }
+.side .fill { flex:1; }
+.side .foot { border-top:1px solid var(--line); padding-top:8px; display:flex; flex-direction:column; gap:2px; }
+.side .fact { font-size:11.5px; color:var(--faint); padding:4px 10px; display:flex; gap:6px; align-items:center; }
+.side .fact.bad { color:var(--bad); }
+.main { position:relative; display:flex; flex-direction:column; min-width:0; overflow:hidden; height:100%; }
+.hd { display:flex; align-items:center; gap:10px; padding:12px 24px; min-height:52px; }
+.hd .title { font-weight:600; font-size:14.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.hd .sp { flex:1; }
+.scroll { flex:1; overflow:auto; padding:8px 24px 40px; }
+.col { max-width:760px; margin:0 auto; }
+.home { max-width:720px; margin:0 auto; padding-top:10vh; }
+.home h2 { font-size:26px; font-weight:600; text-align:center; margin-bottom:20px; letter-spacing:-.01em; }
+.compose { background:var(--raise); border:1px solid var(--line); border-radius:22px; padding:12px 16px; display:flex; flex-direction:column; gap:10px; }
+.compose textarea { background:none; border:0; resize:none; font:inherit; color:var(--ink); font-size:14.5px; min-height:44px; outline:none; }
+.compose textarea::placeholder { color:var(--dim); }
+.compose .tools { display:flex; gap:6px; align-items:center; }
+.compose .tools .sp { flex:1; }
+.compose .chip { font-size:12px; padding:4px 10px; border-radius:999px; border:1px solid var(--line); color:var(--dim); }
+.compose .send { width:32px; height:32px; border-radius:50%; background:var(--ink); color:var(--bg); display:inline-flex; align-items:center; justify-content:center; font-weight:700; }
+.compose.off { opacity:.6; } .compose.off .send { background:var(--faint); }
+.compose .why { font-size:12.5px; color:var(--dim); }
+.sugg { display:flex; flex-direction:column; gap:6px; margin-top:14px; }
+.sugg button { text-align:left; padding:10px 14px; border-radius:14px; border:1px solid var(--line); font-size:13.5px; display:flex; gap:10px; align-items:flex-start; }
+.sugg button:hover { background:var(--raise); }
+.sugg button .k { font-size:12px; color:var(--dim); display:block; margin-top:2px; }
+.cards { display:grid; grid-template-columns:repeat(2,1fr); gap:10px; margin-top:18px; }
+.card { background:var(--raise); border:1px solid var(--line); border-radius:14px; padding:12px 14px; font-size:13.5px; }
+.card .k { font-size:12px; color:var(--dim); display:flex; gap:6px; align-items:center; margin-bottom:4px; }
+.orient { margin-top:18px; border:1px solid var(--line); border-radius:16px; padding:14px 16px; position:relative; }
+.orient h4 { font-size:13.5px; font-weight:600; margin-bottom:6px; }
+.orient ul { padding-left:18px; font-size:13px; color:var(--dim); display:flex; flex-direction:column; gap:3px; }
+.orient .x { position:absolute; right:10px; top:8px; color:var(--faint); width:26px; height:26px; border-radius:8px; }
+.banner { display:flex; gap:10px; align-items:center; padding:9px 14px; border-radius:12px; background:var(--raise); font-size:13px; margin:0 auto 12px; max-width:760px; }
+.banner .sp { flex:1; } .banner.bad { border:1px solid rgba(255,107,107,.3); }
+
+/* conversation */
+.status { display:flex; align-items:center; gap:10px; padding:8px 14px; border-radius:14px; background:var(--raise); margin:0 auto 16px; font-size:13px; color:var(--dim); }
+.status .sp { flex:1; } .status button { color:var(--ink); padding:4px 10px; border-radius:8px; } .status button:hover { background:var(--bg); }
+.msg { margin-bottom:18px; line-height:1.6; }
+.msg .who { font-size:12px; color:var(--dim); margin-bottom:4px; }
+.msg.me { text-align:right; } .msg.me .body { background:var(--raise); border-radius:16px; padding:10px 16px; display:inline-block; text-align:left; }
+.msg.sys { color:var(--dim); font-size:12.5px; text-align:center; }
+.q { background:var(--raise); border-radius:14px; padding:14px 16px; margin-top:8px; }
+.q .qt { font-weight:600; margin-bottom:8px; }
+.q .opts { display:flex; flex-direction:column; gap:6px; }
+.q .opts button { padding:8px 12px; border-radius:10px; border:1px solid var(--line); text-align:left; font-size:13.5px; } .q .opts button:hover { border-color:var(--accent); }
+.q.done { opacity:.75; } .q .ans { font-size:12.5px; color:var(--good); margin-top:6px; }
+.pr { border:1px solid var(--line); border-radius:14px; padding:12px 14px; margin-top:8px; }
+.pr .t { font-weight:600; } .pr .diff { font:12px/1.5 ui-monospace,Menlo,monospace; background:var(--inset); border-radius:8px; padding:8px 10px; margin-top:8px; }
+.pr .diff .a { color:var(--good); } .pr .diff .r { color:var(--bad); }
+.ccompose { padding:0 24px 20px; } .ccompose .compose { max-width:760px; margin:0 auto; }
+
+/* pages: settings, maps, connections */
+.pg { max-width:820px; margin:0 auto; padding-top:18px; }
+.pg h1 { font-size:22px; font-weight:600; margin-bottom:4px; }
+.pg .lead { color:var(--dim); margin-bottom:20px; }
+.sec { font-size:12px; text-transform:uppercase; letter-spacing:.08em; color:var(--dim); margin:24px 0 8px; }
+.list { border:1px solid var(--line); border-radius:14px; overflow:hidden; }
+.item { padding:12px 16px; border-top:1px solid var(--line); }
+.item:first-child { border-top:0; }
+.item .top { display:flex; gap:10px; align-items:center; }
+.item .top .nm { font-weight:600; } .item .top .st { color:var(--dim); font-size:13px; flex:1; min-width:0; }
+.item .opt { font-size:11px; color:var(--dim); border:1px solid var(--line); border-radius:999px; padding:0 7px; }
+.item .body { padding:6px 0 4px 18px; }
+.set2 { display:grid; grid-template-columns:190px 1fr; gap:28px; }
+.snav { display:flex; flex-direction:column; gap:2px; position:sticky; top:0; }
+.snav button { padding:7px 10px; border-radius:8px; font-size:13.5px; color:var(--dim); display:flex; gap:8px; align-items:center; }
+.snav button.on, .snav button:hover { background:var(--raise); color:var(--ink); }
+.kv { display:grid; grid-template-columns:180px 1fr; gap:8px 16px; font-size:13.5px; } .kv .k { color:var(--dim); }
+.ccards { display:grid; grid-template-columns:repeat(2,1fr); gap:12px; }
+.ccard { border:1px solid var(--line); border-radius:16px; padding:14px 16px; background:var(--raise); }
+.ccard .top { display:flex; gap:8px; align-items:center; margin-bottom:4px; } .ccard .top .nm { font-weight:600; flex:1; }
+.empty { text-align:center; padding:60px 20px; color:var(--dim); } .empty .h { color:var(--ink); font-size:16px; margin-bottom:6px; }
+
+/* B guide */
+.G { display:grid; grid-template-columns:320px 1fr; height:100%; }
+.G .gl { background:var(--inset); padding:32px 28px; display:flex; flex-direction:column; gap:6px; }
+.G .gl .brand { font-weight:700; font-size:16px; margin-bottom:6px; }
+.G .gl .lead { color:var(--dim); font-size:13px; margin-bottom:22px; }
+.G .st { display:flex; gap:12px; padding:10px 12px; border-radius:12px; align-items:flex-start; width:100%; }
+.G .st.on { background:var(--raise); }
+.G .st .n { width:24px; height:24px; border-radius:50%; border:1.5px solid var(--faint); display:inline-flex; align-items:center; justify-content:center; font-size:12px; flex:none; color:var(--dim); }
+.G .st.ok .n { background:var(--good); border-color:var(--good); color:#000; } .G .st.bad .n { border-color:var(--bad); color:var(--bad); }
+.G .st .k { font-size:12px; color:var(--dim); display:block; }
+.G .gl .fill { flex:1; }
+.G .gr { padding:56px 64px; overflow:auto; }
+.G .gr .inner { max-width:560px; }
+.G .gr h1 { font-size:24px; font-weight:600; margin-bottom:6px; }
+.G .gr .lead { color:var(--dim); margin-bottom:22px; }
+.Gp { display:flex; flex-direction:column; height:100%; }
+.Gp .gtop { padding:16px 18px 8px; } .Gp .prog { display:flex; gap:4px; margin-top:10px; } .Gp .prog i { flex:1; height:4px; border-radius:2px; background:var(--line); } .Gp .prog i.ok { background:var(--good); } .Gp .prog i.on { background:var(--accent); }
+.Gp .gbody { flex:1; overflow:auto; padding:10px 18px 30px; } .Gp h1 { font-size:20px; font-weight:600; margin-bottom:6px; } .Gp .lead { color:var(--dim); margin-bottom:16px; font-size:13.5px; }
+
+/* C sheet */
+.scrim { position:absolute; inset:0; background:rgba(0,0,0,.5); z-index:40; }
+.modal { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:560px; max-height:86%; overflow:auto; background:var(--inset); border:1px solid var(--line); border-radius:20px; padding:22px 24px; z-index:41; box-shadow:0 24px 60px rgba(0,0,0,.6); }
+.modal h3 { font-size:17px; font-weight:600; } .modal .lead { color:var(--dim); font-size:13px; margin:4px 0 14px; }
+.modal .stp { border:1px solid var(--line); border-radius:14px; padding:10px 14px; margin-bottom:8px; }
+.modal .stp .top { display:flex; gap:8px; align-items:center; } .modal .stp .top .nm { font-weight:600; flex:1; } .modal .stp.on { border-color:#39404d; background:var(--raise); }
+.modal .task { font-size:13px; background:var(--raise); border-radius:12px; padding:8px 12px; margin-bottom:14px; }
+.modal .task b { font-weight:600; }
+.phone .modal { width:auto; left:0; right:0; top:auto; bottom:0; transform:none; border-radius:20px 20px 0 0; max-height:88%; padding:18px 16px 24px; }
+
+/* phone shell */
+.Ph { display:flex; flex-direction:column; height:100%; position:relative; }
+.Ph .hd { padding:10px 12px; gap:6px; min-height:48px; }
+.Ph .ib { width:34px; height:34px; border-radius:10px; color:var(--dim); display:inline-flex; align-items:center; justify-content:center; flex:none; position:relative; }
+.Ph .scroll { padding:6px 14px 30px; }
+.Ph .home { padding-top:4vh; } .Ph .home h2 { font-size:20px; }
+.Ph .cards, .Ph .ccards { grid-template-columns:1fr; }
+.Ph .set2 { grid-template-columns:1fr; gap:10px; } .Ph .snav { flex-direction:row; overflow-x:auto; position:static; } .Ph .snav button { white-space:nowrap; }
+.Ph .kv { grid-template-columns:1fr; gap:2px; } .Ph .kv .k { margin-top:8px; }
+.Ph .ccompose { padding:0 12px 14px; }
+.drawer { position:absolute; inset:0; background:rgba(0,0,0,.5); z-index:30; } .drawer .side { width:82%; }
+.ndot { width:7px; height:7px; border-radius:50%; background:var(--warn); position:absolute; top:6px; right:6px; }
+.ndot.bad { background:var(--bad); }
+</style>
+</head>
+<body>
+<div class="proto-head"><b>#1024 first use</b> <span id="ph"></span> <span>· ←/→ variant · d device · o outcome · r reset</span></div>
+<div class="layout">
+  <div class="stage"><div id="frame" class="frame desktop"></div></div>
+  <aside class="guide" id="guide"></aside>
+</div>
+<div class="bar">
+  <button id="prev" aria-label="Previous variant">←</button><span class="name" id="vname"></span><button id="next" aria-label="Next variant">→</button>
+  <span class="sep"></span>
+  <button class="tog" id="dDesk">desktop</button><button class="tog" id="dPhone">phone</button>
+  <span class="sep"></span>
+  <button class="tog" id="oTest">Test run first</button><button class="tog" id="oTask">task first</button>
+</div>
+
+<script>
+/* ==================== STATE ==================== */
+const VARS=['A','B','C','D'];
+const VN={A:'Checklist',B:'Guide',C:'On demand',D:'Setup chat'};
+const qs=new URLSearchParams(location.search);
+const FRESH={ gh:'none', ghStep:1, ai:'none', aiProv:null, ai2:false, disc:'none', discStep:1,
+  first:'none', answered:null, view:'home', sec:'conn', open:null, sheet:null, pendingTask:null, drawer:false, toast:null,
+  failGh:false, failAi:false, guideDone:false, guideStep:1, orientGone:false, setupLog:[], repos:['alp82/notes-app'], typed:'', sc:null };
+const S=Object.assign({ v:VARS.includes(qs.get('variant'))?qs.get('variant'):'A', dev:qs.get('device')==='phone'?'phone':'desktop', o:qs.get('outcome')==='task'?'task':'test' }, structuredClone(FRESH));
+const reset=()=>Object.assign(S, structuredClone(FRESH));
+const ready=()=>S.gh==='ok'&&S.ai==='ok';
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const PROV={openai:'OpenAI',anthropic:'Anthropic'};
+const REPO=()=>S.repos[0]||'alp82/notes-app';
+
+/* first useful outcome */
+const FIRST={
+  test:{ title:'Test run · September 24', ask:'Start the Test run', pitch:'Take the Test run', sub:()=>`Curia charts a two-ticket map in ${REPO()}. One agent adds a README line, the next removes it. You answer one question and approve two pull requests. About 10 minutes.` },
+  task:{ title:'Add a setup section to the README', ask:'Add a setup section to the README of alp82/notes-app, from package.json and the Dockerfile.', pitch:'Add a setup section to the README', sub:()=>`A small real change in ${REPO()}. The agent reads the repository and opens one pull request for you to review. About 5 minutes.` },
+};
+const ALT={ test:['Explain how alp82/notes-app is built','Find the flaky test in alp82/notes-app and propose a fix'], task:['Explain how alp82/notes-app is built','Find the flaky test in alp82/notes-app and propose a fix'] };
+
+/* ==================== CONNECTION BODIES (content, shared; layouts differ per variant) ==================== */
+function ghState(){ return {none:'Not connected', progress:`Step ${S.ghStep} of 3`, verifying:'Verifying…', ok:`Connected as alp82 · watching ${S.repos.length} ${S.repos.length===1?'repository':'repositories'}`, fail:'Action required'}[S.gh]; }
+function aiState(){ return {none:'Not signed in', signing:`Signing in to ${PROV[S.aiProv]}…`, verifying:'Verifying…', ok:`Signed in to ${PROV[S.aiProv]}${S.ai2?' and '+PROV[S.aiProv==='openai'?'anthropic':'openai']:''}`, fail:'Action required', expired:`The ${PROV[S.aiProv]} sign-in expired`}[S.ai]; }
+function discState(){ return {none:'Not connected', progress:`Step ${S.discStep} of 3`, verifying:'Verifying…', ok:'Mirroring to #curia on Alp’s server', fail:'Disconnected'}[S.disc]; }
+const dotOf=s=>({ok:'ok',verifying:'run',progress:'run',signing:'run',fail:'bad',expired:'bad',none:'off'}[s]||'off');
+
+function ghBody(){
+  if(S.gh==='ok') return `<div class="note">Curia’s GitHub App is installed on alp82. Approvals post as alp82.</div><div class="row2"><button class="btn" data-a="repos">Change watched repositories</button></div>`;
+  if(S.gh==='verifying') return checks(['App credential','Installation token','Watch list','Your GitHub account','Repository coverage','Open tickets readable'], S._vi||0);
+  if(S.gh==='fail') return `<div class="err"><b>Curia’s GitHub App isn’t installed on alp82.</b><br>Install it on the account that owns the repositories, then try again.</div><div class="row2"><a class="btn" href="#" data-a="noop">Install on GitHub ↗</a><button class="btn pri" data-a="gh-retry">Try again</button></div>`;
+  const st=S.gh==='none'?1:S.ghStep;
+  if(st===1) return `<div class="note">Curia creates its own GitHub App on your account. GitHub asks you to confirm, then sends you back here.</div><label class="fld">App name<input value="curia.sh"></label><div class="row2"><button class="btn pri" data-a="gh-next">Create GitHub App ↗</button><button class="btn quiet" data-a="noop">I already have an App</button></div>`;
+  if(st===2) return `<div class="note">Install the App on the account that owns your repositories. You pick which repositories GitHub shows to Curia.</div><div class="row2"><button class="btn pri" data-a="gh-next">Install on GitHub ↗</button><span class="note"><span class="dot run"></span> Waiting for the installation…</span></div>`;
+  return `<div class="note">Choose which repositories Curia watches for work. You can change this later.</div>${['alp82/notes-app','alp82/site','alp82/curia'].map((r,i)=>`<label class="repo"><input type="checkbox" ${i===0?'checked':''}> ${r}</label>`).join('')}<div class="row2"><button class="btn pri" data-a="gh-next">Watch and verify</button></div>`;
+}
+function aiBody(){
+  if(S.ai==='ok') return `<div class="note">A test request answered in 2 s. Routing is ready.</div><div class="row2">${S.ai2?'':`<button class="btn" data-a="ai2">Add ${PROV[S.aiProv==='openai'?'anthropic':'openai']} too</button>`}<button class="btn quiet" data-a="ai-out">Sign out</button></div>`;
+  if(S.ai==='verifying') return checks(['Credential stored outside agents','Test request','Routing preset'], S._vi||0);
+  if(S.ai==='fail') return `<div class="err"><b>${PROV[S.aiProv]} refused the sign-in (401).</b><br>The code may have expired. Sign in again.</div><div class="row2"><button class="btn pri" data-a="ai-pick" data-arg="${S.aiProv}">Sign in again</button><button class="btn quiet" data-a="ai-none">Use the other provider</button></div>`;
+  if(S.ai==='expired') return `<div class="err"><b>The ${PROV[S.aiProv]} sign-in expired.</b><br>Agents wait until you sign in again. Nothing is lost.</div><div class="row2"><button class="btn pri" data-a="ai-pick" data-arg="${S.aiProv}">Sign in again</button></div>`;
+  if(S.ai==='signing'&&S.aiProv==='openai') return `<div class="note">Open the link, sign in to your ChatGPT account, and enter this code.</div><div class="row2"><span class="code">KQ7M-2XWD</span><button class="btn" data-a="noop">Copy</button></div><div class="row2"><a class="link" href="#" data-a="noop">auth.openai.com/device ↗</a></div><div class="row2"><span class="note"><span class="dot run"></span> Waiting for you to finish…</span><button class="btn quiet" data-a="ai-done">(prototype) I entered it</button></div>`;
+  if(S.ai==='signing') return `<div class="note">Open the link, sign in to your Claude account, and paste the code it shows.</div><div class="row2"><a class="link" href="#" data-a="noop">claude.ai/oauth/authorize ↗</a></div><label class="fld">Code<input placeholder="Paste the code"></label><div class="row2"><button class="btn pri" data-a="ai-done">Submit</button></div>`;
+  return `<div class="note">Agents run on your own subscription. Curia holds no API key.</div><div class="row2"><button class="btn pri" data-a="ai-pick" data-arg="openai">Sign in with ChatGPT</button><button class="btn" data-a="ai-pick" data-arg="anthropic">Sign in with Claude</button></div>`;
+}
+function discBody(){
+  if(S.disc==='ok') return `<div class="note">Conversations and alerts mirror to #curia. Answers from Discord and the app are the same answers.</div><div class="row2"><button class="btn quiet" data-a="disc-off">Disconnect</button></div>`;
+  if(S.disc==='fail') return `<div class="err"><b>Curia can’t send messages in #curia.</b><br>The bot lost a permission. Work continues, and alerts stay in the app until you fix it.</div><div class="row2"><a class="btn" href="#" data-a="noop">Update bot permissions ↗</a><button class="btn pri" data-a="disc-retry">Try again</button></div>`;
+  if(S.disc==='verifying') return checks(['Bot token','Server','Channel','Commands','Confirmation message'], S._vi||0);
+  const st=S.disc==='none'?0:S.discStep;
+  if(st===0) return `<div class="note">Optional. Mirrors conversations to a Discord channel and alerts your phone when an agent waits.</div><div class="row2"><button class="btn" data-a="disc-next">Connect Discord</button></div>`;
+  if(st===1) return `<label class="fld">Bot token<input placeholder="From the Discord developer portal"></label><label class="fld">Your Discord user ID<input placeholder="18 digits"></label><div class="row2"><button class="btn pri" data-a="disc-next">Connect bot</button></div>`;
+  if(st===2) return `<div class="row2"><button class="btn pri" data-a="disc-next">Add the bot to a server ↗</button><span class="note"><span class="dot run"></span> Waiting for the bot to join…</span></div>`;
+  return `<label class="fld">Command channel<input value="curia"></label><div class="row2"><button class="btn pri" data-a="disc-next">Connect channel</button></div>`;
+}
+function checks(list,n){ return `<ul class="checks">${list.map((c,i)=>`<li class="${i<n?'':'pend'}">${i<n?'<span class="dot ok"></span>':'<span class="dot off"></span>'} ${c}</li>`).join('')}</ul>`; }
+const TS_FACT='alp82 through Tailscale';
+
+/* partial configuration: what works */
+function worksLine(){
+  if(ready()) return '';
+  if(S.gh==='ok') return 'Maps and tickets from GitHub are readable now. Starting an agent needs an AI login.';
+  if(S.ai==='ok') return 'The AI login is ready. Curia needs GitHub to keep tickets and pull requests.';
+  return 'Nothing runs yet. Curia needs GitHub, where your work is kept, and one AI login, which runs the agents.';
+}
+
+/* ==================== SHARED: sidebar, compose, conversation ==================== */
+function firstConvLabel(){ return FIRST[S.o].title; }
+function side(extra={}){
+  const needs=[], recent=[];
+  if(['wait','review'].includes(S.first)) needs.push(['first',firstConvLabel(),'wait']);
+  else if(S.first!=='none') recent.push(['first',firstConvLabel(),S.first==='done'?'ok':'run']);
+  if(extra.setupConv) (ready()?recent:needs).unshift(['setup','Set up Curia',ready()?'ok':'wait']);
+  if(extra.discNeed&&S.disc==='fail') needs.push(['disc','Discord is disconnected','bad']);
+  const on=id=>S.view==='conv'&&S.open===id?'on':'';
+  const facts=[`<div class="fact"><span class="dot ok" style="width:6px;height:6px"></span>${TS_FACT}</div>`];
+  if(extra.discFact&&S.disc==='fail') facts.push(`<button class="fact bad" data-a="${extra.discFact}"><span class="dot bad" style="width:6px;height:6px"></span>Discord disconnected · fix</button>`);
+  return `<div class="side"><div class="brand">Curia</div>
+    <button class="row ${S.view==='home'?'on':''}" data-a="go" data-arg="home"><span class="ic">✎</span>New conversation</button>
+    <button class="row ${S.view==='maps'?'on':''}" data-a="go" data-arg="maps"><span class="ic">◫</span>Maps</button>
+    <button class="row" data-a="toast" data-arg="The overseer is out of scope for this prototype."><span class="ic">◉</span>Overseer</button>
+    ${needs.length?`<div class="grp">Needs you</div>${needs.map(x=>`<button class="ch ${on(x[0])}" data-a="open" data-arg="${x[0]}"><span class="dot ${x[2]}"></span>${esc(x[1])}</button>`).join('')}`:''}
+    ${recent.length?`<div class="grp">Recent</div>${recent.map(x=>`<button class="ch ${on(x[0])}" data-a="open" data-arg="${x[0]}"><span class="dot ${x[2]}"></span>${esc(x[1])}</button>`).join('')}`:''}
+    <div class="fill"></div>
+    <div class="foot">${extra.foot||''}<button class="row ${S.view==='settings'?'on':''}" data-a="go" data-arg="settings"><span class="ic">⚙</span>Settings${extra.setDot?'<span class="sp"></span><span class="dot bad" style="width:6px;height:6px"></span>':''}</button>${facts.join('')}</div></div>`;
+}
+function compose({off=false, why='', ph='Describe the outcome…', act='send'}={}){
+  return `<div class="compose ${off?'off':''}"><textarea id="ta" rows="2" placeholder="${esc(ph)}">${esc(S.typed)}</textarea>${why?`<div class="why">${why}</div>`:''}<div class="tools"><span class="chip">${S.gh==='ok'?REPO():'no repository yet'}</span><span class="sp"></span><button class="send" data-a="${act}" aria-label="Send">↑</button></div></div>`;
+}
+function suggestions(){
+  return `<div class="sugg"><button data-a="start-first"><span>↗</span><span>${FIRST[S.o].pitch}<span class="k">${FIRST[S.o].sub()}</span></span></button>${ALT[S.o].map(t=>`<button data-a="start-alt" data-arg="${esc(t)}"><span class="dim">↗</span><span class="dim">${esc(t)}</span></button>`).join('')}</div>`;
+}
+function orientCard(){
+  if(S.orientGone||S.first==='done') return '';
+  return `<div class="orient"><button class="x" data-a="orient-x" aria-label="Dismiss">×</button><h4>What Curia does</h4><ul>
+    <li>You describe an outcome. An agent works on it in its own container and opens a pull request.</li>
+    <li>When an agent needs you, the conversation shows up under <b>Needs you</b>.</li>
+    <li>Bigger work becomes a map: tickets on GitHub that agents take one at a time.</li></ul></div>`;
+}
+function status(){
+  const m={ run:['run','Working · 1 min · '+(S.o==='test'?'charting the map':'reading the repository'),'<button>Pause</button><button>Stop</button>'],
+    wait:['wait','Waiting for your answer',''], review:['wait','Pull request open · checks passing','<button>Open PR ↗</button>'], done:['ok','Finished · just now',''] }[S.first]||['off','',''];
+  if(S.ai==='expired') return `<div class="status" style="border:1px solid rgba(255,107,107,.3)"><span class="dot bad"></span>Paused · the ${PROV[S.aiProv]} sign-in expired<span class="sp"></span><button data-a="ai-fix">Sign in</button></div>`;
+  return `<div class="status"><span class="dot ${m[0]}"></span>${m[1]}<span class="sp"></span>${m[2]}</div>`;
+}
+function firstConv(){
+  const t=S.o==='test', out=[];
+  out.push(`<div class="msg me"><div class="body">${esc(S.customAsk||FIRST[S.o].ask)}</div></div>`);
+  if(t){
+    out.push(`<div class="msg"><div class="who">Agent · ticket 1</div>I charted a map, <b>Test run · September 24</b>, in ${REPO()} with two tickets. Ticket 1 adds a line to the README and ticket 2 removes it again. I’ll ask you one question, and you approve each pull request, the way real work goes.</div>`);
+    if(S.first!=='run'){ out.push(`<div class="msg"><div class="q ${S.answered?'done':''}"><div class="qt">Which line should ticket 1 add?</div><div class="opts">${['Curia test run, September 24','Hello from Curia'].map(o=>`<button data-a="answer" data-arg="${o}">${o}</button>`).join('')}<button class="dim">Something else…</button></div>${S.answered?`<div class="ans">✓ You answered: ${esc(S.answered)}</div>`:''}</div></div>`); }
+    if(['review','done'].includes(S.first)) out.push(`<div class="msg"><div class="pr"><div class="t">Add a test line to the README · #12</div><div class="dim" style="font-size:12.5px">checks passing · 1 file</div><div class="diff"><span class="a">+ ${esc(S.answered||'Curia test run, September 24')}</span></div>${S.first==='review'?`<div class="row2"><button class="btn pri" data-a="approve">Approve · merge</button><button class="btn">Cross-check</button><button class="btn quiet">Reject</button></div>`:'<div class="ans" style="color:var(--good);font-size:12.5px;margin-top:6px">✓ Merged</div>'}</div></div>`);
+    if(S.first==='done') out.push(`<div class="msg"><div class="who">Agent · ticket 2</div>Ticket 2 removed the line the same way, and you approved #13. Both tickets are closed and the map is closed.<br><b>Test run verified.</b> GitHub, the agent, and your answers work end to end.</div><div class="msg"><div class="row2" style="justify-content:flex-start"><button class="btn pri" data-a="go" data-arg="home">Start a real task</button><button class="btn" data-a="go" data-arg="maps">See the map</button></div></div>`);
+  } else {
+    out.push(`<div class="msg"><div class="who">Agent</div>Reading ${REPO()}. The README has no setup section. I’ll write one from <span class="mono">package.json</span> and the <span class="mono">Dockerfile</span>.</div>`);
+    if(['review','done','wait'].includes(S.first)) out.push(`<div class="msg"><div class="pr"><div class="t">Add a setup section to the README · #12</div><div class="dim" style="font-size:12.5px">checks passing · 1 file · +14</div><div class="diff"><span class="a">+ ## Setup</span><br><span class="a">+ npm install</span><br><span class="a">+ docker compose up</span></div>${S.first!=='done'?`<div class="row2"><button class="btn pri" data-a="approve">Approve · merge</button><button class="btn">Ask for changes</button></div>`:'<div class="ans" style="color:var(--good);font-size:12.5px;margin-top:6px">✓ Merged</div>'}</div></div>`);
+    if(S.first==='done') out.push(`<div class="msg"><div class="who">Agent</div>Merged. The README now explains how to run the app locally.</div><div class="msg"><div class="row2" style="justify-content:flex-start"><button class="btn pri" data-a="go" data-arg="home">Start another task</button></div></div>`);
+  }
+  return `${status()}${out.join('')}`;
+}
+function convPage(title, body, composePh){
+  return { title, body:`<div class="col">${body}</div>`, bottom:`<div class="ccompose">${compose({ph:composePh||'Message the agent…'})}</div>` };
+}
+
+/* shared settings sections other than connections */
+function secAgents(){ return `<div class="kv"><div class="k">Leading provider</div><div>${S.ai==='ok'?PROV[S.aiProv]+' · Balanced preset':'<span class="dim">Set by the first AI login</span>'}</div><div class="k">Quick tasks</div><div>${S.ai==='ok'?(S.aiProv==='openai'?'gpt-5.5 · medium':'claude-sonnet-5 · medium'):'—'}</div><div class="k">Map tickets</div><div>${S.ai==='ok'?'by ticket type · <a class="link" href="#" data-a="noop">edit routing</a>':'—'}</div></div>`; }
+function secRepos(){ return S.gh==='ok'?`<div class="list">${S.repos.map(r=>`<div class="item"><div class="top"><span class="nm">${r}</span><span class="st">watched</span></div></div>`).join('')}</div><div class="row2"><button class="btn" data-a="repos">Add a repository</button></div>`:`<div class="note">Connect GitHub to choose repositories.</div>`; }
+function secDispatch(){ return `<div class="kv"><div class="k">Start ready tickets on their own</div><div>On</div><div class="k">Agents at once</div><div>3</div></div>`; }
+function secMaint(){ return `<div class="kv"><div class="k">Version</div><div>0.15.1 · up to date</div><div class="k">Service</div><div><button class="btn">Restart Curia</button></div></div>`; }
+function secHost(){ return `<div class="kv"><div class="k">Operator</div><div>${TS_FACT}</div><div class="k">Address</div><div class="mono">https://curia-host.tailnet.ts.net</div></div><div class="note" style="margin-top:8px">Set by <span class="mono">curia install</span>. Nothing to change here.</div>`; }
+
+/* ==================== A — CHECKLIST ==================== */
+function A_item(kind,title,state,dot,body,opt){ const open=S.open===kind;
+  return `<div class="item"><div class="top"><span class="dot ${dot}"></span><span class="nm">${title}</span>${opt?'<span class="opt">optional</span>':''}<span class="st">${state}</span><button class="btn ${open?'quiet':''}" data-a="toggle" data-arg="${kind}">${open?'Close':dot==='ok'?'Manage':dot==='bad'?'Fix':'Connect'}</button></div>${open?`<div class="body">${body}</div>`:''}</div>`; }
+function A_home(){
+  if(!ready()){
+    return { body:`<div class="home"><h2>What are we working on?</h2>${compose({off:true, why:worksLine()})}
+      <div class="sec" style="margin-top:28px">Before the first task</div>
+      <div class="list">${A_item('gh','GitHub',ghState(),dotOf(S.gh),ghBody())}${A_item('ai','AI login',aiState(),dotOf(S.ai),aiBody())}</div>
+      <div class="note" style="margin-top:10px">Discord is optional. Add it later in Settings for phone alerts.</div></div>` };
+  }
+  return { body:`<div class="home"><h2>What are we working on?</h2>${S.disc==='fail'?`<div class="banner bad"><span class="dot bad"></span>Discord is disconnected. Conversations and alerts stay in the app.<span class="sp"></span><button class="btn" data-a="A-fixdisc">Fix</button></div>`:''}${compose()}${S.first==='none'?suggestions():''}${S.first==='none'?orientCard():homeCards()}</div>` };
+}
+function homeCards(){ if(S.first==='none') return ''; return `<div class="cards"><button class="card" data-a="open" data-arg="first"><div class="k"><span class="dot ${S.first==='done'?'ok':['wait','review'].includes(S.first)?'wait':'run'}"></span>${S.first==='done'?'finished':['wait','review'].includes(S.first)?'needs you':'working'}</div>${esc(firstConvLabel())}</button></div>`; }
+function A_settings(){
+  const secs=[['conn','Connections'],['repos','Repositories'],['agents','Agents'],['dispatch','Dispatch'],['host','Host'],['maint','Maintenance']];
+  const s=S.sec, bad=S.gh==='fail'||S.ai==='fail'||S.ai==='expired'||S.disc==='fail';
+  const body={conn:`<div class="list">${A_item('gh','GitHub',ghState(),dotOf(S.gh),ghBody())}${A_item('ai','AI login',aiState(),dotOf(S.ai),aiBody())}${A_item('disc','Discord',discState(),dotOf(S.disc),discBody(),true)}</div>`,
+    repos:secRepos(), agents:secAgents(), dispatch:secDispatch(), host:secHost(), maint:secMaint()}[s];
+  return { title:'Settings', body:`<div class="pg"><div class="set2"><div class="snav">${secs.map(x=>`<button class="${s===x[0]?'on':''}" data-a="sec" data-arg="${x[0]}">${x[1]}${x[0]==='conn'&&bad?' <span class="dot bad" style="width:6px;height:6px"></span>':''}</button>`).join('')}</div><div><h1>${secs.find(x=>x[0]===s)[1]}</h1><div class="lead">${s==='conn'?'GitHub and one AI login are required. Discord is optional.':''}</div>${body}</div></div></div>` };
+}
+function A_mapsLocked(){ return `<div class="empty"><div class="h">Maps live on GitHub</div>Connect GitHub to see your maps and tickets.<div class="row2" style="justify-content:center"><button class="btn pri" data-a="go" data-arg="home">Connect GitHub</button></div></div>`; }
+
+/* ==================== B — GUIDE ==================== */
+function B_guide(phone){
+  const steps=[['GitHub','Where your work is kept',S.gh],['AI login','Runs the agents',S.ai],['First task',S.o==='test'?'The Test run':'A small real change',S.first!=='none'?'ok':'none']];
+  const cur=S.guideStep, cls=(i,s)=>`${cur===i+1?'on':''} ${s==='ok'?'ok':['fail','expired'].includes(s)?'bad':''}`;
+  const titles=['Connect GitHub','Sign in to an AI provider',S.o==='test'?'Take the Test run':'Run your first task'];
+  const leads=['Curia keeps every ticket, answer, and pull request on GitHub. It needs its own GitHub App and at least one repository.','Agents run on your own ChatGPT or Claude subscription. You can add the other provider later.',S.o==='test'?FIRST.test.sub():'Pick a small change in a watched repository. You can also describe your own.'];
+  const bodies=[ghBody(), aiBody(), S.o==='test'?`<div class="row2"><button class="btn pri" data-a="start-first" ${ready()?'':'disabled'}>Start the Test run</button><button class="btn quiet" data-a="B-finish">Skip, go to Curia</button></div>`:`${compose()}${suggestions()}<div class="row2"><button class="btn quiet" data-a="B-finish">Skip, go to Curia</button></div>`];
+  const nav=`<div class="row2" style="margin-top:28px">${cur>1?`<button class="btn quiet" data-a="B-step" data-arg="${cur-1}">← Back</button>`:''}${cur<3?`<button class="btn" data-a="B-step" data-arg="${cur+1}" ${steps[cur-1][2]==='ok'?'':'disabled'}>Continue →</button>`:''}</div>`;
+  if(phone) return `<div class="Gp"><div class="gtop"><div class="h">Set up Curia</div><div class="note">Step ${cur} of 3 · about 5 minutes</div><div class="prog">${steps.map((s,i)=>`<i class="${s[2]==='ok'?'ok':cur===i+1?'on':''}"></i>`).join('')}</div></div><div class="gbody"><h1>${titles[cur-1]}</h1><div class="lead">${leads[cur-1]}</div>${bodies[cur-1]}${nav}<div class="row2"><button class="btn quiet" data-a="B-finish">Finish later</button></div></div></div>`;
+  return `<div class="G"><div class="gl"><div class="brand">Curia</div><div class="lead">Set up Curia · about 5 minutes<br>Discord comes later, from Connections.</div>${steps.map((s,i)=>`<button class="st ${cls(i,s[2])}" data-a="B-step" data-arg="${i+1}"><span class="n">${s[2]==='ok'?'✓':i+1}</span><span>${s[0]}<span class="k">${s[1]}</span></span></button>`).join('')}<div class="fill"></div><div class="note"><span class="dot ok" style="width:6px;height:6px"></span> ${TS_FACT}</div><button class="btn quiet" data-a="B-finish" style="margin-top:8px">Finish later</button></div>
+    <div class="gr"><div class="inner"><div class="note">Step ${cur} of 3</div><h1>${titles[cur-1]}</h1><div class="lead">${leads[cur-1]}</div>${bodies[cur-1]}${nav}</div></div></div>`;
+}
+function B_home(){
+  const unfinished=!ready();
+  return { body:`<div class="home">${unfinished?`<div class="banner"><span class="dot wait"></span>Setup isn’t finished. ${esc(worksLine())}<span class="sp"></span><button class="btn pri" data-a="B-resume">Resume setup</button></div>`:''}${S.disc==='fail'?`<div class="banner bad"><span class="dot bad"></span>Discord is disconnected. Alerts stay in the app.<span class="sp"></span><button class="btn" data-a="go" data-arg="conns">Connections</button></div>`:''}<h2>What are we working on?</h2>${compose({off:unfinished})}${S.first==='none'&&!unfinished?suggestions():''}${homeCards()}</div>` };
+}
+function B_conns(){
+  const c=(k,nm,st,dot,body,opt)=>`<div class="ccard"><div class="top"><span class="dot ${dot}"></span><span class="nm">${nm}</span>${opt?'<span class="opt dim" style="font-size:11px">optional</span>':''}</div><div class="dim" style="font-size:13px;margin-bottom:6px">${st}</div>${body}</div>`;
+  return { title:'Connections', body:`<div class="pg"><h1>Connections</h1><div class="lead">What Curia signs in to. Preferences live in Settings.</div><div class="ccards">${c('gh','GitHub',ghState(),dotOf(S.gh),ghBody())}${c('ai','AI login',aiState(),dotOf(S.ai),aiBody())}${c('disc','Discord',discState(),dotOf(S.disc),discBody(),true)}${c('ts','Tailscale',TS_FACT,'ok','<div class="note">Set by <span class="mono">curia install</span> on the host.</div>')}</div></div>` };
+}
+function B_settings(){
+  return { title:'Settings', body:`<div class="pg"><h1>Settings</h1><div class="lead">How Curia works. Sign-ins live in Connections.</div><div class="sec">Repositories</div>${secRepos()}<div class="sec">Agents</div>${secAgents()}<div class="sec">Dispatch</div>${secDispatch()}<div class="sec">Maintenance</div>${secMaint()}</div>` };
+}
+
+/* ==================== C — ON DEMAND ==================== */
+function C_home(){
+  return { body:`<div class="home"><h2>What are we working on?</h2>${compose({why:S.first==='none'&&!ready()?'Curia asks for GitHub and an AI login when you send your first task.':''})}${S.first==='none'?suggestions():''}${S.first==='none'?orientCard():homeCards()}</div>` };
+}
+function C_sheet(){
+  if(!S.sheet) return '';
+  const need=S.sheet==='disc'?[['disc','Discord',discState(),S.disc,discBody()]]:[['gh','GitHub',ghState(),S.gh,ghBody()],['ai','AI login',aiState(),S.ai,aiBody()]];
+  const cur=need.find(n=>n[3]!=='ok');
+  const task=S.pendingTask?`<div class="task"><span class="dim">Your task:</span> <b>${esc(S.pendingTask)}</b></div>`:'';
+  const head=S.sheet==='disc'?['Connect Discord','Optional. Mirrors conversations and alerts your phone.']:S.pendingTask?['Two things before this task starts','Curia keeps work on GitHub and runs agents on your AI subscription. This happens once.']:['Connect '+(S.sheet==='ai'?'an AI login':'GitHub'),'Curia keeps work on GitHub and runs agents on your AI subscription.'];
+  const list=S.sheet==='gh'?need.slice(0,1):S.sheet==='ai'?need.slice(1):need;
+  return `<div class="scrim" data-a="sheet-x"></div><div class="modal" role="dialog"><h3>${head[0]}</h3><div class="lead">${head[1]}</div>${task}
+    ${list.map(n=>`<div class="stp ${cur&&cur[0]===n[0]?'on':''}"><div class="top"><span class="dot ${dotOf(n[3])}"></span><span class="nm">${n[1]}</span><span class="dim" style="font-size:12.5px">${n[2]}</span></div>${cur&&cur[0]===n[0]||['fail','expired'].includes(n[3])?`<div style="margin-top:6px">${n[4]}</div>`:''}</div>`).join('')}
+    <div class="row2" style="justify-content:flex-end">${S.pendingTask?`<button class="btn quiet" data-a="sheet-x">Not now</button><button class="btn pri" data-a="C-go" ${ready()?'':'disabled'}>Start the task</button>`:`<button class="btn" data-a="sheet-x">Done</button>`}</div></div>`;
+}
+function C_settings(){
+  const line=(k,nm,st,dot,opt)=>`<div class="item"><div class="top"><span class="dot ${dot}"></span><span class="nm">${nm}</span>${opt?'<span class="opt">optional</span>':''}<span class="st">${st}</span>${k?`<button class="btn" data-a="sheet" data-arg="${k}">${dot==='ok'?'Change':dot==='bad'?'Fix':'Connect'}</button>`:''}</div></div>`;
+  return { title:'Settings', body:`<div class="pg"><h1>Settings</h1><div class="sec" style="margin-top:14px">Connections</div><div class="list">${line('gh','GitHub',ghState(),dotOf(S.gh))}${line('ai','AI login',aiState(),dotOf(S.ai))}${line('disc','Discord',discState(),dotOf(S.disc),true)}${line('', 'Tailscale',TS_FACT,'ok')}</div><div class="sec">Repositories</div>${secRepos()}<div class="sec">Agents</div>${secAgents()}<div class="sec">Dispatch</div>${secDispatch()}<div class="sec">Maintenance</div>${secMaint()}</div>` };
+}
+function C_mapsLocked(){ return `<div class="empty"><div class="h">Maps live on GitHub</div>Connect GitHub to see your maps and tickets.<div class="row2" style="justify-content:center"><button class="btn pri" data-a="sheet" data-arg="gh">Connect GitHub</button></div></div>`; }
+
+/* ==================== D — SETUP CHAT ==================== */
+function D_setupConv(){
+  const m=[], card=(t,body,done)=>`<div class="msg"><div class="q ${done?'done':''}"><div class="qt">${t}</div>${body}</div></div>`, say=t=>`<div class="msg"><div class="who">Curia</div>${t}</div>`;
+  m.push(say(`Hi, I’m Curia. I run coding agents on your repositories and keep their work on GitHub. Two things before the first task: GitHub, then one AI login. It takes about five minutes.`));
+  m.push(card('Connect GitHub', S.gh==='ok'?`<div class="ans">✓ ${ghState()}</div>`:ghBody(), S.gh==='ok'));
+  if(S.gh==='fail') m.push(say('That didn’t verify. The App exists, but GitHub reports no installation on alp82. Install it, then press <b>Try again</b> in the card.'));
+  if(S.gh==='ok'){
+    m.push(say(`GitHub verified. I can already read maps and tickets in ${REPO()}. Next, the agents need an AI login. They run on your own subscription.`));
+    m.push(card('Sign in to an AI provider', S.ai==='ok'?`<div class="ans">✓ ${aiState()}</div>`:aiBody(), S.ai==='ok'));
+    if(S.ai==='fail') m.push(say(`${PROV[S.aiProv]} refused the sign-in. Codes expire after a few minutes, so sign in again from the card.`));
+  }
+  if(ready()){
+    m.push(say(`You’re ready. ${S.o==='test'?'I suggest the Test run first: it walks one small map end to end, so you see every step before real work.':'I suggest a small real change first. You’ll see the whole loop on your own repository.'} Discord is optional. Ask me any time to connect it for phone alerts.`));
+    m.push(card(FIRST[S.o].pitch, S.first!=='none'?`<div class="ans">✓ Started. <button class="link" data-a="open" data-arg="first">Open the conversation</button></div>`:`<div class="note" style="margin-bottom:8px">${FIRST[S.o].sub()}</div><div class="opts">${`<button data-a="start-first">${S.o==='test'?'Start the Test run':'Start this task'}</button>`}${ALT[S.o].map(t=>`<button data-a="start-alt" data-arg="${esc(t)}">${esc(t)}</button>`).join('')}<button class="dim">Something else… type it below</button></div>`, S.first!=='none'));
+  }
+  (S.setupLog||[]).forEach(x=>m.push(x));
+  return `<div class="status"><span class="dot ${ready()?'ok':'wait'}"></span>${ready()?'Setup finished':S.gh==='ok'?'Step 2 of 2 · AI login':'Step 1 of 2 · GitHub'}<span class="sp"></span></div>${m.join('')}`;
+}
+function D_discConv(){
+  return `<div class="status" style="border:1px solid rgba(255,107,107,.3)"><span class="dot ${dotOf(S.disc)}"></span>${S.disc==='ok'?'Discord reconnected':'Discord is disconnected'}<span class="sp"></span></div>
+    <div class="msg"><div class="who">Curia</div>Discord stopped accepting my messages in #curia at 07:12. Work continues. Questions and alerts stay here in the app until Discord is back.</div>
+    <div class="msg"><div class="q ${S.disc==='ok'?'done':''}"><div class="qt">Fix Discord</div>${S.disc==='ok'?'<div class="ans">✓ Reconnected. I posted the three alerts you missed in #curia.</div>':discBody()}</div></div>`;
+}
+function D_home(){
+  if(!ready()){ S.open='setup'; return null; }
+  return { body:`<div class="home"><h2>What are we working on?</h2>${compose()}${S.first==='none'?suggestions():''}${homeCards()}</div>` };
+}
+function D_settings(){
+  const line=(nm,st,dot,opt)=>`<div class="item"><div class="top"><span class="dot ${dot}"></span><span class="nm">${nm}</span>${opt?'<span class="opt">optional</span>':''}<span class="st">${st}</span></div></div>`;
+  return { title:'Settings', body:`<div class="pg"><h1>Settings</h1><div class="lead">To connect or fix a sign-in, Curia walks you through it in a conversation.</div><div class="sec">Connections</div><div class="list">${line('GitHub',ghState(),dotOf(S.gh))}${line('AI login',aiState(),dotOf(S.ai))}${line('Discord',discState(),dotOf(S.disc),true)}${line('Tailscale',TS_FACT,'ok')}</div><div class="row2"><button class="btn pri" data-a="D-change">Change a connection…</button></div><div class="sec">Repositories</div>${secRepos()}<div class="sec">Agents</div>${secAgents()}<div class="sec">Dispatch</div>${secDispatch()}<div class="sec">Maintenance</div>${secMaint()}</div>` };
+}
+
+/* ==================== PAGES ==================== */
+function mapsPage(locked){
+  if(S.gh!=='ok') return { title:'Maps', body:locked() };
+  const test=S.o==='test'&&S.first!=='none';
+  return { title:'Maps', body:`<div class="pg"><h1>Maps</h1>${test?`<div class="list"><div class="item"><div class="top"><span class="dot ${S.first==='done'?'ok':'run'}"></span><span class="nm">Test run · September 24</span><span class="st">${S.first==='done'?'closed · 2 of 2 tickets':'1 needs you · 0 of 2 closed'}</span></div></div></div>`:`<div class="empty"><div class="h">No maps yet</div>A map plans work that takes more than one session. Ask for one in a new conversation.</div>`}</div>` };
+}
+function pageFor(){
+  const v=S.v;
+  if(S.view==='conv'){
+    if(S.open==='setup') return convPage('Set up Curia', D_setupConv(), ready()?'Ask Curia anything…':'Ask a question about setup…');
+    if(S.open==='disc') return convPage('Discord is disconnected', D_discConv(), 'Ask Curia…');
+    return convPage(firstConvLabel(), firstConv());
+  }
+  if(S.view==='maps') return mapsPage(v==='C'?C_mapsLocked:v==='D'?()=>`<div class="empty"><div class="h">Maps live on GitHub</div>Connect GitHub to see your maps and tickets.<div class="row2" style="justify-content:center"><button class="btn pri" data-a="open" data-arg="setup">Continue setup</button></div></div>`:v==='B'?()=>`<div class="empty"><div class="h">Maps live on GitHub</div>Connect GitHub to see your maps and tickets.<div class="row2" style="justify-content:center"><button class="btn pri" data-a="B-resume">Resume setup</button></div></div>`:A_mapsLocked);
+  if(S.view==='settings') return {A:A_settings,B:B_settings,C:C_settings,D:D_settings}[v]();
+  if(S.view==='conns') return B_conns();
+  if(v==='D'){ const h=D_home(); if(!h){ S.view='conv'; return pageFor(); } return h; }
+  return {A:A_home,B:B_home,C:C_home}[v]();
+}
+function sideFor(){
+  const bad=S.gh==='fail'||['fail','expired'].includes(S.ai);
+  if(S.v==='A') return side({discFact:'A-fixdisc', setDot:bad||S.disc==='fail'});
+  if(S.v==='B') return side({discFact:null, foot:`<button class="row ${S.view==='conns'?'on':''}" data-a="go" data-arg="conns"><span class="ic">⇄</span>Connections${bad||S.disc==='fail'?'<span class="sp"></span><span class="dot bad" style="width:6px;height:6px"></span>':''}</button>`});
+  if(S.v==='C') return side({discFact:'C-fixdisc', setDot:bad});
+  return side({setupConv:true, discNeed:true});
+}
+
+/* ==================== RENDER ==================== */
+function desktop(){
+  if(S.v==='B'&&!S.guideDone) return B_guide(false);
+  const p=pageFor();
+  return `<div class="Dk">${sideFor()}<div class="main">${p.title?`<div class="hd"><span class="title">${esc(p.title)}</span><span class="sp"></span></div>`:'<div class="hd"></div>'}<div class="scroll">${p.body}</div>${p.bottom||''}${S.v==='C'?C_sheet():''}</div></div>`;
+}
+function phone(){
+  if(S.v==='B'&&!S.guideDone) return `<div class="Ph">${B_guide(true)}</div>`;
+  const p=pageFor(); const alert=S.disc==='fail'||S.gh==='fail'||['fail','expired'].includes(S.ai)||['wait','review'].includes(S.first);
+  return `<div class="Ph"><div class="hd"><button class="ib" data-a="drawer" aria-label="Open menu">☰${alert?`<span class="ndot ${S.disc==='fail'||S.gh==='fail'||['fail','expired'].includes(S.ai)?'bad':''}"></span>`:''}</button><span class="title">${esc(p.title||'Curia')}</span><span class="sp"></span></div><div class="scroll">${p.body}</div>${p.bottom||''}${S.v==='C'?C_sheet():''}${S.drawer?`<div class="drawer" data-a="drawer-x">${sideFor()}</div>`:''}</div>`;
+}
+const STMT={
+  A:{how:'The landing page carries two rows, GitHub and AI login, under a disabled prompt box until work can start. Each row opens its steps in place. Then the rows give way to suggested first tasks and a short card about what Curia does.', later:'One Settings page with sections. Connections holds GitHub, AI login, and optional Discord in the same rows. Setup and Credentials are gone as destinations.', partial:'The prompt box says what works now. Maps show a Connect GitHub action until GitHub verifies.'},
+  B:{how:'A focused guide without the sidebar: GitHub, AI login, first task. Finish later drops you into the app with a banner to resume.', later:'Two destinations in the sidebar footer: Connections (GitHub, AI login, Discord, Tailscale as cards) and Settings (preferences only).', partial:'A banner on the landing page names what is missing. The prompt box stays off until work can start.'},
+  C:{how:'No setup screen. The whole app is visible from the start, and the prompt box works. Sending your first task opens a sheet for GitHub and the AI login, then starts that task.', later:'One Settings page: a compact Connections list on top (Change opens the same sheet), then the other sections in one scroll.', partial:'Each surface asks only for what it needs: Maps asks for GitHub; sending a task asks for both.'},
+  D:{how:'Setup is a conversation with Curia, pinned under Needs you. Each step is a question card, failures are explained in plain words, and the last card starts the first task.', later:'One Settings page shows connection status. Changing or fixing one starts a short conversation. A failing Discord arrives as a Needs you conversation.', partial:'Curia says what works after each step. The setup conversation stays under Needs you until work can start.'},
+};
+
+/* scenarios set state; the frame shows that moment */
+const SCN=[
+ {n:'New installation', steps:[
+   ['Open Curia for the first time', ()=>{reset();}],
+   ['Create the GitHub App', ()=>{reset(); S.gh='progress'; S.ghStep=2; S.open='gh'; S.guideStep=1; if(S.v==='C'){S.pendingTask=FIRST[S.o].ask; S.sheet='both';}}],
+   ['Choose repositories', ()=>{reset(); S.gh='progress'; S.ghStep=3; S.open='gh'; if(S.v==='C'){S.pendingTask=FIRST[S.o].ask; S.sheet='both';}}],
+   ['GitHub verified', ()=>{reset(); S.gh='ok'; S.open='ai'; S.guideStep=2; if(S.v==='C'){S.pendingTask=FIRST[S.o].ask; S.sheet='both';}}],
+ ]},
+ {n:'GitHub only', steps:[
+   ['Land with GitHub connected, no AI login', ()=>{reset(); S.gh='ok'; S.guideDone=true; S.open=null;}],
+   ['Open Maps', ()=>{reset(); S.gh='ok'; S.guideDone=true; S.view='maps';}],
+   ['Try to start a task', ()=>{reset(); S.gh='ok'; S.guideDone=true; S.typed='Fix the typo in the footer'; if(S.v==='C'){S.pendingTask=S.typed; S.sheet='both';} if(S.v==='A') S.open='ai'; if(S.v==='B'){S.guideDone=false; S.guideStep=2;}}],
+ ]},
+ {n:'Failed verification', steps:[
+   ['GitHub App not installed', ()=>{reset(); S.gh='fail'; S.open='gh'; if(S.v==='C'){S.pendingTask=FIRST[S.o].ask; S.sheet='both';}}],
+   ['AI sign-in refused', ()=>{reset(); S.gh='ok'; S.ai='fail'; S.aiProv='openai'; S.open='ai'; S.guideStep=2; if(S.v==='C'){S.pendingTask=FIRST[S.o].ask; S.sheet='both';}}],
+ ]},
+ {n:'First useful outcome', steps:[
+   ['Work can start', ()=>{reset(); S.gh='ok'; S.ai='ok'; S.aiProv='openai'; S.guideStep=3;}],
+   ['Start it', ()=>{reset(); S.gh='ok'; S.ai='ok'; S.aiProv='openai'; S.guideDone=true; S.first='run'; S.view='conv'; S.open='first';}],
+   ['It needs you', ()=>{reset(); S.gh='ok'; S.ai='ok'; S.aiProv='openai'; S.guideDone=true; S.first=S.o==='test'?'wait':'review'; S.view='conv'; S.open='first';}],
+   ['Finished', ()=>{reset(); S.gh='ok'; S.ai='ok'; S.aiProv='openai'; S.guideDone=true; S.first='done'; S.answered=S.o==='test'?'Curia test run, September 24':null; S.view='conv'; S.open='first';}],
+   ['Back to the landing page', ()=>{reset(); S.gh='ok'; S.ai='ok'; S.aiProv='openai'; S.guideDone=true; S.first='done'; S.view='home';}],
+ ]},
+ {n:'Coming back later', steps:[
+   ['Add Discord', ()=>{done(); S.view='settings'; S.sec='conn'; S.open='disc'; if(S.v==='B') S.view='conns'; if(S.v==='C') S.sheet='disc'; if(S.v==='D'){ S.view='conv'; S.open='setup'; S.setupLog=[`<div class="msg me"><div class="body">Connect Discord</div></div>`,`<div class="msg"><div class="q"><div class="qt">Connect Discord</div>${'%DISC%'}</div></div>`]; S.disc='progress'; S.discStep=1; }}],
+   ['Add a second AI provider', ()=>{done(); S.view='settings'; S.sec='conn'; S.open='ai'; if(S.v==='B') S.view='conns'; if(S.v==='C') S.sheet='ai';}],
+   ['An AI sign-in expires mid-task', ()=>{done(); S.ai='expired'; S.first='run'; S.view='conv'; S.open='first';}],
+   ['Change watched repositories', ()=>{done(); S.view='settings'; S.sec='repos'; if(S.v==='B') S.view='settings';}],
+ ]},
+ {n:'Discord failing', steps:[
+   ['Land on an existing installation', ()=>{done(); S.disc='fail';}],
+   ['Work continues in a conversation', ()=>{done(); S.disc='fail'; S.first='wait'; S.answered=null; S.view='conv'; S.open='first';}],
+   ['Fix it', ()=>{done(); S.disc='fail'; if(S.v==='A'){S.view='settings'; S.sec='conn'; S.open='disc';} if(S.v==='B') S.view='conns'; if(S.v==='C'){S.sheet='disc';} if(S.v==='D'){S.view='conv'; S.open='disc';}}],
+ ]},
+];
+function done(){ reset(); S.gh='ok'; S.ai='ok'; S.aiProv='openai'; S.guideDone=true; S.first='done'; S.orientGone=true; S.disc='none'; S.answered='Curia test run, September 24'; }
+
+function guide(){
+  const s=STMT[S.v];
+  return `<h3>Variant ${S.v}: ${VN[S.v]}</h3><div class="stmt"><b>First use:</b> ${s.how}</div><div class="stmt"><b>Later:</b> ${s.later}</div><div class="stmt"><b>Partial configuration:</b> ${s.partial}</div>
+  <h3>First useful outcome</h3><div class="free"><button class="${S.o==='test'?'on':''}" data-g="o" data-arg="test">Test run first</button><button class="${S.o==='task'?'on':''}" data-g="o" data-arg="task">Real quick task first</button></div>
+  <h3>Scenarios</h3>${SCN.map((c,i)=>`<div class="sc"><div>${i+1}. ${c.n}</div>${c.steps.map((st,j)=>`<button class="${S.sc===i+'.'+j?'on':''}" data-g="sc" data-arg="${i}.${j}">${st[0]}</button>`).join('')}</div>`).join('')}
+  <h3>Free play</h3><div class="free"><button data-g="reset">Reset to new installation</button><button class="${S.failGh?'on':''}" data-g="failGh">GitHub verify fails</button><button class="${S.failAi?'on':''}" data-g="failAi">AI sign-in fails</button><button class="${S.disc==='fail'?'on':''}" data-g="discFail">Discord failing</button></div>
+  <h3>State</h3><pre>${esc(JSON.stringify({variant:S.v, outcome:S.o, github:S.gh+(S.gh==='progress'?' '+S.ghStep:''), ai:S.ai+(S.aiProv?' '+S.aiProv:''), discord:S.disc, work_gate:ready()?'open':'closed', first_task:S.first, view:S.view+(S.open?' '+S.open:'')},null,1))}</pre>`;
+}
+function render(){
+  if(S.v==='D'&&S.setupLog.length) S.setupLog=S.setupLog.map(x=>x.includes('%DISC%')||x.includes('data-disc')?`<div class="msg" data-disc><div class="q ${S.disc==='ok'?'done':''}"><div class="qt">Connect Discord</div>${S.disc==='ok'?'<div class="ans">✓ '+discState()+'</div>':discBody()}</div></div>`:x);
+  const f=document.getElementById('frame'); f.className='frame '+S.dev;
+  const ta=document.getElementById('ta'); if(ta) S.typed=ta.value;
+  f.innerHTML=(S.dev==='phone'?phone():desktop())+(S.toast?`<div class="toast">${esc(S.toast)}</div>`:'');
+  if(S.view==='conv') f.querySelectorAll('.scroll').forEach(x=>x.scrollTop=x.scrollHeight);
+  document.getElementById('guide').innerHTML=guide();
+  document.getElementById('vname').textContent=`${S.v} — ${VN[S.v]}`;
+  document.getElementById('ph').textContent=`variant ${S.v} · ${S.dev} · ${S.o==='test'?'Test run first':'task first'}`;
+  [['dDesk',S.dev==='desktop'],['dPhone',S.dev==='phone'],['oTest',S.o==='test'],['oTask',S.o==='task']].forEach(([id,on])=>document.getElementById(id).classList.toggle('on',on));
+  const u=new URLSearchParams({variant:S.v,device:S.dev,outcome:S.o}); history.replaceState(null,'','?'+u);
+}
+
+/* ==================== ACTIONS (stubs; nothing leaves the page) ==================== */
+let tm=[]; const later=(ms,fn)=>tm.push(setTimeout(()=>{fn();render();},ms));
+function verify(key, fail, list, onOk){
+  S[key]='verifying'; S._vi=0;
+  for(let i=1;i<=list;i++) later(i*260,()=>{S._vi=i;});
+  later(list*260+200,()=>{ if(fail()){ S[key]='fail'; } else { S[key]='ok'; onOk&&onOk(); } });
+}
+function toast(m){ S.toast=m; later(2600,()=>{S.toast=null;}); }
+function startFirst(ask){
+  S.customAsk=ask||null; S.first='run'; S.view='conv'; S.open='first'; S.sheet=null; S.pendingTask=null; S.guideDone=true; S.drawer=false; S.orientGone=false;
+  later(1800,()=>{ if(S.first==='run') S.first=S.o==='test'?'wait':'review'; });
+}
+const A={
+  noop(){ toast('Prototype: this would open GitHub, the provider, or Discord.'); },
+  toast(a){ toast(a); },
+  go(a){ S.view=a; S.drawer=false; S.sheet=null; if(a==='settings'&&S.v==='A'&&!S.sec) S.sec='conn'; },
+  open(a){ S.view='conv'; S.open=a; S.drawer=false; },
+  toggle(a){ S.open=S.open===a?null:a; },
+  sec(a){ S.sec=a; },
+  drawer(){ S.drawer=true; }, 'drawer-x'(e){ if(e.target.classList.contains('drawer')) S.drawer=false; },
+  'orient-x'(){ S.orientGone=true; },
+  'gh-next'(){ if(S.gh==='none'){S.gh='progress'; S.ghStep=2; return;} if(S.ghStep<3){S.ghStep++; return;} verify('gh',()=>S.failGh,6,()=>{ if(S.v==='A') S.open='ai'; }); },
+  'gh-retry'(){ S.failGh=false; verify('gh',()=>false,6,()=>{ if(S.v==='A') S.open='ai'; }); },
+  repos(){ toast('Prototype: the repository picker opens here.'); },
+  'ai-pick'(a){ S.aiProv=a; S.ai='signing'; },
+  'ai-none'(){ S.ai='none'; },
+  'ai-done'(){ verify('ai',()=>S.failAi,3,()=>{ S.open=null; if(S.v==='B') later(500,()=>{S.guideStep=3;}); }); },
+  'ai-fix'(){ S.ai='signing'; if(S.v==='A'){S.view='settings'; S.sec='conn'; S.open='ai';} if(S.v==='B') S.view='conns'; if(S.v==='C') S.sheet='ai'; if(S.v==='D'){ S.view='conv'; S.open='setup'; } },
+  ai2(){ S.ai2=true; toast('Prototype: the second provider signs in the same way.'); },
+  'ai-out'(){ S.ai='none'; S.aiProv=null; },
+  'disc-next'(){ if(S.disc==='none'){S.disc='progress'; S.discStep=1; return;} if(S.discStep<3){S.discStep++; return;} verify('disc',()=>false,5); },
+  'disc-retry'(){ verify('disc',()=>false,5); },
+  'disc-off'(){ S.disc='none'; },
+  'A-fixdisc'(){ S.view='settings'; S.sec='conn'; S.open='disc'; S.drawer=false; },
+  'C-fixdisc'(){ S.sheet='disc'; S.drawer=false; },
+  send(){ const t=(document.getElementById('ta')||{}).value||''; if(!t.trim()&&S.v!=='C') return;
+    if(ready()){ S.typed=''; startFirst(t.trim()||null); return; }
+    if(S.v==='C'){ S.pendingTask=t.trim()||FIRST[S.o].ask; S.sheet='both'; return; }
+    if(S.v==='A'){ S.open=S.gh!=='ok'?'gh':'ai'; toast('Connect GitHub and an AI login to send this.'); return; }
+    if(S.v==='B'){ S.guideDone=false; S.guideStep=S.gh!=='ok'?1:2; return; }
+    toast('Finish setup in the conversation first.'); },
+  'start-first'(){ if(!ready()){ if(S.v==='C'){ S.pendingTask=FIRST[S.o].ask; S.sheet='both'; } return; } startFirst(); },
+  'start-alt'(a){ if(!ready()){ if(S.v==='C'){ S.pendingTask=a; S.sheet='both'; } return; } startFirst(a); },
+  answer(a){ if(S.first!=='wait') return; S.answered=a; S.first='run'; later(1400,()=>{S.first='review';}); },
+  approve(){ S.first='run'; later(S.o==='test'?2200:900,()=>{S.first='done';}); },
+  sheet(a){ S.sheet=a==='gh'||a==='ai'||a==='disc'?a:'both'; },
+  'sheet-x'(){ S.sheet=null; S.pendingTask=null; },
+  'C-go'(){ startFirst(S.pendingTask===FIRST[S.o].ask?null:S.pendingTask); },
+  'B-step'(a){ S.guideStep=+a; },
+  'B-finish'(){ S.guideDone=true; S.view='home'; },
+  'B-resume'(){ S.guideDone=false; S.guideStep=S.gh!=='ok'?1:S.ai!=='ok'?2:3; },
+  'D-change'(){ S.view='conv'; S.open='setup'; S.setupLog=[`<div class="msg me"><div class="body">I want to change a connection</div></div>`,`<div class="msg"><div class="who">Curia</div>Which one? <div class="row2"><button class="btn" data-a="D-disc">Connect Discord</button><button class="btn" data-a="ai-fix">Sign in to AI again</button><button class="btn" data-a="repos">Change repositories</button></div></div>`]; },
+  'D-disc'(){ S.disc='progress'; S.discStep=1; S.setupLog.push(`<div class="msg me"><div class="body">Connect Discord</div></div>`,`<div class="msg" data-disc></div>`); },
+};
+document.getElementById('frame').addEventListener('click',e=>{ const b=e.target.closest('[data-a]'); if(!b) return; const a=b.dataset.a; if(!A[a]) return; e.preventDefault();
+  if(a==='drawer-x'&&!e.target.classList.contains('drawer')) return;
+  A[a](a==='drawer-x'?e:b.dataset.arg); render(); });
+document.getElementById('guide').addEventListener('click',e=>{ const b=e.target.closest('[data-g]'); if(!b) return; const g=b.dataset.g, arg=b.dataset.arg; tm.forEach(clearTimeout); tm=[];
+  if(g==='o'){ S.o=arg; }
+  if(g==='sc'){ const [i,j]=arg.split('.').map(Number); SCN[i].steps[j][1](); S.sc=arg; }
+  if(g==='reset'){ reset(); }
+  if(g==='failGh') S.failGh=!S.failGh;
+  if(g==='failAi') S.failAi=!S.failAi;
+  if(g==='discFail'){ if(S.disc==='fail') S.disc='none'; else { if(!ready()) done(); S.disc='fail'; } }
+  render(); });
+const cyc=d=>{ S.v=VARS[(VARS.indexOf(S.v)+d+VARS.length)%VARS.length]; S.sheet=null; S.drawer=false; if(S.view==='conns'&&S.v!=='B') S.view='settings'; if(S.open==='setup'&&S.v!=='D'){S.view='home'; S.open=null;} render(); };
+document.getElementById('prev').onclick=()=>cyc(-1); document.getElementById('next').onclick=()=>cyc(1);
+document.getElementById('dDesk').onclick=()=>{S.dev='desktop';render();}; document.getElementById('dPhone').onclick=()=>{S.dev='phone';render();};
+document.getElementById('oTest').onclick=()=>{S.o='test';render();}; document.getElementById('oTask').onclick=()=>{S.o='task';render();};
+document.addEventListener('keydown',e=>{ if(e.target.matches('input,textarea,[contenteditable]')) return;
+  if(e.key==='ArrowLeft') cyc(-1); if(e.key==='ArrowRight') cyc(1);
+  if(e.key==='d'){ S.dev=S.dev==='phone'?'desktop':'phone'; render(); }
+  if(e.key==='o'){ S.o=S.o==='test'?'task':'test'; render(); }
+  if(e.key==='r'){ reset(); render(); } });
+render();
+</script>
+</body>
+</html>
