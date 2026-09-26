@@ -59,3 +59,4 @@ One file per standing decision. A decision earns an ADR when it still constrains
 - [ADR-0011](0011-tailscale-identity-in-front-of-every-attach-surface.md): Tailscale identity gates every attach surface, reads included. Tailnet membership is no longer the control.
 
 - [ADR-0032](0032-the-app-orders-updates-through-a-detached-runner.md): Settings starts an operator-approved update in a detached sibling using the existing CLI lifecycle. Progress survives service replacement.
+- [ADR-0034](0034-the-app-is-a-built-react-frontend.md): The app is a React build in its own package, built in the dashboard image and served by the sidecar. Curia owns its conversation components, and the new app replaces the old page in one cutover. Decided, not built.
