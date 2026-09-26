@@ -269,6 +269,9 @@ a { color:inherit; }
 .v-D .home .card .k, .v-F .home .card .k { justify-content:space-between; }
 .st { font-size:11.5px; font-weight:500; display:inline-flex; gap:6px; align-items:center; }
 .st.wait { color:var(--warn); } .st.bad { color:var(--bad); } .st.review { color:var(--accent); } .st.run { color:var(--run); } .st.done { color:var(--good); } .st.hold { color:var(--dim); }
+.more-need { display:block; margin:14px auto 0; color:var(--dim); font-size:13px; padding:6px 12px; border-radius:8px; }
+.more-need:hover { color:var(--ink); background:var(--raise); }
+.side .grp.flash { animation:flash 1.2s 2; border-radius:8px; }
 .clamp { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; color:var(--dim); font-size:12.5px; }
 
 /* E — timeline */
@@ -308,7 +311,10 @@ a { color:inherit; }
 .v-E .home .mini { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
 .phone.v-E .home .mini { grid-template-columns:1fr; }
 .v-E .home .mini .card { padding:10px 12px; border-radius:10px; cursor:pointer; font-size:13px; }
-.v-E .home .mini .card .clamp { margin-top:3px; }
+.v-E .home .mini .card .more-need { display:block; margin:14px auto 0; color:var(--dim); font-size:13px; padding:6px 12px; border-radius:8px; }
+.more-need:hover { color:var(--ink); background:var(--raise); }
+.side .grp.flash { animation:flash 1.2s 2; border-radius:8px; }
+.clamp { margin-top:3px; }
 .phone .tl { grid-template-columns:0 12px 1fr; column-gap:8px; } .phone .tl .tm { visibility:hidden; } .phone .tl::before { left:13px; }
 .phone.v-E .newdiv { margin-left:20px; }
 .phone.v-E .hd { flex-wrap:wrap; row-gap:6px; }
@@ -602,7 +608,7 @@ function sidebar(){
   return `<div class="side"><div class="brand"><span>Curia</span><span class="dim" style="font-weight:400;font-size:12px">⌘K</span></div>
     <button class="row ${S.view==='home'&&!S.chat?'on':''}" data-view="home"><span class="ic">✎</span>New conversation</button>
     <button class="row ${S.chat==='c1'?'on':''}" data-open="c1"><span class="ic">◉</span>Overseer</button>
-    ${needs.length?`<div class="grp"><span>Needs you</span><span class="badge">${needs.length}</span></div>${needs.map(ch).join('')}`:''}
+    ${needs.length?`<div class="grp ${S.flash==='needs'?'flash':''}"><span>Needs you</span><span class="badge">${needs.length}</span></div>${needs.map(ch).join('')}`:''}
     <div class="grp"><span>Maps</span></div>
     ${maps.map(m=>`<button class="ch ${S.view==='maps'&&S.mapSel===m.id?'on':''}" data-map="${m.id}"><span class="ic" style="width:auto;opacity:.7">◫</span><span class="t">${esc(m.title)}</span>${m.needs&&!S.quiet?'<span class="dot wait"></span>':''}</button>`).join('') || `<button class="ch quiet" data-view="maps"><span class="t">No maps yet</span></button>`}
     <div class="grp"><span>Recent</span></div>
@@ -626,7 +632,8 @@ function landing(){
   } else if(V==='D' || V==='F'){
     const card = c => `<div class="card" data-open="${c.id}"><div class="k"><span class="st ${dotOf[c.state]}"><span class="dot ${dotOf[c.state]}"></span>${label[c.state]}</span><span>${c.ago}</span></div><div>${esc(c.title)}</div><div class="clamp">${esc(c.last)}</div></div>`;
     const lede = V==='F' ? `<p class="lede">${esc(byId('c1').items[0].t)} <b>${needs.length} need you.</b> <a href="#" data-open="c1">Read the overseer’s note</a></p>` : '';
-    body = `${V==='F'?'':''}<div class="grid">${needs.map(card).join('')}${V==='D'?`<div class="card" data-open="c1"><div class="k"><span class="st hold"><span class="dot"></span>overseer</span><span>2m</span></div><div>Overnight</div><div class="clamp">${esc(byId('c1').last)}</div></div>`:''}</div>`;
+    const shown = V==='D' ? needs.slice(0,3) : needs, extra = needs.length - shown.length;
+    body = `<div class="grid">${shown.map(card).join('')}${V==='D'?`<div class="card" data-open="c1"><div class="k"><span class="st hold"><span class="dot"></span>overseer</span><span>2m</span></div><div>Overnight</div><div class="clamp">${esc(byId('c1').last)}</div></div>`:''}</div>${extra>0?`<button class="more-need" data-act="${phone?'menu':'flashneeds'}">${extra} more need you · in the sidebar</button>`:''}`;
     if(V==='F') return `<div class="home"><h2>${lead}</h2>${lede}${composeBox('Describe the outcome…', true)}${body}</div>`;
   } else if(V==='E'){
     const g = (name, list, dot) => list.length ? `<div class="grp2"><h4><span class="dot ${dot}"></span>${name} · ${list.length}</h4><div class="mini">${list.map(c=>`<div class="card" data-open="${c.id}"><div>${esc(c.title)}</div><div class="clamp">${esc(c.last)}</div></div>`).join('')}</div></div>` : '';
@@ -750,7 +757,7 @@ const SC = [
  ]},
 ];
 const VS = {
-  D:{ always:'Still a full log, but quieter. Each step is one line with a tool glyph (R read, E edit, W write, $ command), the file in bright text, and the result in faint text on the right. A run of more than four steps shows the last four and “6 earlier steps”. Consecutive agent messages drop the repeated name.', questions:'In the conversation, where asked.', interrupt:'A compact toast sits just above the composer, where your eyes already are.', landing:'Cards in two even columns: state and time on top, title, then two lines of the latest message. The overseer is one of the cards.' },
+  D:{ always:'Still a full log, but quieter. Each step is one line with a tool glyph (R read, E edit, W write, $ command), the file in bright text, and the result in faint text on the right. A run of more than four steps shows the last four and “6 earlier steps”. Consecutive agent messages drop the repeated name.', questions:'In the conversation, where asked.', interrupt:'A compact toast sits just above the composer, where your eyes already are.', landing:'At most four cards in two even columns: the first three from Needs you in the sidebar's order, then the overseer. State and time on top, title, then two lines of the latest message. The rest are one link, “N more need you · in the sidebar”.' },
   E:{ always:'Everything hangs on one rail with times in the left gutter. Messages are nodes; steps are small dots with their tool and file. A question is an amber diamond. The status is a pill in the header with its controls.', questions:'In the conversation, on the rail, where asked.', interrupt:'A card stacks at the top right, under the header, so it never covers the conversation’s text column.', landing:'Grouped by what they need: waiting for you, stopped and needs a hand, still going, overseer.' },
   F:{ always:'Each agent turn is one card: a header with agent, minutes, and step count, the step log, then what the agent said. The live turn has a violet edge, a failed one a red edge. Your messages and questions sit between cards.', questions:'In the conversation, between turn cards, on an amber ground.', interrupt:'No floating toast. The strip on top of the composer switches from this conversation’s status to the other conversation’s question, with Answer and Later.', landing:'One sentence from the overseer under the greeting, the prompt box, then cards.' },
   A:{ always:'Every agent step is a monospaced line in the conversation, with thinking in italics and failed output in place. The status line sticks to the top of the conversation.', questions:'Open questions sit in the conversation where the agent asked them.', interrupt:'A toast names the other conversation and its question, with <b>Answer</b> and <b>Later</b>. The sidebar row flashes and moves to Needs you.', landing:'Cards for everything that needs you, each with its last line, plus the overseer.' },
@@ -795,6 +802,7 @@ document.addEventListener('click', e=>{
   else if(a==='info'){ S.info=!S.info; S.activity=false; }
   else if(a==='activity'){ S.activity=!S.activity; S.info=false; }
   else if(a==='later'){ S.toast=null; }
+  else if(a==='flashneeds'){ S.flash='needs'; setTimeout(()=>{ S.flash=null; render(); }, 2600); }
   else if(a==='pause'){ c.state='paused'; }
   else if(a==='resume'){ c.state='working'; c.items.forEach(i=>{ if(i.k==='queued') i.k='me'; }); }
   else if(a==='stop'){ c.state='died'; c.diedAt='now'; c.cause='you stopped it · the branch and the conversation stay'; }

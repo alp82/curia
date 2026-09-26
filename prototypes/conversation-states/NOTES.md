@@ -92,3 +92,8 @@ operator keeps them.
 - Nothing talks to the service. Links go nowhere.
 - The Maps page is a placeholder. Its design is decided on the map overview ticket.
 - Answering a question in C's landing dock doesn't open the conversation.
+
+## Verdict (September 26, 2026)
+
+The operator chose **D, Quiet log**, with the landing page after a return capped at four cards: the first three from
+Needs you, in the sidebar's order, then the overseer. The rest collapse into one link, "N more need you · in the sidebar".
