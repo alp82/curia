@@ -31,6 +31,23 @@ array). Each variant answers the two questions differently, and handles interrup
 
 In A and B the status line sticks to the top of the conversation. In C it joins the composer.
 
+### Round 1 verdict (September 26, 2026)
+
+The operator found A the better direction. B read as a duplicate of the sidebar. C had potential but was too much. The
+operator asked for more variations that make A tidier and better designed.
+
+### Round 2: tidier takes on A
+
+The switcher now cycles A (round 1, for reference), D, E, and F. B and C remain in the source but are off the bar.
+All three keep A's structure: every step visible, questions where asked, and interrupts that don't move you. They use Geist
+and Geist Mono and a quieter sidebar.
+
+| Variant | Name | Agent steps | Status | Interrupt | Landing |
+| --- | --- | --- | --- | --- | --- |
+| D | Quiet log | One line per step with a tool glyph (R, E, W, $), file bright, result faint. A run over four steps shows the last four and "N earlier steps". Repeated agent names drop. | A slim row under the header, hairline below | A compact toast just above the composer | Two even columns of cards: state and time, title, two lines of the latest message |
+| E | Timeline | Everything on one rail with times in a left gutter. Steps are small dots with tool and file; a question is an amber diamond. | A pill in the header, with its controls | A card stacked at the top right | Grouped: waiting for you, stopped and needs a hand, still going, overseer |
+| F | Turn cards | Each agent turn is one card: agent, minutes, step count, the step log, then what the agent said. Live turns get a violet edge, failed ones red. | A strip on top of the composer | The composer strip switches to the other conversation's question | The overseer's sentence under the greeting, then cards |
+
 ## Scenarios
 
 1. Landing after a return: after 10 hours, reopening a conversation left mid-way (a "since you left" divider), nothing

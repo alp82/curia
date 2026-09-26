@@ -1,0 +1,119 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - generic [ref=e3]: "#1029 conversation states and density"
+    - generic [ref=e4]: variant=A device=desktop s=1 step=0
+    - generic [ref=e5]: · ←/→ variant · d device · scenario steps on the right set the mock state · buttons in the frame work
+  - generic [ref=e6]:
+    - generic [ref=e9]:
+      - generic [ref=e10]:
+        - generic [ref=e11]:
+          - generic [ref=e12]: Curia
+          - generic [ref=e13]: ⌘K
+        - button "✎ New conversation" [ref=e14] [cursor=pointer]:
+          - generic [ref=e15]: ✎
+          - text: New conversation
+        - button "◉ Overseer" [ref=e16] [cursor=pointer]:
+          - generic [ref=e17]: ◉
+          - text: Overseer
+        - generic [ref=e18]:
+          - generic [ref=e19]: Needs you
+          - generic [ref=e20]: "6"
+        - button "Which ticket types do execution tickets carry?" [ref=e21] [cursor=pointer]
+        - button "Choose between Curia’s own layout and React Flow" [ref=e24] [cursor=pointer]
+        - button "Bump the ttyd font size on phone" [ref=e27] [cursor=pointer]
+        - button "Offer recovery from setup" [ref=e30] [cursor=pointer]
+        - button "Fix the flaky openaisetup test" [ref=e33] [cursor=pointer]
+        - button "Write the recovery walkthrough" [ref=e36] [cursor=pointer]
+        - generic [ref=e39]: Maps
+        - button "◫ Redesign the Curia app" [ref=e41] [cursor=pointer]:
+          - generic [ref=e42]: ◫
+          - generic [ref=e43]: Redesign the Curia app
+        - button "◫ Discord permission recovery" [ref=e45] [cursor=pointer]:
+          - generic [ref=e46]: ◫
+          - generic [ref=e47]: Discord permission recovery
+        - generic [ref=e48]: Recent
+        - generic [ref=e50]:
+          - button "Define the conversation surface’s states" [ref=e51] [cursor=pointer]
+          - button "What must the map snapshot carry?" [ref=e54] [cursor=pointer]
+          - button "Rename the Full-loop gate docs" [ref=e57] [cursor=pointer]
+        - button "⚙ Settings" [ref=e61] [cursor=pointer]:
+          - generic [ref=e62]: ⚙
+          - text: Settings
+      - generic [ref=e66]:
+        - heading "Welcome back" [level=2] [ref=e67]
+        - generic [ref=e69]:
+          - generic [ref=e70]: Describe the outcome…
+          - generic [ref=e71]:
+            - button "+" [ref=e72] [cursor=pointer]
+            - button "alp82/curia" [ref=e73] [cursor=pointer]
+            - generic [ref=e74]: ↑
+        - generic [ref=e75]:
+          - generic [ref=e76] [cursor=pointer]:
+            - generic [ref=e77]: needs you · 6h
+            - text: Which ticket types do execution tickets carry?
+            - generic [ref=e79]: Should build tickets carry their own type letter?
+          - generic [ref=e80] [cursor=pointer]:
+            - generic [ref=e81]: needs you · 12m
+            - text: Choose between Curia’s own layout and React Flow
+            - generic [ref=e83]: Published a preview of both graphs. Which one should the Maps page use?
+          - generic [ref=e84] [cursor=pointer]:
+            - generic [ref=e85]: review · 40m
+            - text: Bump the ttyd font size on phone
+            - generic [ref=e87]: "Opened PR #1036."
+          - generic [ref=e88] [cursor=pointer]:
+            - generic [ref=e89]: ended · 6h
+            - text: Offer recovery from setup
+            - generic [ref=e91]: Ended at 03:12. The container lost its network.
+          - generic [ref=e92] [cursor=pointer]:
+            - generic [ref=e93]: sign-in expired · 1h
+            - text: Fix the flaky openaisetup test
+            - generic [ref=e95]: Paused. The Claude sign-in expired.
+          - generic [ref=e96] [cursor=pointer]:
+            - generic [ref=e97]: didn’t start · 25m
+            - text: Write the recovery walkthrough
+            - generic [ref=e99]: Didn’t start.
+          - generic [ref=e100] [cursor=pointer]:
+            - generic [ref=e101]: overseer · 2m
+            - text: Six sessions ran overnight. Two finished, two wait for you, one ended, one hit a limit.
+    - generic [ref=e103]:
+      - heading "Variant A — Full log (round 1)" [level=3] [ref=e104]
+      - generic [ref=e105]: "Agent steps: Every agent step is a monospaced line in the conversation, with thinking in italics and failed output in place. The status line sticks to the top of the conversation."
+      - generic [ref=e106]: "Questions: Open questions sit in the conversation where the agent asked them."
+      - generic [ref=e107]: "Interrupts: A toast names the other conversation and its question, with Answer and Later. The sidebar row flashes and moves to Needs you."
+      - generic [ref=e108]: "Landing after a return: Cards for everything that needs you, each with its last line, plus the overseer."
+      - heading "Scenario" [level=3] [ref=e109]
+      - generic [ref=e110]:
+        - button "1 Landing after a return" [ref=e111] [cursor=pointer]
+        - button "2 Interrupts" [ref=e112] [cursor=pointer]
+        - button "3 Parallel conversations" [ref=e113] [cursor=pointer]
+        - button "4 Long-running work" [ref=e114] [cursor=pointer]
+        - button "5 Failure and recovery" [ref=e115] [cursor=pointer]
+        - button "6 Empty states" [ref=e116] [cursor=pointer]
+      - paragraph [ref=e117]: The first thing you see after ten hours away, and its quieter cousins.
+      - list [ref=e118]:
+        - listitem [ref=e119]:
+          - button "1. Land after 10 hours away Two conversations wait on questions, one on a review, one ended, one didn’t start, one lost its sign-in." [ref=e120] [cursor=pointer]:
+            - text: 1. Land after 10 hours away
+            - generic [ref=e121]: Two conversations wait on questions, one on a review, one ended, one didn’t start, one lost its sign-in.
+        - listitem [ref=e122]:
+          - button "2. Reopen a conversation you left mid-way The conversation marks where you stopped reading." [ref=e123] [cursor=pointer]:
+            - text: 2. Reopen a conversation you left mid-way
+            - generic [ref=e124]: The conversation marks where you stopped reading.
+        - listitem [ref=e125]:
+          - button "3. Land when nothing needs you Agents are working. Nothing waits." [ref=e126] [cursor=pointer]:
+            - text: 3. Land when nothing needs you
+            - generic [ref=e127]: Agents are working. Nothing waits.
+        - listitem [ref=e128]:
+          - button "4. Land on the first day The Work gate just opened. No conversations and no maps yet." [ref=e129] [cursor=pointer]:
+            - text: 4. Land on the first day
+            - generic [ref=e130]: The Work gate just opened. No conversations and no maps yet.
+      - heading "State shown" [level=3] [ref=e131]
+      - generic [ref=e132]: "{ \"view\": \"home\", \"conversation\": null, \"state\": null, \"open_questions\": null, \"interrupt\": null, \"needs_you\": 6 }"
+      - heading "Every state on the status line" [level=3] [ref=e133]
+      - generic [ref=e134]: starting · working · paused · no output · cross-checking · waiting for you · pull request open · at a limit · sign-in expired · ended · didn’t start · finished · closed
+  - generic [ref=e135]:
+    - button "Previous variant" [ref=e136] [cursor=pointer]: ←
+    - generic [ref=e137]: A — Full log (round 1)
+    - button "Next variant" [ref=e138] [cursor=pointer]: →
+    - button "Desktop" [ref=e140] [cursor=pointer]
+    - button "Phone" [ref=e141] [cursor=pointer]
