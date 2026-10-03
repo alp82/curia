@@ -187,6 +187,14 @@ A GitHub issue labeled `wayfinder:map`. It indexes decisions and points to the c
 **Map child**:
 A ticket whose parent issue is a map.
 
+**Ticket type**:
+One of the four types the wayfinder skill defines: research, prototype, grilling, and task. The `wayfinder:<type>` label carries it, and upstream alone defines the set. Execution work on a map, deploy work included, is a task. A need the four types can't meet gets a label in Curia's own `curia:` namespace, never a new `wayfinder:` type ([#1031](https://github.com/alp82/curia/issues/1031)).
+_Avoid_: build ticket and deploy ticket as types.
+
+**Untyped ticket**:
+A map child with no `wayfinder:` type label. Curia flags it for the operator and never dispatches it. The Maps page draws it as fog until the operator gives it a type ([#1031](https://github.com/alp82/curia/issues/1031)).
+_Avoid_: fog ticket. **Fog** stays the name for the lines in "Not yet specified".
+
 **Fog**:
 The map section "Not yet specified": work that is coming but not yet sharp enough to state as a ticket. A heading, a blank line and an HTML comment inside that section are shape rather than fog, and `None` or `(empty)` is no fog at all.
 
